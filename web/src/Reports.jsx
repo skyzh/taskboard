@@ -153,14 +153,12 @@ function ReportOutcome({ event, publicPreview }) {
 }
 
 export function AssigneeReport({ entry, revision, project, projectTitle, publicPreview = false, tourTargets = {}, activeTarget }) {
-  const [verboseWork, setVerboseWork] = useState(false)
   const { owner, profile, tasks, task_count: taskCount,
     pending_reports: reports, pending_reports_before: before, report_count: reportCount } = entry
   const name = profileName(owner, profile)
   const outcomes = groupOutcomes(entry.recent_outcomes || [])
   const progressCount = entry.task_counts?.in_progress
   const inProgress = progressCount == null ? tasks.some(task => task.state === 'in_progress') : progressCount > 0
-  const hasChecklists = !publicPreview && tasks.some(task => task.checklist_total > 0)
   const OwnerHeading = projectTitle ? 'h3' : 'h2'
   const WorkHeading = projectTitle ? 'h4' : 'h3'
   const queueLink = `#${new URLSearchParams({ ...(project && { project }), section: 'queue-heading', owner })}`
@@ -187,13 +185,9 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
       </div>
       {tasks.length > 0 && (
         <div className="report-owner-section" id={tourTargets.current} data-tour-current={tourTargets.current === activeTarget && activeTarget ? true : undefined}>
-          <div className="report-list-heading">
-            <WorkHeading>Current work</WorkHeading>
-            {hasChecklists && <ReportListDisplay label={`Display current work for ${projectTitle ? `${name} in ${projectTitle}` : name}`}
-              verbose={verboseWork} setVerbose={setVerboseWork} />}
-          </div>
+          <WorkHeading>Current work</WorkHeading>
           <TaskRows items={tasks} owner={false} label={`Current work for ${name}`} report="summary" revision={revision}
-            publicPreview={publicPreview} checklistExpanded={verboseWork} />
+            publicPreview={publicPreview} />
           {taskCount > tasks.length && <p className="report-note">Showing {tasks.length} of {taskCount} current tasks.</p>}
         </div>
       )}

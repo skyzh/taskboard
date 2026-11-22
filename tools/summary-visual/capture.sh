@@ -34,9 +34,10 @@ safari="$(xcrun simctl get_app_container "$udid" com.apple.mobilesafari app)"
 /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$safari/Info.plist" > "$evidence/safari-version.txt"
 
 capture_metrics() {
-  local page="$1" metrics="$2" wait_limit second
-  for wait_limit in 12 36; do
-    if xcrun simctl openurl "$udid" "$page"; then
+  local page="$1" metrics="$2" final_wait=60 wait_limit second
+  for wait_limit in 12 "$final_wait"; do
+    # Safari can load the page after simctl has timed out.
+    if xcrun simctl openurl "$udid" "$page" || [[ "$wait_limit" == "$final_wait" ]]; then
       for ((second = 0; second < wait_limit; second++)); do
         if [[ -s "$metrics" ]]; then return 0; fi
         sleep 1

@@ -35,27 +35,6 @@ function RowChecklist({ task, revision }) {
   )
 }
 
-function TaskRowChecklist({ task, revision, expanded }) {
-  const [showChecklist, setShowChecklist] = useState(false)
-  if (expanded != null) {
-    return <>
-      <ChecklistProgress task={task} />
-      {expanded && <div className="task-checklist-steps"><RowChecklist task={task} revision={revision} /></div>}
-    </>
-  }
-  const checklistId = `row-checklist-${task.id}`
-  return <>
-    <button type="button" className="task-checklist" aria-expanded={showChecklist} aria-controls={checklistId}
-      aria-label={`Checklist for ${taskLabel(task.id, task.key)}, ${task.checklist_completed} of ${task.checklist_total} complete`}
-      onClick={() => setShowChecklist(open => !open)}>
-      <ChecklistProgress task={task} />
-    </button>
-    <div className="task-checklist-steps" id={checklistId} hidden={!showChecklist}>
-      {showChecklist && <RowChecklist task={task} revision={revision} />}
-    </div>
-  </>
-}
-
 const releaseLabels = {
   released: 'Released',
   rolled_back: 'Rolled back',
@@ -89,7 +68,9 @@ function ReportPeerRequester({ ask, parked }) {
 }
 
 export function TaskRow({ task, owner = true, selected = false, report = false, ownReport = false, revision,
-  compactQueue = false, searchQuery, publicPreview = false, checklistExpanded }) {
+  compactQueue = false, searchQuery, publicPreview = false }) {
+  const [showChecklist, setShowChecklist] = useState(false)
+  const checklistId = `row-checklist-${task.id}`
   const reportSummary = report === 'summary'
   const detailedReport = report && !reportSummary && !publicPreview
   const state = taskState(task)
@@ -164,15 +145,24 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
         )}
         {!report && <EvidenceLinks links={task.links} />}
       </div>
-      {report && !publicPreview && task.checklist_total > 0
-        ? <TaskRowChecklist task={task} revision={revision} expanded={checklistExpanded} />
-        : <ChecklistProgress task={task} />}
+      {report && !publicPreview && task.checklist_total > 0 ? (
+        <>
+          <button type="button" className="task-checklist" aria-expanded={showChecklist} aria-controls={checklistId}
+            aria-label={`Checklist for ${taskLabel(task.id, task.key)}, ${task.checklist_completed} of ${task.checklist_total} complete`}
+            onClick={() => setShowChecklist(open => !open)}>
+            <ChecklistProgress task={task} />
+          </button>
+          <div className="task-checklist-steps" id={checklistId} hidden={!showChecklist}>
+            {showChecklist && <RowChecklist task={task} revision={revision} />}
+          </div>
+        </>
+      ) : <ChecklistProgress task={task} />}
     </li>
   )
 }
 
 export function TaskRows({ items, owner = true, selected, label, report, ownReport, revision, compactQueue = false,
-  listRef, onClick, searchQuery, publicPreview = false, checklistExpanded }) {
+  listRef, onClick, searchQuery, publicPreview = false }) {
   if (!items?.length) return null
   return (
     <ol ref={listRef} onClick={onClick} className={compactQueue ? 'task-rows compact-queue-rows' : 'task-rows'}
@@ -180,7 +170,7 @@ export function TaskRows({ items, owner = true, selected, label, report, ownRepo
       {items.map(task => (
         <TaskRow key={task.id} task={task} owner={owner} selected={task.id === selected || task.key === selected}
           report={report} ownReport={ownReport} revision={revision} compactQueue={compactQueue} searchQuery={searchQuery}
-          publicPreview={publicPreview} checklistExpanded={checklistExpanded} />
+          publicPreview={publicPreview} />
       ))}
     </ol>
   )
