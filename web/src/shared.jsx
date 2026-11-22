@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useId, useState } from 'react'
 import {
   ArrowUpRight, Ban, Check, Circle, CircleQuestionMark, ClipboardList, Clock, CornerUpRight, Diamond, Dot,
   FileCheck, GitMerge, GitPullRequest, GitPullRequestClosed, Pause, Play, Plus, Rocket, RotateCcw,
@@ -348,12 +348,25 @@ function decodePath(pathname) {
   }
 }
 
+const githubSourceLabels = new Map([
+  ['open', 'Open'], ['draft', 'Draft'], ['closed', 'Closed'], ['merged', 'Merged'],
+])
+
+function GitHubSourceStatus({ id, snapshot }) {
+  if (!snapshot) return null
+  const label = githubSourceLabels.get(snapshot.state)
+  const text = !label ? 'Status unavailable' : snapshot.stale ? `Last seen ${label.toLowerCase()}` : label
+  return <span id={id} className="github-source-status">{text}</span>
+}
+
 export function EvidenceLinks({ links, label = 'Evidence' }) {
+  const listId = useId()
   if (!links?.length) return null
   return (
     <ul className="evidence-links" aria-label={label} role="list">
       {links.map((link, index) => {
         const { label, url } = link
+        const statusId = link.github ? `${listId}-github-${index}` : undefined
         if (link.unavailable || !url) return (
           <li key={index}>{label} <span className="evidence-unavailable">(local file)</span></li>
         )
@@ -365,7 +378,8 @@ export function EvidenceLinks({ links, label = 'Evidence' }) {
           : null
         return (
           <li key={index}>
-            {supported ? <a href={url}>{link.generated ? sourceLinkLabel(url, label) : label}</a> : <span>{label} {url}</span>}
+            {supported ? <a href={url} aria-describedby={statusId}>{link.generated ? sourceLinkLabel(url, label) : label}</a> : <span>{label} {url}</span>}
+            <GitHubSourceStatus id={statusId} snapshot={link.github} />
             {protocol === 'file:' && (
               <details className="path-disclosure">
                 <summary aria-label={`Show local path for ${label}`}>Local path</summary>

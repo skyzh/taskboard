@@ -88,6 +88,23 @@ test('shows local evidence preview controls without loading any images', () => {
   assert.equal([...result.matchAll(/<button\b/g)].length, 1)
 })
 
+test('shows GitHub state beside its source link and preserves unannotated links', () => {
+  const links = [
+    { label: 'Pull request', url: 'https://github.com/example/tool/pull/14', github: { state: 'merged' } },
+    { label: 'Issue', url: 'https://github.com/example/tool/issues/22', github: { state: 'open', stale: true } },
+    { label: 'Unverified', url: 'https://github.com/example/tool/pull/15', github: { state: null, stale: true } },
+    { label: 'Manual', url: 'https://example.test/notes' },
+  ]
+  const result = render(shared.EvidenceLinks, { links, label: 'Sources' })
+  for (const [index, link] of links.slice(0, 3).entries()) {
+    const description = result.match(new RegExp(`aria-describedby="([^"]+-github-${index})"`))?.[1]
+    assert.ok(description)
+    assert.ok(result.includes(`<a href="${link.url}" aria-describedby="${description}">${link.label}</a>`))
+    assert.ok(result.includes(`<span id="${description}" class="github-source-status">${['Merged', 'Last seen open', 'Status unavailable'][index]}</span>`))
+  }
+  assert.ok(result.includes('<li><a href="https://example.test/notes">Manual</a></li>'))
+})
+
 test('renders Markdown in historical details and checklist labels without changing evidence gates', () => {
   const links = [
     { label: 'GitHub · example/tool#14', url: 'https://github.com/example/tool/pull/14', generated: true },
