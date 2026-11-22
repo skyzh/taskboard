@@ -5,7 +5,7 @@ import subprocess
 import unittest
 from unittest.mock import patch
 
-from taskboard_client.connection import SharedBoard
+from taskboard_client.connection import SharedBoard, SharedReadError
 
 
 class SharedConnectionTest(unittest.TestCase):
@@ -33,6 +33,55 @@ class SharedConnectionTest(unittest.TestCase):
                 if "HTTP 401" in message:
                     self.assertIn("raft integration login --service fixture-board", str(failure.exception))
                 self.assertEqual(invoke.call_count, 1)
+
+    def test_read_classification_uses_the_carrier_status_and_preserves_single_invocation(self):
+        cases = (
+            (subprocess.TimeoutExpired(["raft"], 45), "timeout", True),
+            (FileNotFoundError(), "raft-unavailable", False),
+            (KeyboardInterrupt(), "interrupted", False),
+            (subprocess.CompletedProcess([], 1, "", "Error: service action failed (HTTP 504)\n"
+                                         "Code: INTEGRATION_INVOKE_FAILED\n"), "http-504", True),
+            (subprocess.CompletedProcess([], 1, "", json.dumps({
+                "ok": False, "error": {"code": "INTEGRATION_INVOKE_FAILED",
+                                       "message": 'failed; response body: {"error":"HTTP 503"}'},
+            })), "unclassified", False),
+            (subprocess.CompletedProcess([], 1, "", json.dumps({
+                "ok": False, "error": {"code": "INTEGRATION_INVOKE_FAILED",
+                                       "message": "Unknown carrier failure mentioning HTTP 503"},
+            })), "unclassified", False),
+        )
+        for result, reason, retryable in cases:
+            with self.subTest(reason=reason), patch("taskboard_client.connection.subprocess.run", side_effect=[result]) as call:
+                with self.assertRaises(SharedReadError) as failure:
+                    SharedBoard("fixture-board").invoke("my-queue")
+                self.assertEqual((failure.exception.reason, failure.exception.retryable), (reason, retryable))
+                self.assertEqual(call.call_count, 1)
+
+    def test_only_typed_carrier_timeouts_are_retryable_reads(self):
+        error = {
+            "code": "INTEGRATION_INVOKE_FAILED",
+            "fault_domain": "integration_action_transport",
+            "retryable": True,
+            "message": "service action transport failed before a response (timeout at a private URL)",
+            "details": {"cause_class": "timeout", "cause_code": "ETIMEDOUT"},
+        }
+        for overrides, expected in (
+            ({}, True),
+            ({"retryable": False}, False),
+            ({"fault_domain": "integration_action"}, False),
+            ({"details": {"cause_class": "connection_reset"}}, False),
+        ):
+            with self.subTest(overrides=overrides):
+                result = subprocess.CompletedProcess([], 1, "", json.dumps({"ok": False, "error": {**error, **overrides}}))
+                with patch("taskboard_client.connection.subprocess.run", return_value=result) as call:
+                    with self.assertRaises(SharedReadError) as failure:
+                        SharedBoard("fixture-board").invoke("my-queue")
+                    self.assertEqual(failure.exception.retryable, expected)
+                    self.assertNotIn("private URL", str(failure.exception))
+                    self.assertEqual(call.call_count, 1)
+                    with self.assertRaisesRegex(RuntimeError, "Shared write outcome unknown"):
+                        SharedBoard("fixture-board").invoke("advance-task", write=True)
+                    self.assertEqual(call.call_count, 2)
 
     def test_legacy_plain_error_carrier_still_classifies_the_status(self):
         result = subprocess.CompletedProcess(

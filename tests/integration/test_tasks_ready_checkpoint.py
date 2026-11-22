@@ -1,7 +1,10 @@
+import json
+import subprocess
 import sys
 import unittest
 from unittest.mock import patch
 
+from taskboard_client import SharedBoard
 from taskboard_cli.ready_checkpoint import checkpoint, measured_idle, raft_idle, raft_ready_count, raft_status, raft_wake, run_handler, watch_idle, watch_ready_count, watch_two_pickups
 import test_tasks_service
 
@@ -221,6 +224,124 @@ class ReadyCheckpointTest(unittest.TestCase):
             watch_ready_count(self.avery, "Avery", lambda handle: True, notify, lambda event: None,
                               interval=1, idle_delay=2)
         self.assertEqual(wakes, [(3, 1), (8, 2)])
+
+    def watch_through_carrier(self, queue_failure, stops_at, *, measure=True):
+        clock = 0
+        observations = []
+        wakes = []
+        reads = []
+
+        def advance_clock(seconds):
+            nonlocal clock
+            clock += seconds
+            if clock >= stops_at:
+                raise KeyboardInterrupt
+
+        def invoke(command, **options):
+            self.assertIsNone(options["input"])
+            action = command[command.index("--action") + 1]
+            if action == "context":
+                result = self.avery.invoke(action)
+            else:
+                self.assertEqual(action, "my-queue")
+                reads.append(clock)
+                status = queue_failure(len(reads), bool(wakes))
+                if status == "missing":
+                    raise FileNotFoundError()
+                if status:
+                    error = {"code": "INTEGRATION_INVOKE_FAILED"}
+                    if status == "timeout":
+                        error.update(
+                            message="service action transport failed before a response (timeout at a private URL)",
+                            fault_domain="integration_action_transport", retryable=True,
+                            details={"cause_class": "timeout", "cause_code": "ETIMEDOUT"},
+                        )
+                    else:
+                        error["message"] = f"service action failed (HTTP {status}); response body: fixture private detail"
+                    return subprocess.CompletedProcess(command, 1, "", json.dumps({"ok": False, "error": error}))
+                fields = dict(command[i + 1].split("=", 1)
+                              for i, option in enumerate(command) if option == "--param")
+                result = self.avery.invoke(action, fields)
+            return subprocess.CompletedProcess(command, 0, json.dumps({"ok": True, "data": {"result": result}}), "")
+
+        def notify(notice, can_wake):
+            self.assertTrue(can_wake())
+            wakes.append((clock, notice["ready_count"]))
+            return "wake-requested"
+
+        with (
+            patch("taskboard_client.connection.subprocess.run", side_effect=invoke),
+            patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+            patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance_clock),
+        ):
+            try:
+                watch_ready_count(SharedBoard("fixture"), "Avery", lambda _: True, notify, observations.append,
+                                  interval=1, idle_delay=2, observe_status=(lambda _: "idle") if measure else None)
+            except (KeyboardInterrupt, RuntimeError) as outcome:
+                return outcome, observations, wakes, reads
+        self.fail("The repeat watcher returned without a stop or error.")
+
+    def test_count_watcher_recovers_both_reads_and_preserves_the_wake_record(self):
+        self.avery.invoke("create-task", {"title": "Owned fixture", "step": "Read it."}, write=True)
+        for failed_read, stage, failure, reason, wake_at in (
+            (1, "idle sample", 502, "http-502", 3),
+            (2, "eligible queue", "timeout", "timeout", 5),
+        ):
+            with self.subTest(stage=stage):
+                failed_after_wake = False
+
+                def queue_failure(index, woke):
+                    nonlocal failed_after_wake
+                    if index == failed_read:
+                        return failure
+                    if woke and not failed_after_wake:
+                        failed_after_wake = True
+                        return 503
+                    return None
+
+                outcome, observations, wakes, _ = self.watch_through_carrier(queue_failure, 13)
+                self.assertIsInstance(outcome, KeyboardInterrupt)
+                self.assertEqual(wakes, [(wake_at, 1)])
+                first_count = None if stage == "idle sample" else 1
+                self.assertEqual([row["ready_count"] for row in observations if row.get("status") == "idle"], [first_count])
+                self.assertEqual(
+                    [(row["stage"], row["ready_count"]) for row in observations if row.get("kind") == "ready-read-recovered"],
+                    [(stage, 1), ("eligible queue", 1)],
+                )
+                self.assertEqual(
+                    [(row["stage"], row["reason"]) for row in observations if row.get("kind") == "ready-read-retry"],
+                    [(stage, reason), ("eligible queue", "http-503")],
+                )
+                self.assertNotIn("fixture private detail", repr(observations))
+
+    def test_unmeasured_count_watcher_restarts_the_idle_window_after_a_gateway_failure(self):
+        self.avery.invoke("create-task", {"title": "Owned fixture", "step": "Read it."}, write=True)
+        outcome, observations, wakes, _ = self.watch_through_carrier(
+            lambda index, _: 504 if index == 1 else None, 9, measure=False,
+        )
+        self.assertIsInstance(outcome, KeyboardInterrupt)
+        self.assertEqual(wakes, [(5, 1)])
+        retry, = (row for row in observations if row.get("kind") == "ready-read-retry")
+        self.assertEqual((retry["stage"], retry["reason"]), ("eligible queue", "http-504"))
+
+    def test_count_watcher_stops_after_bounded_retries_or_a_permission_rejection(self):
+        for status, reason, reads_at in (
+            (502, "http-502", [0, 1, 3, 7]),
+            (401, "http-401", [0]),
+            (403, "http-403", [0]),
+            ("missing", "raft-unavailable", [0]),
+        ):
+            with self.subTest(status=status):
+                outcome, observations, wakes, reads = self.watch_through_carrier(lambda *_: status, 100)
+                self.assertIsInstance(outcome, RuntimeError)
+                self.assertIn(f"idle sample read ({reason})", str(outcome))
+                if status == 401:
+                    self.assertIn("Sign in to the registered Tasks app", str(outcome))
+                self.assertNotIn("fixture private detail", str(outcome))
+                self.assertEqual(reads, reads_at)
+                self.assertEqual(wakes, [])
+                self.assertEqual(len([row for row in observations if row.get("kind") == "ready-read-retry"]),
+                                 len(reads_at) - 1)
 
     def test_count_wake_uses_only_the_owned_queue_size(self):
         title = "You have 2 Ready tickets. Read your Taskboard queue and take what you can move."

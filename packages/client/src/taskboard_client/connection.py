@@ -10,6 +10,8 @@ from . import references as projects
 
 BEFORE_DISPATCH = {"INTEGRATION_NOT_FOUND", "INTEGRATION_ACTION_NOT_FOUND", "INVALID_ARG"}
 APP_REJECTION = {400, 401, 403, 404, 405, 409, 415, 422}
+TEMPORARY_READ_STATUS = {502, 503, 504}
+READ_FAILURE = "Shared read failed. Check the registered app and your Raft session."
 
 
 def reply_json(text):
@@ -24,7 +26,30 @@ class SharedActionUnavailable(RuntimeError):
     """The registered app does not advertise this action."""
 
 
-def invocation_error(result, reply, service, action):
+class SharedReadError(RuntimeError):
+    """A failed shared read with a safe reason for watcher diagnostics."""
+
+    def __init__(self, message, *, reason="unclassified", retryable=False):
+        super().__init__(message)
+        self.reason = reason
+        self.retryable = retryable
+
+
+def action_transport_timed_out(reply):
+    error = reply.get("error")
+    if not isinstance(error, dict):
+        return False
+    details = error.get("details")
+    return (
+        error.get("code") == "INTEGRATION_INVOKE_FAILED"
+        and error.get("fault_domain") == "integration_action_transport"
+        and error.get("retryable") is True
+        and isinstance(details, dict)
+        and details.get("cause_class") == "timeout"
+    )
+
+
+def invocation_failure(result, reply, service, action):
     failure = reply.get("error", {})
     if not isinstance(failure, dict):
         failure = {}
@@ -37,7 +62,7 @@ def invocation_error(result, reply, service, action):
         code_match = re.search(r"^Code: ([A-Z_]+)$", result.stderr, re.MULTILINE)
         code = code_match[1] if code_match else None
     if code == "INTEGRATION_NOT_FOUND":
-        return "The Tasks app is missing from your Raft integration inventory. Check `raft integration list`."
+        return "The Tasks app is missing from your Raft integration inventory. Check `raft integration list`.", None
     missing_action = f"manifest does not define action {action}"
     if code == "INTEGRATION_ACTION_NOT_FOUND" or (
         code == "INVALID_ARG" and (message == missing_action or f"Error: {missing_action}" in result.stderr.splitlines())
@@ -47,19 +72,26 @@ def invocation_error(result, reply, service, action):
             f"{quote(service)} --list-actions`."
         )
     if code in BEFORE_DISPATCH:
-        return (
+        reason = (
             "Raft rejected the invocation before dispatch. "
             f"Check the supported actions with `raft integration invoke --service {quote(service)} --list-actions`."
         )
+        return reason, None
     status_text, _, embedded_body = str(message if failure else result.stderr).partition("; response body: ")
-    status = re.search(r"\bHTTP (\d{3})\b", status_text)
-    if code == "INTEGRATION_INVOKE_FAILED" and status and int(status[1]) in APP_REJECTION:
-        if status[1] == "401":
-            return (
+    match = re.search(r"\bHTTP (\d{3})\b", status_text)
+    status = int(match[1]) if code == "INTEGRATION_INVOKE_FAILED" and match else None
+    if status in TEMPORARY_READ_STATUS:
+        header = status_text.strip().splitlines()[0].removeprefix("Error: ")
+        if header != f"service action failed (HTTP {status})":
+            status = None
+    if status in APP_REJECTION:
+        if status == 401:
+            reason = (
                 "The Tasks app did not accept the current Raft session. "
                 f"Run `raft integration login --service {quote(service)}`, then verify the account and board "
                 "with `./tasks --shared context`."
             )
+            return reason, status
         body = details.get("response_body", embedded_body)
         if isinstance(body, str):
             body = reply_json(body)
@@ -67,9 +99,9 @@ def invocation_error(result, reply, service, action):
         if isinstance(explanation, dict):
             explanation = explanation.get("message")
         if isinstance(explanation, str) and explanation.strip():
-            return " ".join(explanation.split())[:300]
-        return f"The Tasks app rejected the action (HTTP {status[1]})."
-    return None
+            return " ".join(explanation.split())[:300], status
+        return f"The Tasks app rejected the action (HTTP {status}).", status
+    return None, status
 
 
 class SharedBoard:
@@ -87,15 +119,24 @@ class SharedBoard:
                 call += ["--param", f"{key}={value}"]
         unknown = (
             "Shared write outcome unknown. Read the task or your queue before retrying."
-            if write else "Shared read failed. Check the registered app and your Raft session."
+            if write else READ_FAILURE
         )
         if action == "save-goal":
             unknown = "Shared write outcome unknown. Read your project goals before retrying."
         try:
             result = subprocess.run(call, input=payload, capture_output=True, text=True, timeout=45)
         except FileNotFoundError as error:
-            raise RuntimeError("Raft CLI is required for shared mode.") from error
-        except (subprocess.TimeoutExpired, KeyboardInterrupt) as error:
+            reason = "Raft CLI is required for shared mode."
+            if not write:
+                raise SharedReadError(reason, reason="raft-unavailable") from error
+            raise RuntimeError(reason) from error
+        except subprocess.TimeoutExpired as error:
+            if not write:
+                raise SharedReadError(unknown, reason="timeout", retryable=True) from error
+            raise RuntimeError(unknown) from error
+        except KeyboardInterrupt as error:
+            if not write:
+                raise SharedReadError(unknown, reason="interrupted") from error
             raise RuntimeError(unknown) from error
         reply = reply_json(result.stdout)
         if result.returncode != 0 and not reply:
@@ -103,13 +144,21 @@ class SharedBoard:
             if failure.get("ok") is False:
                 reply = failure
         if result.returncode != 0 or reply.get("ok") is not True:
-            reason = invocation_error(result, reply, self.service, action)
-            if reason:
-                raise RuntimeError(f"Shared {'write rejected' if write else 'read failed'}. {reason}")
-            raise RuntimeError(unknown)
+            if not write and action_transport_timed_out(reply):
+                raise SharedReadError(unknown, reason="timeout", retryable=True)
+            reason, status = invocation_failure(result, reply, self.service, action)
+            if write:
+                raise RuntimeError(f"Shared write rejected. {reason}" if reason else unknown)
+            raise SharedReadError(
+                f"Shared read failed. {reason}" if reason else unknown,
+                reason=f"http-{status}" if status is not None else "unclassified",
+                retryable=status in TEMPORARY_READ_STATUS,
+            )
         envelope = reply.get("data")
         response = envelope.get("result") if isinstance(envelope, dict) else None
         if not isinstance(response, dict):
+            if not write:
+                raise SharedReadError(unknown, reason="invalid-reply")
             raise RuntimeError(unknown)
         if write:
             receipt = response.get("receipt")

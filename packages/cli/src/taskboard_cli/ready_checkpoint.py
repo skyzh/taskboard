@@ -10,7 +10,7 @@ import sys
 from datetime import datetime, timezone
 from time import monotonic, sleep
 
-from taskboard_client import SharedBoard
+from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
 from taskboard_cli.shared import assert_actor
 
 
@@ -137,6 +137,8 @@ def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_d
         status_checks += 1
         try:
             idle = is_idle(handle)
+        except SharedReadError:
+            raise
         except RuntimeError:
             if not idle_delay:
                 raise
@@ -201,18 +203,25 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     filters = {"scope": "all", "state": "ready", "limit": 100}
     noticed = frozenset()
     current = noticed
+    stage = "eligible queue"
 
-    def ready_events():
+    def ready_events(read_stage):
+        nonlocal stage
+        stage = read_stage
         ready = set()
-        for task in board.pages("my-queue", filters):
-            if task["dri"] != actor or task["state"] != "ready":
-                raise RuntimeError("The Ready queue returned work outside the signed-in agent's scope.")
-            ready.add(task["event_id"])
+        try:
+            for task in board.pages("my-queue", filters):
+                if task["dri"] != actor or task["state"] != "ready":
+                    raise SharedReadError("The Ready queue returned work outside the signed-in agent's scope.",
+                                          reason="queue-scope")
+                ready.add(task["event_id"])
+        except SharedActionUnavailable as error:
+            raise SharedReadError(str(error), reason="action-unavailable") from error
         return frozenset(ready)
 
     def next_count():
         nonlocal current
-        current = ready_events()
+        current = ready_events("eligible queue")
         return {"ready_count": len(current)} if current and current != noticed else None
 
     def notify_count(notice, can_wake):
@@ -222,12 +231,38 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
         return None if outcome == "already-queued" else outcome
 
     if observe_status is not None:
-        is_idle = measured_idle(observe_status, actor, ready_events, emit)
+        is_idle = measured_idle(observe_status, actor, lambda: ready_events("idle sample"), emit)
 
     while True:
-        result = check_when_idle(context, is_idle, next_count, notify_count, float("inf"), interval, idle_delay)
+        try:
+            result = check_when_idle(context, is_idle, next_count, notify_count, float("inf"), interval, idle_delay)
+        except SharedReadError as error:
+            recover_ready_read(ready_events, stage, error, emit, interval)
+            continue
         noticed = current
         emit(result)
+
+
+def recover_ready_read(read, stage, error, emit, interval):
+    for attempt in range(1, 4):
+        if not error.retryable:
+            break
+        delay = min(60, interval * 2 ** (attempt - 1))
+        emit({"kind": "ready-read-retry", "at": observation_time(), "stage": stage,
+              "reason": error.reason, "attempt": attempt, "retry_in_seconds": delay})
+        sleep(delay)
+        try:
+            ready = read(stage)
+        except SharedReadError as failure:
+            error = failure
+        else:
+            emit({"kind": "ready-read-recovered", "at": observation_time(), "stage": stage, "ready_count": len(ready)})
+            return
+    guidance = (
+        "Sign in to the registered Tasks app and verify your session with `./tasks --shared context` before restarting."
+        if error.reason == "http-401" else "Verify the registered app, shared session, and queue access before restarting."
+    )
+    raise RuntimeError(f"Ready watcher stopped during {stage} read ({error.reason}). {guidance}") from None
 
 
 def observation_time():
@@ -249,6 +284,10 @@ def measured_idle(get_status, owner, ready_events, emit):
                 try:
                     event["ready_count"] = len(ready_events())
                     event["ready_observed_at"] = observation_time()
+                except SharedReadError:
+                    emit({**event, "ready_count": None})
+                    previous = status
+                    raise
                 except RuntimeError:
                     event["ready_count"] = None
             emit(event)
