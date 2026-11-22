@@ -88,6 +88,17 @@ def run_check(cwd, command, log, python):
             "elapsed_ms": round((time.monotonic() - started) * 1000)}
 
 
+def build_web(root, log, python, npm, *, offline=True):
+    web = root / "web"
+    install = [npm, "ci", "--no-audit", "--no-fund"]
+    if offline:
+        install.append("--offline")
+    checks = {"install": run_check(web, install, log, python)}
+    if checks["install"]["status"] == "pass":
+        checks["web"] = run_check(web, [npm, "run", "build"], log, python)
+    return checks
+
+
 def publish_artifact(root, files, artifacts):
     # Use only committed sources and the fresh built assets, without caches.
     files = {file for file in files if not file.is_relative_to("web/dist")}
@@ -96,6 +107,7 @@ def publish_artifact(root, files, artifacts):
         raise ValueError("The checked build did not produce its board entry point.")
     raw = "".join(f"{sha256((root / file).read_bytes()).hexdigest()}  {file}\n" for file in sorted(files)).encode()
     digest = sha256(raw).hexdigest()
+    artifacts.mkdir(parents=True, exist_ok=True)
     release = artifacts / digest
     if not release.exists():
         with TemporaryDirectory(prefix=".artifact-", dir=artifacts) as temporary:
@@ -128,6 +140,24 @@ def check_commit(repo, state, ref, python, npm="npm"):
     state.mkdir(parents=True, exist_ok=True)
     with ci_lock(state):
         return check_snapshot(repo, state, resolve_commit(repo, ref), python, npm)
+
+
+def build_checked_commit(repo, state, commit, python, npm="npm"):
+    """Package an exact revision whose required tests passed on GitHub."""
+    repo, state = Path(repo).resolve(), Path(state).resolve()
+    if state.is_relative_to(repo):
+        raise ValueError("Use a private CI state directory outside the source repository.")
+    builds = state / "hosted-builds"
+    builds.mkdir(parents=True, exist_ok=True)
+    with ci_lock(state), TemporaryDirectory(prefix="taskboard-build-", dir=state) as temporary:
+        root = Path(temporary)
+        log = builds / f"{commit}.log"
+        files = export_commit(repo, commit, root)
+        checks = build_web(root, log, python, npm, offline=False)
+        if any(result["status"] != "pass" for result in checks.values()):
+            raise ValueError(f"The locked web build failed. See {log}.")
+        candidate = publish_artifact(root, files, state / "artifacts")
+        return {"commit": commit, "candidate": candidate, "built_at": utcnow(), "checks": checks}
 
 
 def assemble_and_check(repo, state, ref, siblings, python, npm="npm"):
@@ -175,33 +205,30 @@ def check_snapshot(repo, state, commit, python, npm, integration=None):
     prior = json.loads(pointer.read_text()) if pointer.exists() else None
     suites = affected_checks(repo, commit, prior)
     artifacts = state / "artifacts"
-    artifacts.mkdir(exist_ok=True)
     log = receipts / f"{commit}.log"
     receipt = {"commit": commit, "started_at": utcnow(), "status": "fail", "checks": {}, **(integration or {})}
     with TemporaryDirectory(prefix="taskboard-ci-", dir=state) as temporary:
         root = Path(temporary)
         files = export_commit(repo, commit, root)
         web = root / "web"
-        receipt["checks"]["install"] = run_check(web, [npm, "ci", "--offline", "--no-audit", "--no-fund"], log, python)
-        if receipt["checks"]["install"]["status"] == "pass":
-            receipt["checks"]["web"] = run_check(web, [npm, "run", "build"], log, python)
-            if receipt["checks"]["web"]["status"] == "pass":
-                # Mounted Python fixtures need the matching built frontend.
-                if "python" in suites:
-                    receipt["checks"]["python"] = run_check(root, [
-                        python, "-B", "-W", "error::ResourceWarning", "-m", "unittest", "discover", "-q",
+        receipt["checks"].update(build_web(root, log, python, npm))
+        if receipt["checks"].get("web", {}).get("status") == "pass":
+            # Mounted Python fixtures need the matching built frontend.
+            if "python" in suites:
+                receipt["checks"]["python"] = run_check(root, [
+                    python, "-B", "-W", "error::ResourceWarning", "-m", "unittest", "discover", "-q",
+                ], log, python)
+                if (root / "tools" / "release" / "test_ci_watch.py").is_file():
+                    receipt["checks"]["release"] = run_check(root, [
+                        python, "-B", "-W", "error::ResourceWarning", "-m", "unittest",
+                        "discover", "-s", "tools/release", "-q",
                     ], log, python)
-                    if (root / "tools" / "release" / "test_ci_watch.py").is_file():
-                        receipt["checks"]["release"] = run_check(root, [
-                            python, "-B", "-W", "error::ResourceWarning", "-m", "unittest",
-                            "discover", "-s", "tools/release", "-q",
-                        ], log, python)
-                else:
-                    receipt["checks"]["python"] = {"status": "inherited", "commit": prior["commit"]}
-                tests = sorted(str(path.relative_to(web)) for path in (web / "src").rglob("*.test.mjs"))
-                if not tests:
-                    raise ValueError("No Node tests were present in the snapshot.")
-                receipt["checks"]["node"] = run_check(web, ["node", "--test", *tests], log, python)
+            else:
+                receipt["checks"]["python"] = {"status": "inherited", "commit": prior["commit"]}
+            tests = sorted(str(path.relative_to(web)) for path in (web / "src").rglob("*.test.mjs"))
+            if not tests:
+                raise ValueError("No Node tests were present in the snapshot.")
+            receipt["checks"]["node"] = run_check(web, ["node", "--test", *tests], log, python)
         if all(check["status"] != "fail" for check in receipt["checks"].values()):
             receipt["candidate"] = publish_artifact(root, files, artifacts)
             receipt["status"] = "pass"

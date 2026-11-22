@@ -33,6 +33,7 @@ import tasks_oidc as oidc_auth
 import tasks_oidc_members as oidc_members
 import tasks_profiles as profiles
 import tasks_projects as projects
+from tasks_release_info import release_info
 import tasks_recurring
 import tasks_releases as releases
 import tasks_stats
@@ -980,6 +981,12 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
             """
         ).fetchone()
         return f"{row[0]}-{row[1]}-{pacific_day(ledger.timestamp())}"
+
+    release_source = Path(__file__).resolve().parent
+
+    @app.get("/api/v1/release")
+    def running_release():
+        return release_info(release_source)
 
     @app.get("/api/v1/revision")
     def revision():
