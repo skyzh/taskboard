@@ -4962,7 +4962,8 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(reader, route).json, {"items": [], "next_cursor": None})
 
         def delegate(task, role, brief):
-            self.action(avery, "delegate", {"id": task, "worker": blake_id, "role": role, "brief": brief})
+            with patch("workers.timestamp", return_value="2026-11-22T04:00:00Z"):
+                self.action(avery, "delegate", {"id": task, "worker": blake_id, "role": role, "brief": brief})
 
         delegate("1", "review", "Review plan internal marker.")
         self.assertEqual(self.call(reader, activity).json, activity_before)
@@ -4984,18 +4985,18 @@ class TasksServiceTest(unittest.TestCase):
             db.execute("UPDATE worker_runs SET status='running', started_at=assigned_at WHERE id=6")
         self.assertEqual(self.call(reader, route, query_string={"project": "COURSE"}).json, {
             "items": [{"id": 6, "task_id": 3, "task_key": "COURSE-1", "task_title": "Course fixture",
-                       "recipient": "Blake", "state": "running", "execution_state": "start_unconfirmed"}],
+                       "recipient": "Blake", "requester": "Avery", "at": "2026-11-22T04:00:00Z", "state": "running", "execution_state": "start_unconfirmed"}],
             "next_cursor": None,
         })
         response = self.call(reader, route, query_string={"limit": 1})
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.assertEqual(response.json, {"items": [{
             "id": 2, "task_id": 2, "task_key": "T-2", "task_title": "Prepare next export",
-            "recipient": "Blake", "state": "running", "execution_state": "running",
+            "recipient": "Blake", "requester": "Avery", "at": "2026-11-22T04:00:00Z", "state": "running", "execution_state": "running",
         }], "next_cursor": 2})
         self.assertEqual(self.call(reader, route, query_string={"limit": 1, "before": 2}).json, {
             "items": [{"id": 1, "task_id": 1, "task_key": "T-1", "task_title": "Check the source",
-                       "recipient": "Blake", "state": "planned", "execution_state": "planned"}],
+                       "recipient": "Blake", "requester": "Avery", "at": "2026-11-22T04:00:00Z", "state": "planned", "execution_state": "planned"}],
             "next_cursor": None,
         })
         report = self.call(reader, "/api/v1/reports").json["items"][0]
@@ -5176,6 +5177,9 @@ class TasksServiceTest(unittest.TestCase):
             "run": "W-1", "transition": "report", "result": "blocked", "note": "Provide the missing sample.",
         })
         self.assertEqual(phase(avery_id), "acknowledgment")
+        responses = self.call(avery, "/api/v1/reports/recent-peer-responses").json["items"]
+        self.assertEqual([(item["task_key"], item["responder"], item["recipient"]) for item in responses],
+                         [("T-2", "Blake", "Avery")])
         self.assertEqual(summary(avery_id)["pending_reports"], [])
         original = self.call(avery, "/api/v1/tasks/1").json
         self.assertEqual((original["task"]["state"], original["workers"][0]["result"]), ("waiting", "blocked"))
@@ -5192,6 +5196,40 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([task["key"] for task in self.action(avery, "my-queue", query_string=filters)["items"]], ["T-1"])
         self.assertEqual(self.action(avery, "my-next")["work"]["key"], "T-1")
 
+    def test_recent_peer_responses_are_actual_responses_and_project_scoped(self):
+        app = self.app(portal_reader=True)
+        reader = app.test_client()
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        self.cli("register-project", "COURSE", "Course", "--dri", avery_id)
+        route = "/api/v1/reports/recent-peer-responses"
+        self.assertEqual(reader.get(BASE + route, base_url=ORIGIN).status_code, 403)
+
+        for project in ("T", "COURSE"):
+            original = f"{project}-1"
+            request = f"{project}-2"
+            self.action(avery, "create-task", {
+                "project": project, "title": f"Review the {project} sample", "step": "Read the draft.",
+            })
+            self.action(avery, "peer-ask", {
+                "id": original, "transition": "create", "recipient": blake_id, "note": "Private request note.",
+            })
+            self.action(blake, "advance-task", {"id": request, "transition": "start", "note": "Reviewing."})
+            self.assertEqual(self.call(reader, route, query_string={"project": project}).json, {"items": []})
+            result_at = "2026-11-22T04:37:00Z"
+            with patch("tasks_core.timestamp", return_value=result_at):
+                self.action(blake, "peer-ask", {
+                    "id": request, "transition": "result", "note": "Private response note.",
+                })
+            visible = self.call(reader, route, query_string={"project": project}).json["items"]
+            self.assertEqual(len(visible), 1)
+            self.assertEqual({key: value for key, value in visible[0].items() if key not in {"id", "task_id"}}, {
+                "at": result_at, "task_key": request, "task_title": f"Review the {project} sample",
+                "recipient": "Avery", "responder": "Blake",
+            })
+            self.action(avery, "peer-ask", {"id": request, "transition": "acknowledge", "note": "Read."})
+            self.assertEqual(self.call(reader, route, query_string={"project": project}).json["items"], visible)
+
     def test_queued_peer_waits_show_named_agents_without_duplicating_reviews(self):
         app = self.app(portal_reader=True)
         reader = app.test_client()
@@ -5205,9 +5243,10 @@ class TasksServiceTest(unittest.TestCase):
                 "project": ticket.split("-")[0], "title": "Review the export", "step": "Read the changes.",
             })
             self.action(avery, "advance-task", {"id": ticket, "transition": "start", "note": "Prepare the diff."})
-            self.action(avery, "advance-task", {
-                "id": ticket, "transition": "wait", "note": "Private fixture note.", **dependency,
-            })
+            with patch("tasks_core.timestamp", return_value="2026-11-22T04:00:00Z"):
+                self.action(avery, "advance-task", {
+                    "id": ticket, "transition": "wait", "note": "Private fixture note.", **dependency,
+                })
 
         wait("T-1", on="Blake")
         wait("T-2", on=blake_id)
@@ -5230,6 +5269,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(first["items"], [{
             "id": first["next_cursor"], "task_id": 2, "task_key": "T-2",
             "task_title": "Review the export", "recipient": "Blake",
+            "requester": "Avery", "at": "2026-11-22T04:00:00Z",
         }])
         self.assertIsNotNone(first["next_cursor"])
         second = self.call(reader, route, query_string={"limit": 1, "before": first["next_cursor"]}).json

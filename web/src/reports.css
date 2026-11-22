@@ -5,7 +5,12 @@
 .project-reports > .page-heading { min-height: 0; }
 .reports-owners, .queued-asks { min-width: 0; }
 .queued-asks { border-top: 1px solid var(--line); padding-top: .85rem; overflow-wrap: anywhere; }
-.queued-asks .event-list { margin-top: .6rem; }
+.ask-list { margin-block: .45rem .65rem; }
+.ask-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: .12rem .5rem; margin-block: .3rem; }
+.ask-people { font-weight: var(--weight-emphasis); }
+.ask-people svg { vertical-align: -.14em; }
+.ask-ticket { min-width: 0; overflow-wrap: anywhere; }
+.ask-state { color: var(--muted); font-size: .8rem; }
 .report-list { list-style: none; padding: 0; }
 .report-owner { min-width: 0; padding: .85rem 0 .75rem; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 .report-owner-heading {
