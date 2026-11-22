@@ -1,12 +1,8 @@
-.snapshot { max-width: 68rem; margin-inline: auto; padding: 1.25rem; }
-.snapshot-heading { margin-bottom: 1.25rem; align-items: center; }
-.snapshot-heading p { margin: .4rem 0 0; color: var(--muted); }
+.snapshot-project { display: flex; align-items: center; min-height: 2rem; font-weight: var(--weight-emphasis); }
 .snapshot-tour {
-  position: sticky;
-  z-index: 2;
-  top: .5rem;
-  padding: .85rem 1rem;
-  margin-bottom: 1rem;
+  width: min(82rem, 100% - 1.8rem);
+  margin: .35rem auto .65rem;
+  padding: .7rem .85rem;
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: .5rem;
@@ -16,12 +12,6 @@
 .snapshot-tour h2 span { color: var(--muted); font-size: .875rem; font-weight: 400; margin-inline-start: .4rem; }
 .snapshot-tour p { margin: .35rem 0 .6rem; }
 .snapshot-tour-actions { display: flex; gap: .375rem; flex-wrap: wrap; }
-.snapshot button { min-height: 2.75rem; }
+.snapshot button, .snapshot-tour button { min-height: 2.75rem; }
 .snapshot [data-tour-current="true"] { outline: 2px solid currentColor; outline-offset: .25rem; }
-.snapshot .report-owner-section { scroll-margin-block-start: 8rem; }
-.snapshot .snapshot-work-row .task-row-note { font-weight: 400; }
-.snapshot .report-outcome-title { white-space: normal; overflow: visible; }
-@media (max-width: 640px) {
-  .snapshot { padding: .75rem; }
-  .snapshot-heading { align-items: flex-start; flex-wrap: wrap; }
-}
+.snapshot .report-outcome-title { white-space: normal; overflow-wrap: anywhere; }

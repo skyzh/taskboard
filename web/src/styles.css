@@ -179,7 +179,7 @@ h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
 .about-copy { display: block; margin-top: .35rem; min-height: 2.75rem; }
 .about-copy-status:not(:empty) { margin-top: .25rem; }
 .board-views { display: flex; gap: .95rem; align-items: stretch; }
-.board-views a {
+.board-views :is(a, .offline-view) {
   display: inline-flex;
   align-items: center;
   min-height: 3.15rem;
@@ -275,7 +275,7 @@ h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
 }
 .task-row.selected, .task-row:hover { background: var(--wash); }
 .task-row-heading { grid-area: heading; min-width: 0; }
-.task-row-heading > a, .outcome-title > a { color: var(--ink); font-weight: var(--weight-emphasis); text-decoration: none; text-wrap: pretty; }
+.task-row-heading > :is(a, .static-task-title), .outcome-title > a { color: var(--ink); font-weight: var(--weight-emphasis); text-decoration: none; text-wrap: pretty; }
 .task-row-heading > a:hover, .outcome-title > a:hover { color: var(--green); text-decoration: underline; }
 .task-row-context { grid-area: context; min-width: 0; }
 .task-row-meta { display: flex; align-items: center; flex-wrap: wrap; gap: .2rem .7rem; margin-top: .24rem; }
@@ -781,7 +781,7 @@ button:disabled { opacity: .57; }
     font-size: .76rem;
   }
   .board-views { grid-column: 1 / -1; gap: .35rem; }
-  .board-views a { flex: none; min-height: 2.75rem; min-inline-size: 2.75rem; }
+  .board-views :is(a, .offline-view) { flex: none; min-height: 2.75rem; min-inline-size: 2.75rem; }
   .board-views a:focus-visible { outline-offset: -3px; }
   .task-search-toggle {
     grid-column: 2;

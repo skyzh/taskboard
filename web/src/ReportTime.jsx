@@ -29,10 +29,10 @@ export function watchReportTime(onTick) {
   }
 }
 
-export function ReportTimeProvider({ children }) {
+export function ReportTimeProvider({ children, capturedAt }) {
   const [now, setNow] = useState(Date.now)
-  useEffect(() => watchReportTime(setNow), [])
-  return <ReportClock.Provider value={now}>{children}</ReportClock.Provider>
+  useEffect(() => capturedAt ? undefined : watchReportTime(setNow), [capturedAt])
+  return <ReportClock.Provider value={capturedAt ? Date.parse(capturedAt) : now}>{children}</ReportClock.Provider>
 }
 
 function ExactTimeDisclosure({ at, age, exact }) {

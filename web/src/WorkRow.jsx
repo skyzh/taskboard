@@ -63,14 +63,14 @@ function ReportPeerRequester({ ask }) {
 }
 
 export function TaskRow({ task, owner = true, selected = false, report = false, ownReport = false, revision,
-  compactQueue = false, searchQuery }) {
+  compactQueue = false, searchQuery, publicPreview = false }) {
   const [showChecklist, setShowChecklist] = useState(false)
   const checklistId = `row-checklist-${task.id}`
   const cue = report ? reportTaskCue(task) : null
   const reportSummary = report === 'summary'
-  const detailedReport = report && !reportSummary
+  const detailedReport = report && !reportSummary && !publicPreview
   const state = taskState(task)
-  const ask = task.peer_request
+  const ask = publicPreview ? undefined : task.peer_request
   const showRequester = reportSummary && ['asked', 'in_progress'].includes(ask?.phase)
   const showTaskStatus = !reportSummary || !ask || ask.phase === 'in_progress'
   const headingStatus = showTaskStatus && reportSummary && ['waiting', 'in_progress'].includes(state)
@@ -83,7 +83,8 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
       <div className="task-row-heading">
         {showRequester && <ReportPeerRequester ask={ask} />}
         {headingStatus && <Status state={state} compactOnPhone />}
-        <TaskLink reference={task.key} id={task.id} title={task.title} current={selected} searchQuery={searchQuery} />
+        <TaskLink reference={task.key} id={task.id} title={task.title} current={selected} searchQuery={searchQuery}
+          publicHref={publicPreview ? task.public_url || null : undefined} />
         <div className="task-row-meta">
           {compactQueue && <span className="queue-task-key ticket-id" aria-hidden="true">{taskLabel(task.id, task.key)}</span>}
           {showTaskStatus && !headingStatus && <Status state={state} />}
@@ -96,12 +97,13 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
         </div>
       </div>
       <div className="task-row-context">
-        <PeerRequestContext task={task} showState={!showRequester} />
-        {task.waiting_on && <p className="task-dependency"><Dependency task={task} /></p>}
+        {!publicPreview && <PeerRequestContext task={task} showState={!showRequester} />}
+        {!publicPreview && task.waiting_on && <p className="task-dependency"><Dependency task={task} /></p>}
         {cue?.text && (
           <div className="report-task-cue">
             {detailedReport && cue.label && <strong>{cue.label}</strong>}
-            <Markdown text={cue.text} className="task-row-note prose" />
+            {publicPreview ? <p className="task-row-note prose">{cue.text}</p>
+              : <Markdown text={cue.text} className="task-row-note prose" />}
             {detailedReport && task.release_result && task.at && <p className="event-meta">Step updated <ReportTime at={task.at} /></p>}
           </div>
         )}
@@ -110,8 +112,10 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
           <p className="report-note">Review your next step after this release result.</p>
         )}
         {!report && task.note && <p className="task-row-note"><MarkdownInline text={task.note} /></p>}
-        <ClosureReference context={task.context} />
-        <ReminderWhen context={task.context} className="task-dependency" />
+        {!publicPreview && <>
+          <ClosureReference context={task.context} />
+          <ReminderWhen context={task.context} className="task-dependency" />
+        </>}
         {showDetails && (
           <details className="report-details">
             <summary aria-label={`Update and evidence for ${taskLabel(task.id, task.key)}`}>Update and evidence</summary>
@@ -122,7 +126,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
         )}
         {!report && <EvidenceLinks links={task.links} />}
       </div>
-      {report && task.checklist_total > 0 ? (
+      {report && !publicPreview && task.checklist_total > 0 ? (
         <>
           <button type="button" className="task-checklist" aria-expanded={showChecklist} aria-controls={checklistId}
             aria-label={`Checklist for ${taskLabel(task.id, task.key)}, ${task.checklist_completed} of ${task.checklist_total} complete`}
@@ -139,14 +143,15 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
 }
 
 export function TaskRows({ items, owner = true, selected, label, report, ownReport, revision, compactQueue = false,
-  listRef, onClick, searchQuery }) {
+  listRef, onClick, searchQuery, publicPreview = false }) {
   if (!items?.length) return null
   return (
     <ol ref={listRef} onClick={onClick} className={compactQueue ? 'task-rows compact-queue-rows' : 'task-rows'}
       aria-label={label} role="list">
       {items.map(task => (
         <TaskRow key={task.id} task={task} owner={owner} selected={task.id === selected || task.key === selected}
-          report={report} ownReport={ownReport} revision={revision} compactQueue={compactQueue} searchQuery={searchQuery} />
+          report={report} ownReport={ownReport} revision={revision} compactQueue={compactQueue} searchQuery={searchQuery}
+          publicPreview={publicPreview} />
       ))}
     </ol>
   )

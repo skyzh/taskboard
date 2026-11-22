@@ -229,13 +229,17 @@ export function DriWorkStatus({ inProgress }) {
   return <span className="dri-task-state"><span className="dri-work-status" aria-hidden="true" />Tasks in progress</span>
 }
 
-export function TaskLink({ id, title, current, reference, searchQuery }) {
-  const href = taskHref(id, reference)
-  return (
-    <a href={searchQuery ? `${href}?${new URLSearchParams({ 'from-search': searchQuery })}` : href} aria-current={current ? "true" : undefined}>
-      <span className="ticket-id">{taskLabel(id, reference)}</span> <MarkdownInline text={title} links={false} />
-    </a>
-  )
+export function BoardBrand({ href }) {
+  return <a className="brand" href={href}><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>Taskboard</a>
+}
+
+export function TaskLink({ id, title, current, reference, searchQuery, publicHref }) {
+  const anchor = taskHref(id, reference)
+  const href = publicHref === undefined
+    ? searchQuery ? `${anchor}?${new URLSearchParams({ 'from-search': searchQuery })}` : anchor
+    : publicHref
+  const label = <><span className="ticket-id">{taskLabel(id, reference)}</span> <MarkdownInline text={title} links={false} /></>
+  return href ? <a href={href} aria-current={current ? 'true' : undefined}>{label}</a> : <span className="static-task-title">{label}</span>
 }
 
 const peerRequestLabels = {

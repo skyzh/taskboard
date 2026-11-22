@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { ChevronDown } from 'lucide-react'
 import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from './data.js'
 import About from './About.jsx'
+import BoardViews from './BoardViews.jsx'
 import AssigneePage from './AssigneePage.jsx'
 import Notifications from './Notifications.jsx'
 import MyActivity from './MyActivity.jsx'
@@ -13,7 +14,7 @@ import Schedules from './Schedules.jsx'
 import Settings from './Settings.jsx'
 import Stats from './Stats.jsx'
 import { watchBoardSections } from './sectionIndex.js'
-import { notificationLogFilters, signInHref } from './shared.jsx'
+import { BoardBrand, notificationLogFilters, signInHref } from './shared.jsx'
 import { SearchResults, TaskSearch } from './TaskSearch.jsx'
 import { TaskDetail, WorkLog, WorkQueue } from './Work.jsx'
 import { useTheme } from './theme.js'
@@ -62,44 +63,6 @@ function useFragment() {
     return () => observer.disconnect()
   }, [fragment])
   return fragment
-}
-
-function BoardViews({ current, reportsHref, isAgent, showNotifications }) {
-  const nav = useRef(null)
-  useEffect(() => {
-    const strip = nav.current
-    function revealActive() {
-      if (strip.scrollWidth <= strip.clientWidth) return
-      const activeLink = strip.querySelector('[aria-current="page"]')
-      if (!activeLink) return
-
-      // Reveal a clipped active tab without scrolling the page away from the route's heading.
-      const { left, right } = activeLink.getBoundingClientRect()
-      const bounds = strip.getBoundingClientRect()
-      if (left < bounds.left) strip.scrollLeft += left - bounds.left
-      else if (right > bounds.right) strip.scrollLeft += right - bounds.right
-    }
-
-    revealActive()
-    window.addEventListener('resize', revealActive)
-    return () => window.removeEventListener('resize', revealActive)
-  }, [current, isAgent, showNotifications])
-
-  const links = [
-    ['reports', 'Reports'],
-    ['board', 'Tasks'],
-    ['activity', 'Activity'],
-    ['stats', 'Stats'],
-    ...(showNotifications ? [['notifications', 'Notifications']] : []),
-    ...(isAgent ? [['my-activity', 'My activity']] : []),
-  ]
-  return (
-    <nav ref={nav} className="board-views" aria-label="Taskboard views">
-      {links.map(([id, label]) => (
-        <a key={id} href={id === 'reports' ? reportsHref : `#${id}`} aria-current={current === id ? 'page' : undefined}>{label}</a>
-      ))}
-    </nav>
-  )
 }
 
 function SectionIndex({ overview }) {
@@ -296,7 +259,7 @@ export default function App() {
     <TimeZoneContext.Provider value={timeZoneFormatters}>
       <header ref={appHeader} className={view === 'board' ? 'app-header tasks-header' : 'app-header'}>
         <div className="masthead">
-          <a className="brand" href={reportsHref}><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>Taskboard</a>
+          <BoardBrand href={reportsHref} />
           <BoardViews current={activeTab} reportsHref={reportsHref} isAgent={isAgent}
             showNotifications={verified || session.data?.sign_in_available} />
           <TaskSearch query={search} fragment={fragment} />
