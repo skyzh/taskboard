@@ -163,10 +163,15 @@ class StatsTest(unittest.TestCase):
     def test_legacy_board_without_typed_events_or_peer_asks(self):
         self.event(1, "start", "Avery", "11:00", "in_progress")
         self.event(1, "done", "Avery", "11:05", "done")
+        self.event(2, "add", "Avery", "11:00", "ready")
+        self.event(3, "done", "Avery", "12:00", "done")
+        self.db.execute("UPDATE events SET at = REPLACE(at, 'Z', '+00:00')")
         self.db.execute("DROP TABLE peer_asks")
         self.db.execute("ALTER TABLE events DROP COLUMN context")
 
         stats = tasks_stats.snapshot(self.db, "hour", NOW, watcher_task=1)
+        self.assertEqual((stats["ticket_flow"]["new"], stats["ticket_flow"]["done"]), (1, 1))
+        self.assertEqual(stats["activity"]["events"], 3)
         self.assertEqual(stats["ticket_flow"]["start_to_done"]["median_seconds"], 300)
         self.assertEqual(stats["peer_requests"]["opened"], 0)
         self.assertIsNone(stats["peer_requests"]["timings"]["add_to_result"]["median_seconds"])

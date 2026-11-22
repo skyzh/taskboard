@@ -257,7 +257,7 @@ def ticket_flow(db, scope, context, bounds, first, width, count):
     return {**counts, "start_to_done": turnaround.summarize()}, trend
 
 
-def peer_timings(db, scope, context, bounds):
+def peer_timings(db, scope, context, bounds, first, end):
     counts = dict.fromkeys(("opened", "pending", "awaiting_ack", "acknowledged", "canceled", "already_started"), 0)
     stages = {name: Timing() for name in ("add_to_start", "start_to_result", "add_to_result", "result_to_ack")}
     if tasks_storage.has_table(db, "peer_asks"):
@@ -287,6 +287,9 @@ def peer_timings(db, scope, context, bounds):
         )
         for _, history in groupby(rows, key=lambda row: row["id"]):
             added = next(history)
+            added_at = ledger_seconds(added["at"])
+            if added_at is None or not first <= added_at < end:
+                continue
             counts["opened"] += 1
             start = result = acknowledged = None
             canceled = False
@@ -304,8 +307,8 @@ def peer_timings(db, scope, context, bounds):
                     break
 
             if start is not None:
-                start_at, added_at = ledger_seconds(start["at"]), ledger_seconds(added["at"])
-                prestarted = start_at is not None and added_at is not None and start_at < added_at
+                start_at = ledger_seconds(start["at"])
+                prestarted = start_at is not None and start_at < added_at
                 if prestarted and start["at"] == added["linked_start"]:
                     counts["already_started"] += 1
                 else:
@@ -361,7 +364,9 @@ def snapshot(db, period, now=None, *, base="", watcher_task=None, project=None):
     # exclusive without dropping events from the current partial second.
     end = ceil((now or datetime.now(timezone.utc)).timestamp())
     first = end - count * width
-    bounds = (utc_text(first), utc_text(end))
+    start_at, end_at = utc_text(first), utc_text(end)
+    # Compare whole UTC seconds consistently for both Z and legacy +00:00 rows.
+    bounds = (start_at[:-1], end_at[:-1])
     scope = task_scope(db, project)
     selection, params = scope
     context = "events.context" if has_event_context(db) else "'{}'"
@@ -379,8 +384,8 @@ def snapshot(db, period, now=None, *, base="", watcher_task=None, project=None):
         """, (*params, watcher_task),
     ).fetchone()
     return {
-        "period": period, "project": project, "from": bounds[0], "to": bounds[1], "bucket_seconds": width,
-        "ticket_flow": flow, "peer_requests": peer_timings(db, scope, context, bounds),
+        "period": period, "project": project, "from": start_at, "to": end_at, "bucket_seconds": width,
+        "ticket_flow": flow, "peer_requests": peer_timings(db, scope, context, bounds, first, end),
         "activity": activity_counts(db, bounds, base, scope), "worker_hours": workers,
         **({"watcher_measurements": json.loads(measurements[0])} if measurements else {}),
         "buckets": [
