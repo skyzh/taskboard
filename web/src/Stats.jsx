@@ -1,12 +1,20 @@
 import React from 'react'
 import { queryPath, useResource } from './data.js'
-import { AssigneeAvatar, ResourceStatus, Status, TaskLink, Timestamp, taskState } from './shared.jsx'
+import { AssigneeAvatar, ResourceStatus, Status, TaskLink, Timestamp, eventHref, taskState } from './shared.jsx'
 import { useTimeZone } from './timeZone.js'
 import './stats.css'
 
 const number = new Intl.NumberFormat('en-US')
 const hours = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 })
 const sampleMean = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 })
+
+const FLOW_METRICS = [['new', 'New tickets'], ['done', 'Recorded Done'], ['closed', 'Closed']]
+const PEER_TIMINGS = [
+  ['add_to_start', 'Queue · Add to Start', 'requests that could queue'],
+  ['start_to_result', 'Handling · Start to result', 'submitted results'],
+  ['add_to_result', 'Submission · Add to result', 'submitted results'],
+  ['result_to_ack', 'Acknowledgment · Result to Done', 'acknowledgments'],
+]
 
 const WATCHER_METRICS = [
   ['ready_at_first_idle', 'Ready at first idle sample'],
@@ -71,8 +79,8 @@ function ActiveChart({ buckets, width }) {
   return (
     <section className="panel" aria-labelledby="stats-chart">
       <h2 id="stats-chart">Peak recorded DRIs and workers</h2>
-      <p className="stats-note">Each count shows the highest number active at once in a {span} interval.</p>
-      <p className="stats-legend"><span>Active DRIs</span><span>Workers with closed runs</span></p>
+      <p className="stats-note">Each peak counts overlapping recorded intervals within a {span} bucket.</p>
+      <p className="stats-legend"><span>Recorded DRI intervals</span><span>Workers with closed runs</span></p>
       <div className="stats-chart" aria-hidden="true">
         {buckets.map(row => (
           <div key={row.from} title={`${formatTimestamp(row.from)} · ${row.dris} ${row.dris === 1 ? 'DRI' : 'DRIs'}, ${row.workers} ${row.workers === 1 ? 'worker' : 'workers'}`}>
@@ -95,7 +103,131 @@ function ActiveChart({ buckets, width }) {
           </tbody>
         </table>
       </details>
-      <p className="stats-note">Task owners (DRIs) count as active after a recorded start or resume.</p>
+      <p className="stats-note">A task owner’s interval opens at a recorded Start or Resume.</p>
+    </section>
+  )
+}
+
+function elapsed(seconds) {
+  if (seconds == null) return 'Unavailable'
+  if (seconds < 60) return sampleMean.format(seconds) + ' s'
+  if (seconds < 3600) return sampleMean.format(seconds / 60) + ' min'
+  return sampleMean.format(seconds / 3600) + ' hr'
+}
+
+function TimingCoverage({ timing, population }) {
+  return (
+    <span className="stats-coverage">
+      {number.format(timing.measured)} of {number.format(timing.eligible)} {population} measured
+      {timing.unknown > 0 && <span> · {number.format(timing.unknown)} missing or invalid {timing.unknown === 1 ? 'interval' : 'intervals'}</span>}
+    </span>
+  )
+}
+
+function TimingExamples({ examples }) {
+  return examples.length > 0 && (
+    <details className="stats-bucket-list">
+      <summary>View source examples</summary>
+      <ul className="stats-evidence">
+        {examples.map(({ task, start_event: start, end_event: end }) => (
+          <li key={end}>{task} · <a href={eventHref(start)} aria-label={`Open ${task} first event`}>First event</a>
+            {' · '}<a href={eventHref(end)} aria-label={`Open ${task} last event`}>Last event</a></li>
+        ))}
+      </ul>
+    </details>
+  )
+}
+
+function FlowTrend({ buckets }) {
+  const { formatTimestamp } = useTimeZone()
+  const maximum = Math.max(1, ...buckets.flatMap(row => FLOW_METRICS.map(([key]) => row[key])))
+  return (
+    <>
+      <p className="stats-legend stats-flow-legend">{FLOW_METRICS.map(([key, label]) => <span key={key}>{label}</span>)}</p>
+      <div className="stats-chart stats-flow-chart" aria-hidden="true">
+        {buckets.map(row => (
+          <div key={row.from} title={formatTimestamp(row.from)}>
+            {FLOW_METRICS.map(([key, label]) => (
+              <span key={key} title={`${label}: ${number.format(row[key])}`} style={{ height: `${100 * row[key] / maximum}%` }} />
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="stats-axis" aria-hidden="true">
+        <span><Timestamp at={buckets[0].from} /></span><span><Timestamp at={buckets.at(-1).to} /></span>
+      </div>
+      <details className="stats-bucket-list">
+        <summary>View recorded trend counts</summary>
+        <table className="stats-table">
+          <thead><tr>
+            <th scope="col">From</th>
+            {FLOW_METRICS.map(([key, label]) => <th key={key} scope="col">{label}</th>)}
+          </tr></thead>
+          <tbody>
+            {buckets.map(row => (
+              <tr key={row.from}>
+                <th scope="row"><Timestamp at={row.from} /></th>
+                {FLOW_METRICS.map(([key]) => <td key={key}>{number.format(row[key])}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
+    </>
+  )
+}
+
+function TicketFlow({ data }) {
+  const flow = data.ticket_flow
+  const timing = flow.start_to_done
+  return (
+    <section className="panel" aria-labelledby="stats-ticket-flow">
+      <h2 id="stats-ticket-flow">Ticket turnaround</h2>
+      <p className="stats-note"><Timestamp at={data.from} /> to <Timestamp at={data.to} /></p>
+      <dl className="stats-totals">
+        {FLOW_METRICS.map(([key, label]) => (
+          <div key={key}><dt>{label}</dt><dd>{number.format(flow[key])}</dd></div>
+        ))}
+        <div><dt>Median Start to Done</dt><dd>{elapsed(timing.median_seconds)}</dd></div>
+      </dl>
+      <TimingCoverage timing={timing} population="Done records" />
+      <TimingExamples examples={timing.examples} />
+      <p className="stats-note">Closed counts administrative closures. Done includes entries recorded after the work happened. Start to Done measures elapsed time between recorded events.</p>
+      <FlowTrend buckets={data.buckets} />
+    </section>
+  )
+}
+
+function PeerRequests({ requests }) {
+  return (
+    <section className="panel" aria-labelledby="stats-peer-requests">
+      <h2 id="stats-peer-requests">Peer requests</h2>
+      <dl className="stats-totals">
+        {[
+          ['opened', 'Opened in this period'], ['pending', 'Awaiting a result'], ['awaiting_ack', 'Awaiting acknowledgment'],
+          ['acknowledged', 'Acknowledged'], ['canceled', 'Canceled'],
+        ].map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{number.format(requests[key])}</dd></div>)}
+      </dl>
+      {requests.already_started > 0 && (
+        <p className="stats-note">Already started when opened · {number.format(requests.already_started)}</p>
+      )}
+      {requests.opened > 0 && (
+        <table className="stats-table stats-peer-table">
+          <thead><tr><th scope="col">Recorded stage</th><th scope="col">Median elapsed</th></tr></thead>
+          <tbody>
+            {PEER_TIMINGS.map(([key, label, population]) => {
+              const timing = requests.timings[key]
+              return (
+                <tr key={key}>
+                  <th scope="row">{label}<TimingCoverage timing={timing} population={population} />
+                    <TimingExamples examples={timing.examples} /></th>
+                  <td>{elapsed(timing.median_seconds)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
     </section>
   )
 }
@@ -149,21 +281,26 @@ function Breakdown({ activity }) {
   )
 }
 
-export default function Stats({ revision, period = 'day', project }) {
-  const resource = useResource(queryPath('/stats', { period }), revision)
+export default function Stats({ revision, period = 'day', project, projects }) {
+  const resource = useResource(queryPath('/stats', { period, project }), revision)
   const data = resource.data
+  function changeScope(nextProject, nextPeriod) {
+    const filters = new URLSearchParams({
+      ...(nextProject && { project: nextProject }), ...(nextPeriod !== 'day' && { period: nextPeriod }),
+    })
+    window.location.hash = filters.size ? `stats?${filters}` : 'stats'
+  }
   return (
     <div className="stats-page">
       <div className="page-heading">
         <h1 id="stats">Stats</h1>
         <div className="stats-controls">
-          <label>Time period <select value={period} onChange={event => {
-            const selection = event.target.value
-            const filters = new URLSearchParams({
-              ...(project && { project }), ...(selection !== 'day' && { period: selection }),
-            })
-            window.location.hash = filters.size ? `stats?${filters}` : 'stats'
-          }}>
+          <label>Project <select value={project || ''} onChange={event => changeScope(event.target.value, period)}>
+            <option value="">All projects</option>
+            {project && !projects?.some(entry => entry.prefix === project) && <option value={project}>{project}</option>}
+            {projects?.map(entry => <option key={entry.prefix} value={entry.prefix}>{entry.title}</option>)}
+          </select></label>
+          <label>Time period <select value={period} onChange={event => changeScope(project, event.target.value)}>
             <option value="hour">Past hour</option>
             <option value="day">Past day</option>
             <option value="week">Past week</option>
@@ -173,11 +310,15 @@ export default function Stats({ revision, period = 'day', project }) {
       <ResourceStatus resource={resource} label="stats" />
       {data && (
         <>
-          <section className="panel" aria-label="Period totals">
-            <p className="stats-note"><Timestamp at={data.from} /> to <Timestamp at={data.to} /></p>
+          {data.ticket_flow && <TicketFlow data={data} />}
+          {data.peer_requests && <PeerRequests requests={data.peer_requests} />}
+          <ActiveChart buckets={data.buckets} width={data.bucket_seconds} />
+          <section className="panel" aria-labelledby="stats-recorded-work">
+            <h2 id="stats-recorded-work">Recorded activity and worker time</h2>
+            {!data.ticket_flow && <p className="stats-note"><Timestamp at={data.from} /> to <Timestamp at={data.to} /></p>}
             <dl className="stats-totals">
               <div><dt>Activity events</dt><dd>{number.format(data.activity.events)}</dd></div>
-              <div><dt>Tasks completed</dt><dd>{number.format(data.activity.completions)}</dd></div>
+              {!data.ticket_flow && <div><dt>Recorded Done</dt><dd>{number.format(data.activity.completions)}</dd></div>}
               <div><dt>Recorded hours on closed worker runs</dt><dd>{hours.format(data.worker_hours.elapsed_seconds / 3600)}</dd></div>
             </dl>
             <p className="stats-note">
@@ -190,7 +331,6 @@ export default function Stats({ revision, period = 'day', project }) {
           {data.watcher_measurements?.cohorts.length > 0 && (
             <WatcherStats cohorts={data.watcher_measurements.cohorts} />
           )}
-          <ActiveChart buckets={data.buckets} width={data.bucket_seconds} />
           <Breakdown activity={data.activity} />
         </>
       )}

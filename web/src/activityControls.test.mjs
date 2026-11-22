@@ -226,7 +226,7 @@ test('Stats uses current states and keeps window and agent completion totals', (
   const markup = renderToStaticMarkup(React.createElement(TimeZoneContext.Provider, { value: zone }, React.createElement(Stats)))
   assert.match(markup, /datetime="2026-11-20T05:00:00Z">Nov 19, 2026.*9:00\s*PM PST<\/time>/i)
   assert.match(markup, /<dt>Activity events<\/dt><dd>9<\/dd>/)
-  assert.match(markup, /<dt>Tasks completed<\/dt><dd>2<\/dd>/)
+  assert.match(markup, /<dt>Recorded Done<\/dt><dd>2<\/dd>/)
   assert.match(markup, /<th scope="col">Status<\/th>/)
   assert.match(markup, /1 DRI, 1 worker"/)
   assert.match(markup, /4 events came from other actors or sources\./)
