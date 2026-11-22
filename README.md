@@ -4,17 +4,26 @@
 
 **Taskboard for building your AI factory.**
 
-Taskboard is a self-hosted task board built around specialized DRIs, the people or coding agents directly responsible for outcomes in their field. Each DRI organizes the work, launches subagents early when their runtime supports them, and advances another ticket while they run. Taskboard keeps the owner, worker results, and independent review evidence together so the team can see what happened and what comes next.
+Taskboard is a self-hosted board for people and coding agents working together.
+Give each area an owner who is directly responsible for its outcomes. Those
+owners can delegate independent work to subagents, advance other tickets while
+they run, and collect the results and review evidence in one place.
 
 [Try the Summary demo](https://skyzh.github.io/taskboard/).
 
-## Choose how to use it
+## Use the web board
 
-- **Web board.** Browse project queues, follow activity, and open a task or its evidence. On a shared board, signed-in teammates can act on their work and answer assigned decisions. The standalone browser preview is read-only.
-- **CLI.** Start, update, or finish a task from a terminal. Use a private SQLite ledger for standalone work or act on a shared board with a verified identity.
-- **MCP.** Connect a coding agent to the shared board with the local stdio adapter and the agent’s existing Raft sign-in. Inspect queues, open tickets, and record progress from the MCP host.
+- Open **Reports** to see who owns each area, what they are working on, and what they completed recently.
+- Use **Tasks** to browse the project queue. Open a ticket to see its owner, next step, blockers, and evidence.
+- Follow **Activity** to see changes across the project. On a shared board, sign in and open **Notifications**. Use **Inbox** for work and updates and **Needs me** for decisions assigned to you.
 
-For shared work, use the live board or `./tasks --shared show <ticket>` to read the current task. A standalone checkout has its own ledger.
+## Setup
+
+1. Use the [setup guide](docs/taskboard/SETUP.md) to try a local board, install a private board, or connect a shared server. The standalone web preview lets you browse its local ledger. A shared board with verified accounts lets people act on tickets from the browser.
+2. Give each coding agent the [initial setup prompt](docs/taskboard/SETUP.md#initial-agent-prompt). Tell it which board to join, its specialty, and the outcomes it owns.
+3. Ask each agent to verify its access with the [startup checklist](docs/taskboard/AGENT-STARTUP.md). Agents can use the CLI or connect the [local MCP adapter](docs/taskboard/MCP.md) on a Raft-connected shared board.
+
+The [agent README](docs/taskboard/AGENT-README.md) covers CLI commands, the ticket lifecycle, delegation, and recording evidence.
 
 [Sponsored by Raft. Meet the squad behind Taskboard.](SPONSOR.md)
 
@@ -29,25 +38,6 @@ Both screenshots show the same live Project T Reports view. They include current
 **Reports on a phone**
 
 <img src="docs/taskboard/images/reports-phone.png" width="390" alt="Phone Reports showing the same current work and recent outcomes for Prism">
-
-## Setup
-
-Give your agents [the initial prompt and setup guide](docs/taskboard/SETUP.md#initial-agent-prompt).
-
-## Work from a ledger
-
-- Give each task one owner and a specific first step. Record the original problem and intended outcome in the brief. Use `next --dri 'Sample owner'` to find that owner's highest-priority Ready task. Ties go to the task that has been Ready longer.
-- Use `start` and `update` to record the current facts and next step on the ticket. For a wait, name the dependency with `wait --on` and state what clears it. Use `resume` when the dependency clears and `done` to record the solution and how you verified it.
-- Use `wait T-1 "Review after the export is complete." --blocked-by T-2 --by 'Sample owner'` when a separate ticket must move first. The task keeps its owner, who resumes it explicitly. Task detail shows the blocker status and any linked chain. Existing cycles are flagged. Use `transfer` to hand the same Ready or in-progress ticket to a new owner.
-- Attach labeled evidence with `--link "Label" URL`. Offline commands can also attach existing local files. Use `log` for contributor activity that leaves the current step and task status in place.
-- Use `board` to refresh the standalone HTML snapshot for the selected ledger.
-- The task owner uses `delegate` to assign a build or review and `worker-start` to record the launch and runtime handle. A named reviewer can also start their own review. Only the named worker uses `worker-report` to record the result. The task owner uses `worker-collect` after the report. A launched run with no report stays Running until the owner stops it or the worker reports.
-
-For a Raft attachment, link to its message. For an artifact, use its Raft link. Readers open these in Raft with their existing access. A local preview can display a linked image when you select **Preview image**. Other local files remain available through their recorded path.
-
-During a progress update, the task owner can set or revise an estimated completion time with `./tasks update T-1 "Compare the remaining totals." --by "Sample owner" --eta 2026-11-24T16:30:00-08:00`. Include a UTC offset or `Z`. Use `--clear-eta` to remove the estimate. It appears as Estimated completion in task detail.
-
-See [the Taskboard skill](skills/taskboard/SKILL.md) for task execution, review, and handoff guidance, [project registration](docs/taskboard/PROJECTS.md) for project prefixes and scoped views, and [activity history](docs/taskboard/CHANGE-HISTORY.md) for what each operation records.
 
 ## Project layout
 
