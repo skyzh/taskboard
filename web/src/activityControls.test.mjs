@@ -1101,6 +1101,36 @@ test('editing task details sends only changed fields and keeps the draft if the 
   }
 })
 
+test('title edits explain the 60-character limit and preserve unchanged older titles', async () => {
+  const original = 'x'.repeat(85)
+  const props = { task: { id: 8, key: 'T-8', title: original }, brief: 'Old brief', onChanged() {} }
+  const sent = []
+  fixture.request = async (_, options) => sent.push(options.body)
+  const event = { preventDefault() {} }
+  const edit = async draft => {
+    fixture.state = [draft, 'Clarify the scope.', false, null]
+    const markup = renderToStaticMarkup(React.createElement(TaskDetailsEdit, props))
+    fixture.state = [draft, 'Clarify the scope.', false, null]
+    const form = React.Children.toArray(TaskDetailsEdit(props).props.children).find(child => child.type === 'form')
+    await form.props.onSubmit(event)
+    return markup
+  }
+  try {
+    const rejected = await edit({ title: 'é'.repeat(61) })
+    assert.match(rejected, /aria-invalid="true"/)
+    assert.match(rejected, /Keep the title to 60 characters. Move details into the brief./)
+    assert.equal(sent.length, 0)
+    assert.match(await edit({ brief: 'New brief' }), new RegExp(original))
+    await edit({ title: 'é'.repeat(60) })
+    assert.deepEqual(sent, [
+      { brief: 'New brief', reason: 'Clarify the scope.' },
+      { title: 'é'.repeat(60), reason: 'Clarify the scope.' },
+    ])
+  } finally {
+    delete fixture.request
+  }
+})
+
 test('the Tag filter uses the current project in both task layouts', () => {
   const calls = []
   fixture.resources = {

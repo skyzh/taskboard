@@ -1,6 +1,6 @@
 """Recurring definitions and Ready task occurrences in one SQLite ledger."""
 
-from taskboard_client.work import EDITS, recurrence_id
+from taskboard_client.work import EDITS, recurrence_id, task_title
 
 from datetime import datetime, timedelta, timezone
 
@@ -68,7 +68,7 @@ def owned(db, number, actor):
     return row
 
 
-def create_definition(db, owner, key, title, step, hours, next_at, as_of):
+def create_definition(db, owner, key, title, step, hours, next_at, as_of, *, authored=False):
     first = utc(next_at)
     if type(hours) is not int or hours <= 0:
         raise ValueError("Cadence must be a positive whole number of hours.")
@@ -84,6 +84,8 @@ def create_definition(db, owner, key, title, step, hours, next_at, as_of):
         return current["id"], False
     if first < utc(as_of):
         raise ValueError("Choose a first slot at or after the current UTC time.")
+    if authored:
+        fields = (task_title(title), *fields[1:])
     number = tasks_storage.insert_id(
         db, """
         INSERT INTO recurring_definitions (owner, schedule_key, title, step, cadence_hours, first_at, next_at, state)
@@ -126,7 +128,7 @@ def record_due(db, definition, as_of, make_task=None):
 def edit(db, args, as_of):
     if args.command == "recurring-add":
         number, created = create_definition(
-            db, args.dri, args.key, args.title, args.step, args.cadence_hours, args.next_at, as_of,
+            db, args.dri, args.key, args.title, args.step, args.cadence_hours, args.next_at, as_of, authored=True,
         )
         if created:
             audit.record(db, scope="private", actor=args.dri, operation="recurring-add",

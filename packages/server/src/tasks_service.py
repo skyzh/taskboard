@@ -2156,7 +2156,7 @@ def create_app(
             return query().related_activity(key, project=project_scope(data), **page_args(data))
         if name == "create-task":
             return mutate(
-                "add", actor, data, dri=key, title=text(data, "title", maximum=200),
+                "add", actor, data, dri=key, title=data.get("title"),
                 step=text(data, "step"), brief=text(data, "brief", optional=True), project=project_filter(data),
             )
         if name in (maintenance.READ, maintenance.WRITE):
@@ -2173,7 +2173,7 @@ def create_app(
         if name == "recurring-add":
             return mutate(
                 "recurring-add", actor, data, dri=key, key=text(data, "key", maximum=160),
-                title=text(data, "title", maximum=200), step=text(data, "step"),
+                title=text(data, "title"), step=text(data, "step"),
                 cadence_hours=integer(data.get("cadence_hours"), "Cadence hours"),
                 next_at=text(data, "next_at", maximum=40),
             )

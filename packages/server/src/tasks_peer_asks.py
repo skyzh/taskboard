@@ -4,7 +4,7 @@ from argparse import Namespace
 import json
 import re
 
-from taskboard_client.work import PEER_ASK as COMMAND, PEER_ASK_TRANSITIONS as TRANSITIONS
+from taskboard_client.work import PEER_ASK as COMMAND, PEER_ASK_TRANSITIONS as TRANSITIONS, TASK_TITLE_LIMIT
 
 import tasks_projects as projects
 import workers
@@ -24,9 +24,10 @@ SCHEMA = (
     """,
     "CREATE INDEX IF NOT EXISTS peer_asks_source ON peer_asks (source_task_id, task_id)",
 )
-TITLE_LIMIT = 72
 PREVIOUS_TITLE_LIMIT = 120
-REVIEW_ACTION = re.compile(r"^(?:(?:please|independently)\s+)*(?:review|rebind|recheck|approve)\b", re.IGNORECASE)
+REVIEW_ACTION = re.compile(
+    r"^(?:(?:please|independently|could you)\s+)*(?:review|re-?review|rebind|recheck|approve)\b", re.IGNORECASE,
+)
 PULL_REFERENCE = re.compile(r"\b(?:PR|pull request)\s*#(\d+)\b|https://github\.com/[^\s/]+/[^\s/]+/pull/(\d+)\b",
                             re.IGNORECASE)
 
@@ -46,11 +47,11 @@ def request_title(note, fallback, *, pull=None):
     if not title:
         return fallback
     title = title[0].upper() + title[1:]
-    if len(title) <= TITLE_LIMIT:
+    if len(title) <= TASK_TITLE_LIMIT:
         return title
-    preview = title[:TITLE_LIMIT - 1]
+    preview = title[:TASK_TITLE_LIMIT - 1]
     word_break = preview.rfind(" ")
-    return (preview[:word_break] if word_break >= TITLE_LIMIT // 2 else preview.rstrip()) + "…"
+    return (preview[:word_break] if word_break >= TASK_TITLE_LIMIT // 2 else preview.rstrip()) + "…"
 
 
 def refresh_generated_titles(db, *, task_id=None):
@@ -61,7 +62,9 @@ def refresh_generated_titles(db, *, task_id=None):
     rows = db.execute(
         f"""
         SELECT request.id, request.title, original.note,
-               'Peer request for ' || source.project_prefix || '-' || COALESCE(source.project_number, source.id) AS fallback
+               'Peer request for ' || source.project_prefix || '-' || COALESCE(source.project_number, source.id) AS fallback,
+               (SELECT state FROM events WHERE task_id = request.id AND action NOT IN ('log', 'source-event')
+                ORDER BY id DESC LIMIT 1) AS state
         FROM peer_asks AS ask
         JOIN tasks AS request ON request.id = ask.task_id
         JOIN tasks AS source ON source.id = ask.source_task_id
@@ -84,6 +87,10 @@ def refresh_generated_titles(db, *, task_id=None):
             continue
         pin = pending_stamp_review(db, row["id"])
         title = request_title(row["note"], row["fallback"], pull=pin["pull"] if pin else None)
+        if task_id is None and row["title"] != row["fallback"] and (
+            row["state"] == "done" or not title.startswith("Review PR #")
+        ):
+            continue
         if title != row["title"]:
             db.execute("UPDATE tasks SET title = ? WHERE id = ?", (title, row["id"]))
             changed = True

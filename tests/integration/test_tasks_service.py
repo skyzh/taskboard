@@ -5876,6 +5876,34 @@ class TasksServiceTest(unittest.TestCase):
             with self.subTest(url=url), self.assertRaisesRegex(ValueError, "Invalid TASKS_PUBLIC_RAFT_CHANNEL_URLS"):
                 public_raft_links(json.dumps({"T": url}))
 
+    def test_ticket_title_limit_applies_to_creates_and_title_edits(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        limit = "é" * 60
+        long = limit + "x"
+        message = "Keep the title to 60 characters. Move details into the brief."
+        fields = {"step": "Verify the receipt.", "brief": "Retain the details here."}
+        rejected = self.action(owner, "create-task", {**fields, "title": long}, status=409)
+        self.assertEqual(rejected["error"], message)
+        code, _, error = self.shared_cli(owner, "add", long, "--step", fields["step"])
+        self.assertEqual(code, 1)
+        self.assertIn(message, error)
+        code, output, error = self.shared_cli(owner, "add", limit, "--step", fields["step"])
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("T-1 created", output)
+        edit = {"id": "T-1", "reason": "Clarify the scope."}
+        rejected = self.action(owner, "edit-task-details", {**edit, "title": long}, status=409)
+        self.assertEqual(rejected["error"], message)
+        code, _, error = self.shared_cli(owner, "edit", "T-1", edit["reason"], "--title", long)
+        self.assertEqual(code, 1)
+        self.assertIn(message, error)
+        self.action(owner, "edit-task-details", {**edit, "title": "x" * 60})
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("UPDATE tasks SET title = ? WHERE id = 1", (long,))
+        self.action(owner, "edit-task-details", {**edit, "title": long, "brief": fields["brief"]})
+        saved = self.call(owner, "/api/v1/tasks/T-1").json
+        self.assertEqual((saved["task"]["title"], saved["brief"]), (long, fields["brief"]))
+
     def test_peer_request_titles_preserve_full_notes_and_upgrade_generated_titles(self):
         app = self.app(portal_reader=True)
         owner, owner_id = self.login(app, "Avery")
@@ -5899,7 +5927,7 @@ class TasksServiceTest(unittest.TestCase):
         request = task("COURSE-2")
         self.assertEqual((request["title"], request["note"], request["peer_request"]["source_key"]),
                          ("Verify the export on a phone", note, "COURSE-1"))
-        self.assertEqual(task(long_key)["title"], long_note[:71] + "…")
+        self.assertEqual(task(long_key)["title"], long_note[:59] + "…")
         self.assertEqual(task(long_key)["note"], long_note)
         self.action(recipient, "edit-task-details", {"id": long_key, "title": "Check the export header", "reason": "Clarify the scope."})
         self.action(recipient, "advance-task", {"id": "COURSE-2", "transition": "start", "note": "Starting the mobile check."})
@@ -5922,11 +5950,15 @@ class TasksServiceTest(unittest.TestCase):
                          [("Verify the export on a phone", "COURSE-1", "COURSE-2")])
 
     def test_long_generated_review_title_is_short_even_after_upgrade(self):
+        from tasks_peer_asks import request_title
+
         app = self.app(portal_reader=True)
         owner, _ = self.login(app, "Avery")
         reviewer, reviewer_id = self.login(app, "Blake")
         self.action(owner, "create-task", {"title": "Publish the demo", "step": "Prepare."})
         note = f"Rebind exact PR #126 review to {'a' * 40} on {'b' * 40}. README and public HTML match."
+        for opener in ("Please re-review", "Could you review", "Independently rereview"):
+            self.assertEqual(request_title(f"{opener} PR #126 at {'a' * 40}.", "Review the change"), "Review PR #126")
         self.action(owner, "peer-ask", {"id": "T-1", "transition": "create", "recipient": reviewer_id, "note": note})
 
         def detail():
@@ -5944,9 +5976,18 @@ class TasksServiceTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT * FROM events ORDER BY id").fetchall(), old_events)
         request_log = self.call(owner, "/api/v1/reports/request-log?project=T").json["items"]
         self.assertEqual([(item["request_title"], item["source_key"]) for item in request_log], [("Review PR #126", "T-1")])
-        self.action(reviewer, "edit-task-details", {"id": "T-2", "title": old_title, "reason": "Use this explicit wording."})
+        self.action(reviewer, "edit-task-details", {"id": "T-2", "title": "Verify refreshed demo metadata",
+                                                 "reason": "Use this explicit wording."})
         self.app(portal_reader=True)
-        self.assertEqual(detail()["title"], old_title)
+        self.assertEqual(detail()["title"], "Verify refreshed demo metadata")
+
+        self.action(owner, "create-task", {"title": "Publish the next demo", "step": "Prepare."})
+        self.action(owner, "peer-ask", {"id": "T-3", "transition": "create", "recipient": reviewer_id, "note": note})
+        self.action(owner, "peer-ask", {"id": "T-4", "transition": "cancel", "note": "Use the next revision."})
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("UPDATE tasks SET title = ? WHERE id = 4", (old_title,))
+        self.app(portal_reader=True)
+        self.assertEqual(self.call(owner, "/api/v1/tasks/T-4").json["task"]["title"], old_title)
 
     def test_linked_peer_request_lifecycle_returns_the_next_action_to_the_requester(self):
         app = self.app(portal_reader=True)
