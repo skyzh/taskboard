@@ -4195,7 +4195,9 @@ class TasksServiceTest(unittest.TestCase):
             self.assertIn("/api/v1/assignee-avatar/", imported["avatar_url"])
             fetch.assert_not_called()
             avery, _ = self.login(app, "Avery")
-            self.action(avery, "set-profile", {"role": "Reviewer"})
+            signed_in = self.action(avery, "set-profile", {"role": "Reviewer"})["actor"]
+            self.assertEqual(signed_in["avatar_url"], imported["avatar_url"])
+            self.assertEqual(directory_profile(), signed_in)
             person.update(description="Updated in Raft.", picture=new_photo)
             self.assertEqual(directory_profile()["description"], "Imported description.")
             refreshed = self.call(avery, "/api/v1/session").json["actor"]

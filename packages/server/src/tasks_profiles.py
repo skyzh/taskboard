@@ -335,10 +335,12 @@ def visible_by_keys(db, keys, base):
         }
         if not actor or (actor["description"] is None and actor["provider_description"] is None):
             display["description"] = row["description"]
+        # Keep the published URL when Raft supplies the same image bytes.
         if row["avatar_digest"] and (
             not actor or (
-                not (actor["avatar_digest"] or actor["provider_avatar_digest"])
+                not actor["avatar_digest"]
                 and actor["provider_avatar_source"] != ""
+                and actor["provider_avatar_digest"] in (None, row["avatar_digest"])
             )
         ):
             display["avatar_url"] = f"{base}/api/v1/assignee-avatar/{row['subject']}/{row['avatar_digest']}"
