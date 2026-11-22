@@ -102,7 +102,7 @@ def event_lines(event, url):
     return lines
 
 
-def task_details(board, url, number, *, workers_only=False, guidance=None):
+def task_details(board, url, number, *, workers_only=False, guidance=None, extra_note=None):
     ident = {"id": task_ref(number)}
     detail = board.invoke("task", ident)
     text = task_lines(detail["task"], url)
@@ -144,6 +144,8 @@ def task_details(board, url, number, *, workers_only=False, guidance=None):
             "Read the worker status and outstanding handoff before changing it."
             if workers_only else detail.get("next_step") or "Read the ticket's current step."
         )
+    if extra_note:
+        text.append(extra_note)
     return with_guidance("\n".join(text), guidance)
 
 
@@ -280,6 +282,9 @@ NEXT_LABELS = {
     "request": "Answer an open request", "decision": "Decision requested", "reminder": "Review a task reminder",
     "in_progress": "Continue work in progress", "shared_ready": "Review unassigned Ready work",
 }
+STAMP_REVIEW_GUIDANCE = (
+    "For projects using Stamp, check PR review requests with `stamp pr list --review-requested --refresh`."
+)
 
 
 def shared_next(board, url, filters, actor):
@@ -293,14 +298,15 @@ def shared_next(board, url, filters, actor):
         command_line = "`./tasks --shared list --status ready --unassigned" + project_flag + "`."
         return f"No ready tasks in your queue ({actor['name']}).\nNext: Check shared Ready work with {command_line}"
     if work := result["work"]:
-        details = task_details(board, url, work["key"], guidance=result.get("next_step"))
+        details = task_details(board, url, work["key"], guidance=result.get("next_step"),
+                               extra_note=STAMP_REVIEW_GUIDANCE)
         label = NEXT_LABELS.get(work["kind"])
         return f"{label}\n{details}" if label else details
     if result["standing_goals"]:
         output = "\n".join(f"{goal['project']} · Standing goal\n  {goal['summary']}" for goal in result["standing_goals"])
     else:
         output = f"No actionable work in your queue ({actor['name']})."
-    return with_guidance(output, result["next_step"])
+    return with_guidance(f"{output}\n{STAMP_REVIEW_GUIDANCE}", result["next_step"])
 
 
 def shared_command(args):
@@ -410,9 +416,10 @@ def shared_command(args):
             for run in board.pages("my-reviews", filters)
         )
         if output:
-            return with_guidance(output, "Open the ticket and check the review brief before starting.")
+            return with_guidance(output, f"Open the ticket and check the review brief before starting. {STAMP_REVIEW_GUIDANCE}")
         flag = f" --project {projects.prefix(args.project)}" if args.project else ""
-        return with_guidance("No actionable reviews.", f"Check for other work with `./tasks --shared next{flag}`.")
+        return with_guidance("No actionable Taskboard reviews.",
+                             f"{STAMP_REVIEW_GUIDANCE} Check for other tickets with `./tasks --shared next{flag}`.")
     if not args.project:
         filters["scope"] = "all"
     if command == "next":

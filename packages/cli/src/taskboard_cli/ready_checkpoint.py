@@ -9,6 +9,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from time import monotonic, sleep
+from urllib.parse import quote, urlsplit
 
 from taskboard_client import SharedBoard
 from taskboard_cli.shared import assert_actor
@@ -194,13 +195,16 @@ def watch_two_pickups(board, owner, is_idle, notify, duration, interval=10, idle
     return {"outcome": "two-pickups-confirmed", "pickups": pickups}
 
 
-def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_delay=120, *, observe_status=None):
+def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_delay=120, *,
+                      observe_status=None, review_requests=None):
     """Stay armed and report the size of a changed, nonempty owned Ready queue."""
     context = agent_context(board, owner)
     actor = context["actor"]["id"]
     filters = {"scope": "all", "state": "ready", "limit": 100}
     noticed = frozenset()
     current = noticed
+    noticed_reviews = frozenset()
+    reviews = None
 
     def ready_events():
         ready = set()
@@ -211,9 +215,17 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
         return frozenset(ready)
 
     def next_count():
-        nonlocal current
+        nonlocal current, reviews
         current = ready_events()
-        return {"ready_count": len(current)} if current and current != noticed else None
+        ready_count = len(current) if current != noticed else 0
+        notice = {"ready_count": ready_count}
+        if review_requests is not None:
+            reviews = review_requests()
+            new_reviews = reviews - noticed_reviews if reviews is not None else ()
+            if new_reviews:
+                notice.update(stamp_review_count=len(new_reviews),
+                              stamp_review_url=next(iter(new_reviews))[2] if len(new_reviews) == 1 else None)
+        return notice if ready_count or "stamp_review_count" in notice else None
 
     def notify_count(notice, can_wake):
         if observe_status is not None:
@@ -227,6 +239,8 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     while True:
         result = check_when_idle(context, is_idle, next_count, notify_count, float("inf"), interval, idle_delay)
         noticed = current
+        if reviews is not None:
+            noticed_reviews = reviews
         emit(result)
 
 
@@ -289,6 +303,81 @@ def raft_idle(handle):
     return raft_status(handle) == "idle"
 
 
+def stamp_json(*args):
+    environment = dict(os.environ, STAMP_SKILL="off")
+    environment.pop("STAMP_TOKEN", None)
+    environment.pop("STAMP_AS", None)
+    try:
+        result = subprocess.run(
+            [os.environ.get("TASKS_STAMP_BIN", "stamp"), *args, "--json"],
+            env=environment, text=True, capture_output=True, timeout=20,
+        )
+        if result.returncode == 0:
+            return json.loads(result.stdout)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        pass
+    raise RuntimeError("Stamp review lookup failed. Check the signed-in agent and try again.")
+
+
+def stamp_review_requests(repository):
+    requests = stamp_json("pr", "list", "--review-requested", "--refresh")["items"]
+    branch_heads = {}
+    actionable = set()
+    for request in requests:
+        head = request.get("headSha")
+        if (request.get("repository", "").casefold() != repository.casefold() or request.get("state") != "pending"
+                or not head or request.get("headShaAtRequest") != head
+                or request.get("freshness") != "fresh" or request.get("needsReReview")):
+            continue
+        number = request["number"]
+        url = request["stampUrl"]
+        address = urlsplit(url)
+        if (not isinstance(number, int) or number < 1 or address.scheme != "https" or not address.hostname
+                or address.username is not None or any(char.isspace() or char == '"' for char in url)):
+            raise ValueError("Stamp returned an invalid review reference.")
+        review = stamp_json("pr", "review", str(number), "--repo", repository)
+        if (review.get("headSha") != head or review["stampVerdict"]["state"]
+                not in {"NEEDS_REVIEW", "READY", "CI_PENDING"}):
+            continue
+        branch = review["baseRef"]
+        if branch not in branch_heads:
+            ref = stamp_json("api", f"repos/{repository}/git/ref/heads/{quote(branch)}")
+            branch_heads[branch] = ref["object"]["sha"]
+        if review["baseSha"] != branch_heads[branch]:
+            continue
+        actionable.add((number, head, url))
+    return frozenset(actionable)
+
+
+def stamp_lookup(repository, handle):
+    error = None
+    verified = False
+
+    def lookup():
+        nonlocal error, verified
+        try:
+            if not verified:
+                raft = json.loads(raft_cli("auth", "whoami"))["data"]
+                identity = stamp_json("agent", "whoami")
+                if (not raft["serverConfirmed"] or raft["agent"]["name"].casefold() != handle.casefold()
+                        or identity.get("principalType") != "agent"
+                        or identity.get("agentId") != raft["agent"]["id"]
+                        or identity.get("serverId") != raft["server"]["id"]):
+                    raise RuntimeError("The Stamp and Taskboard agent identities differ.")
+                verified = True
+            requests = stamp_review_requests(repository)
+        except (KeyError, RuntimeError, ValueError) as failure:
+            message = str(failure) if isinstance(failure, RuntimeError) else "Stamp returned an invalid review response."
+            if message != error:
+                print(f"ready checkpoint: {message}", file=sys.stderr, flush=True)
+            error = message
+            return None
+        error = None
+        return requests
+
+    return lookup
+
+
 def raft_wake(offer, channel, message_id, can_wake):
     ref = offer_reference(offer)
     title = f"Taskboard Ready checkpoint for {ref}. Check the ticket and record a start or concrete deferral."
@@ -297,6 +386,13 @@ def raft_wake(offer, channel, message_id, can_wake):
 
 def raft_ready_count(notice, channel, message_id, can_wake, *, record_wake=None):
     count = notice["ready_count"]
+    if reviews := notice.get("stamp_review_count"):
+        noun = "review" if reviews == 1 else "reviews"
+        reference = notice.get("stamp_review_url") or "stamp pr list --review-requested --refresh"
+        ready = f" and {count} Ready in Taskboard" if count else ""
+        title = (f"You have {reviews} pending Stamp {noun}{ready}. "
+                 f"Stamp: {reference}. Taskboard: ./tasks --shared reviews")
+        return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake)
     noun = "ticket" if count == 1 else "tickets"
     title = f"You have {count} Ready {noun}. Read your Taskboard queue and take what you can move."
     return wake_with_title(title, channel, message_id, can_wake, status="scheduled", record_wake=record_wake)
@@ -327,6 +423,7 @@ def main():
     mode.add_argument("--two-pickups", action="store_true", help="In watcher mode, verify up to two successive starts.")
     mode.add_argument("--repeat", action="store_true", help="Stay armed and report the count of owned Ready tickets.")
     parser.add_argument("--measure", action="store_true", help="Emit sampled status and wake receipts in repeat mode.")
+    parser.add_argument("--stamp-repo", metavar="OWNER/REPO", help="Include your pending Stamp reviews in repeat mode.")
     parser.add_argument("--idle-delay-seconds", type=int, default=0, help="Require this much observed idle time before a wake.")
     parser.add_argument("--channel", help="Raft conversation anchoring the watcher.")
     parser.add_argument("--message-id", help="Raft message anchoring the watcher.")
@@ -335,6 +432,9 @@ def main():
     command = args.handler[1:] if args.handler[:1] == ["--"] else args.handler
     if args.measure and not (args.watch_idle and args.repeat):
         parser.error("Use --measure only with --watch-idle --repeat.")
+    if args.stamp_repo and not (args.watch_idle and args.repeat
+                               and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.stamp_repo)):
+        parser.error("Use --stamp-repo OWNER/REPO only with --watch-idle --repeat.")
     if args.watch_idle:
         if command or not args.channel or not args.message_id:
             parser.error("Use --channel and --message-id for the watcher, without a handler.")
@@ -358,13 +458,18 @@ def main():
 
                     return raft_ready_count(
                         notice, args.channel, args.message_id, can_wake,
-                        record_wake=record_wake if args.measure else None,
+                        record_wake=record_wake if args.measure and notice["ready_count"] else None,
                     )
 
+                review_requests = None
+                if args.stamp_repo:
+                    handle = agent_context(board, args.by)["actor"]["username"]
+                    review_requests = stamp_lookup(args.stamp_repo, handle)
                 watch_ready_count(
                     board, args.by, raft_idle, notify_count, emit,
                     idle_delay=args.idle_delay_seconds or 120,
                     observe_status=raft_status if args.measure else None,
+                    review_requests=review_requests,
                 )
             else:
                 watch = watch_two_pickups if args.two_pickups else watch_idle

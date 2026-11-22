@@ -1,9 +1,17 @@
+import json
 import sys
 import unittest
 from unittest.mock import patch
 
 from taskboard_cli.ready_checkpoint import checkpoint, measured_idle, raft_idle, raft_ready_count, raft_status, raft_wake, run_handler, watch_idle, watch_ready_count, watch_two_pickups
+from taskboard_cli.ready_checkpoint import stamp_lookup
 import test_tasks_service
+
+RAFT_IDENTITY = {
+    "data": {"serverConfirmed": True, "agent": {"id": "fixture-agent", "name": "avery"},
+             "server": {"id": "fixture-server"}},
+}
+STAMP_IDENTITY = {"principalType": "agent", "agentId": "fixture-agent", "serverId": "fixture-server"}
 
 
 class FixtureBoard:
@@ -231,6 +239,103 @@ class ReadyCheckpointTest(unittest.TestCase):
             "reminder", "schedule", "--title", title, "--delay-seconds", "1",
             "--channel", "#example", "--message-id", "12345678",
         ))
+
+    def test_stamp_reviews_wake_the_named_idle_reviewer_after_the_request_is_current(self):
+        clock = 0
+        sends = []
+
+        def request(number, head):
+            return {"repository": "example/board", "number": number, "state": "pending",
+                    "headSha": head, "headShaAtRequest": head, "freshness": "fresh",
+                    "stampUrl": f"https://stamp.example/github/example/board/pull/{number}"}
+
+        def stamp(*args):
+            if args == ("agent", "whoami"):
+                return STAMP_IDENTITY
+            if args == ("pr", "list", "--review-requested", "--refresh"):
+                first = request(33, "before" if clock < 4 else "after")
+                moved = request(39, "new")
+                moved["headShaAtRequest"] = "old"
+                foreign = request(77, "foreign")
+                foreign["repository"] = "example/unrelated"
+                return {"items": [first, moved, foreign, request(38, "conflicting"), request(37, "older-base")]}
+            if args == ("api", "repos/example/board/git/ref/heads/main"):
+                return {"object": {"sha": "current-base"}}
+            self.assertEqual(args[:2], ("pr", "review"))
+            self.assertIn(args[2], {"33", "37", "38"})
+            if args[2] == "38":
+                return {"headSha": "conflicting", "stampVerdict": {"state": "CONFLICT"}}
+            if args[2] == "37":
+                return {"headSha": "older-base", "baseRef": "main", "baseSha": "previous-base",
+                        "stampVerdict": {"state": "NEEDS_REVIEW"}}
+            return {"headSha": "before" if clock < 4 else "after", "baseRef": "main", "baseSha": "current-base",
+                    "stampVerdict": {"state": "NEEDS_REVIEW"}}
+
+        def advance(seconds):
+            nonlocal clock
+            clock += seconds
+            if clock == 7:
+                raise KeyboardInterrupt
+
+        title = ("You have 1 pending Stamp review. Stamp: https://stamp.example/github/example/board/pull/33. "
+                 "Taskboard: ./tasks --shared reviews")
+
+        def raft(*args):
+            if args == ("auth", "whoami"):
+                return json.dumps(RAFT_IDENTITY)
+            if args[:2] == ("reminder", "list"):
+                self.assertEqual(args[-1], "scheduled,fired")
+                return f'#old (one-time) "{title}" ref=#example:12345678\n' if clock == 2 else ""
+            self.assertEqual(args[:4], ("reminder", "schedule", "--title", title))
+            sends.append(clock)
+            return "Scheduled"
+
+        with patch("taskboard_cli.ready_checkpoint.stamp_json", side_effect=stamp) as provider, \
+                patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=raft), \
+                patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock), \
+                patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance), self.assertRaises(KeyboardInterrupt):
+            watch_ready_count(self.avery, "Avery", lambda _: clock > 0,
+                              lambda notice, can_wake: raft_ready_count(notice, "#example", "12345678", can_wake),
+                              lambda _: None, interval=1, idle_delay=1,
+                              review_requests=stamp_lookup("example/board", "avery"))
+        self.assertEqual(sends, [3, 4])
+        self.assertEqual(sum(call.args == ("agent", "whoami") for call in provider.call_args_list), 1)
+
+    def test_stamp_outage_leaves_ready_delivery_and_identity_mismatch_stops_the_lookup(self):
+        self.avery.invoke("create-task", {"title": "A Ready ticket", "step": "Read it."}, write=True)
+        lookup = stamp_lookup("example/board", "avery")
+        with patch("taskboard_cli.ready_checkpoint.stamp_json",
+                   return_value={"principalType": "agent", "agentId": "someone-else"}) as provider, \
+                patch("taskboard_cli.ready_checkpoint.raft_cli", return_value=json.dumps(RAFT_IDENTITY)), patch("sys.stderr"):
+            self.assertIsNone(lookup())
+            provider.assert_called_once_with("agent", "whoami")
+
+        observed = []
+
+        def capture(notice, _):
+            observed.append(notice)
+            return "wake-requested"
+
+        def stop(_):
+            raise KeyboardInterrupt
+
+        with patch("taskboard_cli.ready_checkpoint.stamp_json", side_effect=RuntimeError("Stamp unavailable")), \
+                patch("taskboard_cli.ready_checkpoint.raft_cli", return_value=json.dumps(RAFT_IDENTITY)), \
+                patch("sys.stderr"), self.assertRaises(KeyboardInterrupt):
+            watch_ready_count(self.avery, "Avery", lambda _: True, capture, stop,
+                              idle_delay=0, review_requests=lookup)
+        self.assertEqual(observed[0]["ready_count"], 1)
+        self.assertNotIn("stamp_review_count", observed[0])
+
+    def test_stamp_reminder_delivery_failure_has_no_receipt(self):
+        notice = {"ready_count": 0, "stamp_review_count": 2}
+        receipts = []
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", RuntimeError("failed")]) as invoke:
+            with self.assertRaisesRegex(RuntimeError, "failed"):
+                raft_ready_count(notice, "#example", "12345678", lambda: True, record_wake=receipts.append)
+        self.assertEqual(receipts, [])
+        self.assertIn("stamp pr list --review-requested --refresh", invoke.call_args.args[3])
+        self.assertIn("./tasks --shared reviews", invoke.call_args.args[3])
 
     def test_measurement_records_first_idle_and_empty_without_changing_wake_timing(self):
         clock = 0

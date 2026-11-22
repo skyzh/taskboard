@@ -973,7 +973,9 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("T-1 · Started", command(avery, "start", "T-1", "Work on old task."))
         self.assertIn("COURSE-1", command(avery, "delegate", "COURSE-1", "Blake", "Review course.", "--role", "review"))
         self.assertIn("T-1", command(avery, "delegate", "T-1", "Blake", "Review legacy.", "--role", "review"))
-        self.assertIn("No actionable reviews.", command(avery, "reviews"))
+        empty_reviews = command(avery, "reviews")
+        self.assertIn("No actionable Taskboard reviews.", empty_reviews)
+        self.assertIn("stamp pr list --review-requested --refresh", empty_reviews)
         self.assertIn("COURSE-1", command(blake, "reviews"))
         self.assertIn("T-1", command(blake, "reviews"))
         self.assertNotIn("COURSE-1", command(blake, "reviews", "--project", "T"))
@@ -2002,7 +2004,7 @@ class TasksServiceTest(unittest.TestCase):
             (("workers", "T-1"), "No worker runs."),
             (("goals",), "No goals set."),
             (("tagged", "T", "reflection"), "No reflection tickets in T."),
-            (("reviews",), "No actionable reviews."),
+            (("reviews",), "No actionable Taskboard reviews."),
             (("readiness",), "No readiness prompts."),
             (("watched", "Avery"), "No new activity on watched tasks."),
         ):
