@@ -583,24 +583,28 @@ test('a single line or exactly repeated explicit details need no disclosure', ()
   }
 })
 
-test('configured roster shows every assignee while other projects keep the Reports selector', () => {
-  function render(project, roster, selection) {
+test('Summary offers Active and All, including when the project has a configured roster', () => {
+  function render(project, roster, selection, initialAssigneeView, expectedView) {
     fixture.state = [false, selection]
     fixture.pages = { '/reports': filters => {
-      assert.deepEqual(filters, { project, view: undefined })
+      assert.deepEqual(filters, { project, view: expectedView })
       return { data: { items: [], next_cursor: null, ...(roster && { roster }) } }
     } }
-    return renderToStaticMarkup(React.createElement(Reports, { project }))
+    return renderToStaticMarkup(React.createElement(Reports, { project, initialAssigneeView }))
   }
 
-  const roster = render('T', true, { project: 'COURSE', view: 'idle' })
-  assert.doesNotMatch(roster, /<select|Open work|Other assignees/)
-  assert.match(roster, /Team overview/)
-  for (const project of ['T', 'COURSE']) {
-    const page = render(project, false, null)
+  for (const [project, roster, selection, initial, expected] of [
+    ['T', true, { project: 'COURSE', view: 'all' }, undefined, 'active'],
+    ['T', true, { project: 'T', view: 'all' }, undefined, 'all'],
+    ['COURSE', false, null, 'all', 'all'],
+  ]) {
+    const page = render(project, roster, selection, initial, expected)
     assert.match(page, /<select>/)
-    assert.match(page, /Open work/)
-    assert.match(page, /Other assignees/)
+    assert.match(page, />Active<\/option>/)
+    assert.match(page, />All<\/option>/)
+    assert.doesNotMatch(page, /Other assignees/)
+    assert.match(page, new RegExp(`value="${expected}" selected`))
+    assert.match(page, /Team overview/)
   }
 })
 
@@ -642,7 +646,7 @@ test('All projects keeps the same assignee and pending reports scoped to their o
   assert.match(markup, /id="reports-EMPTY">Empty project.*No open work to report\./)
 })
 
-test('Reports waits for a successful unconfigured response before showing filters', () => {
+test('Reports shows the selector after its first success and retains a selected filter through an error', () => {
   function render(project, selection, result, expectedView) {
     fixture.state = [false, selection]
     fixture.pages = { '/reports': filters => {
@@ -653,13 +657,13 @@ test('Reports waits for a successful unconfigured response before showing filter
   }
 
   const failure = { error: new Error('Try later.'), retry() {} }
-  const courseFilter = { project: 'COURSE', view: 'idle' }
-  const initialError = render('T', null, failure, undefined)
+  const courseFilter = { project: 'COURSE', view: 'all' }
+  const initialError = render('T', null, failure, 'active')
   assert.match(initialError, /Unable to load reports.*Retry/)
   assert.doesNotMatch(initialError, /<select>/)
-  assert.doesNotMatch(render('T', courseFilter, { pending: true }, undefined), /<select>/)
-  assert.doesNotMatch(render('T', courseFilter, failure, undefined), /<select>/)
-  assert.match(render('COURSE', courseFilter, failure, 'idle'), /<option value="idle" selected/)
+  assert.doesNotMatch(render('T', courseFilter, { pending: true }, 'active'), /<select>/)
+  assert.doesNotMatch(render('T', courseFilter, failure, 'active'), /<select>/)
+  assert.match(render('COURSE', courseFilter, failure, 'all'), /<option value="all" selected/)
 })
 
 test('Reports shows linked and unlinked asks in one request log without recipient-only notices', () => {

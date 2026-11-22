@@ -267,14 +267,13 @@ function ProjectLinks({ project, revision }) {
   )
 }
 
-function ProjectReports({ revision, project, projectTitle, hideRequests, requestFilter }) {
+function ProjectReports({ revision, project, projectTitle, hideRequests, requestFilter, initialAssigneeView = 'active' }) {
   const [selection, setSelection] = useState(null)
-  const filter = selection && selection.project === project ? selection.view : undefined
-  const page = useLoadedPages('/reports', { view: filter, project, ...(hideRequests && { hide_requests: true }) }, revision)
-  const view = page.data?.roster ? 'all' : filter || 'active'
-  const showFilters = view !== 'all' && Boolean(page.data || filter)
-  const label = view === 'all' ? 'Assignees' : view === 'active' ? 'Assignees with open work' : 'Other assignees'
-  const empty = view === 'all' ? 'No assignees.' : view === 'active' ? 'No open work to report.' : 'No other assignees.'
+  const selectedView = selection && selection.project === project ? selection.view : null
+  const view = selectedView ?? initialAssigneeView
+  const page = useLoadedPages('/reports', { view, project, ...(hideRequests && { hide_requests: true }) }, revision)
+  const label = view === 'all' ? 'Assignees' : 'Assignees with open work'
+  const empty = view === 'all' ? 'No assignees.' : 'No open work to report.'
   const headingId = projectTitle ? `reports-${project}` : 'reports'
   return (
     <section className={projectTitle ? 'project-reports' : 'reports'} aria-labelledby={headingId}>
@@ -282,12 +281,12 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, request
         {!projectTitle && <a href={project && project !== 'T'
           ? `#${new URLSearchParams({ project, section: 'team-overview' })}` : '#team-overview'}>Team overview</a>}
         {requestFilter}
-        {showFilters && (
+        {(page.data || selectedView) && (
           <label>
             Assignees
             <select value={view} onChange={event => setSelection({ project, view: event.target.value })}>
-              <option value="active">Open work</option>
-              <option value="idle">Other assignees</option>
+              <option value="active">Active</option>
+              <option value="all">All</option>
             </select>
           </label>
         )}
@@ -310,7 +309,8 @@ export default function Reports({ project, projects, ...props }) {
     <input type="checkbox" checked={hideRequests} onChange={event => setHideRequests(event.target.checked)} />
     Hide peer requests
   </label>
-  if (!projects) return <ProjectReports {...props} project={project} hideRequests={hideRequests} requestFilter={requestFilter} />
+  if (!projects) return <ProjectReports key={props.initialAssigneeView} {...props} project={project}
+    hideRequests={hideRequests} requestFilter={requestFilter} />
   return (
     <section className="reports" aria-labelledby="reports">
       <ReportsHeading headingId="reports">{requestFilter}</ReportsHeading>
