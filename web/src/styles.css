@@ -591,6 +591,20 @@ button:disabled { opacity: .57; }
 .ticket-context { margin-block: .8rem; border-top: 1px solid var(--line); }
 .ticket-context > summary { padding-block: .55rem; font-weight: var(--weight-emphasis); }
 .ticket-context-content { display: grid; gap: .55rem; padding-block: .55rem; overflow-wrap: anywhere; }
+.recurring-runs { margin-block: .8rem; border-block: 1px solid var(--line); }
+.recurring-runs > summary { padding-block: .55rem; font-weight: var(--weight-emphasis); }
+.recurring-runs > ol { list-style: none; margin: 0; padding: 0; }
+.recurring-runs li { border-top: 1px solid var(--line); padding-block: .55rem; }
+.recurring-run-heading { display: flex; flex-wrap: wrap; gap: .2rem .65rem; }
+.recurring-run-heading > span, .recurring-run-times dt { color: var(--muted); }
+.recurring-run-times {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr));
+  gap: .3rem .6rem;
+  margin: .25rem 0 0;
+  font-size: .84rem;
+}
+.recurring-run-times dd { margin: 0; }
 .task-detail.has-sidebar > h1 { max-width: calc(100% - 304px); }
 .task-detail.has-sidebar .ticket-detail-layout {
   display: grid;
