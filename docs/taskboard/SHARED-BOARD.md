@@ -40,6 +40,12 @@ Register a Raft app for the board. For a mount at `/tasks`, register `/tasks/` a
 
 Keep the session directory stable across releases and outside the ledger and its backups. Without a session directory, sessions are stored in memory and expire on process restart. Verified users and agents can make attributed changes within the recorded ownership and assignment rules. With Raft configured, omit `--portal-reader` to require sign-in for shared reads.
 
+### Preview Codex quota and credits
+
+On an isolated shared board with Raft sign-in, set `TASKS_CODEX_USAGE_VIEWER_SUBJECT` to the verified human subject UUID and `TASKS_CODEX_USAGE_SNAPSHOT` to an absolute path to a sample JSON file. Its top-level fields are `sample: true`, `captured_at` with a UTC offset, and `result` in the shape of the Codex App Server's `account/rateLimits/read` response. Open Settings while signed in as that human. The panel is disabled by default.
+
+The board reads the snapshot but does not start Codex or read Codex credentials. Confirm the source account and the viewer's authorization before using a live snapshot. Keep the file outside published assets and readable only by the board service and its authorized operator.
+
 ## Sign in with OpenID Connect
 
 A shared board can instead require human sign-in from one OpenID Connect issuer. Register a confidential web client with the full board callback URL, such as `https://tasks.example.org/tasks/auth/callback`. Use authorization code with PKCE S256 and the `openid profile` scopes. Set these values in the service environment alongside the gateway settings above.

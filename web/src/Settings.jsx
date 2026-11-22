@@ -1,4 +1,5 @@
 import React, { useId } from 'react'
+import CodexUsage from './CodexUsage.jsx'
 import { ProfileForm, ProfileSignIn } from './Profile.jsx'
 import { ResourceStatus } from './shared.jsx'
 import { browserTimeZone, timeZones } from './timeZone.js'
@@ -52,6 +53,7 @@ export default function Settings({ session, theme, timeZonePreference, chooseTim
           )}
         </section>
       )}
+      {actor?.kind === 'human' && <CodexUsage key={actor.id} />}
     </section>
   )
 }

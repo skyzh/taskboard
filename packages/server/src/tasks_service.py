@@ -24,6 +24,7 @@ from werkzeug.exceptions import NotFound, RequestEntityTooLarge
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 import tasks_audit as audit
+import tasks_codex_usage
 import tasks_core as ledger
 import tasks_maintenance as maintenance
 import tasks_goals as goals
@@ -582,6 +583,7 @@ def create_app(
     raft_channel_lookup=None,
     project_extensions=None,
     stamp_reader=None,
+    codex_usage=None,
 ):
     """Configure the board; injected identity providers are used by isolated tests."""
     github_merge_projects = frozenset(projects.prefix(project) for project in github_merge_projects)
@@ -591,6 +593,8 @@ def create_app(
         except ValueError as error:
             raise ValueError("Set TASKS_NEW_TASKS_DEFAULT_SUBJECT to a verified human subject UUID.") from error
     marketplace = marketplace_root is not None
+    if codex_usage and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
+        raise ValueError("Codex usage requires a private shared board with server-bound Raft sign-in.")
     project_extensions = project_extensions or {}
     stamp_repositories = {project: settings[extensions.STAMP_REVIEWS]
                           for project, settings in project_extensions.items() if extensions.STAMP_REVIEWS in settings}
@@ -1091,6 +1095,15 @@ def create_app(
             return {"actor": {"id": None, "name": "Local reader", "kind": "local", "role": None, "avatar_url": None},
                     **transport}
         return {"actor": actor_profile(actor), **transport}
+
+    @app.get("/api/v1/account/codex-usage")
+    def account_codex_usage():
+        if codex_usage is None:
+            raise NotFound()
+        actor = current_actor(required=True, sync_profile=False)
+        if actor["kind"] != "human" or actor["subject"] != codex_usage.viewer_subject:
+            raise NotFound()
+        return {"usage": codex_usage.read()}
 
     @app.get("/api/v1/frontend-build")
     def frontend_build():
@@ -2440,6 +2453,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             database, public_url=url, raft_config=config, oidc_config=oidc_config, postgres_dsn=postgres_dsn,
             local_readonly=local_readonly, portal_reader=portal_reader,
             portal_upstream_token=portal_upstream_token, github_reader=github, websocket_revisions=websocket_revisions,
+            codex_usage=tasks_codex_usage.configuration(os.environ),
             project_extensions=project_extensions,
             creation_default_subject=os.environ.get("TASKS_NEW_TASKS_DEFAULT_SUBJECT")
             if not (local_readonly or marketplace) else None,
