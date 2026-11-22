@@ -11,10 +11,15 @@ export function ChecklistProgress({ task }) {
   const total = task.checklist_total
   const completed = task.checklist_completed
   if (!total) return null
+  const scanning = completed > 0 && completed < total
   return (
     <span className="task-progress">
-      <progress value={completed} max={total} aria-label={`Checklist for ${taskLabel(task.id, task.key)}`}
-        aria-valuetext={`${completed} of ${total} complete`} />
+      <span className="task-progress-bar">
+        <progress value={completed} max={total} aria-label={`Checklist for ${taskLabel(task.id, task.key)}`}
+          aria-valuetext={`${completed} of ${total} complete`} />
+        {scanning && <span className="task-progress-glow" aria-hidden="true"
+          style={{ width: `${completed / total * 100}%` }} />}
+      </span>
       <span aria-hidden="true">{completed}/{total}</span>
     </span>
   )
