@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
+import { Reply } from 'lucide-react'
 import { useResource } from './data.js'
-import { Assignee, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, PeerRequestContext, ReminderWhen, ResourceStatus, Status, TaskLink, TaskPriority, Timestamp, eventHref, taskLabel, taskState } from './shared.jsx'
+import { Assignee, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, PeerRequestContext, ReminderWhen, ResourceStatus, Status, TaskLink, TaskPriority, Timestamp, eventHref, profileName, taskLabel, taskState } from './shared.jsx'
 import { ReportTime } from './ReportTime.jsx'
 import { reportTaskCue } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
@@ -50,6 +51,17 @@ function ReportReleaseResult({ receipt }) {
   )
 }
 
+function ReportPeerRequester({ ask }) {
+  const requester = profileName(ask.requester, { name: ask.requester_name })
+  return (
+    <p className="report-peer-request">
+      <Reply size={14} aria-hidden="true" focusable="false" />
+      {ask.phase === 'asked' ? `Request from ${requester}` : `Responding to ${requester}’s request`}
+      {ask.phase === 'asked' && ask.asked_at && <> <ReportTime at={ask.asked_at} /></>}
+    </p>
+  )
+}
+
 export function TaskRow({ task, owner = true, selected = false, report = false, ownReport = false, revision,
   compactQueue = false, searchQuery }) {
   const [showChecklist, setShowChecklist] = useState(false)
@@ -58,8 +70,9 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   const reportSummary = report === 'summary'
   const detailedReport = report && !reportSummary
   const state = taskState(task)
-  const showRequestState = !reportSummary || task.peer_request?.phase !== 'in_progress'
-  const showTaskStatus = !reportSummary || !task.peer_request || !showRequestState
+  const ask = task.peer_request
+  const showRequester = reportSummary && ['asked', 'in_progress'].includes(ask?.phase)
+  const showTaskStatus = !reportSummary || !ask || ask.phase === 'in_progress'
   const headingStatus = showTaskStatus && reportSummary && ['waiting', 'in_progress'].includes(state)
   const activityAt = task.last_activity_at || task.at
   const detailNote = detailedReport && (cue ? cue.details : task.note)
@@ -68,6 +81,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
     <li className={`task-row${selected ? ' selected' : ''}${report ? ' report-task' : ''}`}>
       <TaskPriority priority={task.priority} strip />
       <div className="task-row-heading">
+        {showRequester && <ReportPeerRequester ask={ask} />}
         {headingStatus && <Status state={state} compactOnPhone />}
         <TaskLink reference={task.key} id={task.id} title={task.title} current={selected} searchQuery={searchQuery} />
         <div className="task-row-meta">
@@ -82,7 +96,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
         </div>
       </div>
       <div className="task-row-context">
-        <PeerRequestContext task={task} showAskedAge={reportSummary} showState={showRequestState} />
+        <PeerRequestContext task={task} showState={!showRequester} />
         {task.waiting_on && <p className="task-dependency"><Dependency task={task} /></p>}
         {cue?.text && (
           <div className="report-task-cue">

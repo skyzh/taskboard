@@ -246,17 +246,14 @@ const peerRequestLabels = {
   canceled: 'Canceled',
 }
 
-export function PeerRequestContext({ task, showAskedAge = false, showState = true }) {
+export function PeerRequestContext({ task, showState = true }) {
   if (task.peer_request) {
-    const { phase, asked_at: askedAt, source_id: sourceId, source_key: sourceKey } = task.peer_request
+    const { phase, source_id: sourceId, source_key: sourceKey } = task.peer_request
     const state = taskState(task)
     const label = phase === 'in_progress' ? states[state] || state : peerRequestLabels[phase]
     return (
       <p className="event-meta">
-        {showState && <span>
-          <strong>{label}</strong>
-          {showAskedAge && phase === 'asked' && askedAt && <> <ReportTime at={askedAt} /></>}
-        </span>}
+        {showState && <strong>{label}</strong>}
         <span>Request for <TaskLink id={sourceId} reference={sourceKey} /></span>
       </p>
     )
