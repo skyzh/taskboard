@@ -5,12 +5,16 @@ from pathlib import Path
 
 import tasks_core as ledger
 import tasks_extensions as extensions
-from tasks_github import _ReadError, _source, _time, activity_rules, link_settings, observe_metadata, repository, save_updates
+from tasks_github import (
+    _ReadError, _source, _time, activity_read_bound, activity_rules, link_settings, observe_metadata, repository,
+    save_updates,
+)
 from tasks_release_info import release_info
 import tasks_storage
 
 
 _BATCH_SIZE = 10
+_SOURCE_READ_BUDGET = 30
 _COMPARISONS_PER_REFRESH = 10
 
 
@@ -102,17 +106,21 @@ def _deployed(db, reader, compare, project, rule, running_release, board_url, re
                 result["deployments"] += 1
 
 
-def _read_observations(db, source, item, reader, configured):
-    settings = link_settings(db, source["id"], configured)
+def _read_observations(item, reader, settings, remaining):
     rules = activity_rules(settings, item)
     if rules:
         issue_status = any(options.get(extensions.STATUS) for options in settings.values())
         review_comments = any("review_comment" in policies for policies in rules.values())
-        return reader._read_item(item, issue_status=issue_status, review_comments=review_comments)
+        bound = activity_read_bound(item, issue_status=issue_status, review_comments=review_comments)
+        if bound > remaining:
+            return None
+        return bound, reader._read_item(item, issue_status=issue_status, review_comments=review_comments)
+    if remaining < 1:
+        return None
     try:
-        return (), None, (), reader.read_metadata(item)
+        return 1, ((), None, (), reader.read_metadata(item))
     except _ReadError as error:
-        return (), None, (("status", str(error)),), None
+        return 1, ((), None, (("status", str(error)),), None)
 
 
 def refresh(db, reader, configured, *, release_source=None, board_url):
@@ -121,6 +129,7 @@ def refresh(db, reader, configured, *, release_source=None, board_url):
     result = {"sources": 0, "activity": 0, "deployments": 0, "errors": []}
     if not configured:
         return result
+    remaining_reads = _SOURCE_READ_BUDGET
     for source in _metadata_sources(db, configured):
         checked_at = ledger.timestamp()
         try:
@@ -131,7 +140,13 @@ def refresh(db, reader, configured, *, release_source=None, board_url):
                 extensions.save_status(db, source["id"], None, checked_at)
                 ledger.bump_revision(db)
             continue
-        updates, review_state, errors, metadata = _read_observations(db, source, item, reader, configured)
+        settings = link_settings(db, source["id"], configured)
+        observation = _read_observations(item, reader, settings, remaining_reads)
+        if observation is None:
+            # Leave the next source unattempted so it starts the following pass.
+            break
+        reads, (updates, review_state, errors, metadata) = observation
+        remaining_reads -= reads
         result["errors"].extend({"source": source["source_key"], "error": error} for _, error in errors)
         with tasks_storage.write(db):
             settings = link_settings(db, source["id"], configured)

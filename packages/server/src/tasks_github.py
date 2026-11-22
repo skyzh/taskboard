@@ -18,6 +18,7 @@ _API_ORIGIN = "https://api.github.com"
 _SOURCE = re.compile(r"https://github\.com/([A-Za-z0-9-]{1,39})/([A-Za-z0-9._-]{1,100})"
                      r"/(issues|pull)/([1-9][0-9]{0,18})/?")
 _PAGE_SIZE = 20
+_MAX_RECENT_PAGE_READS = 3
 _SOURCE_LIMIT = 10
 _MAX_RESPONSE = 2 * 1024 * 1024
 _REVIEW_STATES = {"APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"}
@@ -221,6 +222,23 @@ def _pull_state(document):
     }
 
 
+def _item_activity_paths(item, review_comments):
+    paths = [("timeline", f"{item.repo_path}/issues/{item.number}/timeline")]
+    if item.kind == "pull":
+        pull = f"{item.repo_path}/pulls/{item.number}"
+        paths.append(("reviews", f"{pull}/reviews"))
+        if review_comments:
+            paths.append(("review_comments", f"{pull}/comments"))
+    return paths
+
+
+def activity_read_bound(item, *, issue_status, review_comments):
+    """Budget enough to finish each source without interrupting a page read."""
+    return _MAX_RECENT_PAGE_READS * len(_item_activity_paths(item, review_comments)) + int(
+        item.kind == "pull" or issue_status
+    )
+
+
 class GitHubReader:
     """Read public GitHub resources through a pinned REST origin."""
 
@@ -332,14 +350,7 @@ class GitHubReader:
         updates, errors = {}, []
         opening = None
         opening_key = f"github:pull-opened:{item.number}"
-        timeline = f"{item.repo_path}/issues/{item.number}/timeline"
-        pull = f"{item.repo_path}/pulls/{item.number}"
-        lists = [("timeline", timeline)]
-        if item.kind == "pull":
-            lists.append(("reviews", f"{pull}/reviews"))
-            if review_comments:
-                lists.append(("review_comments", f"{pull}/comments"))
-        for stage, path in lists:
+        for stage, path in _item_activity_paths(item, review_comments):
             try:
                 documents, warning = self._recent(path)
             except _ReadError as error:

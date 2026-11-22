@@ -5742,6 +5742,64 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(recorded("COURSE-1"), [])
         self.assertEqual(self.call(blake, "/api/v1/tasks/COURSE-1").json["task"]["state"], "in_progress")
 
+    def test_github_activity_leaves_room_for_deployment_and_rotates_sources(self):
+        from tasks_extensions import configuration, save_status
+        from tasks_github import link_github_source
+        from tasks_github_extensions import refresh
+        from tasks_storage import open_sqlite, write
+
+        merged_at = "2026-11-19T10:00:00Z"
+        active = "f" * 40
+        release = {"commit": active, "deployed_at": "2026-11-20T10:00:00Z"}
+        configured = configuration(json.dumps({"T": {"github-events": {
+            "repository": "example/board", "deployment": {"provider": "pi", "environment": "production"},
+            "activity": {"review_comment": {}},
+        }}}))
+        paths, observed_sources, compared = [], [], []
+
+        def transport(request):
+            path = urlsplit(request.full_url).path
+            paths.append(path)
+            if len(paths) > 60:
+                return 403, {"X-RateLimit-Remaining": "0"}, None
+            if path.endswith(("/timeline", "/reviews", "/comments")):
+                return 200, {"Link": f'<https://api.github.com{path}?page=3>; rel="last"'}, []
+            if "/pulls/" in path:
+                number = int(path.rsplit("/", 1)[1])
+                observed_sources.append(number)
+                return 200, {}, {"state": "closed", "merged": True,
+                                 "merge_commit_sha": f"{number:040x}", "merged_at": merged_at}
+            merged = path.rsplit("/", 1)[1].split("...")[0]
+            number = int(merged, 16)
+            compared.append(number)
+            if number == 10:
+                return 200, {}, {"status": "ahead", "merge_base_commit": {"sha": merged}}
+            return 200, {}, {"status": "diverged", "merge_base_commit": {"sha": "0" * 40}}
+
+        reader = GitHubReader(transport=transport)
+        avery, _ = self.login(self.app(reader, project_extensions=configured), "Avery")
+        self.action(avery, "create-task", {"title": "Watch deployment", "step": "Check the release."})
+        with closing(open_sqlite(self.database)) as db, write(db):
+            for number in range(1, 11):
+                _, _, source = link_github_source(db, 1, f"https://github.com/example/board/pull/{number}")
+                save_status(db, source, "merged", merged_at, merge_commit=f"{number:040x}", merged_at=merged_at)
+
+        for index, expected in enumerate(((1, 2, 3), (4, 5, 6), (7, 8, 9), (10, 1, 2))):
+            paths.clear()
+            observed_sources.clear()
+            with (
+                closing(open_sqlite(self.database)) as db,
+                patch("tasks_github_extensions.release_info", return_value=release),
+                patch("tasks_github_extensions.ledger.timestamp", return_value=f"2026-11-20T11:0{index}:00Z"),
+            ):
+                result = refresh(db, reader, configured, release_source=Path("fixture"), board_url=ORIGIN + BASE)
+            self.assertEqual(result["errors"], [])
+            self.assertEqual(result["sources"], 3)
+            self.assertEqual(result["deployments"], int(index == 0))
+            self.assertEqual(tuple(observed_sources), expected)
+            self.assertEqual(len(paths), 40 if index == 0 else 30)
+        self.assertEqual(compared, list(range(1, 11)))
+
     def test_github_extension_uses_only_matching_successful_deployment_status(self):
         from tasks_extensions import EVENTS, configuration
 
