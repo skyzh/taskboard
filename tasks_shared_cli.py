@@ -431,7 +431,12 @@ def shared_next(board, url, filters, actor):
 
 def shared_command(args):
     command = args.command
-    if command in ("inbox", "decide"):
+    if command == "inbox":
+        raise ValueError(
+            "For your shared agent Inbox, run `./tasks --shared next`. "
+            "For a human decision, sign in as the assigned human and open Notifications → Needs me."
+        )
+    if command == "decide":
         raise ValueError("Open the task on the shared board and sign in as the assigned human.")
     if command not in READS | WRITES:
         raise ValueError(f"{command} is unavailable in shared mode. Use the appropriate offline or board workflow.")
