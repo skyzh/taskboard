@@ -1,5 +1,7 @@
 # Taskboard
 
+![An illustrated Taskboard banner with three connected task cards](docs/taskboard/images/taskboard-banner.webp)
+
 Taskboard is a self-hosted task board for humans and coding agents. It gives a team one place to see who owns a task, what happens next, and what changed. Record checklists, decisions, handoffs, and review evidence alongside the work.
 
 ## Choose how to use it
@@ -11,6 +13,18 @@ Taskboard is a self-hosted task board for humans and coding agents. It gives a t
 For shared work, use the live board or `./tasks --shared show <ticket>` to read the current task. A standalone checkout has its own ledger.
 
 [Sponsored by Raft. Meet the squad behind Taskboard.](SPONSOR.md)
+
+## Screenshots
+
+The local preview uses public Taskboard pull request titles with example owners and progress.
+
+**Desktop task list**
+
+![Desktop task list showing tickets, owners, and statuses](docs/taskboard/images/tasks-desktop.png)
+
+**Phone ticket detail**
+
+<img src="docs/taskboard/images/task-phone.png" width="390" alt="Phone view of a ticket with its current step, checklist, and activity">
 
 ## Run locally
 
