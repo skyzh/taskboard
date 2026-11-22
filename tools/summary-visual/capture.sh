@@ -32,14 +32,30 @@ printf 'iPhone 17 on iOS %s (%s)\n' "$runtime_version" "$runtime_build" | tee "$
 xcrun simctl bootstatus "$udid" -b > "$evidence/boot.txt"
 safari="$(xcrun simctl get_app_container "$udid" com.apple.mobilesafari app)"
 /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$safari/Info.plist" > "$evidence/safari-version.txt"
+
+capture_metrics() {
+  local page="$1" metrics="$2" wait_limit second
+  for wait_limit in 12 36; do
+    if xcrun simctl openurl "$udid" "$page"; then
+      for ((second = 0; second < wait_limit; second++)); do
+        if [[ -s "$metrics" ]]; then return 0; fi
+        sleep 1
+      done
+    fi
+    if [[ -s "$metrics" ]]; then return 0; fi
+    if [[ "$wait_limit" == 12 ]]; then
+      printf 'No Safari measurements for %s. Retrying the launch once.\n' "$page" >&2
+    fi
+  done
+  printf 'Safari produced no measurements for %s after two launches.\n' "$page" >&2
+  return 1
+}
+
 for layout in compact wide; do
   page="${url}?layout=${layout}#reports?project=T"
-  xcrun simctl openurl "$udid" "$page"
-  for attempt in {1..48}; do
-    if [[ -s "$evidence/$layout.json" ]]; then break; fi
-    if [[ "$attempt" == 12 ]]; then xcrun simctl openurl "$udid" "$page"; fi
-    sleep 1
-  done
+  capture_status=0
+  capture_metrics "$page" "$evidence/$layout.json" || capture_status=$?
   xcrun simctl io "$udid" screenshot "$evidence/$layout.png"
+  if [[ "$capture_status" != 0 ]]; then exit "$capture_status"; fi
 done
 node "$here/verify.mjs" "$evidence" compact wide
