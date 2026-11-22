@@ -20,6 +20,7 @@ import { activityHeadline, ticketActivityCopy } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { TaskWaitAge } from './WaitAge.jsx'
 import { useTimeZone } from './timeZone.js'
+import { ReportTime } from './ReportTime.jsx'
 
 const ownerOptionPrefix = 'owner:'
 
@@ -163,7 +164,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
   const result = activityHeadline(event)
   const timeLink = (
     <a href={eventHref(event.id)} aria-label={`Link to ${event.label.toLowerCase()} by ${actor} at ${formatTimestamp(event.at)}`}>
-      <Timestamp at={event.at} compact={ticketActivity} />
+      <ReportTime at={event.at} linked />
     </a>
   )
   if (ticketActivity) {
@@ -356,7 +357,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   )
 }
 
-function ActivityEntry({ event, full, selected = false }) {
+function ActivityEntry({ event, full, selected = false, exact = selected }) {
   const { formatTimestamp } = useTimeZone()
   const actor = profileName(event.actor, event.actor_profile)
   const result = activityHeadline(event)
@@ -377,7 +378,7 @@ function ActivityEntry({ event, full, selected = false }) {
             <ActivityWait event={event} headline={result} />
             {full && <span>{event.label}</span>}
             <a href={eventHref(event.id)} aria-label={`Open activity by ${actor} at ${formatTimestamp(event.at)}`}>
-              <Timestamp at={event.at} showDate={false} />
+              {exact ? <Timestamp at={event.at} /> : <ReportTime at={event.at} linked />}
             </a>
           </div>
         </div>
@@ -456,7 +457,7 @@ export function WorkLog({ requested, revision, ownerProfiles }) {
         <section className="outcome-day" aria-labelledby="linked-activity-heading">
           <h2 id="linked-activity-heading">Linked event</h2>
           <ol className="event-list" role="list">
-            <ActivityEntry event={linkedEvent} full={full} />
+            <ActivityEntry event={linkedEvent} full={full} exact />
           </ol>
         </section>
       )}

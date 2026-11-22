@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useId, useState } from 'react'
 import { useTimeZone } from './timeZone.js'
 
 const ReportClock = createContext(null)
@@ -35,9 +35,28 @@ export function ReportTimeProvider({ children }) {
   return <ReportClock.Provider value={now}>{children}</ReportClock.Provider>
 }
 
-export function ReportTime({ at }) {
+function ExactTimeDisclosure({ at, age, exact }) {
+  const id = useId()
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <span className="relative-time">
+      <button type="button" className="relative-time-toggle" aria-expanded={expanded} aria-controls={id}
+        aria-label={`${age}, ${exact}`} onClick={() => setExpanded(value => !value)}>
+        <time dateTime={at} title={exact}>{age}</time>
+      </button>
+      <time id={id} className="relative-time-detail" dateTime={at} hidden={!expanded}>{exact}</time>
+    </span>
+  )
+}
+
+export function ReportTime({ at, linked = false }) {
   const now = useContext(ReportClock)
   const { formatTimestamp } = useTimeZone()
   const age = relativeAge(at, now ?? Date.now())
-  return <time dateTime={at} title={age === at ? at : formatTimestamp(at)}>{age}</time>
+  if (age === at) return <time dateTime={at}>{at}</time>
+  const exact = formatTimestamp(at)
+  if (linked) {
+    return <time dateTime={at} title={exact}>{age}<span className="relative-time-accessible"> ({exact})</span></time>
+  }
+  return <ExactTimeDisclosure at={at} age={age} exact={exact} />
 }

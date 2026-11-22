@@ -1,5 +1,6 @@
 import React from 'react'
 import { useLoadedPages } from './data.js'
+import { ReportTime } from './ReportTime.jsx'
 import { LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref } from './shared.jsx'
 
 const kinds = { ready: 'Ready notice', merge: 'Merge notice' }
@@ -30,7 +31,7 @@ function Entry({ item }) {
       <p className="event-meta">
         <span>{kinds[item.kind]} for {item.recipient}</span>
         <strong>{states[item.status]}</strong>
-        {item.status === 'pending' && <span>Observed <Timestamp at={item.status_at} /></span>}
+        {item.status === 'pending' && <span>Observed <ReportTime at={item.status_at} /></span>}
         <a href={eventHref(item.id)}>Source activity</a>
       </p>
       <dl className="notification-log-times">

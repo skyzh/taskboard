@@ -75,7 +75,7 @@ export function OutcomeSummary({ events }) {
         </div>
         <span className="outcome-meta outcome-time">
           {profileName(latest.actor, latest.actor_profile)}
-          <a href={eventHref(latest.id)}><ReportTime at={latest.at} /></a>
+          <a href={eventHref(latest.id)}><ReportTime at={latest.at} linked /></a>
         </span>
       </div>
       <details className="outcome-details">
@@ -86,7 +86,7 @@ export function OutcomeSummary({ events }) {
               <p className="event-meta">
                 <strong>{event.label}</strong>
                 <span>{profileName(event.actor, event.actor_profile)}</span>
-                <a href={eventHref(event.id)}><Timestamp at={event.at} showDate={false} /></a>
+                <a href={eventHref(event.id)}><Timestamp at={event.at} /></a>
               </p>
               <OutcomeNote event={event} choiceShown={event.id === latest.id && Boolean(choice)} />
             </li>
@@ -120,7 +120,7 @@ export function OutcomeRow({ events }) {
         </div>
         <span className="outcome-meta outcome-time">
           {profileName(latest.actor, latest.actor_profile)}
-          <a href={eventHref(latest.id)}><Timestamp at={latest.at} showDate={false} /></a>
+          <a href={eventHref(latest.id)}><ReportTime at={latest.at} linked /></a>
         </span>
       </div>
       {events.length === 1 ? (
@@ -133,7 +133,7 @@ export function OutcomeRow({ events }) {
               <p className="event-meta">
                 <strong>{event.label}</strong>
                 <span>{profileName(event.actor, event.actor_profile)}</span>
-                <a href={eventHref(event.id)}><Timestamp at={event.at} showDate={false} /></a>
+                <a href={eventHref(event.id)}><Timestamp at={event.at} /></a>
               </p>
               <OutcomeNote event={event} headline={event.id === latest.id ? result : undefined}
                 choiceShown={event.id === latest.id} withEvidence={false} />

@@ -4,6 +4,7 @@ import About from './About.jsx'
 import AssigneePage from './AssigneePage.jsx'
 import Notifications from './Notifications.jsx'
 import MyActivity from './MyActivity.jsx'
+import { ReportTime } from './ReportTime.jsx'
 import { Outcomes, Overview } from './Overview.jsx'
 import Profile from './Profile.jsx'
 import Reports from './Reports.jsx'
@@ -16,7 +17,7 @@ import { SearchResults, TaskSearch } from './TaskSearch.jsx'
 import { TaskDetail, WorkLog, WorkQueue } from './Work.jsx'
 import { useTheme } from './theme.js'
 import {
-  browserTimeZone, createTimeZoneFormatters, readTimeZonePreference, saveTimeZonePreference, TimeZoneContext, useTimeZone,
+  browserTimeZone, createTimeZoneFormatters, readTimeZonePreference, saveTimeZonePreference, TimeZoneContext,
 } from './timeZone.js'
 
 function fragmentId(fragment, pattern) {
@@ -125,7 +126,6 @@ function SectionIndex({ overview, mapAvailable, openMap }) {
 }
 
 function BoardConnection({ checkedAt, checking, stale, source }) {
-  const { formatClock, formatTimestamp } = useTimeZone()
   const socket = source === 'socket'
   const status = stale ? 'Updates interrupted' : !checkedAt && checking ? 'Checking for updates…' : ''
   if (!checkedAt && !status) return null
@@ -134,9 +134,9 @@ function BoardConnection({ checkedAt, checking, stale, source }) {
     <p className="appbar-connection">
       <span role="status">{status}</span>
       {checkedAt && (
-        <span title={(socket ? 'Last update received ' : 'Last checked ') + formatTimestamp(checkedAt)}>
+        <span>
           {socket ? 'Updated ' : 'Checked '}
-          <time dateTime={checkedAt}>{formatClock(checkedAt)}</time>
+          <ReportTime at={checkedAt} />
         </span>
       )}
     </p>

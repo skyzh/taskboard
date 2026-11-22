@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useResource } from './data.js'
-import { Assignee, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, ReminderWhen, ResourceStatus, Status, TaskLink, TaskPriority, eventHref, taskLabel, taskState } from './shared.jsx'
+import { Assignee, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, ReminderWhen, ResourceStatus, Status, TaskLink, TaskPriority, Timestamp, eventHref, taskLabel, taskState } from './shared.jsx'
 import { ReportTime } from './ReportTime.jsx'
 import { reportTaskCue } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
@@ -44,7 +44,7 @@ function ReportReleaseResult({ receipt }) {
   return (
     <p className="event-meta">
       <strong>{label}</strong>
-      <ReportTime at={receipt.at} />
+      <Timestamp at={receipt.at} />
       {receipt.receipt_url && <a href={receipt.receipt_url}>Release receipt</a>}
     </p>
   )

@@ -9,16 +9,7 @@ import { TaskRows } from './WorkRow.jsx'
 import { EventRow } from './Work.jsx'
 import { TaskWaitAge } from './WaitAge.jsx'
 import { useTimeZone } from './timeZone.js'
-
-const relativeTime = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
-
-function createdAgo(at) {
-  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(at)) / 60_000))
-  if (minutes === 0) return 'Just now'
-  if (minutes < 60) return relativeTime.format(-minutes, 'minute')
-  if (minutes < 1440) return relativeTime.format(-Math.floor(minutes / 60), 'hour')
-  return relativeTime.format(-Math.floor(minutes / 1440), 'day')
-}
+import { ReportTime } from './ReportTime.jsx'
 
 function Creation({ event }) {
   const { formatTimestamp } = useTimeZone()
@@ -30,7 +21,7 @@ function Creation({ event }) {
       <p className="event-meta">
         <span>Created by {creator}</span>
         <a href={eventHref(event.id)} aria-label={`View task creation by ${creator} at ${timestamp}`}>
-          <time dateTime={event.at} title={timestamp}>{createdAgo(event.at)}</time>
+          <ReportTime at={event.at} linked />
         </a>
       </p>
     </li>

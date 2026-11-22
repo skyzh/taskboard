@@ -68,7 +68,7 @@ test('Reports shows the exact receipt and prompts only the owner of an older ste
   }))
   const owned = show(result, true)
   assert.match(owned, /Check the rollback plan/)
-  assert.match(owned, /Step updated <time[^>]+dateTime="2026-11-21T07:42:10Z"/)
+  assert.match(owned, /Step updated <span[^>]*><button[^>]*aria-expanded="false"[^>]*><time[^>]+dateTime="2026-11-21T07:42:10Z"/)
   assert.match(owned, /Released in #8<\/strong><time[^>]+dateTime="2026-11-21T07:43:11Z"/)
   assert.match(owned, /href="https:\/\/example.test\/receipts\/8">Release receipt/)
   assert.match(owned, /Review your next step/)

@@ -2,7 +2,6 @@ import React from 'react'
 import { queryPath, useLoadedPages, useResource } from './data.js'
 import { Outcomes } from './Overview.jsx'
 import { OwnerWorkLinks, PendingReports, ownerWorkSections } from './Reports.jsx'
-import { ReportTimeProvider } from './ReportTime.jsx'
 import { AssigneeAvatar, DriWorkStatus, LoadMore, ResourceStatus, ownerHref, profileName } from './shared.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import DriWorkers from './DriWorkers.jsx'
@@ -40,7 +39,7 @@ export default function AssigneePage({ owner, section, revision, project, report
   const sections = ownerWorkSections.filter(({ state, id }) => counts?.[state] !== 0 || section === id)
   const ready = sections.find(({ state }) => state === 'ready')
   return (
-    <ReportTimeProvider>
+    <>
       <a className="back-link" href={reportsHref}>Back to Reports</a>
       <header id="assignee-title" className="assignee-page-heading">
         <AssigneeAvatar name={name} url={profile?.avatar_url} large />
@@ -89,6 +88,6 @@ export default function AssigneePage({ owner, section, revision, project, report
       {!hasWork && entry.has_outcomes === false && !reports.length && !section && (
         <p className="section-message">No current work or recent outcomes.</p>
       )}
-    </ReportTimeProvider>
+    </>
   )
 }
