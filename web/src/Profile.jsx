@@ -1,6 +1,7 @@
-import React, { useEffect, useId, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { request, signOut } from './data.js'
 import { AssigneeAvatar, ResourceStatus, signInHref } from './shared.jsx'
+import { matchesBoardShortcut } from './shortcuts.js'
 
 export function ProfileForm({ actor, onSaved }) {
   const [role, setRole] = useState(actor.role || '')
@@ -69,14 +70,35 @@ export function ProfileSignIn({ session, fragment }) {
 export default function Profile({ session, fragment, theme, freshness }) {
   const actor = session.data?.actor
   const panelId = useId()
+  const shortcutsTitle = useId()
   const profile = useRef(null)
   const trigger = useRef(null)
+  const shortcuts = useRef(null)
+  const shortcutsOpener = useRef(null)
   const [open, setOpen] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const [signOutFailed, setSignOutFailed] = useState(false)
   const verified = actor?.kind === 'human' || actor?.kind === 'agent'
   const name = verified ? actor.name : 'Not signed in'
   const nextMode = theme.mode === 'night' ? 'day' : 'night'
+
+  const showShortcuts = useCallback(fromMenu => {
+    const dialog = shortcuts.current
+    if (!dialog || dialog.open) return
+    shortcutsOpener.current = fromMenu ? trigger.current : document.activeElement
+    setOpen(false)
+    dialog.showModal()
+  }, [])
+
+  useEffect(() => {
+    function helpShortcut(event) {
+      if (!shortcuts.current || !matchesBoardShortcut(event, 'KeyH')) return
+      event.preventDefault()
+      showShortcuts(false)
+    }
+    window.addEventListener('keydown', helpShortcut)
+    return () => window.removeEventListener('keydown', helpShortcut)
+  }, [showShortcuts])
 
   useEffect(() => {
     if (!open) return
@@ -135,6 +157,7 @@ export default function Profile({ session, fragment, theme, freshness }) {
         </button>
         <a href="#settings" onClick={closeAndFocus}>Settings</a>
         <a href="#about" onClick={closeAndFocus}>About</a>
+        <button type="button" aria-keyshortcuts="Alt+Shift+H" onClick={() => showShortcuts(true)}>Keyboard shortcuts</button>
         <ProfileSignIn session={session} fragment={fragment} />
         {verified && <button type="button" onClick={handleSignOut} disabled={signingOut}>
           {signingOut ? 'Signing out…' : 'Sign out'}
@@ -142,6 +165,15 @@ export default function Profile({ session, fragment, theme, freshness }) {
         {freshness}
         {signOutFailed && <p role="alert">Couldn’t sign out. Try again.</p>}
       </div>
+      <dialog ref={shortcuts} className="shortcuts-dialog" aria-labelledby={shortcutsTitle}
+        onClose={() => shortcutsOpener.current?.focus()}>
+        <h2 id={shortcutsTitle}>Keyboard shortcuts</h2>
+        <dl>
+          <div><dt>Search tasks</dt><dd><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd></dd></div>
+          <div><dt>Show shortcuts</dt><dd><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>H</kbd></dd></div>
+        </dl>
+        <button type="button" autoFocus onClick={() => shortcuts.current.close()}>Close</button>
+      </dialog>
     </div>
   )
 }

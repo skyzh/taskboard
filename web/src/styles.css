@@ -145,6 +145,18 @@ main [id] { scroll-margin-top: .8rem; }
 }
 .profile-actions > :is(button, a):hover { background: var(--wash); }
 .profile-freshness { display: none; }
+.shortcuts-dialog {
+  width: min(22rem, calc(100% - 2rem));
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: .45rem;
+  background: var(--paper);
+  color: var(--ink);
+}
+.shortcuts-dialog::backdrop { background: #0006; }
+.shortcuts-dialog dl { margin: .7rem 0 1rem; }
+.shortcuts-dialog dl > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .8rem; }
+.shortcuts-dialog dd { margin-inline-start: auto; }
 h1 { font-size: 1.68rem; line-height: 1.2; font-weight: var(--weight-heading); letter-spacing: -.035em; }
 h2 { font-size: 1.03rem; font-weight: var(--weight-heading); line-height: 1.3; }
 h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
