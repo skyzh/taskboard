@@ -173,6 +173,75 @@ class BoardQueries:
                 )]
         return result
 
+    def recurring_runs(self, number, owner):
+        """Read a bounded history from the schedule linked to this occurrence."""
+        rows = self.db.execute(
+            f"""
+            WITH schedule AS (
+                SELECT definition.id,
+                       CASE WHEN definition.state = 'active' THEN definition.next_at END AS next_at
+                FROM recurring_occurrences AS occurrence
+                JOIN recurring_definitions AS definition ON definition.id = occurrence.definition_id
+                LEFT JOIN project_maintenance AS managed ON managed.definition_id = definition.id
+                LEFT JOIN projects AS project ON project.prefix = managed.project
+                WHERE occurrence.task_id = ? AND (
+                    (managed.project IS NULL AND definition.owner = ?) OR project.dri = ?
+                )
+            ),
+            recent AS (
+                SELECT occurrence.due_at, occurrence.issued_at, occurrence.task_id
+                FROM recurring_occurrences AS occurrence
+                JOIN schedule ON schedule.id = occurrence.definition_id
+                ORDER BY occurrence.due_at DESC LIMIT ?
+            ),
+            history AS (
+                SELECT due_at, issued_at, task_id FROM recent
+                UNION
+                SELECT occurrence.due_at, occurrence.issued_at, occurrence.task_id
+                FROM recurring_occurrences AS occurrence
+                JOIN schedule ON schedule.id = occurrence.definition_id
+                WHERE occurrence.task_id = ?
+            )
+            SELECT history.due_at, history.issued_at, history.task_id, schedule.next_at,
+                   ticket.id, ticket.project_prefix, ticket.project_number,
+                   {ledger.display_state_sql("events.context")} AS display_state,
+                   (SELECT at FROM events
+                    WHERE events.task_id = history.task_id AND action = 'start'
+                    ORDER BY id LIMIT 1) AS started_at,
+                   CASE WHEN events.state = 'done' THEN (
+                       SELECT at FROM events
+                       WHERE events.task_id = history.task_id AND state = 'done'
+                         AND (action = 'done' OR json_type(events.context, '$.closure') = 'object')
+                       ORDER BY id DESC LIMIT 1
+                   ) END AS terminal_at
+            FROM history CROSS JOIN schedule
+            LEFT JOIN tasks AS ticket ON ticket.id = history.task_id
+            LEFT JOIN events ON events.id = (
+                SELECT MAX(id) FROM events
+                WHERE task_id = history.task_id AND action NOT IN ('source-event', 'log')
+            )
+            ORDER BY history.due_at DESC
+            """, (number, owner, owner, recurring.HISTORY_LIMIT, number),
+        ).fetchall()
+        if not rows:
+            return None
+        items = []
+        for row in rows:
+            if row["task_id"] is None:
+                state = "missed"
+            elif row["display_state"] == "closed":
+                state = "closed"
+            elif row["display_state"] == "done":
+                state = "completed"
+            else:
+                state = "started" if row["started_at"] is not None else "issued"
+            items.append({
+                **{field: row[field] for field in ("due_at", "issued_at", "started_at", "terminal_at", "task_id")},
+                "state": state,
+                "task_key": projects.row_reference(row) if row["id"] is not None else None,
+            })
+        return {"current_task_id": number, "next_at": rows[0]["next_at"], "items": items}
+
     def links(self, pairs, *, event_id=None):
         values = []
         for index, (label, url) in enumerate(pairs):
@@ -467,7 +536,7 @@ class BoardQueries:
             **projects.project_features(project),
         }
 
-    def detail(self, number, *, project_extensions=None):
+    def detail(self, number, *, project_extensions=None, owner=None):
         row = ledger.get_task(self.db, number)
         steps = [dict(step) for step in ledger.checklist_rows(self.db, number)]
         attribution = ("started_by", "completed_by")
@@ -504,7 +573,7 @@ class BoardQueries:
         identities = profiles.visible_by_keys(self.db, [run["worker"] for run in runs], self.base)
         for run in runs:
             run["worker_profile"] = identities.get(run["worker"])
-        return {
+        result = {
             "task": {**self.task_rows([row])[0], "eta": row["eta"]},
             "brief": row["brief"],
             "checklist": steps,
@@ -514,6 +583,9 @@ class BoardQueries:
             "workers": runs,
             "last_activity": self.last_activity(task_id=number),
         }
+        if owner is not None and (history := self.recurring_runs(number, owner)) is not None:
+            result["recurring_runs"] = history
+        return result
 
     def last_activity(self, *, owner=None, task_id=None, project=None):
         column, value = ("tasks.dri", owner) if owner is not None else ("events.task_id", task_id)

@@ -233,6 +233,62 @@ class RecurringFixtureTest(unittest.TestCase):
         self.assertEqual((task["dri"], task["state"], task["priority"]), (owner, "ready", "normal"))
         self.assertEqual(task["context"]["recurring"], "R-1")
 
+    def test_task_detail_shows_recorded_run_timestamps_and_keeps_old_current_run(self):
+        fixture = service_fixture.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        self.db = fixture.database
+        app = fixture.app(portal_reader=True)
+        owner, owner_key = fixture.login(app, "Avery")
+        other, _ = fixture.login(app, "Blake")
+        self.command(
+            "recurring-add", "recent-runs", "Review samples", "--dri", owner_key,
+            "--cadence-hours", "4", "--next-at", ZERO, "--step", "Review the samples.",
+        )
+        issued = "2026-11-20T01:00:00Z"
+        started = "2026-11-20T02:00:00Z"
+        finished = "2026-11-20T03:00:00Z"
+        closed = "2026-11-20T05:00:00Z"
+        self.tick(issued)
+        self.command("start", "T-1", "Started.", "--by", owner_key, now=started)
+        self.command("done", "T-1", "Finished.", "--by", owner_key, now=finished)
+        self.tick(FOUR)
+        self.command("close", "T-2", "Skipped this run.", "--by", owner_key, now=closed)
+        self.tick(EIGHT)
+        self.command("start", "T-3", "Started.", "--by", owner_key, now=EIGHT)
+        self.tick(TWELVE)
+        self.tick(TWENTY)
+
+        def detail(client):
+            return fixture.call(client, "/api/v1/tasks/T-1").get_json()
+
+        view = detail(owner)["recurring_runs"]
+        self.assertEqual(view["current_task_id"], 1)
+        self.assertEqual(view["next_at"], "2026-11-21T00:00:00Z")
+        self.assertEqual([(item["due_at"], item["state"]) for item in view["items"]], [
+            (TWENTY, "issued"), (SIXTEEN, "missed"), (TWELVE, "issued"),
+            (EIGHT, "started"), (FOUR, "closed"), (ZERO, "completed"),
+        ])
+        self.assertEqual(view["items"][-1], {
+            "due_at": ZERO, "issued_at": issued, "started_at": started, "terminal_at": finished,
+            "state": "completed", "task_id": 1, "task_key": "T-1",
+        })
+        self.assertEqual(view["items"][-2]["terminal_at"], closed)
+        self.assertIsNone(view["items"][-2]["started_at"])
+        self.assertIsNone(view["items"][1]["issued_at"])
+        self.assertIsNone(view["items"][1]["task_key"])
+        self.assertIsNone(view["items"][2]["started_at"])
+        self.assertIsNone(view["items"][3]["terminal_at"])
+        self.assertEqual(fixture.action(owner, "task", query_string={"id": "T-1"})["recurring_runs"], view)
+        self.assertNotIn("recurring_runs", detail(other))
+        self.assertNotIn("recurring_runs", detail(app.test_client()))
+
+        self.tick("2026-11-25T04:00:00Z")
+        items = detail(owner)["recurring_runs"]["items"]
+        self.assertEqual(len(items), 26)
+        self.assertEqual(items[0]["due_at"], "2026-11-25T04:00:00Z")
+        self.assertEqual(items[-1], view["items"][-1])
+
     def test_browser_schedules_scope_reads_and_share_cli_transitions(self):
         fixture = service_fixture.TasksServiceTest()
         fixture.setUp()
@@ -285,6 +341,14 @@ class RecurringFixtureTest(unittest.TestCase):
         self.assertEqual(schedule["owner_name"], "Avery")
         self.assertEqual(schedule["recent_occurrences"][0]["task_key"], "COURSE-1")
         self.assertEqual(schedule["members"], [owner_key])
+
+        def maintenance_task(client):
+            return fixture.call(client, "/api/v1/tasks/COURSE-1").get_json()
+
+        run, = maintenance_task(manager)["recurring_runs"]["items"]
+        self.assertEqual((run["task_key"], run["issued_at"]), ("COURSE-1", ZERO))
+        for client in (owner, other, portal):
+            self.assertNotIn("recurring_runs", maintenance_task(client))
 
         change(portal, "/R-1/state", {"change": "pause"}, status=401)
         change(other, "/R-1/state", {"change": "pause"}, status=409)
