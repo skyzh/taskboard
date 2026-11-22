@@ -64,6 +64,10 @@ To preview two sources, set `TASKS_CODEX_USAGE_SOURCES` instead of `TASKS_CODEX_
 
 The board reads snapshot files. Codex sessions stay on their respective source hosts. Verify each source account and the configured viewer's entitlement before using either live snapshot. Keep the files outside published assets and readable only by the board service and its authorized operator.
 
+For an approved two-source installation, the operator can pipe one projected outcome into `taskboard-codex-snapshot` under the existing Codex usage environment. Set `source` to the exact configured label and `attempted_at` to the timestamp of the source read with a UTC offset. A `status` of `success` requires `captured_at` and the minimal `result`. Use `status` of `failure` with a `failure` code of `timeout`, `unavailable`, or `provider_error` for a definitive read failure. Invalid or missing outcomes leave the existing files in place.
+
+The receiver updates only the fixed file for that source, in its existing owner-only directory. It preserves ownership and permissions, skips duplicate or older attempts, and prints only `installed`, `unavailable`, or `skipped`. A failure makes that source unavailable and retains its last successful capture time in private storage. Use the existing private transport and read jobs to send projected outcomes. Keep raw responses and credentials on the source hosts.
+
 ## Sign in with OpenID Connect
 
 A shared board can instead require human sign-in from one OpenID Connect issuer. Register a confidential web client with the full board callback URL, such as `https://tasks.example.org/tasks/auth/callback`. Use authorization code with PKCE S256 and the `openid profile` scopes. Set these values in the service environment alongside the gateway settings above.
