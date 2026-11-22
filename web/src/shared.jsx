@@ -128,9 +128,11 @@ export function notificationLogFilters(fragment) {
 
 export function signInHref(hash) {
   const login = './auth/login'
-  const returnToBoard = /^#(?:task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9]\d{0,18}|event-[1-9]\d{0,18}-log|notifications(?:-needs-me)?|reports-all|settings|about)$/.test(hash)
+  const [anchor] = hash.split('?', 1)
+  const taskLink = /^#task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9]\d{0,18}$/.test(anchor)
+  const returnToBoard = taskLink || /^#(?:event-[1-9]\d{0,18}-log|notifications(?:-needs-me)?|reports-all|settings|about)$/.test(hash)
     || (hash.startsWith('#') && notificationLogFilters(hash.slice(1)))
-  return returnToBoard ? `${login}?fragment=${encodeURIComponent(hash)}` : login
+  return returnToBoard ? `${login}?fragment=${encodeURIComponent(taskLink ? anchor : hash)}` : login
 }
 
 export function Timestamp({ at, showDate = true, compact = false }) {
@@ -222,9 +224,10 @@ export function DriWorkStatus({ inProgress }) {
   return <span className="dri-task-state"><span className="dri-work-status" aria-hidden="true" />Tasks in progress</span>
 }
 
-export function TaskLink({ id, title, current, reference }) {
+export function TaskLink({ id, title, current, reference, searchQuery }) {
+  const href = taskHref(id, reference)
   return (
-    <a href={taskHref(id, reference)} aria-current={current ? "true" : undefined}>
+    <a href={searchQuery ? `${href}?${new URLSearchParams({ 'from-search': searchQuery })}` : href} aria-current={current ? "true" : undefined}>
       <span className="ticket-id">{taskLabel(id, reference)}</span> <MarkdownInline text={title} links={false} />
     </a>
   )

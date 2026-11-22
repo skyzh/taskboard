@@ -39,7 +39,7 @@ function useFragment() {
     if (!fragment) return
     const params = new URLSearchParams(fragment)
     const section = params.get('section')
-    let anchor = fragment
+    let anchor = fragment.startsWith('task-') ? fragment.split('?', 1)[0] : fragment
     if (fragment.startsWith('notifications-')) anchor = 'notifications'
     if (fragment === 'reports-all') anchor = 'reports'
     const id = params.get('dri') ? section || 'assignee-title'
@@ -155,8 +155,10 @@ export default function App({ MilestoneMap }) {
   const [timeZonePreference, setTimeZonePreference] = useState(readTimeZonePreference)
   const timeZone = timeZonePreference || browserTimeZone
   const timeZoneFormatters = useMemo(() => createTimeZoneFormatters(timeZone), [timeZone])
-  const namedTask = fragment.match(/^task-([A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})$/)?.[1]
-  const selected = namedTask || fragmentId(fragment, /^task-([1-9]\d*)$/)
+  const [taskAnchor, taskContext] = fragment.split('?', 2)
+  const namedTask = taskAnchor.match(/^task-([A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})$/)?.[1]
+  const selected = namedTask || fragmentId(taskAnchor, /^task-([1-9]\d*)$/)
+  const fromSearch = selected ? new URLSearchParams(taskContext).get('from-search')?.trim() : ''
   const [preferredProject, chooseProject] = useState('T')
   const reportsMode = fragment === 'reports-all' ? 'reports-all' : 'reports'
   const [preferredReportsMode, rememberReportsMode] = useState(reportsMode)
@@ -194,7 +196,7 @@ export default function App({ MilestoneMap }) {
       : previous)
   }, [project])
   const owner = params.get('dri')
-  const search = params.get('search')?.trim() || ''
+  const search = selected ? '' : params.get('search')?.trim() || ''
   let view = 'board'
   if (owner) view = 'assignee'
   else if (search) view = 'search'
@@ -331,7 +333,7 @@ export default function App({ MilestoneMap }) {
           )}
           {view === 'task' && <TaskDetail key={selected} id={selected} revision={revision} session={session}
             preferredProject={preferredProject} returnHref={fromList ? listReturn.current.board : undefined}
-            onChanged={refresh} />}
+            fromSearch={fromSearch} onChanged={refresh} />}
           {view === 'team-overview' && (
             <>
               <div className="page-heading"><h1 id="team-overview">Team overview</h1></div>

@@ -107,6 +107,16 @@ test('project ticket links open separate detail and return to the matching queue
   assert.match(render('#project=COURSE'), /id="queue-heading"[^>]*>Work queue/)
 })
 
+test('a search result ticket returns to the exact query and keeps its project ticket route', () => {
+  const query = 'Inventory & taxes 50%?'
+  const ticket = render(`#task-COURSE-1?${new URLSearchParams({ 'from-search': query })}`)
+  assert.match(ticket, /<article id="task-COURSE-1"/)
+  const back = ticket.match(/href="([^"]+)">Back to Search results/)?.[1]
+  assert.equal(new URLSearchParams(back.slice(1)).get('search'), query)
+  assert.doesNotMatch(ticket, /Back to Tasks/)
+  assert.match(render(back), /<h1 id="search-results">Results for/)
+})
+
 test('ticket owner links preserve the project in full and compact views', () => {
   const task = { id: 42, key: 'COURSE-1', dri: 'Avery' }
   for (const compact of [false, true]) {
