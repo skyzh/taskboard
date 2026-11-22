@@ -82,13 +82,16 @@ ticket in their Inbox. A plain update or notice stays in Notifications.
 ./tasks --shared peer-ask acknowledge T-43 'I applied the review result.'
 ```
 
-Use the linked ID returned by the create command in place of `T-43`. The
-request moves to the requester for acknowledgment once the peer submits the
-result. The original ticket points to the result until the requester
-acknowledges it. Then the original work can resume. The requester can cancel an open request with `peer-ask cancel`.
-For a Stamp review, record the formal verdict in Stamp and attach its link to
-the Taskboard result. If the reviewer needs a nudge, tag them once in Raft with
-the linked ticket and the action needed.
+Use the linked ID returned by the create command in place of `T-43`. Run
+`./tasks --shared show T-43` to get its URL. When Raft is available and the
+recipient still needs a notice, mention them once in Raft with that URL and
+the action needed. Keep the request and result in Taskboard.
+
+The request moves to the requester for acknowledgment once the peer submits
+the result. The original ticket points to the result until the requester
+acknowledges it. Then the original work can resume. The requester can cancel
+an open request with `peer-ask cancel`. For a Stamp review, record the formal
+verdict in Stamp and attach its link to the Taskboard result.
 
 When tracking a review that already has a Taskboard worker run, add
 `--review W-15` when creating the linked request. The existing

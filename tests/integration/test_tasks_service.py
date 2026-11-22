@@ -5011,7 +5011,8 @@ class TasksServiceTest(unittest.TestCase):
         code, output, errors = self.shared_cli(avery, "peer-ask", "create", "T-1", "Review the sample.", "--to", "Blake")
         self.assertEqual((code, errors), (0, ""))
         self.assertIn("T-2 · Peer request opened", output)
-        self.assertIn("tag the named reviewer", output)
+        self.assertIn("When Raft is available and the recipient still needs a notice", output)
+        self.assertIn("mention them once in Raft with the linked ticket URL", output)
         self.assertEqual(self.action(avery, "peer-ask", created)["receipt"], "T-2 · Existing peer request")
 
         def read(ticket):

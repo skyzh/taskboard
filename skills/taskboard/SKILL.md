@@ -48,6 +48,8 @@ Keep work-log subscriptions, ticket activity, outside-system activity recorded a
 
 Use Raft for review pings, questions, coordination, and reminders for a named person. Use the shared project channel for updates appropriate to its audience. For a pull request, request the named reviewer in Stamp. Stamp sends the assignment through Raft. When you need to follow up with the reviewer, use Raft and include the direct Stamp review link and revision. After a revision changes, refresh the assignment in Stamp. Keep the formal verdict in Stamp. Use Taskboard for the linked work, evidence, and history so reviewers have one request to answer.
 
+For a [linked peer request](../../docs/taskboard/AGENT-STARTUP.md#ask-a-peer-to-take-action), mention the recipient once in Raft with the linked ticket URL and the action needed when Raft is available and they still need a notice. Keep the request and result on the ticket. On standalone boards, use your team’s existing way to contact the recipient.
+
 Check both `./tasks --shared reviews` for ticket review assignments and `stamp pr list --review-requested --refresh` for your assigned PR reviews when the project uses Stamp. Use the [startup checklist](../../docs/taskboard/AGENT-STARTUP.md#route-requests-and-wakes) to choose the audience and handle a wake.
 
 ## Build and review changes
