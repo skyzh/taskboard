@@ -37,6 +37,16 @@ For a two-pickup pilot, add `--two-pickups` to the watcher command. The process 
 
 For the opt-in Ready-count watcher, add `--repeat` in place of `--two-pickups`. Check `raft proc list` first and keep one managed watcher per agent. The default delay is two minutes of sampled idle. When the owned Ready queue is nonempty and has changed since the last notice in this process, it sends one reminder such as “You have 2 Ready tickets.” The agent rereads its queue and chooses as much work as it can move. The process continues across turns and stays quiet for an empty or unchanged queue.
 
+The repeat watcher retries queue read timeouts and HTTP 502, 503, or 504 up to
+three times, with increasing delays. It logs the recovered count separately
+from the original sample. After recovery, it waits through a fresh idle window
+and checks the queue again before requesting a wake. It
+remembers which Ready events it already announced. Other read failures, including
+permission errors and unclassified failures, stop the job with the failing
+stage and a reason. Read `raft proc logs <watcher-name>`, then confirm the shared
+app and signed-in account with `./tasks --shared context` before restarting the
+failed job.
+
 For a measurement pilot, add `--measure` with `--watch-idle --repeat`. The managed job logs changes in sampled status and reads the owned Ready count at the first idle sample of each period. That count can be zero or unavailable, and work can change while the board is being read. The first idle sample gives an observed time. A turn may have ended between polls. Wake requests are logged separately with the reminder reference when the CLI provides it. Verify an actual fire with `raft reminder log --id <reference>` and read native Taskboard Start and completion events for the same agent. Keep missing samples and unverified delivery explicit. The measurement rows contain status and count metadata, without task or conversation content.
 
 Set `TASKS_WATCHER_MEASUREMENT_TICKET` in the shared board's serving environment to its designated measurement ticket. After independent review, that ticket's owner can record the cohort totals in a shared Taskboard Activity log. Use details with schema `taskboard-watcher-measurements/v1` and a `cohorts` array. Each cohort carries a `key` of `bounded` or `count-only`, a `run_count`, and `metrics`. Supply `ready_at_first_idle`, `idle_to_wake_seconds`, `wake_to_start_seconds`, `working_seconds`, `advanced_tasks`, and `completed_tasks`, each with a numeric `mean` and `measured_runs`. Set the mean to null when no runs measured that metric. Stats reads the most recent cohort receipt on the configured ticket. Leave duration and work totals out of incomplete observations and keep the underlying receipts on the ticket.
