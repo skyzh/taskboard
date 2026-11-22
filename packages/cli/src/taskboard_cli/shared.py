@@ -316,7 +316,10 @@ def shared_next(board, url, filters, actor):
         label = NEXT_LABELS.get(work["kind"])
         return f"{label}\n{details}" if label else details
     if result["standing_goals"]:
-        output = "\n".join(f"{goal['project']} · Standing goal\n  {goal['summary']}" for goal in result["standing_goals"])
+        output = "\n".join(
+            f"{goal.get('ticket') or goal['project']} · Standing goal\n  {goal['summary']}"
+            for goal in result["standing_goals"]
+        )
     else:
         output = f"No actionable work in your queue ({actor['name']})."
     return with_guidance(output, result["next_step"])

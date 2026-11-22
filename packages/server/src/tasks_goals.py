@@ -50,6 +50,13 @@ GOAL_TICKET_SCHEMA = """
     )
 """
 GOAL_MIGRATION = "goal_tickets_migrated"
+LEGACY_GOAL_STEP = "Start or link a concrete investigation when there is work to do on this goal."
+STANDING_EXPLORATION_LABEL = "Explore this goal"
+STANDING_EXPLORATION_START = "Start this goal ticket and note what you plan to check."
+STANDING_EXPLORATION = (
+    f"{STANDING_EXPLORATION_START} Explore the product, recent changes, or workflow evidence. "
+    "Open or link a focused ticket if you find a bug or improvement. Otherwise, record what you checked."
+)
 
 
 def ensure_extended_schema(db):
@@ -113,7 +120,7 @@ def restore_legacy_goals(db):
 def create_goal_ticket(db, project, owner, kind, summary, deadline, encoded_ids):
     args = SimpleNamespace(
         project=project, dri=owner, by=owner, title=summary, brief="",
-        step="Start or link a concrete investigation when there is work to do on this goal.",
+        step=STANDING_EXPLORATION if kind == "standing" else LEGACY_GOAL_STEP,
     )
     task_id = ledger.create_task_record(db, args, [], state="parked")
     db.execute(

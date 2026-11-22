@@ -835,6 +835,58 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIsNone(self.call(reader, f"/api/v1/assignee?owner={owner}").get_json()["goal"])
         self.assertIsNotNone(self.call(reader, f"/api/v1/assignee?owner={owner}&project=COURSE").get_json()["goal"])
 
+    def test_standing_goal_guides_exploration_on_new_and_existing_tickets(self):
+        from tasks_goals import LEGACY_GOAL_STEP, STANDING_EXPLORATION, STANDING_EXPLORATION_START
+
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        self.cli("register-project", "COURSE", "Example course", "--dri", owner)
+        self.action(avery, "save-goal", {"kind": "standing", "summary": "Explore the work queue."})
+        self.action(avery, "save-goal", {
+            "kind": "standing", "project": "COURSE", "summary": "Explore course workflows.",
+        })
+        self.action(avery, "create-task", {"title": "Check the sample", "step": "Read the sample."})
+        self.action(avery, "advance-task", {
+            "id": "T-3", "transition": "park", "note": "Wait for the next sample.",
+        })
+        self.call(avery, "/api/v1/profile/milestone", method="PATCH", json={
+            "goal": {"summary": "Ship the sample", "deadline": "2026-11-30", "tickets": ["T-3"]},
+        })
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("UPDATE events SET note = ? WHERE task_id = 2 AND action = 'add'", (LEGACY_GOAL_STEP,))
+
+        for reference, stored in (("T-1", STANDING_EXPLORATION), ("COURSE-1", LEGACY_GOAL_STEP)):
+            with self.subTest(reference=reference):
+                detail = self.call(avery, f"/api/v1/tasks/{reference}").json
+                self.assertEqual((detail["task"]["summary_label"], detail["task"]["note"]),
+                                 ("Explore this goal", STANDING_EXPLORATION))
+                show = self.shared_cli(avery, "show", reference)[1]
+                self.assertIn(STANDING_EXPLORATION, show)
+                self.assertIn(f"Next: {STANDING_EXPLORATION_START}", show)
+                activity = self.call(avery, f"/api/v1/tasks/{reference}/activity").json["items"]
+                created = next(item for item in activity if item["action"] == "add")
+                self.assertEqual(created["note"], stored)
+
+        for reference, note in (("T-3", "Wait for the next sample."), ("T-4", LEGACY_GOAL_STEP)):
+            task = self.call(avery, f"/api/v1/tasks/{reference}").json["task"]
+            self.assertEqual((task["summary_label"], task["note"]), ("Reason for parking", note))
+        self.assertEqual(self.action(avery, "my-queue", query_string={"state": "ready"})["items"], [])
+        empty = self.action(avery, "my-next")
+        self.assertIsNone(empty["work"])
+        self.assertEqual(empty["next_step"], STANDING_EXPLORATION)
+        for project, reference in (("T", "T-1"), ("COURSE", "COURSE-1")):
+            next_item = self.shared_cli(avery, "next", "--project", project)[1]
+            self.assertIn(f"{reference} · Standing goal", next_item)
+            self.assertIn(STANDING_EXPLORATION, next_item)
+        self.action(avery, "advance-task", {
+            "id": "T-1", "transition": "start", "note": "Inspect the current queue.",
+        })
+        active = self.action(avery, "my-next")
+        self.assertEqual(active["work"]["key"], "T-1")
+        self.assertNotEqual(active["next_step"], STANDING_EXPLORATION)
+        detail = self.call(avery, "/api/v1/tasks/T-1").json["task"]
+        self.assertEqual((detail["summary_label"], detail["note"]), ("Current step", "Inspect the current queue."))
+
     def test_standing_goal_is_owner_scoped_and_only_next_after_actionable_work(self):
         app = self.app(portal_reader=True)
         avery, owner = self.login(app, "Avery")
@@ -929,8 +981,8 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "close-task", {"id": "T-2", "reason": "Duplicate test work."})
         fallback = self.action(avery, "my-next")
         self.assertIsNone(fallback["work"])
-        self.assertEqual(fallback["standing_goals"], [standing])
-        self.assertIn("standing goal", fallback["next_step"])
+        self.assertEqual(fallback["standing_goals"], [{**standing, "ticket": standing_ticket}])
+        self.assertIn("Start this goal ticket", fallback["next_step"])
         fallback_output = self.shared_cli(avery, "next", "--project", "T")[1]
         self.assertIn("Improve the work queue", fallback_output)
         self.assertIn(f"Next: {fallback['next_step']}", fallback_output)
