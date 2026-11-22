@@ -35,6 +35,12 @@ export function ReportTimeProvider({ children, capturedAt }) {
   return <ReportClock.Provider value={capturedAt ? Date.parse(capturedAt) : now}>{children}</ReportClock.Provider>
 }
 
+export function useReportDay() {
+  const now = useContext(ReportClock)
+  const { formatDay } = useTimeZone()
+  return formatDay(now ?? Date.now())
+}
+
 function ExactTimeDisclosure({ at, age, exact }) {
   const id = useId()
   const [expanded, setExpanded] = useState(false)

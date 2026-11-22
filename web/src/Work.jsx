@@ -23,6 +23,7 @@ import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { TaskWaitAge } from './WaitAge.jsx'
 import { useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
+import { GoalDeadline } from './DriGoal.jsx'
 
 const ownerOptionPrefix = 'owner:'
 
@@ -335,7 +336,7 @@ function TicketContext({ record, id, task, state, wide, detailed, session, revis
         <TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} />
       </TicketIdentity> : <TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} />}
       <RecordedActivity activity={record.last_activity} />
-      {record.goal?.deadline && <p>Due <time dateTime={record.goal.deadline}>{record.goal.deadline}</time></p>}
+      {record.goal?.deadline && <p>Due <GoalDeadline deadline={record.goal.deadline} finished={state === 'done' || state === 'closed'} /></p>}
       {record.sources.length > 0 && (
         <details open><summary>Sources · {record.sources.length}</summary><EvidenceLinks links={record.sources} label="Sources" /></details>
       )}

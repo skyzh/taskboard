@@ -1,6 +1,19 @@
 import React, { useId, useState } from 'react'
 import { queryPath, request } from './data.js'
 import { TaskLink } from './shared.jsx'
+import { useReportDay } from './ReportTime.jsx'
+
+export function GoalDeadline({ deadline, finished = false }) {
+  const today = useReportDay()
+  if (!deadline) return null
+  const overdue = !finished && deadline < today
+  return (
+    <span className={overdue ? 'goal-deadline is-overdue' : 'goal-deadline'}>
+      <time dateTime={deadline}>{deadline}</time>
+      {overdue && <strong>Overdue</strong>}
+    </span>
+  )
+}
 
 function GoalForm({ goal, project, mode, onCancel, onSaved }) {
   const standing = mode === 'standing-goal'
@@ -60,7 +73,7 @@ function GoalForm({ goal, project, mode, onCancel, onSaved }) {
 function GoalDetails({ goal }) {
   return (
     <>
-      <p className="section-message">Deadline <time dateTime={goal.deadline}>{goal.deadline}</time></p>
+      <p className="section-message">Deadline <GoalDeadline deadline={goal.deadline} /></p>
       {goal.tickets.length > 0 && (
         <ul className="context-list" aria-label="Related tasks">
           {goal.tickets.map(ticket => <li key={ticket.id}><TaskLink id={ticket.id} reference={ticket.key} title={ticket.title} /></li>)}
