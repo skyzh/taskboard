@@ -22,6 +22,11 @@ _MAX_RECENT_PAGE_READS = 3
 _SOURCE_LIMIT = 10
 _MAX_RESPONSE = 2 * 1024 * 1024
 _REVIEW_STATES = {"APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"}
+_CHECK_RESULTS = {
+    "success": "passed", "failure": "failed", "cancelled": "canceled", "skipped": "skipped",
+    "timed_out": "timed out", "action_required": "requires action", "neutral": "neutral",
+    "stale": "stale", "startup_failure": "failed to start",
+}
 
 
 @dataclass(frozen=True)
@@ -313,6 +318,44 @@ class GitHubReader:
         if metadata.get("state") not in ("open", "closed"):
             raise _ReadError("invalid_github_response")
         return metadata
+
+    def completed_ci_jobs(self, item, metadata):
+        head = metadata.get("head")
+        sha = head.get("sha") if isinstance(head, dict) else None
+        if not isinstance(sha, str) or not extensions.COMMIT.fullmatch(sha):
+            raise _ReadError("invalid_github_check_revision")
+        route = f"{item.repo_path}/commits/{sha}/check-runs"
+        headers, document = self._get(f"{route}?{urlencode({'filter': 'all', 'per_page': 100})}", dict)
+        jobs = document.get("check_runs")
+        if not isinstance(jobs, list):
+            raise _ReadError("invalid_github_check_response")
+        evidence = []
+        for job in jobs[:100]:
+            if not isinstance(job, dict) or job.get("status") != "completed" or job.get("head_sha") != sha:
+                continue
+            if _word(job.get("app"), "slug") != "github-actions":
+                continue
+            run_id, conclusion = job.get("id"), job.get("conclusion")
+            date = _time(job.get("completed_at"))
+            if (type(run_id) is not int or run_id <= 0 or not date
+                    or not isinstance(conclusion, str) or conclusion not in _CHECK_RESULTS):
+                continue
+            name = _message(job.get("name"), "CI job")[:120]
+            url = job.get("html_url")
+            url_prefix = f"https://github.com/{repository(item)}/"
+            if not isinstance(url, str) or not re.fullmatch(
+                re.escape(url_prefix) + r"(?:actions/runs/[0-9]+/job/[0-9]+|runs/[0-9]+)", url, re.IGNORECASE,
+            ):
+                url = f"{item.url}/checks?check_run_id={run_id}"
+            key = f"github:ci-job:{run_id}:{date}"
+            evidence.append((key, {
+                "kind": "ci-job", "at": date, "note": f"{name} {_CHECK_RESULTS[conclusion]}.",
+                "links": [("GitHub check", url), ("GitHub pull request", item.url)],
+                "context": {"github_repository": repository(item), "github_activity_id": key, "github_source": item.url,
+                            "check_run_id": run_id, "job": name, "conclusion": conclusion, "head_sha": sha},
+            }))
+        warning = "github_check_page_truncated" if 'rel="next"' in headers.get("link", "") else None
+        return evidence, warning
 
     def deployed_commit(self, rule):
         environment = rule.deployment.environment
