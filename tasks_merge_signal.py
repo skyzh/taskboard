@@ -10,7 +10,8 @@ import sqlite3
 import sys
 from tempfile import TemporaryDirectory
 
-from tasks_core import current_tasks_sql, nonblank, timestamp
+from taskboard_client.work import nonblank
+from tasks_core import current_tasks_sql, timestamp
 import tasks_merges as merges
 from tasks_notification_log import outbox_receipt, publish_after_sender
 import tasks_projects as projects

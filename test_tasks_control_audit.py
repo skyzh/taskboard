@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+import taskboard_cli
 import tasks_core
 import tasks_service
 
@@ -27,7 +28,7 @@ class ControlAuditTest(unittest.TestCase):
         errors = StringIO()
         with patch("sys.argv", argv), patch("tasks_core.timestamp", return_value=clock):
             with redirect_stdout(StringIO()), redirect_stderr(errors):
-                self.assertEqual(tasks_core.main(), status, errors.getvalue())
+                self.assertEqual(taskboard_cli.main(), status, errors.getvalue())
 
     def events(self):
         with closing(sqlite3.connect(self.database)) as db:

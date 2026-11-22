@@ -11,7 +11,8 @@ import sys
 from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
 
-from tasks_core import current_tasks_sql, nonblank, timestamp
+from taskboard_client.work import nonblank
+from tasks_core import current_tasks_sql, timestamp
 from tasks_notification_log import outbox_receipt, publish_after_sender
 import tasks_projects as projects
 

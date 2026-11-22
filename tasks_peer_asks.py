@@ -2,12 +2,12 @@
 
 from argparse import Namespace
 
+from taskboard_client.work import PEER_ASK as COMMAND, PEER_ASK_TRANSITIONS as TRANSITIONS
+
 import tasks_projects as projects
 import workers
 
 
-COMMAND = "peer-ask"
-TRANSITIONS = ("create", "result", "acknowledge", "cancel")
 SCHEMA = (
     """
     CREATE TABLE IF NOT EXISTS peer_asks (

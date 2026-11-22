@@ -25,7 +25,8 @@ from PIL import Image
 
 from tasks_github import GitHubReader
 from tasks_service import bind_owner, create_app, import_assignee, serve
-from tasks_core import SCHEMA, import_release_event, main as tasks_main, record
+from taskboard_cli import main as tasks_main
+from tasks_core import SCHEMA, import_release_event, record
 
 
 SERVER = str(UUID(int=17))
@@ -592,7 +593,7 @@ class TasksServiceTest(unittest.TestCase):
         output, errors = StringIO(), StringIO()
         argv = ["./tasks", "--shared", *arguments]
         with (
-            patch.object(sys, "argv", argv), patch("tasks_shared_cli.subprocess.run", side_effect=invoke),
+            patch.object(sys, "argv", argv), patch("taskboard_client.connection.subprocess.run", side_effect=invoke),
             redirect_stdout(output), redirect_stderr(errors),
         ):
             status = entrypoint()
@@ -1826,7 +1827,7 @@ class TasksServiceTest(unittest.TestCase):
                 output, errors = StringIO(), StringIO()
                 with (
                     patch.object(sys, "argv", args), patch.dict(os.environ, {"TASKS_RAFT_SERVICE": service}),
-                    patch("tasks_shared_cli.subprocess.run", side_effect=replies) as run,
+                    patch("taskboard_client.connection.subprocess.run", side_effect=replies) as run,
                     redirect_stdout(output), redirect_stderr(errors),
                 ):
                     self.assertEqual(tasks_main(), 1)
@@ -1894,7 +1895,7 @@ class TasksServiceTest(unittest.TestCase):
         )
 
     def test_shared_action_guidance_preserves_receipts_and_the_project_queue(self):
-        from tasks_shared_cli import READS, WRITES
+        from taskboard_cli.shared import READS, WRITES
 
         app = self.app(portal_reader=True)
         owner, owner_key = self.login(app, "Avery")
@@ -2066,7 +2067,7 @@ class TasksServiceTest(unittest.TestCase):
             output, errors = StringIO(), StringIO()
             argv = ["./tasks", "--shared", "log", "T-1", "Record the local merge.", "--details",
                     json.dumps(details)]
-            with (patch.object(sys, "argv", argv), patch("tasks_shared_cli.subprocess.run") as invoke,
+            with (patch.object(sys, "argv", argv), patch("taskboard_client.connection.subprocess.run") as invoke,
                   redirect_stdout(output), redirect_stderr(errors)):
                 self.assertEqual(tasks_main(), 1)
             invoke.assert_not_called()

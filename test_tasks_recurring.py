@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+import taskboard_cli
 import tasks_core
 import test_tasks_service as service_fixture
 
@@ -35,7 +36,7 @@ class RecurringFixtureTest(unittest.TestCase):
         argv = ["tasks", "--offline", "--db", str(self.db), *args]
         with patch("sys.argv", argv), patch("tasks_core.timestamp", return_value=now):
             with redirect_stdout(out), redirect_stderr(errors):
-                self.assertEqual(tasks_core.main(), status, errors.getvalue())
+                self.assertEqual(taskboard_cli.main(), status, errors.getvalue())
         return out.getvalue() if status == 0 else errors.getvalue()
 
     def define(self):

@@ -1,15 +1,13 @@
 """Project registration and public task identifiers."""
 
 import json
-import re
 from uuid import UUID
 
 import tasks_storage
 
-DEFAULT = "T"
-MAX_ID = 2**63 - 1
-_PREFIX = re.compile(r"[A-Z][A-Z0-9]{0,7}", re.ASCII)
-_TASK = re.compile(r"([A-Z][A-Z0-9]{0,7})-([0-9]{1,19})", re.ASCII)
+from taskboard_client.references import DEFAULT, MAX_ID, identifier, prefix
+
+
 PROJECT_FIELDS = {DEFAULT: ("queued_for_release", "release_number")}
 
 
@@ -82,24 +80,6 @@ def roster_owners(db, roster):
 def roster_profile(owner, name):
     return {"id": owner, "kind": "agent", "username": name, "name": name,
             "role": None, "description": None, "avatar_url": None}
-
-
-def prefix(value):
-    value = value.upper()
-    if _PREFIX.fullmatch(value) is None:
-        raise ValueError("Use a project prefix of one to eight letters or digits, starting with a letter.")
-    return value
-
-
-def identifier(value):
-    value = str(value).upper()
-    matched = _TASK.fullmatch(value)
-    project, digits = matched.groups() if matched else (DEFAULT, value)
-    if len(digits) <= 19 and digits.isascii() and digits.isdecimal():
-        number = int(digits)
-        if 1 <= number <= MAX_ID:
-            return (project, number)
-    raise ValueError("Use a task ID such as T-1 or COURSE-1.")
 
 
 def ensure_schema(db):

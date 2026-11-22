@@ -1,12 +1,13 @@
 """Local ticket subscriptions and explicit links to source identities."""
 
+from taskboard_client.work import PROVIDERS
+
 import json
 from pathlib import Path
 
 import tasks_storage
 
 
-PROVIDERS = {"github": "GitHub", "jira": "Jira"}
 LOCAL_FILE = "Local file"
 SCHEMA = (
     """

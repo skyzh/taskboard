@@ -1,5 +1,7 @@
 """One editable recurring maintenance schedule per newly registered project."""
 
+from taskboard_client.work import READ, WRITE
+
 from datetime import timedelta
 import json
 from uuid import uuid4
@@ -13,8 +15,6 @@ import watches
 DEFAULT_HOURS = 7 * 24
 DEFAULT_TITLE = "Review project maintenance"
 DEFAULT_STEP = "Review the flagged tickets and use the project manager controls to correct ownership."
-READ = "maintenance-show"
-WRITE = "maintenance-update"
 SCHEMA = """
     CREATE TABLE IF NOT EXISTS project_maintenance (
         project TEXT PRIMARY KEY REFERENCES projects (prefix),
@@ -22,21 +22,6 @@ SCHEMA = """
         members TEXT NOT NULL DEFAULT '[]'
     )
 """
-
-
-def add_options(parser, *, setup=False):
-    prefix = "maintenance-" if setup else ""
-    parser.add_argument(f"--{prefix}owner", dest="maintenance_owner", help="Exact ledger key of the maintenance owner.")
-    parser.add_argument(f"--{prefix}cadence-hours", dest="maintenance_hours", type=int,
-                        help="Hours between checks. The setup default is 168 (one week).")
-    parser.add_argument(f"--{prefix}next-at", dest="maintenance_next_at", metavar="UTC",
-                        help="Next check at a whole-second UTC time.")
-    parser.add_argument(f"--{prefix}state", dest="maintenance_state", choices=("active", "paused"),
-                        help="Whether checks are issued.")
-    parser.add_argument(f"--{prefix}member", dest="maintenance_members", action="append",
-                        help="Exact ledger key in the project's maintenance roster. Repeat for multiple members.")
-    if not setup:
-        parser.add_argument("--clear-members", action="store_true", help="Stop checking owners against a roster.")
 
 
 def find(db, *, project=None, definition_id=None):

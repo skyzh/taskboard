@@ -166,7 +166,7 @@ def read_reviewed_job(
 ):
     """Use only read actions from the configured authenticated Tasks integration.
 
-    Pass `tasks_shared_cli.SharedBoard(service).invoke` or a fixture callable.
+    Pass `taskboard_client.SharedBoard(service).invoke` or a fixture callable.
     """
     submission_event = exact_activity(invoke, queue_ticket, submission_id)
     ticket = event_details(submission_event, SUBMISSION).get("ticket")

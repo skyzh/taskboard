@@ -1,5 +1,7 @@
 """Recurring definitions and Ready task occurrences in one SQLite ledger."""
 
+from taskboard_client.work import EDITS, recurrence_id
+
 from datetime import datetime, timedelta, timezone
 
 import tasks_audit as audit
@@ -34,7 +36,6 @@ SCHEMA = (
     )
     """,
 )
-EDITS = {"recurring-add", "recurring-pause", "recurring-resume", "recurring-cancel"}
 HISTORY_LIMIT = 25
 
 
@@ -58,16 +59,6 @@ def checked_slot(at, hours):
         at + timedelta(hours=hours)
     except OverflowError:
         raise ValueError("The next slot plus cadence must fit within the UTC calendar.") from None
-
-
-def recurrence_id(value):
-    try:
-        number = int(str(value).upper().removeprefix("R-"))
-        if 0 < number < 2**63:
-            return number
-    except ValueError:
-        pass
-    raise ValueError("Use a recurring definition ID such as R-1.")
 
 
 def owned(db, number, actor):

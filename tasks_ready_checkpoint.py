@@ -10,7 +10,8 @@ import sys
 from datetime import datetime, timezone
 from time import monotonic, sleep
 
-from tasks_shared_cli import SharedBoard, assert_actor
+from taskboard_client import SharedBoard
+from taskboard_cli.shared import assert_actor
 
 
 def offer_work(board, actor):

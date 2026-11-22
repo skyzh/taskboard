@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Command line entry point for Tasks."""
 
+from pathlib import Path
 import sys
 
-from tasks_core import main
+root = Path(__file__).resolve().parent
+sys.path[:0] = [str(root / "packages" / component / "src") for component in ("client", "cli", "server")]
+
+from taskboard_cli import main
 
 if __name__ == "__main__":
     sys.exit(main())
