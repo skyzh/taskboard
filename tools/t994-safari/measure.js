@@ -14,6 +14,22 @@ function sampleRows() {
     return {value, unchanged}
   }
   const round = number => +number.toFixed(3)
+  function rawTextBaseline(label) {
+    const text = [...label.childNodes].find(child => child.nodeType === Node.TEXT_NODE && child.textContent.trim())
+    const range = document.createRange()
+    range.selectNode(text)
+    const before = range.getBoundingClientRect()
+    const wrapper = document.createElement('span')
+    const marker = document.createElement('span')
+    marker.style.cssText = 'display:inline-block;width:0;height:0;overflow:hidden;vertical-align:baseline'
+    text.replaceWith(wrapper)
+    wrapper.append(text, marker)
+    range.selectNode(text)
+    const after = range.getBoundingClientRect()
+    const value = marker.getBoundingClientRect().top
+    wrapper.replaceWith(text)
+    return {value, unchanged:['x', 'y', 'width', 'height'].every(key => Math.abs(before[key] - after[key]) < .02)}
+  }
   const tasks = [...document.querySelectorAll('.report-task-summary .task-row-heading > .report-status')].map(status => {
     const heading = status.parentElement
     const title = heading.querySelector(':scope > a')
@@ -34,10 +50,16 @@ function sampleRows() {
       priority: heading.querySelector('.task-priority')?.textContent || null,
     }
   }).sort((a, b) => a.key.localeCompare(b.key))
+  const waitingLine = document.querySelector('.report-waiting-line')
+  const status = waitingLine?.querySelector(':scope > .status')
+  const dependency = waitingLine?.querySelector(':scope > .task-dependency > span')
+  const assignee = dependency?.querySelector('strong')
+  const waitingBaselines = status && dependency && assignee && [status, dependency, assignee].map(rawTextBaseline)
   return {
     viewport: {width: innerWidth, height: innerHeight, scale: visualViewport.scale, dpr: devicePixelRatio},
     ua: navigator.userAgent, tasks,
-    waiting: document.querySelector('.report-waiting-line')?.textContent.trim() || null,
+    waiting: waitingLine?.textContent.trim() || null,
+    waitingBaselines,
     overflow: document.documentElement.scrollWidth > innerWidth,
   }
 }

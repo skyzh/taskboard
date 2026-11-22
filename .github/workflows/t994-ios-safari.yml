@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 4
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -22,12 +22,10 @@ jobs:
           package-manager-cache: false
       - name: Build both exact revisions
         env:
-          BASE: 42797c1432ec49ca2af41036618b10b5bc1e814e
-          CANDIDATE: d5bdb597a200f7a88ce88363bc53ad372bf1c7fc
+          BASE: ed0b639ffa99d966a2d878aa99de1e3e43ac7bcd
+          CANDIDATE: 8a8f375bec719d8585bdf5eee21d6012d1d77cb9
         run: |
-          test "$(git rev-parse HEAD^)" = "$CANDIDATE"
-          test "$(git rev-parse "$CANDIDATE^")" = "$BASE"
-          git diff --exit-code "$CANDIDATE" HEAD -- web packages
+          bash tools/t994-safari/check-source.sh "$BASE" "$CANDIDATE"
           git worktree add --detach "$RUNNER_TEMP/t994-before" "$BASE"
           npm --prefix "$RUNNER_TEMP/t994-before/web" ci --no-audit --no-fund
           npm --prefix "$RUNNER_TEMP/t994-before/web" run build

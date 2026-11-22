@@ -22,6 +22,13 @@ for (const layout of ['compact', 'wide']) {
     assert.ok(data.tasks[1].titleLines > 1)
   }
   assert.deepEqual(after.tasks.map(row => [row.dot, row.titleLines]), before.tasks.map(row => [row.dot, row.titleLines]))
+  for (const [phase, data] of [['before', before], ['after', after]]) {
+    assert.equal(data.waitingBaselines.length, 3)
+    assert.ok(data.waitingBaselines.every(item => item.unchanged))
+    const [waiting, on, assignee] = data.waitingBaselines.map(item => item.value)
+    assert.ok(Math.abs(on - assignee) < .02)
+    assert.ok(phase === 'after' ? Math.abs(waiting - on) < .02 : Math.abs(waiting - on) > .25)
+  }
   if (compact) {
     assert.deepEqual(after.tasks.map(row => row.compactDotCenter), before.tasks.map(row => row.compactDotCenter))
   } else {

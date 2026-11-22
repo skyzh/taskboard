@@ -18,6 +18,8 @@ const capture = `
     const rows = '.report-task-summary .task-row-heading > .report-status';
     for (let attempt = 0; attempt < 100 && document.querySelectorAll(rows).length < 2; attempt++) await pause(200);
     await document.fonts.ready;
+    document.querySelector('.report-waiting-line')?.closest('.report-owner-section')?.scrollIntoView({block:'start'});
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const data = sampleRows();
     await fetch('/tasks/__measure/' + layout, {method:'POST', body:JSON.stringify(data, null, 2)});
   } catch (error) {
