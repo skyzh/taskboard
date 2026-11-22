@@ -18,6 +18,7 @@ STALE_AFTER = timedelta(hours=1)
 REPOSITORY = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
 ENVIRONMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ./_-]{0,79}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
+ACTIVITY_TYPE = re.compile(r"[a-z][a-z0-9_-]{0,63}")
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS github_source_status (
         source_id INTEGER PRIMARY KEY REFERENCES sources (id),
@@ -60,6 +61,7 @@ class GitHubEvents:
     repository: str
     merge: Actions
     deployment: Deployment | None
+    activity: dict[str, Actions]
 
 
 def _actions(config):
@@ -70,7 +72,7 @@ def _actions(config):
 
 
 def _events(config):
-    if (not isinstance(config, dict) or config.keys() - {"repository", "merge", "deployment"}
+    if (not isinstance(config, dict) or config.keys() - {"repository", "merge", "deployment", "activity"}
             or not isinstance(config.get("repository"), str) or not REPOSITORY.fullmatch(config["repository"])
             or config["repository"].split("/")[1] in (".", "..")):
         raise ValueError("Name a public GitHub repository as owner/repository.")
@@ -84,7 +86,14 @@ def _events(config):
             raise ValueError("Choose a deployment provider (pi or github) and an environment.")
         actions = _actions({key: value[key] for key in ("complete", "notify_dri") if key in value})
         deployment = Deployment(value["provider"], value["environment"], actions)
-    return GitHubEvents(config["repository"].lower(), merge, deployment)
+    activity = config.get("activity", {})
+    if not isinstance(activity, dict) or any(
+        kind in {"merged", "pull-merged", "deployed"} or not ACTIVITY_TYPE.fullmatch(kind) for kind in activity
+    ):
+        raise ValueError("Choose GitHub activity event names. Configure merges and deployments separately.")
+    return GitHubEvents(config["repository"].lower(), merge, deployment, {
+        kind: _actions(actions) for kind, actions in activity.items()
+    })
 
 
 REGISTRY = {STATUS: lambda value: value is True, EVENTS: _events}
@@ -141,6 +150,13 @@ def save_status(db, source, state, checked_at, *, merge_commit=None, merged_at=N
            WHERE excluded.attempted_at >= github_source_status.attempted_at""",
         (source, state, checked_at if state else None, checked_at, int(state is None), merge_commit, merged_at),
     )
+
+
+def already_recorded(db, task_id, source_id, observation):
+    return db.execute(
+        "SELECT 1 FROM extension_deliveries WHERE task_id = ? AND source_id = ? AND observation = ?",
+        (task_id, source_id, observation),
+    ).fetchone() is not None
 
 
 def record(db, task_id, source_id, observation, evidence, actions):

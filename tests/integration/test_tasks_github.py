@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import tasks_core
-from tasks_github import GitHubReader, ingest_linked_github, linked_source
+from tasks_github import GitHubReader, _source, ingest_linked_github, linked_source
 import watches
 
 
@@ -128,6 +128,16 @@ class GitHubIntakeTest(unittest.TestCase):
         self.assertEqual([req.full_url for req, _ in self.calls], [f"{API}{ISSUE}"])
         self.assertEqual(replay["items"][0]["updates"], issue["updates"])
         self.assertEqual([len(self.events(index)) for index in (1, 2, 3)], [2, 1, 0])
+
+    def test_rate_limit_stops_remaining_pull_requests(self):
+        self.fixture_pull()
+        self.responses[PULL_TIMELINE] = (403, {"X-RateLimit-Remaining": "0"}, None)
+        item = _source(PULL_URL)
+        updates, state, errors, metadata = self.reader._read_item(item, review_comments=True)
+
+        self.assertEqual((updates, state, metadata), ([], None, None))
+        self.assertEqual(errors, [("timeline", "github_rate_limited")])
+        self.assertEqual([request.full_url for request, _ in self.calls], [f"{API}{PULL_TIMELINE}"])
 
     def test_pull_creation_metadata_records_one_actual_open_event(self):
         self.fixture_pull()
