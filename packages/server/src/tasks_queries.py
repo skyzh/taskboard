@@ -83,6 +83,13 @@ WORKER_STATE = f"""
     CASE WHEN worker_runs.status = 'running' AND NOT ({RECORDED_START}) THEN 'start_unconfirmed'
          ELSE worker_runs.status END
 """
+REVIEW_REQUESTER = """
+    SELECT events.actor FROM events
+    WHERE events.task_id = worker_runs.task_id AND events.action = 'log'
+      AND json_extract(events.context, '$.audit.action') = 'worker-delegate'
+      AND json_extract(events.context, '$.audit.run_id') = worker_runs.id
+    ORDER BY events.id DESC LIMIT 1
+"""
 WORKER_ORDER = f"""
     CASE WHEN {RUNNING} THEN 0
          WHEN worker_runs.status = 'reported' THEN 1
@@ -128,6 +135,42 @@ def worker_counts(row):
         "running_reviews": row["running_reviews"],
         "launched_reviews": row["launched_reviews"],
     }
+
+
+def request_log_item(row, people):
+    phase = row["state"]
+    if row["kind"] == "peer":
+        phase = peer_asks.phase(ask=row, task=row, has_started=row["has_started"])
+        if phase in ("asked", "in_progress") and row["state"] in ("parked", "waiting"):
+            phase = "waiting"
+    next_owner = None
+    if phase == "acknowledgment":
+        next_owner = row["source_owner"] if row["kind"] == "review" else row["requester"]
+    elif phase in ("asked", "waiting", "in_progress", "start_unconfirmed"):
+        next_owner = row["recipient"]
+    item = {
+        "id": f"{row['kind']}:{row['id']}",
+        "at": row["at"],
+        "phase": phase,
+        "review": bool(row["is_review"]),
+        "requester": row["requester"],
+        "recipient": row["recipient"],
+        "requester_profile": people.get(row["requester"]),
+        "recipient_profile": people.get(row["recipient"]),
+        "next_owner": next_owner,
+        "next_owner_profile": people.get(next_owner),
+        "source_id": row["source_id"],
+        "source_key": row["source_key"],
+        "source_title": row["source_title"],
+        "request_key": row["request_key"],
+    }
+    if row["result_event_id"] is not None:
+        item["response"] = {"id": row["result_event_id"], "at": row["response_at"]}
+    if row["resolution_id"] is not None and (
+        row["kind"] == "review" or row["display_state"] == "closed" or row["current_action"] == "done"
+    ):
+        item["resolution"] = {"id": row["resolution_id"], "at": row["resolution_at"]}
+    return item
 
 
 class BoardQueries:
@@ -879,13 +922,7 @@ class BoardQueries:
         return page(rows, limit, "id", lambda visible: [dict(row) for row in visible])
 
     def queued_reviews(self, *, before, limit, project=projects.DEFAULT):
-        requester = """
-            (SELECT events.actor FROM events
-             WHERE events.task_id = worker_runs.task_id AND events.action = 'log'
-               AND json_extract(events.context, '$.audit.action') = 'worker-delegate'
-               AND json_extract(events.context, '$.audit.run_id') = worker_runs.id
-             ORDER BY events.id DESC LIMIT 1)
-        """ if ledger.has_event_context(self.db) else "NULL"
+        requester = f"({REVIEW_REQUESTER})" if ledger.has_event_context(self.db) else "NULL"
         rows = self.db.execute(
             f"""
             WITH current AS ({ledger.current_tasks_sql(self.db)})
@@ -1040,6 +1077,73 @@ class BoardQueries:
             return items
 
         return page(rows, limit, "id", render)
+
+    def request_log(self, *, project, before=None, limit=20):
+        cursor_filter = "WHERE (at, kind, id) < (?, ?, ?)" if before else ""
+        requester = f"({REVIEW_REQUESTER})" if ledger.has_event_context(self.db) else "NULL"
+        rows = self.db.execute(
+            f"""
+            WITH current AS ({ledger.current_tasks_sql(self.db)} WHERE tasks.project_prefix = ?),
+            requests AS (
+                SELECT 'peer' AS kind, request.id, created.at, tasks.id AS source_id,
+                       {TASK_REFERENCE} AS source_key, tasks.title AS source_title,
+                       ask.requester, ask.recipient, tasks.dri AS source_owner, request.state, request.display_state,
+                       request.context, request.current_action,
+                       EXISTS (SELECT 1 FROM events WHERE task_id = request.id AND action = 'start') AS has_started,
+                       response.id AS result_event_id, response.at AS response_at,
+                       request.event_id AS resolution_id, request.at AS resolution_at,
+                       request.project_prefix || '-' || COALESCE(request.project_number, request.id) AS request_key,
+                       (ask.review_run_id IS NOT NULL OR EXISTS (
+                           SELECT 1 FROM events WHERE task_id = request.id AND action = 'log'
+                           AND json_extract(context, '$.stamp_review') IS NOT NULL)) AS is_review
+                FROM peer_asks AS ask
+                JOIN current AS request ON request.id = ask.task_id
+                JOIN tasks ON tasks.id = ask.source_task_id AND tasks.project_prefix = request.project_prefix
+                JOIN events AS created ON created.id = (
+                    SELECT MIN(id) FROM events WHERE task_id = request.id AND action = 'add')
+                LEFT JOIN events AS response ON response.id = ask.result_event_id AND response.task_id = request.id
+                UNION ALL
+                SELECT 'wait', tasks.event_id, tasks.at, tasks.id, {TASK_REFERENCE}, tasks.title,
+                       event.actor, peer.ledger_key, tasks.dri, 'waiting', NULL, NULL, NULL, FALSE,
+                       NULL, NULL, NULL, NULL, NULL, FALSE
+                FROM current AS tasks
+                JOIN events AS event ON event.id = tasks.event_id
+                {self._PEER_WAIT_JOIN}
+                WHERE {self._PEER_WAIT_CONDITIONS} AND json_extract(tasks.context, '$.peer_ask_ticket') IS NULL
+                UNION ALL
+                SELECT 'review', worker_runs.id, worker_runs.assigned_at, tasks.id, {TASK_REFERENCE}, tasks.title,
+                       {requester}, worker_runs.worker, tasks.dri,
+                       CASE WHEN worker_runs.status = 'planned' AND tasks.display_state <> 'closed' THEN 'asked'
+                            WHEN tasks.display_state = 'closed' AND worker_runs.status IN ('planned', 'running')
+                                THEN 'closed'
+                            WHEN worker_runs.status = 'running' AND ({RECORDED_START}) THEN 'in_progress'
+                            WHEN worker_runs.status = 'running' THEN 'start_unconfirmed'
+                            WHEN worker_runs.status = 'reported' THEN 'acknowledgment'
+                            WHEN worker_runs.status = 'collected' THEN 'done'
+                            WHEN worker_runs.status = 'stopped' THEN 'canceled' END,
+                       NULL, NULL, NULL, FALSE, response.id, response.at, resolved.id, resolved.at, NULL, TRUE
+                FROM worker_runs JOIN current AS tasks ON tasks.id = worker_runs.task_id
+                LEFT JOIN events AS response ON response.id = (
+                    SELECT MAX(id) FROM events WHERE task_id = tasks.id AND action = 'log'
+                    AND json_extract(context, '$.worker_report_id') = worker_runs.id)
+                LEFT JOIN events AS resolved ON resolved.id = (
+                    SELECT MAX(id) FROM events WHERE task_id = tasks.id AND action = 'log'
+                    AND json_extract(context, '$.worker_disposition_id') = worker_runs.id)
+                WHERE worker_runs.role = 'review'
+                  AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)
+            )
+            SELECT * FROM requests {cursor_filter}
+            ORDER BY at DESC, kind DESC, id DESC LIMIT ?
+            """, (project, *(before or ()), limit + 1),
+        ).fetchall()
+        visible = rows[:limit]
+        keys = {row[person] for row in visible for person in ("requester", "recipient", "source_owner") if row[person]}
+        people = profiles.visible_by_keys(self.db, keys, self.base)
+        return {
+            "items": [request_log_item(row, people) for row in visible],
+            "next_cursor": json.dumps([visible[-1][key] for key in ("at", "kind", "id")])
+            if len(rows) > limit else None,
+        }
 
     def recent_report_outcomes(self, owner, project, *, exclude_requests=""):
         # Read each action in event ID order before combining the small results.

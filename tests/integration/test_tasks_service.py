@@ -5955,6 +5955,95 @@ class TasksServiceTest(unittest.TestCase):
             [course],
         )
 
+    def test_request_log_keeps_one_row_through_transitions_and_pages_mixed_requests(self):
+        app = self.app(portal_reader=True)
+        reader = app.test_client()
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        self.cli("register-project", "COURSE", "Course", "--dri", avery_id)
+        route = "/api/v1/reports/request-log"
+
+        self.assertEqual(reader.get(BASE + route, base_url=ORIGIN).status_code, 403)
+        self.assertEqual(self.call(reader, route).json, {"items": [], "next_cursor": None})
+
+        def create(title, project="T"):
+            return self.action(avery, "create-task", {
+                "project": project, "title": title, "step": "Check the example.",
+            })["receipt"].split()[0]
+
+        def advance(client, reference, transition):
+            self.action(client, "advance-task", {
+                "id": reference, "transition": transition, "note": "Run the next check.",
+            })
+
+        def ask(source):
+            return self.action(avery, "peer-ask", {
+                "id": source, "transition": "create", "recipient": blake_id, "note": "Check the example.",
+            })["receipt"].split()[0]
+
+        source = create("Check the sample")
+        advance(avery, source, "start")
+        reference = ask(source)
+
+        def check_phase(expected):
+            first, = self.call(reader, route).json["items"]
+            self.assertEqual((first["source_key"], first["request_key"], first["phase"]),
+                             (source, reference, expected))
+            self.assertEqual(first["requester_profile"]["name"], "Avery")
+            self.assertEqual(first["recipient_profile"]["name"], "Blake")
+            return first
+
+        initial = check_phase("asked")
+        advance(blake, reference, "start")
+        advance(blake, reference, "park")
+        self.assertEqual(check_phase("waiting")["id"], initial["id"])
+        advance(blake, reference, "unpark")
+        advance(blake, reference, "start")
+        self.action(blake, "peer-ask", {"id": reference, "transition": "result", "note": "Verified."})
+        responded = check_phase("acknowledgment")
+        self.action(avery, "peer-ask", {"id": reference, "transition": "acknowledge", "note": "Accepted."})
+        done = check_phase("done")
+        self.assertEqual((done["id"], done["at"]), (initial["id"], initial["at"]))
+        self.assertEqual(done["response"], responded["response"])
+        self.assertGreater(done["resolution"]["id"], done["response"]["id"])
+
+        canceled_source = create("Withdraw this example")
+        canceled = ask(canceled_source)
+        self.action(avery, "peer-ask", {"id": canceled, "transition": "cancel", "note": "Superseded."})
+
+        legacy = create("A legacy wait")
+        advance(avery, legacy, "start")
+        self.cli("wait", legacy, "Check the example.", "--on", "Blake", "--by", avery_id)
+
+        review = create("Review the candidate")
+        advance(avery, review, "start")
+        run = self.action(avery, "delegate", {
+            "id": review, "worker": blake_id, "role": "review", "brief": "Check the example.",
+        })["receipt"].split()[0]
+        self.action(blake, "worker-handoff", {"run": run, "transition": "start", "handle": "fixture:review"})
+        self.action(blake, "worker-handoff", {
+            "run": run, "transition": "report", "result": "completed", "note": "Verified.",
+        })
+        course = create("Course request", "COURSE")
+        course_request = ask(course)
+
+        first = self.call(reader, route, query_string={"limit": 2}).json
+        rest = self.call(reader, route, query_string={"before": first["next_cursor"]}).json
+        self.assertIsNone(rest["next_cursor"])
+        rows = first["items"] + rest["items"]
+        self.assertEqual(len(rows), len({row["id"] for row in rows}))
+        by_source = {row["source_key"]: row for row in rows}
+        self.assertEqual({key: row["phase"] for key, row in by_source.items()}, {
+            source: "done", canceled_source: "canceled", legacy: "waiting", review: "acknowledgment",
+        })
+        self.assertTrue(by_source[review]["review"])
+        self.assertIn("response", by_source[review])
+        self.assertIn("resolution", by_source[canceled_source])
+        self.assertEqual(
+            [row["request_key"] for row in self.call(reader, route, query_string={"project": "COURSE"}).json["items"]],
+            [course_request],
+        )
+
     def test_queued_peer_waits_show_named_agents_without_duplicating_reviews(self):
         app = self.app(portal_reader=True)
         reader = app.test_client()

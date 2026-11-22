@@ -159,20 +159,20 @@ def queue_page_args(data, state):
     }
 
 
-def inbox_cursor(data):
+def ordered_feed_cursor(data, sources, label):
     value = text(data, "before", optional=True, maximum=85)
     if value is None:
         return None
     try:
         at, source, identifier = json.loads(value)
-        if source not in ("event", "decision", "request", "readiness") or type(identifier) is not int:
+        if source not in sources or type(identifier) is not int:
             raise ValueError
         stamp = datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ")
         if stamp.strftime("%Y-%m-%dT%H:%M:%SZ") != at:
             raise ValueError
         return at, source, integer(identifier, "cursor ID")
     except (TypeError, ValueError):
-        raise RequestError("Provide a cursor returned by the inbox.") from None
+        raise RequestError(f"Provide a cursor returned by {label}.") from None
 
 
 def day_arg(data, name):
@@ -1545,6 +1545,16 @@ def create_app(
         args = request.args
         return query().peer_request_history(project=project_filter(args, projects.DEFAULT), **page_args(args))
 
+    @app.get("/api/v1/reports/request-log")
+    def report_request_log():
+        current_actor()
+        args = request.args
+        return query().request_log(
+            project=project_filter(args, projects.DEFAULT),
+            before=ordered_feed_cursor(args, ("peer", "review", "wait"), "the request log"),
+            limit=integer(args.get("limit", 20), "limit", maximum=100),
+        )
+
     @app.get("/api/v1/reports/pending")
     def more_reports():
         current_actor()
@@ -1646,7 +1656,7 @@ def create_app(
     @app.get("/api/v1/notifications/inbox")
     def notification_inbox():
         actor = current_actor(required=True)
-        before = inbox_cursor(request.args)
+        before = ordered_feed_cursor(request.args, ("event", "decision", "request", "readiness"), "the inbox")
         limit = integer(request.args.get("limit", 20), "limit", maximum=100)
         view = request.args.get("view", "all")
         if view not in ("all", "updates"):

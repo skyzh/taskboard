@@ -229,8 +229,9 @@ test('the public Summary renders captured asks and responses without a live serv
   const waits = [{ id: 'ask-1', task_id: 1, task_key: 'T-1', task_title: 'Check the sample', requester: 'Avery', recipient: 'Blake', at }]
   const responses = [{ id: 'response-1', task_id: 2, task_key: 'T-2', task_title: 'Review the result', responder: 'Blake', recipient: 'Avery', at }]
   const html = renderToStaticMarkup(React.createElement(QueuedAsksContent, { snapshot: { reviews: [], waits, responses } }))
-  assert.match(html, /Queued asks[\s\S]*Avery requested Blake[\s\S]*Check the sample/)
-  assert.match(html, /Recent responses[\s\S]*Blake responded to Avery[\s\S]*Review the result/)
+  assert.match(html, /Request log[\s\S]*Waiting[\s\S]*Avery[\s\S]*Blake[\s\S]*Check the sample/)
+  assert.match(html, /request-terminal[\s\S]*Done[\s\S]*Review the result/)
+  assert.equal((html.match(/aria-label="Requests"/g) || []).length, 1)
   assert.doesNotMatch(html, /href="#task-|Loading|Load more/)
   assert.equal(renderToStaticMarkup(React.createElement(QueuedAsksContent, { snapshot: { reviews: [], waits: [], responses: [] } })), '')
 })
