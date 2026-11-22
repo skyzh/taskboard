@@ -69,7 +69,7 @@ class Deployment:
 @dataclass(frozen=True)
 class GitHubEvents:
     repository: str
-    merge: Actions
+    merge: Actions | None
     deployment: Deployment | None
     activity: dict[str, Actions]
     ci_jobs: Actions | None = None
@@ -87,7 +87,8 @@ def _events(config):
             or not isinstance(config.get("repository"), str) or not REPOSITORY.fullmatch(config["repository"])
             or config["repository"].split("/")[1] in (".", "..")):
         raise ValueError("Name a public GitHub repository as owner/repository.")
-    merge = _actions(config.get("merge", {}))
+    merge = config.get("merge", {})
+    merge = None if merge is False else _actions(merge)
     deployment = None
     if "deployment" in config:
         value = config["deployment"]
