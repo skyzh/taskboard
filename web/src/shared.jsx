@@ -118,14 +118,17 @@ export function eventHref(id) {
   return `#event-${id}-log`
 }
 
-export function notificationLogProject(fragment) {
-  return /^notifications-log\?project=([A-Z][A-Z0-9]{0,7})$/.exec(fragment)?.[1]
+export function notificationLogFilters(fragment) {
+  const match = /^notifications-log(?:\?project=([A-Z][A-Z0-9]{0,7})(?:&status=(pending|history))?(?:&kind=(ready|merge))?)?$/.exec(fragment)
+  if (!match) return null
+  const [, project, state = 'all', kind = ''] = match
+  return { project, state, kind }
 }
 
 export function signInHref(hash) {
   const login = './auth/login'
-  const returnToBoard = /^#(?:task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9]\d{0,18}|event-[1-9]\d{0,18}-log|notifications(?:-needs-me|-log)?|reports-all|settings|about)$/.test(hash)
-    || (hash.startsWith('#') && notificationLogProject(hash.slice(1)))
+  const returnToBoard = /^#(?:task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9]\d{0,18}|event-[1-9]\d{0,18}-log|notifications(?:-needs-me)?|reports-all|settings|about)$/.test(hash)
+    || (hash.startsWith('#') && notificationLogFilters(hash.slice(1)))
   return returnToBoard ? `${login}?fragment=${encodeURIComponent(hash)}` : login
 }
 

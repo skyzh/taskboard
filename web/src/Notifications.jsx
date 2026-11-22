@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { request, useLoadedPages, useResource } from './data.js'
-import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificationLogProject, ownerHref, profileName, signInHref } from './shared.jsx'
+import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificationLogFilters, ownerHref, profileName, signInHref } from './shared.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import NotificationLog from './NotificationLog.jsx'
 import DecisionForm from './DecisionForm.jsx'
@@ -246,7 +246,7 @@ function TaskReminders({ revision }) {
 
 function PersonalNotifications({ revision, session, onChanged, fragment, project, projects }) {
   const needsMe = fragment === 'notifications-needs-me'
-  const showLog = fragment === 'notifications-log' || Boolean(notificationLogProject(fragment))
+  const logFilters = notificationLogFilters(fragment)
   const { data } = useResource('/notifications/open-count?scope=all', revision)
   return (
     <>
@@ -255,9 +255,10 @@ function PersonalNotifications({ revision, session, onChanged, fragment, project
         <a href="#notifications-needs-me" aria-current={needsMe ? 'page' : undefined}>
           Needs me{data && <span aria-live="polite"> ({data.count})</span>}
         </a>
-        <a href={showLog ? `#${fragment}` : '#notifications-log'} aria-current={showLog ? 'page' : undefined}>Project log</a>
+        <a href={logFilters ? `#${fragment}` : '#notifications-log'} aria-current={logFilters ? 'page' : undefined}>Project log</a>
       </nav>
-      {showLog ? <NotificationLog project={project} projects={projects} revision={revision} /> : (
+      {logFilters ? <NotificationLog project={project} state={logFilters.state} kind={logFilters.kind}
+        projects={projects} revision={revision} /> : (
         <>
           <TaskReminders revision={revision} />
           {needsMe ? <NeedsMe revision={revision} session={session} onChanged={onChanged} />

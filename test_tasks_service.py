@@ -4234,14 +4234,22 @@ class TasksServiceTest(unittest.TestCase):
 
     def test_notification_fragments_return_after_sign_in(self):
         app = self.app(portal_reader=True)
-        for name, fragment in (("Sam", "#notifications-needs-me"), ("Quinn", "#notifications-log?project=COURSE")):
+        for name, fragment in (
+            ("Sam", "#notifications-needs-me"),
+            ("Quinn", "#notifications-log?project=COURSE&status=pending&kind=ready"),
+        ):
             with self.subTest(fragment=fragment):
                 client = app.test_client()
                 login = self.call(client, "/auth/login", query_string={"fragment": fragment}, status=302)
                 state = parse_qs(urlsplit(login.location).query)["state"][0]
                 result = self.call(client, "/auth/callback", query_string={"code": name, "state": state}, status=302)
                 self.assertEqual(result.location, ORIGIN + BASE + "/" + fragment)
-        for fragment in ("#notifications-log?project=//other.example", "#notifications-log?project=COURSE&project=T"):
+        for fragment in (
+            "#notifications-log?project=//other.example",
+            "#notifications-log?project=COURSE&project=T",
+            "#notifications-log?project=COURSE&status=invalid",
+            "#notifications-log?project=COURSE&kind=ready&kind=merge",
+        ):
             self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
 
     def test_reports_and_about_return_after_sign_in(self):

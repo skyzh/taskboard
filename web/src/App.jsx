@@ -11,7 +11,7 @@ import Schedules from './Schedules.jsx'
 import Settings from './Settings.jsx'
 import Stats from './Stats.jsx'
 import { watchBoardSections } from './sectionIndex.js'
-import { notificationLogProject, signInHref, taskHref } from './shared.jsx'
+import { notificationLogFilters, signInHref, taskHref } from './shared.jsx'
 import { SearchResults, TaskSearch } from './TaskSearch.jsx'
 import { TaskDetail, WorkLog, WorkQueue } from './Work.jsx'
 import { useTheme } from './theme.js'
@@ -178,8 +178,8 @@ export default function App({ MilestoneMap }) {
   const isAgent = session.data?.actor?.kind === 'agent'
   const verified = ['agent', 'human'].includes(session.data?.actor?.kind)
   const params = new URLSearchParams(fragment)
-  const logProject = notificationLogProject(fragment)
-  const project = selected ? namedTask?.split('-')[0] || 'T' : logProject || params.get('project') || preferredProject
+  const logFilters = notificationLogFilters(fragment)
+  const project = selected ? namedTask?.split('-')[0] || 'T' : logFilters?.project || params.get('project') || preferredProject
   useEffect(() => {
     setQueueFilters(previous => previous.tag && previous.tag.project !== project
       ? { ...previous, tag: undefined }
@@ -195,7 +195,7 @@ export default function App({ MilestoneMap }) {
   else if (fragment === 'about') view = 'about'
   else if (params.has('schedules')) view = 'schedules'
   else if (fragment === 'stats') view = 'stats'
-  else if (logProject || ['notifications', 'notifications-needs-me', 'notifications-log'].includes(fragment)) view = 'notifications'
+  else if (logFilters || ['notifications', 'notifications-needs-me'].includes(fragment)) view = 'notifications'
   else if (fragment === 'my-activity' && isAgent) view = 'my-activity'
   else if (linkedEvent || ['activity', 'work-log-title'].includes(fragment)) view = 'activity'
   else if (selected) view = 'task'
