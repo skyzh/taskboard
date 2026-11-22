@@ -225,7 +225,7 @@ class ReadyCheckpointTest(unittest.TestCase):
                               interval=1, idle_delay=2)
         self.assertEqual(wakes, [(3, 1), (8, 2)])
 
-    def watch_through_carrier(self, queue_failure, stops_at, *, measure=True):
+    def watch_through_carrier(self, queue_failure, stops_at, *, measure=True, context_failure=None, owner="Avery"):
         clock = 0
         observations = []
         wakes = []
@@ -241,27 +241,26 @@ class ReadyCheckpointTest(unittest.TestCase):
             self.assertIsNone(options["input"])
             action = command[command.index("--action") + 1]
             if action == "context":
-                result = self.avery.invoke(action)
+                status = context_failure() if context_failure is not None else None
             else:
                 self.assertEqual(action, "my-queue")
                 reads.append(clock)
                 status = queue_failure(len(reads), bool(wakes))
-                if status == "missing":
-                    raise FileNotFoundError()
-                if status:
-                    error = {"code": "INTEGRATION_INVOKE_FAILED"}
-                    if status == "timeout":
-                        error.update(
-                            message="service action transport failed before a response (timeout at a private URL)",
-                            fault_domain="integration_action_transport", retryable=True,
-                            details={"cause_class": "timeout", "cause_code": "ETIMEDOUT"},
-                        )
-                    else:
-                        error["message"] = f"service action failed (HTTP {status}); response body: fixture private detail"
-                    return subprocess.CompletedProcess(command, 1, "", json.dumps({"ok": False, "error": error}))
-                fields = dict(command[i + 1].split("=", 1)
-                              for i, option in enumerate(command) if option == "--param")
-                result = self.avery.invoke(action, fields)
+            if status == "missing":
+                raise FileNotFoundError()
+            if status:
+                error = {"code": "INTEGRATION_INVOKE_FAILED"}
+                if status == "timeout":
+                    error.update(
+                        message="service action transport failed before a response (timeout at a private URL)",
+                        fault_domain="integration_action_transport", retryable=True,
+                        details={"cause_class": "timeout", "cause_code": "ETIMEDOUT"},
+                    )
+                else:
+                    error["message"] = f"service action failed (HTTP {status}); response body: fixture private detail"
+                return subprocess.CompletedProcess(command, 1, "", json.dumps({"ok": False, "error": error}))
+            fields = dict(command[i + 1].split("=", 1) for i, option in enumerate(command) if option == "--param")
+            result = self.avery.invoke(action, fields)
             return subprocess.CompletedProcess(command, 0, json.dumps({"ok": True, "data": {"result": result}}), "")
 
         def notify(notice, can_wake):
@@ -275,11 +274,54 @@ class ReadyCheckpointTest(unittest.TestCase):
             patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance_clock),
         ):
             try:
-                watch_ready_count(SharedBoard("fixture"), "Avery", lambda _: True, notify, observations.append,
+                watch_ready_count(SharedBoard("fixture"), owner, lambda _: True, notify, observations.append,
                                   interval=1, idle_delay=2, observe_status=(lambda _: "idle") if measure else None)
-            except (KeyboardInterrupt, RuntimeError) as outcome:
+            except (KeyboardInterrupt, RuntimeError, ValueError) as outcome:
                 return outcome, observations, wakes, reads
         self.fail("The repeat watcher returned without a stop or error.")
+
+    def test_count_watcher_recovers_startup_context_before_waking(self):
+        self.avery.invoke("create-task", {"title": "Owned fixture", "step": "Read it."}, write=True)
+        statuses = iter([503, "timeout"])
+        outcome, observations, wakes, reads = self.watch_through_carrier(
+            lambda *_: None, 10, context_failure=lambda: next(statuses, None),
+        )
+        self.assertIsInstance(outcome, KeyboardInterrupt)
+        self.assertEqual(reads[0], 3)
+        self.assertEqual(wakes, [(5, 1)])
+        self.assertEqual([(row["stage"], row["reason"]) for row in observations
+                          if row.get("kind") == "ready-read-retry"],
+                         [("startup context", "http-503"), ("startup context", "timeout")])
+        event, = (row for row in observations if row.get("kind") == "ready-read-recovered")
+        self.assertEqual(event["stage"], "startup context")
+        self.assertNotIn("ready_count", event)
+
+    def test_count_watcher_stops_startup_without_reading_the_queue(self):
+        for statuses, owner, message, attempts in (
+            ([401], "Avery", "http-401", 1),
+            ([503, 403], "Avery", "http-403", 2),
+            ([503] * 4, "Avery", "http-503", 4),
+            ([503, None], "Blake", "signed-in actor", 2),
+        ):
+            with self.subTest(statuses=statuses, owner=owner):
+                responses = iter(statuses)
+                checks = []
+
+                def context_failure():
+                    status = next(responses)
+                    checks.append(status)
+                    return status
+
+                outcome, observations, wakes, reads = self.watch_through_carrier(
+                    lambda *_: self.fail("Unverified owner read the queue."), 10,
+                    context_failure=context_failure, owner=owner,
+                )
+                self.assertIn(message, str(outcome))
+                self.assertNotIn("fixture private detail", str(outcome))
+                self.assertEqual(len(checks), attempts)
+                self.assertEqual(reads, [])
+                self.assertEqual(wakes, [])
+                self.assertFalse(any(row.get("kind") == "ready-read-recovered" for row in observations))
 
     def test_count_watcher_recovers_both_reads_and_preserves_the_wake_record(self):
         self.avery.invoke("create-task", {"title": "Owned fixture", "step": "Read it."}, write=True)
