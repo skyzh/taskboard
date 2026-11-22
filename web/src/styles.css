@@ -543,14 +543,14 @@ select[multiple] { height: auto; width: 100%; }
 select option { background-color: var(--paper); color: var(--ink); }
 select option:checked { background-color: Highlight; color: HighlightText; }
 select option:disabled { color: GrayText; }
-.project-switcher {
+.embedded-picker {
   display: inline-grid;
   max-width: 100%;
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
 }
-.project-switcher > * { grid-area: 1 / 1; }
-.project-switcher select {
+.embedded-picker > * { grid-area: 1 / 1; }
+.embedded-picker select {
   appearance: none;
   field-sizing: content;
   min-width: 0;
@@ -564,7 +564,7 @@ select option:disabled { color: GrayText; }
   font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
-.project-switcher svg {
+.embedded-picker svg {
   justify-self: end;
   margin-inline-end: .16rem;
   color: var(--muted);
