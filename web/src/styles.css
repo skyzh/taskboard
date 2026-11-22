@@ -568,6 +568,14 @@ button:disabled { opacity: .57; }
   font: var(--weight-emphasis) .77rem/1.4 system-ui, sans-serif;
 }
 .status::before { content: ""; width: .38rem; height: .38rem; border-radius: 50%; background: currentColor; }
+.ticket-status-meta { align-items: baseline; }
+/* Use the label's text baseline instead of the status dot's flex baseline. */
+.ticket-status-meta > .status { display: inline-block; }
+.ticket-status-meta > .status::before {
+  display: inline-block;
+  margin-inline-end: .32rem;
+  vertical-align: middle;
+}
 .status.human_review { color: #774e86; }
 .status.waiting { color: #7a4e13; }
 .status.in_progress { color: #205695; }
