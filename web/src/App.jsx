@@ -165,6 +165,8 @@ export default function App({ MilestoneMap }) {
   const [queueLayout, setQueueLayout] = useState('list')
   const [phoneColumn, setPhoneColumn] = useState('ready')
   const kanbanNavigation = useRef({})
+  const listNavigation = useRef({})
+  const listReturn = useRef(null)
   const [waitingLabel, setWaitingLabel] = useState('')
   const [appliedQueueLink, setAppliedQueueLink] = useState(null)
   const [revision, setRevision] = useState(0)
@@ -210,14 +212,18 @@ export default function App({ MilestoneMap }) {
   }
   const linkedOwner = view === 'board' && params.get('section') === 'queue-heading' && params.get('owner')
   const linkedQueue = linkedOwner ? fragment : null
+  const fromList = view === 'task' && listReturn.current?.ticket === `#${fragment}`
   // Apply a new queue link before the work list loads with the previous filters.
   if (appliedQueueLink !== linkedQueue) {
     setAppliedQueueLink(linkedQueue)
-    if (linkedOwner) {
+    if (linkedOwner && listReturn.current?.board !== `#${fragment}`) {
       setQueueFilters({ dri: linkedOwner })
       setWaitingLabel('')
     }
   }
+  useEffect(() => {
+    if (view !== 'board' && !fromList) listReturn.current = null
+  }, [view, fromList])
   const overview = useResource(
     !needsOidcSignIn && ['board', 'team-overview', 'activity'].includes(view)
       ? queryPath('/overview', { project: view === 'activity' ? undefined : project })
@@ -320,11 +326,12 @@ export default function App({ MilestoneMap }) {
               <WorkQueue revision={revision} overview={overview.data} filters={queueFilters} setFilters={setQueueFilters}
                 waitingLabel={waitingLabel} setWaitingLabel={setWaitingLabel} project={project} projectPicker={projectPicker}
                 layout={queueLayout} setLayout={setQueueLayout} phoneColumn={phoneColumn} setPhoneColumn={setPhoneColumn}
-                kanbanNavigation={kanbanNavigation} />
+                kanbanNavigation={kanbanNavigation} listNavigation={listNavigation} listReturn={listReturn} />
             </>
           )}
           {view === 'task' && <TaskDetail key={selected} id={selected} revision={revision} session={session}
-            preferredProject={preferredProject} onChanged={refresh} />}
+            preferredProject={preferredProject} returnHref={fromList ? listReturn.current.board : undefined}
+            onChanged={refresh} />}
           {view === 'team-overview' && (
             <>
               <div className="page-heading"><h1 id="team-overview">Team overview</h1></div>

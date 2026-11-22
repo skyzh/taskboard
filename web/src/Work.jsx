@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { ActivityDate } from './Overview.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
@@ -25,7 +25,7 @@ import { ReportTime } from './ReportTime.jsx'
 const ownerOptionPrefix = 'owner:'
 
 export function WorkQueue({ revision, overview, filters, setFilters, waitingLabel, setWaitingLabel, project, projectPicker,
-  layout, setLayout, phoneColumn, setPhoneColumn, kanbanNavigation }) {
+  layout, setLayout, phoneColumn, setPhoneColumn, kanbanNavigation, listNavigation, listReturn }) {
   const kanban = layout === 'kanban'
   const closedAvailable = overview?.counts?.closed != null
   const { tag: selectedTag, ...otherFilters } = filters
@@ -34,9 +34,33 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
   const projectTags = useResource(project ? queryPath('/tags', { project }) : null, revision)
   const tagOptions = new Set(projectTags.data?.tags || [])
   if (tag) tagOptions.add(tag)
-  const page = useLoadedPages(kanban ? null : '/tasks', {
+  const listFilters = {
     ...taskFilters, project, order: filters.state === 'ready' ? 'priority' : undefined,
-  }, revision)
+  }
+  const listScope = queryPath('/tasks', listFilters)
+  const page = useLoadedPages(kanban ? null : '/tasks', listFilters, revision, { rememberedNavigation: listNavigation })
+  const list = useRef(null)
+  function rememberTicket(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    const link = event.target.closest('.task-row-heading > a[href^="#task-"]')
+    if (link) listReturn.current = {
+      scope: listScope, board: window.location.hash || '#board', ticket: link.hash,
+    }
+  }
+  useEffect(() => {
+    const previous = listReturn?.current
+    if (!previous) return
+    if (kanban || previous.scope !== listScope || previous.board !== window.location.hash) {
+      listReturn.current = null
+      return
+    }
+    if (page.pending) return
+    listReturn.current = null
+    const link = [...(list.current?.querySelectorAll('.task-row-heading > a') || [])]
+      .find(link => link.hash === previous.ticket)
+    link?.focus({ preventScroll: true })
+    link?.scrollIntoView({ block: 'center' })
+  }, [kanban, listReturn, listScope, page.pending])
   const [columnPages, setColumnPages] = useState({})
   const [filtersOpen, setFiltersOpen] = useState(false)
   const updateColumn = useCallback((state, data) => {
@@ -140,7 +164,7 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
           <>
             <ResourceStatus resource={page} label="the queue" />
             {page.data?.items.length === 0 && <p className="section-message" role="status">No matching tasks.</p>}
-            <TaskRows items={page.data?.items} label="Work queue" compactQueue />
+            <TaskRows items={page.data?.items} label="Work queue" compactQueue listRef={list} onClick={rememberTicket} />
             <LoadMore page={page} label="tasks in the work queue" />
           </>
         )}
@@ -239,7 +263,7 @@ function TaskWatch({ id, session, revision, onChanged }) {
   )
 }
 
-export function TaskDetail({ id, revision, session, onChanged, preferredProject = 'T' }) {
+export function TaskDetail({ id, revision, session, onChanged, preferredProject = 'T', returnHref }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
   const detail = useResource(`/tasks/${id}`, revision)
   const activity = useLoadedPages(`/tasks/${id}/activity`, {}, revision)
@@ -248,7 +272,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   const state = task && taskState(task)
   const summary = state === 'closed' ? 'Closure reason' : task?.summary_label
   const project = typeof id === 'string' ? id.split('-')[0] : 'T'
-  const queueHref = project === 'T' && preferredProject === 'T' ? '#board' : `#project=${project}`
+  const queueHref = returnHref || (project === 'T' && preferredProject === 'T' ? '#board' : `#project=${project}`)
   return (
     <article id={taskHref(id).slice(1)} className="panel task-detail" aria-labelledby={`task-heading-${id}`} tabIndex={-1}>
       <a className="back-link" href={queueHref}>Back to Tasks</a>
