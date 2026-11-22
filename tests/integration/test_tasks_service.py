@@ -4526,6 +4526,18 @@ class TasksServiceTest(unittest.TestCase):
         for fragment in ("#reports?project=//other.example", "#reports?project=COURSE&project=T"):
             self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
 
+    def test_stats_period_returns_after_sign_in(self):
+        app = self.app(portal_reader=True)
+        for fragment in ("#stats", "#stats?project=COURSE&period=week", "#stats?period=week&project=COURSE", "#stats?project=COURSE"):
+            with self.subTest(fragment=fragment):
+                self.provider.issued.discard("Sam")
+                client = app.test_client()
+                login = self.call(client, "/auth/login", query_string={"fragment": fragment}, status=302)
+                state = parse_qs(urlsplit(login.location).query)["state"][0]
+                callback = self.call(client, "/auth/callback", query_string={"code": "Sam", "state": state}, status=302)
+                self.assertEqual(callback.location, ORIGIN + BASE + "/" + fragment)
+        self.call(app.test_client(), "/auth/login", query_string={"fragment": "#stats?period=unknown"}, status=400)
+
     def test_settings_returns_after_sign_in_and_loads_the_same_origin_theme_script(self):
         app = self.app(portal_reader=True)
         client = app.test_client()
