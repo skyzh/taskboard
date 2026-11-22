@@ -18,10 +18,10 @@ function AskPeople({ sender, recipient, response }) {
   )
 }
 
-function AskList({ label, page, items, responses = false }) {
+function AskList({ label, page, items, responses = false, publicPreview = false }) {
   return (
     <>
-      <ResourceStatus resource={page} label={label.toLowerCase()} />
+      {page && <ResourceStatus resource={page} label={label.toLowerCase()} />}
       {items?.length > 0 && (
         <ul className="report-outcomes ask-list" aria-label={label} role="list">
           {items.map(ask => (
@@ -29,29 +29,27 @@ function AskList({ label, page, items, responses = false }) {
               <AskPeople sender={responses ? ask.responder : ask.requester} recipient={ask.recipient} response={responses} />
               {ask.at && <ReportTime at={ask.at} />}
               {ask.status && <span className="ask-state">{ask.status}</span>}
-              <span className="ask-ticket"><TaskLink reference={ask.task_key} id={ask.task_id} title={ask.task_title} /></span>
+              <span className="ask-ticket"><TaskLink reference={ask.task_key} id={ask.task_id} title={ask.task_title}
+                publicHref={publicPreview ? ask.public_url || null : undefined} /></span>
             </li>
           ))}
         </ul>
       )}
-      {!responses && <LoadMore page={page} label={label.toLowerCase()} />}
+      {page && !responses && <LoadMore page={page} label={label.toLowerCase()} />}
     </>
   )
 }
 
 const reviewStates = { planned: 'Planned', running: 'In progress', start_unconfirmed: 'Start unconfirmed' }
 
-export default function QueuedAsks({ revision, project, grouped }) {
-  const reviews = useLoadedPages('/reports/queued-reviews', { project }, revision)
-  const waits = useLoadedPages('/reports/queued-peer-waits', { project }, revision)
-  const responses = useResource(queryPath('/reports/recent-peer-responses', { project }), revision)
-  const waitRows = waits.data?.items.filter(wait => !wait.linked_request)
-  const reviewRows = reviews.data?.items.filter(review => !review.linked_request).map(review => ({
+export function QueuedAsksContent({ project, grouped, reviews, waits, responses, snapshot }) {
+  const waitRows = (snapshot?.waits || waits?.data?.items)?.filter(wait => !wait.linked_request)
+  const reviewRows = (snapshot?.reviews || reviews?.data?.items)?.filter(review => !review.linked_request).map(review => ({
     ...review, status: reviewStates[review.execution_state ?? review.state],
   }))
-  const responseRows = responses.data?.items
+  const responseRows = snapshot?.responses || responses?.data?.items
   if (reviewRows?.length === 0 && waitRows?.length === 0 && responseRows?.length === 0
-    && reviews.data.next_cursor == null && waits.data.next_cursor == null) return null
+    && reviews?.data?.next_cursor == null && waits?.data?.next_cursor == null) return null
 
   const headingId = grouped ? `queued-asks-${project}` : 'queued-asks-title'
   const Heading = grouped ? 'h3' : 'h2'
@@ -59,10 +57,17 @@ export default function QueuedAsks({ revision, project, grouped }) {
   return (
     <section className="queued-asks" aria-labelledby={headingId}>
       <Heading id={headingId}>Queued asks</Heading>
-      <AskList label="Peer reviews" page={reviews} items={reviewRows} />
-      <AskList label="Named peer waits" page={waits} items={waitRows} />
+      <AskList label="Peer reviews" page={reviews} items={reviewRows} publicPreview={Boolean(snapshot)} />
+      <AskList label="Named peer waits" page={waits} items={waitRows} publicPreview={Boolean(snapshot)} />
       {responseRows?.length > 0 && <ResponseHeading>Recent responses</ResponseHeading>}
-      <AskList label="Recent responses" page={responses} items={responseRows} responses />
+      <AskList label="Recent responses" page={responses} items={responseRows} responses publicPreview={Boolean(snapshot)} />
     </section>
   )
+}
+
+export default function QueuedAsks({ revision, project, grouped }) {
+  const reviews = useLoadedPages('/reports/queued-reviews', { project }, revision)
+  const waits = useLoadedPages('/reports/queued-peer-waits', { project }, revision)
+  const responses = useResource(queryPath('/reports/recent-peer-responses', { project }), revision)
+  return <QueuedAsksContent project={project} grouped={grouped} reviews={reviews} waits={waits} responses={responses} />
 }

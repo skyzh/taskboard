@@ -3,9 +3,10 @@ import { createRoot } from 'react-dom/client'
 import BoardViews from '../../src/BoardViews.jsx'
 import { ReportTimeProvider } from '../../src/ReportTime.jsx'
 import { AssigneeReportList, ReportsHeading, ReportsLayout } from '../../src/Reports.jsx'
+import { QueuedAsksContent } from '../../src/QueuedAsks.jsx'
 import { BoardBrand } from '../../src/shared.jsx'
 import { useTheme } from '../../src/theme.js'
-import { capturedAt, entries, queuedWaits, repository } from './snapshot.js'
+import { capturedAt, entries, queuedAsks, repository } from './snapshot.js'
 import '../../src/styles.css'
 import '../../src/night.css'
 import './snapshot.css'
@@ -79,16 +80,15 @@ function SummaryDemo() {
       </header>
       <main aria-label="Taskboard content">
         <div className="main-content snapshot">
-          <p className="snapshot-project">Taskboard project</p>
+          <p className="snapshot-project">Tasks Board</p>
           <section className="reports" aria-labelledby="reports">
             <ReportsHeading headingId="reports">
+              <span>Team overview</span>
               <button ref={trigger} type="button" onClick={() => setStep(0)} hidden={Boolean(active)}>Start tour</button>
             </ReportsHeading>
             <ReportTimeProvider capturedAt={capturedAt}>
-              <ReportsLayout sidebar={queuedWaits > 0 ? <aside className="queued-asks" aria-label="Queued asks">
-                <h2>Queued asks</h2>
-                <p>{queuedWaits} waiting for a reply at capture</p>
-              </aside> : undefined}>
+              <ReportsLayout sidebar={queuedAsks && Object.values(queuedAsks).some(rows => rows.length > 0)
+                ? <QueuedAsksContent snapshot={queuedAsks} /> : undefined}>
                 <AssigneeReportList entries={entries} label="Taskboard squad Summary" publicPreview tourOwner="prism"
                   tourTargets={tourTargets} activeTarget={active?.id} />
               </ReportsLayout>

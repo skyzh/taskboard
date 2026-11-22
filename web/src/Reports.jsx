@@ -21,12 +21,13 @@ export const ownerWorkSections = [
   { state: 'ready', id: 'ready-title', title: 'Ready', label: 'ready tasks' },
 ]
 
-export function OwnerWorkLinks({ owner, counts, project, summary = false }) {
+export function OwnerWorkLinks({ owner, counts, project, summary = false, publicPreview = false }) {
+  const Link = publicPreview ? 'span' : 'a'
   return ownerWorkSections.map(({ state, id, title }) =>
     counts?.[state] !== 0 && (!summary || state === 'human_review' || state === 'ready') && (
-      <a key={id} href={ownerHref(owner, id, project)}>
+      <Link key={id} href={publicPreview ? undefined : ownerHref(owner, id, project)}>
         {title}{counts?.[state] != null && <> <strong>{counts[state]}</strong></>}
-      </a>
+      </Link>
     ))
 }
 
@@ -121,7 +122,7 @@ function ReportOutcome({ event, publicPreview }) {
       <div className="report-outcome-title">
         <TaskLink reference={event.task_key} id={event.task_id} title={event.task_title}
           publicHref={publicPreview ? event.public_url || null : undefined} />
-        {choice && <> · <MarkdownInline text={choice} /></>}
+        {choice && <> · <MarkdownInline text={choice} links={!publicPreview} /></>}
       </div>
       {publicPreview
         ? <ReportTime at={event.at} linked />
@@ -137,6 +138,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
   const outcomes = groupOutcomes(entry.recent_outcomes || [])
   const OwnerHeading = projectTitle ? 'h3' : 'h2'
   const WorkHeading = projectTitle ? 'h4' : 'h3'
+  const WorkLink = publicPreview ? 'span' : 'a'
   const queueLink = `#${new URLSearchParams({ ...(project && { project }), section: 'queue-heading', owner })}`
   return (
     <li className="report-owner">
@@ -149,9 +151,10 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
             </OwnerHeading>
             {projectTitle && <span className="report-project-label">{projectTitle}</span>}
           </div>
-          {!publicPreview && entry.last_activity && (
+          {entry.last_activity && (
             <p className="last-activity">
-              Last activity <ReportActivityTime event={entry.last_activity} label="Last activity" />
+              Last activity {publicPreview ? <ReportTime at={entry.last_activity.at} />
+                : <ReportActivityTime event={entry.last_activity} label="Last activity" />}
             </p>
           )}
         </div>
@@ -174,10 +177,10 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
           </ol>
         </div>
       )}
-      {!publicPreview && <div className="owner-links">
-        <OwnerWorkLinks owner={owner} counts={entry.task_counts} project={project} summary />
-        {outcomes.size > 0 && <a href={ownerHref(owner, 'outcomes-title', project)}>All outcomes</a>}
-        <a href={queueLink}>All tasks</a>
+      {(!publicPreview || entry.task_counts) && <div className="owner-links">
+        <OwnerWorkLinks owner={owner} counts={entry.task_counts} project={project} summary publicPreview={publicPreview} />
+        {outcomes.size > 0 && <WorkLink href={publicPreview ? undefined : ownerHref(owner, 'outcomes-title', project)}>All outcomes</WorkLink>}
+        <WorkLink href={publicPreview ? undefined : queueLink}>All tasks</WorkLink>
       </div>}
       {!publicPreview && reports.length > 0 && (
         <PendingReports owner={owner} project={project} projectTitle={projectTitle} name={name} initial={reports}

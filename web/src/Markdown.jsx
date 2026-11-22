@@ -82,7 +82,7 @@ export function MarkdownInline({ text, links = true, relatedTasks = [] }) {
     new Map(relatedTasks.map(task => [task.key, task])))
 }
 
-export function Markdown({ text, className = 'prose', relatedTasks = [] }) {
+export function Markdown({ text, className = 'prose', relatedTasks = [], links = true }) {
   const related = new Map(relatedTasks.map(task => [task.key, task]))
-  return <div className={className + ' markdown'}>{tokensToElements(markdown.parse(text ?? '', {}), true, related)}</div>
+  return <div className={className + ' markdown'}>{tokensToElements(markdown.parse(text ?? '', {}), links, related)}</div>
 }
