@@ -1,14 +1,6 @@
 import React, { useState } from 'react'
 import { useLoadedPages } from './data.js'
-import { eventHref, LoadMore, ResourceStatus, TaskLink, Timestamp } from './shared.jsx'
-
-const phases = {
-  asked: 'Asked',
-  in_progress: 'In progress',
-  acknowledgment: 'Ready for acknowledgment',
-  done: 'Acknowledged',
-  canceled: 'Canceled',
-}
+import { eventHref, LoadMore, peerRequestLabels, ResourceStatus, TaskLink, Timestamp } from './shared.jsx'
 
 function RecordedEvent({ label, event }) {
   return (
@@ -35,7 +27,7 @@ export default function PeerRequestHistory({ project, revision }) {
                 <li key={ask.id}>
                   <div className="peer-history-line">
                     <strong>{ask.requester} asked {ask.recipient}</strong>
-                    <span className="ask-state">{phases[ask.phase]}</span>
+                    <span className="ask-state">{peerRequestLabels[ask.phase]}</span>
                   </div>
                   <div className="peer-history-line">
                     <TaskLink id={ask.id} reference={ask.task_key} title="Request" />
@@ -45,7 +37,7 @@ export default function PeerRequestHistory({ project, revision }) {
                   {(ask.response || ask.resolution) && (
                     <div className="peer-history-line">
                       {ask.response && <RecordedEvent label="Response" event={ask.response} />}
-                      {ask.resolution && <RecordedEvent label={phases[ask.phase]} event={ask.resolution} />}
+                      {ask.resolution && <RecordedEvent label={peerRequestLabels[ask.phase]} event={ask.resolution} />}
                     </div>
                   )}
                 </li>

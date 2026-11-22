@@ -838,7 +838,8 @@ def change_task(db, args, links, *, automation=None):
                 and (getattr(args, "details", None) or "") == (event_context(task).get("activity_details") or "")
                 and json.loads(task["current_links"]) == [list(link) for link in links]):
             return f"{projects.row_reference(task)} · Decision already requested"
-        peer_asks.withdraw_named_wait(db, task, args.by, "The owner replaced this wait with a human decision.")
+        peer_asks.withdraw_named_wait(db, task, args.by, "The owner replaced this wait with a human decision.",
+                                      outcome="superseded")
     if args.command == "park":
         current = event_context(task) if task["state"] == "parked" else {}
         for field in ("review_after", "defer_until", "defer_at"):
@@ -1018,7 +1019,8 @@ def change_worker_run(db, args, links):
         context = {"audit": {"action": f"worker-{operation}", "run_id": run["id"], "status": run["status"]}}
     record(db, task["id"], "log", args.by, task["state"], note, None, links, context)
     if operation != "delegate" and run["role"] == "review":
-        peer_asks.sync_worker(db, run, operation, args.by, links, getattr(args, "related", None))
+        peer_asks.sync_worker(db, run, operation, args.by, links, getattr(args, "related", None),
+                              peer_outcome=getattr(args, "peer_outcome", "canceled"))
     return f"W-{run['id']} · {run['status'].capitalize()} · {projects.row_reference(task)}"
 
 

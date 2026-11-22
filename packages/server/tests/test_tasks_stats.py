@@ -113,7 +113,7 @@ class StatsTest(unittest.TestCase):
         result = self.event(3, "transfer", "Avery", "11:30", "ready")
         self.event(3, "done", "Blake", "12:00", "done")
         self.event(4, "add", "Blake", "11:20", "ready")
-        self.event(4, "update", "Blake", "11:30", "done", {"closure": {}})
+        self.event(4, "update", "Blake", "11:30", "done", {"closure": {"peer_outcome": "canceled"}})
         self.event(5, "add", "Blake", "11:25", "ready")
         self.event(6, "add", "Blake", "10:59", "ready")
         self.event(6, "add", "Blake", "11:00", "ready")  # Use the original Add.
@@ -122,7 +122,8 @@ class StatsTest(unittest.TestCase):
 
         peer = tasks_stats.snapshot(self.db, "hour", NOW)["peer_requests"]
         self.assertEqual({key: value for key, value in peer.items() if key != "timings"}, {
-            "opened": 4, "pending": 1, "awaiting_ack": 1, "acknowledged": 1, "canceled": 1, "already_started": 1,
+            "opened": 4, "pending": 1, "awaiting_ack": 1, "acknowledged": 1, "canceled": 1, "closed": 0,
+            "already_started": 1,
         })
         timings = peer["timings"]
         self.assertEqual(timings["add_to_start"]["median_seconds"], 420)

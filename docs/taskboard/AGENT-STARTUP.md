@@ -93,6 +93,11 @@ the result. The original ticket points to the result until the requester
 acknowledges it. Then the original work can resume. The requester can cancel
 an open request with `peer-ask cancel`. For a manually tracked Stamp review,
 record the formal verdict in Stamp and attach its link to the Taskboard result.
+If a request closed when its source moved on, the requester or project manager
+can correct its outcome using a response recorded during that request.
+For a collected review on the source ticket, run
+`./tasks --shared peer-ask correct-result T-43 'The collected review completed the request.' --review W-15`.
+Taskboard keeps the original closure in Activity and links the recorded evidence.
 
 `./tasks --shared wait T-42 'Review the fixture.' --on Reviewer` opens the
 same linked request for a verified agent. A verified human receives a decision

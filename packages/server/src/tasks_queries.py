@@ -924,7 +924,7 @@ class BoardQueries:
             f"""
             WITH requests AS ({ledger.current_tasks_sql(self.db)})
             SELECT requests.id, requests.state, requests.display_state,
-                   requests.event_id AS latest_id, requests.current_action, requests.at AS latest_at,
+                   requests.event_id AS latest_id, requests.current_action, requests.at AS latest_at, requests.context,
                    ask.requester, ask.recipient, ask.result_event_id,
                    source.id AS source_id, source.title AS source_title,
                    source.project_prefix || '-' || COALESCE(source.project_number, source.id) AS source_key,
@@ -959,7 +959,7 @@ class BoardQueries:
                 }
                 if row["response_at"] is not None:
                     item["response"] = {"id": row["result_event_id"], "at": row["response_at"]}
-                if state == "canceled" or (state == "done" and "response" in item and row["current_action"] == "done"):
+                if row["display_state"] == "closed" or (state == "done" and row["current_action"] == "done"):
                     item["resolution"] = {"id": row["latest_id"], "at": row["latest_at"]}
                 items.append(item)
             return items
