@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { useLoadedPages } from './data.js'
+import { useLoadedPages, useResource } from './data.js'
 import {
   ActivityMark, AssigneeAvatar, EvidenceLinks, LoadMore, ResourceStatus, TaskLink, WorkerResult,
   eventHref, ownerHref, profileName, taskHref, taskLabel,
@@ -236,6 +236,24 @@ export function ReportsHeading({ headingId, projectTitle, children }) {
   )
 }
 
+const projectLinkLabels = { raft: 'Raft', github: 'GitHub', stamp: 'Stamp' }
+
+function ProjectLinks({ project, revision }) {
+  const { data } = useResource(`/projects/${encodeURIComponent(project)}/links`, revision)
+  if (!data?.links?.length) return null
+
+  return (
+    <nav className="report-project-links" aria-label="Project links">
+      {data.links.map(({ kind, url, name }) => (
+        <a key={kind} href={url} rel="noreferrer">
+          <span className="report-project-mark" data-kind={kind} aria-hidden="true" />
+          <span>{projectLinkLabels[kind]}{name && <> {name}</>}</span>
+        </a>
+      ))}
+    </nav>
+  )
+}
+
 function ProjectReports({ revision, project, projectTitle }) {
   const [selection, setSelection] = useState(null)
   const filter = selection && selection.project === project ? selection.view : undefined
@@ -266,6 +284,7 @@ function ProjectReports({ revision, project, projectTitle }) {
         <AssigneeReportList entries={page.data?.items} label={label} revision={revision} project={project} projectTitle={projectTitle} />
         <LoadMore page={page} label={projectTitle ? `assignees in ${projectTitle}` : 'assignees'} />
       </ReportsLayout>
+      {!projectTitle && <ProjectLinks project={project} revision={revision} />}
     </section>
   )
 }
