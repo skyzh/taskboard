@@ -175,11 +175,13 @@ def request_log_item(row, people):
 
 
 class BoardQueries:
-    def __init__(self, db, base, *, local_links=False, project_roster=None):
+    def __init__(self, db, base, *, local_links=False, project_roster=None,
+                 standing_exploration=goals.STANDING_EXPLORATION):
         self.db = db
         self.base = base
         self.local_links = local_links
         self.project_roster = project_roster
+        self.standing_exploration = standing_exploration
 
     def schedule_report(self, number, owner, as_of):
         report = recurring.report(self.db, number, owner, as_of)
@@ -359,7 +361,7 @@ class BoardQueries:
             label, note = ledger.current_summary(row)
             goal_kind = goal_kinds.get(row["id"])
             if goal_kind == "standing" and row["state"] == "parked":
-                label, note = goals.STANDING_EXPLORATION_LABEL, goals.STANDING_EXPLORATION
+                label, note = goals.STANDING_EXPLORATION_LABEL, self.standing_exploration
             complete, total = progress.get(row["id"], (0, 0))
             context = ledger.event_context(row)
             details = context.get("activity_details")

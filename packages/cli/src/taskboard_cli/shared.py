@@ -301,7 +301,7 @@ NEXT_LABELS = {
 }
 
 
-def completion_guidance(board, reference):
+def completion_guidance(board, reference, fallback=None):
     project, _ = projects.identifier(reference)
     inbox = f"`./tasks --shared next --project {project}`"
     try:
@@ -319,7 +319,7 @@ def completion_guidance(board, reference):
     except (SharedActionUnavailable, SharedReadError, KeyError, TypeError):
         # A failed or incomplete read cannot invalidate the earlier write receipt.
         return f"Check your Inbox with {inbox}. The next item could not be loaded."
-    return f"Check your Inbox with {inbox}."
+    return fallback or f"Check your Inbox with {inbox}."
 
 
 def shared_next(board, url, filters, actor):
@@ -376,11 +376,12 @@ def shared_command(args):
     assert_actor(getattr(args, "by", None), actor)
     if command in ("add", "list", "next", "recurring-add"):
         assert_actor(args.dri, actor)
+    prompts = context.get("cli_guidance", {})
     if command == "context":
         return with_guidance(
             f"Shared board · {actor['name']} · {url}",
-            "Check your Inbox with `./tasks --shared next`. "
-            "Use `./tasks --shared capabilities` to see available commands.",
+            prompts.get("context", "Check your Inbox with `./tasks --shared next`. "
+                        "Use `./tasks --shared capabilities` to see available commands."),
         )
     if command in {"raft-channel-show", "raft-channel-set"}:
         write = command == "raft-channel-set"
@@ -392,7 +393,9 @@ def shared_command(args):
             summary = f"{result['project']} · Raft channel · {channel['name']} · {channel['id']}"
         else:
             summary = f"{result['project']} · Raft channel · {result['state'].capitalize()}"
-        return with_guidance(summary, "Use Raft for shared coordination when a verified channel is configured.")
+        return with_guidance(summary, prompts.get(
+            "raft-channel", "Use Raft for shared coordination when a verified channel is configured.",
+        ))
     if command == "goals":
         saved = board.invoke("my-goals", {"project": args.project} if args.project else {})
         standing, dated = saved["standing_goal"], saved["goal"]
@@ -413,29 +416,32 @@ def shared_command(args):
         if not standing:
             flag = f" --project {projects.prefix(args.project)}" if args.project else ""
             guidance = f'Save your role goal with `./tasks --shared save-goal standing "<summary>"{flag}`.'
-        return with_guidance("\n".join(lines) or "No goals set.", guidance)
+        key = "goals-existing" if standing else "goals-missing"
+        return with_guidance("\n".join(lines) or "No goals set.", prompts.get(key, guidance))
     if command in WRITES:
         result = shared_write(board, args)
         output = "Committed · " + result["receipt"]
         guidance = result.get("next_step")
         if command in {"done", "transfer"} or (command == PEER_ASK and args.change == "result"):
-            guidance = completion_guidance(board, args.id)
+            guidance = completion_guidance(board, args.id, prompts.get("completion"))
         return with_guidance(output, guidance or "Check the updated record or your Inbox.")
     if command == "readiness":
         filters = {"project": args.project} if args.project else {"scope": "all"}
         items = board.pages("my-readiness", filters)
         output = "\n".join(ledger.readiness_line(item, url) for item in items)
         if output:
-            return with_guidance(output, "Read the linked evidence before resuming a ticket.")
-        return with_guidance("No readiness prompts.", "Check your Inbox for other work.")
+            return with_guidance(output, prompts.get("readiness", "Read the linked evidence before resuming a ticket."))
+        return with_guidance("No readiness prompts.", prompts.get("readiness-empty", "Check your Inbox for other work."))
     if command == "tagged":
         tag = ledger.tag_name(args.tag)
         project = projects.prefix(args.project)
         tasks = board.pages("tagged-tasks", {"project": project, "tag": tag})
         output = "\n".join(line for task in tasks for line in task_lines(task, url))
         if output:
-            return with_guidance(output, "Open a ticket to read its current step and evidence.")
-        return with_guidance(f"No {tag} tickets in {project}.", "Check the tag or project before searching again.")
+            return with_guidance(output, prompts.get("tagged", "Open a ticket to read its current step and evidence."))
+        return with_guidance(f"No {tag} tickets in {project}.", prompts.get(
+            "tagged-empty", "Check the tag or project before searching again.",
+        ))
     if command == "search":
         project = projects.prefix(args.project)
         params = {"project": project, "q": args.query, "limit": args.limit}
@@ -447,10 +453,14 @@ def shared_command(args):
             for task in result["items"]
         ]
         if not lines:
-            return with_guidance(f"No matching tickets in {project}.", "Try a shorter phrase or a ticket ID.")
+            return with_guidance(f"No matching tickets in {project}.", prompts.get(
+                "search-empty", "Try a shorter phrase or a ticket ID.",
+            ))
         if cursor := result["next_cursor"]:
             lines.append(f"More results: repeat with --before {cursor}.")
-        return with_guidance("\n".join(lines), "Open a matching ticket with `./tasks --shared show T-123`.")
+        return with_guidance("\n".join(lines), prompts.get(
+            "search", "Open a matching ticket with `./tasks --shared show T-123`.",
+        ))
     if command == ledger.READ:
         result = board.invoke(command, {"project": args.project})
         result.setdefault("next_step", "Check the next scheduled maintenance review.")
@@ -462,15 +472,19 @@ def shared_command(args):
         result.setdefault("next_step", "Check the next occurrence and any open tickets.")
         return json.dumps(result)
     if command in ("show", "workers"):
-        return task_details(board, url, args.id, workers_only=command == "workers")
+        workers_only = command == "workers"
+        return task_details(board, url, args.id, workers_only=workers_only,
+                            guidance=prompts.get("workers") if workers_only else None)
     if command == "watched":
         assert_actor(args.person, actor)
         output = "\n".join(
             line for event in board.pages("my-watches", {"scope": "all"}) for line in event_lines(event, url)
         )
         if output:
-            return with_guidance(output, "Open the linked ticket if an update needs action.")
-        return with_guidance("No new activity on watched tasks.", "Check your Inbox for other work.")
+            return with_guidance(output, prompts.get("watched", "Open the linked ticket if an update needs action."))
+        return with_guidance("No new activity on watched tasks.", prompts.get(
+            "watched-empty", "Check your Inbox for other work.",
+        ))
     filters = {"project": args.project} if args.project else {}
     if command == "reviews":
         output = "\n".join(
@@ -478,9 +492,11 @@ def shared_command(args):
             for run in board.pages("my-reviews", filters)
         )
         if output:
-            return with_guidance(output, "Open the ticket and check the review brief before starting.")
+            return with_guidance(output, prompts.get("reviews", "Open the ticket and check the review brief before starting."))
         flag = f" --project {projects.prefix(args.project)}" if args.project else ""
-        return with_guidance("No actionable reviews.", f"Check for other work with `./tasks --shared next{flag}`.")
+        return with_guidance("No actionable reviews.", prompts.get(
+            "reviews-empty", f"Check for other work with `./tasks --shared next{flag}`.",
+        ))
     if not args.project:
         filters["scope"] = "all"
     if command == "next":
@@ -493,7 +509,11 @@ def shared_command(args):
     tasks = [task for task in board.pages(listing, filters) if matches_waiting_on(task, args.waiting_on)]
     if tasks:
         output = "\n".join(line for task in tasks for line in task_lines(task, url))
-        return with_guidance(output, "Open a ticket to read its current step and evidence.")
+        return with_guidance(output, prompts.get("list", "Open a ticket to read its current step and evidence."))
     if args.unassigned:
-        return with_guidance("No matching unassigned tasks.", "Check your Inbox for other work.")
-    return with_guidance(f"No matching tasks in your queue ({actor['name']}).", "Check your Inbox or adjust the filters.")
+        return with_guidance("No matching unassigned tasks.", prompts.get(
+            "list-unassigned-empty", "Check your Inbox for other work.",
+        ))
+    return with_guidance(f"No matching tasks in your queue ({actor['name']}).", prompts.get(
+        "list-empty", "Check your Inbox or adjust the filters.",
+    ))

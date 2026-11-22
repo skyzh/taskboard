@@ -28,6 +28,7 @@ import tasks_codex_usage
 import tasks_core as ledger
 import tasks_maintenance as maintenance
 import tasks_goals as goals
+import tasks_guidance
 import tasks_extensions as extensions
 import tasks_integration_stats as integration_stats
 import tasks_merges as merges
@@ -462,112 +463,6 @@ def import_assignee(database, owner, record, image):
             ledger.bump_revision(db)
 
 
-_CONTINUE_WORK = (
-    "Continue the recorded step. If blocked, use wait for a dependency or remind for a known revisit time."
-)
-_CHECK_INBOX = "Check your Taskboard Inbox for the next actionable item."
-_FIELD_REVIEW_CUE = (
-    "For code in your field, have an uninvolved subagent review the exact revision and record its evidence, "
-    "using a peer for cross-field expertise, when a subagent is unavailable, or when policy requires a peer reviewer "
-    "(https://github.com/skyzh/taskboard/blob/main/docs/taskboard/AGENT-STARTUP.md#review-an-exact-revision)."
-)
-_NEXT_STEPS = {
-    "assignees": "Use the chosen assignee's stable ID when assigning work.",
-    "context": "Check your owned queue or review assignments for actionable work.",
-    "confirm-blocker": "Pick up the unblocked ticket from its owner's Inbox.",
-    "create-task": "Start the task when you can act on its first step.",
-    "delegate": "Give the worker the ticket link and verify that the run starts.",
-    "fetch-github": "Open the task's Activity to read the imported updates.",
-    "maintenance-show": "Check the next scheduled maintenance review.",
-    "maintenance-update": "Read the saved maintenance schedule before the next review.",
-    "my-activity": "Open a linked ticket if its activity needs action.",
-    "my-watches": "Open a linked ticket if an update needs action.",
-    "raise-attention": "Check other work while the recipient handles the request.",
-    "recurring-add": "Check the next occurrence with recurring-show.",
-    "recurring-show": "Review the next scheduled occurrence and any open tickets.",
-    "recurring-state": "Check the saved recurring definition with recurring-show.",
-    "save-goal": "Read the saved project goals with my-goals.",
-    "search-tasks": "Open a matching ticket before starting duplicate work.",
-    "set-profile": "Check your signed-in profile with context.",
-    "tagged-tasks": "Open a matching ticket to check its current step and evidence.",
-    "task-activity": "Check the latest receipt and any linked evidence.",
-    "worker-handoff": "Continue the worker brief or read the run's result on the task.",
-}
-_ADVANCE_STEPS = {
-    "start": _CONTINUE_WORK,
-    "update": _CONTINUE_WORK,
-    "resume": _CONTINUE_WORK,
-    "unpark": "Open the Ready ticket and start its recorded step when you can act.",
-    "wait": "Check other Inbox work until the named dependency clears.",
-    "assign-human": "Check other work while the decision is with the recipient.",
-    "redirect-decision": "Check other work while the decision is with the recipient.",
-    "park": "Check other Inbox work while the ticket is parked.",
-    "remind": "Check other Inbox work until the ticket returns.",
-}
-_WORK_STEPS = {
-    "in_progress": _CONTINUE_WORK,
-    "review": "Read the review brief and check the specified revision or evidence.",
-    "report": "Read the worker's result and evidence before collecting the report.",
-    "shared_ready": "Check the ticket's current step and whether you can take it.",
-}
-
-
-def _next_step(name, data, result):
-    if result.get("next_cursor") is not None:
-        return "Use next_cursor as before to read the next page."
-    if name == "my-next":
-        if result["work"]:
-            return _WORK_STEPS.get(result["work"]["kind"], "Open the selected ticket and check its current step.")
-        if result["standing_goals"]:
-            return goals.STANDING_EXPLORATION
-        return "Check recent feedback or the product for a concrete improvement within your role."
-    if name == peer_asks.COMMAND:
-        return {
-            "create": ("When Raft is available and the recipient still needs a notice, "
-                       "mention them once in Raft with the linked ticket URL and the action needed."),
-            "result": "The original requester can acknowledge the result after handling it.",
-        }.get(data["transition"], _CHECK_INBOX)
-    if name == "my-goals":
-        if result["standing_goal"]:
-            return "Use the standing goal when actionable work is exhausted."
-        return "Set a standing role goal without a deadline."
-    if name in ("my-queue", "unassigned-tasks"):
-        state = data.get("state")
-        if result["items"]:
-            if state == "ready":
-                return "Open the highest-priority task you can move."
-            return "Review these tickets, or check your Inbox for actionable work."
-        if name == "my-queue" and state in (None, "ready"):
-            return "Check reviews and use unassigned-tasks with state=ready in the same project scope."
-    if name in ("my-reviews", "my-readiness"):
-        if result["items"]:
-            return "Open an eligible item and check its current step."
-    if name == "task":
-        task = result["task"]
-        state = task["state"]
-        if task.get("summary_label") == goals.STANDING_EXPLORATION_LABEL:
-            return goals.STANDING_EXPLORATION_START
-        if state in ("done", "closed"):
-            return "Read the final receipt, then check your Inbox for actionable work."
-        if state in ("waiting", "parked", "human_review"):
-            return "Check the recorded dependency or review before resuming this ticket."
-        return "Read the current step and check the owner before acting."
-    transition = data.get("transition")
-    if name == "advance-task" and transition in _ADVANCE_STEPS:
-        if transition == "start" or (
-            transition == "update" and not data.get("eta") and str(data.get("clear_eta", "false")).lower() != "true"
-        ):
-            return (
-                "Continue the recorded step. Use shared CLI update --check for checklist progress "
-                "or --eta when you can estimate completion."
-            )
-        return _ADVANCE_STEPS[transition]
-    if name in ("close-task", "handoff") or (name == "advance-task" and transition == "done"):
-        project, _ = projects.identifier(data["id"])
-        return f"Check your Taskboard Inbox for the next actionable item in {project}."
-    return _NEXT_STEPS.get(name, _CHECK_INBOX)
-
-
 def create_app(
     database, *,
     public_url,
@@ -592,8 +487,10 @@ def create_app(
     project_extensions=None,
     stamp_reader=None,
     codex_usage=None,
+    agent_guidance=None,
 ):
     """Configure the board; injected identity providers are used by isolated tests."""
+    agent_guidance = agent_guidance or tasks_guidance.AgentGuidance()
     github_merge_projects = frozenset(projects.prefix(project) for project in github_merge_projects)
     if creation_default_subject:
         try:
@@ -815,7 +712,10 @@ def create_app(
                 current_actor(write=request.method not in ("GET", "HEAD", "OPTIONS"), required=True)
 
     def query():
-        return BoardQueries(db(), base, local_links=local_readonly, project_roster=project_roster)
+        return BoardQueries(
+            db(), base, local_links=local_readonly, project_roster=project_roster,
+            standing_exploration=agent_guidance["standing-exploration"],
+        )
 
     def json_body(allowed):
         data = request.get_json(silent=True)
@@ -2156,7 +2056,10 @@ def create_app(
         actor = current_actor("agent", write=write)
         key = actor["ledger_key"]
         if name == "context":
-            return {"actor": actor_profile(actor), "board": base + "/"}
+            context = {"actor": actor_profile(actor), "board": base + "/"}
+            if agent_guidance.cli:
+                context["cli_guidance"] = agent_guidance.cli
+            return context
         if name in {"raft-channel-show", "raft-channel-set"}:
             return project_channel(actor, project_filter(data), data if write else None)
         if name == "my-next":
@@ -2165,8 +2068,9 @@ def create_app(
                 work = next(query().actionable_work(key, today=pacific_day(ledger.timestamp()), project=project), None)
                 standing = [] if work else goals.standing(connection, key, project, include_ticket=True)
                 result = {"work": work, "standing_goals": standing}
-                if work and work["kind"] in ("ready", "shared_ready") and not peer_asks.find(connection, work["id"]):
-                    result["next_step"] = f"{_next_step(name, data, result)} {_FIELD_REVIEW_CUE}"
+                cue = agent_guidance["ready-review"]
+                if cue and work and work["kind"] in ("ready", "shared_ready") and not peer_asks.find(connection, work["id"]):
+                    result["next_step"] = f"{agent_guidance.next_step(name, data, result)} {cue}"
                 return result
         if name == "my-goals":
             project = project_filter(data, projects.DEFAULT)
@@ -2382,7 +2286,7 @@ def create_app(
         def dispatch(name, data):
             result = dispatch_action(name, data)
             if "next_step" not in result:
-                result["next_step"] = _next_step(name, data, result)
+                result["next_step"] = agent_guidance.next_step(name, data, result)
             return result
 
         register_actions(app, public_url=base, client_id=raft_config["client_id"], dispatch=dispatch)
@@ -2430,6 +2334,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
         raise ValueError("Bind to a loopback address and use the approved HTTPS reverse proxy for shared access.")
     if not (DIST / "index.html").is_file():
         raise ValueError("Build the React board with npm ci and npm run build in web/.")
+    agent_guidance = tasks_guidance.load(os.environ.get("TASKS_AGENT_GUIDANCE_FILE"))
     marketplace = marketplace_root is not None
     oidc_config = oidc_auth.configuration(os.environ)
     if oidc_config is not None and (local_readonly or portal_reader or marketplace):
@@ -2478,6 +2383,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             local_readonly=local_readonly, portal_reader=portal_reader,
             portal_upstream_token=portal_upstream_token, github_reader=github, websocket_revisions=websocket_revisions,
             codex_usage=tasks_codex_usage.configuration(os.environ),
+            agent_guidance=agent_guidance,
             project_extensions=project_extensions,
             public_raft_channel_urls=os.environ.get("TASKS_PUBLIC_RAFT_CHANNEL_URLS"),
             creation_default_subject=os.environ.get("TASKS_NEW_TASKS_DEFAULT_SUBJECT")
