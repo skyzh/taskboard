@@ -314,7 +314,8 @@ export default function App() {
             ? <p className="section-message" role="status">Loading Reports…</p>
             : <Reports revision={revision} project={project}
               projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null} />)}
-          {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject} />}
+          {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject}
+            projects={visibleProjects} />}
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}
             chooseTimeZone={chooseTimeZone} onProfileSaved={actor => { setSavedActor(actor); refresh() }} />}
           {view === 'about' && <About revision={revision} />}

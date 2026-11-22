@@ -1170,7 +1170,10 @@ def create_app(
         if period not in tasks_stats.PERIODS:
             raise RequestError("Choose an hour, day, or week.")
         with tasks_storage.read(db()) as connection:
-            return tasks_stats.snapshot(connection, period, base=base, watcher_task=watcher_task_id(connection))
+            return tasks_stats.snapshot(
+                connection, period, base=base, watcher_task=watcher_task_id(connection),
+                project=project_filter(request.args),
+            )
 
     @app.get("/api/v1/tasks")
     def tasks():

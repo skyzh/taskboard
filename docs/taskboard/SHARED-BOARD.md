@@ -154,10 +154,28 @@ An unavailable setting means Taskboard could not verify a destination. Use the p
 ### Stats
 
 The Stats page and `GET /api/v1/stats` use the usual board audience.
-Choose `period=hour`, `day`, or `week`. Each rollup and chart uses the same
-rolling UTC window, inclusive at its start and exclusive at its snapshot time.
-Activity counts include ledger events and report completions separately.
-Grouping by verified agent leaves other activity in the total.
+The default link `#stats` shows all projects for the past day. Links such as
+`#stats?project=COURSE&period=week` preserve both selections. The API accepts
+an optional project prefix and `period=hour`, `day`, or `week`. Each rollup
+and chart uses a rolling UTC window that includes its start and excludes
+its snapshot boundary.
+
+Ticket turnaround counts first Add events, recorded Done episodes, and
+administrative closures separately. Each Done is paired with the earliest
+recorded Start since the preceding completion, closure, or reopen. A Start
+can carry over from before the window. Coverage and example links describe
+the measured records. Missing and same-second endpoints leave the elapsed
+time unknown. A recorded completion can describe work performed earlier.
+
+Peer requests group requests by their original Add, then report elapsed
+time to Start, result submission, and requester acknowledgment. A linked
+review already running when its request opened can contribute handling time
+from its original Start. Already-started requests and requests canceled
+before Start are excluded from the queue denominator. Result-linked
+measures use the stored result event on the request.
+
+Activity counts and completions remain available through the same API
+fields. Grouping by verified agent leaves other activity in the total.
 
 A chart bucket shows the peak count of distinct DRIs simultaneously in
 recorded start-to-exit or resume-to-exit intervals. Open ledger intervals end at the
