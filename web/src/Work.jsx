@@ -318,7 +318,7 @@ function TicketIdentity({ task, state, children }) {
   return (
     <>
       <div className="detail-owner"><Assignee task={task} />{children}</div>
-      <p className="detail-meta">
+      <p className="detail-meta ticket-status-meta">
         <Status state={state} />
         <TaskPriority priority={task.priority} />
         {task.eta && state !== 'closed' && <span>Estimated completion <Timestamp at={task.eta} /></span>}
