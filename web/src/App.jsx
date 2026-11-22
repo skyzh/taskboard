@@ -62,6 +62,20 @@ function useFragment() {
 }
 
 function BoardViews({ current, reportsHref, isAgent, showNotifications }) {
+  const nav = useRef(null)
+  useEffect(() => {
+    const strip = nav.current
+    if (strip.scrollWidth <= strip.clientWidth) return
+    const activeLink = strip.querySelector('[aria-current="page"]')
+    if (!activeLink) return
+
+    // Reveal a clipped active tab without scrolling the page away from the route's heading.
+    const { left, right } = activeLink.getBoundingClientRect()
+    const bounds = strip.getBoundingClientRect()
+    if (left < bounds.left) strip.scrollLeft += left - bounds.left
+    else if (right > bounds.right) strip.scrollLeft += right - bounds.right
+  }, [current, isAgent, showNotifications])
+
   const links = [
     ['reports', 'Reports'],
     ['board', 'Tasks'],
@@ -71,7 +85,7 @@ function BoardViews({ current, reportsHref, isAgent, showNotifications }) {
     ...(isAgent ? [['my-activity', 'My activity']] : []),
   ]
   return (
-    <nav className="board-views" aria-label="Taskboard views">
+    <nav ref={nav} className="board-views" aria-label="Taskboard views">
       {links.map(([id, label]) => (
         <a key={id} href={id === 'reports' ? reportsHref : `#${id}`} aria-current={current === id ? 'page' : undefined}>{label}</a>
       ))}
