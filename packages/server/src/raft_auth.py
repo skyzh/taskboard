@@ -81,8 +81,9 @@ class _Failure(Enum):
 
 
 class _Rejected(Exception):
-    def __init__(self, failure: _Failure):
+    def __init__(self, failure: _Failure, *, temporary: bool = False):
         self.failure = failure
+        self.temporary = temporary
         super().__init__(failure.name)
 
 
@@ -228,7 +229,7 @@ class RaftAuth:
         if status in (400, 401, 403):
             raise _Rejected(_Failure.IDENTITY)
         if status != 200 or not isinstance(document, dict):
-            raise _Rejected(_Failure.PROVIDER)
+            raise _Rejected(_Failure.PROVIDER, temporary=status in (502, 503, 504))
         # The documented userinfo response has no iss claim. The request URL
         # pins the issuer, and an explicit claim must agree with that origin.
         if document.get("iss", self._api_origin) != self._api_origin:
@@ -392,6 +393,9 @@ class RaftAuth:
             g._raft_board_identity = self._live_identity()
         return g._raft_board_identity
 
+    def identity_temporarily_unavailable(self) -> bool:
+        return g.get("_raft_board_identity_temporarily_unavailable", False)
+
     def _live_identity(self) -> Identity | None:
         key = request.cookies.get(_SESSION_COOKIE)
         if not key:
@@ -406,6 +410,8 @@ class RaftAuth:
             if (identity.server_id, identity.subject, identity.kind) != (server_id, session.subject, session.kind):
                 raise _Rejected(_Failure.IDENTITY)
         except _Rejected as error:
+            if error.temporary:
+                g._raft_board_identity_temporarily_unavailable = True
             # Transient provider failures deny the request but allow a later
             # check to recover. Failed identity gates invalidate the session.
             if error.failure != _Failure.PROVIDER:

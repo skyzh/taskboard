@@ -763,6 +763,10 @@ def create_app(
         if "actor" not in g:
             identity = identity_provider() if identity_provider is not None else None
             if identity is None:
+                if (raft is not None and request.method == "GET"
+                        and (request.endpoint or "").startswith("raft_action_")
+                        and raft.identity_temporarily_unavailable()):
+                    raise RequestError("Raft sign-in verification is temporarily unavailable.", 503)
                 if portal_reader and not (kind or write or required):
                     return None
                 if identity_provider is None:
