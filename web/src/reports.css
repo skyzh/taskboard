@@ -57,8 +57,6 @@
 .reports-owners, .queued-asks { min-width: 0; }
 .queued-asks { border-top: 1px solid var(--line); padding-top: .85rem; overflow-wrap: anywhere; }
 .request-log-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; }
-.request-log-mode.segmented-control { padding: 0 .1rem; }
-.request-log-heading .request-log-mode.segmented-control > button { min-height: 0; padding: 0 .5rem; }
 .ask-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: .12rem .5rem; margin-block: .3rem; }
 .report-outcomes.request-log { margin-block: 0 .65rem; }
 .request-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: .4rem; }

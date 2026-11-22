@@ -1,13 +1,15 @@
 .segmented-control {
   display: inline-flex;
-  padding: .15rem;
+  padding: .1rem;
   border: 1px solid var(--line);
   border-radius: .55rem;
   background: var(--wash);
 }
 .segmented-control > button {
   flex: 1;
-  padding-inline: .65rem;
+  min-block-size: max(1.5rem, 1.625lh);
+  min-inline-size: 2.75rem;
+  padding: 0 .65rem;
   border: 0;
   border-radius: .35rem;
   background: transparent;
@@ -20,7 +22,3 @@
   font-weight: var(--weight-emphasis);
 }
 .segmented-control > button:focus-visible { outline-offset: -2px; }
-
-@media (pointer: coarse) {
-  .segmented-control > button { min-height: 2.75rem; min-width: 2.75rem; }
-}
