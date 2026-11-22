@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from './data.js'
 import About from './About.jsx'
@@ -180,6 +180,22 @@ export default function App() {
   const session = savedActor ? { ...sessionResource, data: { actor: savedActor } } : sessionResource
   const hasSession = Boolean(session.data?.actor)
   const needsOidcSignIn = !hasSession && session.data?.sign_in_provider === 'oidc'
+  const appHeader = useRef(null)
+  useLayoutEffect(() => {
+    const header = appHeader.current
+    if (!header) return
+    const style = document.documentElement.style
+    function reserveHeaderSpace() {
+      style.setProperty('--app-header-height', `${header.getBoundingClientRect().height}px`)
+    }
+    reserveHeaderSpace()
+    const resize = new ResizeObserver(reserveHeaderSpace)
+    resize.observe(header, { box: 'border-box' })
+    return () => {
+      resize.disconnect()
+      style.removeProperty('--app-header-height')
+    }
+  }, [needsOidcSignIn])
   const isAgent = session.data?.actor?.kind === 'agent'
   const verified = ['agent', 'human'].includes(session.data?.actor?.kind)
   const params = new URLSearchParams(fragment)
@@ -278,7 +294,7 @@ export default function App() {
   }
   return (
     <TimeZoneContext.Provider value={timeZoneFormatters}>
-      <header className={view === 'board' ? 'app-header tasks-header' : 'app-header'}>
+      <header ref={appHeader} className={view === 'board' ? 'app-header tasks-header' : 'app-header'}>
         <div className="masthead">
           <a className="brand" href={reportsHref}><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>Taskboard</a>
           <BoardViews current={activeTab} reportsHref={reportsHref} isAgent={isAgent}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { watchBoardSections } from './sectionIndex.js'
 
-function board(t, { insideMain = false, scrollHeight = 1950 } = {}) {
+function board(t, { scrollHeight = 1950 } = {}) {
   const positions = {
     'queue-heading': 140,
     'now-title': 560,
@@ -14,24 +14,19 @@ function board(t, { insideMain = false, scrollHeight = 1950 } = {}) {
   const changes = []
   const frames = new Map()
   const observed = new Set()
-  const content = insideMain ? {} : null
+  const content = {}
   let nextFrame = 0
   let headerBottom = 150
   const header = { getBoundingClientRect: () => ({ bottom: headerBottom }) }
-  const main = Object.assign(new EventTarget(), {
-    querySelector: () => content,
-    getBoundingClientRect: () => ({ top: headerBottom }),
-  })
-  const documentRoot = {}
-  const scrollport = insideMain ? main : documentRoot
-  Object.assign(scrollport, { scrollTop: 0, clientHeight: 600, scrollHeight })
+  const main = { querySelector: () => content }
+  const scrollport = { scrollTop: 0, clientHeight: 600, scrollHeight }
   const headings = Object.fromEntries(Object.keys(positions).map(id => {
     const section = {}
     return [id, {
       id,
       closest: () => section,
       getBoundingClientRect: () => ({
-        top: positions[id] - scrollport.scrollTop + (insideMain ? headerBottom : 0),
+        top: positions[id] - scrollport.scrollTop,
         height: absent.has(id) ? 0 : 24,
       }),
     }]
@@ -41,7 +36,7 @@ function board(t, { insideMain = false, scrollHeight = 1950 } = {}) {
     querySelectorAll: () => Object.keys(headings).map(id => ({ hash: `#${id}` })),
   }
   const window = Object.assign(new EventTarget(), {
-    getComputedStyle: () => ({ overflowY: insideMain ? 'auto' : 'visible', scrollMarginTop: insideMain ? '12.8px' : '176px' }),
+    getComputedStyle: () => ({ scrollMarginTop: '26px' }),
     requestAnimationFrame(callback) {
       frames.set(++nextFrame, callback)
       return nextFrame
@@ -57,7 +52,7 @@ function board(t, { insideMain = false, scrollHeight = 1950 } = {}) {
   const globals = { window, ResizeObserver, document: {
     querySelector: () => main,
     getElementById: id => headings[id],
-    scrollingElement: documentRoot,
+    scrollingElement: scrollport,
   } }
   const previous = Object.fromEntries(Object.keys(globals).map(key => [key, globalThis[key]]))
   Object.assign(globalThis, globals)
@@ -66,13 +61,12 @@ function board(t, { insideMain = false, scrollHeight = 1950 } = {}) {
     stop()
     Object.assign(globalThis, previous)
   })
-  const scrollTarget = insideMain ? main : window
 
   return {
-    changes, positions, absent, observed, content, frames, scrollTarget, window, stop,
+    changes, positions, absent, observed, content, frames, stop,
     scrollTo(value) {
       scrollport.scrollTop = value
-      scrollTarget.dispatchEvent(new Event('scroll'))
+      window.dispatchEvent(new Event('scroll'))
     },
     layoutChanged() { resize() },
     headerResized(bottom) {
@@ -107,12 +101,10 @@ test('window scrolling updates the section and reaches a short last section at t
   ])
 })
 
-test('the app shell uses inner main geometry and reacts to layout shifts and cleanup', t => {
-  const fixture = board(t, { insideMain: true })
+test('the section index reacts to content shifts and stops observing after cleanup', t => {
+  const fixture = board(t)
   assert.ok(fixture.observed.has(fixture.content))
-  fixture.window.dispatchEvent(new Event('scroll'))
-  assert.equal(fixture.frames.size, 0)
-  fixture.scrollTo(547.2)
+  fixture.scrollTo(384.5)
   fixture.flush()
   assert.deepEqual(fixture.changes, ['queue-heading', 'now-title'])
   fixture.positions['decisions-title'] = 550
