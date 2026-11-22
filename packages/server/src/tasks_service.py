@@ -590,6 +590,8 @@ def create_app(
             raise ValueError("Set TASKS_NEW_TASKS_DEFAULT_SUBJECT to a verified human subject UUID.") from error
     marketplace = marketplace_root is not None
     project_extensions = project_extensions or {}
+    stamp_repositories = {project: settings[extensions.STAMP_REVIEWS]
+                          for project, settings in project_extensions.items() if extensions.STAMP_REVIEWS in settings}
     if project_extensions and (marketplace or local_readonly):
         raise ValueError("Enable project extensions on a shared board.")
     if postgres_dsn and (database is not None or marketplace or local_readonly or websocket_revisions or github_reader):
@@ -2246,7 +2248,8 @@ def create_app(
             if stamp_review is not None and change != "create":
                 raise RequestError("Pin a Stamp review only when creating or refreshing a peer request.")
             return mutate(peer_asks.COMMAND, actor, data, id=number, change=change,
-                          note=text(data, "note"), recipient=recipient, review_run=review, stamp_review=stamp_review)
+                          note=text(data, "note"), recipient=recipient, review_run=review, stamp_review=stamp_review,
+                          stamp_repositories=stamp_repositories)
         if name == "change-ownership":
             return change_ownership(actor, number, data)
         if name == "close-task":

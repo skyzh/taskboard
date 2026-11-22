@@ -5867,11 +5867,40 @@ class TasksServiceTest(unittest.TestCase):
         totals = self.call(owner, "/api/v1/stats", query_string={"period": "day"}).json["peer_requests"]
         self.assertEqual((totals["acknowledged"], totals["canceled"], totals["closed"]), (3, 1, 0))
 
+    def test_stamp_pin_requires_the_project_importer_and_preserves_the_ordinary_handoff(self):
+        pr = "https://github.com/example/board/pull/10"
+        for configured in ({}, {"T": {"stamp-reviews": "other/board"}}, {"COURSE": {"stamp-reviews": "example/board"}}):
+            with self.subTest(configured=configured):
+                self.provider = FixtureRaft()
+                app = self.app(portal_reader=True, project_extensions=configured)
+                owner, _ = self.login(app, "Avery")
+                reviewer, recipient = self.login(app, "Blake")
+                ticket = self.action(owner, "create-task", {"title": "Review export", "step": "Review the PR."})["receipt"].split()[0]
+                self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Review the PR."})
+                self.action(owner, "link-reference", {"id": ticket, "label": "PR", "url": pr})
+                request = {"id": ticket, "transition": "create", "recipient": recipient, "note": "Review the PR."}
+                response = self.action(owner, "peer-ask", {
+                    **request, "review_pr": pr, "review_head": "a" * 40, "review_base": "b" * 40,
+                }, status=409)
+                self.assertIn("omit --stamp-review", response["error"])
+                task = self.call(owner, f"/api/v1/tasks/{ticket}").json["task"]
+                self.assertEqual(task["state"], "in_progress")
+                self.assertIsNone(task["context"].get("peer_ask_ticket"))
+
+                ask = self.action(owner, "peer-ask", {**request, "url": pr})["receipt"].split()[0]
+                self.action(reviewer, "advance-task", {"id": ask, "transition": "start", "note": "Check the PR."})
+                evidence = "https://stamp.build/s/example/github/example/board/pull/10/approvals/a123/evidence"
+                self.action(reviewer, "peer-ask", {"id": ask, "transition": "result", "note": "Reviewed.", "url": evidence})
+                result = self.call(owner, f"/api/v1/tasks/{ask}").json["task"]
+                self.assertEqual(result["peer_request"]["phase"], "acknowledgment")
+                self.assertEqual(result["links"][0]["url"], evidence)
+                self.action(owner, "peer-ask", {"id": ask, "transition": "acknowledge", "note": "Collected."})
+
     def test_stamp_verdict_uses_the_pending_pr_reviewer_and_exact_revision(self):
         from tasks_peer_asks import apply_stamp_verdict
         from tasks_storage import open_sqlite, write
 
-        app = self.app(portal_reader=True)
+        app = self.app(portal_reader=True, project_extensions={"T": {"stamp-reviews": "skyzh/taskboard"}})
         prism, owner = self.login(app, "Avery")
         gauge, reviewer = self.login(app, "Blake")
         pr = "https://github.com/skyzh/taskboard/pull/40"
@@ -5888,6 +5917,12 @@ class TasksServiceTest(unittest.TestCase):
             status, output, error = self.shared_cli(prism, *request, requested_head, base)
             self.assertEqual((status, error), (0, ""))
             self.assertIn("T-2 · Existing peer request", output)
+        self.provider = FixtureRaft()
+        without_import = self.app(portal_reader=True)
+        peer, _ = self.login(without_import, "Blake")
+        self.action(peer, "peer-ask", {
+            "id": "T-2", "transition": "result", "note": "Ordinary result on a saved pin.",
+        }, status=409)
         self.action(gauge, "peer-ask", {"id": "T-2", "transition": "result", "note": "Chat approval."}, status=409)
         result = {
             "pull": "skyzh/taskboard#40", "reviewer": reviewer, "verdict": "approved", "head": head, "base": base,

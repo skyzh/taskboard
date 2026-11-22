@@ -107,13 +107,16 @@ def current_wait(db, source):
     ).fetchone()
 
 
-def stamp_pin(db, source, pr, head, base):
+def stamp_pin(db, source, pr, head, base, *, repository):
     from tasks_extensions import COMMIT
     from tasks_github import linked_source
 
     if not (pr and head and base and COMMIT.fullmatch(head) and COMMIT.fullmatch(base)):
         raise ValueError("Provide a linked GitHub PR and its full Stamp head and base commits.")
     key, url = linked_source(pr)
+    if repository != key.split("#", 1)[0]:
+        raise ValueError("Stamp import is unavailable for this project and repository. "
+                         "For a new review, omit --stamp-review and have the reviewer link their Stamp verdict in the result.")
     linked = db.execute(
         """
         SELECT 1 FROM task_sources JOIN sources ON sources.id = task_sources.source_id
@@ -176,7 +179,8 @@ def create(db, args, links, *, named_wait=None):
     if stamp_review:
         if args.review_run or source["state"] not in ("ready", "in_progress", "waiting"):
             raise ValueError("Request a Stamp review from an active ticket without a worker review.")
-        stamp_review = stamp_pin(db, source["id"], *stamp_review)
+        repository = getattr(args, "stamp_repositories", {}).get(projects.row_project(source))
+        stamp_review = stamp_pin(db, source["id"], *stamp_review, repository=repository)
         named_wait = {}
         previous = current_wait(db, source)
         if previous and previous["recipient"] != args.recipient:
