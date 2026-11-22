@@ -31,7 +31,9 @@ _SESSION_TTL = 1800
 _SCOPES = frozenset({"openid", "profile"})
 _BEARER = re.compile(r"[A-Za-z0-9._~+/-]+=*")
 BOARD_FRAGMENT = re.compile(
-    r"#(?:task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9][0-9]{0,18}|event-[1-9][0-9]{0,18}-log"
+    r"#(?:task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9][0-9]{0,18}"
+    r"|(?:activity|event-[1-9][0-9]{0,18}-log)(?:\?(?:actor=[A-Za-z0-9_%+.*-]{1,1920}&?)?"
+    r"(?:action=[a-z-]{1,30}&?)?(?:detail=all)?)?"
     r"|notifications(?:-needs-me|-log(?:\?project=[A-Z][A-Z0-9]{0,7}"
     r"(?:&status=(?:pending|history))?(?:&kind=(?:ready|merge))?)?)?"
     r"|reports(?:-all|\?project=[A-Z][A-Z0-9]{0,7})"

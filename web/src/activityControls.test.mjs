@@ -310,15 +310,15 @@ test('Activity and project outcomes agree on the local day without changing UTC 
   }
 })
 
-function renderLog(items, linked, state = []) {
+function renderLog(items, linked, fragment = 'event-18-log') {
   fixture.pages = { '/activity': { data: { items } } }
   fixture.resources = { '/activity/18': linked }
-  fixture.state = state
-  return renderToStaticMarkup(React.createElement(WorkLog, { requested: 18 }))
+  fixture.state = []
+  return renderToStaticMarkup(React.createElement(WorkLog, { requested: 18, fragment }))
 }
 
 test('the directly linked event stays visible when filters return no rows', () => {
-  const markup = renderLog([], { data: selected }, ['Taylor', 'Taylor', 'done', false])
+  const markup = renderLog([], { data: selected }, 'event-18-log?actor=Taylor&action=done')
   assert.match(markup, /Linked event/)
   assert.match(markup, /id="event-18-log"/)
   assert.match(markup, /The header was fixed\./)
@@ -460,7 +460,7 @@ test('an event already in the activity list has one anchor and is marked current
 test('the empty activity message waits for the linked event request', () => {
   assert.doesNotMatch(renderLog([], { pending: true }), /No activity to show|No matching activity/)
   assert.match(renderLog([], null), /No activity to show/)
-  assert.match(renderLog([], null, ['Taylor', 'Taylor']), /No matching activity/)
+  assert.match(renderLog([], null, 'event-18-log?actor=Taylor'), /No matching activity/)
 })
 
 test('more reports disappears when the last report loads', () => {
@@ -550,7 +550,7 @@ test('typed provider and board work events use their distinct named marks in eve
     const event = { ...selected, ...fields }
     fixture.state = []
     const row = renderToStaticMarkup(React.createElement(EventRow, { event }))
-    for (const markup of [row, renderLog([event], null), renderLog([event], null, ['', '', '', true])]) {
+    for (const markup of [row, renderLog([event], null), renderLog([event], null, 'event-18-log?detail=all')]) {
       assert.match(markup, new RegExp(
         `aria-label="${label}" title="${label}"><svg[^>]*class="lucide lucide-${icon}" aria-hidden="true" focusable="false"`,
       ), label)

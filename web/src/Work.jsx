@@ -516,19 +516,21 @@ function ActivityEntry({ event, full, selected = false, exact = selected }) {
   )
 }
 
-export function WorkLog({ requested, revision, ownerProfiles }) {
+export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activity', onFiltersChange }) {
   const { formatDay } = useTimeZone()
-  const [actor, setActor] = useState('')
-  const [actorLabel, setActorLabel] = useState('')
-  const [action, setAction] = useState('')
-  const [complete, setComplete] = useState(false)
+  const params = new URLSearchParams(fragment.split('?', 2)[1])
+  const actor = params.get('actor')?.trim().slice(0, 160) || ''
+  const requestedAction = params.get('action')
+  const action = Object.hasOwn(actions, requestedAction) ? requestedAction : ''
+  const complete = params.get('detail') === 'all'
+  const [actorDraft, setActorDraft] = useState(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const filterToggle = useRef(null)
   const actorInput = useRef(null)
   const full = complete || Boolean(action)
-  const filterCount = [actorLabel, action, complete].filter(Boolean).length
+  const filterCount = [actor, action, complete].filter(Boolean).length
   const filtered = filterCount > 0
-  const page = useLoadedPages('/activity', { scope: 'all', actor: actor.trim(), action, detail: full ? 'all' : 'outcomes' }, revision)
+  const page = useLoadedPages('/activity', { scope: 'all', actor, action, detail: full ? 'all' : 'outcomes' }, revision)
   const items = page.data?.items || []
   const onPage = items.some(event => event.id === requested)
   const linked = useResource(requested && !onPage ? `/activity/${requested}` : null, revision)
@@ -543,11 +545,23 @@ export function WorkLog({ requested, revision, ownerProfiles }) {
   for (const [key, profile] of Object.entries(ownerProfiles || {})) addFilterName(actorNames, key, profile)
   for (const event of items) addFilterName(actorNames, event.actor, event.actor_profile)
   if (linkedEvent) addFilterName(actorNames, linkedEvent.actor, linkedEvent.actor_profile)
+  const actorLabel = actorDraft?.actor === actor ? actorDraft.label
+    : ([...actorNames].find(([, key]) => key === actor)?.[0] || profileName(actor))
+
+  function changeFilters(next, replace = false) {
+    const filters = { actor, action, complete, ...next }
+    const scope = new URLSearchParams({
+      ...(filters.actor && { actor: filters.actor }),
+      ...(filters.action && { action: filters.action }),
+      ...(filters.complete && { detail: 'all' }),
+    })
+    const base = requested ? eventHref(requested).slice(1) : 'activity'
+    onFiltersChange(scope.size ? `${base}?${scope}` : base, replace)
+  }
+
   function clearFilters() {
-    setActor('')
-    setActorLabel('')
-    setAction('')
-    setComplete(false)
+    setActorDraft(null)
+    changeFilters({ actor: '', action: '', complete: false })
     const target = filterToggle.current?.getClientRects().length ? filterToggle.current : actorInput.current
     target?.focus()
   }
@@ -567,10 +581,11 @@ export function WorkLog({ requested, revision, ownerProfiles }) {
       <div className="filters log-filters" id="activity-filters" data-open={filtersOpen}>
         <label>
           Actor
-          <input type="text" list="activity-actors" ref={actorInput} value={actorLabel} onChange={event => {
+          <input type="text" list="activity-actors" ref={actorInput} maxLength={160} value={actorLabel} onChange={event => {
             const label = event.target.value
-            setActorLabel(label)
-            setActor(actorNames.get(label) || label.trim())
+            const selectedActor = actorNames.get(label) || label.trim()
+            setActorDraft({ actor: selectedActor, label })
+            changeFilters({ actor: selectedActor }, true)
           }} />
           <datalist id="activity-actors">
             {[...actorNames.keys()].sort().map(name => <option key={name} value={name} />)}
@@ -578,13 +593,13 @@ export function WorkLog({ requested, revision, ownerProfiles }) {
         </label>
         <label>
           Action
-          <select value={action} onChange={event => setAction(event.target.value)}>
+          <select value={action} onChange={event => changeFilters({ action: event.target.value })}>
             <option value="">All actions</option>
             {Object.entries(actions).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
         <label className="activity-mode">
-          <input type="checkbox" checked={complete} onChange={event => setComplete(event.target.checked)} />
+          <input type="checkbox" checked={complete} onChange={event => changeFilters({ complete: event.target.checked })} />
           Include routine activity
         </label>
       </div>

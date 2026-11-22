@@ -4582,6 +4582,16 @@ class TasksServiceTest(unittest.TestCase):
         ):
             self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
 
+    def test_activity_filters_return_after_sign_in(self):
+        app = self.app(portal_reader=True)
+        client = app.test_client()
+        fragment = "#event-18-log?actor=Sample+Agent&action=done&detail=all"
+        login = self.call(client, "/auth/login", query_string={"fragment": fragment}, status=302)
+        state = parse_qs(urlsplit(login.location).query)["state"][0]
+        callback = self.call(client, "/auth/callback", query_string={"code": "Sam", "state": state}, status=302)
+        self.assertEqual(callback.location, ORIGIN + BASE + "/" + fragment)
+        self.call(app.test_client(), "/auth/login", query_string={"fragment": "#activity?next=//other.example"}, status=400)
+
     def test_reports_and_about_return_after_sign_in(self):
         app = self.app(portal_reader=True)
         self.provider.people["Casey"] = {

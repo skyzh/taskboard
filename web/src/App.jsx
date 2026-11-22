@@ -33,25 +33,26 @@ function fragmentId(fragment, pattern) {
 }
 
 function useFragment() {
-  const [fragment, setFragment] = useState(() => window.location.hash.slice(1))
+  const [{ fragment, reveal }, setLocation] = useState(() => ({ fragment: window.location.hash.slice(1), reveal: true }))
   useEffect(() => {
-    function changed() { setFragment(window.location.hash.slice(1)) }
+    function changed() { setLocation({ fragment: window.location.hash.slice(1), reveal: true }) }
     window.addEventListener('hashchange', changed)
     return () => window.removeEventListener('hashchange', changed)
   }, [])
 
   useEffect(() => {
-    if (!fragment) return
+    if (!fragment || !reveal) return
     const params = new URLSearchParams(fragment)
     const section = params.get('section')
-    let anchor = fragment.startsWith('task-') ? fragment.split('?', 1)[0] : fragment
+    const base = fragment.split('?', 1)[0]
+    let anchor = /^(?:task-|event-|activity$)/.test(base) ? base : fragment
     if (fragment.startsWith('notifications-')) anchor = 'notifications'
     if (fragment === 'reports-all' || fragment.startsWith('reports?')) anchor = 'reports'
     if (fragment.startsWith('stats?')) anchor = 'stats'
     if (fragment === 'map' || fragment === 'workstreams-title') anchor = 'team-overview'
     const id = params.get('dri') ? section || 'assignee-title'
       : params.get('search')?.trim() ? 'search-results' : params.has('schedules') ? 'schedules' : section || anchor
-    function reveal() {
+    function revealAnchor() {
       const target = document.getElementById(id)
       if (!target) return false
       if (target.tabIndex >= 0 || target.hasAttribute('tabindex')) {
@@ -60,14 +61,21 @@ function useFragment() {
       target.scrollIntoView({ block: 'start' })
       return true
     }
-    if (reveal()) return
+    if (revealAnchor()) return
     const observer = new MutationObserver(() => {
-      if (reveal()) observer.disconnect()
+      if (revealAnchor()) observer.disconnect()
     })
     observer.observe(document.getElementById('root'), { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [fragment])
-  return fragment
+  }, [fragment, reveal])
+  const writeFilterFragment = useCallback((next, replace) => {
+    const hash = `#${next}`
+    if (window.location.hash === hash) return
+    if (replace) window.history.replaceState(window.history.state, '', hash)
+    else window.history.pushState(window.history.state, '', hash)
+    setLocation({ fragment: next, reveal: false })
+  }, [])
+  return [fragment, writeFilterFragment]
 }
 
 function SectionIndex({ overview }) {
@@ -117,7 +125,7 @@ function BoardConnection({ checkedAt, checking, stale, source }) {
 }
 
 export default function App() {
-  const fragment = useFragment()
+  const [fragment, writeFilterFragment] = useFragment()
   const theme = useTheme()
   const [timeZonePreference, setTimeZonePreference] = useState(readTimeZonePreference)
   const timeZone = timeZonePreference || browserTimeZone
@@ -130,7 +138,7 @@ export default function App() {
   const requestedReportsProject = taskAnchor === 'reports' ? new URLSearchParams(taskContext).get('project') : null
   const allReports = fragment === 'reports-all'
   const [preferredReportsMode, rememberReportsMode] = useState(allReports ? 'reports-all' : 'reports')
-  const linkedEvent = fragmentId(fragment, /^event-([1-9]\d*)-log$/)
+  const linkedEvent = fragmentId(taskAnchor, /^event-([1-9]\d*)-log$/)
   const [queueFilters, setQueueFilters] = useState({})
   const [queueLayout, setQueueLayout] = useState('list')
   const [phoneColumn, setPhoneColumn] = useState('ready')
@@ -189,7 +197,7 @@ export default function App() {
   else if (taskAnchor === 'stats') view = 'stats'
   else if (logFilters || ['notifications', 'notifications-needs-me'].includes(fragment)) view = 'notifications'
   else if (fragment === 'my-activity' && isAgent) view = 'my-activity'
-  else if (linkedEvent || ['activity', 'work-log-title'].includes(fragment)) view = 'activity'
+  else if (linkedEvent || taskAnchor === 'activity' || fragment === 'work-log-title') view = 'activity'
   else if (selected) view = 'task'
   else if (params.get('section') === 'team-overview' ||
     ['team-overview', 'now-title', 'decisions-title', 'outcomes-title', 'workstreams-title', 'map'].includes(fragment)) {
@@ -315,7 +323,8 @@ export default function App() {
             reportsHref={reportsHref} canEditGoal={verified && session.data.actor.id === owner} />}
           {view === 'notifications' && <Notifications session={session} verified={verified} revision={revision}
             onChanged={refresh} fragment={fragment} project={project} projects={visibleProjects} />}
-          {view === 'activity' && <WorkLog requested={linkedEvent} revision={revision} ownerProfiles={overview.data?.owner_profiles} />}
+          {view === 'activity' && <WorkLog requested={linkedEvent} revision={revision} ownerProfiles={overview.data?.owner_profiles}
+            fragment={fragment} onFiltersChange={writeFilterFragment} />}
           {view === 'my-activity' && <MyActivity revision={revision} />}
           {view === 'schedules' && <Schedules key={project} project={project} revision={revision}
             session={session} verified={verified} onChanged={refresh} />}
