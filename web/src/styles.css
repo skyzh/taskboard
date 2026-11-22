@@ -730,6 +730,9 @@ button:disabled { opacity: .57; }
 }
 .ticket-event-content { min-width: 0; overflow-wrap: anywhere; }
 .ticket-event-row .event-meta { gap: .1rem .55rem; align-items: center; }
+.activity-changes { margin-block: .5rem; }
+.activity-changes dt { font-weight: var(--weight-emphasis); }
+.activity-changes dd { margin: 0 0 .45rem; overflow-wrap: anywhere; white-space: pre-wrap; }
 .ticket-event-row .assignee-avatar { width: 1rem; height: 1rem; }
 .ticket-event-row .event-disclosure { margin-top: .1rem; font-size: .8rem; }
 .ticket-event-row summary { width: fit-content; min-height: 1.5rem; padding-block: .15rem; }

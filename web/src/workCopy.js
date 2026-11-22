@@ -62,6 +62,18 @@ export function activityResult(event) {
 }
 
 export function activityHeadline(event) {
+  const context = event.context
+  if (context?.ownership_action === 'reassign' || (
+    event.action === 'transfer' && !context?.ownership_action && context?.previous_dri !== undefined
+  )) return 'Ticket reassigned'
+  const audit = context?.audit
+  if (audit?.action === 'edit-task-details') {
+    const titleChanged = Object.hasOwn(audit.current || {}, 'title')
+    const briefChanged = Object.hasOwn(audit.current || {}, 'brief')
+    if (titleChanged && briefChanged) return 'Title and brief updated'
+    if (titleChanged) return 'Title updated'
+    if (briefChanged) return 'Brief updated'
+  }
   if (event.headline) return event.headline
 
   const sentences = activityResult(event).split(/(?<=[.!?])\s+|\r?\n/).map(line => line.trim()).filter(Boolean)

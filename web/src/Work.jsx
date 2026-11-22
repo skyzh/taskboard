@@ -182,6 +182,46 @@ function ActivityWait({ event, headline }) {
   return <Dependency task={event} />
 }
 
+function ActivityChanges({ event }) {
+  const context = event.context || {}
+  if (context.previous_dri !== undefined && context.next_dri !== undefined && context.previous_dri !== context.next_dri) {
+    const previous = context.previous_dri ? profileName(context.previous_dri, event.previous_dri_profile) : 'Unassigned'
+    const current = context.next_dri ? profileName(context.next_dri, event.next_dri_profile) : 'Unassigned'
+    return <p className="event-meta">From {previous} to {current}</p>
+  }
+  const audit = context.audit
+  if (!audit) return null
+  if (audit.action === 'edit-task-details') {
+    const fields = ['title', 'brief'].filter(field => Object.hasOwn(audit.current || {}, field))
+    if (!fields.length) return null
+    return (
+      <details className="event-disclosure">
+        <summary>What changed</summary>
+        <dl className="activity-changes">
+          {fields.map(field => (
+            <React.Fragment key={field}>
+              <dt>Previous {field}</dt><dd>{audit.previous?.[field] || 'Empty'}</dd>
+              <dt>Updated {field}</dt><dd>{audit.current[field] || 'Empty'}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
+      </details>
+    )
+  }
+  if (audit.action?.startsWith('checklist-')) {
+    return (
+      <p className="event-meta">
+        {audit.previous_label && <span>Previous wording {audit.previous_label}</span>}
+        <span>{audit.label || 'Step text was not recorded.'}</span>
+      </p>
+    )
+  }
+  if (['reference-add', 'reference-relabel', 'source-attach'].includes(audit.action) && audit.label) {
+    return <p className="event-meta">{audit.label}</p>
+  }
+  return null
+}
+
 export function EventRow({ event, permalink = false, showTask = permalink, ticketActivity = false, children }) {
   const { formatTimestamp } = useTimeZone()
   const id = permalink ? eventHref(event.id).slice(1) : undefined
@@ -208,6 +248,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
             {timeLink}
           </p>
           {showTask && <p className="event-ticket"><TaskLink reference={event.task_key} id={event.task_id} title={event.task_title} /></p>}
+          <ActivityChanges event={event} />
           <ClosureReference context={event.context} />
           {children}
           <OutcomeNote event={{ ...event, details }} disclosure="event-disclosure"
@@ -225,6 +266,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
         {timeLink}
       </p>
       {showTask && <p className="event-ticket"><TaskLink reference={event.task_key} id={event.task_id} title={event.task_title} /></p>}
+      <ActivityChanges event={event} />
       <ClosureReference context={event.context} />
       {children}
       <OutcomeNote event={event} headline={result} disclosure="event-disclosure"
@@ -423,6 +465,7 @@ function ActivityEntry({ event, full, selected = false, exact = selected }) {
           </div>
         </div>
       </div>
+      <ActivityChanges event={event} />
       <EvidenceLinks links={event.links} />
       <OutcomeNote event={event} headline={result} disclosure="event-disclosure"
         withEvidence={false} choiceShown waitShown={event.action === 'wait'} />

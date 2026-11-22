@@ -547,11 +547,14 @@ class BoardQueries:
     def event_rows(self, rows):
         work_kinds = self.work_event_kinds(rows)
         keys = [row["actor"] for row in rows] + [row["waiting_on"] for row in rows if row["waiting_on"]]
+        visible = [watches.display_event(row) for row in rows]
+        contexts = [ledger.event_context(row) for row in visible]
+        owner_keys = ("previous_dri", "next_dri")
+        keys.extend(context[key] for context in contexts for key in owner_keys
+                    if isinstance(context.get(key), str) and context[key])
         people = profiles.visible_by_keys(self.db, keys, self.base)
         events = []
-        for stored in rows:
-            row = watches.display_event(stored)
-            context = ledger.event_context(row)
+        for stored, row, context in zip(rows, visible, contexts, strict=True):
             details = context.pop("activity_details", None)
             if row["id"] in work_kinds:
                 context["work_kind"] = work_kinds[row["id"]]
@@ -566,6 +569,7 @@ class BoardQueries:
                 "links": links,
                 "actor_profile": actor_profile,
                 "waiting_profile": people.get(row["waiting_on"]),
+                **{f"{key}_profile": people.get(context.get(key)) for key in owner_keys if key in context},
                 "related_tasks": ledger.resolve_task_references(
                     self.db, row["task_id"], (row["note"], details, *(link["url"] for link in links)),
                     self.base + "/",

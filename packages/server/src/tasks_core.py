@@ -239,7 +239,7 @@ def link_reference(db, task, label, url, actor):
         _, url, source_id = link_github_source(db, number, github_url)
     change = watches.link_reference(db, number, url, label)
     if change or source_id is not None:
-        audit = {"action": f"reference-{change}" if change else "source-attach"}
+        audit = {"action": f"reference-{change}" if change else "source-attach", "label": label}
         if source_id is not None:
             audit.update(source_kind="github", source_id=source_id)
         note = {"add": "Reference added.", "relabel": "Reference label updated."}.get(change, "Source attached.")
@@ -522,7 +522,8 @@ def change_tag(db, args):
     else:
         raise ValueError("Choose add or remove.")
     if changed:
-        record(db, task["id"], "log", args.by, task["state"], note, None, [])
+        record(db, task["id"], "log", args.by, task["state"], note, None, [],
+               {"audit": {"action": f"tag-{args.tag_action}", "label": tag}})
     return f"{projects.row_reference(task)} · {label if changed else 'Tags unchanged'} · {tag}"
 
 
@@ -928,7 +929,8 @@ def change_subscription(db, args, links):
             source_id = watches.link_source(db, args.id, args.kind, key, args.target)
         if source_id is not None:
             record(db, args.id, "log", args.by, task["state"], "Source attached.", None, [], {
-                "audit": {"action": "source-attach", "source_kind": args.kind, "source_id": source_id},
+                "audit": {"action": "source-attach", "source_kind": args.kind, "source_id": source_id,
+                          "label": f"{watches.PROVIDERS[args.kind]} · {key}"},
             })
         return f"{projects.row_reference(task)} linked to {watches.PROVIDERS[args.kind]} · {key}."
 
