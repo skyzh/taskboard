@@ -9,14 +9,8 @@ mkdir -p "$evidence"
 if [[ ${4:-} != '--preview-only' ]]; then
   xcodebuild -version > "$evidence/xcode.txt"
   xcrun simctl list --json > "$evidence/simulators.json"
-  read -r udid runtime_version runtime_build < <(node --input-type=module - "$evidence/simulators.json" <<'JS'
-import { readFileSync } from 'node:fs'
-const {runtimes, devices} = JSON.parse(readFileSync(process.argv[2]))
-const runtime = runtimes.find(item => item.isAvailable && item.version === '26.5' && item.name.includes('iOS'))
-const phone = devices[runtime.identifier].find(item => item.isAvailable && item.name === 'iPhone 17')
-console.log(phone.udid, runtime.version, runtime.buildversion)
-JS
-  )
+  simulator="$(node tools/t994-safari/simulator.mjs "$evidence/simulators.json")"
+  read -r udid runtime_version runtime_build <<< "$simulator"
   printf 'iPhone 17 on iOS %s (%s)\n' "$runtime_version" "$runtime_build" | tee "$evidence/device.txt"
 fi
 
