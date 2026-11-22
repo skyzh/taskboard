@@ -844,7 +844,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIsNotNone(self.call(reader, f"/api/v1/assignee?owner={owner}&project=COURSE").get_json()["goal"])
 
     def test_standing_goal_guides_exploration_on_new_and_existing_tickets(self):
-        from tasks_goals import LEGACY_GOAL_STEP, PREVIOUS_STANDING_EXPLORATION, STANDING_EXPLORATION, STANDING_EXPLORATION_START
+        from tasks_goals import LEGACY_GOAL_STEP, STANDING_EXPLORATION, STANDING_EXPLORATION_START
 
         app = self.app(portal_reader=True)
         avery, owner = self.login(app, "Avery")
@@ -875,8 +875,6 @@ class TasksServiceTest(unittest.TestCase):
                 created = next(item for item in activity if item["action"] == "add")
                 self.assertEqual(created["note"], stored)
 
-        with closing(sqlite3.connect(self.database)) as db, db:
-            db.execute("UPDATE events SET note = ? WHERE task_id = 2 AND action = 'add'", (PREVIOUS_STANDING_EXPLORATION,))
         wording = "If you open a ticket from this standing goal, add the spontaneous tag."
         self.assertIn(wording, self.shared_cli(avery, "show", "COURSE-1")[1])
         self.assertIn(wording, self.shared_cli(avery, "next", "--project", "COURSE")[1])
@@ -2431,13 +2429,18 @@ class TasksServiceTest(unittest.TestCase):
                 self.assertIn("The next item could not be loaded.", output)
                 self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "done")
             else:
-                self.assertIn(f"Start standing goal {goal}", output)
+                self.assertIn(f"Standing goal {goal} · Improve handoffs.\n", output)
                 self.assertIn(f"./tasks --shared start {goal}", output)
                 self.assertIn("add the spontaneous tag.", output)
 
         self.assertEqual(self.shared_cli(owner, "start", goal, "Check one real handoff.")[0], 0)
         self.assertEqual(self.shared_cli(owner, "park", goal, "Checked the handoff.")[0], 0)
-        self.assertEqual(self.action(owner, "task", query_string={"id": goal})["task"]["state"], "parked")
+        current = self.action(owner, "task", query_string={"id": goal})["task"]
+        self.assertEqual((current["state"], current["summary_label"]), ("parked", "Explore this goal"))
+        self.assertIn("add the spontaneous tag.", current["note"])
+        self.assertNotIn("Checked the handoff.", current["note"])
+        history = self.action(owner, "task-activity", query_string={"id": goal})["items"]
+        self.assertEqual((history[0]["action"], history[0]["note"]), ("park", "Checked the handoff."))
         parked = self.shared_cli(owner, "show", goal)[1]
         self.assertIn("Checked the handoff.", parked)
         self.assertIn("add the spontaneous tag.", parked)

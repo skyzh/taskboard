@@ -245,10 +245,7 @@ class BoardQueries:
         for row in rows:
             label, note = ledger.current_summary(row)
             goal_kind = goal_kinds.get(row["id"])
-            if (
-                goal_kind == "standing" and row["state"] == "parked" and row["current_action"] == "add"
-                and note in (goals.LEGACY_GOAL_STEP, goals.PREVIOUS_STANDING_EXPLORATION, goals.STANDING_EXPLORATION)
-            ):
+            if goal_kind == "standing" and row["state"] == "parked":
                 label, note = goals.STANDING_EXPLORATION_LABEL, goals.STANDING_EXPLORATION
             complete, total = progress.get(row["id"], (0, 0))
             context = ledger.event_context(row)

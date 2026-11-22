@@ -53,12 +53,10 @@ GOAL_MIGRATION = "goal_tickets_migrated"
 LEGACY_GOAL_STEP = "Start or link a concrete investigation when there is work to do on this goal."
 STANDING_EXPLORATION_LABEL = "Explore this goal"
 STANDING_EXPLORATION_START = "Start this goal ticket and note what you plan to check."
-PREVIOUS_STANDING_EXPLORATION = (
-    f"{STANDING_EXPLORATION_START} Explore the product, recent changes, or workflow evidence. "
-    "Open or link a focused ticket if you find a bug or improvement. Otherwise, record what you checked."
-)
 STANDING_EXPLORATION = (
-    PREVIOUS_STANDING_EXPLORATION + " If you open a ticket from this standing goal, add the spontaneous tag."
+    f"{STANDING_EXPLORATION_START} Explore the product, recent changes, or workflow evidence. "
+    "Open or link a focused ticket if you find a bug or improvement. Otherwise, record what you checked. "
+    "If you open a ticket from this standing goal, add the spontaneous tag."
 )
 
 
