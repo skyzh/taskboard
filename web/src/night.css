@@ -32,5 +32,5 @@
 :root[data-color-scheme="dark"] .dri-work-status { background: #a9dfb7; }
 :root[data-color-scheme="dark"] .task-progress {
   --task-progress-track: #2b3c50;
-  --task-progress-fill: linear-gradient(180deg, #a9bfd4 0%, #7d97af 44%, #59758f 62%, #66829d 100%);
+  --task-progress-fill: #73899e;
 }
