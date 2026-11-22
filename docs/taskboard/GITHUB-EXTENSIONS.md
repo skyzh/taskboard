@@ -10,6 +10,7 @@ On a shared board, the operator can enable bundled extensions per project with t
     "github-events": {
       "repository": "example/board",
       "merge": {"notify_dri": true},
+      "ci_jobs": {"notify_dri": true},
       "activity": {
         "commented": {"notify_dri": true},
         "review-approved": {},
@@ -51,6 +52,8 @@ PYTHONPATH=packages/server/src:packages/client/src \
 Use `--postgres` in place of `--db` with `TASKS_POSTGRES_DSN` to select an initialized PostgreSQL board. Omit `--active-release` if no project uses Pi deployment evidence. Run once to verify the configured source, then use the operator's scheduler to run it periodically. Each invocation checks up to ten linked items in order of oldest attempt and reports provider errors as JSON. It reserves at most 30 requests for linked reads and leaves items that exceed that budget for the next run. Deployment checks use a separate allowance. Allow for both when setting the interval, especially when the release timer shares the same GitHub request allowance. The server does not create a scheduler for you. For deployment and receipt setup, see the [Pi operator guide](../../tools/release/README.md#run-protected-github-main-deployments-on-pi).
 
 These notices are work updates. Review assignments and verdicts belong in Stamp. Use the team's Raft review reminder for requests that need a person to respond.
+
+Enable `ci_jobs` under `github-events` to record completed GitHub Actions jobs for a linked pull request's current head. Set `notify_dri` to true to send those outcomes to the ticket owner's Inbox. Each event includes the job link and head revision. Repeated refreshes reuse the same event, and a distinct rerun can record a new outcome. The optional rule adds at most one check-runs page per linked pull request within the existing read budget.
 
 To read an explicitly linked pull request through the installed Stamp CLI, run
 `taskboard-extensions --db "$board_db" --stamp-pull "$pull_url"`. It checks that

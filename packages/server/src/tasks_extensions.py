@@ -72,6 +72,7 @@ class GitHubEvents:
     merge: Actions
     deployment: Deployment | None
     activity: dict[str, Actions]
+    ci_jobs: Actions | None = None
 
 
 def _actions(config):
@@ -82,7 +83,7 @@ def _actions(config):
 
 
 def _events(config):
-    if (not isinstance(config, dict) or config.keys() - {"repository", "merge", "deployment", "activity"}
+    if (not isinstance(config, dict) or config.keys() - {"repository", "merge", "deployment", "activity", "ci_jobs"}
             or not isinstance(config.get("repository"), str) or not REPOSITORY.fullmatch(config["repository"])
             or config["repository"].split("/")[1] in (".", "..")):
         raise ValueError("Name a public GitHub repository as owner/repository.")
@@ -101,9 +102,14 @@ def _events(config):
         kind in {"merged", "pull-merged", "deployed"} or not ACTIVITY_TYPE.fullmatch(kind) for kind in activity
     ):
         raise ValueError("Choose GitHub activity event names. Configure merges and deployments separately.")
+    ci_jobs = config.get("ci_jobs")
+    if "ci_jobs" in config:
+        if not isinstance(ci_jobs, dict) or ci_jobs.keys() - {"notify_dri"}:
+            raise ValueError("Set only notify_dri for GitHub CI jobs.")
+        ci_jobs = _actions(ci_jobs)
     return GitHubEvents(config["repository"].lower(), merge, deployment, {
         kind: _actions(actions) for kind, actions in activity.items()
-    })
+    }, ci_jobs)
 
 
 def _stamp_repository(value):

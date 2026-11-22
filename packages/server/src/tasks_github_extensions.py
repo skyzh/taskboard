@@ -123,6 +123,15 @@ def _read_observations(item, reader, settings, remaining):
         return 1, ((), None, (("status", str(error)),), None)
 
 
+def _ci_policies(settings, item):
+    if item.kind != "pull":
+        return {}
+    return {
+        number: rule.ci_jobs for number, options in settings.items()
+        if (rule := options.get(extensions.EVENTS)) and rule.repository == repository(item) and rule.ci_jobs is not None
+    }
+
+
 def refresh(db, reader, configured, *, release_source=None, board_url):
     """Run one bounded provider read and project rule pass outside service requests."""
     configured = {key: value for key, value in configured.items()
@@ -142,12 +151,22 @@ def refresh(db, reader, configured, *, release_source=None, board_url):
                 ledger.bump_revision(db)
             continue
         settings = link_settings(db, source["id"], configured)
-        observation = _read_observations(item, reader, settings, remaining_reads)
+        read_ci = bool(_ci_policies(settings, item))
+        observation = _read_observations(item, reader, settings, remaining_reads - int(read_ci))
         if observation is None:
             # Leave the next source unattempted so it starts the following pass.
             break
         reads, (updates, review_state, errors, metadata) = observation
         remaining_reads -= reads
+        checks = ()
+        if read_ci and metadata is not None:
+            remaining_reads -= 1
+            try:
+                checks, warning = reader.completed_ci_jobs(item, metadata)
+            except _ReadError as error:
+                warning = str(error)
+            if warning:
+                errors = (*errors, ("checks", warning))
         result["errors"].extend({"source": source["source_key"], "error": error} for _, error in errors)
         with tasks_storage.write(db):
             settings = link_settings(db, source["id"], configured)
@@ -156,6 +175,9 @@ def refresh(db, reader, configured, *, release_source=None, board_url):
                 db, source, item, updates, settings, activity_rules(settings, item),
                 review_state=review_state, merged=merged,
             )
+            for number, policy in _ci_policies(settings, item).items():
+                for key, evidence in checks:
+                    result["activity"] += int(extensions.record(db, number, source["id"], key, evidence, policy))
             ledger.bump_revision(db)
         result["sources"] += 1
         if any(error == "github_rate_limited" for _, error in errors):
