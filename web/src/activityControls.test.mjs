@@ -77,7 +77,7 @@ before(async () => {
         plugin.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({
           contents: path === 'react' ? `
             import { useEffect as reactEffect, useRef as reactRef } from ${JSON.stringify(require.resolve('react'))}
-            export { default, createContext, useContext, useId, useMemo } from ${JSON.stringify(require.resolve('react'))}
+            export { default, createContext, useContext, useId, useLayoutEffect, useMemo } from ${JSON.stringify(require.resolve('react'))}
             export function useCallback(callback) { return callback }
             export function useEffect(effect, deps) {
               const capture = ${fixtureLookup}.captureEffect
@@ -353,7 +353,7 @@ test('a deferred request keeps its original age and a handled request has no act
     fixture.state = [state]
     fixture.pages = { '/notifications/requests': { data: { items: [item] } } }
     return renderToStaticMarkup(React.createElement(TimeZoneContext.Provider, { value: zone },
-      React.createElement(AttentionRequests, { taskId: 1 })))
+      React.createElement(AttentionRequests)))
   }
 
   const deferred = render('deferred', request)
@@ -381,7 +381,7 @@ test('attention cards link a separate blocked ticket and report only a recorded 
   const renderRequests = (state, request) => {
     fixture.state = [state]
     fixture.pages = { '/notifications/requests': { data: { items: [request] } } }
-    return renderToStaticMarkup(React.createElement(AttentionRequests, { taskId: 1 }))
+    return renderToStaticMarkup(React.createElement(AttentionRequests, state === 'open' ? { taskId: 1 } : {}))
   }
   assert.match(renderRequests('open', item), /Unblocks <a href="#task-COURSE-3".*Verify the release/)
   const informationalRequest = renderRequests('open', { ...item, unblocks: null })
@@ -392,6 +392,59 @@ test('attention cards link a separate blocked ticket and report only a recorded 
   const completed = renderRequests('handled', { ...handled, unblocks: { ...task, ready_event_id: 24 } })
   assert.match(completed, /Moved <a href="#task-COURSE-3".* to Ready/)
   assert.match(completed, /href="#event-24-log">View Ready event<\/a>/)
+})
+
+test('ticket attention hides stale requests while refreshing and preserves the handled receipt', () => {
+  const item = { id: 8, task_id: 1, sender: 'Avery', reason: 'Check the rollout.',
+    raised_at: '2026-11-21T07:00:00Z', links: [] }
+  const render = (page, state = []) => {
+    fixture.state = [...state]
+    fixture.pages = { '/notifications/requests': filters => {
+      assert.deepEqual(filters, { state: 'open', task_id: 1, scope: 'all' })
+      return page
+    } }
+    return renderToStaticMarkup(React.createElement(AttentionRequests, { taskId: 1 }))
+  }
+
+  assert.equal(render({ data: { items: [] } }), '')
+  const open = render({ data: { items: [item] } })
+  assert.match(open, /aria-label="Attention requests".*Check the rollout\./)
+  assert.match(open, /Mark handled/)
+  assert.doesNotMatch(open, /<select|<summary>Attention requests/)
+
+  const receipt = { id: 8, handled_at: '2026-11-21T08:00:00Z', unblocked_task_id: 2,
+    unblocked_task_title: 'Verify the change', ready_event_id: 24 }
+  const stale = render({ data: { items: [item] }, error: Error('Refresh failed.') })
+  assert.match(stale, />Retry<\/button>/)
+  assert.doesNotMatch(stale, /Mark handled|Check the rollout\./)
+
+  const cached = { items: [item], next_cursor: 2 }
+  const invalidated = ['open', null, null, [], cached]
+  const retrying = render({ data: cached, pending: true }, invalidated)
+  assert.match(retrying, /Loading attention requests/)
+  assert.doesNotMatch(retrying, /Mark handled|Check the rollout\.|>More</)
+
+  const background = render({ data: cached, pending: true })
+  assert.match(background, /Mark handled/)
+  assert.doesNotMatch(background, /Loading attention requests/)
+
+  const paging = render({ data: cached, pending: true, loadingMore: true })
+  assert.match(paging, /Mark handled/)
+  assert.match(paging, /Loading more attention requests/)
+
+  const reloading = render({ data: cached, pending: true, loadingMore: true }, invalidated)
+  assert.match(reloading, /Loading attention requests/)
+  assert.doesNotMatch(reloading, /Mark handled|Loading more/)
+  const reloadFailure = render({ data: cached, moreError: Error('Refresh failed.') }, invalidated)
+  assert.match(reloadFailure, /Unable to load attention requests\. Refresh failed\./)
+  assert.doesNotMatch(reloadFailure, /Mark handled|load more/)
+
+  const after = render({ data: { items: [item] }, error: Error('Refresh failed.') },
+    ['open', null, { receipt }, [item.id]])
+  assert.match(after, /Unable to load attention requests\. Refresh failed\./)
+  assert.match(after, />Retry<\/button>/)
+  assert.match(after, /href="#event-24-log">View Ready event<\/a>/)
+  assert.doesNotMatch(after, /Mark handled|Check the rollout\./)
 })
 
 test('Inbox keeps standing goals after actionable work and every loaded page', () => {
