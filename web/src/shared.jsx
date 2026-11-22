@@ -9,6 +9,7 @@ import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { sourceLinkLabel } from './sourceLinks.js'
 import { useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
+import { DemoControl, DemoUnavailable } from './DemoControl.jsx'
 
 export const states = {
   human_review: 'Assigned to human',
@@ -270,7 +271,7 @@ export function DriWorkStatus({ inProgress, compact = false }) {
 }
 
 export function BoardBrand({ href }) {
-  return <a className="brand" href={href}><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>Taskboard</a>
+  return <DemoControl as="a" className="brand" href={href}><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>Taskboard</DemoControl>
 }
 
 export function TaskLink({ id, title, current, reference, searchQuery, publicHref }) {
@@ -279,7 +280,8 @@ export function TaskLink({ id, title, current, reference, searchQuery, publicHre
     ? searchQuery ? `${anchor}?${new URLSearchParams({ 'from-search': searchQuery })}` : anchor
     : publicHref
   const label = <><span className="ticket-id">{taskLabel(id, reference)}</span> <MarkdownInline text={title} links={false} /></>
-  return href ? <a href={href} aria-current={current ? 'true' : undefined}>{label}</a> : <span className="static-task-title">{label}</span>
+  return href ? <DemoControl as="a" href={href} aria-current={current ? 'true' : undefined}>{label}</DemoControl>
+    : <DemoUnavailable className="static-task-title">{label}</DemoUnavailable>
 }
 
 export const peerRequestLabels = {
@@ -353,7 +355,7 @@ export function Dependency({ task, publicPreview = false, inlineWaiting = false 
         Blocked by {tickets.map((ticket, index) => (
           <React.Fragment key={index}>
             {index > 0 && ' → '}
-            {publicPreview ? <strong>{taskLabel(ticket.id, ticket.key)}</strong>
+            {publicPreview ? <DemoUnavailable as="strong">{taskLabel(ticket.id, ticket.key)}</DemoUnavailable>
               : <a href={taskHref(ticket.id, ticket.key)}>{taskLabel(ticket.id, ticket.key)}</a>}
             {' '}({states[ticket.state]})
           </React.Fragment>

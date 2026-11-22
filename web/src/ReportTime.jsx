@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useId, useState } from 'react'
 import { useTimeZone } from './timeZone.js'
+import { DemoControl, DemoControlDescription } from './DemoControl.jsx'
 
 const ReportClock = createContext(null)
 const relativeTime = new Intl.RelativeTimeFormat('en', { style: 'narrow' })
@@ -44,12 +45,13 @@ export function useReportDay() {
 function ExactTimeDisclosure({ at, age, exact }) {
   const id = useId()
   const [expanded, setExpanded] = useState(false)
+  const demo = useContext(DemoControlDescription)
   return (
     <span className="relative-time">
-      <button type="button" className="relative-time-toggle" aria-expanded={expanded} aria-controls={id}
+      <DemoControl as="button" type="button" className="relative-time-toggle" aria-expanded={expanded} aria-controls={id}
         aria-label={`${age}, ${exact}`} onClick={() => setExpanded(value => !value)}>
-        <time dateTime={at} title={exact}>{age}</time>
-      </button>
+        <time dateTime={at} title={demo ? undefined : exact}>{age}</time>
+      </DemoControl>
       <time id={id} className="relative-time-detail" dateTime={at} hidden={!expanded}>{exact}</time>
     </span>
   )
