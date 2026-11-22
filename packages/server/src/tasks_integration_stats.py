@@ -14,7 +14,7 @@ def _github_identity(row):
             key, url = github.linked_source(row["target"])
         except ValueError:
             return None
-        if "/pull/" in url:
+        if url.rsplit("/", 2)[-2] == "pull":
             repository, number = key.split("#")
             return repository, f"github:pull-merged:{number}"
     return None
@@ -84,12 +84,12 @@ def snapshot(db, bounds, *, project, actor, github_enabled, project_extensions):
     configured = (
         [project_extensions.get(project, {})] if project else project_extensions.values()
     )
-    enabled = github_enabled or any(options.get(extensions.EVENTS) for options in configured)
-    github_count = count if count or (enabled and not older_records) else None
+    automatic = any(options.get(extensions.EVENTS) for options in configured)
+    github_status = "recorded" if automatic else ("manual" if github_enabled else "disabled")
     return {
         "github": {
-            "status": "recorded" if enabled else "disabled",
-            "count": github_count, "older_records": older_records,
+            "status": github_status, "count": count if count or (automatic and not older_records) else None,
+            "older_records": older_records,
         },
         "raft_messages": {"status": "unavailable", "count": None},
         "raft_notices": _raft_notices(db, bounds, project, actor),

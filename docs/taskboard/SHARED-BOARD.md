@@ -177,6 +177,17 @@ measures use the stored result event on the request.
 Activity counts and completions remain available through the same API
 fields. Grouping by verified agent leaves other activity in the total.
 
+Integration activity counts distinct GitHub events recorded from linked issues
+and pull requests, using provider timestamps. It includes older PR merges
+that still have a stable identity. Older records without an event identity
+are excluded and marked in Stats. Manual import and disabled automatic
+collection have their own coverage labels.
+
+Confirmed Raft notices use send confirmation times from the existing Ready
+and merge receipts. Counts follow the Project log audience and are limited to
+the records the signed-in viewer can see. Ordinary Raft messages have no
+project-linked feed. Their count remains unavailable.
+
 A chart bucket shows the peak count of distinct DRIs simultaneously in
 recorded start-to-exit or resume-to-exit intervals. Open ledger intervals end at the
 snapshot time for this calculation. Workers are shown as a separate series

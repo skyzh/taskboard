@@ -28,6 +28,7 @@ import tasks_core as ledger
 import tasks_maintenance as maintenance
 import tasks_goals as goals
 import tasks_extensions as extensions
+import tasks_integration_stats as integration_stats
 import tasks_merges as merges
 import tasks_notification_log as notification_log
 import tasks_oidc as oidc_auth
@@ -1197,15 +1198,21 @@ def create_app(
 
     @app.get("/api/v1/stats")
     def stats():
-        current_actor()
+        actor = current_actor()
         period = request.args.get("period", "day")
         if period not in tasks_stats.PERIODS:
             raise RequestError("Choose an hour, day, or week.")
         with tasks_storage.read(db()) as connection:
-            return tasks_stats.snapshot(
-                connection, period, base=base, watcher_task=watcher_task_id(connection),
-                project=project_filter(request.args),
+            project = project_filter(request.args)
+            result = tasks_stats.snapshot(
+                connection, period, base=base, watcher_task=watcher_task_id(connection), project=project,
             )
+            result["integrations"] = integration_stats.snapshot(
+                connection, (result["from"], result["to"]), project=project,
+                actor=actor["ledger_key"] if actor else None,
+                github_enabled=github_reader is not None, project_extensions=project_extensions,
+            )
+            return result
 
     @app.get("/api/v1/tasks")
     def tasks():

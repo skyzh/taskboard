@@ -281,6 +281,26 @@ function Breakdown({ activity }) {
   )
 }
 
+function IntegrationActivity({ integrations }) {
+  const { github, raft_messages: messages, raft_notices: notices } = integrations
+  const githubStatus = { disabled: 'Off', manual: 'Manual only' }[github.status] || 'Unavailable'
+  const noticeCount = notices.count == null ? (notices.status === 'sign_in' ? 'Sign in' : 'Unavailable') : number.format(notices.count)
+  return (
+    <section className="panel" aria-labelledby="stats-integrations">
+      <h2 id="stats-integrations">Integration activity</h2>
+      <dl className="stats-totals">
+        <div><dt>GitHub activity recorded</dt><dd>{github.count == null ? githubStatus : number.format(github.count)}</dd></div>
+        <div><dt>Raft messages sent</dt><dd>{messages.count == null ? 'Unavailable' : number.format(messages.count)}</dd></div>
+        <div><dt>Confirmed Raft notices</dt><dd>{noticeCount}</dd></div>
+      </dl>
+      <p className="stats-note">GitHub covers activity recorded from linked issues and pull requests. Raft notices cover confirmed Ready and merge sends you can see.</p>
+      {github.status === 'disabled' && github.count != null && <p className="stats-note">GitHub activity collection is off. The count uses saved records.</p>}
+      {github.status === 'manual' && github.count != null && <p className="stats-note">GitHub activity can only be imported manually.</p>}
+      {github.older_records && <p className="stats-note">Some older GitHub records lack an event ID and are excluded.</p>}
+    </section>
+  )
+}
+
 export default function Stats({ revision, period = 'day', project, projects }) {
   const resource = useResource(queryPath('/stats', { period, project }), revision)
   const data = resource.data
@@ -312,6 +332,7 @@ export default function Stats({ revision, period = 'day', project, projects }) {
         <>
           {data.ticket_flow && <TicketFlow data={data} />}
           {data.peer_requests && <PeerRequests requests={data.peer_requests} />}
+          {data.integrations && <IntegrationActivity integrations={data.integrations} />}
           <ActiveChart buckets={data.buckets} width={data.bucket_seconds} />
           <section className="panel" aria-labelledby="stats-recorded-work">
             <h2 id="stats-recorded-work">Recorded activity and worker time</h2>
