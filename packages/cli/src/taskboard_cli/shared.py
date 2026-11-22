@@ -19,7 +19,7 @@ ADVANCES = {
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged", "readiness", ledger.READ}
 WRITES = ADVANCES | {
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
-    "tag", "close", "edit", "save-goal", ledger.WRITE, PEER_ASK,
+    "tag", "close", "edit", "checklist", "save-goal", ledger.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
 def assert_actor(value, actor):
     if value is None:
@@ -177,6 +177,9 @@ def shared_write(board, args):
     elif command == "edit":
         action = "edit-task-details"
         data.update(id=task_ref(args.id), reason=args.note, title=args.title, brief=args.brief)
+    elif command == "checklist":
+        action = "edit-checklist"
+        data.update(id=task_ref(args.id), action=args.change, position=args.position, label=args.label)
     elif command in ledger.OWNERSHIP_ACTIONS:
         action = "change-ownership"
         reference = task_ref(args.id)

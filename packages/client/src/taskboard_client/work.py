@@ -55,6 +55,7 @@ TAG_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*", re.ASCII)
 
 
 STRUCTURED_ACTIVITY = {"log", "wait", "done", "decide"}
+CHECKLIST_EDITS = ("add", "rename", "reopen", "remove")
 
 
 ACTIVITY_HEADLINE_LIMIT = 180

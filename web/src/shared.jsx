@@ -408,7 +408,7 @@ export function Options({ options }) {
   ) : null
 }
 
-export function ChecklistSteps({ steps, relatedTasks }) {
+export function ChecklistSteps({ steps, relatedTasks, editStep, showMissingTimes = false }) {
   return (
     <ol className="context-list checklist-steps" role="list">
       {steps.map(step => {
@@ -429,7 +429,10 @@ export function ChecklistSteps({ steps, relatedTasks }) {
                 <span aria-hidden="true"> · </span>Completed <Timestamp at={step.completed_at} />
                 {step.completed_by && <> by {profileName(step.completed_by, { name: step.completed_by_name })}</>}
               </small>}
+              {showMissingTimes && Boolean(step.checked) && !step.completed_at &&
+                <small className="checklist-step-history">Completion time was not recorded.</small>}
             </span>
+            {editStep?.(step)}
           </li>
         )
       })}

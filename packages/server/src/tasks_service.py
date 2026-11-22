@@ -363,6 +363,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
             db.execute("CREATE UNIQUE INDEX board_principal_order ON board_principals (principal_order)")
             db.execute("UPDATE taskboard_writer SET schema_version = 1 WHERE id = 1")
         else:
+            ledger.ensure_checklist_schema(db)
             pinned = db.execute("SELECT value FROM board_settings WHERE key = 'raft_server_id'").fetchone()
             if server_id and pinned and pinned["value"] != server_id:
                 raise ValueError("The task ledger is already bound to another Raft Server.")
@@ -910,6 +911,12 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
         return mutate("edit", actor, data, id=number, note=text(data, "reason"),
                       title=data.get("title"), brief=data.get("brief"))
 
+    def edit_ticket_checklist(actor, number, data):
+        change = text(data, "action", maximum=6)
+        position = integer(data["position"], "Step number") if "position" in data else None
+        return mutate("checklist", actor, {}, id=number, change=change, position=position,
+                      label=text(data, "label", optional=True, maximum=240))
+
     def actor_profile(actor):
         key = actor["ledger_key"]
         return profiles.visible_by_keys(db(), [key], base)[key]
@@ -1159,6 +1166,11 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
     def task_details_edit(number):
         actor = current_actor(write=True)
         return edit_ticket(actor, task_number(number), json_body({"title", "brief", "reason"}))
+
+    @app.post("/api/v1/tasks/<number>/checklist")
+    def task_checklist_edit(number):
+        actor = current_actor(write=True)
+        return edit_ticket_checklist(actor, task_number(number), json_body({"action", "position", "label"}))
 
     def change_tag(actor, number, data):
         action = text(data, "action", maximum=6)
@@ -2001,6 +2013,8 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
             return close_ticket(actor, number, data)
         if name == "edit-task-details":
             return edit_ticket(actor, number, data)
+        if name == "edit-checklist":
+            return edit_ticket_checklist(actor, number, data)
         if name == "raise-attention":
             return raise_attention(actor, number, data)
         if name == "set-priority":

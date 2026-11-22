@@ -1426,11 +1426,11 @@ class TasksServiceTest(unittest.TestCase):
                          ("in_progress", "update", "Check the count."))
         events = [event for event in history() if "audit" in event["context"]]
         self.assertEqual([(event["action"], event["actor"], event["context"], event["at"]) for event in events], [
-            ("log", avery_id, {"audit": {"action": "checklist-complete", "position": 2}}, record["completed_at"]),
-            ("log", avery_id, {"audit": {"action": "checklist-complete", "position": 1}}, read["completed_at"]),
-            ("log", avery_id, {"audit": {"action": "checklist-start", "position": 1}}, read["started_at"]),
-            ("log", avery_id, {"audit": {"action": "checklist-add", "position": 2}}, read["started_at"]),
-            ("log", avery_id, {"audit": {"action": "checklist-add", "position": 1}}, read["started_at"]),
+            ("log", avery_id, {"audit": {"action": "checklist-complete", "position": 2, "label": "Record"}}, record["completed_at"]),
+            ("log", avery_id, {"audit": {"action": "checklist-complete", "position": 1, "label": "Read"}}, read["completed_at"]),
+            ("log", avery_id, {"audit": {"action": "checklist-start", "position": 1, "label": "Read"}}, read["started_at"]),
+            ("log", avery_id, {"audit": {"action": "checklist-add", "position": 2, "label": "Record"}}, read["started_at"]),
+            ("log", avery_id, {"audit": {"action": "checklist-add", "position": 1, "label": "Read"}}, read["started_at"]),
         ])
         self.action(blake, "record-activity", {"id": "T-1", "note": "Independent count verified.",
                                                "url": "https://example.test/count", "label": "Count"})
@@ -1439,6 +1439,53 @@ class TasksServiceTest(unittest.TestCase):
             self.assertFalse(any("audit" in event["context"] for event in summary))
             self.assertIn("Independent count verified.", [event["note"] for event in summary])
         self.assertEqual(self.call(viewer, f"/api/v1/activity/{events[0]['id']}").get_json(), events[0])
+
+    def test_checklist_edits_keep_step_numbers_and_historical_wording(self):
+        app = self.app(portal_reader=True)
+        avery, avery_id = self.login(app, "Avery")
+        blake, _ = self.login(app, "Blake")
+        manager, manager_id = self.login(app, "Sam")
+        self.cli("register-project", "T", "Tasks Board", "--dri", manager_id)
+        self.action(avery, "create-task", {"title": "Verify samples", "step": "Read the plan."})
+        self.action(avery, "advance-task", {
+            "id": "T-1", "transition": "start", "note": "Check the samples.",
+            "steps": '["Read old sample", "Record the count"]', "started": "[1]", "checked": "[1]",
+        })
+        route = "/api/v1/tasks/T-1/checklist"
+        rename = {"action": "rename", "position": 1, "label": "Read new sample"}
+        self.call(blake, route, method="POST", json=rename, status=403)
+        self.call(manager, route, method="POST", json=rename)
+        self.action(avery, "edit-checklist", {"id": "T-1", "action": "reopen", "position": 1})
+        before_remove = self.action(avery, "task", query_string={"id": "T-1"})
+        reopened = before_remove["checklist"][0]
+        self.assertEqual((reopened["label"], reopened["checked"], reopened["completed_at"]), ("Read new sample", 0, None))
+        self.assertEqual(reopened["started_by"], avery_id)
+        self.call(avery, route, method="POST", json={"action": "remove", "position": 2})
+        code, output, error = self.shared_cli(avery, "checklist", "T-1", "add", "--label", "Share the count")
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("Checklist step added", output)
+        self.action(avery, "advance-task", {
+            "id": "T-1", "transition": "update", "note": "Read the replacement.", "checked": "[2]",
+        }, status=409)
+        detail = self.action(avery, "task", query_string={"id": "T-1"})
+        self.assertEqual([(step["position"], step["label"]) for step in detail["checklist"]],
+                         [(1, "Read new sample"), (3, "Share the count")])
+        self.assertEqual((detail["task"]["checklist_completed"], detail["task"]["checklist_total"]), (0, 2))
+        self.assertEqual((detail["task"]["state"], detail["task"]["note"]), ("in_progress", "Check the samples."))
+        events = reversed(self.call(avery, "/api/v1/tasks/T-1/activity").get_json()["items"])
+        changes = [(event["actor"], event["at"], event["context"]["audit"]) for event in events
+                   if event["context"].get("audit", {}).get("action", "").startswith("checklist-")]
+        self.assertTrue(all(at for _, at, _ in changes))
+        self.assertEqual([(actor, change) for actor, _, change in changes], [
+            (avery_id, {"action": "checklist-add", "position": 1, "label": "Read old sample"}),
+            (avery_id, {"action": "checklist-add", "position": 2, "label": "Record the count"}),
+            (avery_id, {"action": "checklist-start", "position": 1, "label": "Read old sample"}),
+            (avery_id, {"action": "checklist-complete", "position": 1, "label": "Read old sample"}),
+            (manager_id, {"action": "checklist-rename", "position": 1, "label": "Read new sample", "previous_label": "Read old sample"}),
+            (avery_id, {"action": "checklist-reopen", "position": 1, "label": "Read new sample"}),
+            (avery_id, {"action": "checklist-remove", "position": 2, "label": "Record the count"}),
+            (avery_id, {"action": "checklist-add", "position": 3, "label": "Share the count"}),
+        ])
 
     def test_checklist_display_names_preserve_attribution_after_handoff(self):
         app = self.app(portal_reader=True)

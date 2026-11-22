@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { ActivityDate } from './Overview.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
+import ChecklistEdit from './ChecklistEdit.jsx'
 import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
 import { MergeQueue } from './MergeQueue.jsx'
 import ReminderDate from './ReminderDate.jsx'
@@ -325,14 +326,17 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
               <details open><summary>Sources · {record.sources.length}</summary><EvidenceLinks links={record.sources} label="Sources" /></details>
             )}
           </section>
-          {record.checklist.length > 0 && (
+          {(record.checklist.length > 0 || record.can_edit_details) && (
             <details className="detail-checklist" open={checklistOpen}
               onToggle={event => setChecklistOpen(event.currentTarget.open)}>
               <summary>
                 <span>Checklist</span>
                 <span>{task.checklist_completed} of {task.checklist_total} complete</span>
               </summary>
-              <ChecklistSteps steps={record.checklist} relatedTasks={record.related_tasks} />
+              {record.checklist.length > 0 && <ChecklistSteps steps={record.checklist} relatedTasks={record.related_tasks}
+                showMissingTimes
+                editStep={record.can_edit_details ? step => <ChecklistEdit task={task} step={step} onChanged={onChanged} /> : undefined} />}
+              {record.can_edit_details && <ChecklistEdit task={task} onChanged={onChanged} />}
             </details>
           )}
         </>

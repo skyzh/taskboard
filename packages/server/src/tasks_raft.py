@@ -137,6 +137,9 @@ _ACTIONS = {
     "edit-task-details": _Action("POST", "Edit the title or brief as the owner or project manager.", {
         **_TASK, "reason": "Reason for correcting the ticket.",
     }, {"title": "Replacement title.", "brief": "Replacement brief. Empty clears it.", **_EVIDENCE}),
+    "edit-checklist": _Action("POST", "Edit checklist steps as the ticket owner or project manager.", {
+        **_TASK, "action": "Choose add, rename, reopen, or remove.",
+    }, {"position": "Stable step number for rename, reopen, or remove.", "label": "Step wording for add or rename."}),
     "set-priority": _Action("POST", "Set the priority of a task you own.", {
         **_TASK, "priority": "Set high, normal, or low priority.",
     }),

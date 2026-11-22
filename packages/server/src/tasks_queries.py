@@ -193,12 +193,13 @@ class BoardQueries:
         ids = [row["id"] for row in rows]
         placeholders = ", ".join("?" for _ in ids)
         requests = peer_asks.source_links(self.db, ids) if watches.has_table(self.db, "peer_asks") else {}
+        visible_steps = "AND removed = 0" if "removed" in tasks_storage.table_columns(self.db, "task_steps") else ""
         progress = {
             row["task_id"]: (row["completed"], row["total"])
             for row in self.db.execute(
                 f"""
                 SELECT task_id, SUM(checked) AS completed, COUNT(*) AS total
-                FROM task_steps WHERE task_id IN ({placeholders}) GROUP BY task_id
+                FROM task_steps WHERE task_id IN ({placeholders}) {visible_steps} GROUP BY task_id
                 """, ids,
             )
         }
