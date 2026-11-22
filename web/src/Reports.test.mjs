@@ -31,6 +31,31 @@ before(async () => {
 })
 after(() => vite?.close())
 
+test('Reports marks only dates before the selected board day overdue', t => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-22T07:30:00Z'))
+  const entry = {
+    owner: 'Avery', tasks: [], pending_reports: [],
+    goals: [
+      { kind: 'original', summary: 'Past deadline', deadline: '2026-11-20' },
+      { kind: 'milestone', summary: 'Due today in Pacific time', deadline: '2026-11-21' },
+      { kind: 'milestone', summary: 'Upcoming in Pacific time', deadline: '2026-11-22' },
+      { kind: 'standing', summary: 'Ongoing work' },
+    ],
+  }
+  const render = zone => renderToStaticMarkup(React.createElement(
+    TimeZoneContext.Provider, { value: createTimeZoneFormatters(zone) },
+    React.createElement(AssigneeReport, { entry, project: 'T' }),
+  ))
+  const pacific = render('America/Los_Angeles')
+  assert.equal((pacific.match(/<strong>Overdue<\/strong>/g) || []).length, 1)
+  assert.match(pacific, /goal-deadline is-overdue"><time dateTime="2026-11-20">/)
+  const utc = render('UTC')
+  assert.equal((utc.match(/<strong>Overdue<\/strong>/g) || []).length, 2)
+  assert.match(utc, /goal-deadline is-overdue"><time dateTime="2026-11-21">/)
+  assert.match(utc, /goal-deadline"><time dateTime="2026-11-22">/)
+  assert.match(utc, /Ongoing work<\/a><span>Standing goal<\/span>/)
+})
+
 test('Reports lead with progress and link to goals, outcomes and exact activity times', t => {
   const at = '2026-11-20T21:00:00Z'
   const stepAt = '2026-11-21T05:40:00Z'

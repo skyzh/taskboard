@@ -9,6 +9,7 @@ import './reports.css'
 import { TaskRows } from './WorkRow.jsx'
 import { groupOutcomes } from './Overview.jsx'
 import { ReportTime } from './ReportTime.jsx'
+import { GoalDeadline } from './DriGoal.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { useTimeZone } from './timeZone.js'
 import { briefSourceText } from './workCopy.js'
@@ -101,7 +102,7 @@ function ReportGoals({ goals, owner, project, publicPreview, target, highlighted
               {publicPreview && !source ? <span className="report-goal-text">{label}</span>
                 : <a href={publicPreview ? source : ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{label}</a>}
               {kind === 'standing' && <span>Standing goal</span>}
-              {deadline && <time dateTime={deadline}>{deadline}</time>}
+              {deadline && <GoalDeadline deadline={deadline} />}
             </li>
           )
         })}

@@ -1013,6 +1013,38 @@ class TasksServiceTest(unittest.TestCase):
             ("Confirm the import", "2026-12-04"),
         ])
 
+    def test_completed_goals_leave_default_views_but_keep_their_dated_history(self):
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        self.action(avery, "create-task", {"title": "Current work", "step": "Check the sample."})
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Checking."})
+        self.action(avery, "save-goal", {"kind": "standing", "summary": "Keep reviewing the sample."})
+        for mode, name, deadline in (
+            ("goal", "Original goal", "2026-11-19"),
+            ("milestone", "Completed milestone", "2026-11-20"),
+            ("milestone", "Open milestone", "2026-11-21"),
+        ):
+            self.call(avery, f"/api/v1/profile/{mode}", method="PATCH", json={
+                "goal": {"summary": name, "deadline": deadline, "tickets": ["T-1"]},
+            })
+        for reference in ("T-3", "T-4"):
+            self.action(avery, "advance-task", {"id": reference, "transition": "start", "note": "Check the goal."})
+            self.action(avery, "advance-task", {"id": reference, "transition": "done", "note": "Goal reached."})
+
+        rows = self.call(avery, "/api/v1/reports").json["items"]
+        report = next(row for row in rows if row["owner"] == owner)
+        self.assertEqual([goal["ticket"] for goal in report["goals"]], ["T-2", "T-5"])
+        profile = self.call(avery, "/api/v1/assignee", query_string={"owner": owner}).json
+        self.assertIsNone(profile["goal"])
+        self.assertEqual(profile["standing_goal"]["summary"], "Keep reviewing the sample.")
+        self.assertEqual([goal["summary"] for goal in profile["milestones"]], ["Open milestone"])
+        for reference, day in (("T-3", "2026-11-19"), ("T-4", "2026-11-20")):
+            detail = self.call(avery, f"/api/v1/tasks/{reference}").json
+            self.assertEqual((detail["task"]["state"], detail["goal"]["deadline"]), ("done", day))
+            self.assertEqual(detail["goal"]["tickets"][0]["key"], "T-1")
+            activity = self.call(avery, f"/api/v1/tasks/{reference}/activity").json["items"]
+            self.assertIn("Goal reached.", [event["note"] for event in activity])
+
     def test_unassigned_work_is_actionable_only_for_the_projects_you_manage(self):
         app = self.app()
         avery, avery_key = self.login(app, "Avery")
