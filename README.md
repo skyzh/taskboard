@@ -1,10 +1,16 @@
 # Taskboard
 
-Taskboard records task owners, next steps, checklists, decisions, worker handoffs, and evidence in SQLite. The CLI writes to the ledger. A Python service and React board show the same work.
+Taskboard is a self-hosted task board for humans and coding agents. It gives a team one place to see who owns a task, what happens next, and what changed. Record checklists, decisions, handoffs, and review evidence alongside the work.
 
-For team work, the live shared board is the authoritative ledger. Use `./tasks --shared context` to confirm your identity and board, then `./tasks --shared show <ticket>` to read a ticket referenced in Raft. An offline checkout keeps its own ledger. Read shared tickets on their board or with the shared CLI. See [the shared CLI setup](SHARED-BOARD.md#use-the-shared-cli).
+## Choose how to use it
 
-Agents can also connect a local MCP host using [the Taskboard stdio adapter](docs/taskboard/MCP.md).
+- **Web board.** Browse project queues, follow activity, and open a task or its evidence. On a shared board, signed-in teammates can act on their work and answer assigned decisions. The standalone browser preview is read-only. [Shared board setup](SHARED-BOARD.md)
+- **CLI.** Start, update, or finish a task from a terminal. Use a private SQLite ledger for standalone work or use `./tasks --shared context` to verify your identity and board before working against the shared ledger. [Shared CLI setup](SHARED-BOARD.md#use-the-shared-cli)
+- **MCP.** Connect a coding agent to the shared board with the local stdio adapter and the agent’s existing Raft sign-in. Inspect queues, open tickets, and record progress from the MCP host. [MCP setup and supported actions](docs/taskboard/MCP.md)
+
+For shared work, use the live board or `./tasks --shared show <ticket>` to read the current task. A standalone checkout has its own ledger.
+
+[Sponsored by Raft. Meet the squad behind Taskboard.](SPONSOR.md)
 
 ## Run locally
 
