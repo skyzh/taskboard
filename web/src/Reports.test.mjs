@@ -7,6 +7,7 @@ import { createServer } from 'vite'
 
 let vite
 let AssigneeReport
+let QueuedAsksContent
 let DriWorkers
 let relativeAge
 let watchReportTime
@@ -21,6 +22,7 @@ before(async () => {
   })
   const reportModule = await vite.ssrLoadModule('/src/Reports.jsx')
   AssigneeReport = reportModule.AssigneeReport
+  QueuedAsksContent = (await vite.ssrLoadModule('/src/QueuedAsks.jsx')).QueuedAsksContent
   DriWorkers = (await vite.ssrLoadModule('/src/DriWorkers.jsx')).default
   const reportTime = await vite.ssrLoadModule('/src/ReportTime.jsx')
   relativeAge = reportTime.relativeAge
@@ -176,10 +178,21 @@ test('the public Summary renders captured next steps and blocker references with
   ]
   const entry = { owner: 'Avery', tasks, task_count: tasks.length }
   const html = renderToStaticMarkup(React.createElement(AssigneeReport, { entry, publicPreview: true }))
-  assert.match(html, /<strong>Next step<\/strong><p[^>]*>Compare the two totals\.<\/p>/)
+  assert.match(html, /<strong>Next step<\/strong><div[^>]*><p>Compare the two totals\.<\/p>/)
   assert.match(html, /Blocked by <strong>T-1<\/strong> \(In progress\) → <strong>T-3<\/strong> \(Waiting\)/)
-  assert.match(html, /<strong>Unblock condition<\/strong><p[^>]*>Wait for the signed count\.<\/p>/)
+  assert.match(html, /<strong>Unblock condition<\/strong><div[^>]*><p>Wait for the signed count\.<\/p>/)
   assert.doesNotMatch(html, /example\.test|#event-|#task-|Private evidence/)
+})
+
+test('the public Summary renders captured asks and responses without a live service', () => {
+  const at = '2026-11-21T05:00:00Z'
+  const waits = [{ id: 'ask-1', task_id: 1, task_key: 'T-1', task_title: 'Check the sample', requester: 'Avery', recipient: 'Blake', at }]
+  const responses = [{ id: 'response-1', task_id: 2, task_key: 'T-2', task_title: 'Review the result', responder: 'Blake', recipient: 'Avery', at }]
+  const html = renderToStaticMarkup(React.createElement(QueuedAsksContent, { snapshot: { reviews: [], waits, responses } }))
+  assert.match(html, /Queued asks[\s\S]*Avery requested Blake[\s\S]*Check the sample/)
+  assert.match(html, /Recent responses[\s\S]*Blake responded to Avery[\s\S]*Review the result/)
+  assert.doesNotMatch(html, /href="#task-|Loading|Load more/)
+  assert.equal(renderToStaticMarkup(React.createElement(QueuedAsksContent, { snapshot: { reviews: [], waits: [], responses: [] } })), '')
 })
 
 test('one visible clock updates ages and resumes with the current time after hiding', t => {

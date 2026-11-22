@@ -10,7 +10,7 @@ export const repository = 'https://github.com/skyzh/taskboard'
 const profileSource = repository + '/blob/main/SPONSOR.md#the-taskboard-squad'
 
 const avatars = { beacon, gauge, herald, loom, prism }
-export const { capturedAt, queuedWaits } = snapshot
+export const { capturedAt, queuedAsks } = snapshot
 export const entries = snapshot.entries.map(entry => ({
   ...entry,
   public_url: profileSource,

@@ -105,8 +105,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
         {cue?.text && (
           <div className="report-task-cue">
             {cueLabel && <strong>{cueLabel}</strong>}
-            {publicPreview ? <p className="task-row-note prose">{cue.text}</p>
-              : <Markdown text={cue.text} className="task-row-note prose" />}
+            <Markdown text={cue.text} className="task-row-note prose" links={!publicPreview} />
             {detailedReport && task.release_result && task.at && <p className="event-meta">Step updated <ReportTime at={task.at} /></p>}
           </div>
         )}
