@@ -5674,6 +5674,51 @@ class TasksServiceTest(unittest.TestCase):
         response = preview.get("/tasks" + path, base_url="http://127.0.0.1")
         self.assertEqual((response.status_code, response.json), (200, {"links": []}))
 
+    def test_summary_public_raft_link_works_without_a_posting_channel(self):
+        url = f"https://app.raft.build/s/fixture/channel/{UUID(int=65)}"
+        configured = json.dumps({"t": url})
+        app = self.app(portal_reader=True, public_raft_channel_urls=configured)
+        manager, identity = self.login(app, "Avery")
+        reader = app.test_client()
+        self.cli("register-project", "T", "Tasks Board", "--dri", identity)
+        self.cli("register-project", "COURSE", "Fixture course", "--dri", identity)
+        path = "/api/v1/projects/T/links"
+        raft = {"kind": "raft", "url": url}
+        github = {"kind": "github", "url": "https://github.com/example/board", "name": "example/board"}
+        stamp = {"kind": "stamp", "url": "https://stamp.build/github/example/board", "name": "example/board"}
+        saved = self.call(manager, path, method="PUT", json={"github": "example/board", "stamp": "example/board"})
+        self.assertEqual(saved.json, {"links": [raft, github, stamp]})
+        self.assertEqual(self.call(reader, path).json, {"links": [raft, github, stamp]})
+        self.assertEqual(self.call(reader, "/api/v1/projects/COURSE/links").json, {"links": []})
+        channel_path = "/api/v1/projects/T/raft-channel"
+        self.assertEqual(self.call(manager, channel_path).json, {"project": "T", "state": "unavailable", "channel": None})
+        self.call(manager, channel_path, method="PUT", json={"channel_id": str(UUID(int=65))}, status=503)
+        self.call(manager, path, method="PUT", json={"raft": url}, status=400)
+        self.assertEqual(self.call(self.app(portal_reader=True).test_client(), path).json, {"links": [github, stamp]})
+
+        preview = create_app(self.database.with_name("preview.sqlite3"), public_url="http://127.0.0.1/tasks",
+                             local_readonly=True, public_raft_channel_urls=configured).test_client()
+        self.assertEqual(preview.get("/tasks" + path, base_url="http://127.0.0.1").get_json(), {"links": []})
+
+    def test_summary_public_raft_link_requires_a_canonical_https_channel_url(self):
+        from taskboard_server.project_links import public_raft_links
+
+        route = f"/s/fixture/channel/{UUID(int=65)}"
+        for origin in ("https://raft.build", "https://app.raft.build"):
+            url = origin + route
+            self.assertEqual(public_raft_links(json.dumps({"T": url})), {"T": {"kind": "raft", "url": url}})
+
+        for url in (
+            "http://app.raft.build" + route,
+            "https://app.raft.build@other.example" + route,
+            "https://app.raft.build.other.example" + route,
+            "https://app.raft.build" + route + "?msg=secret",
+            "https://app.raft.build" + route + "#thread",
+            "https://app.raft.build/s/fixture/channel/unknown",
+        ):
+            with self.subTest(url=url), self.assertRaisesRegex(ValueError, "Invalid TASKS_PUBLIC_RAFT_CHANNEL_URLS"):
+                public_raft_links(json.dumps({"T": url}))
+
     def test_linked_peer_request_lifecycle_returns_the_next_action_to_the_requester(self):
         app = self.app(portal_reader=True)
         avery, avery_id = self.login(app, "Avery")

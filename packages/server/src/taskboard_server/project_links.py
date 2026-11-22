@@ -1,5 +1,9 @@
 """Readable project destinations and optional per-project repository settings."""
 
+import json
+import re
+
+from taskboard_client.references import prefix
 from tasks_extensions import EVENTS, REPOSITORY
 
 
@@ -7,6 +11,31 @@ REPOSITORY_LINKS = {
     "github": "https://github.com/",
     "stamp": "https://stamp.build/github/",
 }
+
+
+_PUBLIC_RAFT_CHANNEL = re.compile(
+    r"https://(?:app\.)?raft\.build/s/[A-Za-z0-9][A-Za-z0-9_-]*/channel/"
+    r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"
+)
+
+
+def public_raft_links(raw):
+    """Read browser links that the board operator has confirmed are public."""
+    if raw is None:
+        return {}
+    try:
+        values = json.loads(raw)
+        if not isinstance(values, dict):
+            raise ValueError("Map project prefixes to public Raft channel URLs.")
+        links = {}
+        for project, url in values.items():
+            project = prefix(project)
+            if project in links or not isinstance(url, str) or not _PUBLIC_RAFT_CHANNEL.fullmatch(url):
+                raise ValueError("Configure each project once with an HTTPS Raft channel URL.")
+            links[project] = {"kind": "raft", "url": url}
+        return links
+    except ValueError as error:
+        raise ValueError(f"Invalid TASKS_PUBLIC_RAFT_CHANNEL_URLS. {error}") from None
 
 
 def setting_key(project, kind):

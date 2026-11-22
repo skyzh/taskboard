@@ -581,6 +581,7 @@ def create_app(
     postgres_dsn=None,
     github_merge_projects=(),
     raft_channel_lookup=None,
+    public_raft_channel_urls=None,
     project_extensions=None,
     stamp_reader=None,
     codex_usage=None,
@@ -593,6 +594,7 @@ def create_app(
         except ValueError as error:
             raise ValueError("Set TASKS_NEW_TASKS_DEFAULT_SUBJECT to a verified human subject UUID.") from error
     marketplace = marketplace_root is not None
+    public_raft_links = {} if marketplace or local_readonly else project_links.public_raft_links(public_raft_channel_urls)
     if codex_usage and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
         raise ValueError("Codex usage requires a private shared board with server-bound Raft sign-in.")
     project_extensions = project_extensions or {}
@@ -1175,10 +1177,12 @@ def create_app(
                                  record_type="project", record_id=project, at=ledger.timestamp())
                     ledger.bump_revision(connection)
 
-        server = g.tenant_server if marketplace else (raft_config or {}).get("server_id")
-        raft_link = raft_channels.browser_link(
-            raft_channel_lookup, server, project, raft_channels.saved_channel(db(), project),
-        )
+        raft_link = public_raft_links.get(project)
+        if raft_link is None:
+            server = g.tenant_server if marketplace else (raft_config or {}).get("server_id")
+            raft_link = raft_channels.browser_link(
+                raft_channel_lookup, server, project, raft_channels.saved_channel(db(), project),
+            )
         return project_links.read(db(), project, project_extensions.get(project, {}), raft_link)
 
     @app.route("/api/v1/projects/<project>/stamp-reviews", methods=("GET", "POST"))
@@ -2455,6 +2459,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             portal_upstream_token=portal_upstream_token, github_reader=github, websocket_revisions=websocket_revisions,
             codex_usage=tasks_codex_usage.configuration(os.environ),
             project_extensions=project_extensions,
+            public_raft_channel_urls=os.environ.get("TASKS_PUBLIC_RAFT_CHANNEL_URLS"),
             creation_default_subject=os.environ.get("TASKS_NEW_TASKS_DEFAULT_SUBJECT")
             if not (local_readonly or marketplace) else None,
             marketplace_root=marketplace_root,
