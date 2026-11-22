@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { useLoadedPages } from './data.js'
 import { LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref } from './shared.jsx'
 
@@ -45,11 +45,17 @@ function Entry({ item }) {
   )
 }
 
-export default function NotificationLog({ project, projects = [], revision }) {
-  const [state, setState] = useState('all')
-  const [kind, setKind] = useState('')
+export default function NotificationLog({ project, state, kind, projects = [], revision }) {
   const page = useLoadedPages('/notifications/log', { project, state, kind }, revision)
   const items = page.data?.items ?? []
+
+  function chooseFilters(changes) {
+    const next = { project, state, kind, ...changes }
+    const params = new URLSearchParams({ project: next.project })
+    if (next.state !== 'all') params.set('status', next.state)
+    if (next.kind) params.set('kind', next.kind)
+    window.location.hash = `notifications-log?${params}`
+  }
 
   return (
     <section className="feed-section" aria-labelledby="notification-log-title">
@@ -58,22 +64,20 @@ export default function NotificationLog({ project, projects = [], revision }) {
       <div className="log-filters">
         {projects.length > 1 && (
           <label>Project
-            <select value={project} onChange={event => {
-              window.location.hash = `notifications-log?project=${event.target.value}`
-            }}>
+            <select value={project} onChange={event => chooseFilters({ project: event.target.value })}>
               {projects.map(entry => <option key={entry.prefix} value={entry.prefix}>{entry.title}</option>)}
             </select>
           </label>
         )}
         <label>Status
-          <select value={state} onChange={event => setState(event.target.value)}>
+          <select value={state} onChange={event => chooseFilters({ state: event.target.value })}>
             <option value="all">All records</option>
             <option value="pending">Pending</option>
             <option value="history">History</option>
           </select>
         </label>
         <label>Kind
-          <select value={kind} onChange={event => setKind(event.target.value)}>
+          <select value={kind} onChange={event => chooseFilters({ kind: event.target.value })}>
             <option value="">All notices</option>
             {Object.entries(kinds).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>

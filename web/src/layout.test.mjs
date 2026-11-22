@@ -127,6 +127,12 @@ test('About has its own route and loads the running release', () => {
   assert.doesNotMatch(about, /id="queue-heading"|github\.com\/skyzh\/taskboard\/commit\//)
 })
 
+test('a filtered Project log has the Notifications route', () => {
+  const projectLog = render('#notifications-log?project=T&status=pending&kind=ready')
+  assert.match(projectLog, /id="notifications">Notifications<\/h1>/)
+  assert.doesNotMatch(projectLog, /id="queue-heading"/)
+})
+
 test('a restored queue renders the selected filters and the friendly waiting label', () => {
   const queue = renderToStaticMarkup(React.createElement(WorkQueue, {
     filters: { state: 'waiting', dri: 'Avery', waiting_on: 'raft:human:fixture' },
