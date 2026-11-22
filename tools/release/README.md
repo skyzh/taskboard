@@ -164,9 +164,52 @@ reconcile its existing activation journal before retrying. Use the
 existing reviewed recovery path to retry a terminal failed release after
 fixing the cause.
 
-T-238 covers protected main and required hosted CI, whose passing artifact can
-later feed the same activation transaction. Install the reviewed Pi operator
-through the authorized rollout before using this command on live state.
+## Run protected GitHub main deployments on Pi
+
+Install the reviewed launcher and the [user service](systemd/taskboard-deploy.service)
+and [timer](systemd/taskboard-deploy.timer) as the existing Pi operator after
+release authorization. Use a complete copy of the reviewed launcher source as
+described above. Keep the checkout used for builds separate. It can start as
+an empty local Git repository with `git init "$build_repo"`.
+
+Use the architecture-specific Node distribution at the version pinned by
+[hosted CI](../../.github/workflows/ci.yml). Verify its checksum against the
+[official Node release](https://nodejs.org/dist/) before extracting it under
+the operator's private directory. Point the unit's `PATH` at that Node and npm.
+The build uses the tracked lockfile and the public npm registry. Set up the
+reviewed Playwright module in the operator's private directory and use the
+installed Chromium with `browser_executable` in the compatibility policy.
+
+Use the existing operator configuration and specify `repo` (the build
+checkout), `ci_state` (private build and receipt state), `predecessor` (the
+verified starting app snapshot), and `compatibility_policy` (the existing
+client and browser policy). In `github`, set `repo` to the public GitHub
+`owner/repository` and `required_checks` to the observed map of exact
+required check names and their GitHub App IDs. The user service uses the same
+operator UID, runtime interpreter, service, ledger, staging, and backup
+locations as the existing release path.
+
+After reviewing the installation, start the user timer:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now taskboard-deploy.timer
+systemctl --user list-timers taskboard-deploy.timer
+journalctl --user -u taskboard-deploy.service
+```
+
+The service reads GitHub anonymously. It skips the commit already running and
+requires successful checks from the configured apps on the exact protected
+main SHA before fetching or building it. It installs locked dependencies,
+builds and verifies the manifest, then uses the compatibility matrix and the
+existing serialized Pi backup, smoke, and rollback transaction. The timer
+checks again two minutes after the last invocation ends. Read its journal and
+the operator's outcome JSON for blocked checks and release results.
+
+The mounted `GET /api/v1/release` reads the commit, build time and successful
+deploy time for the matching active manifest. Metadata is written after the
+mounted check passes. A rollback leaves the restored version's metadata in
+place. An installation without matching metadata reports null values.
 
 ## Verify with disposable inputs
 

@@ -80,9 +80,10 @@ def verify_browser(candidate, predecessor, policy, scratch, tls, python):
         origin, cookie, database, _ = mounted
         seed(python, candidate, origin, cookie, database)
         script = Path(__file__).with_name("compatibility_browser.mjs")
-        output = subprocess.check_output(
-            [policy.get("node", "node"), script, module, origin, digest, LEGACY_TASK, predecessor / "SHA256SUMS"], text=True, timeout=35,
-        )
+        command = [policy.get("node", "node"), script, module, origin, digest, LEGACY_TASK, predecessor / "SHA256SUMS"]
+        if policy.get("browser_executable"):
+            command.append(Path(policy["browser_executable"]).resolve(strict=True))
+        output = subprocess.check_output(command, text=True, timeout=35)
     proof = json.loads(output)
     expect(proof["old_html"] == digest and proof["rendered"] is True, "The old browser pairing did not complete.")
     return proof
