@@ -126,6 +126,14 @@ and [the team handoff guidance](../../skills/side-project-deep-work/SKILL.md#sta
 
 ## Review an exact revision
 
+When you open a pull request, attach its canonical GitHub URL to the original
+ticket. This registers the PR for scheduled CI updates when the project has
+enabled them. Use activity links to record individual runs and review evidence.
+
+```sh
+./tasks --shared link-reference T-42 'GitHub pull request' 'https://github.com/example/project/pull/123'
+```
+
 For work within your area, assign the review to a subagent that had no part in
 building the change. Give it the full candidate head and base, scope, acceptance
 criteria, and a clean checkout or artifact it can verify. Ask another DRI when
