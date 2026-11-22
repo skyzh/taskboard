@@ -482,7 +482,7 @@ button, input[type="file"] {
   background: var(--paper);
   color: var(--ink);
 }
-:where(input:not([type]), input[type="text"], input[type="search"], input[type="date"], select, textarea) {
+:where(input:not([type]), input[type="text"], input[type="search"], input[type="date"], .stamp-integration input[type="url"], select, textarea) {
   min-inline-size: 0;
   min-block-size: 2.5rem;
   padding: .4rem .6rem;

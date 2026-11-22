@@ -39,6 +39,7 @@ import tasks_peer_asks as peer_asks
 from tasks_release_info import release_info
 import tasks_recurring
 import tasks_releases as releases
+import tasks_stamp
 import tasks_stats
 import watches
 import tasks_storage
@@ -580,6 +581,7 @@ def create_app(
     github_merge_projects=(),
     raft_channel_lookup=None,
     project_extensions=None,
+    stamp_reader=None,
 ):
     """Configure the board; injected identity providers are used by isolated tests."""
     github_merge_projects = frozenset(projects.prefix(project) for project in github_merge_projects)
@@ -592,6 +594,7 @@ def create_app(
     project_extensions = project_extensions or {}
     stamp_repositories = {project: settings[extensions.STAMP_REVIEWS]
                           for project, settings in project_extensions.items() if extensions.STAMP_REVIEWS in settings}
+    stamp_reader = stamp_reader if stamp_reader is not None else tasks_stamp.StampReader()
     if project_extensions and (marketplace or local_readonly):
         raise ValueError("Enable project extensions on a shared board.")
     if postgres_dsn and (database is not None or marketplace or local_readonly or websocket_revisions or github_reader):
@@ -1164,6 +1167,33 @@ def create_app(
             raft_channel_lookup, server, project, raft_channels.saved_channel(db(), project),
         )
         return project_links.read(db(), project, project_extensions.get(project, {}), raft_link)
+
+    @app.route("/api/v1/projects/<project>/stamp-reviews", methods=("GET", "POST"))
+    def project_stamp_reviews(project):
+        retry = request.method == "POST"
+        actor = current_actor(write=retry, required=retry)
+        if marketplace or local_readonly:
+            raise NotFound()
+        project = project_filter({"project": project})
+        if actor is None or not projects.manages(db(), project, actor["ledger_key"]):
+            raise RequestError("Only this project's manager can manage its Stamp integration.", 403)
+        repo = stamp_repositories.get(project)
+        if not retry:
+            return tasks_stamp.review_health(db(), project, repo)
+        if not repo:
+            raise RequestError("Ask the board operator to configure the Stamp repository for this project.", 409)
+        pull = text(json_body({"pull"}), "pull", maximum=350)
+        try:
+            result = tasks_stamp.refresh_approvals(
+                db(), stamp_reader, {project: project_extensions[project]}, pull, require_link=True,
+            )
+        except tasks_stamp.ReaderUnavailable as error:
+            raise RequestError("Ask the board operator to install the Stamp CLI and check the service PATH.", 503) from error
+        except RuntimeError as error:
+            raise RequestError("Stamp could not read the pull request. Ask the board operator to verify repository read access.", 502) from error
+        except ValueError as error:
+            raise RequestError(str(error)) from error
+        return {"result": result, "health": tasks_stamp.review_health(db(), project, repo)}
 
     @app.get("/api/v1/schedules")
     def schedules():

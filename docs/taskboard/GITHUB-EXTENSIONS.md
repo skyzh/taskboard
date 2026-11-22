@@ -59,3 +59,13 @@ ticket's Work Log for the approval and the peer request for its next actor.
 For an existing pinned request, use the same PR and configured project in this
 refresh. Stamp must return the original reviewer, head and base and passing
 required checks, including when the exact pull request already merged.
+
+## Stamp setup and recovery
+
+The project manager can see **Stamp review integration** in that project's Reports view. It shows whether the project has a repository configured, when the last check ran, and whether it passed. If a check fails, it keeps the last successful check time and shows the next operator step.
+
+1. The board operator installs the supported Stamp CLI so `stamp` is on the path of the process running the refresh. Have the Stamp administrator provision a service identity that can read formal approvals and required checks for the one configured repository. Keep its credentials in the operator's existing service credential configuration. The Reports form accepts a GitHub pull request URL.
+2. As the service identity, run `stamp pr view NUMBER --repo OWNER/REPO --json` on a linked pull request and verify the structured verdict is available. Add the matching `stamp-reviews` entry to the project's existing `TASKS_PROJECT_EXTENSIONS` configuration. To use Reports for refreshes, configure the same repository-scoped reader for the board service.
+3. The project manager can refresh a pull request already linked to a ticket in that project. An operator can run the same refresh from the installed CLI using `--stamp-pull`. Check the displayed last-check result and any returned peer requests. Repeating a refresh preserves the original requests and skips approvals already recorded.
+
+If the reader cannot start, check its executable and service path. If Stamp cannot verify the pull request, check the service identity's repository access and provider availability, then retry the linked pull request. The importer still requires the exact original review and passing checks before returning a pinned request.
