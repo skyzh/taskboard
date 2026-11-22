@@ -200,12 +200,20 @@ journalctl --user -u taskboard-deploy.service
 
 The service reads GitHub anonymously. It compares the public Git main ref
 with the running commit first. A matching SHA needs no GitHub REST calls.
-For a new SHA it verifies the active protection and successful REST check
-results from the configured apps before fetching or building it. It installs locked dependencies,
-builds and verifies the manifest, then uses the compatibility matrix and the
-existing serialized Pi backup, smoke, and rollback transaction. The timer
-checks again two minutes after the last invocation ends. Read its journal and
-the operator's outcome JSON for blocked checks and release results.
+For a new SHA, the service reads the exact required check results first. A
+candidate with pending or unsuccessful checks uses one REST request per tick.
+Before it builds a passing candidate, it verifies protected main and its
+active rules, including both configured check identities. Before activation it
+verifies protected main still points to that candidate. The compatibility
+matrix and serialized Pi backup, smoke, and rollback transaction still apply.
+
+The timer checks again two minutes after the last invocation ends. If GitHub
+responds with a rate limit and a future
+[retry or reset time](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit),
+the service records it in private deployment state. Until that time, it still
+compares Git main with the running commit and skips REST requests. Its journal
+reports `rate-limited` with the `retry_at` UTC epoch timestamp for a deferred
+candidate.
 
 The mounted `GET /api/v1/release` reads the commit, build time and successful
 deploy time for the matching active manifest. Metadata is written after the

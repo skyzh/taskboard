@@ -1,6 +1,8 @@
 """Check the local main gate and operator handoff with disposable inputs."""
 
 from contextlib import closing
+from email.message import Message
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -9,10 +11,12 @@ import subprocess
 import sys
 import unittest
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 import test_ci_watch
 from deploy_hosted import deploy_once, git_main_tip
 from deploy_main import run_main
+from github_main import GitHubRateLimited, read_github
 from operator_deploy import (
     checked_main_receipt, project_checked_main, read_main_state, receive_checked_main,
 )
@@ -201,6 +205,40 @@ class MainReleaseTest(unittest.TestCase):
                 build.assert_not_called()
                 operate.assert_not_called()
 
+    def test_pending_checks_use_one_request_per_tick(self):
+        self.prepare_target()
+        commit = "1" * 40
+        responses = self.github_responses(commit)
+        check_path = next(path for path in responses if "/check-runs?" in path)
+        responses[check_path]["check_runs"][0].update(status="in_progress", conclusion=None)
+        read, operate = Mock(side_effect=responses.__getitem__), Mock()
+        for _ in range(10):
+            with self.assertRaisesRegex(ReleaseRejected, "needs a successful result"):
+                deploy_once(self.config, tip=lambda _: commit, read=read, operate=operate)
+        self.assertEqual([call.args[0] for call in read.call_args_list], [check_path] * 10)
+        operate.assert_not_called()
+
+    def test_github_rate_error_uses_observed_retry_and_reset_headers(self):
+        cases = (
+            (403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1060"}, 1060),
+            (429, {"Retry-After": "180", "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1060"}, 1180),
+            (403, {"X-RateLimit-Remaining": "20", "X-RateLimit-Reset": "1060"}, None),
+            (403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "invalid"}, None),
+        )
+        for code, values, expected in cases:
+            headers = Message()
+            for name, value in values.items():
+                headers[name] = value
+            error = HTTPError("https://api.github.com/fixture", code, "Fixture response", headers, BytesIO())
+            with self.subTest(code=code, values=values), patch("github_main.time.time", return_value=1000), (
+                patch("github_main.urlopen", side_effect=error)
+            ):
+                error_type = HTTPError if expected is None else GitHubRateLimited
+                with self.assertRaises(error_type) as caught:
+                    read_github("/fixture")
+                if expected is not None:
+                    self.assertEqual(caught.exception.retry_at, expected)
+
     def test_hosted_checks_build_once_and_rollback_keeps_running_metadata(self):
         layout, before = self.prepare_target()
         self.ci.write("web/src/title.txt", "Built from protected main")
@@ -229,7 +267,39 @@ class MainReleaseTest(unittest.TestCase):
             patch("deploy_hosted.verify_policy_receipt"),
         ):
             self.assertEqual(release_info(layout.current), dict.fromkeys(("commit", "built_at", "deployed_at")))
-            first = deploy_once(self.config, tip=lambda _: commit, read=responses.__getitem__, fetch=fetch, operate=operate)
+            read = Mock(side_effect=GitHubRateLimited(1600))
+            tip = Mock(side_effect=[commit, "a" * 40, commit, commit])
+            with patch("deploy_hosted.time.time", return_value=1000):
+                self.assertEqual(
+                    deploy_once(self.config, tip=tip, read=read, fetch=fetch, operate=operate),
+                    {"status": "rate-limited", "commit": commit, "retry_at": 1600},
+                )
+            with patch("deploy_hosted.time.time", return_value=1500):
+                self.assertEqual(
+                    deploy_once(self.config, tip=tip, read=read, fetch=fetch, operate=operate),
+                    {"status": "rate-limited", "commit": "a" * 40, "retry_at": 1600},
+                )
+            read.assert_called_once()
+            fetch.assert_not_called()
+            self.assertFalse(transfers)
+
+            branch, rules, checks = responses
+            advanced = {**responses[branch], "commit": {"sha": "a" * 40}}
+            moving = Mock(side_effect=[responses[checks], responses[branch], responses[rules], advanced])
+            with patch("deploy_hosted.time.time", return_value=1600), (
+                self.assertRaisesRegex(ReleaseRejected, "exact protected GitHub main tip")
+            ):
+                deploy_once(self.config, tip=tip, read=moving, fetch=fetch, operate=operate)
+            self.assertEqual([call.args[0] for call in moving.call_args_list], [checks, branch, rules, branch])
+            self.assertFalse(transfers)
+            self.assertEqual(file_hash(layout.current / "SHA256SUMS"), before)
+            fetch.reset_mock()
+
+            read = Mock(side_effect=responses.__getitem__)
+            with patch("deploy_hosted.time.time", return_value=1601):
+                first = deploy_once(self.config, tip=tip, read=read, fetch=fetch, operate=operate)
+            self.assertEqual(tip.call_count, 4)
+            self.assertEqual([call.args[0] for call in read.call_args_list], [checks, branch, rules, branch])
             self.assertEqual(first["status"], "released")
             candidate = first["candidate"]
             running = release_info(layout.current)

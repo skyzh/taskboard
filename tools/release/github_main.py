@@ -2,10 +2,29 @@
 
 import json
 import re
+import time
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from queue_provenance import GIT_COMMIT
 from release_plan import ReleaseRejected
+
+
+class GitHubRateLimited(OSError):
+    def __init__(self, retry_at):
+        self.retry_at = retry_at
+        super().__init__(f"GitHub REST is rate limited until {retry_at} UTC epoch seconds.")
+
+
+def rate_limit_deadline(headers, now):
+    retry_after = headers.get("Retry-After", "").strip()
+    reset = headers.get("X-RateLimit-Reset", "").strip()
+    deadline = now
+    if retry_after.isascii() and retry_after.isdigit():
+        deadline = now + int(retry_after)
+    if headers.get("X-RateLimit-Remaining") == "0" and reset.isascii() and reset.isdigit():
+        deadline = max(deadline, int(reset))
+    return deadline if deadline > now else None
 
 
 def read_github(path):
@@ -13,8 +32,14 @@ def read_github(path):
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    with urlopen(request, timeout=15) as response:
-        return json.load(response)
+    try:
+        with urlopen(request, timeout=15) as response:
+            return json.load(response)
+    except HTTPError as error:
+        error.close()
+        if error.code in (403, 429) and (deadline := rate_limit_deadline(error.headers, time.time())):
+            raise GitHubRateLimited(deadline) from error
+        raise
 
 
 def repository_path(settings):
@@ -44,16 +69,6 @@ def verify_required_checks(settings, commit, read):
     ):
         raise ValueError("Configure the observed required check names and their GitHub App IDs.")
     repo = repository_path(settings)
-    require_protected_tip(settings, commit, read)
-    rules = read(repo + "/rules/branches/main")
-    policies = [rule["parameters"] for rule in rules if rule["type"] == "required_status_checks"]
-    observed = {(check["context"], check.get("integration_id"))
-                for policy in policies for check in policy["required_status_checks"]}
-    if (observed != set(required.items())
-            or not any(policy["strict_required_status_checks_policy"] is True for policy in policies)
-            or not any(rule["type"] == "pull_request" for rule in rules)):
-        raise ReleaseRejected("The active main rules do not match the verified required-check policy.")
-
     page = read(f"{repo}/commits/{commit}/check-runs?filter=latest&per_page=100")
     if page["total_count"] != len(page["check_runs"]):
         raise ReleaseRejected("GitHub did not return all check results for this commit.")
@@ -66,4 +81,13 @@ def verify_required_checks(settings, commit, read):
         ) != (commit, "completed", "success"):
             raise ReleaseRejected(f"Required check {name!r} needs a successful result on {commit}.")
         checks[name] = {"app_id": app_id, "run_id": matches[0]["id"]}
+    require_protected_tip(settings, commit, read)
+    rules = read(repo + "/rules/branches/main")
+    policies = [rule["parameters"] for rule in rules if rule["type"] == "required_status_checks"]
+    observed = {(check["context"], check.get("integration_id"))
+                for policy in policies for check in policy["required_status_checks"]}
+    if (observed != set(required.items())
+            or not any(policy["strict_required_status_checks_policy"] is True for policy in policies)
+            or not any(rule["type"] == "pull_request" for rule in rules)):
+        raise ReleaseRejected("The active main rules do not match the verified required-check policy.")
     return {"repo": settings["repo"], "commit": commit, "checks": checks}
