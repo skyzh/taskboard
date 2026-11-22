@@ -695,7 +695,7 @@ button:disabled { opacity: .57; }
 }
 @media (max-width: 40rem) {
   .masthead, .section-index, .main-content, .appbar-connection { width: calc(100% - 1.8rem); }
-  .masthead { min-height: 0; grid-template-columns: minmax(0, 1fr) auto minmax(0, 40%); gap: 0 .45rem; }
+  .masthead { min-height: 0; grid-template-columns: minmax(0, 1fr) auto fit-content(40%); gap: 0 .45rem; }
   .brand { grid-column: 1; grid-row: 1; min-height: 2.75rem; }
   .account { grid-column: 3; grid-row: 1; max-width: 100%; }
   .profile-toggle { min-height: 2.75rem; max-width: 100%; }
@@ -721,7 +721,10 @@ button:disabled { opacity: .57; }
     width: 2.75rem;
     height: 2.75rem;
     padding: 0;
+    border: 0;
+    background: transparent;
   }
+  .task-search-toggle:hover, .task-search-toggle[aria-expanded="true"] { background: var(--wash); }
   .task-search { display: none; max-width: none; margin: .15rem 0 .35rem; }
   .task-search[data-expanded="true"] { display: flex; }
   .task-search :is(input, button) { min-height: 2.75rem; }
