@@ -286,7 +286,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
             {!mayAnswer(task, session) && <Options options={task.context?.choices} />}
             <EvidenceLinks links={task.links} />
             {record.sources.length > 0 && (
-              <details><summary>Sources · {record.sources.length}</summary><EvidenceLinks links={record.sources} label="Sources" /></details>
+              <details open><summary>Sources · {record.sources.length}</summary><EvidenceLinks links={record.sources} label="Sources" /></details>
             )}
           </section>
           {record.checklist.length > 0 && (

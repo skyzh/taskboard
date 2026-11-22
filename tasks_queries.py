@@ -386,8 +386,9 @@ class BoardQueries:
             for field in attribution:
                 if actor := actors.get(step[field]):
                     step[field + "_name"] = actor.get("name") or actor.get("username")
+        related, source_links = ledger.task_links(self.db, row, steps, self.base + "/")
         sources = []
-        for _, label, url, generated in watches.task_source_links(self.db, number):
+        for label, url, generated in source_links:
             link, = self.links([(label, url)])
             if generated:
                 link["generated"] = True
@@ -407,7 +408,7 @@ class BoardQueries:
             "task": {**self.task_rows([row])[0], "eta": row["eta"]},
             "brief": row["brief"],
             "checklist": steps,
-            "related_tasks": ledger.related_tasks(self.db, row, steps, self.base + "/"),
+            "related_tasks": related,
             "sources": sources,
             "workers": runs,
             "last_activity": self.last_activity(task_id=number),
@@ -498,17 +499,19 @@ class BoardQueries:
             if row["id"] in work_kinds:
                 context["work_kind"] = work_kinds[row["id"]]
             actor_profile = people.get(row["actor"]) if row["actor"] == stored["actor"] else None
+            links = self.links(json.loads(row["links"]), event_id=row["id"])
             event = {
                 **{key: row[key] for key in (
                     "id", "task_id", "task_key", "task_title", "at", "actor", "action", "state", "note", "waiting_on",
                 )},
                 "label": ledger.event_label(row["action"], context),
                 "context": context,
-                "links": self.links(json.loads(row["links"]), event_id=row["id"]),
+                "links": links,
                 "actor_profile": actor_profile,
                 "waiting_profile": people.get(row["waiting_on"]),
                 "related_tasks": ledger.resolve_task_references(
-                    self.db, row["task_id"], (row["note"], details), self.base + "/",
+                    self.db, row["task_id"], (row["note"], details, *(link["url"] for link in links)),
+                    self.base + "/",
                 ),
             }
             if details is not None:

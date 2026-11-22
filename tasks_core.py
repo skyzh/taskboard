@@ -22,6 +22,7 @@ import tasks_maintenance as maintenance
 import tasks_merges as merges
 import tasks_projects as projects
 import tasks_releases as releases
+import tasks_references as references
 import tasks_recurring
 import tasks_readiness as readiness
 import watches
@@ -61,7 +62,6 @@ STATES = {
 PRIORITIES = ("high", "normal", "low")
 DEFAULT_PRIORITY = "normal"
 TAG_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*", re.ASCII)
-TASK_REFERENCE = re.compile(r"(?<![\w/-])([A-Za-z][A-Za-z0-9]{0,7})-([0-9]{1,19})(?![\w/-])")
 PRIORITY_ORDER_SQL = (
     "CASE tasks.priority "
     + " ".join(f"WHEN '{priority}' THEN {rank}" for rank, priority in enumerate(PRIORITIES))
@@ -1062,11 +1062,11 @@ def checklist_progress(steps):
     return f"{sum(step['checked'] for step in steps)} of {len(steps)} complete"
 
 
-def reference_fields(db, task, steps):
+def reference_fields(task, steps, history):
     yield task["title"]
     yield task["brief"]
     yield from (step["label"] for step in steps)
-    for event in activity(db, task["id"]):
+    for event in history:
         yield event["note"]
         context = event_context(event)
         details = context.get("activity_details")
@@ -1079,11 +1079,12 @@ def reference_fields(db, task, steps):
 
 def resolve_task_references(db, task_id, fields, board_url):
     """Resolve authored references without reading private requests or evidence."""
+    board = urlsplit(board_url)
     keys = dict.fromkeys(
-        (prefix.upper(), int(digits))
+        key
         for field in fields
         if isinstance(field, str)
-        for prefix, digits in TASK_REFERENCE.findall(field)
+        for key in references.ticket_keys(field, board)
     )
     if not keys:
         return []
@@ -1110,8 +1111,26 @@ def resolve_task_references(db, task_id, fields, board_url):
     return result
 
 
-def related_tasks(db, task, steps, board_url):
-    return resolve_task_references(db, task["id"], reference_fields(db, task, steps), board_url)
+def task_links(db, task, steps, board_url, history=None):
+    if history is None:
+        history = list(activity(db, task["id"]))
+    fields = list(reference_fields(task, steps, history))
+    evidence = [pair for event in history for pair in json.loads(event["links"])]
+    explicit = list(watches.task_source_links(db, task["id"]))
+    related = resolve_task_references(db, task["id"], (
+        *fields, *(url for _, url in evidence), *(url for _, _, url, _ in explicit)
+    ), board_url)
+
+    sources = [(label, url, generated) for _, label, url, generated in explicit]
+    seen = {match[0] for _, url, _ in sources if (match := references.pasted_source(url))}
+    pasted = ((None, url) for field in fields if isinstance(field, str) for url in references.urls(field))
+    for label, url in (*evidence, *pasted):
+        match = references.pasted_source(url)
+        if match is not None and match[0] not in seen:
+            key, default_label = match
+            seen.add(key)
+            sources.append((label or default_label, url, False))
+    return related, sources
 
 
 def related_task_lines(related):
@@ -1220,19 +1239,19 @@ def show_task(db, path, number):
         for step in steps:
             mark = "x" if step["checked"] else " "
             lines.append(f"  [{mark}] {step['position']}. {step['label']}")
-    related = related_tasks(db, task, steps, board_url)
+    history = list(activity(db, number))
+    related, sources = task_links(db, task, steps, board_url, history)
     if related:
         lines.extend(("", "Related tasks", *related_task_lines(related)))
-    sources = [(label, url) for _, label, url, _ in watches.task_source_links(db, number)]
     if sources:
         lines.extend(("", "Sources"))
-        lines.extend(f"  {label} · {url}" for label, url in sources)
+        lines.extend(f"  {label} · {url}" for label, url, _ in sources)
     runs = list(workers.task_runs(db, number))
     if runs:
         lines.extend(("", "Workers"))
         lines.extend(f"  {worker_headline(run)}" for run in runs)
     lines.extend(("", "Activity (newest first)"))
-    for event in activity(db, number):
+    for event in history:
         context = event_context(event)
         lines.append(f"  {event['at']} · {event['actor']} · {event_label(event['action'], context)}")
         if event["waiting_on"]:

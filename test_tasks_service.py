@@ -997,6 +997,59 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("Related tasks\n  T-2 · Prior decision · " + base + "#task-2", shown)
         self.assertNotIn("Private request", shown)
 
+    def test_pasted_ticket_and_provider_links_surface_without_changing_visibility(self):
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        _, recipient = self.login(app, "Sam")
+        self.cli("register-project", "COURSE", "Example course", "--dri", owner)
+        local = ORIGIN + BASE + "/"
+        github = "https://github.com/example/tool/pull/14"
+        stamp = "https://stamp.build/s/team/github/example/tool/pull/14/approvals/abcdef/evidence"
+        raft = (
+            "https://app.raft.build/s/team/channel/11111111-1111-1111-1111-111111111111"
+            "?msg=22222222-2222-2222-2222-222222222222"
+            "&thread=11111111-1111-1111-1111-111111111111%3A33333333-3333-3333-3333-333333333333"
+        )
+        evidence_pr = "https://github.com/example/tool/pull/15"
+        private_pr = "https://github.com/example/tool/pull/900"
+        self.action(avery, "create-task", {"title": "Review pasted links", "step": "Check the evidence.",
+                    "brief": f"Read {local}#task-COURSE-1, {github}/ and [Stamp]({stamp}). "
+                             f"Conversation: <{raft}>. Skip https://foreign.example/tasks/#task-3 "
+                             "and channel:task-3."})
+        self.action(avery, "create-task", {"title": "Evidence ticket", "step": "Read the brief."})
+        self.action(avery, "create-task", {"title": "Another ticket", "step": "Read the brief."})
+        self.action(avery, "create-task", {
+            "title": "Course ticket", "step": "Read the brief.", "project": "COURSE",
+        })
+        self.action(avery, "link-reference", {"id": "T-1", "label": "Approved change", "url": github})
+        self.action(avery, "record-activity", {
+            "id": "T-1", "note": f"More evidence at {local}#task-T-2 and {github}.",
+            "label": "Merged PR #15", "url": evidence_pr,
+        })
+        self.action(avery, "record-activity", {
+            "id": "T-1", "note": "Separate evidence link.", "label": "Same ticket", "url": local + "#task-2",
+        })
+        self.action(avery, "raise-attention", {"id": "T-1", "recipient": recipient,
+                    "reason": f"Private review of {private_pr} and {local}#task-3."})
+        expected_sources = {
+            github: "Approved change", evidence_pr: "Merged PR #15",
+            stamp: "Stamp PR example/tool #14", raft: "Raft conversation",
+        }
+
+        viewer = app.test_client()
+        self.assertEqual(viewer.get(BASE + "/api/v1/tasks/1", base_url=ORIGIN).status_code, 403)
+        detail = self.call(viewer, "/api/v1/tasks/1").json
+        self.assertEqual([row["key"] for row in detail["related_tasks"]], ["COURSE-1", "T-2"])
+        self.assertEqual({link["url"]: link["label"] for link in detail["sources"]}, expected_sources)
+        self.assertEqual(len(detail["sources"]), len(expected_sources))
+        status, output, errors = self.shared_cli(avery, "show", "T-1")
+        self.assertEqual((status, errors), (0, ""))
+        self.assertIn("COURSE-1 · Course ticket", output)
+        self.assertIn("Merged PR #15 · " + evidence_pr, output)
+        self.assertNotIn(private_pr, output)
+        with closing(sqlite3.connect(self.database)) as db:
+            self.assertEqual(db.execute("SELECT url FROM task_references").fetchall(), [(github,)])
+
     def test_related_tasks_match_prefix_numbers_without_reusing_legacy_ids(self):
         self.cli("add", "Read COURSE-1 and course-001; T-2 is not its alias.", "--dri", "Avery",
                  "--step", "Read T-3.")

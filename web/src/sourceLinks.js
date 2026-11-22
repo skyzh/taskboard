@@ -1,6 +1,6 @@
 export function markdownHref(href) {
   if (typeof href !== 'string') return null
-  if (/^#(?:task-[1-9]\d*|event-[1-9]\d*-log)$/.test(href)) return href
+  if (/^#(?:task-(?:[A-Za-z][A-Za-z0-9]{0,7}-)?[1-9]\d*|event-[1-9]\d*-log)$/.test(href)) return href
   if (!URL.canParse(href)) return null
   const url = new URL(href)
   if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.username || url.password) return null

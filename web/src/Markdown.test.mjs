@@ -135,6 +135,7 @@ test('links known ticket text without altering existing links or code', () => {
   const result = render(markdown.Markdown, { relatedTasks, text: [
     'See t-002, **COURSE-19** and unknown T-90.',
     '[T-2](https://example.test/existing) and \u0060T-2\u0060.',
+    'Pasted https://board.example/tasks/#task-COURSE-19 and [open course ticket](#task-COURSE-19).',
     '~~~\nCOURSE-19\n~~~',
   ].join('\n\n') })
   assert.match(result, /href="https:\/\/board\.example\/tasks\/#task-2">t-002<\/a>/)
@@ -142,7 +143,9 @@ test('links known ticket text without altering existing links or code', () => {
   assert.match(result, /<a href="https:\/\/example\.test\/existing">T-2<\/a> and <code>T-2<\/code>/)
   assert.match(result, /<pre><code>COURSE-19\n<\/code><\/pre>/)
   assert.match(result, /unknown T-90/)
-  assert.equal([...result.matchAll(/<a\b/g)].length, 3)
+  assert.match(result, /href="https:\/\/board\.example\/tasks\/#task-COURSE-19">COURSE-19<\/a>/)
+  assert.match(result, /href="#task-COURSE-19">open course ticket<\/a>/)
+  assert.equal([...result.matchAll(/<a\b/g)].length, 5)
 
   const checklist = render(shared.ChecklistSteps, {
     relatedTasks, steps: [{ position: 1, label: 'Review T-2', checked: false }],
