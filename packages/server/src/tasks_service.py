@@ -1258,7 +1258,7 @@ def create_app(
         return query().tasks(
             state=state, dri=owner,
             waiting_on=text(args, "waiting_on", optional=True, maximum=160),
-            search=search, project=project, tag=tag,
+            search=search, project=project, tag=tag, hide_requests=args.get("hide_requests") == "true",
             **queue_page_args(args, state),
         )
 
@@ -1374,7 +1374,8 @@ def create_app(
             raise RequestError("Choose compact or full activity.")
         return query().events(
             feed=feed, actor=text(args, "actor", optional=True, maximum=160),
-            action=text(args, "action", optional=True, maximum=40), project=project_scope(args), **page_args(args),
+            action=text(args, "action", optional=True, maximum=40), project=project_scope(args),
+            hide_requests=args.get("hide_requests") == "true", **page_args(args),
         )
 
     @app.get("/api/v1/activity/<int:number>")
@@ -1439,6 +1440,7 @@ def create_app(
         before = text(args, "before", optional=True, maximum=162 if view == "all" else 160)
         result = query().reports(
             view=view, before=before, limit=integer(args.get("limit", 10), "limit", maximum=20), project=project,
+            hide_requests=args.get("hide_requests") == "true",
         )
         return {**result, "roster": True} if has_roster else result
 

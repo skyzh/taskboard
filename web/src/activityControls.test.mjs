@@ -572,7 +572,7 @@ test('a single line or exactly repeated explicit details need no disclosure', ()
 
 test('configured roster shows every assignee while other projects keep the Reports selector', () => {
   function render(project, roster, selection) {
-    fixture.state = [selection]
+    fixture.state = [false, selection]
     fixture.pages = { '/reports': filters => {
       assert.deepEqual(filters, { project, view: undefined })
       return { data: { items: [], next_cursor: null, ...(roster && { roster }) } }
@@ -631,7 +631,7 @@ test('All projects keeps the same assignee and pending reports scoped to their o
 
 test('Reports waits for a successful unconfigured response before showing filters', () => {
   function render(project, selection, result, expectedView) {
-    fixture.state = [selection]
+    fixture.state = [false, selection]
     fixture.pages = { '/reports': filters => {
       assert.deepEqual(filters, { project, view: expectedView })
       return result

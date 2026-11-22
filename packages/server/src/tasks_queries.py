@@ -286,9 +286,12 @@ class BoardQueries:
             results.append(item)
         return results
 
+    def hide_peer_requests(self, hide_requests):
+        return hide_requests and watches.has_table(self.db, "peer_asks")
+
     def tasks(self, *, state=None, dri=None, waiting_on=None, before=None, limit=20, now=False,
               decided_by=None, search=None, priority_order=False, review_due=None, project=None, tag=None,
-              managed_by=None):
+              managed_by=None, hide_requests=False):
         terms, args = [], []
         filter_search = None
         for column, value in (
@@ -299,6 +302,8 @@ class BoardQueries:
             if value is not None:
                 terms.append(f"{column} = ?")
                 args.append(value)
+        if self.hide_peer_requests(hide_requests):
+            terms.append("NOT EXISTS (SELECT 1 FROM peer_asks WHERE peer_asks.task_id = tasks.id)")
         if managed_by is not None:
             terms.append("tasks.project_prefix IN (SELECT prefix FROM projects WHERE dri = ?)")
             args.append(managed_by)
@@ -606,8 +611,10 @@ class BoardQueries:
 
     def events(self, *, number=None, event_id=None, actor=None, action=None, before=None,
                limit=20, outcomes=False, watcher=None, owner_or_watcher=None,
-               dri=None, feed=None, day=None, project=None, time_zone=PACIFIC):
+               dri=None, feed=None, day=None, project=None, time_zone=PACIFIC, hide_requests=False):
         joins, terms, args = "", [], []
+        if self.hide_peer_requests(hide_requests):
+            terms.append("NOT EXISTS (SELECT 1 FROM peer_asks WHERE peer_asks.task_id = tasks.id)")
         if watcher is not None:
             joins = " JOIN task_watches ON task_watches.task_id = events.task_id"
             terms.extend(("task_watches.watcher = ?", "events.id > task_watches.after_event"))
@@ -936,11 +943,11 @@ class BoardQueries:
 
         return page(rows, limit, "id", render)
 
-    def recent_report_outcomes(self, owner, project):
+    def recent_report_outcomes(self, owner, project, *, exclude_requests=""):
         # Read each action in event ID order before combining the small results.
-        recent_ids = """
+        recent_ids = f"""
             SELECT events.id FROM events JOIN tasks ON tasks.id = events.task_id
-            WHERE events.action = ? AND tasks.dri = ? AND tasks.project_prefix = ?
+            WHERE events.action = ? AND tasks.dri = ? AND tasks.project_prefix = ? {exclude_requests}
             ORDER BY events.id DESC LIMIT 3
         """
         rows = self.db.execute(
@@ -953,16 +960,21 @@ class BoardQueries:
         ).fetchall()
         return self.event_rows(rows)
 
-    def reports(self, *, view, before, limit, project=projects.DEFAULT):
+    def reports(self, *, view, before, limit, project=projects.DEFAULT, hide_requests=False):
         current = ledger.current_tasks_sql(self.db) + " WHERE tasks.project_prefix = ?"
         peer_work = watches.has_table(self.db, "peer_asks")
+        exclude_requests = ""
+        if hide_requests and peer_work:
+            exclude_requests = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE peer_asks.task_id = tasks.id)"
+            current += " " + exclude_requests
         active_state = f"state IN ({ACTIVE_STATES})"
         active_event = f"events.state IN ({ACTIVE_STATES})"
         unlinked_reports = ""
         if peer_work:
             unlinked_reports = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)"
-            active_state += " OR (state = 'ready' AND id IN (SELECT task_id FROM peer_asks))"
-            active_event += " OR (events.state = 'ready' AND tasks.id IN (SELECT task_id FROM peer_asks))"
+            if not hide_requests:
+                active_state += " OR (state = 'ready' AND id IN (SELECT task_id FROM peer_asks))"
+                active_event += " OR (events.state = 'ready' AND tasks.id IN (SELECT task_id FROM peer_asks))"
         work_columns = ", ".join(f"COALESCE(work.{state}, 0) AS {state}" for state in WORK_STATES)
         roster = project == projects.DEFAULT and self.project_roster is not None
         names = projects.roster_owners(self.db, self.project_roster) if roster else {}
@@ -1077,7 +1089,7 @@ class BoardQueries:
                     )["items"] if row["has_legacy_waits"] else [],
                     "task_count": row["task_count"],
                     "task_counts": {state: row[state] for state in WORK_STATES},
-                    "recent_outcomes": self.recent_report_outcomes(person, project),
+                    "recent_outcomes": self.recent_report_outcomes(person, project, exclude_requests=exclude_requests),
                     "worker_counts": worker_counts(row),
                     "pending_reports": pending["items"],
                     "pending_reports_before": pending["next_cursor"],

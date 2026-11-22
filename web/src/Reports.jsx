@@ -259,10 +259,10 @@ function ProjectLinks({ project, revision }) {
   )
 }
 
-function ProjectReports({ revision, project, projectTitle }) {
+function ProjectReports({ revision, project, projectTitle, hideRequests, requestFilter }) {
   const [selection, setSelection] = useState(null)
   const filter = selection && selection.project === project ? selection.view : undefined
-  const page = useLoadedPages('/reports', { view: filter, project }, revision)
+  const page = useLoadedPages('/reports', { view: filter, project, ...(hideRequests && { hide_requests: true }) }, revision)
   const view = page.data?.roster ? 'all' : filter || 'active'
   const showFilters = view !== 'all' && Boolean(page.data || filter)
   const label = view === 'all' ? 'Assignees' : view === 'active' ? 'Assignees with open work' : 'Other assignees'
@@ -273,6 +273,7 @@ function ProjectReports({ revision, project, projectTitle }) {
       <ReportsHeading headingId={headingId} projectTitle={projectTitle}>
         {!projectTitle && <a href={project && project !== 'T'
           ? `#${new URLSearchParams({ project, section: 'team-overview' })}` : '#team-overview'}>Team overview</a>}
+        {requestFilter}
         {showFilters && (
           <label>
             Assignees
@@ -295,12 +296,17 @@ function ProjectReports({ revision, project, projectTitle }) {
 }
 
 export default function Reports({ project, projects, ...props }) {
-  if (!projects) return <ProjectReports {...props} project={project} />
+  const [hideRequests, setHideRequests] = useState(false)
+  const requestFilter = <label className="activity-mode">
+    <input type="checkbox" checked={hideRequests} onChange={event => setHideRequests(event.target.checked)} />
+    Hide peer requests
+  </label>
+  if (!projects) return <ProjectReports {...props} project={project} hideRequests={hideRequests} requestFilter={requestFilter} />
   return (
     <section className="reports" aria-labelledby="reports">
-      <div className="page-heading"><h1 id="reports">Reports</h1></div>
+      <ReportsHeading headingId="reports">{requestFilter}</ReportsHeading>
       {projects.map(({ prefix, title }) => (
-        <ProjectReports key={prefix} {...props} project={prefix} projectTitle={title} />
+        <ProjectReports key={prefix} {...props} project={prefix} projectTitle={title} hideRequests={hideRequests} />
       ))}
     </section>
   )
