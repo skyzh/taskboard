@@ -510,7 +510,7 @@ def _next_step(name, data, result):
         if result["work"]:
             return _WORK_STEPS.get(result["work"]["kind"], "Open the selected ticket and check its current step.")
         if result["standing_goals"]:
-            return "Pick one concrete investigation from your standing goal and start its ticket before checking."
+            return goals.STANDING_EXPLORATION
         return "Check recent feedback or the product for a concrete improvement within your role."
     if name == peer_asks.COMMAND:
         return {
@@ -534,7 +534,10 @@ def _next_step(name, data, result):
         if result["items"]:
             return "Open an eligible item and check its current step."
     if name == "task":
-        state = result["task"]["state"]
+        task = result["task"]
+        state = task["state"]
+        if task.get("summary_label") == goals.STANDING_EXPLORATION_LABEL:
+            return goals.STANDING_EXPLORATION_START
         if state in ("done", "closed"):
             return "Read the final receipt, then check your Inbox for actionable work."
         if state in ("waiting", "parked", "human_review"):
@@ -2090,7 +2093,8 @@ def create_app(
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:
                 work = next(query().actionable_work(key, today=pacific_day(ledger.timestamp()), project=project), None)
-                return {"work": work, "standing_goals": [] if work else goals.standing(connection, key, project)}
+                standing = [] if work else goals.standing(connection, key, project, include_ticket=True)
+                return {"work": work, "standing_goals": standing}
         if name == "my-goals":
             project = project_filter(data, projects.DEFAULT)
             with tasks_storage.read(db()) as connection:

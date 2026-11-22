@@ -244,6 +244,12 @@ class BoardQueries:
         results = []
         for row in rows:
             label, note = ledger.current_summary(row)
+            goal_kind = goal_kinds.get(row["id"])
+            if (
+                goal_kind == "standing" and row["state"] == "parked" and row["current_action"] == "add"
+                and note in (goals.LEGACY_GOAL_STEP, goals.STANDING_EXPLORATION)
+            ):
+                label, note = goals.STANDING_EXPLORATION_LABEL, goals.STANDING_EXPLORATION
             complete, total = progress.get(row["id"], (0, 0))
             context = ledger.event_context(row)
             details = context.get("activity_details")
@@ -270,7 +276,7 @@ class BoardQueries:
                 "priority": row["priority"],
                 "dri_profile": owners.get(row["dri"]),
                 "state": row["state"],
-                **({"goal_kind": goal_kinds[row["id"]]} if row["id"] in goal_kinds else {}),
+                **({"goal_kind": goal_kind} if goal_kind else {}),
                 **({"display_state": "closed"} if row["display_state"] == "closed" else {}),
                 "note": note,
                 "summary_label": label,
