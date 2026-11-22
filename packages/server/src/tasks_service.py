@@ -1357,6 +1357,11 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
         args = request.args
         return query().queued_peer_waits(project=project_filter(args, projects.DEFAULT), **page_args(args))
 
+    @app.get("/api/v1/reports/recent-peer-responses")
+    def report_recent_peer_responses():
+        current_actor()
+        return query().recent_peer_responses(project_filter(request.args, projects.DEFAULT))
+
     @app.get("/api/v1/reports/pending")
     def more_reports():
         current_actor()

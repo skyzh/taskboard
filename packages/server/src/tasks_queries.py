@@ -766,10 +766,18 @@ class BoardQueries:
         return page(rows, limit, "id", lambda visible: [dict(row) for row in visible])
 
     def queued_reviews(self, *, before, limit, project=projects.DEFAULT):
+        requester = """
+            (SELECT events.actor FROM events
+             WHERE events.task_id = worker_runs.task_id AND events.action = 'log'
+               AND json_extract(events.context, '$.audit.action') = 'worker-delegate'
+               AND json_extract(events.context, '$.audit.run_id') = worker_runs.id
+             ORDER BY events.id DESC LIMIT 1)
+        """ if ledger.has_event_context(self.db) else "NULL"
         rows = self.db.execute(
             f"""
             WITH current AS ({ledger.current_tasks_sql(self.db)})
             SELECT worker_runs.id, worker_runs.task_id, worker_runs.worker, worker_runs.status,
+                   worker_runs.assigned_at AS at, {requester} AS requester,
                    tasks.title AS task_title, {TASK_REFERENCE} AS task_key, {WORKER_STATE} AS execution_state
             FROM worker_runs JOIN tasks ON tasks.id = worker_runs.task_id
             JOIN current ON current.id = tasks.id
@@ -781,13 +789,16 @@ class BoardQueries:
         ).fetchall()
 
         def render(visible):
-            recipients = profiles.visible_by_keys(self.db, [row["worker"] for row in visible], self.base)
+            people = profiles.visible_by_keys(
+                self.db, [key for row in visible for key in (row["worker"], row["requester"]) if key], self.base,
+            )
             linked = peer_asks.review_links(self.db, [row["id"] for row in visible]) if watches.has_table(self.db, "peer_asks") else {}
             return [{
                 "id": row["id"], "task_id": row["task_id"], "task_title": row["task_title"],
                 "task_key": row["task_key"],
-                "recipient": recipients.get(row["worker"], {}).get("name") or row["worker"],
-                "state": row["status"],
+                "recipient": people.get(row["worker"], {}).get("name") or row["worker"],
+                "requester": people.get(row["requester"], {}).get("name") or row["requester"],
+                "at": row["at"], "state": row["status"],
                 "execution_state": row["execution_state"],
                 **({"linked_request": linked[row["id"]]} if row["id"] in linked else {}),
             } for row in visible]
@@ -799,10 +810,11 @@ class BoardQueries:
             f"""
             WITH current AS ({ledger.current_tasks_sql(self.db)} WHERE tasks.project_prefix = ?)
             SELECT tasks.event_id AS id, tasks.id AS task_id, tasks.title AS task_title,
-                   {TASK_REFERENCE} AS task_key,
+                   {TASK_REFERENCE} AS task_key, tasks.at, request_event.actor AS requester,
                    json_extract(tasks.context, '$.peer_ask_ticket') AS linked_request,
                    COALESCE(NULLIF(peer.name, ''), NULLIF(peer.username, ''), peer.ledger_key) AS recipient
             FROM current AS tasks
+            JOIN events AS request_event ON request_event.id = tasks.event_id
             JOIN board_principals AS peer ON peer.ledger_key = COALESCE(
                 (SELECT ledger_key FROM board_principals WHERE ledger_key = tasks.waiting_on),
                 (SELECT MIN(ledger_key) FROM board_principals
@@ -821,9 +833,39 @@ class BoardQueries:
             ORDER BY tasks.event_id DESC LIMIT ?
             """, (project, before or projects.MAX_ID, limit + 1),
         ).fetchall()
-        return page(rows, limit, "id", lambda visible: [
-            {key: row[key] for key in row.keys() if key != "linked_request" or row[key]} for row in visible
-        ])
+        def render(visible):
+            people = profiles.visible_by_keys(self.db, [row["requester"] for row in visible], self.base)
+            return [{
+                **{key: row[key] for key in row.keys() if key != "linked_request" or row[key]},
+                "requester": people.get(row["requester"], {}).get("name") or row["requester"],
+            } for row in visible]
+
+        return page(rows, limit, "id", render)
+
+    def recent_peer_responses(self, project):
+        if not watches.has_table(self.db, "peer_asks"):
+            return {"items": []}
+        rows = self.db.execute(
+            f"""
+            SELECT response.id, response.at, response.actor, peer_asks.requester,
+                   tasks.id AS task_id, {TASK_REFERENCE} AS task_key, source.title AS task_title
+            FROM peer_asks
+            JOIN events AS response ON response.id = peer_asks.result_event_id
+            JOIN tasks ON tasks.id = peer_asks.task_id
+            JOIN tasks AS source ON source.id = peer_asks.source_task_id
+            WHERE tasks.project_prefix = ?
+            ORDER BY response.at DESC, response.id DESC LIMIT 5
+            """, (project,),
+        ).fetchall()
+        people = profiles.visible_by_keys(
+            self.db, [key for row in rows for key in (row["actor"], row["requester"])], self.base,
+        )
+        return {"items": [{
+            "id": row["id"], "at": row["at"], "task_id": row["task_id"],
+            "task_key": row["task_key"], "task_title": row["task_title"],
+            "recipient": people.get(row["requester"], {}).get("name") or row["requester"],
+            "responder": people.get(row["actor"], {}).get("name") or row["actor"],
+        } for row in rows]}
 
     def recent_report_outcomes(self, owner, project):
         # Read each action in event ID order before combining the small results.
