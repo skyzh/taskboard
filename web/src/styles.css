@@ -349,6 +349,7 @@ h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
   background: #268053;
   box-shadow: 0 0 .32em #26805380;
 }
+.dri-work-status-compact { margin-inline-start: .4em; vertical-align: .2em; }
 .last-activity, .worker-times { color: var(--muted); font-size: .78rem; }
 .worker-times { display: flex; flex-wrap: wrap; gap: .12rem .6rem; }
 .worker-result { font-weight: var(--weight-emphasis); }

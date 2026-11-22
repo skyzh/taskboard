@@ -226,8 +226,9 @@ export function TaskPriority({ priority, strip = false }) {
   return <span className="task-priority">{label}</span>
 }
 
-export function DriWorkStatus({ inProgress }) {
+export function DriWorkStatus({ inProgress, compact = false }) {
   if (!inProgress) return null
+  if (compact) return <span className="dri-work-status dri-work-status-compact" role="img" aria-label="Tasks in progress" />
   return <span className="dri-task-state"><span className="dri-work-status" aria-hidden="true" />Tasks in progress</span>
 }
 

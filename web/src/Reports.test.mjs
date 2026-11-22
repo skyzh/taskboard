@@ -166,9 +166,19 @@ test('Reports leaves the recorded worker count on the DRI view', () => {
   const entry = { owner: 'Avery', tasks: [], task_count: 0, pending_reports: [], report_count: 0, worker_counts: counts }
   const reports = renderToStaticMarkup(React.createElement(AssigneeReport, { entry }))
   assert.doesNotMatch(reports, /Recorded worker runs|2 running|3 started/)
+  assert.doesNotMatch(reports, /aria-label="Tasks in progress"/)
 
   const workers = renderToStaticMarkup(React.createElement(DriWorkers, { owner: 'Avery', counts }))
   assert.match(workers, /Recorded worker runs · 2 running · 3 started/)
+})
+
+test('Reports shows the green work marker when in-progress tickets are outside the visible slice', () => {
+  const entry = {
+    owner: 'Avery', tasks: [], task_count: 1, task_counts: { in_progress: 1 },
+    pending_reports: [], report_count: 0,
+  }
+  const html = renderToStaticMarkup(React.createElement(AssigneeReport, { entry }))
+  assert.match(html, /role="img" aria-label="Tasks in progress"/)
 })
 
 test('the public Summary renders captured next steps and blocker references without private links', () => {
@@ -182,6 +192,7 @@ test('the public Summary renders captured next steps and blocker references with
   ]
   const entry = { owner: 'Avery', tasks, task_count: tasks.length }
   const html = renderToStaticMarkup(React.createElement(AssigneeReport, { entry, publicPreview: true }))
+  assert.match(html, /role="img" aria-label="Tasks in progress"/)
   assert.match(html, /<strong>Next step<\/strong><div[^>]*><p>Compare the two totals\.<\/p>/)
   assert.match(html, /Blocked by <strong>T-1<\/strong> \(In progress\) → <strong>T-3<\/strong> \(Waiting\)/)
   assert.match(html, /<strong>Unblock condition<\/strong><div[^>]*><p>Wait for the signed count\.<\/p>/)
