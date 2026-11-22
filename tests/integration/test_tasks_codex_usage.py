@@ -61,6 +61,43 @@ class CodexUsageTest(unittest.TestCase):
         path.write_text("invalid synthetic snapshot")
         self.assertIsNone(fixture.call(owner, endpoint).json["usage"])
 
+    def test_two_sources_have_separate_timestamps_values_and_availability(self):
+        fixture = fixtures.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        first = fixture.database.with_name("first.json")
+        second = fixture.database.with_name("second.json")
+        environment = {
+            "TASKS_CODEX_USAGE_VIEWER_SUBJECT": fixture.provider.people["Sam"]["sub"],
+            "TASKS_CODEX_USAGE_SOURCES": json.dumps({"Source A": str(first), "Source B": str(second)}),
+        }
+        app = fixture.app(portal_reader=True, codex_usage=configuration(environment))
+        owner, _ = fixture.login(app, "Sam")
+        other, _ = fixture.login(app, "Quinn")
+        agent, _ = fixture.login(app, "Avery")
+        endpoint = "/api/v1/account/codex-usage"
+        with patch.object(CodexUsage, "_read_snapshot", autospec=True) as read:
+            fixture.call(app.test_client(), endpoint, status=401)
+            fixture.call(other, endpoint, status=404)
+            fixture.call(agent, endpoint, status=404)
+            read.assert_not_called()
+
+        for path, at, balance in ((first, "12:00:00", "25.50"), (second, "13:00:00", "2.00")):
+            path.write_text(json.dumps({"sample": True, "captured_at": f"2026-11-01T{at}Z", "result": {
+                "rateLimits": {"credits": {"balance": balance}}, "credential": "synthetic-private",
+            }}))
+        response = fixture.call(owner, endpoint)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertNotIn("synthetic-private", response.get_data(as_text=True))
+        self.assertNotIn(str(first), response.get_data(as_text=True))
+        a, b = response.json["sources"]
+        self.assertEqual((a["label"], a["usage"]["paid_balance"], a["usage"]["captured_at"]),
+                         ("Source A", "25.50", "2026-11-01T12:00:00+00:00"))
+        self.assertEqual((b["label"], b["usage"]["paid_balance"], b["usage"]["captured_at"]),
+                         ("Source B", "2.00", "2026-11-01T13:00:00+00:00"))
+        second.write_text("invalid synthetic data")
+        self.assertEqual(fixture.call(owner, endpoint).json["sources"], [a, {"label": "Source B", "usage": None}])
+
     def test_usage_is_disabled_by_default(self):
         fixture = fixtures.TasksServiceTest()
         fixture.setUp()

@@ -1,4 +1,4 @@
-"""Read an operator-supplied Codex quota snapshot for one verified human."""
+"""Read operator-supplied Codex quota snapshots for one verified human."""
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -64,11 +64,17 @@ def summarize(snapshot):
 @dataclass(frozen=True)
 class CodexUsage:
     viewer_subject: str
-    snapshot: Path
+    sources: tuple[tuple[str | None, Path], ...]
 
     def read(self):
+        if self.sources[0][0] is None:
+            return {"usage": self._read_snapshot(self.sources[0][1])}
+        return {"sources": [{"label": label, "usage": self._read_snapshot(path)} for label, path in self.sources]}
+
+    @staticmethod
+    def _read_snapshot(path):
         try:
-            with self.snapshot.open("rb") as handle:
+            with path.open("rb") as handle:
                 raw = handle.read(_MAX_BYTES + 1)
             if len(raw) > _MAX_BYTES:
                 return None
@@ -80,11 +86,24 @@ class CodexUsage:
 def configuration(environment):
     subject = environment.get("TASKS_CODEX_USAGE_VIEWER_SUBJECT")
     file = environment.get("TASKS_CODEX_USAGE_SNAPSHOT")
-    if not (subject or file):
+    sources = environment.get("TASKS_CODEX_USAGE_SOURCES")
+    if not (subject or file or sources):
         return None
-    if not (subject and file and Path(file).is_absolute()):
-        raise ValueError("Configure both the Codex usage viewer UUID and an absolute snapshot path.")
     try:
-        return CodexUsage(str(UUID(subject)), Path(file))
+        viewer = str(UUID(subject or ""))
     except ValueError:
         raise ValueError("Use the verified Raft human subject UUID for the Codex usage viewer.") from None
+    if sources and not file:
+        try:
+            labeled = _object(json.loads(sources))
+        except json.JSONDecodeError:
+            labeled = {}
+        if (len(labeled) == 2 and all(_BUCKET.fullmatch(label) and isinstance(path, str)
+                                      and Path(path).is_absolute() for label, path in labeled.items())):
+            paths = tuple((label, Path(path)) for label, path in labeled.items())
+            if paths[0][1] != paths[1][1]:
+                return CodexUsage(viewer, paths)
+        raise ValueError("Configure two Codex usage labels with distinct absolute snapshot paths.")
+    if file and not sources and Path(file).is_absolute():
+        return CodexUsage(viewer, ((None, Path(file)),))
+    raise ValueError("Configure either a Codex usage snapshot path or two labeled sources.")

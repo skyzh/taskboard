@@ -44,7 +44,9 @@ Keep the session directory stable across releases and outside the ledger and its
 
 On an isolated shared board with Raft sign-in, set `TASKS_CODEX_USAGE_VIEWER_SUBJECT` to the verified human subject UUID and `TASKS_CODEX_USAGE_SNAPSHOT` to an absolute path to a sample JSON file. Its top-level fields are `sample: true`, `captured_at` with a UTC offset, and `result` in the shape of the Codex App Server's `account/rateLimits/read` response. Open Settings while signed in as that human. The panel is disabled by default.
 
-The board reads the snapshot but does not start Codex or read Codex credentials. Confirm the source account and the viewer's authorization before using a live snapshot. Keep the file outside published assets and readable only by the board service and its authorized operator.
+To preview two sources, set `TASKS_CODEX_USAGE_SOURCES` instead of `TASKS_CODEX_USAGE_SNAPSHOT`. Supply a JSON object such as `{"Source A":"/private/fixtures/source-a.json","Source B":"/private/fixtures/source-b.json"}` with a distinct snapshot file per label. Each source shows its own capture time or an unavailable message if its file cannot be read.
+
+The board reads snapshot files. Codex sessions stay on their respective source hosts. Verify each source account and the configured viewer's entitlement before using either live snapshot. Keep the files outside published assets and readable only by the board service and its authorized operator.
 
 ## Sign in with OpenID Connect
 
