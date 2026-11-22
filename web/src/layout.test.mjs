@@ -1,0 +1,145 @@
+import assert from 'node:assert/strict'
+import { after, before, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { createServer } from 'vite'
+
+let vite
+let App
+let WorkQueue
+let TaskDetail
+before(async () => {
+  vite = await createServer({
+    root: fileURLToPath(new URL('..', import.meta.url)),
+    configFile: false,
+    optimizeDeps: { noDiscovery: true },
+    server: { middlewareMode: true, hmr: false, ws: false, watch: null },
+  })
+  const app = await vite.ssrLoadModule('/src/App.jsx')
+  App = app.default
+  const work = await vite.ssrLoadModule('/src/Work.jsx')
+  WorkQueue = work.WorkQueue
+  TaskDetail = work.TaskDetail
+})
+after(() => vite?.close())
+
+const teamSections = ['now-title', 'decisions-title', 'outcomes-title', 'workstreams-title']
+const MilestoneMap = () => React.createElement('p', null, 'Fixture dependency map')
+
+function render(fragment) {
+  const previous = { window: globalThis.window, document: globalThis.document }
+  try {
+    globalThis.window = { location: { hash: fragment }, matchMedia: () => ({ matches: false }) }
+    globalThis.document = { documentElement: { dataset: {} } }
+    return renderToStaticMarkup(React.createElement(App, { MilestoneMap }))
+  } finally {
+    Object.assign(globalThis, previous)
+  }
+}
+
+test('board routes share one keyboard-focusable main scroll region beneath the header', () => {
+  for (const fragment of ['', '#board', '#task-COURSE-1', '#team-overview', '#activity', '#settings', '#stats']) {
+    const markup = render(fragment)
+    assert.equal((markup.match(/<main\b/g) || []).length, 1, fragment)
+    assert.match(markup, /<\/header><main tabindex="0" aria-label="Taskboard content"><div class="main-content">/)
+  }
+})
+
+test('Reports links to Team overview without embedding the board-wide feed', () => {
+  const reports = render('')
+  assert.match(reports, /id="reports"[^>]*>Reports/)
+  assert.match(reports, /href="#team-overview">Team overview/)
+  assert.doesNotMatch(reports, /id="queue-heading"|class="section-index"/)
+
+  for (const fragment of ['team-overview', ...teamSections, 'map']) {
+    const overview = render(`#${fragment}`)
+    assert.match(overview, /id="team-overview"[^>]*>Team overview/)
+    assert.match(overview, /href="#reports" aria-current="page">Reports/)
+    assert.match(overview, /class="section-index"/)
+    assert.doesNotMatch(overview, /id="queue-heading"|href="#queue-heading"|class="task-detail"/)
+    for (const id of teamSections) assert.ok(overview.includes(`id="${id}"`))
+    if (fragment === 'map' || fragment === 'workstreams-title') {
+      assert.match(overview, /Fixture dependency map/)
+    }
+  }
+})
+
+test('the combined Reports link opens the Reports tab', () => {
+  const combined = render('#reports-all')
+  assert.match(combined, /href="#reports-all" aria-current="page">Reports/)
+  assert.match(combined, /<h1 id="reports">Reports/)
+  assert.doesNotMatch(combined, /id="queue-heading"/)
+})
+
+test('Tasks and a directly linked ticket have separate main content', () => {
+  for (const fragment of ['#board', '#queue-heading']) {
+    const tasks = render(fragment)
+    assert.match(tasks, /<h1 id="board">Tasks/)
+    assert.match(tasks, /<h2 id="queue-heading">Work queue/)
+    assert.doesNotMatch(tasks, /id="now-title"|id="outcomes-title"|class="section-index"/)
+  }
+  const ticket = render('#task-42')
+  assert.match(ticket, /<article id="task-42"/)
+  assert.match(ticket, /<h1 id="task-heading-42">Task T-42/)
+  assert.match(ticket, /href="#board">Back to Tasks/)
+  assert.match(ticket, /href="#board" aria-current="page">Tasks/)
+  assert.doesNotMatch(ticket, /class="workspace"|id="queue-heading"|id="now-title"|id="outcomes-title"/)
+})
+
+test('page and section headings remain fragment targets without becoming focusable', () => {
+  for (const fragment of ['#reports', '#board', '#queue-heading', '#team-overview', '#workstreams-title',
+    '#activity', '#stats', '#notifications', '#notifications-needs-me', '#notifications-log', '#settings', '#dri=Avery', '#search=fixture', '#schedules=']) {
+    const markup = render(fragment)
+    assert.doesNotMatch(markup, /<h[1-6]\b[^>]*\btabindex=/, fragment)
+    assert.doesNotMatch(markup, /<header id="assignee-title"[^>]*\btabindex=/, fragment)
+  }
+})
+
+test('project ticket links open separate detail and return to the matching queue', () => {
+  const ticket = render('#task-COURSE-1')
+  assert.match(ticket, /<article id="task-COURSE-1"/)
+  assert.match(ticket, /<h1 id="task-heading-COURSE-1">Task COURSE-1/)
+  assert.match(ticket, /href="#project=COURSE">Back to Tasks/)
+  assert.doesNotMatch(ticket, /id="queue-heading"|id="now-title"/)
+  assert.match(render('#project=COURSE'), /id="queue-heading"[^>]*>Work queue/)
+})
+
+test('a Taskboard ticket returns to Taskboard from a course queue', () => {
+  const ticket = renderToStaticMarkup(React.createElement(TaskDetail, {
+    id: 42, preferredProject: 'COURSE', session: {},
+  }))
+  const backLink = ticket.match(/href="([^"]+)">Back to Tasks/)?.[1]
+  assert.equal(backLink, '#project=T')
+  assert.match(render(backLink), /id="queue-heading"[^>]*>Work queue/)
+})
+
+test('Settings remains a separate route alongside the layout views', () => {
+  const settings = render('#settings')
+  assert.match(settings, /id="settings"[^>]*>Settings/)
+  assert.doesNotMatch(settings, /id="queue-heading"|id="now-title"|class="task-detail"/)
+})
+
+test('a restored queue renders the selected filters and the friendly waiting label', () => {
+  const queue = renderToStaticMarkup(React.createElement(WorkQueue, {
+    filters: { state: 'waiting', dri: 'Avery', waiting_on: 'raft:human:fixture' },
+    waitingLabel: 'Legal team',
+  }))
+  assert.match(queue, /value="waiting" selected=""/)
+  assert.match(queue, /value="owner:Avery" selected=""/)
+  assert.match(queue, /list="dependencies" value="Legal team"/)
+})
+
+test('the Work queue shows separate merge and deployment queues for the Taskboard project', () => {
+  const taskboard = renderToStaticMarkup(React.createElement(WorkQueue, {
+    project: 'T', overview: { merge_queue: true, release_queue: {} }, filters: { state: 'ready' },
+  }))
+  assert.match(taskboard, /<summary>Merge queue<\/summary>/)
+  assert.match(taskboard, /<summary>Deploy queue<\/summary>/)
+  assert.match(taskboard, /value="ready" selected=""/)
+
+  const course = renderToStaticMarkup(React.createElement(WorkQueue, {
+    project: 'COURSE', overview: {}, filters: {},
+  }))
+  assert.doesNotMatch(course, /<summary>(Merge|Deploy) queue<\/summary>/)
+})

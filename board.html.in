@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Taskboard</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --canvas: #f3f3ee;
+      --paper: #fffefa;
+      --ink: #1d2823;
+      --muted: #52605a;
+      --line: #dce0d8;
+      --green: #245948;
+      --mono: ui-monospace, "SF Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+      margin: 0;
+      background: var(--canvas);
+      color: var(--ink);
+      font: 1rem/1.55 system-ui, sans-serif;
+    }
+    h1, h2, h3, p, dl, dd, ol, ul { margin: 0; }
+    a { color: var(--green); }
+    :focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+    main { width: min(76rem, 100% - 3rem); margin: auto; padding: 2.7rem 0 3.5rem; }
+    .masthead {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: .6rem 1.2rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.35rem;
+    }
+    h1 { font-size: clamp(2.35rem, 5vw, 3.45rem); line-height: 1; letter-spacing: -.065em; }
+    .snapshot, .task-meta, .item-meta { font: .78rem/1.5 var(--mono); color: var(--muted); }
+    .snapshot { white-space: nowrap; }
+    .navigation { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem .85rem; }
+    .navigation > a { font-size: .86rem; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+      gap: .75rem;
+      margin-bottom: 1.6rem;
+    }
+    .summary > div {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: .5rem;
+      padding: .7rem .95rem;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: .65rem;
+    }
+    .summary dd { font: 600 1.5rem/1 var(--mono); font-variant-numeric: tabular-nums; }
+    .status {
+      display: inline-block;
+      padding: .14rem .5rem;
+      border-radius: .3rem;
+      font: 600 .75rem/1.5 system-ui, sans-serif;
+      background: #edece6;
+      color: #424741;
+    }
+    .status.human_review { background: #f0e5fa; color: #5a2d75; }
+    .status.waiting { background: #f8ebca; color: #644207; }
+    .status.in_progress { background: #e1ecf8; color: #214e78; }
+    .status.parked { background: #e9eaf0; color: #404963; }
+    .status.done { background: #dcefe1; color: #24553a; }
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(16rem, 1fr) minmax(0, 2.3fr);
+      align-items: start;
+      gap: 1rem;
+    }
+    .rail, .detail {
+      min-width: 0;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: .85rem;
+    }
+    .rail { padding: 1rem; }
+    .rail h2, h3 { font-size: .96rem; font-weight: 680; }
+    .filters { display: grid; gap: .6rem; margin: .75rem 0; }
+    .filters label {
+      display: grid;
+      grid-template-columns: 5.7rem minmax(0, 1fr);
+      gap: .35rem;
+      align-items: center;
+      color: var(--muted);
+      font-size: .83rem;
+    }
+    select {
+      width: 100%;
+      padding: .42rem .35rem;
+      border: 1px solid #aeb8ae;
+      border-radius: .35rem;
+      background: var(--paper);
+      color: var(--ink);
+      font: inherit;
+    }
+    .queue { list-style: none; padding: 0; display: grid; gap: .5rem; margin-top: .75rem; max-height: 34rem; overflow: auto; padding: .14rem; }
+    .queue a {
+      display: grid;
+      gap: .4rem;
+      padding: .75rem;
+      border: 1px solid var(--line);
+      border-radius: .55rem;
+      color: var(--ink);
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+    .queue a:hover { border-color: #9bae9f; background: #f5f8f3; }
+    .queue a[aria-current="true"] { background: #edf4ed; border-color: #86a78d; }
+    .item-meta, .task-meta { display: flex; align-items: center; gap: .5rem; }
+    .item-meta { justify-content: space-between; }
+    .item-people { display: flex; flex-wrap: wrap; gap: .15rem .65rem; font-size: .83rem; color: var(--muted); }
+    .item-people span + span { color: #644207; font-weight: 600; }
+    .item-step {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: .875rem;
+    }
+    #no-matches { color: var(--muted); font-size: .875rem; margin-top: .7rem; }
+    .detail { padding: clamp(1rem, 4vw, 2.25rem); overflow-wrap: anywhere; }
+    .detail + .detail { margin-top: 1rem; }
+    .detail h2 { margin: .65rem 0 .3rem; font-size: clamp(1.45rem, 3vw, 2.15rem); line-height: 1.18; letter-spacing: -.035em; }
+    .owner { color: var(--muted); font-size: .9rem; }
+    .brief { margin-top: 1rem; }
+    .prose { white-space: pre-wrap; }
+    .focus {
+      display: grid;
+      gap: .35rem;
+      margin: 1.3rem 0 1.65rem;
+      padding: .9rem 1rem;
+      background: #f2f3ee;
+      border-left: 3px solid #aeb6a9;
+      border-radius: .32rem;
+    }
+    .focus.waiting { background: #fbf4e4; border-color: #a7751d; }
+    .focus.in_progress { background: #ecf3fa; border-color: #4b78a6; }
+    .focus.parked { background: #f0f1f7; border-color: #73809d; }
+    .focus.done { background: #edf5ec; border-color: #46815b; }
+    .checklist, .sources { margin-top: .4rem; font-size: .9rem; }
+    .checklist summary, .sources summary { cursor: pointer; color: var(--green); }
+    .checklist ol, .sources ul { margin-top: .4rem; padding-inline-start: 1.4rem; }
+    .checklist li + li, .sources li + li { margin-top: .2rem; }
+    .decision-choices { padding-inline-start: 1.4rem; white-space: normal; overflow-wrap: anywhere; }
+    .timeline { list-style: none; padding: 0; margin-top: .65rem; }
+    .activity-row {
+      display: flex;
+      align-items: baseline;
+      gap: .55rem;
+      min-width: 0;
+      border-top: 1px solid var(--line);
+      padding: .48rem 0;
+      white-space: nowrap;
+      font-size: .85rem;
+    }
+    .activity-icon { flex: none; width: 1rem; text-align: center; color: var(--green); }
+    .activity-meta { color: var(--muted); flex: 0 1 auto; }
+    .activity-meta, .activity-note, .activity-target, .activity-links {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+    .activity-note { flex: 1 1 12rem; }
+    .activity-note summary { cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+    .activity-note p { margin-top: .3rem; overflow-wrap: anywhere; }
+    .activity-target { flex: 0 1 12rem; }
+    .activity-links { flex: 0 0 auto; max-width: 30%; }
+    .activity-links a + a { margin-left: .55rem; }
+    .activity-links:focus-within { overflow: auto; }
+    .activity-note[open] + .activity-links { display: none; }
+    .activity-evidence {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .2rem .7rem;
+      list-style: none;
+      margin-top: .4rem;
+      padding: 0;
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+    .work-log { margin-top: 1rem; padding: 1rem 1.2rem; }
+    .work-log h3 { margin-top: .8rem; }
+    .milestones { list-style: none; padding: 0; margin-top: .35rem; }
+    .milestones li { border-top: 1px solid var(--line); padding: .55rem 0; overflow-wrap: anywhere; }
+    .milestone-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: .25rem .65rem; }
+    .milestone-prerequisites { color: var(--muted); font-size: .85rem; margin-top: .15rem; }
+    .log-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .log-events li:target { background: #edf4ed; }
+    #log-no-matches { color: var(--muted); font-size: .875rem; }
+    .top-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+    .top-sections .timeline { font-size: .85rem; color: var(--muted); }
+    .overview-step, .overview-progress { display: block; overflow: hidden; text-overflow: ellipsis; }
+    .overview-progress { color: var(--green); font-size: .78rem; }
+    .focus.human_review { background: #f5effa; border-color: #8a57a9; }
+    @media (max-width: 48rem) {
+      main { width: calc(100% - 1.5rem); padding-top: 1.5rem; }
+      .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .workspace { grid-template-columns: minmax(0, 1fr); }
+      .top-sections { grid-template-columns: minmax(0, 1fr); }
+      .log-filters { grid-template-columns: minmax(0, 1fr); }
+      .queue { max-height: 12.5rem; }
+      .activity-meta { max-width: 42%; }
+    }
+    @media (max-width: 24rem) {
+      .summary { gap: .45rem; }
+      .summary > div { padding-inline: .45rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="masthead">
+      <h1>Taskboard</h1>
+      <div class="navigation"><a href="#now-title">Now</a><a href="#decisions-title">Needs a decision</a>
+        <a href="#outcomes-title">What was done</a>$workstreams_link<a href="#work-log-title">Work log</a>
+        <p class="snapshot">Snapshot $snapshot</p></div>
+    </header>
+    <dl class="summary" aria-label="Task counts by status">$summary</dl>
+    <div class="top-sections">
+      <section class="rail" aria-labelledby="now-title">
+        <h2 id="now-title">Now</h2><ol class="timeline">$now</ol>
+      </section>
+      <section class="rail" aria-labelledby="decisions-title">
+        <h2 id="decisions-title">Needs a decision</h2><ol class="timeline">$decisions</ol>
+      </section>
+    </div>
+    <div class="workspace">
+      <nav class="rail" aria-labelledby="queue-heading">
+        <h2 id="queue-heading">Work queue</h2>
+        <div class="filters" hidden>
+          <label>Status <select id="state"><option value="">All statuses</option>$states</select></label>
+          <label>Owner <select id="owner"><option value="">All owners</option>$owners</select></label>
+          <label>Waiting on <select id="person"><option value="">Anyone</option>$people</select></label>
+        </div>
+        <ol class="queue">$queue</ol>
+        <p id="no-matches" role="status" hidden>No matching tasks.</p>
+      </nav>
+      <section aria-label="Task details">$details</section>
+    </div>
+    <section class="rail work-log" aria-labelledby="outcomes-title">
+      <h2 id="outcomes-title">What was done</h2>
+      $outcomes
+    </section>
+    $workstreams
+    <section class="rail work-log" aria-labelledby="work-log-title">
+      <h2 id="work-log-title">Work log</h2>
+      <div class="filters log-filters" id="log-filters" hidden>
+        <label>Actor <select id="log-actor"><option value="">All actors</option>$log_actors</select></label>
+        <label>Action <select id="log-action"><option value="">All actions</option>$log_actions</select></label>
+      </div>
+      <ol class="timeline log-events">$work_log</ol>
+      <p id="log-no-matches" role="status" hidden>No matching activity.</p>
+    </section>
+  </main>
+  <script>
+    const entries = Array.from(document.querySelectorAll(".queue li")).map(item => {
+      const link = item.querySelector("a");
+      return { item, link, detail: document.getElementById(link.hash.slice(1)) };
+    });
+    const state = document.getElementById("state");
+    const owner = document.getElementById("owner");
+    const person = document.getElementById("person");
+    const noMatches = document.getElementById("no-matches");
+    function renderQueue(navigate = false) {
+      const visible = entries.filter(({ item }) =>
+        (!state.value || item.dataset.state === state.value) &&
+        (!owner.value || item.dataset.owner === owner.value) &&
+        (!person.value || item.dataset.waitingOn === person.value)
+      );
+      const linked = visible.find(entry => entry.link.hash === window.location.hash);
+      const selected = linked || visible[0];
+      noMatches.hidden = visible.length !== 0;
+      for (const entry of entries) {
+        entry.item.hidden = !visible.includes(entry);
+        entry.detail.hidden = entry !== selected;
+        entry.link.setAttribute("aria-current", String(entry === selected));
+      }
+      if (navigate && linked) linked.detail.focus();
+    }
+    for (const filter of [state, owner, person]) {
+      filter.addEventListener("change", () => renderQueue());
+    }
+    window.addEventListener("hashchange", () => {
+      const requested = entries.find(entry => entry.link.hash === window.location.hash);
+      if (requested && requested.item.hidden) {
+        state.value = owner.value = person.value = "";
+      }
+      renderQueue(true);
+    });
+    renderQueue();
+    document.querySelector(".filters").hidden = false;
+
+    const logEntries = Array.from(document.querySelectorAll(".log-events .activity-row"));
+    const logActor = document.getElementById("log-actor");
+    const logAction = document.getElementById("log-action");
+    const logNoMatches = document.getElementById("log-no-matches");
+    function renderLog(revealLink = false) {
+      const linked = revealLink && logEntries.find(entry => "#" + entry.id === window.location.hash);
+      if (linked) {
+        if (logActor.value && logActor.value !== linked.dataset.actor) logActor.value = "";
+        if (logAction.value && logAction.value !== linked.dataset.action) logAction.value = "";
+      }
+      let hasMatches = false;
+      for (const entry of logEntries) {
+        entry.hidden = Boolean(
+          (logActor.value && entry.dataset.actor !== logActor.value) ||
+          (logAction.value && entry.dataset.action !== logAction.value)
+        );
+        hasMatches = hasMatches || !entry.hidden;
+      }
+      logNoMatches.hidden = hasMatches || logEntries.length === 0;
+      if (linked) linked.focus();
+    }
+    for (const filter of [logActor, logAction]) {
+      filter.addEventListener("change", () => renderLog());
+    }
+    window.addEventListener("hashchange", () => renderLog(true));
+    renderLog(true);
+    document.getElementById("log-filters").hidden = logEntries.length === 0;
+  </script>
+</body>
+</html>

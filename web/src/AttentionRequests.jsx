@@ -1,0 +1,97 @@
+import React, { useState } from 'react'
+import { request, useLoadedPages } from './data.js'
+import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref, profileName, taskLabel } from './shared.jsx'
+import { Markdown } from './Markdown.jsx'
+import ReminderDate from './ReminderDate.jsx'
+import { WaitAge } from './WaitAge.jsx'
+
+export function AttentionReceipt({ receipt }) {
+  return (
+    <p role="status" className="section-message">
+      Request {receipt.id} handled · <Timestamp at={receipt.handled_at} />
+      {receipt.unblocked_task_id && (
+        <> · Moved <TaskLink reference={receipt.unblocked_task_key} id={receipt.unblocked_task_id}
+          title={receipt.unblocked_task_title} /> to Ready
+          {receipt.ready_event_id && <> · <a href={eventHref(receipt.ready_event_id)}>View Ready event</a></>}
+        </>
+      )}
+    </p>
+  )
+}
+
+export function AttentionImpact({ item }) {
+  const task = item.unblocks
+  if (!task) return <p className="event-meta">For your information</p>
+  if (item.handled_at && !task.ready_event_id) return null
+  const link = <TaskLink reference={task.key} id={task.id} title={task.title} />
+  return (
+    <p className="event-meta">
+      {item.handled_at
+        ? <>Moved {link} to Ready · <a href={eventHref(task.ready_event_id)}>View Ready event</a></>
+        : <>Unblocks {link}</>}
+    </p>
+  )
+}
+
+export default function AttentionRequests({ revision, onChanged, taskId }) {
+  const [state, setState] = useState('open')
+  const [pending, setPending] = useState(null)
+  const [notice, setNotice] = useState(null)
+  const page = useLoadedPages('/notifications/requests', { state, task_id: taskId, scope: 'all' }, revision)
+  async function handle(id) {
+    setPending(id)
+    setNotice(null)
+    try {
+      const receipt = await request(`/notifications/requests/${id}/handled`, { method: 'POST' })
+      setNotice({ receipt })
+      onChanged()
+    } catch (error) {
+      setNotice({ error: error.message })
+    } finally {
+      setPending(null)
+    }
+  }
+  return (
+    <>
+      <div className="request-heading">
+        {!taskId && <h3>Requests</h3>}
+        <label>Show <select value={state} onChange={event => setState(event.target.value)}>
+          <option value="open">Open</option>
+          <option value="deferred">Deferred</option>
+          <option value="handled">Handled</option>
+        </select></label>
+      </div>
+      <ResourceStatus resource={page} label="attention requests" />
+      {notice?.error && <p role="alert" className="section-message">{notice.error}</p>}
+      {notice?.receipt && <AttentionReceipt receipt={notice.receipt} />}
+      {page.data?.items.length === 0 && <p className="section-message">No {state} requests.</p>}
+      <ol className="event-list" role="list">
+        {page.data?.items.map(item => (
+          <li className="event-row attention-row" key={item.id}>
+            <div>
+              {!taskId && <p className="event-ticket"><TaskLink reference={item.task_key} id={item.task_id} title={item.task_title} /></p>}
+              <p className="event-meta">
+                <span>{profileName(item.sender, item.sender_profile)}</span>
+                {item.handled_at ? <Timestamp at={item.raised_at} /> : <WaitAge since={item.raised_at} label="Unanswered" />}
+              </p>
+              <Markdown text={item.reason} />
+              <AttentionImpact item={item} />
+              {item.remind_on && <p className="event-meta">Reminder <time dateTime={item.remind_on}>{item.remind_on}</time></p>}
+              <EvidenceLinks links={item.links} />
+            </div>
+            {item.handled_at
+              ? <span className="event-meta">Handled <Timestamp at={item.handled_at} /></span>
+              : (
+                <div>
+                  <button type="button" disabled={pending !== null} onClick={() => handle(item.id)}>Mark handled</button>
+                  <ReminderDate key={item.remind_on || ''} path={`/notifications/requests/${item.id}/reminder`}
+                    saved={item.remind_on} onChanged={onChanged} />
+                </div>
+              )}
+          </li>
+        ))}
+      </ol>
+      <LoadMore page={page} label={taskId ? `attention requests for ${taskLabel(taskId)}` : 'attention requests'} />
+    </>
+  )
+}

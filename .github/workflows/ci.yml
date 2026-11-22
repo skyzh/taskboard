@@ -1,0 +1,117 @@
+name: Taskboard CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    name: Portable checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the event revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.3'
+          package-manager-cache: false
+
+      - name: Set up Python and uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.9'
+          python-version: '3.14.10'
+          enable-cache: false
+
+      - name: Install the locked dependencies
+        run: |
+          uv sync --locked --extra websocket
+          npm --prefix web ci --no-audit --no-fund
+
+      - name: Build the web app
+        run: npm --prefix web run build
+
+      - name: Run Python tests
+        run: uv run --no-sync python -B -W error::ResourceWarning -m unittest discover -q
+
+      - name: Run Node tests
+        working-directory: web
+        run: node --test
+
+      - name: Check a disposable mount
+        run: uv run --no-sync python -B -m unittest discover -s tools/release/checks -p test_release_smoke.py
+
+      - name: Check synthetic server and client compatibility
+        run: |
+          test -f tools/release/test_release_compatibility.py
+          uv run --no-sync python -B -m unittest discover -s tools/release -p test_release_compatibility.py
+
+      - name: Test local deployment with disposable inputs
+        run: |
+          test -f tools/release/test_direct_main.py
+          uv run --no-sync python -B -m unittest discover -s tools/release -p test_direct_main.py
+
+      - name: Run the OpenID Connect fixture tests
+        run: |
+          uv sync --locked --extra websocket --extra oidc
+          uv run --no-sync python -B -W error::ResourceWarning - <<'PY'
+          import unittest
+
+          tests = unittest.defaultTestLoader.loadTestsFromName("test_tasks_oidc")
+          result = unittest.TextTestRunner(verbosity=2).run(tests)
+          if not result.testsRun or result.skipped or not result.wasSuccessful():
+              raise SystemExit("The OpenID Connect fixture tests must run and pass without skips.")
+          PY
+
+  postgres-preferences:
+    name: SQLite and PostgreSQL preference replay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres@sha256:1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857 # 16.16
+        env:
+          POSTGRES_DB: taskboard_test
+          POSTGRES_USER: taskboard_test
+          POSTGRES_PASSWORD: taskboard_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U taskboard_test -d taskboard_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out the event revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python and uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.9'
+          python-version: '3.14.10'
+          enable-cache: false
+
+      - name: Install the locked PostgreSQL driver
+        run: uv sync --locked --extra postgres
+
+      - name: Replay notification preferences on both engines
+        env:
+          TASKBOARD_TEST_POSTGRES_PORT: ${{ job.services.postgres.ports['5432'] }}
+        run: >-
+          uv run --no-sync python -B -W error::ResourceWarning -m unittest
+          discover -s tools/ci -p test_notification_preferences.py

@@ -1,0 +1,189 @@
+# Continuous checks and release queue
+
+The local CI runner checks immutable Git revisions. It archives tracked source to a scratch directory, builds the web app with the lockfile and an existing npm cache, and runs the Python and Node checks. The Python suite starts after the web build because some service tests mount the built app. The artifact includes tracked source and freshly built assets. The runner saves receipts and logs outside Git.
+
+Use the Python environment already installed for Taskboard. From the repository, set an absolute private state directory and run:
+
+```sh
+python -B tools/release/ci_watch.py --repo . --state "$ci_state" --interval 15
+```
+
+For a one-shot check, omit `--interval` and pass `--ref` with the exact reviewed commit or local branch. Use one state directory for a continuous runner and its admitted jobs. If a previous passing commit is an ancestor and only web files changed, CI rebuilds and tests the web app and records the backend check it inherited. A failed result stays attached to the commit. Use a fresh state directory to repeat the same check after an environment failure.
+
+To preview compatible changes together, add `--sibling <ref>` for each independently reviewed change. CI reports conflicts from a scratch Git checkout. The owner records and independently reviews the final integrated commit before submitting it as a release.
+
+## Admit a reviewed build
+
+The release queue uses canonical Taskboard Activity events. The source ticket owner logs a submission in the configured queue ticket, which defaults to T-78. The independent reviewer logs the matching verdict on the source ticket. Keep short human-readable Activity text and put the JSON in the details.
+
+| Event | Required details |
+| --- | --- |
+| Submission | `schema: taskboard-release/v1`, `ticket`, full Git `commit`, app manifest `candidate`, active manifest `base` |
+| Review | `schema: taskboard-review/v1`, `outcome: pass`, and the same `commit`, `candidate` and `base` |
+
+Both events can pin an exact `portal` manifest for the coordinated app and portal lane. The submission can mark an approved urgent build with `urgent: true`. The operator supplies the independent reviewer allowlist and the two event IDs returned by Taskboard. Admission checks the authenticated owners and events, passing CI receipt, artifact and current base. It writes one private queue entry.
+
+For each new release, the owner adds a `changelog` to the submission, and the reviewer records the same object in their independent approval. Choose the full Git range from the currently deployed commit to the submitted commit. Write a short, single-line summary for each change, with its Taskboard ticket, full merged commit and exact Activity ID from the typed `taskboard-merge/v1` `merged` receipt on that ticket. This is a fictional entry for release 2.
+
+```json
+{
+  "base_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "head_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "entries": [{
+    "ticket": "T-169",
+    "summary": "Keep your place when filters change.",
+    "merge_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "merge_receipt_id": 102
+  }]
+}
+```
+
+Pass `--repo` for changelog admission so Git can confirm each merged commit belongs to the selected range. The passing CI receipt `<state>/commits/<base_commit>.json` must name the active manifest digest. If CI ran elsewhere, transfer that exact trusted receipt through the existing CI handoff. Admission verifies each Activity event against the ticket's recorded merge and compares the notes with the independent review. List each merged commit once per ticket. Older submissions and receipts can omit the object. Releases from before typed merge receipts display their recorded number and tickets.
+
+```sh
+python -B tools/release/admit_review.py --state "$ci_state" --queue "$release_queue" \
+  --active-manifest "$current/SHA256SUMS" --commit "$checked_commit" \
+  --submission-event "$submission_event" --review-event "$review_event" \
+  --reviewer "$approved_reviewer" --repo . --ref "$checked_commit" \
+  --compatibility-policy "$compatibility_policy"
+```
+
+With `--repo` the adapter runs missing checks for the exact selected local ref before admission. The operator can also receive the approved CI artifact and matching private receipt through the existing handoff, then omit `--repo`.
+
+## Check release compatibility
+
+Use the [release compatibility policy](../../docs/taskboard/RELEASE-COMPATIBILITY.md) with the admission command. The gate verifies the exact supported clients against the candidate server, the candidate against the active predecessor, and the predecessor's browser build against the candidate server. The compatibility-enabled launcher checks the matrix before creating the queue entry and stores its receipt with the private entry.
+
+The policy provides `legacy_client` and `first_real_client`, each with an absolute `artifact` path and `manifest` SHA-256. Set `before_first_real` to true during preparation before that release has a designated client. Supply a local `playwright_module` path for predecessors with browser assets. The check uses Python with the test dependencies, OpenSSL, Node, and the installed Playwright Chromium runtime. When the predecessor has no packaged browser, record the approved `browser_omission_reason`. If a new CLI command should fail on the predecessor, set `unavailable_action` with an `action` name and a `command` argument array.
+
+Run the same gate for a manual release and save its output in the private release evidence directory.
+
+```sh
+python -B tools/release/release_compatibility.py --artifact "$release_dir" \
+  --candidate "$release_sha" --predecessor "$current" --base "$active_sha" \
+  --policy "$compatibility_policy" > "$compatibility_receipt"
+```
+
+Run the same command with `--receipt "$compatibility_receipt"` to validate a saved receipt against the selected candidate and active base before manual activation. Synthetic checkout tests use `python -B -m unittest discover -s tools/release -p test_release_compatibility.py -v`.
+
+## Stage an app artifact for transfer
+
+Create the transfer archive from the exact CI artifact and reviewed manifest digest before uploading it to operator staging.
+
+```sh
+python -B tools/release/stage_transfer.py --artifact "$release_dir" \
+  --manifest-sha256 "$release_sha" --output "$transfer_archive"
+```
+
+Use a new archive path. The command verifies the source manifest, archives its regular files and `SHA256SUMS`, and verifies the archive member list before making the archive available. It excludes the macOS metadata that added AppleDouble members during staging. Transfer the verified archive through the existing staging handoff. Keep the existing exact file-set and hash checks on the release host before admission.
+
+## Operate the app-only release
+
+Run the adapter under the existing authorized service account using an owner-controlled JSON configuration. Set `operator_uid`, `queue`, `artifacts`, `current`, `releases`, `ledger`, `backups`, `lock`, `unit`, `mount`, `avatars`, `suites`, `checks_package` and `checks_manifest`. Use the live service's already approved location and unit, the exact mounted HTTPS URL, known mounted avatar hashes, and the reviewed fixture and smoke package with its manifest digest. The optional `python` field selects the existing service interpreter.
+
+The [release check package](checks/README.md) documents the source, receipt format, and commands for staging a reviewed fixture and smoke package.
+
+```sh
+python -B tools/release/operator_deploy.py --config "$operator_config" \
+  --record-service "$signed_in_tasks_service"
+```
+
+The operator processes urgent entries first and checks the active base again before switching. It backs up SQLite, restarts the existing service and verifies the mounted release. If health fails, it restores the prior code and rechecks it. The live ledger stays in use. The app and portal lane still uses the existing coordinated release process.
+
+A service can take a few seconds to accept requests after its restart command returns. The operator retries temporary mount health failures up to eight times with a one-second pause. A wrong bundle, avatar, or access result fails the release immediately. Private outcome receipts record check names and reasons for both activation and rollback failures.
+
+Each completed job has an outcome JSON under the private queue's `results/` directory. It includes the candidate, resulting active manifest, check or stale-base reason, queue time and review-to-result time. Re-running the operator after a receipt delivery failure sends the saved result without a second activation. To forward a stored outcome independently, run `publish_receipt.py <outcome.json>` through the already signed-in operator integration.
+
+Before changing the active release, the operator records the prior release and passing checks in the private activation journal. A retry checks the active release, the recorded restart and mounted health. When the restart was interrupted or unconfirmed, the operator restarts the selected release before reporting success.
+
+After the release projection is installed, the authorized ledger operator can pass these fields to the deployed `./tasks --offline --db "$ledger" release-event <receipt.json>` command:
+
+- After admission use the job's `release_id`, `ticket`, `candidate` and `queued_at` as `at`, with `status` set to `queued` and `active` set to null.
+- After execution, publish the outcome to Activity through the operator integration. Export the saved outcome with `python -B tools/release/publish_receipt.py --ledger-receipt --receipt-url "$activity_url" <outcome.json>` and import that JSON. Use the exact HTTPS permalink of the Activity result as `activity_url`. This links the deploy queue to its evidence and gives that event a deployment icon. Historical receipts without a linked Activity event still import.
+
+If automation is unavailable, use the existing reviewed manual release, verify its exact compatibility receipt, and record the outcome. For an initial deployment, verify the mounted app, outcome Activity and release projection before declaring the release complete.
+
+## Test and deploy local main
+
+Until hosted CI protects main, run one command on the existing Mac build host.
+The trusted checkout and cached npm dependencies stay on that host. On Pi,
+use the reviewed operator script and its existing private configuration,
+service account, unit, staged check package and SQLite ledger.
+
+From the trusted checkout, archive the complete tracked source at the reviewed
+operator commit. The launcher imports top-level modules such as
+`tasks_release_changelog.py`. Keep this archive separate from the app artifact.
+
+```sh
+git archive --format=tar --output="$operator_archive" "$reviewed_operator_commit"
+```
+
+Transfer the source archive through the existing staging handoff. As the
+authorized Pi operator, unpack it into a new private directory and run the
+launcher with the interpreter configured for that operator.
+
+```sh
+mkdir -m 700 "$operator_stage" &&
+tar -xf "$operator_archive" -C "$operator_stage" &&
+"$operator_python" -E -B "$operator_stage/tools/release/operator_deploy.py" --help
+```
+
+Before using the launcher against the live app, require a successful exit and
+help output listing both `--read-state` and `--checked-main`. Point the Mac
+configuration's `operator` command at the launcher in this staging directory.
+
+Set `repo`, `ci_state`, `predecessor` (the starting active app snapshot),
+`compatibility_policy`, and `mount` in a private Mac configuration. Set
+`ssh` to the existing trusted Pi SSH argument list including the destination
+and `operator` to the remote Python, operator script and its `--config` path
+as an argument list. Use the same `mount` and optional `queue_ticket` as
+the Pi configuration. The optional `python` selects the Mac CI interpreter.
+
+```sh
+python -B tools/release/deploy_main.py --config "$build_operator_config" \
+  --commit "$main_commit" --record-service "$signed_in_tasks_service"
+```
+
+The Pi operator serializes deployments. The Mac tests the exact commit
+and reads the Pi’s active manifest before running the shared CLI and previous
+browser matrix. It uses the matching cached app from CI or the configured
+starting snapshot, then transfers the manifest-only app archive. If local main
+advances before transfer, the attempt stops and the operator can run the
+new tip. A failed check records the exact commit in Activity before transfer.
+The Pi verifies the archive, checks the active base and runs its pinned
+fixtures, then uses the existing backup, mounted smoke and rollback
+transaction.
+
+The Mac records and reads back the canonical Activity event. It then asks the
+same Pi operator to import the saved result with that permalink, so the active
+version and its evidence agree. A failed check on the Mac has no app release
+to project. If receipt delivery is interrupted, rerun the same command to
+recover the saved Pi outcome and finish recording it without another activation,
+even when local main has advanced. If Pi stopped before writing the outcome,
+reconcile its existing activation journal before retrying. Use the
+existing reviewed recovery path to retry a terminal failed release after
+fixing the cause.
+
+T-238 covers protected main and required hosted CI, whose passing artifact can
+later feed the same activation transaction. Install the reviewed Pi operator
+through the authorized rollout before using this command on live state.
+
+## Verify with disposable inputs
+
+```sh
+python -B -W error::ResourceWarning -m unittest discover -s tools/release -q
+```
+
+The default run uses synthetic local fixtures. Release operators can enable additional process replays using artifacts verified against trusted digests from their release records. Supply settings in the test environment. Keep artifacts, pins and receipts outside the source checkout.
+
+| Setting | Operator-supplied input |
+| --- | --- |
+| `TASKS_RELEASE_FIXTURE_APP` | Built Taskboard app artifact directory |
+| `TASKS_RELEASE_FIXTURE_APP_SHA256` | SHA-256 digest of the app artifact’s `SHA256SUMS` |
+| `TASKS_RELEASE_FIXTURE_CHECKS` | Release check package directory |
+| `TASKS_RELEASE_FIXTURE_CHECKS_SHA256` | SHA-256 digest of the check package’s `SHA256SUMS` |
+| `TASKS_TEST_LEGACY_CLI` | Legacy CLI artifact directory |
+| `TASKS_TEST_LEGACY_CLI_SHA256` | SHA-256 digest of the legacy CLI artifact’s `SHA256SUMS` |
+| `TASKS_PROFILE_FIXTURE` | Built Taskboard source snapshot for signed-in service checks |
+
+Supply all four release artifact settings together and both legacy CLI settings together when enabling their respective replays. Tests use disposable ledger data and loopback HTTP.

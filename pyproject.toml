@@ -1,0 +1,26 @@
+[project]
+name = "raft-tasks-board"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.1,<4",
+    "pillow>=12,<13",
+    "waitress>=3,<4",
+]
+
+[tool.uv]
+package = false
+
+[project.optional-dependencies]
+websocket = [
+    "flask-sock>=0.7,<1",
+    "gunicorn>=26.2,<27",
+]
+oidc = [
+    "authlib>=1.9,<2",
+    "joserfc>=1.6,<2",
+    "requests>=2,<3",
+]
+postgres = [
+    "psycopg[binary]>=3.2,<4",
+]

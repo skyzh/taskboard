@@ -1,0 +1,46 @@
+.dri-name-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .15rem .65rem;
+}
+.dri-runs {
+  min-width: 0;
+  font-size: .82rem;
+}
+.dri-runs[open] {
+  flex-basis: 100%;
+}
+.dri-runs summary {
+  padding-block: .15rem;
+}
+.dri-runs-panel {
+  margin: .35rem 0 .45rem;
+  padding: .55rem .65rem;
+  border: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.dri-run-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dri-run-list li {
+  padding: .4rem 0;
+  border-top: 1px solid var(--line);
+}
+.dri-runs-note, .dri-run-meta {
+  color: var(--muted);
+}
+.dri-runs-note {
+  margin-bottom: .35rem;
+}
+.dri-run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .12rem .6rem;
+}
+.report-owner-heading:has(.dri-runs[open]),
+.assignee-page-heading:has(.dri-runs[open]) {
+  align-items: flex-start;
+}

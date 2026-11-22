@@ -1,0 +1,151 @@
+.milestone-map {
+  container-type: inline-size;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.milestone-map-explanation {
+  margin: .35rem 0 .75rem;
+  color: var(--muted, #52605a);
+  font-size: .875rem;
+}
+
+.milestone-map-viewport {
+  max-width: 100%;
+  border: 1px solid var(--line, #dce0d8);
+  border-radius: .65rem;
+  background: var(--canvas, #f3f3ee);
+  overflow-x: auto;
+  scroll-padding-inline: .75rem;
+}
+
+.milestone-map-diagram {
+  position: relative;
+  display: grid;
+  gap: .75rem;
+  padding: .75rem;
+}
+
+.milestone-map-connections {
+  position: absolute;
+  inset: 0;
+  display: none;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  color: var(--green, #245948);
+}
+
+.milestone-map-column {
+  display: grid;
+  align-content: start;
+  gap: .75rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.milestone-map-card {
+  position: relative;
+  min-width: 0;
+  padding: .7rem .75rem .8rem;
+  border: 1px solid var(--line, #dce0d8);
+  border-radius: .5rem;
+  background: var(--paper, #fffefa);
+}
+
+.milestone-map-card:focus-within {
+  border-color: var(--green, #245948);
+}
+
+.milestone-map-workstream {
+  color: var(--muted, #52605a);
+  font-size: .75rem;
+  font-weight: 650;
+}
+
+.milestone-map-task {
+  margin: .2rem 0 .4rem;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.milestone-map-id {
+  white-space: nowrap;
+  font: .76rem/1.35 var(--mono, monospace);
+}
+
+.milestone-map-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .2rem .55rem;
+  color: var(--muted, #52605a);
+  font-size: .8rem;
+}
+
+.milestone-map-prerequisites {
+  margin-top: .6rem;
+  padding-top: .45rem;
+  border-top: 1px solid var(--line, #dce0d8);
+  color: var(--muted, #52605a);
+  font-size: .8rem;
+}
+
+.milestone-map-prerequisites > p {
+  font-weight: 650;
+}
+
+.milestone-map-prerequisites > ul {
+  display: grid;
+  gap: .35rem;
+  margin: .2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.milestone-map-prerequisites li {
+  display: flex;
+  align-items: baseline;
+  gap: .35rem;
+  line-height: 1.35;
+}
+
+.milestone-map-prerequisites li > div {
+  min-width: 0;
+}
+
+.milestone-map-narrow-arrow {
+  color: var(--green, #245948);
+}
+
+.milestone-map-source-workstream {
+  display: block;
+  font-size: .75rem;
+}
+
+.milestone-map a:focus-visible,
+.milestone-map-viewport:focus-visible {
+  outline: 2px solid var(--green, #245948);
+  outline-offset: 2px;
+  border-radius: .15rem;
+}
+
+@container (min-width: 44rem) {
+  .milestone-map-diagram {
+    /* A long dependency chain can scroll within the diagram. */
+    --milestone-column-width: 13rem;
+    --milestone-gutter: 3.5rem;
+    min-width: calc(
+      var(--milestone-columns) * var(--milestone-column-width) +
+      (var(--milestone-columns) - 1) * var(--milestone-gutter) + 3rem
+    );
+    grid-template-columns: repeat(var(--milestone-columns), minmax(0, 1fr));
+    column-gap: var(--milestone-gutter);
+    padding: calc(1rem + var(--milestone-detour-height)) 1.5rem 1rem;
+  }
+
+  .milestone-map-connections { display: block; }
+  .milestone-map-narrow-arrow { display: none; }
+}

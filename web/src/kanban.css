@@ -1,0 +1,32 @@
+.queue-layout { display: flex; gap: .4rem; margin-bottom: .65rem; }
+.queue-layout button[aria-pressed="true"] { color: var(--green); border-color: currentColor; background: var(--wash); }
+.kanban-column-picker { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; margin-bottom: .65rem; }
+.kanban-columns { display: grid; gap: .6rem; min-width: 0; }
+.kanban-columns.multiple {
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(12.5rem, 1fr);
+  align-items: start;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  padding-bottom: .45rem;
+}
+.kanban-column {
+  min-width: 0;
+  padding: .55rem;
+  background: var(--wash);
+  border: 1px solid var(--line);
+  border-radius: .45rem;
+}
+.kanban-column h3 { padding: .25rem .3rem; }
+.kanban-column .task-row {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "heading" "context" "progress";
+  gap: .4rem;
+  margin-top: .4rem;
+  padding: .6rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: .4rem;
+}
+.kanban-column .task-row:hover, .kanban-column .task-row:focus-within { border-color: var(--green); }
+.kanban-column .task-row .status { display: none; }

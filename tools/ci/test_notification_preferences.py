@@ -1,0 +1,107 @@
+"""Replay signed-in preferences and verify a version-1 PostgreSQL upgrade."""
+
+from contextlib import closing
+import os
+import unittest
+from uuid import uuid4
+
+import test_tasks_service as fixture
+from tasks_core import import_notification_on
+from tasks_service import create_app
+from tasks_storage import Postgres
+
+
+PREFERENCE = "/api/v1/notifications/preferences"
+REVISION = "/api/v1/revision"
+
+
+class StorageReplayTest(unittest.TestCase):
+    def setUp(self):
+        self.board = fixture.TasksServiceTest()
+        self.board.setUp()
+        self.addCleanup(self.board.doCleanups)
+
+    def postgres_fixture(self):
+        port = os.environ.get("TASKBOARD_TEST_POSTGRES_PORT")
+        self.assertTrue(port and port.isdecimal() and 0 < int(port) < 65536,
+                        "Set TASKBOARD_TEST_POSTGRES_PORT to the disposable PostgreSQL 16 service port.")
+        dsn = f"postgresql://taskboard_test:taskboard_test@127.0.0.1:{port}/taskboard_test"
+        admin = self.enterContext(closing(Postgres(dsn)))
+        self.assertEqual(admin.execute("SHOW server_version_num").fetchone()[0][:2], "16")
+        schema = f"preferences_{uuid4().hex}"
+        admin.execute(f"CREATE SCHEMA {schema}")
+        self.addCleanup(admin.execute, f"DROP SCHEMA {schema} CASCADE")
+        return f"{dsn}?options=-csearch_path%3D{schema}"
+
+    def postgres_app(self, dsn):
+        self.board.provider = fixture.FixtureRaft()
+        return create_app(
+            None, public_url=fixture.ORIGIN + fixture.BASE, portal_reader=True,
+            postgres_dsn=dsn,
+            portal_upstream_token=fixture.PORTAL_FIXTURE,
+            raft_config={
+                "api_origin": "https://raft.example.test", "server_id": fixture.SERVER,
+                "client_id": fixture.CLIENT, "client_secret": "synthetic-fixture-only",
+                "transport": self.board.provider,
+            },
+        )
+
+    def replay(self, app):
+        client, _ = self.board.login(app, "Sam")
+        original = self.board.call(client, PREFERENCE).json["task_creations"]
+        before = self.board.call(client, REVISION).json
+        for enabled in (not original, original):
+            change = {"task_creations": enabled}
+            self.assertEqual(self.board.call(client, PREFERENCE, method="POST", json=change).json, change)
+            self.assertEqual(self.board.call(client, PREFERENCE).json, change)
+            changed = self.board.call(client, REVISION).json
+            self.assertNotEqual(changed, before)
+
+            self.assertEqual(self.board.call(client, PREFERENCE, method="POST", json=change).json, change)
+            self.assertEqual(self.board.call(client, PREFERENCE).json, change)
+            self.assertEqual(self.board.call(client, REVISION).json, changed)
+            before = changed
+
+    def test_sqlite(self):
+        self.replay(self.board.app(portal_reader=True))
+
+    def test_postgres(self):
+        self.replay(self.postgres_app(self.postgres_fixture()))
+
+    def test_postgres_reopens_a_populated_version_one_board(self):
+        dsn = self.postgres_fixture()
+        client, owner = self.board.login(self.postgres_app(dsn), "Avery")
+        self.board.action(client, "create-task", {"title": "Existing task", "step": "Verify the upgrade."})
+        original = {"summary": "Original goal", "deadline": "2030-12-01", "tickets": ["T-1"]}
+        original = self.board.call(client, "/api/v1/profile/goal", method="PATCH", json={"goal": original}).json["goal"]
+        source = self.board.action(client, "task", query_string={"id": "T-1"})["task"]
+
+        with closing(Postgres(dsn)) as db:
+            self.assertEqual(db.execute("SELECT schema_version FROM taskboard_writer WHERE id = 1").fetchone()[0], 1)
+            # Recreate the previous table layout in this throwaway schema without Git history.
+            db.execute("DROP TABLE board_standing_goals, board_goal_milestones, notification_log")
+
+        client, _ = self.board.login(self.postgres_app(dsn), "Avery")
+        profile = f"/api/v1/assignee?owner={owner}"
+        self.assertEqual(self.board.call(client, profile).json["goal"], original)
+        self.board.action(client, "save-goal", {"kind": "standing", "summary": "Improve handoffs"})
+        self.board.action(client, "save-goal", {
+            "kind": "dated", "summary": "Verify the upgrade", "deadline": "2030-12-03", "tickets": '["T-1"]',
+        })
+        receipt = {
+            "schema": "taskboard-notification/v1", "kind": "ready",
+            "source": {"task": "T-1", "event": source["event_id"], "at": source["at"]},
+            "recipient": owner, "pending": True, "status_at": source["at"], "observations": {},
+        }
+        with closing(Postgres(dsn)) as db:
+            self.assertTrue(import_notification_on(db, receipt)["changed"])
+
+        client, _ = self.board.login(self.postgres_app(dsn), "Avery")
+        saved = self.board.action(client, "my-goals")
+        self.assertEqual(saved["goal"], original)
+        self.assertEqual(saved["standing_goal"]["summary"], "Improve handoffs")
+        self.assertEqual(saved["milestones"][0]["tickets"], original["tickets"])
+        self.assertEqual(self.board.action(client, "my-next")["work"]["key"], "T-1")
+        notices = self.board.call(client, "/api/v1/notifications/log").json["items"]
+        self.assertEqual([(notice["task"], notice["status"], notice["delivered_at"]) for notice in notices],
+                         [("T-1", "pending", None)])
