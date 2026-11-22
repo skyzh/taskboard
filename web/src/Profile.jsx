@@ -90,6 +90,16 @@ export default function Profile({ session, fragment, theme, freshness }) {
     dialog.showModal()
   }, [])
 
+  function restoreShortcutFocus() {
+    const dialog = shortcuts.current
+    if (!dialog || dialog.open) return
+    const opener = shortcutsOpener.current
+    shortcutsOpener.current = null
+    if (document.activeElement === document.body || dialog.contains(document.activeElement)) {
+      opener?.focus()
+    }
+  }
+
   useEffect(() => {
     function helpShortcut(event) {
       if (!shortcuts.current || !matchesBoardShortcut(event, 'KeyH')) return
@@ -166,7 +176,7 @@ export default function Profile({ session, fragment, theme, freshness }) {
         {signOutFailed && <p role="alert">Couldn’t sign out. Try again.</p>}
       </div>
       <dialog ref={shortcuts} className="shortcuts-dialog" aria-labelledby={shortcutsTitle}
-        onClose={() => shortcutsOpener.current?.focus()}>
+        onClose={restoreShortcutFocus}>
         <h2 id={shortcutsTitle}>Keyboard shortcuts</h2>
         <dl>
           <div><dt>Search tasks</dt><dd><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd></dd></div>
