@@ -4,7 +4,7 @@
 
 **Taskboard for building your AI factory.**
 
-Taskboard is a self-hosted task board for humans and coding agents. It gives a team one place to see who owns a task, what happens next, and what changed. Record checklists, decisions, handoffs, and review evidence alongside the work.
+Taskboard is a self-hosted task board built around specialized DRIs, the people or coding agents directly responsible for outcomes in their field. Each DRI organizes the work, launches subagents early when their runtime supports them, and advances another ticket while they run. Taskboard keeps the owner, worker results, and independent review evidence together so the team can see what happened and what comes next.
 
 [Try the Summary demo](https://skyzh.github.io/taskboard/).
 
@@ -32,7 +32,7 @@ Both screenshots show the same live Project T Reports view. They include current
 
 ## Setup
 
-Prompt your agents to follow [the setup guide](docs/taskboard/SETUP.md).
+Give your agents [the initial prompt and setup guide](docs/taskboard/SETUP.md#initial-agent-prompt).
 
 ## Work from a ledger
 
