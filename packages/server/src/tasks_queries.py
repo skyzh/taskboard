@@ -247,7 +247,7 @@ class BoardQueries:
             goal_kind = goal_kinds.get(row["id"])
             if (
                 goal_kind == "standing" and row["state"] == "parked" and row["current_action"] == "add"
-                and note in (goals.LEGACY_GOAL_STEP, goals.STANDING_EXPLORATION)
+                and note in (goals.LEGACY_GOAL_STEP, goals.PREVIOUS_STANDING_EXPLORATION, goals.STANDING_EXPLORATION)
             ):
                 label, note = goals.STANDING_EXPLORATION_LABEL, goals.STANDING_EXPLORATION
             complete, total = progress.get(row["id"], (0, 0))

@@ -538,6 +538,8 @@ def _next_step(name, data, result):
         state = task["state"]
         if task.get("summary_label") == goals.STANDING_EXPLORATION_LABEL:
             return goals.STANDING_EXPLORATION_START
+        if task.get("goal_kind") == "standing" and state == "parked":
+            return goals.STANDING_EXPLORATION
         if state in ("done", "closed"):
             return "Read the final receipt, then check your Inbox for actionable work."
         if state in ("waiting", "parked", "human_review"):

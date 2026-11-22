@@ -843,7 +843,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIsNotNone(self.call(reader, f"/api/v1/assignee?owner={owner}&project=COURSE").get_json()["goal"])
 
     def test_standing_goal_guides_exploration_on_new_and_existing_tickets(self):
-        from tasks_goals import LEGACY_GOAL_STEP, STANDING_EXPLORATION, STANDING_EXPLORATION_START
+        from tasks_goals import LEGACY_GOAL_STEP, PREVIOUS_STANDING_EXPLORATION, STANDING_EXPLORATION, STANDING_EXPLORATION_START
 
         app = self.app(portal_reader=True)
         avery, owner = self.login(app, "Avery")
@@ -873,6 +873,12 @@ class TasksServiceTest(unittest.TestCase):
                 activity = self.call(avery, f"/api/v1/tasks/{reference}/activity").json["items"]
                 created = next(item for item in activity if item["action"] == "add")
                 self.assertEqual(created["note"], stored)
+
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("UPDATE events SET note = ? WHERE task_id = 2 AND action = 'add'", (PREVIOUS_STANDING_EXPLORATION,))
+        wording = "If you open a ticket from this standing goal, add the spontaneous tag."
+        self.assertIn(wording, self.shared_cli(avery, "show", "COURSE-1")[1])
+        self.assertIn(wording, self.shared_cli(avery, "next", "--project", "COURSE")[1])
 
         for reference, note in (("T-3", "Wait for the next sample."), ("T-4", LEGACY_GOAL_STEP)):
             task = self.call(avery, f"/api/v1/tasks/{reference}").json["task"]
@@ -2340,9 +2346,10 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((code, errors), (0, ""))
         self.assertEqual(output.splitlines(), [
             "Committed · COURSE-1 · Completed",
-            "Next: Check your Inbox with `./tasks --shared next --project COURSE`.",
+            "Next: Review unassigned Ready work on COURSE-2 · Shared work. "
+            "Read it with `./tasks --shared next --project COURSE`.",
         ])
-        self.assertEqual(actions, ["context", "advance-task"])
+        self.assertEqual(actions, ["context", "advance-task", "my-next"])
         finished = self.action(owner, "my-queue", query_string={"project": "COURSE", "state": "done"})
         self.assertEqual([row["key"] for row in finished["items"]], ["COURSE-1"])
         self.assertEqual(finished["next_step"], "Review these tickets, or check your Inbox for actionable work.")
@@ -2393,6 +2400,43 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(lost[:2], (1, ""))
         self.assertIn("Shared write outcome unknown.", lost[2])
         self.assertNotIn("Next:", lost[2])
+
+    def test_shared_completion_offers_a_standing_goal_and_preserves_the_receipt_when_next_fails(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        self.login(app, "Blake")
+        self.action(owner, "save-goal", {"kind": "standing", "summary": "Improve handoffs."})
+        goal = self.action(owner, "my-next")["standing_goals"][0]["ticket"]
+
+        for title, command in (("Completed fixture", "done"), ("Handed-off fixture", "transfer"),
+                               ("Next unavailable", "done")):
+            self.action(owner, "create-task", {"title": title, "step": "Check the live path."})
+            ticket = self.action(owner, "my-next")["work"]["key"]
+            self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Start the fixture."})
+            if command == "transfer":
+                args = (command, ticket, "Handed off to the next owner.", "--dri", "Blake")
+            else:
+                args = (command, ticket, "Completed the check.")
+            actions = []
+            unavailable = ("my-next",) if title == "Next unavailable" else ()
+            code, output, error = self.shared_cli(owner, *args, actions=actions, unavailable=unavailable)
+            self.assertEqual((code, error), (0, ""))
+            self.assertTrue(output.startswith(f"Committed · {ticket}"))
+            self.assertEqual(actions[-1], "my-next")
+            if unavailable:
+                self.assertIn("The next item could not be loaded.", output)
+                self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "done")
+            else:
+                self.assertIn(f"Start standing goal {goal}", output)
+                self.assertIn(f"./tasks --shared start {goal}", output)
+                self.assertIn("add the spontaneous tag.", output)
+
+        self.assertEqual(self.shared_cli(owner, "start", goal, "Check one real handoff.")[0], 0)
+        self.assertEqual(self.shared_cli(owner, "park", goal, "Checked the handoff.")[0], 0)
+        self.assertEqual(self.action(owner, "task", query_string={"id": goal})["task"]["state"], "parked")
+        parked = self.shared_cli(owner, "show", goal)[1]
+        self.assertIn("Checked the handoff.", parked)
+        self.assertIn("add the spontaneous tag.", parked)
 
     def test_shared_cli_read_guidance_preserves_plain_and_json_results(self):
         app = self.app(portal_reader=True)
@@ -5606,7 +5650,11 @@ class TasksServiceTest(unittest.TestCase):
         self.action(blake, "advance-task", {"id": "T-2", "transition": "resume", "note": "Updated sample received."})
         self.assertEqual(read(3)["display_state"], "closed")
         self.action(cedar, "peer-ask", result, status=403)
-        self.action(blake, "peer-ask", result)
+        actions = []
+        code, output, error = self.shared_cli(blake, "peer-ask", "result", "T-2", result["note"], actions=actions)
+        self.assertEqual((code, error), (0, ""))
+        self.assertTrue(output.startswith("Committed · T-2"))
+        self.assertEqual(actions, ["context", "peer-ask", "my-next"])
         self.assertIn("Peer result already recorded", self.action(blake, "peer-ask", result)["receipt"])
         self.assertEqual((read(2)["state"], read(2)["dri"]), ("ready", avery_id))
         self.assertEqual((read(1)["state"], read(1)["waiting_on"]), ("waiting", "T-2"))
