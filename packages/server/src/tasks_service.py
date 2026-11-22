@@ -891,15 +891,15 @@ def create_app(
             raise RequestError(str(error), 404) from error
 
     def detail(number, actor):
+        key = actor["ledger_key"] if actor is not None else None
         try:
-            result = query().detail(number, project_extensions=project_extensions)
+            result = query().detail(number, project_extensions=project_extensions, owner=key)
         except ValueError as error:
             raise RequestError(str(error), 404) from error
         task = result["task"]
         if not marketplace and task["key"] == release_queue_ticket:
             result["active_release"] = releases.active_release(db())
         project, _ = projects.identifier(task["key"])
-        key = actor["ledger_key"] if actor is not None else None
         allowed = key is not None and projects.manages(db(), project, key)
         editable = key is not None and (task["dri"] == key or allowed)
         may_close = editable

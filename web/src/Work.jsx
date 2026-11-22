@@ -6,6 +6,7 @@ import ChecklistEdit from './ChecklistEdit.jsx'
 import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
 import { MergeQueue } from './MergeQueue.jsx'
 import ReminderDate from './ReminderDate.jsx'
+import RecurringRuns from './RecurringRuns.jsx'
 import Kanban from './Kanban.jsx'
 import TaskActivityUpdate from './TaskActivityUpdate.jsx'
 import TaskClosure from './TaskClosure.jsx'
@@ -458,6 +459,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
           session={session} revision={revision} onChanged={onChanged} />}
         {task && (
           <div className="ticket-detail-history">
+            <RecurringRuns key={id} history={record.recurring_runs} />
             {session.data?.actor?.kind === 'human' && (
               <details className="ticket-attention">
                 <summary>Attention requests</summary>
