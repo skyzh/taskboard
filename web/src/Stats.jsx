@@ -163,7 +163,6 @@ export default function Stats({ revision }) {
             <option value="day">Past day</option>
             <option value="week">Past week</option>
           </select></label>
-          <button type="button" onClick={resource.retry} disabled={resource.pending}>Refresh</button>
         </div>
       </div>
       <ResourceStatus resource={resource} label="stats" />

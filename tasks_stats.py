@@ -3,6 +3,7 @@
 from collections import Counter
 from datetime import datetime, timezone
 from itertools import groupby
+from math import ceil
 import json
 
 import tasks_profiles as profiles
@@ -192,7 +193,9 @@ def bucket_peaks(intervals, first, width, count):
 
 def snapshot(db, period, now=None, *, base="", watcher_task=None):
     count, width = PERIODS[period]
-    end = int((now or datetime.now(timezone.utc)).timestamp())
+    # Ledger timestamps have whole-second precision. Keep the upper bound
+    # exclusive without dropping events from the current partial second.
+    end = ceil((now or datetime.now(timezone.utc)).timestamp())
     first = end - count * width
     bounds = (utc_text(first), utc_text(end))
     active = bucket_peaks(dri_intervals(db, bounds, end), first, width, count)
