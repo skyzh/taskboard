@@ -1151,10 +1151,10 @@ def create_app(
                     ledger.bump_revision(connection)
 
         server = g.tenant_server if marketplace else (raft_config or {}).get("server_id")
-        raft_url = raft_channels.browser_link(
+        raft_link = raft_channels.browser_link(
             raft_channel_lookup, server, project, raft_channels.saved_channel(db(), project),
         )
-        return project_links.read(db(), project, project_extensions.get(project, {}), raft_url)
+        return project_links.read(db(), project, project_extensions.get(project, {}), raft_link)
 
     @app.get("/api/v1/schedules")
     def schedules():

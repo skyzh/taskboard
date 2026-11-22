@@ -244,8 +244,11 @@ function ProjectLinks({ project, revision }) {
 
   return (
     <nav className="report-project-links" aria-label="Project links">
-      {data.links.map(({ kind, url }) => (
-        <a key={kind} href={url} rel="noreferrer">{projectLinkLabels[kind]}</a>
+      {data.links.map(({ kind, url, name }) => (
+        <a key={kind} href={url} rel="noreferrer">
+          <span className="report-project-mark" data-kind={kind} aria-hidden="true" />
+          <span>{projectLinkLabels[kind]}{name && <> {name}</>}</span>
+        </a>
       ))}
     </nav>
   )

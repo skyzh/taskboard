@@ -38,15 +38,16 @@ def save(db, project, values):
             db.execute("DELETE FROM board_settings WHERE key = ?", (key,))
 
 
-def read(db, project, configured, raft_url):
+def read(db, project, configured, raft_link):
     saved = dict(db.execute("SELECT key, value FROM board_settings WHERE key IN (?, ?)",
                             tuple(setting_key(project, kind) for kind in REPOSITORY_LINKS)).fetchall())
     git_events = configured.get(EVENTS)
     repositories = {kind: saved.get(setting_key(project, kind)) for kind in REPOSITORY_LINKS}
     if git_events and repositories["github"] is None:
         repositories["github"] = git_events.repository
-    links = [{"kind": "raft", "url": raft_url}] if raft_url else []
+    links = [raft_link] if raft_link else []
     for kind, origin in REPOSITORY_LINKS.items():
-        if repositories[kind]:
-            links.append({"kind": kind, "url": origin + repositories[kind]})
+        repository = repositories[kind]
+        if repository:
+            links.append({"kind": kind, "url": origin + repository, "name": repository})
     return {"links": links}

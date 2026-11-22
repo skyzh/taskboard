@@ -5229,13 +5229,13 @@ class TasksServiceTest(unittest.TestCase):
         from tasks_extensions import configuration
 
         channel = str(UUID(int=65))
-        safe_raft = "https://app.raft.build/fixture/channel/" + channel
+        safe_raft = "https://app.raft.build/s/fixture/channel/" + channel
         browser_url, audience = safe_raft, True
 
         def lookup(server, project, requested):
             self.assertEqual((server, requested), (SERVER, channel))
             self.assertIn(project, ("T", "COURSE"))
-            return VerifiedChannel(server, channel, "Fixture channel", True, audience, browser_url)
+            return VerifiedChannel(server, channel, "#coordination", True, audience, browser_url)
 
         configured = configuration('{"T":{"github-events":{"repository":"example/source"}}}')
         app = self.app(portal_reader=True, raft_channel_lookup=lookup, project_extensions=configured)
@@ -5245,9 +5245,9 @@ class TasksServiceTest(unittest.TestCase):
         self.cli("register-project", "T", "Tasks Board", "--dri", identity)
         self.cli("register-project", "COURSE", "Fixture course", "--dri", identity)
         path, course = "/api/v1/projects/T/links", "/api/v1/projects/COURSE/links"
-        github = {"kind": "github", "url": "https://github.com/example/source"}
-        raft = {"kind": "raft", "url": safe_raft}
-        stamp = {"kind": "stamp", "url": "https://stamp.build/github/example/board"}
+        github = {"kind": "github", "url": "https://github.com/example/source", "name": "example/source"}
+        raft = {"kind": "raft", "url": safe_raft, "name": "fixture/coordination"}
+        stamp = {"kind": "stamp", "url": "https://stamp.build/github/example/board", "name": "example/board"}
         self.assertEqual(self.call(portal, path).json, {"links": [github]})
         self.assertEqual(self.call(portal, course).json, {"links": []})
         self.call(portal, "/api/v1/projects/UNKNOWN/links", status=404)
@@ -5264,7 +5264,7 @@ class TasksServiceTest(unittest.TestCase):
         self.call(manager, "/api/v1/projects/COURSE/raft-channel", method="PUT", json={"channel_id": channel})
         self.assertEqual(self.call(portal, course).json, {"links": [raft]})
         self.assertEqual(self.call(manager, course, method="PUT", json={"github": "course/work"}).json,
-                         {"links": [raft, {"kind": "github", "url": "https://github.com/course/work"}]})
+                         {"links": [raft, {"kind": "github", "url": "https://github.com/course/work", "name": "course/work"}]})
 
         audience = False
         self.assertEqual(self.call(portal, path).json, {"links": [github, stamp]})

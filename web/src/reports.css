@@ -6,7 +6,37 @@
   margin-top: 1rem;
   border-top: 1px solid var(--line);
 }
-.report-project-links a { display: inline-flex; align-items: center; min-height: 2.75rem; }
+.report-project-links a {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: .4rem;
+  min-height: 2.75rem;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.report-project-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 1.25rem;
+  height: 1.25rem;
+  border-radius: .25rem;
+  background: var(--green);
+}
+.report-project-mark::before {
+  content: '';
+  width: .875rem;
+  height: .875rem;
+  background: var(--paper);
+  mask: var(--project-mark) center / contain no-repeat;
+}
+.report-project-mark[data-kind="raft"] { --project-mark: url('./project-marks/raft.svg'); }
+.report-project-mark[data-kind="github"] { --project-mark: url('./project-marks/github.svg'); }
+.report-project-mark[data-kind="stamp"] { --project-mark: url('./project-marks/stamp.svg'); }
+@media (max-width: 44rem) {
+  .report-project-links { display: grid; gap: 0; }
+  .report-project-links a { width: 100%; }
+}
 .report-controls label { display: flex; align-items: center; gap: .5rem; color: var(--muted); }
 .reports-layout { display: grid; gap: 1.25rem; }
 .project-reports + .project-reports { margin-top: 1.15rem; padding-top: .85rem; border-top: 1px solid var(--line); }

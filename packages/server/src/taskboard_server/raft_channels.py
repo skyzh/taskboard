@@ -55,9 +55,13 @@ def browser_link(lookup, server_id, project, channel_id):
         url = urlsplit(channel.browser_url)
     except ValueError:
         return None
-    if url.scheme == "https" and url.netloc.lower() in ("raft.build", "app.raft.build"):
-        return channel.browser_url
-    return None
+    if url.scheme != "https" or url.netloc.lower() not in ("raft.build", "app.raft.build"):
+        return None
+    route = url.path.strip("/").split("/")
+    name = channel.name.strip().lstrip("#")
+    if len(route) == 4 and route[0] == "s" and route[2:] == ["channel", channel.channel_id]:
+        name = f"{route[1]}/{name}"
+    return {"kind": "raft", "url": channel.browser_url, "name": name}
 
 
 def describe(lookup, server_id, project, channel_id):

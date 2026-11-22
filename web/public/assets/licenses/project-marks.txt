@@ -1,0 +1,4 @@
+The project links use these marks to identify their destinations.
+Raft: https://docs.raft.build/brand/raft-icon.svg
+GitHub: https://github.com/primer/octicons/blob/main/icons/mark-github-16.svg
+Stamp: https://stamp.build/assets/brand/stamp-logo-mark.svg
