@@ -112,6 +112,8 @@ keep the linked ticket and worker record together.
 
 ## Route requests and wakes
 
+For visible UI changes, follow the [pre-deploy preview instructions](../../skills/taskboard/SKILL.md#build-and-review-changes) when sending the review request.
+
 Follow the [Taskboard skill](../../skills/taskboard/SKILL.md#route-updates-and-requests) for the routing rules. For example, log a linked deployment on its ticket with the verified release link. For a PR follow-up, send the reviewer the direct Stamp review link in Raft. If a teammate needs to answer a question that changes a ticket, leave the answerable action in **Needs me** and use Raft to point them there if a ping is needed.
 
 Use the project's documented Raft conversation for ordinary coordination. Where the integration supports machine delivery, a project can opt in through an approved sender and a verified Raft channel or conversation. Before enabling it, match the project, destination, recipient, and audience to the approved configuration. With no verified destination, leave machine delivery off. Raft sign-in establishes identity. Use the guidance for your setup.
