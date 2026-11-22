@@ -44,9 +44,12 @@ function RunRow({ run, currentTaskId }) {
 
 export default function RecurringRuns({ history }) {
   if (!history) return null
-  const runs = history.next_at
-    ? [{ state: 'scheduled', due_at: history.next_at }, ...history.items]
-    : history.items
+  const current = history.items.find(run => run.task_id === history.current_task_id)
+  const runs = [
+    ...(current ? [current] : []),
+    ...(history.next_at ? [{ state: 'scheduled', due_at: history.next_at }] : []),
+    ...history.items.filter(run => run !== current),
+  ]
   return (
     <details className="recurring-runs">
       <summary>Recent runs</summary>
