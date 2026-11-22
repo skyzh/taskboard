@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useLoadedPages } from './data.js'
 import {
-  ActivityMark, AssigneeAvatar, EvidenceLinks, LoadMore, ResourceStatus, Status, TaskLink, TaskPriority, WorkerResult,
+  ActivityMark, AssigneeAvatar, EvidenceLinks, LoadMore, ResourceStatus, TaskLink, WorkerResult,
   eventHref, ownerHref, profileName, taskHref, taskLabel,
 } from './shared.jsx'
 import './reports.css'
@@ -88,12 +88,13 @@ const goalSections = {
 function ReportGoals({ goals, owner, project, publicPreview, target, highlighted }) {
   return (
     <details className="report-owner-section report-goals-panel"
-      id={target} data-tour-current={highlighted || undefined} open={publicPreview || undefined}>
+      id={target} data-tour-current={highlighted || undefined}>
       <summary>Goals</summary>
       <ul className="report-goals" role="list">
         {goals.map(({ kind, summary, deadline, ticket, public_url: source }) => (
           <li key={ticket || kind + ':' + summary}>
-            <a href={publicPreview ? source : ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{summary}</a>
+            {publicPreview && !source ? <span className="report-goal-text">{summary}</span>
+              : <a href={publicPreview ? source : ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{summary}</a>}
             {kind === 'standing' && <span>Standing goal</span>}
             {deadline && <time dateTime={deadline}>{deadline}</time>}
           </li>
@@ -118,34 +119,14 @@ function ReportOutcome({ event, publicPreview }) {
     <li className="report-outcome" id={`event-${event.id}-outcome`} tabIndex={-1}>
       <ActivityMark event={event} />
       <div className="report-outcome-title">
-        {publicPreview
-          ? <><span className="ticket-id">{event.task_key}</span> <a href={event.public_url}>{event.task_title}</a></>
-          : <TaskLink reference={event.task_key} id={event.task_id} title={event.task_title} />}
+        <TaskLink reference={event.task_key} id={event.task_id} title={event.task_title}
+          publicHref={publicPreview ? event.public_url || null : undefined} />
         {choice && <> · <MarkdownInline text={choice} /></>}
       </div>
       {publicPreview
-        ? <time dateTime={event.at}>{event.at}</time>
+        ? <ReportTime at={event.at} linked />
         : <ReportActivityTime event={event} label={`Open outcome for ${taskLabel(event.task_id, event.task_key)}`} />}
     </li>
-  )
-}
-
-function PreviewWork({ items, label }) {
-  return (
-    <ol className="task-rows" aria-label={label} role="list">
-      {items.map(task => (
-        <li key={task.id} className="task-row report-task snapshot-work-row">
-          <TaskPriority priority={task.priority} strip />
-          <div className="task-row-heading">
-            <a href={task.public_url}><span className="ticket-id">{task.key}</span> {task.title}</a>
-            <div className="task-row-meta"><Status state={task.state} /></div>
-          </div>
-          <div className="task-row-context">
-            <p className="task-row-note">{task.note}</p>
-          </div>
-        </li>
-      ))}
-    </ol>
   )
 }
 
@@ -168,7 +149,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
             </OwnerHeading>
             {projectTitle && <span className="report-project-label">{projectTitle}</span>}
           </div>
-          {entry.last_activity && (
+          {!publicPreview && entry.last_activity && (
             <p className="last-activity">
               Last activity <ReportActivityTime event={entry.last_activity} label="Last activity" />
             </p>
@@ -178,8 +159,8 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
       {tasks.length > 0 && (
         <div className="report-owner-section" id={tourTargets.current} data-tour-current={tourTargets.current === activeTarget && activeTarget ? true : undefined}>
           <WorkHeading>Current work</WorkHeading>
-          {publicPreview ? <PreviewWork items={tasks} label={`Current work for ${name}`} />
-            : <TaskRows items={tasks} owner={false} label={`Current work for ${name}`} report="summary" revision={revision} />}
+          <TaskRows items={tasks} owner={false} label={`Current work for ${name}`} report="summary" revision={revision}
+            publicPreview={publicPreview} />
           {taskCount > tasks.length && <p className="report-note">Showing {tasks.length} of {taskCount} current tasks.</p>}
         </div>
       )}
@@ -198,11 +179,43 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         {outcomes.size > 0 && <a href={ownerHref(owner, 'outcomes-title', project)}>All outcomes</a>}
         <a href={queueLink}>All tasks</a>
       </div>}
-      {reports.length > 0 && (
+      {!publicPreview && reports.length > 0 && (
         <PendingReports owner={owner} project={project} projectTitle={projectTitle} name={name} initial={reports}
           total={reportCount} cursor={before} />
       )}
     </li>
+  )
+}
+
+export function ReportsLayout({ children, sidebar }) {
+  return (
+    <div className={`reports-layout${sidebar ? ' with-sidebar' : ''}`}>
+      <div className="reports-owners">{children}</div>
+      {sidebar}
+    </div>
+  )
+}
+
+export function AssigneeReportList({ entries, label, revision, project, projectTitle, publicPreview,
+  tourOwner, tourTargets, activeTarget }) {
+  if (!entries?.length) return null
+  return (
+    <ol className="report-list" aria-label={label} role="list">
+      {entries.map(entry => (
+        <AssigneeReport key={entry.owner} entry={entry} revision={revision} project={project} projectTitle={projectTitle}
+          publicPreview={publicPreview} tourTargets={entry.owner === tourOwner ? tourTargets : undefined} activeTarget={activeTarget} />
+      ))}
+    </ol>
+  )
+}
+
+export function ReportsHeading({ headingId, projectTitle, children }) {
+  const Heading = projectTitle ? 'h2' : 'h1'
+  return (
+    <div className="page-heading">
+      <Heading id={headingId}>{projectTitle || 'Reports'}</Heading>
+      <div className="report-controls">{children}</div>
+    </div>
   )
 }
 
@@ -214,41 +227,27 @@ function ProjectReports({ revision, project, projectTitle }) {
   const showFilters = view !== 'all' && Boolean(page.data || filter)
   const label = view === 'all' ? 'Assignees' : view === 'active' ? 'Assignees with open work' : 'Other assignees'
   const empty = view === 'all' ? 'No assignees.' : view === 'active' ? 'No open work to report.' : 'No other assignees.'
-  const Heading = projectTitle ? 'h2' : 'h1'
   const headingId = projectTitle ? `reports-${project}` : 'reports'
   return (
     <section className={projectTitle ? 'project-reports' : 'reports'} aria-labelledby={headingId}>
-      <div className="page-heading">
-        <Heading id={headingId}>{projectTitle || 'Reports'}</Heading>
-        <div className="report-controls">
-          {!projectTitle && <a href="#team-overview">Team overview</a>}
-          {showFilters && (
-            <label>
-              Assignees
-              <select value={view} onChange={event => setSelection({ project, view: event.target.value })}>
-                <option value="active">Open work</option>
-                <option value="idle">Other assignees</option>
-              </select>
-            </label>
-          )}
-        </div>
-      </div>
-      <div className="reports-layout">
-        <div className="reports-owners">
-          <ResourceStatus resource={page} label="reports" />
-          {page.data?.items.length === 0 && <p className="section-message" role="status">{empty}</p>}
-          {page.data?.items.length > 0 && (
-            <ol className="report-list" aria-label={label} role="list">
-              {page.data.items.map(entry => (
-                <AssigneeReport key={entry.owner} entry={entry} revision={revision}
-                  project={project} projectTitle={projectTitle} />
-              ))}
-            </ol>
-          )}
-          <LoadMore page={page} label={projectTitle ? `assignees in ${projectTitle}` : 'assignees'} />
-        </div>
-        <QueuedAsks revision={revision} project={project} grouped={Boolean(projectTitle)} />
-      </div>
+      <ReportsHeading headingId={headingId} projectTitle={projectTitle}>
+        {!projectTitle && <a href="#team-overview">Team overview</a>}
+        {showFilters && (
+          <label>
+            Assignees
+            <select value={view} onChange={event => setSelection({ project, view: event.target.value })}>
+              <option value="active">Open work</option>
+              <option value="idle">Other assignees</option>
+            </select>
+          </label>
+        )}
+      </ReportsHeading>
+      <ReportsLayout sidebar={<QueuedAsks revision={revision} project={project} grouped={Boolean(projectTitle)} />}>
+        <ResourceStatus resource={page} label="reports" />
+        {page.data?.items.length === 0 && <p className="section-message" role="status">{empty}</p>}
+        <AssigneeReportList entries={page.data?.items} label={label} revision={revision} project={project} projectTitle={projectTitle} />
+        <LoadMore page={page} label={projectTitle ? `assignees in ${projectTitle}` : 'assignees'} />
+      </ReportsLayout>
     </section>
   )
 }

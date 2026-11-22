@@ -1,0 +1,401 @@
+{
+  "capturedAt": "2026-11-22T04:22:19+00:00",
+  "queuedWaits": 4,
+  "entries": [
+    {
+      "owner": "beacon",
+      "profile": {
+        "name": "Beacon"
+      },
+      "tasks": [
+        {
+          "id": 237,
+          "key": "T-237",
+          "title": "Cut the first real Taskboard server release",
+          "state": "waiting",
+          "priority": "normal",
+          "checklist_total": 4,
+          "checklist_completed": 0
+        },
+        {
+          "id": 234,
+          "key": "T-234",
+          "title": "Run the seven-day Taskboard improvement cycle",
+          "state": "in_progress",
+          "priority": "high",
+          "checklist_total": 4,
+          "checklist_completed": 3
+        }
+      ],
+      "task_count": 2,
+      "goals": [
+        {
+          "kind": "standing",
+          "summary": "Choose the most useful fixes and help the team ship them."
+        },
+        {
+          "kind": "milestone",
+          "summary": "Report the seven-day Taskboard cycle and reconcile the temporary heartbeat",
+          "deadline": "2026-11-28"
+        }
+      ],
+      "recent_outcomes": [
+        {
+          "id": 5398,
+          "task_id": 731,
+          "task_key": "T-731",
+          "task_title": "Rewrite the squad’s standing goals in one plain sentence each",
+          "at": "2026-11-22T01:56:33Z",
+          "action": "done"
+        },
+        {
+          "id": 5396,
+          "task_id": 78,
+          "task_key": "T-78",
+          "task_title": "Roll out reviewed Tasks Board updates to the Pi",
+          "at": "2026-11-22T01:54:41Z",
+          "action": "done"
+        },
+        {
+          "id": 5087,
+          "task_id": 238,
+          "task_key": "T-238",
+          "task_title": "Move Taskboard development to GitHub at the 8 p.m. freeze",
+          "at": "2026-11-22T00:25:53Z",
+          "action": "done"
+        }
+      ]
+    },
+    {
+      "owner": "gauge",
+      "profile": {
+        "name": "Gauge"
+      },
+      "tasks": [
+        {
+          "id": 784,
+          "key": "T-784",
+          "title": "Let the Raft extension bind a Taskboard project to a coordination channel",
+          "state": "in_progress",
+          "priority": "normal",
+          "checklist_total": 3,
+          "checklist_completed": 1
+        },
+        {
+          "id": 789,
+          "key": "T-789",
+          "title": "Verify first-party Raft wake integration with and without Stamp",
+          "state": "in_progress",
+          "priority": "normal",
+          "checklist_total": 3,
+          "checklist_completed": 1
+        },
+        {
+          "id": 779,
+          "key": "T-779",
+          "title": "Nudge named reviewers for pending Stamp PR reviews",
+          "state": "in_progress",
+          "priority": "normal",
+          "checklist_total": 3,
+          "checklist_completed": 2
+        }
+      ],
+      "task_count": 3,
+      "goals": [
+        {
+          "kind": "standing",
+          "summary": "Make work easy to find, review, and hand off."
+        },
+        {
+          "kind": "milestone",
+          "summary": "Record the reviewed Taskboard freeze checkpoint",
+          "deadline": "2026-11-21"
+        }
+      ],
+      "recent_outcomes": [
+        {
+          "id": 5963,
+          "task_id": 771,
+          "task_key": "T-771",
+          "task_title": "Let ticket owners edit, reopen, add, and remove checklist steps",
+          "at": "2026-11-22T04:20:00Z",
+          "action": "done"
+        },
+        {
+          "id": 5692,
+          "task_id": 751,
+          "task_key": "T-751",
+          "task_title": "Run Python, JavaScript and HTML lint checks in CI",
+          "at": "2026-11-22T03:11:03Z",
+          "action": "done"
+        },
+        {
+          "id": 5654,
+          "task_id": 740,
+          "task_key": "T-740",
+          "task_title": "Keep loaded Tasks results when returning from a ticket",
+          "at": "2026-11-22T02:57:27Z",
+          "action": "done",
+          "public_url": "https://github.com/skyzh/taskboard/pull/26"
+        }
+      ]
+    },
+    {
+      "owner": "herald",
+      "profile": {
+        "name": "Herald"
+      },
+      "tasks": [
+        {
+          "id": 770,
+          "key": "T-770",
+          "title": "Show ticket edits in Activity with useful labels and details",
+          "state": "waiting",
+          "priority": "normal",
+          "checklist_total": 0,
+          "checklist_completed": 0,
+          "note": "Gauge is checking the Activity display built on the merged checklist changes.",
+          "public_url": "https://github.com/skyzh/taskboard/pull/53"
+        },
+        {
+          "id": 768,
+          "key": "T-768",
+          "title": "Organize root Markdown and remove obsolete guides",
+          "state": "waiting",
+          "priority": "normal",
+          "checklist_total": 0,
+          "checklist_completed": 0,
+          "note": "Loom is reviewing the guide moves and package-era references.",
+          "public_url": "https://github.com/skyzh/taskboard/pull/42"
+        },
+        {
+          "id": 183,
+          "key": "T-183",
+          "title": "Use the signed-in human’s verified Raft profile photo on Taskboard",
+          "state": "waiting",
+          "priority": "normal",
+          "checklist_total": 0,
+          "checklist_completed": 0
+        },
+        {
+          "id": 783,
+          "key": "T-783",
+          "title": "Define which notifications belong in Taskboard and Raft and document the routing",
+          "state": "in_progress",
+          "priority": "normal",
+          "checklist_total": 0,
+          "checklist_completed": 0,
+          "public_url": "https://github.com/skyzh/taskboard/pull/46"
+        }
+      ],
+      "task_count": 4,
+      "goals": [
+        {
+          "kind": "standing",
+          "summary": "Make activity, notifications, and profiles clear."
+        },
+        {
+          "kind": "milestone",
+          "summary": "Checkpoint reviewed Notifications and the development log for the 8 p.m. Pacific cutover",
+          "deadline": "2026-11-21"
+        }
+      ],
+      "recent_outcomes": [
+        {
+          "id": 5904,
+          "task_id": 773,
+          "task_key": "T-773",
+          "task_title": "Show the same live Reports view on desktop and phone in the public README",
+          "at": "2026-11-22T04:06:21Z",
+          "action": "done"
+        },
+        {
+          "id": 5884,
+          "task_id": 766,
+          "task_key": "T-766",
+          "task_title": "Show how long a queued ask has waited in Reports",
+          "at": "2026-11-22T04:01:59Z",
+          "action": "done"
+        },
+        {
+          "id": 5756,
+          "task_id": 749,
+          "task_key": "T-749",
+          "task_title": "Add a Taskboard banner and screenshots to the public README",
+          "at": "2026-11-22T03:31:14Z",
+          "action": "done"
+        }
+      ]
+    },
+    {
+      "owner": "loom",
+      "profile": {
+        "name": "Loom"
+      },
+      "tasks": [
+        {
+          "id": 780,
+          "key": "T-780",
+          "title": "Diagnose automatic Pi rollout stopping after build staging",
+          "state": "waiting",
+          "priority": "high",
+          "checklist_total": 0,
+          "checklist_completed": 0,
+          "public_url": "https://github.com/skyzh/taskboard/pull/50"
+        },
+        {
+          "id": 775,
+          "key": "T-775",
+          "title": "Build the extension framework with a GitHub merge and deployment extension",
+          "state": "in_progress",
+          "priority": "normal",
+          "checklist_total": 0,
+          "checklist_completed": 0,
+          "note": "Trace the existing GitHub status and verified release records. Agree on the linked-item response before implementing project rules."
+        }
+      ],
+      "task_count": 2,
+      "goals": [
+        {
+          "kind": "standing",
+          "summary": "Keep Taskboard data, sign-in, API, and CLI reliable."
+        }
+      ],
+      "recent_outcomes": [
+        {
+          "id": 5804,
+          "task_id": 750,
+          "task_key": "T-750",
+          "task_title": "Publish a static Taskboard Summary demo with a short guided tour",
+          "at": "2026-11-22T03:46:05Z",
+          "action": "done",
+          "public_url": "https://github.com/skyzh/taskboard/pull/41"
+        },
+        {
+          "id": 5791,
+          "task_id": 747,
+          "task_key": "T-747",
+          "task_title": "Separate Taskboard into CLI, MCP, shared client, and server packages",
+          "at": "2026-11-22T03:40:25Z",
+          "action": "done"
+        },
+        {
+          "id": 5589,
+          "task_id": 741,
+          "task_key": "T-741",
+          "task_title": "Turn pasted task and PR links into clear ticket references",
+          "at": "2026-11-22T02:38:52Z",
+          "action": "done",
+          "public_url": "https://github.com/skyzh/taskboard/pull/23"
+        }
+      ]
+    },
+    {
+      "owner": "prism",
+      "profile": {
+        "name": "Prism"
+      },
+      "tasks": [
+        {
+          "id": 778,
+          "key": "T-778",
+          "title": "Show queued and active peer requests on each person’s Summary card",
+          "state": "waiting",
+          "priority": "normal",
+          "checklist_total": 0,
+          "checklist_completed": 0,
+          "public_url": "https://github.com/skyzh/taskboard/pull/49"
+        },
+        {
+          "id": 776,
+          "key": "T-776",
+          "title": "Show linked GitHub issues and pull request status on the ticket page",
+          "state": "waiting",
+          "priority": "normal",
+          "checklist_total": 0,
+          "checklist_completed": 0,
+          "public_url": "https://github.com/skyzh/taskboard/pull/43"
+        },
+        {
+          "id": 777,
+          "key": "T-777",
+          "title": "Hide the old Merge queue panel on GitHub-backed projects",
+          "state": "in_progress",
+          "priority": "normal",
+          "checklist_total": 0,
+          "checklist_completed": 0
+        },
+        {
+          "id": 772,
+          "key": "T-772",
+          "title": "Give task progress bars a glossy blue-gray fill",
+          "state": "in_progress",
+          "priority": "normal",
+          "checklist_total": 0,
+          "checklist_completed": 0
+        },
+        {
+          "id": 788,
+          "key": "T-788",
+          "title": "Critique and design a two-column full-ticket view for wide screens",
+          "state": "in_progress",
+          "priority": "normal",
+          "checklist_total": 0,
+          "checklist_completed": 0,
+          "note": "I’m comparing the current ticket layout at desktop and phone widths and sketching where metadata, action and Activity should sit for sparse, long and decision-ready tickets."
+        },
+        {
+          "id": 786,
+          "key": "T-786",
+          "title": "Render the public demo from the same React Reports Summary as the live app",
+          "state": "in_progress",
+          "priority": "normal",
+          "checklist_total": 0,
+          "checklist_completed": 0,
+          "note": "I’m comparing the public snapshot’s Summary markup with the live Reports component, then I’ll test shared rendering with the demo’s offline payload and navigation."
+        }
+      ],
+      "task_count": 6,
+      "goals": [
+        {
+          "kind": "standing",
+          "summary": "Make Taskboard easy to use on any screen."
+        },
+        {
+          "kind": "milestone",
+          "summary": "Checkpoint reviewed frontend changes for the Taskboard cutover",
+          "deadline": "2026-11-21"
+        }
+      ],
+      "recent_outcomes": [
+        {
+          "id": 5924,
+          "task_id": 769,
+          "task_key": "T-769",
+          "task_title": "Suggest matching tickets while typing in Search",
+          "at": "2026-11-22T04:11:43Z",
+          "action": "done",
+          "public_url": "https://github.com/skyzh/taskboard/pull/39"
+        },
+        {
+          "id": 5863,
+          "task_id": 743,
+          "task_key": "T-743",
+          "task_title": "Add a small set of keyboard shortcuts to Taskboard",
+          "at": "2026-11-22T03:57:00Z",
+          "action": "done",
+          "public_url": "https://github.com/skyzh/taskboard/pull/33"
+        },
+        {
+          "id": 5843,
+          "task_id": 767,
+          "task_key": "T-767",
+          "task_title": "Use one page scrollbar and pin navigation on iOS",
+          "at": "2026-11-22T03:52:18Z",
+          "action": "done",
+          "public_url": "https://github.com/skyzh/taskboard/pull/36"
+        }
+      ]
+    }
+  ]
+}

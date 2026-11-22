@@ -15,6 +15,12 @@ test('Reports leads with the explicit next step and keeps the wait condition', (
   assert.equal(withoutRepeatedTitle('Inspect imports.', 'Inspect'), 'Inspect imports.')
 })
 
+test('Reports can render a published task with no work note', () => {
+  assert.deepEqual(reportTaskCue({ title: 'Review the import', state: 'waiting' }), {
+    text: '', label: undefined,
+  })
+})
+
 test('Activity omits worker envelopes and keeps concrete findings', () => {
   const task_title = 'Review sample'
   assert.equal(activityResult({
