@@ -308,6 +308,8 @@ h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
 .task-dependency { color: var(--muted); font-size: .81rem; }
 .task-dependency + .task-row-note { margin-top: .12rem; }
 .task-progress {
+  --task-progress-track: #e5edf5;
+  --task-progress-fill: linear-gradient(180deg, #7890a7 0%, #55728e 44%, #344e68 62%, #405b75 100%);
   grid-area: progress;
   display: inline-flex;
   align-items: center;
@@ -321,14 +323,14 @@ h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
   appearance: none;
   width: 3.3rem;
   min-width: .8rem;
-  height: .22rem;
+  height: .28rem;
   border: 0;
   border-radius: 1rem;
-  background: #ecf3fb;
+  background: var(--task-progress-track);
 }
-.task-progress progress::-webkit-progress-bar { border-radius: 1rem; background: #ecf3fb; }
-.task-progress progress::-webkit-progress-value { border-radius: 1rem; background: #b9d9f8; }
-.task-progress progress::-moz-progress-bar { border-radius: 1rem; background: #b9d9f8; }
+.task-progress progress::-webkit-progress-bar { border-radius: 1rem; background: var(--task-progress-track); }
+.task-progress progress::-webkit-progress-value { border-radius: 1rem; background: var(--task-progress-fill); }
+.task-progress progress::-moz-progress-bar { border-radius: 1rem; background: var(--task-progress-fill); }
 .dri-task-state {
   display: inline-flex;
   align-items: center;
