@@ -28,6 +28,7 @@ Read the assigned task and its latest evidence. State the result a person should
 ## Keep the work in Tasks
 
 - Write a ticket the way you would write a Jira ticket or GitHub issue. Record the original problem, why it matters, and the intended result in the brief. Keep current facts, the next action, and evidence on the ticket as you learn. Finish with the solution or decision and how it was verified. A teammate should be able to resume from the ticket without reconstructing the work from chat.
+- Before closing a design, critique, or investigation, compare the accepted result with the original request. Put any agreed next action on an existing or new ticket, give it an owner, and link it in the completion receipt. For an open proposal, record the decision needed and who can make it in the existing decision workflow. Finish normally when the result covers the request.
 - When a decision changes scope, check related active tickets for conflicts. The project DRI applies the latest explicit decision to the title, brief, checklist, and next step. If the ticket cannot be edited, create one linked replacement and have its owner park the old ticket as superseded. Carry forward existing work and evidence, notify affected owners, and verify the queue points to the current instruction.
 - Add a short checklist for work with several observable milestones. Set it at start or add it when a small task grows. Check a step when it is verified and show the current step or actual blocker beside the progress count. Use the project’s threshold for when to add a checklist.
 
