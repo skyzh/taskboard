@@ -10,6 +10,7 @@ from tasks_core import live_board_url
 from tasks_extensions import configuration
 from tasks_github import GitHubReader
 from tasks_github_extensions import refresh
+from tasks_stamp import StampReader, refresh_approvals
 from tasks_storage import Postgres, open_sqlite
 
 
@@ -20,6 +21,7 @@ def main():
     ledger.add_argument("--postgres", action="store_true", help="Use TASKS_POSTGRES_DSN.")
     parser.add_argument("--active-release", type=Path,
                         help="The operator's active release directory for verified Pi deployment evidence.")
+    parser.add_argument("--stamp-pull", help="Read the formal Stamp approvals for this linked GitHub pull request.")
     args = parser.parse_args()
     try:
         configured = configuration(os.environ.get("TASKS_PROJECT_EXTENSIONS"))
@@ -39,7 +41,10 @@ def main():
             url = live_board_url(db)
             if not url:
                 raise ValueError("Initialize the shared board before refreshing its extensions.")
-            report = refresh(db, GitHubReader(), configured, release_source=args.active_release, board_url=url)
+            if args.stamp_pull:
+                report = {"stamp": refresh_approvals(db, StampReader(), configured, args.stamp_pull), "errors": []}
+            else:
+                report = refresh(db, GitHubReader(), configured, release_source=args.active_release, board_url=url)
     except (OSError, RuntimeError, ValueError) as error:
         parser.exit(1, f"Refresh Taskboard extensions: {error}\n")
     print(json.dumps(report, sort_keys=True))

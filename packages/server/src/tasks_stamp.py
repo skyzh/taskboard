@@ -6,8 +6,11 @@ import re
 import subprocess
 from urllib.parse import urlsplit
 
-from tasks_extensions import COMMIT
-from tasks_github import _source, repository
+import tasks_core as ledger
+from tasks_extensions import COMMIT, STAMP_REVIEWS, record_observation
+from tasks_github import _source, linked_source, repository
+import tasks_peer_asks as peer_asks
+import tasks_storage
 
 
 RECEIPT = re.compile(r"[0-9a-f]{32}")
@@ -89,3 +92,58 @@ class StampReader:
         except ValueError as error:
             raise ValueError("Stamp did not return a structured pull request view.") from error
         return approvals(document, item)
+
+
+def linked_tickets(db, url, repo, configured):
+    return [row for row in db.execute(
+        """SELECT tasks.id, tasks.project_prefix, MIN(sources.id) AS source_id
+           FROM sources JOIN task_sources ON task_sources.source_id = sources.id
+           JOIN tasks ON tasks.id = task_sources.task_id
+           WHERE sources.kind = 'github' AND LOWER(RTRIM(sources.target, '/')) = ?
+           GROUP BY tasks.id, tasks.project_prefix ORDER BY tasks.id""", (url,),
+    ) if configured.get(row["project_prefix"], {}).get(STAMP_REVIEWS) == repo]
+
+
+def refresh_approvals(db, reader, configured, pull):
+    """Record a linked approval and apply it to the exact current peer request."""
+    key, url = linked_source(pull)
+    item = _source(url)
+    if item.kind != "pull":
+        raise ValueError("Stamp reviews require an explicitly linked pull request.")
+    repo = repository(item)
+    result = {"recorded": 0, "ready_for_acknowledgment": 0}
+    if not linked_tickets(db, url, repo, configured):
+        return result
+    observations = reader.approvals(url)
+    with tasks_storage.write(db):
+        for row in linked_tickets(db, url, repo, configured):
+            for approval in observations:
+                person = db.execute(
+                    """SELECT ledger_key, COALESCE(NULLIF(name, ''), NULLIF(username, ''), ledger_key) AS name
+                       FROM board_principals WHERE server_id = ? AND kind = 'agent' AND subject = ?""",
+                    (approval.server, approval.reviewer),
+                ).fetchone()
+                if person is None:
+                    continue
+                verdict = {"id": approval.evidence_id, "pull": key, "head": approval.head,
+                           "base": approval.base, "verdict": "approved", "reviewer": person["ledger_key"]}
+                note = f"{person['name']} approved the linked pull request in Stamp."
+                recorded = record_observation(
+                    db, row["id"], row["source_id"], f"stamp-approval:{approval.evidence_id}",
+                    "Stamp", note, [("Stamp approval", approval.evidence_url)],
+                    {"extension": STAMP_REVIEWS, "stamp_verdict": verdict},
+                )
+                result["recorded"] += int(recorded is not None)
+                if approval.ready_to_merge:
+                    task = recorded[0] if recorded is not None else ledger.get_task(db, row["id"])
+                    ask = peer_asks.current_wait(db, task)
+                    if ask and peer_asks.apply_stamp_verdict(
+                        db, ask["task_id"], pull=key, reviewer=person["ledger_key"], verdict="approved",
+                        head=approval.head, base=approval.base, evidence_id=approval.evidence_id,
+                        evidence_url=approval.evidence_url, current_head=approval.head,
+                        current_base=approval.base, checks_passed=True,
+                    ):
+                        result["ready_for_acknowledgment"] += 1
+        if any(result.values()):
+            ledger.bump_revision(db)
+    return result
