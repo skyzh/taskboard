@@ -1,0 +1,47 @@
+name: T-994 iOS Safari comparison
+
+on:
+  push:
+    branches: [agent/prism/t994-ios-safari]
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: macos-26
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 4
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.3'
+          package-manager-cache: false
+      - name: Build both exact revisions
+        env:
+          BASE: 4da8ecd9eddc588681e7b3866b75ac32c9e810ec
+          CANDIDATE: 52f8ece30e08c6439578fdeca1346b01bc968aea
+        run: |
+          test "$(git rev-parse HEAD^)" = "$CANDIDATE"
+          test "$(git rev-parse "$CANDIDATE^")" = "$BASE"
+          git diff --exit-code "$CANDIDATE" HEAD -- web packages
+          git worktree add --detach "$RUNNER_TEMP/t994-before" "$BASE"
+          npm --prefix "$RUNNER_TEMP/t994-before/web" ci --no-audit --no-fund
+          npm --prefix "$RUNNER_TEMP/t994-before/web" run build
+          npm --prefix web ci --no-audit --no-fund
+          npm --prefix web run build
+          before="$RUNNER_TEMP/t994-before/web/dist"
+          mkdir -p "$RUNNER_TEMP/t994-evidence"
+          printf '%s\n%s\n' "$BASE" "$CANDIDATE" > "$RUNNER_TEMP/t994-evidence/revisions.txt"
+          shasum -a 256 "$before"/assets/index-* web/dist/assets/index-* | tee "$RUNNER_TEMP/t994-evidence/frontend.sha256"
+      - name: Capture both layouts in Safari on iPhone 17
+        run: bash tools/t994-safari/capture.sh "$RUNNER_TEMP/t994-before/web/dist" web/dist "$RUNNER_TEMP/t994-evidence"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: t994-safari-comparison
+          path: ${{ runner.temp }}/t994-evidence/
+          retention-days: 7
