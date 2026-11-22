@@ -9,6 +9,9 @@
 .stamp-integration form { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
 .stamp-integration label { display: grid; gap: .25rem; width: min(100%, 28rem); }
 .stamp-integration input { width: 100%; }
+@media (pointer: coarse), (max-width: 44rem) {
+  .stamp-integration :is(input, button) { min-block-size: 2.75rem; font-size: max(1rem, 1em); }
+}
 .report-project-links {
   display: flex;
   flex-wrap: wrap;

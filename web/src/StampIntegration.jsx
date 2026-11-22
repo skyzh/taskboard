@@ -18,6 +18,7 @@ export default function StampIntegration({ project, revision }) {
   if (!data) return null
 
   const value = pull ?? data.pull ?? ''
+  const showsRecoveryError = result?.status === 502 || result?.status === 503
   async function check(event) {
     event.preventDefault()
     setPending(true)
@@ -26,7 +27,7 @@ export default function StampIntegration({ project, revision }) {
       const { result: outcome } = await request(path, { body: { pull: value.trim() } })
       setResult({ message: `Recorded ${outcome.recorded} approvals. Returned ${outcome.ready_for_acknowledgment} review requests.` })
     } catch (error) {
-      setResult({ error: error.message })
+      setResult({ error: error.message, status: error.status })
     } finally {
       setPending(false)
       retry()
@@ -40,8 +41,8 @@ export default function StampIntegration({ project, revision }) {
       {data.checked_at && <p>Last check <ReportTime at={data.checked_at} /></p>}
       {data.state === 'failing' && data.succeeded_at && <p>Last success <ReportTime at={data.succeeded_at} /></p>}
       {data.state === 'unconfigured' && <p>Ask the board operator to configure the project repository and a repository-scoped Stamp reader.</p>}
-      {data.failure === 'reader_unavailable' && <p>Ask the board operator to install the Stamp CLI and check the service PATH.</p>}
-      {data.failure === 'read_failed' && <p>Ask the board operator to verify Stamp read access to the repository and check provider availability.</p>}
+      {!showsRecoveryError && data.failure === 'reader_unavailable' && <p>Ask the board operator to install the Stamp CLI and check the service PATH.</p>}
+      {!showsRecoveryError && data.failure === 'read_failed' && <p>Ask the board operator to verify Stamp read access to the repository and check provider availability.</p>}
       {data.repository && (
         <form onSubmit={check}>
           <label>
