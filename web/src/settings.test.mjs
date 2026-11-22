@@ -12,6 +12,7 @@ import { browserTimeZone } from './timeZone.js'
 let vite
 let Profile
 let Settings
+let CodexUsageDetails
 
 before(async () => {
   vite = await createServer({
@@ -22,12 +23,33 @@ before(async () => {
   })
   Profile = (await vite.ssrLoadModule('/src/Profile.jsx')).default
   Settings = (await vite.ssrLoadModule('/src/Settings.jsx')).default
+  CodexUsageDetails = (await vite.ssrLoadModule('/src/CodexUsage.jsx')).CodexUsageDetails
 })
 after(() => vite?.close())
 
 const theme = { mode: 'day', preference: '' }
 const agent = { data: { actor: { id: 'Avery', name: 'Avery', kind: 'agent' } } }
 const portal = { data: { actor: { name: 'Portal reader', kind: 'portal' }, sign_in_available: true } }
+
+test('private quota presentation separates paid and reset credits, including unavailable values', () => {
+  const usage = {
+    sample: true, captured_at: '2026-11-01T12:00:00Z',
+    buckets: [{ label: 'Codex', primary: { remaining_percent: 73.5, duration_minutes: 300, resets_at: null },
+      secondary: { remaining_percent: 0, duration_minutes: 10080, resets_at: 1793548800 } }],
+    paid_balance: '25.50', paid_unlimited: false, reset_credits: 0,
+  }
+  const html = renderToStaticMarkup(React.createElement(CodexUsageDetails, { usage }))
+  assert.match(html, /Sample data/)
+  assert.match(html, /5-hour window.*73.5% remaining.*Reset time unavailable/)
+  assert.match(html, /7-day window.*>0% remaining.*Resets/)
+  assert.match(html, /<dt>Paid credits<\/dt><dd>25.50<\/dd>/)
+  assert.match(html, /<dt>Rate-limit reset credits<\/dt><dd>0<\/dd>/)
+  const unlimited = renderToStaticMarkup(React.createElement(CodexUsageDetails, {
+    usage: { ...usage, paid_unlimited: true, reset_credits: null },
+  }))
+  assert.match(unlimited, /<dt>Paid credits<\/dt><dd>Unlimited<\/dd>/)
+  assert.match(unlimited, /<dt>Rate-limit reset credits<\/dt><dd>Unavailable<\/dd>/)
+})
 
 test('pre-paint scheme and React agree on explicit, system and unavailable storage', () => {
   const script = readFileSync(new URL('../public/assets/theme.js', import.meta.url), 'utf8')

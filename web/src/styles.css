@@ -718,6 +718,14 @@ button:disabled { opacity: .57; }
 .ownership-form :is(input, select, textarea) { max-width: 100%; }
 .settings { max-width: 34rem; }
 .settings-panel + .settings-panel { margin-top: .75rem; }
+.codex-usage { display: grid; grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr); gap: .45rem .8rem; }
+.codex-usage dt { font-weight: var(--weight-emphasis); overflow-wrap: anywhere; }
+.codex-usage dd { margin: 0; }
+.codex-usage dd div { display: grid; gap: .15rem; margin-bottom: .35rem; }
+@media (max-width: 32rem) {
+  .codex-usage { grid-template-columns: minmax(0, 1fr); gap: .2rem; }
+  .codex-usage dd + dt { margin-top: .5rem; }
+}
 .settings-preference {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
