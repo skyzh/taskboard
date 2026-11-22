@@ -248,7 +248,7 @@ export function taskState(task) {
   return task.display_state || (task.context?.closure ? 'closed' : task.state)
 }
 
-export function TaskPriority({ priority, strip = false }) {
+export function TaskPriority({ priority, strip = false, short = false }) {
   const level = priority === 'high' || priority === 'low' ? priority : 'normal'
   const [name, segments] = { high: ['High', 3], normal: ['Normal', 2], low: ['Low', 1] }[level]
   const label = `Priority ${name}`
@@ -259,6 +259,7 @@ export function TaskPriority({ priority, strip = false }) {
       </span>
     )
   }
+  if (short) return <span className="task-priority"><span className="report-priority-accessible">Priority </span>{name}</span>
   return <span className="task-priority">{label}</span>
 }
 
@@ -344,7 +345,7 @@ export function Assignee({ task, compact = false }) {
   )
 }
 
-export function Dependency({ task, publicPreview = false }) {
+export function Dependency({ task, publicPreview = false, inlineWaiting = false }) {
   if (task.blockers) {
     const { tickets, cycle } = task.blockers
     return (
@@ -362,7 +363,8 @@ export function Dependency({ task, publicPreview = false }) {
     )
   }
   if (!task.waiting_on) return null
-  return <span>{waitLabel(task)} <strong>{profileName(task.waiting_on, task.waiting_profile)}</strong></span>
+  const label = waitLabel(task)
+  return <span>{inlineWaiting && label === 'Waiting on' ? 'on' : label} <strong>{profileName(task.waiting_on, task.waiting_profile)}</strong></span>
 }
 
 export function addFilterName(filters, key, profile) {

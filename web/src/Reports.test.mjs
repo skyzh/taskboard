@@ -140,7 +140,7 @@ test('Reports lead with progress and link to goals, outcomes and exact activity 
   assert.match(primary, /<time datetime="2026-11-20T21:00:00Z"/i)
   assert.match(primary, /href="#dri=Avery&amp;section=ready-title&amp;project=COURSE">Ready <strong>27<\/strong>/)
   assert.match(primary, /href="#event-34-log"/)
-  assert.match(primary, /class="status waiting report-status"><span>Waiting<\/span><\/span>/)
+  assert.match(primary, /class="report-waiting-line"><span class="status waiting">Waiting<\/span>/)
   assert.match(primary, /class="status in_progress report-status"><span>In progress<\/span><\/span>/)
   assert.equal((primary.match(/class="status in_progress/g) || []).length, 4)
   assert.doesNotMatch(primary, /human_review-title|waiting-title|now-title|example\.test|Current step|Unblock condition/)

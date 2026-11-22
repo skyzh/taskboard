@@ -44,6 +44,20 @@ test('task rows distinguish labelled priorities by segment count and keep the de
   assert.match(label, />Priority High</)
 })
 
+test('Summary rows show priority words and put a single waiting label before the update', () => {
+  const renderSummary = record => renderToStaticMarkup(React.createElement(TaskRow, {
+    task: record, owner: false, report: 'summary',
+  }))
+  const waiting = renderSummary({ ...task, priority: 'high', state: 'waiting',
+    wait_kind: 'person', waiting_on: 'Morgan',
+  })
+  assert.match(waiting, /class="task-priority"><span[^>]+>Priority <\/span>High<\/span>/)
+  assert.match(waiting, /class="report-waiting-line"><span class="status waiting">Waiting<\/span><span class="task-dependency"><span>on <strong>Morgan<\/strong>/)
+  assert.ok(waiting.indexOf('report-waiting-line') < waiting.indexOf('Check the rollback plan.'))
+  assert.doesNotMatch(waiting, /task-priority-strip/)
+  assert.match(renderSummary(task), /class="report-priority-accessible">Priority Normal<\/span>/)
+})
+
 test('checklist counts remain visible and the report checklist remains an accessible disclosure', () => {
   const row = renderToStaticMarkup(React.createElement(TaskRow, { task, owner: false, report: true }))
   assert.match(row, /<button[^>]+aria-expanded="false"[^>]+aria-controls="row-checklist-43"[^>]+aria-label="Checklist for COURSE-4, 2 of 5 complete"/)
