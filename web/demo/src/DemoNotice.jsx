@@ -1,4 +1,4 @@
-import React, { useId, useRef, useState } from 'react'
+import React, { useEffect, useId, useRef, useState } from 'react'
 import { DemoControlDescription } from '../../src/DemoControl.jsx'
 
 const notice = 'This is a demo. Some Taskboard features are unavailable here.'
@@ -14,17 +14,28 @@ export default function DemoNotice({ children }) {
   const dialog = useRef(null)
   const invoker = useRef(null)
   const pointer = useRef(null)
+  const tooltipElement = useRef(null)
   const [tooltip, setTooltip] = useState(null)
   const [destination, setDestination] = useState(null)
 
-  function showTooltip(element) {
+  useEffect(() => {
+    if (!tooltip) return
+    function dismiss(event) {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      setTooltip(null)
+    }
+    document.addEventListener('keydown', dismiss, true)
+    return () => document.removeEventListener('keydown', dismiss, true)
+  }, [tooltip])
+
+  function showTooltip(element, touch = false) {
     const bounds = element.getBoundingClientRect()
-    setTooltip({
-      '--demo-notice-left': `${bounds.left}px`,
-      ...(bounds.bottom + 90 < window.innerHeight
-        ? { top: bounds.bottom + 6 }
-        : { bottom: window.innerHeight - bounds.top + 6 }),
-    })
+    const vertical = bounds.bottom + 90 < window.innerHeight
+      ? { top: bounds.bottom }
+      : { bottom: window.innerHeight - bounds.top }
+    setTooltip({ touch, style: { '--demo-notice-left': `${bounds.left}px`, ...vertical } })
   }
 
   function activate(event) {
@@ -44,7 +55,7 @@ export default function DemoNotice({ children }) {
       setTooltip(null)
       dialog.current.showModal()
     } else if (touch) {
-      showTooltip(element)
+      showTooltip(element, true)
     }
   }
 
@@ -65,21 +76,21 @@ export default function DemoNotice({ children }) {
       }}
       onPointerOut={event => {
         const element = control(event.target)
-        if (element && event.pointerType !== 'touch' && element !== control(event.relatedTarget)) {
+        const next = event.relatedTarget
+        if (element && event.pointerType !== 'touch' && element !== control(next)
+          && !(next instanceof Node && tooltipElement.current.contains(next))) {
           setTooltip(null)
         }
       }}
       onPointerDownCapture={event => { pointer.current = event.pointerType }}
-      onClickCapture={activate}
-      onKeyDownCapture={event => {
-        if (event.key === 'Escape' && tooltip) {
-          event.stopPropagation()
-          setTooltip(null)
-        }
-      }}>
+      onClickCapture={activate}>
         {children}
       </div>
-      <div id={description} className="demo-tooltip" role="tooltip" hidden={!tooltip} style={tooltip ?? undefined}>
+      <div id={description} ref={tooltipElement} className="demo-tooltip" role="tooltip" hidden={!tooltip}
+        style={tooltip?.style} data-touch={tooltip?.touch || undefined}
+        onPointerLeave={event => {
+          if (!control(event.relatedTarget)) setTooltip(null)
+        }}>
         {notice}
       </div>
       <dialog ref={dialog} className="demo-dialog" aria-labelledby={title} aria-describedby={message}

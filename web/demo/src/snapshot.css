@@ -41,8 +41,8 @@ button[data-demo-unavailable] {
   color: var(--ink);
   box-shadow: 0 .2rem .75rem rgb(0 0 0 / .2);
   font-size: .82rem;
-  pointer-events: none;
 }
+.demo-tooltip[data-touch] { pointer-events: none; }
 .demo-dialog {
   width: min(22rem, calc(100% - 2rem));
   padding: 1rem;
