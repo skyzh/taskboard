@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { request } from './data.js'
-
-const titleLimit = 60
+import { TASK_TITLE_LIMIT } from './workCopy.js'
 
 export default function TaskDetailsEdit({ task, brief, onChanged }) {
   const [draft, setDraft] = useState({})
@@ -14,7 +13,7 @@ export default function TaskDetailsEdit({ task, brief, onChanged }) {
     ...(draft.title != null && title.trim() !== task.title && { title: title.trim() }),
     ...(draft.brief != null && instructions.trim() !== (brief ?? '') && { brief: instructions.trim() }),
   }
-  const overLimit = changed.title != null && Array.from(changed.title).length > titleLimit
+  const overLimit = changed.title != null && Array.from(changed.title).length > TASK_TITLE_LIMIT
   const titleErrorId = `task-title-limit-${task.id}`
   const canSave = Object.keys(changed).length > 0 && title.trim() && reason.trim() && !overLimit && !saving
 
@@ -49,7 +48,7 @@ export default function TaskDetailsEdit({ task, brief, onChanged }) {
             aria-invalid={overLimit || undefined} aria-describedby={overLimit ? titleErrorId : undefined}
             disabled={saving} required />
         </label>
-        {overLimit && <p id={titleErrorId} role="alert">Keep the title to {titleLimit} characters. Move details into the brief.</p>}
+        {overLimit && <p id={titleErrorId} role="alert">Keep the title to {TASK_TITLE_LIMIT} characters. Move details into the brief.</p>}
         <label>
           Brief
           <textarea value={instructions} onChange={event => setDraft({ ...draft, brief: event.target.value })}

@@ -2,6 +2,7 @@ import React, { useId, useState } from 'react'
 import { queryPath, request } from './data.js'
 import { TaskLink } from './shared.jsx'
 import { useReportDay } from './ReportTime.jsx'
+import { TASK_TITLE_LIMIT } from './workCopy.js'
 
 export function GoalDeadline({ deadline, finished = false }) {
   const today = useReportDay()
@@ -18,12 +19,16 @@ export function GoalDeadline({ deadline, finished = false }) {
 function GoalForm({ goal, project, mode, onCancel, onSaved }) {
   const standing = mode === 'standing-goal'
   const ticketsHelp = useId()
+  const titleErrorId = useId()
   const [summary, setSummary] = useState(goal?.summary || '')
   const [deadline, setDeadline] = useState(goal?.deadline || '')
   const savedTickets = (goal?.tickets || []).map(ticket => ticket.key).join(', ')
   const [tickets, setTickets] = useState(savedTickets)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+
+  const name = summary.trim()
+  const overLimit = name !== (goal?.summary || '') && Array.from(name).length > TASK_TITLE_LIMIT
 
   async function save(value) {
     if (saving) return
@@ -44,6 +49,7 @@ function GoalForm({ goal, project, mode, onCancel, onSaved }) {
 
   function submit(event) {
     event.preventDefault()
+    if (overLimit) return
     const references = tickets.split(',').map(ticket => ticket.trim()).filter(Boolean)
     save({ summary, deadline, tickets: references })
   }
@@ -51,8 +57,10 @@ function GoalForm({ goal, project, mode, onCancel, onSaved }) {
   const edited = summary !== (goal?.summary || '') || deadline !== (goal?.deadline || '') || tickets !== savedTickets
   return (
     <form className="profile-form dri-goal-form" onSubmit={submit} data-reload-blocked={edited || saving}>
-      <label>{standing ? 'Standing goal' : 'Milestone name'}<input value={summary} maxLength={standing ? 500 : 200} required disabled={saving}
+      <label>{standing ? 'Standing goal' : 'Milestone name'}<input value={summary} required disabled={saving}
+        aria-invalid={overLimit || undefined} aria-describedby={overLimit ? titleErrorId : undefined}
         onChange={event => setSummary(event.target.value)} /></label>
+      {overLimit && <p id={titleErrorId} role="alert">Keep the goal name to {TASK_TITLE_LIMIT} characters.</p>}
       {!standing && <>
         <label>Deadline<input type="date" value={deadline} required disabled={saving}
           onChange={event => setDeadline(event.target.value)} /></label>
@@ -61,7 +69,7 @@ function GoalForm({ goal, project, mode, onCancel, onSaved }) {
         <p id={ticketsHelp} className="section-message">Enter IDs of tasks you own in this project, separated by commas.</p>
       </>}
       <div className="dri-goal-actions">
-        <button disabled={saving}>{saving ? 'Saving…' : 'Save goal'}</button>
+        <button disabled={saving || overLimit}>{saving ? 'Saving…' : 'Save goal'}</button>
         <button type="button" onClick={onCancel} disabled={saving}>Cancel</button>
         {goal && <button type="button" onClick={() => save(null)} disabled={saving}>Clear goal</button>}
       </div>

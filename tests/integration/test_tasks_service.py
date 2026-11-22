@@ -5904,6 +5904,35 @@ class TasksServiceTest(unittest.TestCase):
         saved = self.call(owner, "/api/v1/tasks/T-1").json
         self.assertEqual((saved["task"]["title"], saved["brief"]), (long, fields["brief"]))
 
+    def test_goal_titles_share_ticket_limit_and_preserve_legacy_names(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        limit = "🚀" * 60
+        long = limit + "x"
+        message = "Keep the title to 60 characters. Move details into the brief."
+        standing = "/api/v1/profile/standing-goal"
+        save = self.call(owner, standing, method="PATCH", json={"summary": limit})
+        self.assertEqual(save.json["standing_goal"]["summary"], limit)
+        rejected = self.call(owner, standing, status=400, method="PATCH", json={"summary": long})
+        self.assertEqual(rejected.json["error"], message)
+
+        goal = {"summary": long, "deadline": "2030-12-10"}
+        for endpoint in ("goal", "milestone"):
+            path = f"/api/v1/profile/{endpoint}"
+            rejected = self.call(owner, path, status=400, method="PATCH", json={"goal": goal})
+            self.assertEqual(rejected.json["error"], message)
+            saved = self.call(owner, path, method="PATCH", json={"goal": {**goal, "summary": limit}})
+            self.assertEqual(saved.json[endpoint]["summary"], limit)
+
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("UPDATE tasks SET title = ? WHERE id IN (SELECT task_id FROM task_goals)", (long,))
+        standing_saved = self.call(owner, standing, method="PATCH", json={"summary": long})
+        self.assertEqual(standing_saved.json["standing_goal"]["summary"], long)
+        milestone_saved = self.call(owner, "/api/v1/profile/milestone", method="PATCH",
+                                    json={"goal": {**goal, "deadline": "2030-12-11"}, "previous": long})
+        self.assertEqual((milestone_saved.json["milestone"]["summary"], milestone_saved.json["milestone"]["deadline"]),
+                         (long, "2030-12-11"))
+
     def test_peer_request_titles_preserve_full_notes_and_upgrade_generated_titles(self):
         app = self.app(portal_reader=True)
         owner, owner_id = self.login(app, "Avery")

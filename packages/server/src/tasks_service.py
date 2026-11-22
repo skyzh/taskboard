@@ -1813,7 +1813,10 @@ def create_app(
             previous = next(iter(goals.standing(connection, owner, project)), None)
             if (previous["summary"] if previous else None) == summary:
                 return previous
-            saved = goals.save_standing(connection, project, owner, summary)
+            try:
+                saved = goals.save_standing(connection, project, owner, summary)
+            except ValueError as error:
+                raise RequestError(str(error)) from error
             ledger.bump_revision(connection)
             return saved
 
