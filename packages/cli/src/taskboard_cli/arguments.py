@@ -7,7 +7,8 @@ from pathlib import Path
 
 from taskboard_client import references as projects
 from taskboard_client.work import (
-    PEER_ASK, PEER_ASK_TRANSITIONS, PRIORITIES, PROVIDERS, READ, STATES, STRUCTURED_ACTIVITY, WORKER_WRITES, WRITE, nonblank, recurrence_id,
+    CHECKLIST_EDITS, PEER_ASK, PEER_ASK_TRANSITIONS, PRIORITIES, PROVIDERS, READ, STATES, STRUCTURED_ACTIVITY,
+    WORKER_WRITES, WRITE, nonblank, recurrence_id,
 )
 
 
@@ -213,6 +214,13 @@ def arguments(argv=None):
     edit.add_argument("--brief", help="Use an empty value to clear the brief.")
     edit.add_argument("--by", type=nonblank, help="Actor in offline mode or an identity check in shared mode.")
     add_link_flag(edit)
+
+    checklist = commands.add_parser("checklist", help="Add, rename, reopen, or remove a checklist step.")
+    checklist.add_argument("id", type=task_id)
+    checklist.add_argument("change", choices=CHECKLIST_EDITS)
+    checklist.add_argument("--position", type=int, help="The stable number shown beside an existing step.")
+    checklist.add_argument("--label", type=nonblank, help="Step wording for add or rename.")
+    checklist.add_argument("--by", type=nonblank, help="Actor in offline mode or an identity check in shared mode.")
 
     priority = commands.add_parser("priority", help="Set the priority of a task you own.")
     priority.add_argument("id", type=task_id)

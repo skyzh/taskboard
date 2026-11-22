@@ -453,10 +453,10 @@ class TasksTest(unittest.TestCase):
                 WHERE json_extract(context, '$.audit.action') LIKE 'checklist-%' ORDER BY id
             """).fetchall()
         self.assertEqual([(action, actor, json.loads(context)) for action, actor, _, context in events], [
-            ("log", "Avery", {"audit": {"action": "checklist-start", "position": 2}}),
-            ("log", "Avery", {"audit": {"action": "checklist-add", "position": 3}}),
-            ("log", "Avery", {"audit": {"action": "checklist-complete", "position": 2}}),
-            ("log", "Avery", {"audit": {"action": "checklist-complete", "position": 3}}),
+            ("log", "Avery", {"audit": {"action": "checklist-start", "position": 2, "label": "Read"}}),
+            ("log", "Avery", {"audit": {"action": "checklist-add", "position": 3, "label": "File the result"}}),
+            ("log", "Avery", {"audit": {"action": "checklist-complete", "position": 2, "label": "Read"}}),
+            ("log", "Avery", {"audit": {"action": "checklist-complete", "position": 3, "label": "File the result"}}),
         ])
         self.assertEqual(rows, [
             (1, 1, None, None, None, None),

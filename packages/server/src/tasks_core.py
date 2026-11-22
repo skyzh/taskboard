@@ -18,7 +18,8 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from taskboard_client.work import (
-    STATES, PRIORITIES, DEFAULT_PRIORITY, WORKER_WRITES, OWNERSHIP_ACTIONS, STRUCTURED_ACTIVITY, parse_eta, local_eta, activity_details,
+    CHECKLIST_EDITS, STATES, PRIORITIES, DEFAULT_PRIORITY, WORKER_WRITES, OWNERSHIP_ACTIONS, STRUCTURED_ACTIVITY,
+    parse_eta, local_eta, activity_details,
     review_after_text, tag_name, blocker_key, blocker_lines, related_task_lines, readiness_line,
 )
 
@@ -72,6 +73,10 @@ ROUTINE_AUDIT_ACTIONS = (
     "reference-add", "reference-relabel",
 )
 CHECKLIST_LIFECYCLE_COLUMNS = ("started_at", "started_by", "completed_at", "completed_by")
+CHECKLIST_ACTION_TEXT = {
+    "add": "Added", "start": "Started", "complete": "Completed",
+    "rename": "Renamed", "reopen": "Reopened", "remove": "Removed",
+}
 SUMMARY_LABELS = {
     "human_review": "Decision needed",
     "ready": "Next step",
@@ -129,6 +134,7 @@ SCHEMA = (
         started_by TEXT,
         completed_at TEXT,
         completed_by TEXT,
+        removed INTEGER NOT NULL DEFAULT 0 CHECK (removed IN (0, 1)),
         PRIMARY KEY (task_id, position)
     )
     """,
@@ -601,6 +607,12 @@ def wait_details(db, task, args):
     return waiting_on, context
 
 
+def record_checklist(db, number, actor, state, action, position, label, at, **fields):
+    note = f"{CHECKLIST_ACTION_TEXT[action]} checklist step {position}."
+    record(db, number, "log", actor, state, note, None, [],
+           {"audit": {"action": f"checklist-{action}", "position": position, "label": label, **fields}}, at=at)
+
+
 def change_checklist(db, number, additions, starts, checks, *, actor, state):
     at = timestamp()
     if additions:
@@ -610,13 +622,12 @@ def change_checklist(db, number, additions, starts, checks, *, actor, state):
         for position, label in enumerate(additions, last + 1):
             db.execute("INSERT INTO task_steps (task_id, position, label) VALUES (?, ?, ?)",
                        (number, position, label))
-            record(db, number, "log", actor, state, f"Added checklist step {position}.", None, [],
-                   {"audit": {"action": "checklist-add", "position": position}}, at=at)
+            record_checklist(db, number, actor, state, "add", position, label, at)
     requested_starts, requested_checks = set(starts), set(checks)
     for position in dict.fromkeys([*starts, *checks]):
         key = (number, position)
         step = db.execute(
-            "SELECT checked, started_at FROM task_steps WHERE task_id = ? AND position = ?", key,
+            "SELECT label, checked, started_at FROM task_steps WHERE task_id = ? AND position = ? AND removed = 0", key,
         ).fetchone()
         if step is None:
             raise ValueError(f"{projects.for_task(db, number)} has no checklist step {position}.")
@@ -627,8 +638,7 @@ def change_checklist(db, number, additions, starts, checks, *, actor, state):
                 "UPDATE task_steps SET started_at = ?, started_by = ? WHERE task_id = ? AND position = ?",
                 (at, actor, *key),
             )
-            record(db, number, "log", actor, state, f"Started checklist step {position}.", None, [],
-                   {"audit": {"action": "checklist-start", "position": position}}, at=at)
+            record_checklist(db, number, actor, state, "start", position, step["label"], at)
         if position in requested_checks:
             db.execute(
                 """
@@ -636,8 +646,53 @@ def change_checklist(db, number, additions, starts, checks, *, actor, state):
                 WHERE task_id = ? AND position = ?
                 """, (at, actor, *key),
             )
-            record(db, number, "log", actor, state, f"Completed checklist step {position}.", None, [],
-                   {"audit": {"action": "checklist-complete", "position": position}}, at=at)
+            record_checklist(db, number, actor, state, "complete", position, step["label"], at)
+
+
+def edit_checklist(db, args):
+    task = get_task(db, args.id)
+    if args.by != task["dri"] and not projects.manages(db, projects.row_project(task), args.by):
+        raise PermissionError("Only the ticket owner or project manager can edit its checklist.")
+    action, position, label = args.change, args.position, args.label
+    if action not in CHECKLIST_EDITS:
+        raise ValueError("Choose add, rename, reopen, or remove.")
+    if (position is None) != (action == "add"):
+        raise ValueError("Supply the step number for rename, reopen, or remove.")
+    if position is not None and not 1 <= position <= 2**63 - 1:
+        raise ValueError("Step number must be a positive integer.")
+    if action in ("add", "rename"):
+        if not isinstance(label, str) or not label.strip() or len(label.strip()) > 240:
+            raise ValueError("Provide a step label of up to 240 characters.")
+        label = label.strip()
+    elif label is not None:
+        raise ValueError("Omit the step label for reopen or remove.")
+    reference = projects.row_reference(task)
+    if action == "add":
+        change_checklist(db, args.id, (label,), (), (), actor=args.by, state=task["state"])
+        return f"{reference} · Checklist step added"
+    key = (args.id, position)
+    step = db.execute(
+        "SELECT label, checked FROM task_steps WHERE task_id=? AND position=? AND removed=0", key,
+    ).fetchone()
+    if step is None:
+        raise ValueError(f"{reference} has no checklist step {position}.")
+    if action == "rename":
+        if label == step["label"]:
+            return f"{reference} · Checklist step unchanged"
+        db.execute("UPDATE task_steps SET label=? WHERE task_id=? AND position=?", (label, *key))
+        fields = {"previous_label": step["label"]}
+    elif action == "reopen":
+        if not step["checked"]:
+            return f"{reference} · Checklist step is already open"
+        db.execute(
+            "UPDATE task_steps SET checked=0, completed_at=NULL, completed_by=NULL WHERE task_id=? AND position=?", key,
+        )
+        fields = {}
+    else:
+        db.execute("UPDATE task_steps SET removed=1 WHERE task_id=? AND position=?", key)
+        fields = {}
+    record_checklist(db, args.id, args.by, task["state"], action, position, label or step["label"], timestamp(), **fields)
+    return f"{reference} · {CHECKLIST_ACTION_TEXT[action]} checklist step {position}"
 
 
 def transition_context(args, task):
@@ -975,11 +1030,10 @@ def checklist_rows(db, number=None):
         name if name in columns else f"NULL AS {name}" for name in CHECKLIST_LIFECYCLE_COLUMNS
     )
     select = f"SELECT task_id, position, label, checked, {lifecycle} FROM task_steps"
+    visible = "removed = 0" if "removed" in columns else "1 = 1"
     if number is None:
-        return db.execute(select + " ORDER BY task_id, position")
-    return db.execute(
-        select + " WHERE task_id = ? ORDER BY position", (number,)
-    )
+        return db.execute(select + f" WHERE {visible} ORDER BY task_id, position")
+    return db.execute(select + f" WHERE {visible} AND task_id = ? ORDER BY position", (number,))
 
 
 def checklist_progress(steps):
@@ -1659,15 +1713,21 @@ def ensure_schema(db):
         )
     if "eta" not in columns:
         db.execute("ALTER TABLE tasks ADD COLUMN eta TEXT")
-    step_columns = tasks_storage.table_columns(db, "task_steps")
-    for name in CHECKLIST_LIFECYCLE_COLUMNS:
-        if name not in step_columns:
-            db.execute(f"ALTER TABLE task_steps ADD COLUMN {name} TEXT")
+    ensure_checklist_schema(db)
     projects.ensure_schema(db)
     db.execute(maintenance.SCHEMA)
     releases.ensure_schema(db)
     for sql in merges.SCHEMA:
         db.execute(sql)
+
+
+def ensure_checklist_schema(db):
+    step_columns = tasks_storage.table_columns(db, "task_steps")
+    for name in CHECKLIST_LIFECYCLE_COLUMNS:
+        if name not in step_columns:
+            db.execute(f"ALTER TABLE task_steps ADD COLUMN {name} TEXT")
+    if "removed" not in step_columns:
+        db.execute("ALTER TABLE task_steps ADD COLUMN removed INTEGER NOT NULL DEFAULT 0 CHECK (removed IN (0, 1))")
 
 
 def register_project(database, project, title, dri, args):
@@ -1815,6 +1875,8 @@ def save_task(db, path, args, links):
             output = close_task(db, args, links)
         elif args.command == "edit":
             output = edit_task_details(db, args, links)
+        elif args.command == "checklist":
+            output = edit_checklist(db, args)
         elif args.command in OWNERSHIP_ACTIONS:
             output = change_ownership(db, args, links)
         elif args.command == "log":
@@ -1838,7 +1900,7 @@ def save_task(db, path, args, links):
             output = change_task(db, args, links)
         unchanged_allowed = (
             args.command in tasks_recurring.EDITS
-            or args.command in ("recurring-tick", maintenance.WRITE, peer_asks.COMMAND, "tag", "remind", "edit")
+            or args.command in ("recurring-tick", maintenance.WRITE, peer_asks.COMMAND, "tag", "remind", "edit", "checklist")
         )
         if live and (not unchanged_allowed or db.total_changes != before_change):
             bump_revision(db)

@@ -610,6 +610,7 @@ button:disabled { opacity: .57; }
 .checklist-step-mark[aria-label="In progress"] { color: var(--ink); }
 .checklist-step-number { color: var(--muted); font-variant-numeric: tabular-nums; }
 .checklist-step-copy { overflow-wrap: anywhere; }
+.checklist-step > .checklist-edit { grid-column: 3; }
 .detail-checklist .checklist-step-history { display: block; margin-block-start: .15rem; color: var(--muted); }
 .detail-checklist .checklist-step-history > [aria-hidden] { display: none; }
 .context-list { padding-inline-start: 1.25rem; }
