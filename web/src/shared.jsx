@@ -1,8 +1,8 @@
 import React, { useId, useState } from 'react'
 import {
-  ArrowUpRight, Ban, Check, Circle, CircleQuestionMark, ClipboardList, Clock, CornerUpRight, Diamond, Dot,
-  FileCheck, GitMerge, GitPullRequest, GitPullRequestClosed, Pause, Play, Plus, Rocket, RotateCcw,
-  TriangleAlert, Undo2, X,
+  ArrowUpRight, Ban, Check, Circle, CircleQuestionMark, ClipboardList, Clock, CornerUpRight, Diamond,
+  FileCheck, FileText, Flag, GitMerge, GitPullRequest, GitPullRequestClosed, Link2, ListChecks, MessageSquareText,
+  MessagesSquare, Pause, PencilLine, Play, Plus, Rocket, RotateCcw, Tags, TriangleAlert, Undo2, Users, X,
 } from 'lucide-react'
 import { activityExtraText, waitLabel } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
@@ -38,10 +38,30 @@ export const actions = {
 }
 
 const activityIcons = {
-  add: Plus, start: Play, update: Dot, wait: Clock, resume: RotateCcw,
+  add: Plus, start: Play, update: PencilLine, wait: Clock, resume: RotateCcw,
   done: Check, 'assign-human': CircleQuestionMark, decide: Diamond,
   'redirect-decision': CornerUpRight, 'withdraw-decision': RotateCcw,
-  park: Pause, unpark: RotateCcw, transfer: CornerUpRight, 'source-event': ArrowUpRight, log: Dot,
+  park: Pause, unpark: RotateCcw, transfer: CornerUpRight,
+  'source-event': ArrowUpRight, log: MessageSquareText,
+}
+
+const activityAudits = {
+  'edit-task-details': ['Ticket details edited', PencilLine],
+  'checklist-add': ['Checklist step added', ListChecks],
+  'checklist-start': ['Checklist step started', ListChecks],
+  'checklist-complete': ['Checklist step completed', ListChecks],
+  'checklist-rename': ['Checklist step renamed', ListChecks],
+  'checklist-reopen': ['Checklist step reopened', ListChecks],
+  'checklist-remove': ['Checklist step removed', ListChecks],
+  'priority-change': ['Priority changed', Flag],
+  'milestone-save': ['Milestone saved', Flag],
+  'tag-add': ['Tag added', Tags],
+  'tag-remove': ['Tag removed', Tags],
+  'source-attach': ['Source attached', Link2],
+  'reference-add': ['Reference added', Link2],
+  'reference-relabel': ['Reference relabeled', Link2],
+  'worker-delegate': ['Worker assigned', Users],
+  'worker-start': ['Worker started', Play],
 }
 
 const workMarks = {
@@ -59,7 +79,10 @@ const workMarks = {
 
 function pullActivityKind(event) {
   const { context } = event
-  if (event.action !== 'source-event' || context?.source_kind !== 'github') return null
+  const githubLog = event.action === 'log' && context?.extension === 'github-events'
+  if (githubLog && context.github_event === 'pull-merged') return 'pull-merged'
+  if (githubLog && context.github_event === 'deployed') return 'release-released'
+  if ((!githubLog && event.action !== 'source-event') || context?.source_kind !== 'github') return null
   if (context.event_kind?.startsWith('review-')) return 'pull-review'
   const source = event.links?.[0]?.url
   if (!/^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/[1-9]\d*\/?$/.test(source)) return null
@@ -73,7 +96,7 @@ export function ActivityMark({ event }) {
   const context = event.context
   let kind = event.action
   let label = event.label || 'Activity'
-  let Icon = Object.hasOwn(activityIcons, event.action) ? activityIcons[event.action] : Dot
+  let Icon = Object.hasOwn(activityIcons, event.action) ? activityIcons[event.action] : FileText
 
   if (context?.closure) {
     kind = 'closed'
@@ -92,6 +115,19 @@ export function ActivityMark({ event }) {
     if (Object.hasOwn(workMarks, workKind)) {
       [label, Icon] = workMarks[workKind]
       kind = workKind === 'pull-review' || workKind === 'merge-review' ? 'review' : workKind
+    } else if (context?.stamp_verdict || context?.stamp_review) {
+      kind = 'review'
+      label = context.stamp_verdict ? 'Stamp review' : 'Stamp review requested'
+      Icon = FileCheck
+    } else if (context?.peer_correction) {
+      label = 'Peer result corrected'
+    } else if (context?.peer_ask_ticket && (event.action === 'log' || event.action === 'update')) {
+      label = 'Peer request updated'
+      Icon = MessagesSquare
+    } else if (context?.ownership_action) {
+      Icon = CornerUpRight
+    } else if (Object.hasOwn(activityAudits, context?.audit?.action)) {
+      [label, Icon] = activityAudits[context.audit.action]
     }
   }
 

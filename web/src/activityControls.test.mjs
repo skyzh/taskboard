@@ -542,15 +542,28 @@ test('typed provider and board work events use their distinct named marks in eve
     [{ action: 'log', context: { work_kind: 'release-released' } }, 'Deployed', 'rocket'],
     [{ action: 'log', context: { work_kind: 'release-rolled_back' } }, 'Deployment rolled back', 'undo-2'],
     [{ action: 'log', context: { work_kind: 'local-merge' } }, 'Merged locally', 'git-merge'],
-    [{ action: 'log', label: 'Activity logged', headline: 'Closed and deployed a fix.' }, 'Activity logged', 'dot'],
+    [{ action: 'log', context: { stamp_review: { pull: 'example/board#17' } } }, 'Stamp review requested', 'file-check'],
+    [{ action: 'transfer', context: { stamp_verdict: { verdict: 'approved' } } }, 'Stamp review', 'file-check'],
+    [{ action: 'update', context: { peer_ask_ticket: 'T-3' } }, 'Peer request updated', 'messages-square'],
+    [{ action: 'wait', label: 'Wait recorded', context: { peer_ask_ticket: 'T-3' } }, 'Wait recorded', 'clock'],
+    [{ action: 'done', context: { peer_correction: { previous_close: 12 } } }, 'Peer result corrected', 'check'],
+    [{ action: 'log', context: { audit: { action: 'checklist-complete' } } }, 'Checklist step completed', 'list-checks'],
+    [{ action: 'log', context: { audit: { action: 'edit-task-details' } } }, 'Ticket details edited', 'pencil-line'],
+    [{ action: 'log', label: 'Ticket reassigned', context: { ownership_action: 'reassign' } }, 'Ticket reassigned', 'corner-up-right'],
+    [{ action: 'log', context: { extension: 'github-events', github_event: 'pull-merged' } }, 'Pull request merged', 'git-merge'],
+    [{ action: 'log', context: { extension: 'github-events', github_event: 'deployed' } }, 'Deployed', 'rocket'],
+    [{ action: 'done', label: 'Completed', context: { extension: 'github-events', github_event: 'deployed' } }, 'Completed', 'check'],
+    [{ action: 'log', label: 'Activity logged', headline: 'Closed and deployed a fix.' }, 'Activity logged', 'message-square-text'],
+    [{ action: 'update', label: 'Progress' }, 'Progress', 'pencil-line'],
     [{ action: 'done', label: 'Completed', headline: 'Fixed the CSV.' }, 'Completed', 'check'],
-    [{ action: 'legacy', label: 'Legacy record' }, 'Legacy record', 'dot'],
+    [{ action: 'legacy', label: 'Legacy record' }, 'Legacy record', 'file-text'],
   ]
   for (const [fields, label, icon] of cases) {
     const event = { ...selected, ...fields }
     fixture.state = []
     const row = renderToStaticMarkup(React.createElement(EventRow, { event }))
-    for (const markup of [row, renderLog([event], null), renderLog([event], null, 'event-18-log?detail=all')]) {
+    const ticket = renderToStaticMarkup(React.createElement(EventRow, { event, ticketActivity: true }))
+    for (const markup of [row, ticket, renderLog([event], null), renderLog([event], null, 'event-18-log?detail=all')]) {
       assert.match(markup, new RegExp(
         `aria-label="${label}" title="${label}"><svg[^>]*class="lucide lucide-${icon}" aria-hidden="true" focusable="false"`,
       ), label)
