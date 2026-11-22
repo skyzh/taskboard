@@ -67,6 +67,23 @@ test('a source row links to a peer request using its stored ticket reference', (
   }
 })
 
+test('a parked request in Summary shows its source, Parked status and resume condition', () => {
+  const note = 'Resume after the operator restores access.'
+  const render = record => renderToStaticMarkup(React.createElement(TaskRow, {
+    task: record, owner: false, report: 'summary',
+  }))
+  const parked = { ...task, state: 'parked', note, summary_label: 'Reason for parking' }
+  for (const phase of ['asked', 'in_progress']) {
+    const html = render({ ...parked, peer_request: { phase, requester: 'Avery', source_key: 'COURSE-2' } })
+    assert.match(html, /Request from Avery/)
+    assert.match(html, /class="status parked">Parked</)
+    assert.match(html, /Request for <a href="#task-COURSE-2">/)
+    assert.match(html, /Resume after the operator restores access\./)
+    assert.doesNotMatch(html, /Responding to Avery/)
+  }
+  assert.doesNotMatch(render(parked), /Resume after the operator restores access/)
+})
+
 test('checklist counts remain visible and the report checklist remains an accessible disclosure', () => {
   const row = renderToStaticMarkup(React.createElement(TaskRow, { task, owner: false, report: true }))
   assert.match(row, /<button[^>]+aria-expanded="false"[^>]+aria-controls="row-checklist-43"[^>]+aria-label="Checklist for COURSE-4, 2 of 5 complete"/)
