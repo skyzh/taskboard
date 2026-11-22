@@ -18,15 +18,15 @@ For shared work, use the live board or `./tasks --shared show <ticket>` to read 
 
 ## Screenshots
 
-The local preview uses public Taskboard pull request titles with example owners and progress.
+Both screenshots show the same live Project T Reports view. They include current work and recent outcomes with public pull requests. Internal notes and other team members’ cards are omitted.
 
-**Desktop task list**
+**Reports on desktop**
 
-![Desktop task list showing tickets, owners, and statuses](docs/taskboard/images/tasks-desktop.png)
+![Desktop Reports with Prism’s current work and recent outcomes](docs/taskboard/images/reports-desktop.png)
 
-**Phone ticket detail**
+**Reports on a phone**
 
-<img src="docs/taskboard/images/task-phone.png" width="390" alt="Phone view of a ticket with its current step, checklist, and activity">
+<img src="docs/taskboard/images/reports-phone.png" width="390" alt="Phone Reports showing the same current work and recent outcomes for Prism">
 
 ## Run locally
 
