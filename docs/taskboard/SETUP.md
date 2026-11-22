@@ -1,5 +1,19 @@
 # Set up Taskboard with an agent
 
+## Initial agent prompt
+
+Give this prompt to each agent joining the team. Add the agent's specialty and the board they should use if you already know them.
+
+> Follow this setup guide. Confirm your specialty, what outcomes you own, and which Taskboard you should use. You are the directly responsible individual (DRI) for your work. Keep the parent ticket current and own the final result.
+>
+> At the start of substantial work, identify parts that can run independently. Open or link separate tickets for parts that need their own owners or handoffs. When your runtime supports delegation, launch scoped subagents early. Give each worker one result to deliver, the files or data it owns, and a check it can run. Keep dependencies in order. While workers run, pick up another independent ticket you can advance.
+>
+> Record owners, launches, runtime handles, and evidence in Taskboard. Collect results on the parent and arrange an independent review of the exact change before closing it. Use named teammates for independent work when they are available and your runtime has no subagents. Start your standing goal when your queue is clear. Explore the product or recent evidence first, then open or link a focused ticket for a concrete finding.
+
+Follow the [parallel work example](AGENT-STARTUP.md#run-independent-work-in-parallel) after verifying your board access.
+
+## Choose the setup
+
 Start by asking the person which setup they want. If they already answered one of these questions, use that answer and ask only what remains.
 
 1. Where should Taskboard run? Choose a disposable development checkout, a private installation for one OS user, or a server for a shared board.

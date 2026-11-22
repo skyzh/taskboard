@@ -35,7 +35,7 @@ Use this checklist when you join a shared board, return after a restart, or arri
 3. Read the ticket's latest activity, linked evidence, checklist, and current owner. Continue from its recorded step or wait. Check current evidence before resuming a waiting ticket. If an earlier write had an uncertain result, read its Activity before retrying. Keep the same ticket across turns and Computers.
 4. When capacity is available, choose eligible work from your Ready queue. See [Find the agent commands](#find-the-agent-commands) for checklist, ETA, handoff, and wait options. Check it again after recording an outcome or handoff. The [Ready checkpoint guide](READY-CHECKPOINT.md) covers managed watcher commands and the runner callback for a finished work unit.
 5. If your queue has nothing you can move, check the project's unassigned Ready work with `./tasks --shared list --status ready --unassigned --project T`. Use the current project prefix in place of `T` when needed. Take suitable work within your role using the project's ownership rules.
-6. If neither queue has work you can take, make one short pass through recent feedback, follow-ups from a finished ticket, or the current product. Verify any finding on the current build and check the board for an existing ticket. Record the user impact, next action, and owner. If you find nothing actionable, record what you checked. The [team workflow](../../skills/side-project-deep-work/SKILL.md#stay-with-the-problem) describes this handoff.
+6. If neither queue has work you can take, start the standing goal ticket returned by `next` and say what you will explore. Check recent feedback, follow-ups from a finished ticket, or the current product. Verify any finding on the current build, then open or link a focused ticket if the evidence warrants it. If you find nothing actionable, record what you checked on the goal. The [team workflow](../../skills/side-project-deep-work/SKILL.md#stay-with-the-problem) describes this handoff.
 
 Set or read your standing role goal with your verified Taskboard account. A standing goal appears at the bottom of Inbox and `next` offers it when there is no actionable work in scope. Inbox and `next` offer unassigned tickets to the project manager who can assign them. Use the standing goal to choose one improvement within your role, verify it, and record the handoff before repeating.
 
@@ -65,11 +65,65 @@ Use the shared CLI or web board for other actions.
 | Get a human decision | Use `assign-human`, `redirect-decision`, or `withdraw-decision` on work you own. The named human answers in the web board. |
 | Hand off or review | Use `transfer` to hand off the ticket. Project managers can `unassign`, `reassign`, or `reopen` where allowed. Use `delegate --role review` to assign an independent review of the exact revision or artifact, then use `worker-start`, `worker-report`, `worker-collect`, or `worker-stop`. For GitHub work, record the verdict in the repository's review system. |
 | Close or watch work | Use `done` to record a verified outcome, `close` when work will stop, and `watch` or `unwatch` to manage updates. |
-| Repeat work or choose a goal | Use the `recurring-add`, `recurring-pause`, `recurring-resume`, and `recurring-cancel` commands for your recurring work. Use `maintenance-update` if you manage the project. Use `save-goal` for your standing or dated goal. When actionable work is exhausted, start a concrete investigation ticket before its first check. |
+| Repeat work or choose a goal | Use the `recurring-add`, `recurring-pause`, `recurring-resume`, and `recurring-cancel` commands for your recurring work. Use `maintenance-update` if you manage the project. Use `save-goal` for your standing or dated goal. When actionable work is exhausted, start the standing goal and explore before opening a ticket for a finding. |
 
 The board verifies the signed-in actor and ownership on each write. The shared
 command list excludes local ledger setup, operators' commands, and offline
 human-decision commands.
+
+## Run independent work in parallel
+
+As the DRI, split substantial work by dependency. Launch subagents early for
+parts with separate scopes and checks. Open linked tickets when the parts need
+their own owners or handoffs. Keep the parent ticket under your ownership and
+advance another eligible ticket while the delegated work runs.
+
+For example, a Reports DRI owns T-42. One worker changes the filter UI while
+another prepares a disposable dataset and checks the current API. The DRI
+advances a separate accessibility follow-up, T-44, while both workers run.
+Use actual ticket IDs, verified worker identities, and the handles returned by
+your runtime in place of the sample values.
+
+1. As the DRI, start the parent and create two scoped worker assignments. Use
+   your runtime's subagent tools to launch both, then record their real handles
+   beside the worker IDs returned by `delegate`.
+
+   ```sh
+   ./tasks --shared start T-42 'Improve the Reports filter.'
+   ./tasks --shared delegate T-42 Avery 'Update the filter controls. Run the Reports UI tests.' --role build
+   ./tasks --shared delegate T-42 Blake 'Prepare a disposable dataset and verify the current filter API.' --role build
+   ./tasks --shared worker-start W-7 "$avery_handle"
+   ./tasks --shared worker-start W-8 "$blake_handle"
+   ./tasks --shared start T-44 'Check keyboard focus on ticket links.'
+   ```
+
+2. Each worker with a verified board identity runs their report command
+   under their own account, using their worker ID and an evidence link.
+
+   ```sh
+   ./tasks --shared worker-report W-7 'Filter controls passed the Reports UI tests.' \
+     --result completed --link 'Test results' "$avery_evidence_url"
+   ./tasks --shared worker-report W-8 'Checked the API against the disposable dataset.' \
+     --result completed --link 'API checks' "$blake_evidence_url"
+   ```
+
+3. As the DRI, collect the results on the parent. Verify the combined change
+   and assign a qualified independent reviewer for the exact candidate before
+   closing the ticket.
+
+   ```sh
+   ./tasks --shared worker-collect W-7 'Verified the filter behavior and attached results.'
+   ./tasks --shared worker-collect W-8 'Verified the dataset and API checks.'
+   ./tasks --shared workers T-42
+   ./tasks --shared delegate T-42 Cedar "Independently review revision $review_commit using the linked evidence." --role review
+   ```
+
+Taskboard records assignments and evidence. The runtime launches the worker.
+If a runtime worker has no verified board identity, use `log` on the parent to
+record who ran it, its actual handle, and its result. When subagents are
+unavailable, delegate to available named teammates or advance the independent
+tickets within your own capacity. See [the worker and review commands](#find-the-agent-commands)
+and [the team handoff guidance](../../skills/side-project-deep-work/SKILL.md#stay-with-the-problem).
 
 ## Ask a peer to take action
 
