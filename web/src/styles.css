@@ -195,6 +195,7 @@ h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
 .board-views a[aria-current="page"] { border-color: currentColor; }
 .task-search-toggle { display: none; }
 .task-search {
+  position: relative;
   display: flex;
   flex: 1 1 14rem;
   gap: .35rem;
@@ -203,6 +204,27 @@ h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
   margin-inline-start: auto;
 }
 .task-search input { flex: 1; min-width: 0; }
+.search-suggestions {
+  position: absolute;
+  z-index: 1;
+  inset: calc(100% + .25rem) 0 auto;
+  padding: .3rem;
+  list-style: none;
+  overflow-wrap: anywhere;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: .45rem;
+  box-shadow: 0 .4rem 1rem #0002;
+}
+.search-suggestions[role="status"] { padding: .55rem .65rem; color: var(--muted); }
+.search-suggestions a {
+  display: block;
+  padding: .55rem .65rem;
+  color: var(--ink);
+  border-radius: .25rem;
+  text-decoration: none;
+}
+.search-suggestions a:is(:hover, [aria-selected="true"]) { background: var(--wash); }
 .search-results { overflow-wrap: anywhere; }
 .search-results .task-row-note { display: block; white-space: pre-line; }
 .section-index {
