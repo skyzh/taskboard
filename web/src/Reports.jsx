@@ -267,7 +267,7 @@ function ProjectLinks({ project, revision }) {
   )
 }
 
-function ProjectReports({ revision, project, projectTitle, hideRequests, requestFilter, initialAssigneeView = 'active' }) {
+function ProjectReports({ revision, project, projectTitle, hideRequests, requestFilter, viewer, initialAssigneeView = 'active' }) {
   const [selection, setSelection] = useState(null)
   const selectedView = selection && selection.project === project ? selection.view : null
   const view = selectedView ?? initialAssigneeView
@@ -292,7 +292,7 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, request
         )}
       </ReportsHeading>
       {!projectTitle && <StampIntegration key={project} project={project} revision={revision} />}
-      <ReportsLayout sidebar={<QueuedAsks revision={revision} project={project} grouped={Boolean(projectTitle)} />}>
+      <ReportsLayout sidebar={<QueuedAsks revision={revision} project={project} grouped={Boolean(projectTitle)} viewer={viewer} />}>
         <ResourceStatus resource={page} label="reports" />
         {page.data?.items.length === 0 && <p className="section-message" role="status">{empty}</p>}
         <AssigneeReportList entries={page.data?.items} label={label} revision={revision} project={project} projectTitle={projectTitle} />

@@ -706,7 +706,8 @@ test('Reports shows linked and unlinked asks in one request log without recipien
   assert.match(reader, /Next for Morgan/)
   assert.match(reader, /Start unconfirmed/)
   assert.match(reader, /href="#task-COURSE-3"/)
-  assert.match(reader, /href="#task-COURSE-4"[^>]*>.*Verify the export on a phone/)
+  assert.match(reader, /<summary[^>]*>[\s\S]*Verify the export on a phone[\s\S]*<\/summary>/)
+  assert.match(reader, /href="#task-COURSE-4"[^>]*>.*Request/)
   assert.match(reader, /Ready to acknowledge/)
   assert.match(reader, /src="\/avatar\/avery"/)
   assert.match(reader, /href="#event-11-log"/)
@@ -717,6 +718,11 @@ test('Reports shows linked and unlinked asks in one request log without recipien
   assert.deepEqual(calls, ['request log', 'request log'])
   assert.doesNotMatch(signedIn, /Recipient-only/)
   assert.match(signedIn, /href="#task-COURSE-3"/)
+  assert.doesNotMatch(reader, /class="request-action"/)
+  assert.doesNotMatch(signedIn, /class="request-action"/)
+  const requester = render({ id: 'Morgan' })
+  assert.equal((requester.match(/class="request-action"/g) || []).length, 1)
+  assert.match(requester, /class="request-action" href="#event-11-log">Review response<\/a>/)
 })
 
 test('a legacy hold, decision context, and evidence remain accessible', () => {
