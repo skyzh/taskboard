@@ -58,6 +58,15 @@ test('Summary rows show priority words and put a single waiting label before the
   assert.match(renderSummary(task), /class="report-priority-accessible">Priority Normal<\/span>/)
 })
 
+test('a source row links to a peer request using its stored ticket reference', () => {
+  for (const key of ['T-31', 'COURSE-12']) {
+    const row = renderToStaticMarkup(React.createElement(TaskRow, {
+      task: { ...task, context: { peer_ask_ticket: key } }, owner: false,
+    }))
+    assert.match(row, new RegExp(`Peer request <a href="#task-${key}">`))
+  }
+})
+
 test('checklist counts remain visible and the report checklist remains an accessible disclosure', () => {
   const row = renderToStaticMarkup(React.createElement(TaskRow, { task, owner: false, report: true }))
   assert.match(row, /<button[^>]+aria-expanded="false"[^>]+aria-controls="row-checklist-43"[^>]+aria-label="Checklist for COURSE-4, 2 of 5 complete"/)
