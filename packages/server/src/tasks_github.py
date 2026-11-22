@@ -439,7 +439,8 @@ def observe_metadata(db, source, item, metadata, settings, checked_at):
     evidence = {
         "kind": "pull-merged", "at": merged_at, "note": f"GitHub merged pull request #{item.number}.",
         "links": [("GitHub pull request", item.url)],
-        "context": {"merge_commit": commit, "github_source": item.url},
+        "context": {"merge_commit": commit, "github_source": item.url,
+                    "github_repository": repository(item), "github_activity_id": f"github:pull-merged:{item.number}"},
     }
     for number, config in settings.items():
         rule = config.get(extensions.EVENTS)
@@ -482,6 +483,11 @@ def save_updates(db, source, item, updates, linked, rules, *, manual=False, revi
         context = {"source_kind": "github", "source_key": source["source_key"],
                    "provider_at": update.provider_at, "event_kind": update.kind,
                    "provider_actor": update.actor}
+        context["github_repository"] = repository(item)
+        context["github_activity_id"] = (
+            f"github:pull-merged:{item.number}" if item.kind == "pull" and update.kind == "merged"
+            else update.delivery_key
+        )
         if update.kind == "closed" and review_state and review_state["merged"] is False:
             context["pull_closed_without_merge"] = True
         note = f"{update.actor}: {update.message}"
