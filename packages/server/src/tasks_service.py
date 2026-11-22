@@ -27,6 +27,7 @@ import tasks_audit as audit
 import tasks_core as ledger
 import tasks_maintenance as maintenance
 import tasks_goals as goals
+import tasks_extensions as extensions
 import tasks_merges as merges
 import tasks_notification_log as notification_log
 import tasks_oidc as oidc_auth
@@ -321,6 +322,8 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
     goals.migrate_goal_tickets(db)
     db.execute(profiles.IMPORT_SCHEMA)
     db.execute(INTAKE_ERRORS)
+    for statement in extensions.SCHEMA:
+        db.execute(statement)
     db.execute(ATTENTION_SCHEMA)
     attention_columns = tasks_storage.table_columns(db, "attention_requests")
     if "remind_on" not in attention_columns:
@@ -379,7 +382,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
                 oidc_members.bind_issuer(db, oidc_issuer)
             goals.ensure_extended_schema(db)
             goals.migrate_goal_tickets(db)
-            for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA):
+            for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA):
                 db.execute(statement)
 
 
@@ -554,7 +557,7 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
                identity_provider=None, github_reader=None, dist=DIST, creation_default_subject=None,
                websocket_revisions=False, marketplace_root=None, project_roster=None, release_queue_ticket=None,
                watcher_measurement_ticket=None, oidc_config=None, postgres_dsn=None, github_merge_projects=(),
-               raft_channel_lookup=None):
+               raft_channel_lookup=None, project_extensions=None):
     """Configure the board; injected identity providers are used by isolated tests."""
     github_merge_projects = frozenset(projects.prefix(project) for project in github_merge_projects)
     if creation_default_subject:
@@ -563,6 +566,9 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
         except ValueError as error:
             raise ValueError("Set TASKS_NEW_TASKS_DEFAULT_SUBJECT to a verified human subject UUID.") from error
     marketplace = marketplace_root is not None
+    project_extensions = project_extensions or {}
+    if project_extensions and (marketplace or local_readonly):
+        raise ValueError("Enable project extensions on a shared board.")
     if postgres_dsn and (database is not None or marketplace or local_readonly or websocket_revisions or github_reader):
         raise ValueError("Use the PostgreSQL ledger for one shared, polling board.")
     if oidc_config is not None and (
@@ -850,7 +856,7 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
 
     def detail(number, actor):
         try:
-            result = query().detail(number)
+            result = query().detail(number, project_extensions=project_extensions)
         except ValueError as error:
             raise RequestError(str(error), 404) from error
         task = result["task"]
@@ -1899,7 +1905,7 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
             raise RequestError("Link a watch or own this task to fetch its GitHub updates.", 403)
         if github_reader is None:
             raise RequestError("GitHub fetching is disabled for this board.", 503)
-        result = ingest_linked_github(db(), number, github_reader)
+        result = ingest_linked_github(db(), number, github_reader, project_extensions=project_extensions)
         with tasks_storage.write(db()) as connection:
             attempted = {item["source_key"] for item in (*result["items"], *result["errors"]) if item["source_key"]}
             sources = {
@@ -2227,6 +2233,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             database, public_url=url, raft_config=config, oidc_config=oidc_config, postgres_dsn=postgres_dsn,
             local_readonly=local_readonly, portal_reader=portal_reader,
             portal_upstream_token=portal_upstream_token, github_reader=github, websocket_revisions=websocket_revisions,
+            project_extensions=extensions.configuration(os.environ.get("TASKS_PROJECT_EXTENSIONS")),
             creation_default_subject=os.environ.get("TASKS_NEW_TASKS_DEFAULT_SUBJECT")
             if not (local_readonly or marketplace) else None,
             marketplace_root=marketplace_root,

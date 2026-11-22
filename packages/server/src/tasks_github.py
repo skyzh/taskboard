@@ -9,6 +9,8 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import tasks_core
+import tasks_extensions as extensions
+import tasks_storage
 import watches
 
 
@@ -287,7 +289,46 @@ class GitHubReader:
             recent = (previous + recent)[-_PAGE_SIZE:]
         return recent, None
 
-    def _read_item(self, item):
+    def read_metadata(self, item):
+        endpoint = "pulls" if item.kind == "pull" else "issues"
+        _, metadata = self._get(f"{item.repo_path}/{endpoint}/{item.number}", dict)
+        if metadata.get("state") not in ("open", "closed"):
+            raise _ReadError("invalid_github_response")
+        return metadata
+
+    def deployed_commit(self, rule):
+        environment = rule.deployment.environment
+        projects_url = f"/repos/{rule.repository}"
+        query = urlencode({"environment": environment, "per_page": 1})
+        _, deployments = self._get(f"{projects_url}/deployments?{query}", list)
+        if not deployments or not isinstance(deployment := deployments[0], dict):
+            return None
+        number = deployment.get("id")
+        commit = deployment.get("sha")
+        if (type(number) is not int or number <= 0 or deployment.get("environment") != environment
+                or not isinstance(commit, str) or not extensions.COMMIT.fullmatch(commit)):
+            raise _ReadError("invalid_github_deployment")
+        path = f"{projects_url}/deployments/{number}/statuses?per_page=1"
+        _, statuses = self._get(path, list)
+        if not statuses or not isinstance(status := statuses[0], dict) or status.get("state") != "success":
+            return None
+        at = _time(status.get("created_at"))
+        if at is None or status.get("environment") != environment:
+            raise _ReadError("invalid_github_deployment_status")
+        return commit, at, f"{_API_ORIGIN}{projects_url}/deployments/{number}"
+
+    def includes_commit(self, repository, merged, deployed):
+        if merged == deployed:
+            return True
+        _, result = self._get(f"/repos/{repository}/compare/{merged}...{deployed}?per_page=1", dict)
+        base = result.get("merge_base_commit")
+        status = result.get("status")
+        base_sha = base.get("sha") if isinstance(base, dict) else None
+        if status not in ("ahead", "behind", "diverged", "identical") or not isinstance(base_sha, str):
+            raise _ReadError("invalid_github_comparison")
+        return status == "ahead" and base_sha == merged
+
+    def _read_item(self, item, *, issue_status=False):
         updates, errors = {}, []
         opening = None
         opening_key = f"github:pull-opened:{item.number}"
@@ -312,10 +353,10 @@ class GitHubReader:
                     opening = replace(update, delivery_key=opening_key)
                 else:
                     updates[update.delivery_key] = update
-        review_state = None
+        review_state = metadata = None
         if item.kind == "pull":
             try:
-                _, metadata = self._get(pull, dict)
+                metadata = self.read_metadata(item)
                 review_state = _pull_state(metadata)
                 opened_at = _time(metadata.get("created_at"))
                 if opened_at and opening is None:
@@ -323,13 +364,68 @@ class GitHubReader:
                     opening = _Update(opening_key, opened_at, author, "opened", "Pull request opened.", item.url)
             except _ReadError as error:
                 errors.append(("review_state", str(error)))
+        elif issue_status:
+            try:
+                metadata = self.read_metadata(item)
+            except _ReadError as error:
+                errors.append(("status", str(error)))
         recent = sorted(updates.values(), key=lambda update: (update.provider_at, update.delivery_key), reverse=True)[:_PAGE_SIZE]
         if opening is not None:
             recent.append(opening)
-        return recent, review_state, errors
+        return recent, review_state, errors, metadata
 
 
-def ingest_linked_github(db, task_id, client):
+def link_settings(db, source_id, project_extensions):
+    if not project_extensions:
+        return {}
+    return {row["id"]: project_extensions[row["project_prefix"]] for row in db.execute(
+        """SELECT tasks.id, tasks.project_prefix FROM tasks JOIN task_sources ON task_sources.task_id = tasks.id
+           WHERE task_sources.source_id = ?""", (source_id,),
+    ) if row["project_prefix"] in project_extensions}
+
+
+def snapshot(item, metadata):
+    if not metadata:
+        return None, None, None
+    if item.kind == "issues":
+        return metadata["state"], None, None
+    if metadata["state"] == "open":
+        return ("draft" if metadata.get("draft") is True else "open"), None, None
+    if metadata.get("merged") is False:
+        return "closed", None, None
+    if metadata.get("merged") is not True:
+        return None, None, None
+    commit, at = metadata.get("merge_commit_sha"), _time(metadata.get("merged_at"))
+    if not isinstance(commit, str) or not extensions.COMMIT.fullmatch(commit) or at is None:
+        return "merged", None, None
+    return "merged", commit, at
+
+
+def repository(item):
+    return f"{item.owner}/{item.repo}".lower()
+
+
+def observe_metadata(db, source, item, metadata, settings, checked_at):
+    state, commit, merged_at = snapshot(item, metadata)
+    if any(config.get(extensions.STATUS) or config.get(extensions.EVENTS) for config in settings.values()):
+        extensions.save_status(db, source["id"], state, checked_at, merge_commit=commit, merged_at=merged_at)
+    if commit is None:
+        return set()
+    recorded = set()
+    evidence = {
+        "kind": "pull-merged", "at": merged_at, "note": f"GitHub merged pull request #{item.number}.",
+        "links": [("GitHub pull request", item.url)],
+        "context": {"merge_commit": commit, "github_source": item.url},
+    }
+    for number, config in settings.items():
+        rule = config.get(extensions.EVENTS)
+        if rule and rule.repository == repository(item):
+            extensions.record(db, number, source["id"], f"merged:{commit}", evidence, rule.merge)
+            recorded.add(number)
+    return recorded
+
+
+def ingest_linked_github(db, task_id, client, *, project_extensions=None):
     """Fetch configured items and record each new delivery for all linked tasks."""
     if db.in_transaction:
         raise ValueError("GitHub intake requires a connection outside a transaction.")
@@ -346,29 +442,34 @@ def ingest_linked_github(db, task_id, client):
         except _ReadError as error:
             result["errors"].append({"source_key": key, "stage": "source", "error": str(error)})
             continue
-        updates, review_state, errors = client._read_item(item)
+        configured = link_settings(db, source["id"], project_extensions)
+        issue_status = any(config.get(extensions.STATUS) for config in configured.values())
+        checked_at = tasks_core.timestamp()
+        updates, review_state, errors, metadata = client._read_item(item, issue_status=issue_status)
         entry = {"source_key": key, "source_url": item.url, "updates": [asdict(update) for update in updates],
                  "review_state": review_state, "inserted": 0}
         result["items"].append(entry)
         result["errors"].extend({"source_key": key, "stage": stage, "error": error} for stage, error in errors)
-        if updates:
-            batch.append((source, entry, updates))
+        if updates or configured:
+            batch.append((source, entry, updates, item, metadata, checked_at))
     if not batch:
         return result
-    with db:
-        db.execute("BEGIN IMMEDIATE")
-        for source, entry, updates in batch:
+    with tasks_storage.write(db):
+        for source, entry, updates, item, metadata, checked_at in batch:
             linked = tuple(row["task_id"] for row in watches.linked_tasks(db, source["id"]))
             if task_id not in linked:
                 result["errors"].append({"source_key": entry["source_key"], "stage": "source",
                                          "error": "github_source_no_longer_linked"})
                 continue
+            recorded = observe_metadata(
+                db, source, item, metadata, link_settings(db, source["id"], project_extensions), checked_at,
+            )
             for update in reversed(updates):
                 if not watches.accept_delivery(db, source["id"], update.delivery_key):
                     continue
                 # Record the stable key as an alias when an older release already saved the opening.
                 if update.delivery_key.startswith("github:pull-opened:") and db.execute(
-                    "SELECT 1 FROM source_deliveries WHERE source_id = ? AND delivery_key GLOB 'github:opened:*' LIMIT 1",
+                    "SELECT 1 FROM source_deliveries WHERE source_id = ? AND delivery_key LIKE 'github:opened:%' LIMIT 1",
                     (source["id"],),
                 ).fetchone():
                     continue
@@ -382,6 +483,8 @@ def ingest_linked_github(db, task_id, client):
                 if update.kind == "closed" and review_state and review_state["merged"] is False:
                     context["pull_closed_without_merge"] = True
                 for number in linked:
+                    if update.kind == "merged" and number in recorded:
+                        continue
                     status = tasks_core.get_task(db, number)["state"]
                     tasks_core.record(db, number, "source-event", "GitHub", status,
                                       f"{update.actor}: {update.message}", None, links, context)

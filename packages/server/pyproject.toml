@@ -31,6 +31,7 @@ postgres = [
 
 [project.scripts]
 taskboard-serve = "taskboard_server:main"
+taskboard-extensions = "taskboard_server.extension_tick:main"
 
 [tool.setuptools.package-data]
 taskboard_server = ["board.html.in", "web/*", "web/assets/*", "web/assets/licenses/*"]
