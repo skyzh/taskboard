@@ -9,7 +9,7 @@ import MyActivity from './MyActivity.jsx'
 import { ReportTime } from './ReportTime.jsx'
 import { Outcomes, Overview } from './Overview.jsx'
 import Profile from './Profile.jsx'
-import Reports from './Reports.jsx'
+import Reports, { ReportsHeading } from './Reports.jsx'
 import Schedules from './Schedules.jsx'
 import Settings from './Settings.jsx'
 import Stats from './Stats.jsx'
@@ -239,7 +239,7 @@ export default function App() {
     revision,
   )
   const showAllReports = view === 'reports' && hasProjectChoices && allReports
-  const reportsPending = Boolean(requestedReportsProject && !visibleProjects &&
+  const reportsPending = Boolean((allReports || requestedReportsProject) && !visibleProjects &&
     (sessionResource.pending || (hasSession && !projectList.error)))
   const reportsMode = allReports ? 'reports-all'
     : reportsPending ? fragment : reportFragment(reportsProject, initialAssigneeView)
@@ -317,7 +317,10 @@ export default function App() {
           {updateDeferred && <p className="board-connection" role="status">Taskboard will refresh when you finish your changes.</p>}
           {['reports', 'team-overview'].includes(view) && projectPicker}
           {view === 'reports' && (reportsPending
-            ? <p className="section-message" role="status">Loading Reports…</p>
+            ? <section className="reports" aria-labelledby="reports">
+              <ReportsHeading headingId="reports" />
+              <p className="section-message" role="status">Loading Reports…</p>
+            </section>
             : <Reports revision={revision} project={project} initialAssigneeView={initialAssigneeView}
               projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null} />)}
           {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject}
