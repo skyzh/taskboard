@@ -875,6 +875,55 @@ class BoardQueries:
             "responder": people.get(row["actor"], {}).get("name") or row["actor"],
         } for row in rows]}
 
+    def peer_request_history(self, *, project, before=None, limit=20):
+        if not watches.has_table(self.db, "peer_asks"):
+            return {"items": [], "next_cursor": None}
+        rows = self.db.execute(
+            f"""
+            WITH requests AS ({ledger.current_tasks_sql(self.db)})
+            SELECT requests.id, requests.state, requests.display_state,
+                   requests.event_id AS latest_id, requests.current_action, requests.at AS latest_at,
+                   ask.requester, ask.recipient, ask.result_event_id,
+                   source.id AS source_id, source.title AS source_title,
+                   source.project_prefix || '-' || COALESCE(source.project_number, source.id) AS source_key,
+                   requests.project_prefix || '-' || COALESCE(requests.project_number, requests.id) AS task_key,
+                   response.at AS response_at,
+                   (SELECT event.at FROM events AS event
+                    WHERE event.task_id = requests.id AND event.action = 'add'
+                    ORDER BY event.id LIMIT 1) AS asked_at,
+                   EXISTS (SELECT 1 FROM events AS event
+                           WHERE event.task_id = requests.id AND event.action = 'start') AS has_started
+            FROM peer_asks AS ask
+            JOIN requests ON requests.id = ask.task_id
+            JOIN tasks AS source ON source.id = ask.source_task_id
+            LEFT JOIN events AS response ON response.id = ask.result_event_id AND response.task_id = requests.id
+            WHERE requests.project_prefix = ? AND source.project_prefix = ? AND requests.id < ?
+            ORDER BY requests.id DESC LIMIT ?
+            """, (project, project, before or projects.MAX_ID, limit + 1),
+        ).fetchall()
+
+        def render(visible):
+            participants = {row[field] for row in visible for field in ("requester", "recipient")}
+            people = profiles.visible_by_keys(self.db, participants, self.base)
+            items = []
+            for row in visible:
+                state = peer_asks.phase(ask=row, task=row, has_started=row["has_started"])
+                item = {
+                    "id": row["id"], "task_key": row["task_key"], "phase": state,
+                    "requester": people.get(row["requester"], {}).get("name") or row["requester"],
+                    "recipient": people.get(row["recipient"], {}).get("name") or row["recipient"],
+                    "source_id": row["source_id"], "source_key": row["source_key"],
+                    "source_title": row["source_title"], "asked_at": row["asked_at"],
+                }
+                if row["response_at"] is not None:
+                    item["response"] = {"id": row["result_event_id"], "at": row["response_at"]}
+                if state == "canceled" or (state == "done" and "response" in item and row["current_action"] == "done"):
+                    item["resolution"] = {"id": row["latest_id"], "at": row["latest_at"]}
+                items.append(item)
+            return items
+
+        return page(rows, limit, "id", render)
+
     def recent_report_outcomes(self, owner, project):
         # Read each action in event ID order before combining the small results.
         recent_ids = """
