@@ -525,11 +525,15 @@ test('more reports disappears when the last report loads', () => {
   const props = { owner: 'Avery', name: 'Avery', initial, total: 2, cursor: 8 }
   fixture.state = []
   fixture.pages = {}
-  assert.match(renderToStaticMarkup(React.createElement(PendingReports, props)), /aria-label="More reports for Avery"[^>]*>More<\/button>/)
+  const compact = renderToStaticMarkup(React.createElement(PendingReports, props))
+  assert.match(compact, /aria-label="More reports for Avery"[^>]*>More<\/button>/)
+  assert.match(compact, /<button type="button" aria-pressed="true">Compact<\/button>/)
+  assert.doesNotMatch(compact, /Found an empty header|<details/)
 
   fixture.pages = { '/reports/pending': {
     data: { items: [...initial, later], next_cursor: null },
   } }
+  fixture.state = [true]
   const markup = renderToStaticMarkup(React.createElement(PendingReports, props))
   assert.match(markup, /Checked the corrected rows\./)
   assert.match(markup, /Found an empty header\./)
@@ -541,7 +545,7 @@ test('project-scoped report pagination retains prefixed task links', () => {
     run_id: 1, task_id: 17, task_key: 'COURSE-1', task_title: 'Course sample', worker: 'Morgan',
     report: 'Initial feedback.', links: [],
   }
-  fixture.state = []
+  fixture.state = [true]
   fixture.resources = {}
   fixture.pages = {
     '/reports/pending': (filters, options) => {

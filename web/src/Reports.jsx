@@ -16,6 +16,7 @@ import { briefSourceText } from './workCopy.js'
 import QueuedAsks from './QueuedAsks.jsx'
 import StampIntegration from './StampIntegration.jsx'
 import { DemoControl, DemoUnavailable } from './DemoControl.jsx'
+import SegmentedControl from './SegmentedControl.jsx'
 
 export const ownerWorkSections = [
   { state: 'human_review', id: 'human_review-title', title: 'Needs a decision', label: 'tasks needing a decision' },
@@ -34,7 +35,14 @@ export function OwnerWorkLinks({ owner, counts, project, summary = false, public
   })
 }
 
-function PendingReport({ report }) {
+const displayOptions = [{ value: 'compact', label: 'Compact' }, { value: 'verbose', label: 'Verbose' }]
+
+function ReportListDisplay({ label, verbose, setVerbose }) {
+  return <SegmentedControl className="report-list-display" label={label} options={displayOptions}
+    value={verbose ? 'verbose' : 'compact'} onChange={value => setVerbose(value === 'verbose')} />
+}
+
+function PendingReport({ report, verbose }) {
   const label = `W-${report.run_id}`
   return (
     <li className="pending-report">
@@ -47,18 +55,18 @@ function PendingReport({ report }) {
         <WorkerResult result={report.result} />
         {report.reported_at && <span>Reported <ReportTime at={report.reported_at} /></span>}
       </p>
-      {(report.report || report.links?.length > 0) && (
-        <details className="report-details">
-          <summary aria-label={`Worker report and evidence for ${label}`}>Worker report and evidence</summary>
+      {verbose && (report.report || report.links?.length > 0) && (
+        <div className="report-details">
           {report.report && <Markdown text={report.report} />}
           <EvidenceLinks links={report.links} />
-        </details>
+        </div>
       )}
     </li>
   )
 }
 
 export function PendingReports({ owner, name, initial, total, cursor, project, projectTitle, heading = true }) {
+  const [verbose, setVerbose] = useState(false)
   const firstPage = useMemo(() => ({ items: initial, next_cursor: cursor }), [initial, cursor])
   const page = useLoadedPages('/reports/pending', { owner, project }, 0, { limit: 10, firstPage })
   const reports = new Map()
@@ -69,12 +77,16 @@ export function PendingReports({ owner, name, initial, total, cursor, project, p
   const showCount = cursor != null || visible.length < total
   const recipient = projectTitle ? `${name} in ${projectTitle}` : name
   const Heading = projectTitle ? 'h4' : 'h3'
+  const hasDetails = visible.some(report => report.report || report.links?.length > 0)
 
   return (
     <div className="pending-reports">
-      {heading && <Heading>Worker reports to review</Heading>}
+      {(heading || hasDetails) && <div className="report-list-heading">
+        {heading && <Heading>Worker reports to review</Heading>}
+        {hasDetails && <ReportListDisplay label={`Display worker reports for ${recipient}`} verbose={verbose} setVerbose={setVerbose} />}
+      </div>}
       <ol className="report-list" aria-label={`Worker reports ${recipient} needs to review`} role="list">
-        {visible.map(report => <PendingReport key={report.run_id} report={report} />)}
+        {visible.map(report => <PendingReport key={report.run_id} report={report} verbose={verbose} />)}
       </ol>
       {showCount && <p className="report-note" role="status">Showing {visible.length} of {total} worker reports.</p>}
       <ResourceStatus resource={page} label={`reports for ${recipient}`} />
@@ -141,12 +153,14 @@ function ReportOutcome({ event, publicPreview }) {
 }
 
 export function AssigneeReport({ entry, revision, project, projectTitle, publicPreview = false, tourTargets = {}, activeTarget }) {
+  const [verboseWork, setVerboseWork] = useState(false)
   const { owner, profile, tasks, task_count: taskCount,
     pending_reports: reports, pending_reports_before: before, report_count: reportCount } = entry
   const name = profileName(owner, profile)
   const outcomes = groupOutcomes(entry.recent_outcomes || [])
   const progressCount = entry.task_counts?.in_progress
   const inProgress = progressCount == null ? tasks.some(task => task.state === 'in_progress') : progressCount > 0
+  const hasChecklists = !publicPreview && tasks.some(task => task.checklist_total > 0)
   const OwnerHeading = projectTitle ? 'h3' : 'h2'
   const WorkHeading = projectTitle ? 'h4' : 'h3'
   const queueLink = `#${new URLSearchParams({ ...(project && { project }), section: 'queue-heading', owner })}`
@@ -173,9 +187,13 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
       </div>
       {tasks.length > 0 && (
         <div className="report-owner-section" id={tourTargets.current} data-tour-current={tourTargets.current === activeTarget && activeTarget ? true : undefined}>
-          <WorkHeading>Current work</WorkHeading>
+          <div className="report-list-heading">
+            <WorkHeading>Current work</WorkHeading>
+            {hasChecklists && <ReportListDisplay label={`Display current work for ${projectTitle ? `${name} in ${projectTitle}` : name}`}
+              verbose={verboseWork} setVerbose={setVerboseWork} />}
+          </div>
           <TaskRows items={tasks} owner={false} label={`Current work for ${name}`} report="summary" revision={revision}
-            publicPreview={publicPreview} />
+            publicPreview={publicPreview} checklistExpanded={verboseWork} />
           {taskCount > tasks.length && <p className="report-note">Showing {tasks.length} of {taskCount} current tasks.</p>}
         </div>
       )}

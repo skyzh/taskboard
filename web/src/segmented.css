@@ -1,0 +1,26 @@
+.segmented-control {
+  display: inline-flex;
+  padding: .15rem;
+  border: 1px solid var(--line);
+  border-radius: .55rem;
+  background: var(--wash);
+}
+.segmented-control > button {
+  flex: 1;
+  padding-inline: .65rem;
+  border: 0;
+  border-radius: .35rem;
+  background: transparent;
+  white-space: nowrap;
+}
+.segmented-control > button[aria-pressed="true"] {
+  color: var(--green);
+  background: var(--paper);
+  box-shadow: 0 0 0 1px var(--line);
+  font-weight: var(--weight-emphasis);
+}
+.segmented-control > button:focus-visible { outline-offset: -2px; }
+
+@media (pointer: coarse) {
+  .segmented-control > button { min-height: 2.75rem; min-width: 2.75rem; }
+}
