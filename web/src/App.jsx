@@ -22,8 +22,11 @@ import {
   browserTimeZone, createTimeZoneFormatters, readTimeZonePreference, saveTimeZonePreference, TimeZoneContext,
 } from './timeZone.js'
 
-function reportFragment(project) {
-  return project === 'T' ? 'reports' : `reports?${new URLSearchParams({ project })}`
+function reportFragment(project, assigneeView) {
+  const params = new URLSearchParams()
+  if (project !== 'T') params.set('project', project)
+  if (assigneeView === 'all') params.set('view', 'all')
+  return params.size ? `reports?${params}` : 'reports'
 }
 
 function fragmentId(fragment, pattern) {
@@ -135,7 +138,10 @@ export default function App() {
   const selected = namedTask || fragmentId(taskAnchor, /^task-([1-9]\d*)$/)
   const fromSearch = selected ? new URLSearchParams(taskContext).get('from-search')?.trim() : ''
   const [preferredProject, chooseProject] = useState('T')
-  const requestedReportsProject = taskAnchor === 'reports' ? new URLSearchParams(taskContext).get('project') : null
+  const reportsParams = taskAnchor === 'reports' ? new URLSearchParams(taskContext) : null
+  const requestedReportsProject = reportsParams?.get('project')
+  const requestedAssigneeView = reportsParams?.get('view')
+  const initialAssigneeView = ['all', 'idle'].includes(requestedAssigneeView) ? 'all' : 'active'
   const allReports = fragment === 'reports-all'
   const [preferredReportsMode, rememberReportsMode] = useState(allReports ? 'reports-all' : 'reports')
   const linkedEvent = fragmentId(taskAnchor, /^event-([1-9]\d*)-log$/)
@@ -236,7 +242,7 @@ export default function App() {
   const reportsPending = Boolean(requestedReportsProject && !visibleProjects &&
     (sessionResource.pending || (hasSession && !projectList.error)))
   const reportsMode = allReports ? 'reports-all'
-    : reportsPending ? fragment : reportFragment(reportsProject)
+    : reportsPending ? fragment : reportFragment(reportsProject, initialAssigneeView)
   const reportsHref = `#${view === 'reports' ? reportsMode : preferredReportsMode}`
   useEffect(() => {
     if (view === 'reports' && !reportsPending) {
@@ -312,7 +318,7 @@ export default function App() {
           {['reports', 'team-overview'].includes(view) && projectPicker}
           {view === 'reports' && (reportsPending
             ? <p className="section-message" role="status">Loading Reports…</p>
-            : <Reports revision={revision} project={project}
+            : <Reports revision={revision} project={project} initialAssigneeView={initialAssigneeView}
               projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null} />)}
           {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject}
             projects={visibleProjects} />}
