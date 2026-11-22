@@ -1,5 +1,7 @@
 """Run the recurring workflow with a disposable ledger and explicit UTC clock."""
 
+from tools.checkout import ROOT
+
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, redirect_stderr, redirect_stdout
 from io import StringIO
@@ -111,7 +113,7 @@ class RecurringFixtureTest(unittest.TestCase):
 
     def test_parallel_local_replay_issues_one_task(self):
         self.define()
-        args = [sys.executable, "-B", str(Path(tasks_core.__file__).with_name("tasks")),
+        args = [sys.executable, "-B", str((ROOT / "tasks")),
                 "--offline", "--db", str(self.db), "recurring-tick", "--as-of", ZERO]
 
         def run_tick(_):
@@ -123,7 +125,7 @@ class RecurringFixtureTest(unittest.TestCase):
         self.assertEqual(self.report(ZERO)["expected"], 1)
 
     def test_scheduler_requires_explicit_local_database(self):
-        script = str(Path(tasks_core.__file__).with_name("tasks"))
+        script = str((ROOT / "tasks"))
         for mode in ("--offline", "--shared"):
             result = subprocess.run(
                 [sys.executable, "-B", script, mode, "recurring-tick", "--as-of", ZERO],

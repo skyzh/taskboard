@@ -1,12 +1,14 @@
 """Exercise snapshot isolation through the CLI."""
 
+from tools.checkout import ROOT
+
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 import unittest
 
 
-TASKS = Path(__file__).with_name("tasks").resolve()
+TASKS = (ROOT / "tasks")
 
 
 class SnapshotPathsTest(unittest.TestCase):

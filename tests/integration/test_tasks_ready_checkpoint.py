@@ -2,7 +2,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from tasks_ready_checkpoint import checkpoint, measured_idle, raft_idle, raft_ready_count, raft_status, raft_wake, run_handler, watch_idle, watch_ready_count, watch_two_pickups
+from taskboard_cli.ready_checkpoint import checkpoint, measured_idle, raft_idle, raft_ready_count, raft_status, raft_wake, run_handler, watch_idle, watch_ready_count, watch_two_pickups
 import test_tasks_service
 
 
@@ -191,8 +191,8 @@ class ReadyCheckpointTest(unittest.TestCase):
             notified_at.append(clock)
             return "wake-requested"
 
-        with patch("tasks_ready_checkpoint.monotonic", side_effect=lambda: clock), \
-                patch("tasks_ready_checkpoint.sleep", side_effect=advance_clock):
+        with patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock), \
+                patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance_clock):
             result = watch_idle(self.avery, "Avery", sample_idle, notify, duration=10, interval=1, idle_delay=2)
         self.assertEqual(notified_at, [7])
         self.assertEqual((result["idle_seconds"], result["status_checks"]), (2, 9))
@@ -216,15 +216,15 @@ class ReadyCheckpointTest(unittest.TestCase):
             wakes.append((clock, notice["ready_count"]))
             return "wake-requested"
 
-        with patch("tasks_ready_checkpoint.monotonic", side_effect=lambda: clock), \
-                patch("tasks_ready_checkpoint.sleep", side_effect=advance_clock), self.assertRaises(KeyboardInterrupt):
+        with patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock), \
+                patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance_clock), self.assertRaises(KeyboardInterrupt):
             watch_ready_count(self.avery, "Avery", lambda handle: True, notify, lambda event: None,
                               interval=1, idle_delay=2)
         self.assertEqual(wakes, [(3, 1), (8, 2)])
 
     def test_count_wake_uses_only_the_owned_queue_size(self):
         title = "You have 2 Ready tickets. Read your Taskboard queue and take what you can move."
-        with patch("tasks_ready_checkpoint.raft_cli", side_effect=["", "Scheduled"]) as invoke:
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", "Scheduled"]) as invoke:
             self.assertEqual(raft_ready_count({"ready_count": 2}, "#example", "12345678", lambda: True),
                              "wake-requested")
         self.assertEqual(invoke.call_args.args, (
@@ -255,8 +255,8 @@ class ReadyCheckpointTest(unittest.TestCase):
             self.assertEqual(handle, "avery")
             return "working" if clock in (0, 4) else "idle"
 
-        with patch("tasks_ready_checkpoint.monotonic", side_effect=lambda: clock), \
-                patch("tasks_ready_checkpoint.sleep", side_effect=advance_clock), self.assertRaises(KeyboardInterrupt):
+        with patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock), \
+                patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance_clock), self.assertRaises(KeyboardInterrupt):
             watch_ready_count(self.avery, "Avery", self.fail, notify, observations.append,
                               interval=1, idle_delay=2, observe_status=status)
         self.assertEqual(wakes, [(3, 1)])
@@ -286,7 +286,7 @@ class ReadyCheckpointTest(unittest.TestCase):
             ('Reminder scheduled: #1a2b3c4d (one-time) "Example"\nNext: 2026-11-21T17:30:33.930Z', "#1a2b3c4d"),
             ("Scheduled", None),
         ):
-            with self.subTest(response=response), patch("tasks_ready_checkpoint.raft_cli", side_effect=["", response]):
+            with self.subTest(response=response), patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", response]):
                 refs = []
                 outcome = raft_ready_count(
                     {"ready_count": 1}, "#example", "12345678", lambda: True, record_wake=refs.append,
@@ -324,9 +324,9 @@ class ReadyCheckpointTest(unittest.TestCase):
         def notify(notice, can_wake):
             return raft_ready_count(notice, "#example", "12345678", can_wake)
 
-        with patch("tasks_ready_checkpoint.monotonic", side_effect=lambda: clock), \
-                patch("tasks_ready_checkpoint.sleep", side_effect=advance_clock), \
-                patch("tasks_ready_checkpoint.raft_cli", side_effect=reminder_cli), self.assertRaises(KeyboardInterrupt):
+        with patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock), \
+                patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance_clock), \
+                patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=reminder_cli), self.assertRaises(KeyboardInterrupt):
             watch_ready_count(self.avery, "Avery", lambda handle: True, notify, emit, interval=1, idle_delay=2)
         self.assertEqual(sends, [2, 5])
         self.assertEqual(results, [("wake-requested", 1), ("wake-requested", 1)])
@@ -345,7 +345,7 @@ class ReadyCheckpointTest(unittest.TestCase):
                     return invoke(action, *args, **kwargs)
 
                 with patch.object(self.avery, "invoke", side_effect=delayed_context), \
-                        patch("tasks_ready_checkpoint.monotonic", side_effect=lambda: clock):
+                        patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock):
                     result = watch(self.avery, "Avery", self.fail, self.fail, duration=5)
                 self.assertEqual(result["outcome"], "timed-out")
 
@@ -357,14 +357,14 @@ class ReadyCheckpointTest(unittest.TestCase):
         explicit_idle = idle.replace("active; online", "active; online: Idle")
         stopped = idle.replace("active; online", "stopped")
         statuses = [idle, explicit_idle, busy + description, stopped, explicit_idle]
-        with patch("tasks_ready_checkpoint.raft_cli", side_effect=statuses):
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=statuses):
             self.assertTrue(raft_idle("avery"))
             self.assertTrue(raft_idle("avery"))
             self.assertFalse(raft_idle("avery"))
             self.assertFalse(raft_idle("avery"))
             self.assertFalse(raft_idle("blake"))
 
-        with patch("tasks_ready_checkpoint.raft_cli", side_effect=[busy, stopped, explicit_idle]):
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=[busy, stopped, explicit_idle]):
             self.assertEqual(raft_status("avery"), "working")
             self.assertEqual(raft_status("avery"), "stopped")
             self.assertEqual(raft_status("blake"), "unavailable")
@@ -373,7 +373,7 @@ class ReadyCheckpointTest(unittest.TestCase):
         title = "Taskboard Ready checkpoint for T-1 (Ready event 12). Check the ticket and record a start or concrete deferral."
         offer = {"kind": "task", "task": "T-1", "ready_event": 12}
         already_fired = f'#123 [fired] (one-time) "{title}" ref=#example:12345678\n'
-        with patch("tasks_ready_checkpoint.raft_cli", side_effect=[already_fired, "", "", "Scheduled"]) as invoke:
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=[already_fired, "", "", "Scheduled"]) as invoke:
             self.assertEqual(raft_wake(offer, "#example", "12345678", self.fail), "already-queued")
             self.assertIsNone(raft_wake(offer, "#example", "12345678", lambda: False))
             self.assertEqual(raft_wake(offer, "#example", "12345678", lambda: True), "wake-requested")

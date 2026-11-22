@@ -85,7 +85,7 @@ class ReleasePlanTest(unittest.TestCase):
             if relative == Path("web/dist/index.html"):
                 label = "previous" if backend_only else marker
                 data += f"\n<!-- {label} -->\n".encode("utf-8")
-            if backend_only and relative == Path("tasks_core.py"):
+            if backend_only and relative == Path("packages/server/src/tasks_core.py"):
                 data += b"\n# Backend-only fixture release.\n"
             output.write_bytes(data)
             output.chmod((self.source / relative).stat().st_mode & 0o777)

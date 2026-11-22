@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+from tools.checkout import ROOT
+
 import sqlite3
 import subprocess
 import sys
@@ -277,7 +279,7 @@ class GitHubIntakeTest(unittest.TestCase):
         legacy_key = "Example/Tasks#1"
         legacy_url = f"{GH}/Example/Tasks/pull/1"
         legacy_link = subprocess.run(
-            [sys.executable, "-B", str(Path(__file__).with_name("tasks")), "--db", str(self.path),
+            [sys.executable, "-B", str((ROOT / "tasks")), "--db", str(self.path),
              "link-source", "T-1", "github", legacy_key, legacy_url, "--by", "Owner"],
             capture_output=True, text=True,
         )

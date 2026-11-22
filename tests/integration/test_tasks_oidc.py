@@ -1,5 +1,7 @@
 """Check a mounted Taskboard against a disposable HTTPS OpenID Connect issuer."""
 
+from tools.checkout import ROOT
+
 from contextlib import closing
 from hashlib import sha256
 from importlib.util import find_spec
@@ -165,7 +167,7 @@ class OIDCTest(unittest.TestCase):
         return self.call(client, "/api/v1/session").json["actor"]
 
     def seed_task(self, owner):
-        command = [sys.executable, "-B", Path(__file__).with_name("tasks"), "--offline", "--db", self.database]
+        command = [sys.executable, "-B", (ROOT / "tasks"), "--offline", "--db", self.database]
         subprocess.run([*command, "add", "Synthetic work", "--dri", owner, "--step", "Review fixture."],
                        check=True, timeout=10, capture_output=True)
 

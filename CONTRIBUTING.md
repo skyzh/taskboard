@@ -25,7 +25,7 @@ npm --prefix web ci --no-audit --no-fund
 npm --prefix web run build
 uv run --no-sync ruff check .
 npm --prefix web run lint
-uv run --no-sync python -B -W error::ResourceWarning -m unittest -v
+uv run --no-sync python -B -W error::ResourceWarning tools/test_python.py
 (cd web && node --test)
 uv run --no-sync python -B -m unittest discover -s tools/release/checks -p test_release_smoke.py
 test -f tools/release/test_release_compatibility.py
@@ -34,7 +34,13 @@ uv run --no-sync python -B -m unittest discover -s tools/release -p test_release
 
 Some release tests require separately pinned artifacts. The test output names any missing fixture. Use synthetic inputs for contributor runs. The [operator guide](tools/release/README.md) covers the exact artifacts and receipts used for deployment.
 
-For a local service benchmark, run `uv run --frozen python -B bench_tasks_service.py`. It uses a disposable ledger and loopback HTTP.
+For a local service benchmark, run `uv run --frozen python -B tools/bench_tasks_service.py`. It uses a disposable ledger and loopback HTTP.
+
+## Package layout
+
+`packages/client` owns the shared Raft connection and request handling. `packages/cli` and `packages/mcp` depend on that client. `packages/server` owns the API, ledger storage, and React assets built from `web`. Package unit tests live in `packages/<component>/tests`. End-to-end fixtures live in `tests/integration`.
+
+Build the web app, then run `uv run --no-sync python -B tools/build_packages.py --out-dir /path/to/wheels`. Run `uv run --no-sync python -B tools/check_package_installs.py` to build and verify the wheels in clean environments. Install the CLI with the client wheel, and add the server wheel or the CLI's `offline` extra for local ledgers. The MCP wheel needs the client wheel and its MCP SDK. The server wheel includes the React assets and exposes `taskboard-serve --db /path/to/taskboard.sqlite3`. The checkout commands `./tasks` and `uv run --locked --script tasks_mcp.py` still use the source tree.
 
 ## Preserve compatibility
 

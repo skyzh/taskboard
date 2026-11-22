@@ -1,5 +1,7 @@
 """Exercise the CLI against disposable databases."""
 
+from tools.checkout import ROOT
+
 from contextlib import closing
 from datetime import datetime
 import json
@@ -12,7 +14,7 @@ import subprocess
 from tempfile import TemporaryDirectory
 import unittest
 
-TASKS = Path(__file__).with_name("tasks").resolve()
+TASKS = (ROOT / "tasks")
 
 
 class TasksTest(unittest.TestCase):
@@ -766,24 +768,15 @@ class TasksTest(unittest.TestCase):
 
     def test_task_updates_refresh_snapshot_and_preserve_last_good_view(self):
         isolated_cli = self.folder / "tasks"
-        template = self.folder / "board.html.in"
+        template = self.folder / "packages/server/src/taskboard_server/board.html.in"
         shutil.copy2(TASKS, isolated_cli)
-        shutil.copy2(TASKS.with_name("tasks_audit.py"), self.folder)
-        shutil.copy2(TASKS.with_name("tasks_core.py"), self.folder)
-        shutil.copy2(TASKS.with_name("tasks_maintenance.py"), self.folder)
-        shutil.copy2(TASKS.with_name("tasks_merges.py"), self.folder)
-        shutil.copy2(TASKS.with_name("tasks_recurring.py"), self.folder)
-        shutil.copy2(TASKS.with_name("tasks_readiness.py"), self.folder)
-        shutil.copy2(TASKS.with_name("tasks_references.py"), self.folder)
-        shutil.copy2(TASKS.with_name("tasks_peer_asks.py"), self.folder)
-        shutil.copy2(TASKS.with_name("tasks_projects.py"), self.folder)
-        shutil.copy2(TASKS.with_name("tasks_release_changelog.py"), self.folder)
-        shutil.copy2(TASKS.with_name("tasks_releases.py"), self.folder)
-        shutil.copy2(TASKS.with_name("tasks_storage.py"), self.folder)
-        shutil.copy2(TASKS.with_name("watches.py"), self.folder)
-        shutil.copy2(TASKS.with_name("workers.py"), self.folder)
-        source = TASKS.with_name("board.html.in").read_text(encoding="utf-8")
-        template.write_text(source, encoding="utf-8")
+        tools = self.folder / "tools"
+        tools.mkdir()
+        shutil.copy2(ROOT / "tools/checkout.py", tools)
+        for component in ("client", "cli", "server"):
+            relative = Path("packages") / component / "src"
+            shutil.copytree(ROOT / relative, self.folder / relative, ignore=shutil.ignore_patterns("__pycache__"))
+        source = template.read_text(encoding="utf-8")
         snapshot = isolated_cli.parent / "state/tasks.board.html"
 
         def run_isolated(*args):

@@ -1,5 +1,7 @@
 """End-to-end workflows with an isolated ledger and a fixture Raft provider."""
 
+from tools.checkout import ROOT
+
 from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, redirect_stderr, redirect_stdout
@@ -35,7 +37,6 @@ BASE = "/tasks"
 CLIENT = "fixture-tasks"
 PORTAL_HEADER = "X-Portal-Upstream-Token"
 PORTAL_FIXTURE = "synthetic-portal-fixture"
-ROOT = Path(__file__).resolve().parent
 
 
 class FixtureRaft:

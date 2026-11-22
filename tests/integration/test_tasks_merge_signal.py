@@ -8,8 +8,8 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-import tasks_core
-import tasks_merge_signal
+import taskboard_cli
+from taskboard_server import merge_signal as tasks_merge_signal
 
 
 BOARD = "https://board.example.test/tasks"
@@ -33,7 +33,7 @@ class MergeSignalTest(unittest.TestCase):
         return output.getvalue() if status == 0 else errors.getvalue()
 
     def task(self, *args, status=0):
-        return self.cli(tasks_core, ["tasks", "--offline", "--db", str(self.ledger)], args, status)
+        return self.cli(taskboard_cli, ["tasks", "--offline", "--db", str(self.ledger)], args, status)
 
     def signal(self, *args, status=0, board=BOARD):
         prefix = ["merge-signal", "--db", str(self.ledger), "--state", str(self.outbox), "--board-url", board]

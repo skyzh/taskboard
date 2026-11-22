@@ -13,9 +13,10 @@ from time import perf_counter, sleep
 from urllib.error import URLError
 from urllib.request import urlopen
 
-from tasks_core import ensure_schema
+from checkout import ROOT, add_packages
 
-ROOT = Path(__file__).resolve().parent
+add_packages("client", "server")
+from tasks_core import ensure_schema
 TASK_COUNT = 10000
 EVENTS_PER_TASK = 8
 AT = "2026-11-20T15:33:00Z"

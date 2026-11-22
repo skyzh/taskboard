@@ -1,5 +1,7 @@
 """Exercise the optional server's actual mounted WebSocket transport."""
 
+from tools.checkout import ROOT
+
 from contextlib import closing
 import http.client
 from importlib.util import find_spec
@@ -14,7 +16,6 @@ from time import monotonic, sleep
 import unittest
 
 
-ROOT = Path(__file__).resolve().parent
 ORIGIN = "https://board.example.test"
 PORTAL = b"test-portal"
 

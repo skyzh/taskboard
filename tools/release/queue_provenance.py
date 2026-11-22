@@ -6,8 +6,8 @@ from pathlib import Path
 import re
 import sys
 
-# Direct operator scripts start with tools/release on the import path.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+# Load the release record contract from this reviewed checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packages/server/src"))
 from tasks_release_changelog import GIT_COMMIT, MAX_BOARD_ID, TICKET, normalize_changelog
 
 SUBMISSION = "taskboard-release/v1"

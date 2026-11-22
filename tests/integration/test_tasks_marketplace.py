@@ -1,5 +1,7 @@
 """Exercise two Marketplace installs with a fictional Raft provider."""
 
+from tools.checkout import ROOT
+
 from contextlib import closing
 from hashlib import sha256
 import json
@@ -229,7 +231,7 @@ class MarketplaceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "own tenant root"):
             self.make_app(portal_upstream_token="fixture-private-portal")
         result = subprocess.run(
-            [sys.executable, "-B", str(Path(__file__).with_name("tasks")), "--db",
+            [sys.executable, "-B", str((ROOT / "tasks")), "--db",
              str(self.root / "private.sqlite3"), "serve", "--marketplace-root", str(self.tenants)],
             capture_output=True, text=True, check=False, timeout=5,
         )

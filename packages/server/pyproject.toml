@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "taskboard-server"
+version = "0.1.0"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = [
+    "taskboard-client==0.1.0",
+    "flask>=3.1,<4",
+    "pillow>=12,<13",
+    "waitress>=3,<4",
+]
+
+[project.optional-dependencies]
+websocket = [
+    "flask-sock>=0.7,<1",
+    "gunicorn>=26.2,<27",
+]
+oidc = [
+    "authlib>=1.9,<2",
+    "joserfc>=1.6,<2",
+    "requests>=2,<3",
+]
+postgres = [
+    "psycopg[binary]>=3.2,<4",
+]
+
+[project.scripts]
+taskboard-serve = "taskboard_server:main"
+
+[tool.setuptools.package-data]
+taskboard_server = ["board.html.in", "web/*", "web/assets/*", "web/assets/licenses/*"]

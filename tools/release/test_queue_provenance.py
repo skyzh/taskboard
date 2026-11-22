@@ -158,6 +158,10 @@ class AuthoritativeFixtureTest(unittest.TestCase):
     def test_real_actions_attribute_and_return_exact_activity(self):
         source = Path(os.environ["TASKS_PROFILE_FIXTURE"]).resolve(strict=True)
         with patch.object(sys, "path", [str(source), *sys.path]):
+            from tools.checkout import add_packages, add_tests
+
+            add_packages("client", "cli", "server")
+            add_tests()
             import test_tasks_service as service
             from taskboard_client import SharedBoard
 

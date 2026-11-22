@@ -1,5 +1,7 @@
 """Exercise Ready signals with ordinary ledger transitions and no external delivery."""
 
+from tools.checkout import ROOT
+
 from contextlib import closing
 from hashlib import sha256
 import json
@@ -12,7 +14,6 @@ from tempfile import TemporaryDirectory
 import unittest
 
 
-ROOT = Path(__file__).resolve().parent
 BOARD = "https://tasks.example.test/tasks"
 OWNER = "Avery"
 

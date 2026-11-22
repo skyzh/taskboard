@@ -45,8 +45,7 @@ from tasks_evidence_preview import read_image
 from tasks_queries import BoardQueries, PACIFIC, pacific_day, task_creation
 
 
-ROOT = Path(__file__).resolve().parent
-DIST = ROOT / "web" / "dist"
+from taskboard_server.paths import CHECKOUT, DIST, PACKAGE
 FRONTEND_BUILD_META = re.compile(rb'<meta name="tasks-frontend-build" content="([0-9a-f]{64})">')
 # Some Linux systems expose the host's localtime file alongside IANA zones.
 TIME_ZONE_NAMES = available_timezones() - {"localtime"}
@@ -1003,7 +1002,7 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
         ).fetchone()
         return f"{row[0]}-{row[1]}-{pacific_day(ledger.timestamp())}"
 
-    release_source = Path(__file__).resolve().parent
+    release_source = CHECKOUT or PACKAGE
 
     @app.get("/api/v1/release")
     def running_release():
@@ -1790,7 +1789,7 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
         review = text(data, "review_after", optional=True, maximum=10)
         if review:
             try:
-                review = ledger.date.fromisoformat(review).isoformat()
+                review = date.fromisoformat(review).isoformat()
             except ValueError as error:
                 raise RequestError("Use a YYYY-MM-DD review date.") from error
         defer_until = text(data, "defer_until", optional=True, maximum=25)

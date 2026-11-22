@@ -35,8 +35,9 @@ import watches
 import workers
 import tasks_storage
 
-ROOT = Path(__file__).resolve().parent
-DEFAULT_DB = ROOT / "state" / "tasks.sqlite3"
+from taskboard_server.paths import CHECKOUT, DATA, PACKAGE
+
+DEFAULT_DB = DATA / "tasks.sqlite3"
 WATCH_COMMANDS = {"watch", "unwatch", "link-source", "link-reference", "source-event"}
 SOURCE_LABEL_LIMIT = 160
 SOURCE_URL_LIMIT = 2000
@@ -1491,7 +1492,7 @@ def render_board(db, path):
     log_actions = sorted({event["action"] for event, _ in material_events}, key=event_label)
     owners = sorted({task["dri"] for task in tasks if task["dri"]}, key=str.casefold)
     workstreams = workstreams_html(db, tasks)
-    template = Template((ROOT / "board.html.in").read_text(encoding="utf-8"))
+    template = Template((PACKAGE / "board.html.in").read_text(encoding="utf-8"))
     return template.substitute(
         snapshot=time_html(timestamp()),
         summary="".join(
@@ -1641,7 +1642,8 @@ def refresh_board_after_save(db, path, receipt):
 
 def ledger_command(path, command):
     flags = "" if path == DEFAULT_DB else f" --db {shell_quote(str(path))}"
-    return f"{shell_quote(str(ROOT / 'tasks'))}{flags} {command}"
+    entry = shell_quote(str(CHECKOUT / "tasks")) if CHECKOUT else "tasks"
+    return f"{entry}{flags} {command}"
 
 
 def ensure_schema(db):

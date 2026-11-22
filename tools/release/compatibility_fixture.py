@@ -108,6 +108,11 @@ def run_raft(arguments):
 
 def serve_fixture(source, database, certificate, key, browser):
     sys.path.insert(0, str(source))
+    if (Path(source) / "tools/checkout.py").is_file():
+        from tools.checkout import add_packages, add_tests
+
+        add_packages("client", "cli", "server")
+        add_tests()
     from test_tasks_service import FixtureRaft, SERVER
     from tasks_service import create_app
     from werkzeug.serving import make_server
