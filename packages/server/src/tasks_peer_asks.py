@@ -345,7 +345,7 @@ def submit_result(db, args, links, ask, task, *, stamp_verdict=None):
 
 
 def apply_stamp_verdict(db, request_id, *, pull, reviewer, verdict, head, base, evidence_id, evidence_url,
-                        current_head, current_base, checks_passed):
+                        current_head, current_base, checks_passed, merged=False):
     """Apply a provider-verified receipt inside the caller's ledger transaction."""
     import tasks_core as ledger
 
@@ -363,6 +363,8 @@ def apply_stamp_verdict(db, request_id, *, pull, reviewer, verdict, head, base, 
         return False
     note = ("Stamp approved this revision and both required checks passed."
             if verdict == "approved" else "Stamp requested changes on this revision.")
+    if merged:
+        note = "Stamp approved the merged revision and all required checks passed."
     submit_result(db, Namespace(by=reviewer, note=note), [("Stamp review", evidence_url)], ask, task,
                   stamp_verdict={"id": evidence_id, "pull": pull, "head": head, "base": base, "verdict": verdict})
     return True
