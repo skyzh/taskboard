@@ -476,6 +476,7 @@ _NEXT_STEPS = {
     "recurring-show": "Review the next scheduled occurrence and any open tickets.",
     "recurring-state": "Check the saved recurring definition with recurring-show.",
     "save-goal": "Read the saved project goals with my-goals.",
+    "search-tasks": "Open a matching ticket before starting duplicate work.",
     "set-profile": "Check your signed-in profile with context.",
     "tagged-tasks": "Open a matching ticket to check its current step and evidence.",
     "task-activity": "Check the latest receipt and any linked evidence.",
@@ -2024,6 +2025,20 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
             return query().tasks(
                 project=project_filter(data), tag=tag_filter(data, optional=False), **page_args(data),
             )
+        if name == "search-tasks":
+            project = project_filter(data)
+            search = text(data, "q", maximum=160)
+            result = query().tasks(project=project, search=search, **page_args(data))
+            return {
+                "items": [
+                    {
+                        "id": task["id"], "key": task["key"], "title": task["title"],
+                        "state": task.get("display_state", task["state"]),
+                    }
+                    for task in result["items"]
+                ],
+                "next_cursor": result["next_cursor"],
+            }
         if name == "task-tag":
             return change_tag(actor, task_number(data.get("id")), data)
         if name == "assignees":

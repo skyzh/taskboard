@@ -61,6 +61,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "my-readiness": ("GET", "", "project scope before limit"),
             "task": ("GET", "id", ""),
             "tagged-tasks": ("GET", "project tag", "before limit"),
+            "search-tasks": ("GET", "q project", "before limit"),
             "task-tag": ("POST", "id tag action", ""),
             "task-activity": ("GET", "id", "before limit"),
             "assignees": ("GET", "", "query project before limit"),

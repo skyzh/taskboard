@@ -255,6 +255,12 @@ def arguments(argv=None):
     tagged.add_argument("project", type=nonblank)
     tagged.add_argument("tag", type=nonblank)
 
+    search = commands.add_parser("search", help="Find related tickets on the signed-in shared board.")
+    search.add_argument("query", type=nonblank, metavar="QUERY", help="Ticket ID, title, or current summary text.")
+    search.add_argument("--project", default=projects.DEFAULT, type=nonblank, help="Search one project (default T).")
+    search.add_argument("--limit", type=int, default=20, help="Maximum results on this page (1–100).")
+    search.add_argument("--before", type=int, help="Cursor from the previous result page.")
+
     peer = commands.add_parser(PEER_ASK, help="Open, return, acknowledge, or cancel a linked peer request.")
     peer.add_argument("change", choices=PEER_ASK_TRANSITIONS)
     peer.add_argument("id", type=task_id, help="Source ticket for create. Linked request ticket for every other action.")

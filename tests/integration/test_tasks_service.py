@@ -1182,6 +1182,46 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(viewer.get(BASE + "/api/v1/tasks", base_url=ORIGIN, query_string=query).status_code, 403)
         self.call(self.app().test_client(), "/api/v1/tasks", query_string=query, status=401)
 
+    def test_shared_ticket_search_finds_other_owners_with_project_scoped_pages(self):
+        app = self.app(portal_reader=True)
+        seeker, _ = self.login(app, "Avery")
+        owner, owner_key = self.login(app, "Blake")
+        self.cli("register-project", "COURSE", "Synthetic course", "--dri", owner_key)
+        for project, title in (
+            ("T", "Release résumé"), ("T", "Release checklist"), ("COURSE", "Release course pack"),
+        ):
+            self.action(owner, "create-task", {
+                "project": project, "title": title, "step": "Confirm the release samples.",
+            })
+        self.action(owner, "close-task", {"id": "T-2", "reason": "Superseded by T-1."})
+
+        query = {"q": "release", "project": "T", "limit": "1"}
+        first = self.action(seeker, "search-tasks", query_string=query)
+        self.assertEqual(first["items"], [
+            {"id": 2, "key": "T-2", "title": "Release checklist", "state": "closed"},
+        ])
+        self.assertIn(f"More results: repeat with --before {first['next_cursor']}.", self.shared_cli(
+            seeker, "search", "release", "--limit", "1",
+        )[1])
+        status, output, errors = self.shared_cli(
+            seeker, "search", "RELEASE", "--limit", "1", "--before", str(first["next_cursor"]),
+        )
+        self.assertEqual((status, errors), (0, ""))
+        self.assertIn("T-1 · Ready · Release résumé", output)
+        self.assertIn(f"{ORIGIN}{BASE}/#task-1", output)
+        self.assertNotIn("Release course pack", output)
+        self.assertNotIn("More results", output)
+        self.assertIn("No matching tickets in T.", self.shared_cli(seeker, "search", "COURSE-1")[1])
+        self.assertIn("COURSE-1 · Ready · Release course pack", self.shared_cli(
+            seeker, "search", "release", "--project", "COURSE",
+        )[1])
+        self.assertIn(f"{ORIGIN}{BASE}/#task-COURSE-1", self.shared_cli(
+            seeker, "search", "COURSE-1", "--project", "COURSE",
+        )[1])
+        self.action(seeker, "search-tasks", query_string={**query, "q": " "}, status=400)
+        self.action(seeker, "search-tasks", query_string={**query, "limit": "101"}, status=400)
+        self.action(app.test_client(), "search-tasks", query_string=query, status=401)
+
     def test_task_suggestions_rank_exact_keys_prefixes_and_title_typos(self):
         app = self.app(portal_reader=True)
         owner_client, owner = self.login(app, "Avery")

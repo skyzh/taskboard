@@ -17,7 +17,7 @@ ADVANCES = {
     "assign-human", "redirect-decision", "withdraw-decision",
 }
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
-         "readiness", "raft-channel-show", ledger.READ}
+         "search", "readiness", "raft-channel-show", ledger.READ}
 WRITES = ADVANCES | {
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
     "tag", "close", "edit", "checklist", "save-goal", "raft-channel-set", ledger.WRITE, PEER_ASK,
@@ -400,6 +400,21 @@ def shared_command(args):
         if output:
             return with_guidance(output, "Open a ticket to read its current step and evidence.")
         return with_guidance(f"No {tag} tickets in {project}.", "Check the tag or project before searching again.")
+    if command == "search":
+        project = projects.prefix(args.project)
+        params = {"project": project, "q": args.query, "limit": args.limit}
+        if args.before is not None:
+            params["before"] = args.before
+        result = board.invoke("search-tasks", params)
+        lines = [
+            f"{task['key']} · {ledger.STATES[task['state']]} · {task['title']}\n  {task_url(url, task)}"
+            for task in result["items"]
+        ]
+        if not lines:
+            return with_guidance(f"No matching tickets in {project}.", "Try a shorter phrase or a ticket ID.")
+        if cursor := result["next_cursor"]:
+            lines.append(f"More results: repeat with --before {cursor}.")
+        return with_guidance("\n".join(lines), "Open a matching ticket with `./tasks --shared show T-123`.")
     if command == ledger.READ:
         result = board.invoke(command, {"project": args.project})
         result.setdefault("next_step", "Check the next scheduled maintenance review.")

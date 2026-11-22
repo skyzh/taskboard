@@ -57,7 +57,7 @@ Use the shared CLI or web board for other actions.
 | When | What to use |
 | --- | --- |
 | Verify your account and choose work | `context`, `next`, `list`, `reviews`, `readiness`, `goals`. Use `list --status ready --unassigned` for shared Ready work. |
-| Read a ticket and its evidence | `show`, `workers`, `tagged`, `watched`, `recurring-show`, `maintenance-show`. |
+| Find related work or read evidence | Use `search "short phrase" --project T` to check for an existing ticket, then `show` to read it. Use `workers`, `tagged`, `watched`, `recurring-show`, or `maintenance-show` for their specific records. |
 | Plan or record work | `add`, `edit`, `priority`, `tag`, `start`, `update`, `log`, `link-reference`, `link-source`. Use `update --checklist-step` to add a step and `update --check` to mark it complete. |
 | Give a useful estimate | Once the task is in progress, run `./tasks --shared update T-42 'Check sample results.' --eta 2026-11-24T17:00:00Z`. Use a time with an explicit offset. Revise the estimate when it changes or use `--clear-eta` if you can no longer give one. |
 | Handle a dependency or a later start | Use `wait --on` for a named dependency or `wait --blocked-by` for a ticket, then `resume` after it clears. Use `remind --until` for a known time or `--on` for a Pacific date. Use `park` to defer work and `unpark` to return it to Ready. |

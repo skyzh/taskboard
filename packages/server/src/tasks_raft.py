@@ -69,6 +69,9 @@ _ACTIONS = {
     "tagged-tasks": _Action("GET", "Read tagged tickets in one project.", {
         "project": "Tasks project prefix.", "tag": "Tag to filter.",
     }, _PAGINATION),
+    "search-tasks": _Action("GET", "Find tickets by ID, title, or current summary in one project.", {
+        "q": "Ticket ID or text to match.", "project": "Tasks project prefix.",
+    }, _PAGINATION),
     "task-tag": _Action("POST", "Add or remove a tag from a ticket you own or manage.", {
         **_TASK, "tag": "Tag to change.", "action": "Choose add or remove.",
     }),
