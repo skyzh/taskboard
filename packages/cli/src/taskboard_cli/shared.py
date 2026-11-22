@@ -4,7 +4,7 @@ import json
 import os
 from urllib.parse import urlsplit
 
-from taskboard_client import SharedActionUnavailable, SharedBoard
+from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
 
 from taskboard_client import references as projects
 from taskboard_client import work as ledger
@@ -301,6 +301,27 @@ NEXT_LABELS = {
 }
 
 
+def completion_guidance(board, reference):
+    project, _ = projects.identifier(reference)
+    inbox = f"`./tasks --shared next --project {project}`"
+    try:
+        result = board.invoke("my-next", {"project": project})
+        if work := result["work"]:
+            label = NEXT_LABELS.get(work["kind"], "Start Ready work")
+            return f"{label} on {work['key']} · {work['title']}. Read it with {inbox}."
+        if result["standing_goals"]:
+            goal = result["standing_goals"][0]
+            if ticket := goal["ticket"]:
+                return (
+                    f"Standing goal {ticket} · {goal['summary']}\n"
+                    f'{result["next_step"]}\nRun `./tasks --shared start {ticket} "<what you will check>"`.'
+                )
+    except (SharedActionUnavailable, SharedReadError, KeyError, TypeError):
+        # A failed or incomplete read cannot invalidate the earlier write receipt.
+        return f"Check your Inbox with {inbox}. The next item could not be loaded."
+    return f"Check your Inbox with {inbox}."
+
+
 def shared_next(board, url, filters, actor):
     try:
         result = board.invoke("my-next", filters)
@@ -397,9 +418,8 @@ def shared_command(args):
         result = shared_write(board, args)
         output = "Committed · " + result["receipt"]
         guidance = result.get("next_step")
-        if command == "done":
-            project, _ = projects.identifier(args.id)
-            guidance = f"Check your Inbox with `./tasks --shared next --project {project}`."
+        if command in {"done", "transfer"} or (command == PEER_ASK and args.change == "result"):
+            guidance = completion_guidance(board, args.id)
         return with_guidance(output, guidance or "Check the updated record or your Inbox.")
     if command == "readiness":
         filters = {"project": args.project} if args.project else {"scope": "all"}

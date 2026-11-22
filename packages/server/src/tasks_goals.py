@@ -55,7 +55,8 @@ STANDING_EXPLORATION_LABEL = "Explore this goal"
 STANDING_EXPLORATION_START = "Start this goal ticket and note what you plan to check."
 STANDING_EXPLORATION = (
     f"{STANDING_EXPLORATION_START} Explore the product, recent changes, or workflow evidence. "
-    "Open or link a focused ticket if you find a bug or improvement. Otherwise, record what you checked."
+    "Open or link a focused ticket if you find a bug or improvement. Otherwise, record what you checked. "
+    "If you open a ticket from this standing goal, add the spontaneous tag."
 )
 
 
