@@ -11,6 +11,7 @@ import tasks_goals as goals
 import tasks_maintenance as maintenance
 import tasks_profiles as profiles
 import tasks_projects as projects
+import tasks_peer_asks as peer_asks
 import tasks_recurring as recurring
 import tasks_releases as releases
 import tasks_readiness as readiness
@@ -173,6 +174,7 @@ class BoardQueries:
             return []
         ids = [row["id"] for row in rows]
         placeholders = ", ".join("?" for _ in ids)
+        requests = peer_asks.source_links(self.db, ids) if watches.has_table(self.db, "peer_asks") else {}
         progress = {
             row["task_id"]: (row["completed"], row["total"])
             for row in self.db.execute(
@@ -244,6 +246,11 @@ class BoardQueries:
                 "checklist_total": total,
                 **release_fields.get(row["id"], {}),
             }
+            if ask := requests.get(row["id"]):
+                item["peer_request"] = {
+                    "source_id": ask["source_task_id"], "source_key": projects.row_reference(ask),
+                    "phase": peer_asks.phase(ask, row), "requester": ask["requester"],
+                }
             if include_report_fields:
                 item["last_activity_at"] = activity_times.get(row["id"], row["at"])
                 if isinstance(details, str):
@@ -684,7 +691,10 @@ class BoardQueries:
             result["next_cursor"] = f"{last['execution_rank']}:{last['id']}"
         return result
 
-    def actionable_reviews(self, person, *, before, limit, project=None):
+    def actionable_reviews(self, person, *, before, limit, project=None, unlinked=False):
+        unlinked_filter = ""
+        if unlinked and watches.has_table(self.db, "peer_asks"):
+            unlinked_filter = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)"
         rows = self.db.execute(
             f"""
             WITH current AS ({ledger.current_tasks_sql(self.db)})
@@ -695,7 +705,7 @@ class BoardQueries:
             WHERE worker_runs.worker = ? AND worker_runs.role = 'review'
                 AND worker_runs.status IN ('planned', 'running') AND worker_runs.id < ?
                 AND current.display_state <> 'closed'
-                AND (? IS NULL OR tasks.project_prefix = ?)
+                AND (? IS NULL OR tasks.project_prefix = ?) {unlinked_filter}
             ORDER BY worker_runs.id DESC LIMIT ?
             """, (person, before or projects.MAX_ID, project, project, limit + 1),
         ).fetchall()
@@ -718,12 +728,14 @@ class BoardQueries:
 
         def render(visible):
             recipients = profiles.visible_by_keys(self.db, [row["worker"] for row in visible], self.base)
+            linked = peer_asks.review_links(self.db, [row["id"] for row in visible]) if watches.has_table(self.db, "peer_asks") else {}
             return [{
                 "id": row["id"], "task_id": row["task_id"], "task_title": row["task_title"],
                 "task_key": row["task_key"],
                 "recipient": recipients.get(row["worker"], {}).get("name") or row["worker"],
                 "state": row["status"],
                 "execution_state": row["execution_state"],
+                **({"linked_request": linked[row["id"]]} if row["id"] in linked else {}),
             } for row in visible]
 
         return page(rows, limit, "id", render)
@@ -734,6 +746,7 @@ class BoardQueries:
             WITH current AS ({ledger.current_tasks_sql(self.db)} WHERE tasks.project_prefix = ?)
             SELECT tasks.event_id AS id, tasks.id AS task_id, tasks.title AS task_title,
                    {TASK_REFERENCE} AS task_key,
+                   json_extract(tasks.context, '$.peer_ask_ticket') AS linked_request,
                    COALESCE(NULLIF(peer.name, ''), NULLIF(peer.username, ''), peer.ledger_key) AS recipient
             FROM current AS tasks
             JOIN board_principals AS peer ON peer.ledger_key = COALESCE(
@@ -754,7 +767,9 @@ class BoardQueries:
             ORDER BY tasks.event_id DESC LIMIT ?
             """, (project, before or projects.MAX_ID, limit + 1),
         ).fetchall()
-        return page(rows, limit, "id", lambda visible: [dict(row) for row in visible])
+        return page(rows, limit, "id", lambda visible: [
+            {key: row[key] for key in row.keys() if key != "linked_request" or row[key]} for row in visible
+        ])
 
     def recent_report_outcomes(self, owner, project):
         # Read each action in event ID order before combining the small results.
@@ -775,6 +790,14 @@ class BoardQueries:
 
     def reports(self, *, view, before, limit, project=projects.DEFAULT):
         current = ledger.current_tasks_sql(self.db) + " WHERE tasks.project_prefix = ?"
+        peer_work = watches.has_table(self.db, "peer_asks")
+        active_state = f"state IN ({ACTIVE_STATES})"
+        active_event = f"events.state IN ({ACTIVE_STATES})"
+        unlinked_reports = ""
+        if peer_work:
+            unlinked_reports = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)"
+            active_state += " OR (state = 'ready' AND id IN (SELECT task_id FROM peer_asks))"
+            active_event += " OR (events.state = 'ready' AND tasks.id IN (SELECT task_id FROM peer_asks))"
         work_columns = ", ".join(f"COALESCE(work.{state}, 0) AS {state}" for state in WORK_STATES)
         roster = project == projects.DEFAULT and self.project_roster is not None
         names = projects.roster_owners(self.db, self.project_roster) if roster else {}
@@ -796,14 +819,15 @@ class BoardQueries:
                  project_tasks AS (SELECT id, dri FROM tasks WHERE project_prefix = ?),
                  work AS (
                      SELECT dri, {WORK_COUNTS},
-                            COUNT(CASE WHEN state IN ({ACTIVE_STATES}) THEN 1 END) AS task_count,
-                            MAX(CASE WHEN state IN ({ACTIVE_STATES}) THEN at END) AS updated
+                            COUNT(CASE WHEN {active_state} THEN 1 END) AS task_count,
+                            MAX(CASE WHEN {active_state} THEN at END) AS updated
                      FROM current GROUP BY dri
                  ),
                  reports AS (
                      SELECT current.dri, COUNT(*) AS report_count, MAX(worker_runs.reported_at) AS updated
                      FROM worker_runs JOIN current ON current.id = worker_runs.task_id
                      WHERE worker_runs.status = 'reported' AND current.display_state <> 'closed'
+                       {unlinked_reports}
                      GROUP BY current.dri
                  ),
                  runs AS (
@@ -850,12 +874,12 @@ class BoardQueries:
                 active = []
                 if row["task_count"]:
                     active = self.db.execute(
-                        current + f" AND tasks.dri = ? AND events.state IN ({ACTIVE_STATES}) "
+                        current + f" AND tasks.dri = ? AND ({active_event}) "
                         "ORDER BY CASE events.state WHEN 'human_review' THEN 0 WHEN 'waiting' THEN 1 ELSE 2 END, "
                         "events.id DESC LIMIT 10",
                         (project, person),
                     ).fetchall()
-                pending = self.pending_reports(person, project=project) if row["report_count"] else {"items": [], "next_cursor": None}
+                pending = self.pending_reports(person, project=project, unlinked=True) if row["report_count"] else {"items": [], "next_cursor": None}
                 profile = directory.get(person)
                 if profile is None and person in names:
                     profile = projects.roster_profile(person, names[person])
@@ -930,7 +954,10 @@ class BoardQueries:
             "worker_counts": worker_counts(counts),
         }
 
-    def pending_reports(self, person, *, before=None, limit=10, project=None):
+    def pending_reports(self, person, *, before=None, limit=10, project=None, unlinked=False):
+        unlinked_filter = ""
+        if unlinked and watches.has_table(self.db, "peer_asks"):
+            unlinked_filter = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)"
         runs = self.db.execute(
             f"""
             WITH current AS ({ledger.current_tasks_sql(self.db)})
@@ -940,6 +967,7 @@ class BoardQueries:
             WHERE tasks.dri = ? AND worker_runs.status = 'reported'
                 AND current.display_state <> 'closed'
                 AND worker_runs.id < ? AND (? IS NULL OR tasks.project_prefix = ?)
+            {unlinked_filter}
             ORDER BY worker_runs.id DESC LIMIT ?
             """, (person, before or 2**63 - 1, project, project, limit + 1),
         ).fetchall()
@@ -1066,8 +1094,8 @@ class BoardQueries:
         scope = {"project": project, "limit": 1}
         queues = (
             ("ready", self.tasks, {"dri": owner, "state": "ready", "priority_order": True}),
-            ("review", self.actionable_reviews, {"person": owner, "before": None}),
-            ("report", self.pending_reports, {"person": owner}),
+            ("review", self.actionable_reviews, {"person": owner, "before": None, "unlinked": True}),
+            ("report", self.pending_reports, {"person": owner, "unlinked": True}),
             ("readiness", self.readiness, {"owner": owner, "before": None}),
             ("request", self.attention, {"recipient": owner, "state": "open", "today": today, "before": None}),
             ("decision", self.tasks, {"waiting_on": owner, "state": "human_review"}),

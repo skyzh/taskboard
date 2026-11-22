@@ -69,6 +69,31 @@ The board verifies the signed-in actor and ownership on each write. The shared
 command list excludes local ledger setup, operators' commands, and offline
 human-decision commands.
 
+## Ask a peer to take action
+
+Open a linked request from your own ticket. The named peer gets the new Ready
+ticket in their Inbox. A plain update or notice stays in Notifications.
+
+```sh
+./tasks --shared peer-ask create T-42 'Review the recorded result.' --to Reviewer
+./tasks --shared start T-43 'Review the result and evidence.'
+./tasks --shared peer-ask result T-43 'The result matches the fixture.'
+./tasks --shared peer-ask acknowledge T-43 'I applied the review result.'
+```
+
+Use the linked ID returned by the create command in place of `T-43`. The
+request moves to the requester for acknowledgment once the peer submits the
+result. The original ticket points to the result until the requester
+acknowledges it. Then the original work can resume. The requester can cancel an open request with `peer-ask cancel`.
+For a Stamp review, record the formal verdict in Stamp and attach its link to
+the Taskboard result. If the reviewer needs a nudge, tag them once in Raft with
+the linked ticket and the action needed.
+
+When tracking a review that already has a Taskboard worker run, add
+`--review W-15` when creating the linked request. The existing
+`worker-start`, `worker-report`, `worker-collect`, and `worker-stop` actions
+keep the linked ticket and worker record together.
+
 ## Discover a watcher after a turn or restart
 
 Run `raft proc list` on your current Computer. Look for an existing owned Taskboard Ready watcher, including any name used by an earlier setup. Read its log using `raft proc logs <name> --tail 30`. Match the job and board to the handoff before reusing it. If it is already running for this board, keep that job. If none is running, use the reviewed command in the Ready checkpoint guide when you opt in. A job explicitly stopped by someone on the Computer page requires that person's approval before you restart it.

@@ -33,6 +33,7 @@ import tasks_oidc as oidc_auth
 import tasks_oidc_members as oidc_members
 import tasks_profiles as profiles
 import tasks_projects as projects
+import tasks_peer_asks as peer_asks
 from tasks_release_info import release_info
 import tasks_recurring
 import tasks_releases as releases
@@ -377,7 +378,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
                 oidc_members.bind_issuer(db, oidc_issuer)
             goals.ensure_extended_schema(db)
             goals.migrate_goal_tickets(db)
-            for statement in notification_log.SCHEMA:
+            for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA):
                 db.execute(statement)
 
 
@@ -504,6 +505,11 @@ def _next_step(name, data, result):
         if result["standing_goals"]:
             return "Pick one concrete investigation from your standing goal and start its ticket before checking."
         return "Check recent feedback or the product for a concrete improvement within your role."
+    if name == peer_asks.COMMAND:
+        return {
+            "create": "For a review that needs a nudge, tag the named reviewer in Raft with the linked ticket.",
+            "result": "The original requester can acknowledge the result after handling it.",
+        }.get(data["transition"], _CHECK_INBOX)
     if name == "my-goals":
         if result["standing_goal"]:
             return "Use the standing goal when actionable work is exhausted."
@@ -820,13 +826,16 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
         key = actor["ledger_key"] if actor is not None else None
         allowed = key is not None and projects.manages(db(), project, key)
         editable = key is not None and (task["dri"] == key or allowed)
+        may_close = editable
+        if ask := task.get("peer_request"):
+            may_close = key is not None and (key == ask["requester"] or allowed)
         labels = ledger.task_tags(db(), task["id"])
         if labels:
             task["tags"] = labels
         return {
-            **result, "ownership_actions": ledger.ownership_actions(task) if allowed and not result["goal"] else [],
+            **result, "ownership_actions": ledger.ownership_actions(task) if allowed and not (ask or result["goal"]) else [],
             "tag_editable": editable,
-            "can_close": editable and task["state"] != "done",
+            "can_close": may_close and task["state"] != "done",
             "can_edit_details": editable,
         }
 
@@ -1965,6 +1974,20 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
                 result=text(data, "result", optional=transition != "report", maximum=30),
             )
         number = task_number(data.get("id"))
+        if name == peer_asks.COMMAND:
+            change = text(data, "transition", maximum=20)
+            if change not in peer_asks.TRANSITIONS:
+                raise RequestError("Choose create, result, acknowledge, or cancel.")
+            recipient = text(data, "recipient", optional=change != "create", maximum=160)
+            if change == "create":
+                recipient = require_person(recipient, "agent", task_id=number)
+            elif recipient is not None:
+                raise RequestError("Provide a recipient only when creating a peer request.")
+            review = record_id(data["review"], "W-", "review ID") if data.get("review") is not None else None
+            if review is not None and change != "create":
+                raise RequestError("Link a worker review only when creating a peer request.")
+            return mutate(peer_asks.COMMAND, actor, data, id=number, change=change,
+                          note=text(data, "note"), recipient=recipient, review_run=review)
         if name == "change-ownership":
             return change_ownership(actor, number, data)
         if name == "close-task":

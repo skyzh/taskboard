@@ -233,6 +233,27 @@ export function TaskLink({ id, title, current, reference, searchQuery }) {
   )
 }
 
+const peerRequestLabels = {
+  asked: 'Asked',
+  in_progress: 'In progress',
+  acknowledgment: 'Ready for acknowledgment',
+  done: 'Acknowledged',
+  canceled: 'Canceled',
+}
+
+export function PeerRequestContext({ task }) {
+  if (task.peer_request) {
+    return (
+      <p className="event-meta">
+        <strong>{peerRequestLabels[task.peer_request.phase]}</strong>
+        <span>Request for <TaskLink id={task.peer_request.source_id} reference={task.peer_request.source_key} /></span>
+      </p>
+    )
+  }
+  const linked = !task.context?.blocked_by && task.context?.peer_ask_ticket
+  return linked ? <p className="event-meta">Peer request <TaskLink reference={linked} /></p> : null
+}
+
 export function ClosureReference({ context }) {
   const related = context?.closure?.related
   if (!related) return null

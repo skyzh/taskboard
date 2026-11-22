@@ -24,3 +24,9 @@ Update this log at each development handoff with the verified result, any open i
 
 1. For the first release, verify a fresh standalone install and predecessor readback using a disposable ledger. [Local setup](README.md#run-locally) · [Release checks](tools/release/README.md)
 2. In the first reviewed release with these changes, open all three Notifications views. Handle a request and confirm the recipient count. Replay one authorized sender receipt in the release fixture, verify the manager and recipient views, then follow a Source activity link and check that Back returns to the same project.
+
+### Review handoff follow-up
+
+- Recent activity uses short relative times. Opening an activity entry or activating a standalone timestamp reveals the full time in the selected time zone. Deployment details and estimates keep their full timestamps.
+- Actionable peer requests use a linked ticket. A review result gives the requester one Ready action for acknowledgment. The original ticket becomes Ready when that acknowledgment is recorded. The disposable replay checked Reports and Inbox at phone and desktop widths, the Ready watcher count, and an upgrade from a populated PostgreSQL board. [Agent workflow](docs/taskboard/AGENT-STARTUP.md#ask-a-peer-to-take-action)
+- After rollout, verify one signed-in peer handoff and its acknowledgment through the shared queue. Previously unlinked reviews and waits remain readable during the transition.

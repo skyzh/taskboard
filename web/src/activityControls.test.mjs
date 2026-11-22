@@ -649,7 +649,7 @@ test('Reports waits for a successful unconfigured response before showing filter
   assert.match(render('COURSE', courseFilter, failure, 'idle'), /<option value="idle" selected/)
 })
 
-test('Queued asks uses private feeds only for the viewer and preserves project and ticket links', () => {
+test('Reports keeps unlinked peer asks and leaves linked work and personal notices to their own views', () => {
   const calls = []
   function feed(path, items) {
     return filters => {
@@ -662,7 +662,7 @@ test('Queued asks uses private feeds only for the viewer and preserves project a
     '/reports/queued-reviews': feed('reviews', [{
       id: 1, task_id: 5, task_key: 'COURSE-2', task_title: 'Review samples',
       recipient: 'Morgan', state: 'running', execution_state: 'start_unconfirmed',
-    }]),
+    }, { id: 8, task_id: 10, task_key: 'COURSE-8', recipient: 'Other', linked_request: 'COURSE-12' }]),
     '/reports/queued-peer-waits': feed('peer waits', [{
       id: 2, task_id: 6, task_key: 'COURSE-3', task_title: 'Review the changes', recipient: 'Avery',
     }]),
@@ -687,10 +687,9 @@ test('Queued asks uses private feeds only for the viewer and preserves project a
   assert.match(reader, /aria-label="More named peer waits"/)
   assert.doesNotMatch(reader, /Recipient-only/)
   const signedIn = render({ id: 'Avery' })
-  assert.deepEqual(calls, ['reviews', 'peer waits', 'reviews', 'peer waits', 'decisions', 'requests'])
-  assert.match(signedIn, /href="#task-COURSE-1"/)
-  assert.match(signedIn, /Recipient-only decision/)
-  assert.match(signedIn, /Recipient-only attention/)
+  assert.deepEqual(calls, ['reviews', 'peer waits', 'reviews', 'peer waits'])
+  assert.doesNotMatch(signedIn, /Recipient-only|COURSE-8/)
+  assert.match(signedIn, /href="#task-COURSE-3"/)
 })
 
 test('a legacy hold, decision context, and evidence remain accessible', () => {

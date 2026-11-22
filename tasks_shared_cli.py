@@ -11,6 +11,7 @@ import tasks_core as ledger
 import tasks_maintenance as maintenance
 import tasks_merges as merges
 import tasks_projects as projects
+from tasks_peer_asks import COMMAND as PEER_ASK
 import tasks_recurring
 
 
@@ -21,7 +22,7 @@ ADVANCES = {
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged", "readiness", maintenance.READ}
 WRITES = ADVANCES | {
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
-    "tag", "close", "edit", "save-goal", maintenance.WRITE,
+    "tag", "close", "edit", "save-goal", maintenance.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | tasks_recurring.EDITS
 BEFORE_DISPATCH = {"INTEGRATION_NOT_FOUND", "INTEGRATION_ACTION_NOT_FOUND", "INVALID_ARG"}
 APP_REJECTION = {400, 401, 403, 404, 405, 409, 415, 422}
@@ -292,6 +293,14 @@ def shared_write(board, args):
         action = command
         data.update(kind=args.kind, summary=args.summary, deadline=args.deadline, project=args.project, milestone=args.milestone,
                     tickets=json.dumps(args.ticket) if args.ticket else None)
+    elif command == PEER_ASK:
+        action = PEER_ASK
+        reference = task_ref(args.id)
+        data.update(id=reference, transition=args.change, note=args.note)
+        if args.recipient:
+            data["recipient"] = board.person(args.recipient, "agent", reference)
+        if args.review is not None:
+            data["review"] = f"W-{args.review}"
     elif command == "add":
         action = "create-task"
         data.update(title=args.title, step=args.step, brief=args.brief, project=args.project)

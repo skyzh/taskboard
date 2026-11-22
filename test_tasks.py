@@ -775,6 +775,7 @@ class TasksTest(unittest.TestCase):
         shutil.copy2(TASKS.with_name("tasks_recurring.py"), self.folder)
         shutil.copy2(TASKS.with_name("tasks_readiness.py"), self.folder)
         shutil.copy2(TASKS.with_name("tasks_references.py"), self.folder)
+        shutil.copy2(TASKS.with_name("tasks_peer_asks.py"), self.folder)
         shutil.copy2(TASKS.with_name("tasks_projects.py"), self.folder)
         shutil.copy2(TASKS.with_name("tasks_release_changelog.py"), self.folder)
         shutil.copy2(TASKS.with_name("tasks_releases.py"), self.folder)
