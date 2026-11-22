@@ -84,15 +84,20 @@ def for_identity(db, identity):
 def signed_in(db, identity, *, picture_source=None, load_picture=None):
     key = (identity.server_id, identity.kind, identity.subject)
     current = for_identity(db, identity)
+    old_description = current["provider_description"] if current else None
     try:
-        description = description_text(getattr(identity, "description", None) or "") or None
+        description = description_text(getattr(identity, "description", None) or "")
     except ValueError:
+        description = old_description
+    # Keep imports as defaults until Raft has supplied a value. An empty string
+    # records a later removal so the old import does not return.
+    if description == "" and old_description is None:
         description = None
     metadata = (identity.username or "", identity.name or "", description)
     old_source = current["provider_avatar_source"] if current else None
     # A legacy picture stays readable on rollback. An empty source marks that it was checked
     # and the current board has no supported URL to fetch.
-    if picture_source is None and current and current["picture"]:
+    if picture_source is None and current and (old_source is not None or current["picture"]):
         picture_source = ""
     avatar_changed = not (current and current["avatar_digest"]) and picture_source != old_source
     if avatar_changed:
@@ -159,7 +164,7 @@ def public_profile(row, base):
     pending = row["picture"] and row["provider_avatar_source"] is None
     image = digest or ("previous" if pending else None)
     avatar = f"{base}/api/v1/avatars/{row['subject']}/{image}" if image else None
-    description = row["description"] if row["description"] is not None else row["provider_description"]
+    description = row["description"] if row["description"] is not None else row["provider_description"] or None
     return {
         "id": row["ledger_key"],
         "name": row["name"] or row["username"] or row["ledger_key"],
@@ -328,11 +333,14 @@ def visible_by_keys(db, keys, base):
             "id": key, "kind": "agent", "username": row["username"],
             "name": row["name"], "role": None, "avatar_url": None,
         }
-        if (not actor or actor["description"] is None) and (
-            row["description"] or display.get("description") is None
-        ):
+        if not actor or (actor["description"] is None and actor["provider_description"] is None):
             display["description"] = row["description"]
-        if row["avatar_digest"] and (not verified or not actor["avatar_digest"]):
+        if row["avatar_digest"] and (
+            not actor or (
+                not (actor["avatar_digest"] or actor["provider_avatar_digest"])
+                and actor["provider_avatar_source"] != ""
+            )
+        ):
             display["avatar_url"] = f"{base}/api/v1/assignee-avatar/{row['subject']}/{row['avatar_digest']}"
         published[key] = display
     return published
