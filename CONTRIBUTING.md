@@ -6,11 +6,13 @@ Use Python 3.11 or later, uv, and Node.js 20.19+ on the 20.x line or 22.12+ on n
 
 Open an issue that explains how to reproduce the problem and what outcome you expect. Use fictional task records and example domains in reports, tests, and screenshots. Keep credentials, ledger files, private URLs, and session files in your own environment.
 
-Keep each pull request focused. Describe the behavior it changes and the checks you ran. For interface changes, include a reproducible local browser check at the affected viewport and use keyboard navigation to verify changes to controls or focus. Use a commit subject that describes the behavior change. Ask an independent reviewer to approve the exact pull request head and base in Stamp. Squash the reviewed pull request through Stamp after both required checks pass against current `main`.
+Keep each pull request focused. For Taskboard-tracked work, start its title with the ticket ID, for example `[T-123] Keep the selected project on reload`. In the pull request description, explain the change and list the checks you ran and their outcomes. For interface changes, include a reproducible local browser check at the affected viewport and use keyboard navigation to verify changes to controls or focus. Use a commit subject that describes the behavior change.
+
+Each requested independent reviewer records their own verdict in Stamp for the exact pull request head and base. A passing verdict requires a formal Stamp approval. Squash the reviewed pull request through Stamp after both required checks pass against current `main`.
 
 ## Run the checks
 
-Before merging, reviewers verify that both jobs in the [Taskboard CI workflow](.github/workflows/ci.yml) passed on the exact pull request revision.
+GitHub’s classic branch protection for `main` requires a pull request and both of the following checks against up-to-date `main`. Before merging, reviewers verify that both jobs in the [Taskboard CI workflow](.github/workflows/ci.yml) passed for the reviewed pull request.
 
 - **Portable checks** builds the app and runs the Python, Node.js, disposable mount, and synthetic client compatibility checks. The workflow also runs the required OpenID Connect fixture tests with locked dependencies and fails if any are skipped.
 - **SQLite and PostgreSQL preference replay** runs the same notification preference test on SQLite and a disposable PostgreSQL 16 service with the locked driver. It checks that a changed preference is saved and advances the board revision, and that saving the same value again leaves the revision unchanged.
