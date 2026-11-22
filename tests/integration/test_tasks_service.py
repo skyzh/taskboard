@@ -2545,6 +2545,49 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((waiting["state"], waiting["waiting_on"], waiting["context"]["wait_kind"]),
                          ("waiting", "Automation", "automation"))
 
+    def test_parked_owner_can_refresh_reason_without_changing_reminder_or_readiness(self):
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        blake, dependency_owner = self.login(app, "Blake")
+        self.cli("add", "Review the export", "--dri", owner, "--step", "Check the results.")
+        self.cli("add", "Publish the export", "--dri", dependency_owner, "--step", "Build the export.")
+        self.action(avery, "advance-task", {
+            "id": "T-1", "transition": "park", "note": "Check the old index.",
+            "review_after": "2099-11-22", "review_on": "T-2", "review_criteria": "Verify the published export.",
+        })
+        self.action(blake, "advance-task", {"id": "T-2", "transition": "start", "note": "Build the export."})
+        self.action(blake, "advance-task", {"id": "T-2", "transition": "done", "note": "The export is ready."})
+        readiness = self.action(avery, "my-readiness")["items"]
+        self.assertEqual([(item["key"], item["criteria"]) for item in readiness],
+                         [("T-1", "Verify the published export.")])
+
+        route = "/api/v1/tasks/T-1"
+        original = self.call(avery, route).json["task"]
+        self.action(blake, "advance-task", {
+            "id": "T-1", "transition": "park", "note": "Change another owner's reason.",
+        }, status=409)
+        self.cli("park", "T-1", "Check the dated index.", "--by", owner)
+        refreshed = self.call(avery, route).json["task"]
+        self.assertEqual((refreshed["dri"], refreshed["state"], refreshed["note"], refreshed["context"]),
+                         (owner, "parked", "Check the dated index.", original["context"]))
+        self.assertEqual(refreshed["context"]["review_after"], "2099-11-22")
+
+        self.cli("remind", "T-1", "--until", "2099-11-23T09:00-08:00", "--by", owner)
+        scheduled = self.call(avery, route).json["task"]
+        code, output, errors = self.shared_cli(avery, "park", "T-1", "Use the current export index.")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("Parked", output)
+        current = self.call(avery, route).json["task"]
+        self.assertEqual((current["dri"], current["state"], current["note"], current["context"]),
+                         (owner, "parked", "Use the current export index.", scheduled["context"]))
+        self.assertEqual(current["context"]["defer_until"], "2099-11-23T17:00:00Z")
+        self.assertEqual(current["context"]["defer_at"], "2099-11-23T09:00:00-08:00")
+        self.assertEqual(self.action(avery, "my-queue", query_string={"state": "ready"})["items"], [])
+        self.assertEqual(self.action(avery, "my-readiness")["items"], readiness)
+        history = self.call(avery, route + "/activity").json["items"]
+        self.assertIn(original["event_id"], [event["id"] for event in history])
+        self.assertNotIn("ready", [event["state"] for event in history if event["action"] == "park"])
+
     def test_exact_deferral_agrees_across_cli_and_web_and_survives_restart(self):
         app = self.app(portal_reader=True)
         avery, actor = self.login(app, "Avery")

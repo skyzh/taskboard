@@ -115,7 +115,7 @@ def arguments(argv=None):
         "redirect-decision": "Send an open decision to a new recipient and record the reason.",
         "withdraw-decision": "Withdraw an open decision and return the task to Ready with its next step.",
         "decide": "Record the assigned person's decision and return the task to Ready.",
-        "park": "Take a task out of the active queue and optionally set a review date.",
+        "park": "Park a task with a reason, or refresh the reason on a parked task.",
         "unpark": "Return a parked task to Ready with its next step.",
         "transfer": "Hand off a ready or running task to a new owner.",
     }
