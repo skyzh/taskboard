@@ -28,6 +28,8 @@ from PIL import Image
 from tasks_github import GitHubReader
 from tasks_service import bind_owner, create_app, import_assignee, serve
 from taskboard_cli import main as tasks_main
+from taskboard_cli.ready_checkpoint import watch_ready_count
+from taskboard_client import SharedBoard
 from tasks_core import SCHEMA, import_release_event, record
 
 
@@ -43,6 +45,7 @@ class FixtureRaft:
     def __init__(self):
         self.people = {}
         self.issued = set()
+        self.userinfo_failure = None
         for number, (name, kind) in enumerate(
             (("Avery", "agent"), ("Blake", "agent"), ("Sam", "human"), ("Quinn", "human")), 40,
         ):
@@ -67,6 +70,10 @@ class FixtureRaft:
                 "expires_in": 3600, "scope": "openid profile",
             }
         if path == "/api/oauth/userinfo":
+            if self.userinfo_failure is not None:
+                failure = self.userinfo_failure
+                self.userinfo_failure = None
+                return failure, {"error": "fixture provider detail"}
             authorization = upstream.get_header("Authorization")
             name = authorization.removeprefix("Bearer fixture-")
             if name in self.issued:
@@ -2155,6 +2162,93 @@ class TasksServiceTest(unittest.TestCase):
                 self.assertNotIn("outcome unknown", errors.getvalue())
                 commands = [call.args[0] for call in run.call_args_list]
                 self.assertEqual([command[command.index("--action") + 1] for command in commands], actions)
+
+    def test_signed_raft_reads_distinguish_gateway_outages_from_missing_or_invalid_identity(self):
+        app = self.app(portal_reader=True)
+        self.action(app.test_client(), "context", status=401)
+        client, _ = self.login(app, "Avery")
+        for upstream_status in (502, 503, 504):
+            with self.subTest(upstream_status=upstream_status):
+                self.provider.userinfo_failure = upstream_status
+                reply = self.action(client, "context", status=503)
+                self.assertEqual(reply, {"error": "Raft sign-in verification is temporarily unavailable."})
+                self.action(client, "context")
+        self.provider.userinfo_failure = 500
+        self.action(client, "context", status=401)
+        self.action(client, "context")
+        self.provider.userinfo_failure = 503
+        self.action(client, "create-task", {"title": "No write", "step": "Read it."}, status=401)
+        self.assertEqual(self.action(client, "my-queue")["items"], [])
+        self.provider.userinfo_failure = 403
+        self.action(client, "context", status=401)
+        self.action(client, "context", status=401)
+
+    def test_ready_watcher_recovers_from_userinfo_outage_and_stops_on_denial(self):
+        app = self.app()
+        for name, provider_status, action_status in (("Avery", 503, 503), ("Blake", 401, 401)):
+            with self.subTest(provider_status=provider_status):
+                client, _ = self.login(app, name)
+                self.action(client, "create-task", {"title": "Owned fixture", "step": "Read it."})
+                clock = 0
+                replies = []
+                wakes = []
+                events = []
+
+                def advance(seconds):
+                    nonlocal clock
+                    clock += seconds
+                    if clock >= 8:
+                        raise KeyboardInterrupt
+
+                def invoke(command, **_options):
+                    name = command[command.index("--action") + 1]
+                    params = dict(command[i + 1].split("=", 1)
+                                  for i, option in enumerate(command) if option == "--param")
+                    if len(replies) == 2:
+                        self.provider.userinfo_failure = provider_status
+                    response = client.get(BASE + "/api/v1/raft/" + name, base_url=ORIGIN,
+                                          headers={PORTAL_HEADER: PORTAL_FIXTURE}, query_string=params)
+                    replies.append((name, response.status_code))
+                    if response.status_code != 200:
+                        error = {"code": "INTEGRATION_INVOKE_FAILED", "message": (
+                            f"service action failed (HTTP {response.status_code}); "
+                            f"response body: {response.get_data(as_text=True)}"
+                        )}
+                        self.assertNotIn("fixture provider detail", error["message"])
+                        return subprocess.CompletedProcess(command, 1, "", json.dumps({"ok": False, "error": error}))
+                    result = {"ok": True, "data": {"result": response.get_json()}}
+                    return subprocess.CompletedProcess(command, 0, json.dumps(result), "")
+
+                def notify(notice, can_wake):
+                    self.assertTrue(can_wake())
+                    wakes.append(notice["ready_count"])
+                    return "wake-requested"
+
+                with (
+                    patch("taskboard_client.connection.subprocess.run", side_effect=invoke),
+                    patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+                    patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance),
+                ):
+                    if action_status == 503:
+                        with self.assertRaises(KeyboardInterrupt):
+                            watch_ready_count(SharedBoard("fixture"), name, lambda _: True, notify, events.append,
+                                              interval=1, idle_delay=2, observe_status=lambda _: "idle")
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, r"eligible queue read \(http-401\)"):
+                            watch_ready_count(SharedBoard("fixture"), name, lambda _: True, notify, events.append,
+                                              interval=1, idle_delay=2, observe_status=lambda _: "idle")
+                first_replies = [("context", 200), ("my-queue", 200), ("my-queue", action_status)]
+                if action_status == 503:
+                    self.assertEqual(replies[:4], [*first_replies, ("my-queue", 200)])
+                    self.assertEqual(wakes, [1])
+                    self.assertEqual([(event["stage"], event["reason"]) for event in events
+                                      if event.get("kind") == "ready-read-retry"], [("eligible queue", "http-503")])
+                    self.action(client, "context")
+                else:
+                    self.assertEqual(replies, first_replies)
+                    self.assertEqual(wakes, [])
+                    self.assertFalse(any(event.get("kind") == "ready-read-retry" for event in events))
+                    self.action(client, "context", status=401)
 
     def test_wait_age_tracks_the_current_dependency_and_omits_unknown_origins(self):
         app = self.app(portal_reader=True)
