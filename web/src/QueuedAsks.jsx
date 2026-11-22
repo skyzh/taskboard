@@ -45,7 +45,7 @@ function RequestRow({ item, publicPreview }) {
         <span className="request-owner">Next for {profileName(item.next_owner, item.next_owner_profile)}</span>
       )}
       <div className="request-row-line">
-        {item.request_key && <TaskLink reference={item.request_key} title="Request" />}
+        {item.request_key && <TaskLink reference={item.request_key} title={item.request_title || 'Request'} />}
         <TaskLink id={item.source_id} reference={item.source_key} title={item.source_title}
           publicHref={publicPreview ? item.public_url || null : undefined} />
       </div>
