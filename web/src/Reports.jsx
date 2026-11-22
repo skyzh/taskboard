@@ -152,7 +152,8 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
   const queueLink = `#${new URLSearchParams({ ...(project && { project }), section: 'queue-heading', owner })}`
   return (
     <li className="report-owner">
-      <div className="report-owner-heading">
+      <div className="report-owner-heading" id={tourTargets.owner}
+        data-tour-current={tourTargets.owner === activeTarget && activeTarget ? true : undefined}>
         <AssigneeAvatar name={name} url={profile?.avatar_url} large />
         <div>
           <div className="dri-name-line">

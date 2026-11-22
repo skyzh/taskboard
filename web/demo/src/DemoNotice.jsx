@@ -32,10 +32,12 @@ export default function DemoNotice({ children }) {
 
   function showTooltip(element, touch = false) {
     const bounds = element.getBoundingClientRect()
+    const tourControl = touch && element.closest('.snapshot-tour, .snapshot-tour-trigger')
     const vertical = bounds.bottom + 90 < window.innerHeight
       ? { top: bounds.bottom }
       : { bottom: window.innerHeight - bounds.top }
-    setTooltip({ touch, style: { '--demo-notice-left': `${bounds.left}px`, ...vertical } })
+    const position = tourControl ? { top: 'var(--app-header-height)' } : vertical
+    setTooltip({ touch, style: { '--demo-notice-left': `${bounds.left}px`, ...position } })
   }
 
   function activate(event) {

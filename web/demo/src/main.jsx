@@ -13,17 +13,22 @@ import '../../src/styles.css'
 import '../../src/night.css'
 import './snapshot.css'
 
+const tourTargets = { owner: 'snapshot-owner', current: 'snapshot-current', goals: 'snapshot-goals', outcomes: 'snapshot-outcomes' }
+const requestTarget = 'snapshot-requests'
+const hasRequests = queuedAsks && Object.values(queuedAsks).some(rows => rows.length > 0)
+const setupPrompt = 'https://github.com/skyzh/taskboard/blob/main/docs/taskboard/SETUP.md#initial-agent-prompt'
 const tour = [
-  { id: 'snapshot-current', title: 'Current work', text: 'Read the next step and status on a ticket that is still open.' },
-  { id: 'snapshot-goals', title: 'Goals', text: 'See what each person is responsible for improving.' },
-  { id: 'snapshot-outcomes', title: 'Recent outcomes', text: 'Read the latest results and open their public pull requests when available.' },
+  { id: tourTargets.owner, title: 'Who owns the work', text: 'Each agent’s report groups the work they own. The green dot shows who has something in progress.' },
+  { id: tourTargets.current, title: 'Current work', text: 'Read the status, next step, and any blocker on a ticket that is still open.' },
+  { id: tourTargets.goals, title: 'Goals', text: 'See what each person is responsible for improving.' },
+  { id: tourTargets.outcomes, title: 'Recent outcomes', text: 'Read the latest results and open their public pull requests when available.' },
+  ...(hasRequests ? [{ id: requestTarget, title: 'Requests', text: 'See what teammates asked for and who owns the next step.' }] : []),
+  { title: 'Prompt your agents to use it!', text: 'Use the setup guide to connect your board and give each agent its first prompt.', action: setupPrompt },
 ]
 
 const snapshotTime = new Intl.DateTimeFormat('en', {
   dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC',
 }).format(new Date(capturedAt))
-
-const tourTargets = { current: tour[0].id, goals: tour[1].id, outcomes: tour[2].id }
 
 function SummaryDemo() {
   useTheme()
@@ -52,7 +57,7 @@ function SummaryDemo() {
       if (restoreFocus.current) trigger.current?.focus()
       return
     }
-    const target = document.getElementById(active.id)
+    const target = active.id && document.getElementById(active.id)
     if (target instanceof HTMLDetailsElement) target.open = true
     panel.current?.focus({ preventScroll: true })
     if (!target) return
@@ -83,12 +88,13 @@ function SummaryDemo() {
           <aside className="snapshot-tour" aria-labelledby="tour-title" tabIndex={-1} ref={panel}>
             <h2 id="tour-title">{active.title} <span>{step + 1} of {tour.length}</span></h2>
             <p>{active.text}</p>
+            {active.action && <p><DemoControl as="a" href={active.action}>Open the agent setup guide</DemoControl></p>}
             <div className="snapshot-tour-actions">
               <DemoControl as="button" type="button" disabled={step === 0} onClick={() => setStep(step - 1)}>Back</DemoControl>
               <DemoControl as="button" type="button" onClick={() => step + 1 === tour.length ? finish() : setStep(step + 1)}>
                 {step + 1 === tour.length ? 'Finish' : 'Next'}
               </DemoControl>
-              <DemoControl as="button" type="button" onClick={finish}>Skip</DemoControl>
+              {step + 1 < tour.length && <DemoControl as="button" type="button" onClick={finish}>Skip</DemoControl>}
             </div>
           </aside>
         )}
@@ -99,11 +105,15 @@ function SummaryDemo() {
           <section className="reports" aria-labelledby="reports">
             <ReportsHeading headingId="reports">
               <span>Team overview</span>
-              <DemoControl as="button" ref={trigger} type="button" onClick={() => setStep(0)} hidden={Boolean(active)}>Start tour</DemoControl>
+              <DemoControl as="button" className="snapshot-tour-trigger" ref={trigger} type="button"
+                onClick={() => setStep(0)} hidden={Boolean(active)}>Start tour</DemoControl>
             </ReportsHeading>
             <ReportTimeProvider capturedAt={capturedAt}>
-              <ReportsLayout sidebar={queuedAsks && Object.values(queuedAsks).some(rows => rows.length > 0)
-                ? <QueuedAsksContent snapshot={queuedAsks} /> : undefined}>
+              <ReportsLayout sidebar={hasRequests && (
+                <div id={requestTarget} data-tour-current={active?.id === requestTarget || undefined}>
+                  <QueuedAsksContent snapshot={queuedAsks} />
+                </div>
+              )}>
                 <AssigneeReportList entries={entries} label="Taskboard squad Summary" publicPreview tourOwner="prism"
                   tourTargets={tourTargets} activeTarget={active?.id} />
               </ReportsLayout>
