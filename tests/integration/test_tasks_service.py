@@ -553,6 +553,11 @@ class TasksServiceTest(unittest.TestCase):
         self.assertNotIn("Legacy task", output)
         self.assertEqual(browse("tasks", {"project": "COURSE", "state": "ready", "order": "priority"}), prior)
         self.cli("tag", "COURSE-1", "remove", "reflection", "--by", avery_key)
+        activity = browse("tasks/COURSE-1/activity")["items"]
+        self.assertEqual([event["context"]["audit"] for event in activity[:2]], [
+            {"action": "tag-remove", "label": "reflection"},
+            {"action": "tag-add", "label": "reflection"},
+        ])
         self.assertNotIn("COURSE-1", self.cli("tagged", "COURSE", "reflection"))
         self.assertIn("COURSE-3", self.cli("tagged", "COURSE", "reflection"))
 
@@ -1337,6 +1342,9 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(history[0]["context"]["ownership_action"], "reopen")
         self.assertEqual(history[1]["note"], "The first export passed.")
         self.assertEqual(history[4]["context"]["previous_dri"], avery_id)
+        self.assertEqual(history[4]["previous_dri_profile"]["name"], "Avery")
+        self.assertIsNone(history[4]["next_dri_profile"])
+        self.assertEqual(history[3]["next_dri_profile"]["name"], "Blake")
 
     def test_manager_keeps_existing_review_wait_and_park_records(self):
         app = self.app()
@@ -4793,7 +4801,7 @@ class TasksServiceTest(unittest.TestCase):
         history = self.call(avery, "/api/v1/tasks/1/activity").get_json()
         self.assertEqual([event["context"]["audit"] for event in history["items"][:2]], [
             {"action": "source-attach", "source_kind": "local-file", "source_id": 2},
-            {"action": "source-attach", "source_kind": "github", "source_id": 1},
+            {"action": "source-attach", "source_kind": "github", "source_id": 1, "label": "GitHub · Example/Tasks#1"},
         ])
         audited_ids = {event["id"] for event in history["items"][:2]}
         compact = self.call(avery, "/api/v1/activity").get_json()["items"]
@@ -4850,11 +4858,11 @@ class TasksServiceTest(unittest.TestCase):
         public_history = self.call(app.test_client(), "/api/v1/tasks/1/activity").get_json()["items"]
         self.assertEqual(public_history[5:], history["items"])
         self.assertEqual([event["context"]["audit"] for event in public_history[:5]], [
-            {"action": "reference-relabel"},
-            {"action": "reference-add", "source_kind": "github", "source_id": 3},
-            {"action": "reference-add"},
-            {"action": "reference-add"},
-            {"action": "reference-add"},
+            {"action": "reference-relabel", "label": "Updated request label"},
+            {"action": "reference-add", "source_kind": "github", "source_id": 3, "label": "GitHub"},
+            {"action": "reference-add", "label": "Tracking issue"},
+            {"action": "reference-add", "label": "Release handoff"},
+            {"action": "reference-add", "label": "Original request"},
         ])
         for event in public_history[:7]:
             self.assertEqual((event["actor"], event["action"], event["state"], event["links"]),
