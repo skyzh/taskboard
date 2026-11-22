@@ -13,6 +13,7 @@ import tasks_projects as projects
 
 STATUS = "github-status"
 EVENTS = "github-events"
+STAMP_REVIEWS = "stamp-reviews"
 ACTOR = "GitHub extension"
 STALE_AFTER = timedelta(hours=1)
 REPOSITORY = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
@@ -96,7 +97,14 @@ def _events(config):
     })
 
 
-REGISTRY = {STATUS: lambda value: value is True, EVENTS: _events}
+def _stamp_repository(value):
+    if (not isinstance(value, str) or not REPOSITORY.fullmatch(value)
+            or value.split("/")[1] in (".", "..")):
+        raise ValueError("Choose the Stamp-linked GitHub repository as owner/repository.")
+    return value.lower()
+
+
+REGISTRY = {STATUS: lambda value: value is True, EVENTS: _events, STAMP_REVIEWS: _stamp_repository}
 
 
 def configuration(raw):
@@ -159,18 +167,26 @@ def already_recorded(db, task_id, source_id, observation):
     ).fetchone() is not None
 
 
-def record(db, task_id, source_id, observation, evidence, actions):
+def record_observation(db, task_id, source_id, observation, actor, note, links, context):
     if not db.execute(
         "INSERT INTO extension_deliveries VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
         (task_id, source_id, observation),
     ).rowcount:
-        return False
+        return None
     task = ledger.get_task(db, task_id)
+    event = ledger.record(db, task_id, "log", actor, task["state"], note, None, links, context)
+    return task, event
+
+
+def record(db, task_id, source_id, observation, evidence, actions):
     context = {"extension": EVENTS, "github_event": evidence["kind"], "provider_at": evidence["at"],
                **evidence["context"]}
-    event = ledger.record(
-        db, task_id, "log", ACTOR, task["state"], evidence["note"], None, evidence["links"], context,
+    saved = record_observation(
+        db, task_id, source_id, observation, ACTOR, evidence["note"], evidence["links"], context,
     )
+    if saved is None:
+        return False
+    task, event = saved
     if actions.notify_dri:
         db.execute(
             """INSERT INTO extension_notifications (event_id, recipient)

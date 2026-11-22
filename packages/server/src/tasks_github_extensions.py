@@ -125,7 +125,8 @@ def _read_observations(item, reader, settings, remaining):
 
 def refresh(db, reader, configured, *, release_source=None, board_url):
     """Run one bounded provider read and project rule pass outside service requests."""
-    configured = {key: value for key, value in configured.items() if any(value.values())}
+    configured = {key: value for key, value in configured.items()
+                  if value.get(extensions.STATUS) or value.get(extensions.EVENTS)}
     result = {"sources": 0, "activity": 0, "deployments": 0, "errors": []}
     if not configured:
         return result
