@@ -256,10 +256,11 @@ export function Assignee({ task, compact = false }) {
   if (!task.dri) return <span className="assignee">Unassigned</span>
   const profile = task.dri_profile
   const name = profileName(task.dri, profile)
+  const project = task.key?.split('-')[0] || 'T'
   return (
     <span className="assignee">
       <AssigneeAvatar name={name} url={profile?.avatar_url} />
-      <span>{!compact && 'Owner '}<a href={ownerHref(task.dri)}>{name}</a>{!compact && profile?.role && <> · {profile.role}</>}</span>
+      <span>{!compact && 'Owner '}<a href={ownerHref(task.dri, undefined, project)}>{name}</a>{!compact && profile?.role && <> · {profile.role}</>}</span>
     </span>
   )
 }

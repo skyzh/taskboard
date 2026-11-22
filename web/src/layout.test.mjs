@@ -9,6 +9,7 @@ let vite
 let App
 let WorkQueue
 let TaskDetail
+let Assignee
 before(async () => {
   vite = await createServer({
     root: fileURLToPath(new URL('..', import.meta.url)),
@@ -21,6 +22,7 @@ before(async () => {
   const work = await vite.ssrLoadModule('/src/Work.jsx')
   WorkQueue = work.WorkQueue
   TaskDetail = work.TaskDetail
+  ;({ Assignee } = await vite.ssrLoadModule('/src/shared.jsx'))
 })
 after(() => vite?.close())
 
@@ -103,6 +105,16 @@ test('project ticket links open separate detail and return to the matching queue
   assert.match(ticket, /href="#project=COURSE">Back to Tasks/)
   assert.doesNotMatch(ticket, /id="queue-heading"|id="now-title"/)
   assert.match(render('#project=COURSE'), /id="queue-heading"[^>]*>Work queue/)
+})
+
+test('ticket owner links preserve the project in full and compact views', () => {
+  const task = { id: 42, key: 'COURSE-1', dri: 'Avery' }
+  for (const compact of [false, true]) {
+    const markup = renderToStaticMarkup(React.createElement(Assignee, { task, compact }))
+    assert.match(markup, /href="#dri=Avery&amp;project=COURSE">Avery/)
+  }
+  const legacy = renderToStaticMarkup(React.createElement(Assignee, { task: { id: 42, dri: 'Avery' } }))
+  assert.match(legacy, /href="#dri=Avery&amp;project=T">Avery/)
 })
 
 test('a Taskboard ticket returns to Taskboard from a course queue', () => {
