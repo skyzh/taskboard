@@ -1858,6 +1858,19 @@ class TasksServiceTest(unittest.TestCase):
             self.assertEqual((code, errors), (0, ""))
             self.assertIn("next_step", json.loads(output))
 
+    def test_shared_inbox_points_to_the_saved_role_goal(self):
+        app = self.app()
+        owner, _ = self.login(app, "Avery")
+        self.action(owner, "save-goal", {"kind": "standing", "summary": "Improve review handoffs."})
+        actions = []
+        code, output, errors = self.shared_cli(owner, "inbox", "Avery", actions=actions)
+        self.assertEqual((code, output, actions), (1, "", []))
+        self.assertIn("`./tasks --shared next`", errors)
+        self.assertIn("sign in to the shared board and open Inbox", errors)
+        code, output, errors = self.shared_cli(owner, "next")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("Improve review handoffs.", output)
+
     def test_next_guides_an_assigned_review_even_on_a_completed_ticket(self):
         app = self.app()
         owner, _ = self.login(app, "Avery")
