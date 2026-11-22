@@ -1,20 +1,23 @@
 """Deploy new protected GitHub main revisions on the authorized Pi operator."""
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
 from tempfile import TemporaryDirectory
+from uuid import uuid4
 
 from ci_watch import build_checked_commit, resolve_commit
 from deploy_main import predecessor_for
 from github_main import GitHubRateLimited, read_github, repository_path, require_protected_tip, verify_required_checks
 from local_queue import queue_lock, write_json
 from operator_deploy import deployment_layout, read_operator_config, run_config
-from queue_provenance import GIT_COMMIT
+from queue_provenance import GIT_COMMIT, SHA256
 from release_compatibility import run_matrix, verify_policy_receipt
 from release_plan import ReleaseRejected, file_hash
 from stage_transfer import stage_transfer
@@ -97,6 +100,37 @@ def respect_rate_limit(read, path):
     return guarded_read
 
 
+def record_staged_failure(records, commit, candidate, stage, error):
+    if not (
+        isinstance(commit, str) and GIT_COMMIT.fullmatch(commit)
+        and isinstance(candidate, str) and SHA256.fullmatch(candidate)
+    ):
+        return
+    invocation = os.environ.get("INVOCATION_ID", "")
+    attempt = invocation if re.fullmatch(r"[0-9a-f]{32}", invocation) else uuid4().hex
+    if isinstance(error, ReleaseRejected):
+        reason = "rejected"
+    elif isinstance(error, subprocess.SubprocessError):
+        reason = "command_failed"
+    elif isinstance(error, OSError):
+        reason = "io_error"
+    else:
+        reason = "operation_failed"
+    try:
+        write_json(records / "last-staged-failure.json", {
+            "schema_version": 1,
+            "attempt": attempt,
+            "at": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            "commit": commit,
+            "candidate": candidate,
+            "status": "unconfirmed",
+            "stage": stage,
+            "reason_code": reason,
+        })
+    except OSError:
+        print("Could not save the private staged deployment failure receipt.", file=sys.stderr)
+
+
 def deploy_changed(config, layout, records, commit, *, read, fetch, operate):
     settings = config["github"]
     state = records.parent
@@ -111,20 +145,33 @@ def deploy_changed(config, layout, records, commit, *, read, fetch, operate):
         build = build_checked_commit(config["repo"], state, commit, python)
         candidate = build["candidate"]
         artifact = state / "artifacts" / candidate
-        base = target["active"]
-        predecessor = predecessor_for(config, state, base)
-        policy = json.loads(Path(config["compatibility_policy"]).read_text(encoding="utf-8"))
-        matrix = run_matrix(artifact, candidate, predecessor, base, policy, python)
-        verify_policy_receipt(matrix, candidate, base, policy, predecessor)
-        evidence = {"github": gate, "build": build, "compatibility": matrix}
-        with TemporaryDirectory(prefix=".package-", dir=records) as directory:
-            archive = Path(directory) / "release.tar"
-            stage_transfer(artifact, candidate, archive)
-            require_protected_tip(settings, commit, read)
-            write_json(checked, evidence)
-            with archive.open("rb") as source:
-                outcome = operate(config, lambda _: None, checked_main=commit, candidate=candidate,
-                                  base=base, source=source)
+        stage = "compatibility"
+        try:
+            base = target["active"]
+            predecessor = predecessor_for(config, state, base)
+            policy = json.loads(Path(config["compatibility_policy"]).read_text(encoding="utf-8"))
+            matrix = run_matrix(artifact, candidate, predecessor, base, policy, python)
+            verify_policy_receipt(matrix, candidate, base, policy, predecessor)
+            evidence = {"github": gate, "build": build, "compatibility": matrix}
+            stage = "transfer"
+            with TemporaryDirectory(prefix=".package-", dir=records) as directory:
+                archive = Path(directory) / "release.tar"
+                stage_transfer(artifact, candidate, archive)
+                stage = "protected_tip"
+                require_protected_tip(settings, commit, read)
+                stage = "checked_receipt"
+                write_json(checked, evidence)
+                with archive.open("rb") as source:
+                    stage = "operator_handoff"
+                    outcome = operate(config, lambda _: None, checked_main=commit, candidate=candidate,
+                                      base=base, source=source)
+        except GitHubRateLimited:
+            raise
+        except Exception as error:
+            # Preserve the launcher exit while leaving a diagnostic for a staged attempt.
+            if outcome is None:
+                record_staged_failure(records, commit, candidate, stage, error)
+            raise
     elif checked.is_file():
         evidence = json.loads(checked.read_text(encoding="utf-8"))
     else:
