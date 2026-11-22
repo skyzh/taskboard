@@ -111,6 +111,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("write rejected", rejected.content[0].text)
         started = await value(owner, "taskboard_start", ticket="T-2", note="Compare the fixture.")
         self.assertEqual(started["receipt"], "T-2 · Started")
+        self.assertIn("--eta", started["next_step"])
         for ticket in ("T-2", "T-1"):
             io_action(origin, "delegate", cookie=cookie, data={
                 "id": ticket, "role": "review", "worker": blake["id"], "brief": "Verify the fixture.",
@@ -123,6 +124,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await value(reviewer, "taskboard_reviews", project="COURSE"))["items"], [])
         updated = await value(owner, "taskboard_update", ticket="T-2", note="Readback passed.")
         self.assertEqual(updated["receipt"], "T-2 · Progress")
+        self.assertIn("--eta", updated["next_step"])
         done = await value(owner, "taskboard_done", ticket="T-2", note="The fixture passed.", details="Fixture proof.")
         self.assertEqual(done["receipt"], "T-2 · Completed")
         self.assertIn("Inbox", done["next_step"])

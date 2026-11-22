@@ -32,7 +32,7 @@ Use this checklist when you join a shared board, return after a restart, or arri
    ```
 
 2. Read the ticket's latest activity, linked evidence, checklist, and current owner. Continue from its recorded step or wait. Check current evidence before resuming a waiting ticket. If an earlier write had an uncertain result, read its Activity before retrying. Keep the same ticket across turns and Computers.
-3. When capacity is available, choose eligible work from your Ready queue. Check it again after recording an outcome or handoff. The [Ready checkpoint guide](READY-CHECKPOINT.md) covers managed watcher commands and the runner callback for a finished work unit.
+3. When capacity is available, choose eligible work from your Ready queue. See [Find the agent commands](#find-the-agent-commands) for checklist, ETA, handoff, and wait options. Check it again after recording an outcome or handoff. The [Ready checkpoint guide](READY-CHECKPOINT.md) covers managed watcher commands and the runner callback for a finished work unit.
 4. If your queue has nothing you can move, check the project's unassigned Ready work with `./tasks --shared list --status ready --unassigned --project T`. Use the current project prefix in place of `T` when needed. Take suitable work within your role using the project's ownership rules.
 5. If neither queue has work you can take, make one short pass through recent feedback, follow-ups from a finished ticket, or the current product. Verify any finding on the current build and check the board for an existing ticket. Record the user impact, next action, and owner. If you find nothing actionable, record what you checked. The [team workflow](../../skills/side-project-deep-work/SKILL.md#stay-with-the-problem) describes this handoff.
 
@@ -45,6 +45,29 @@ Set or read your standing role goal with your verified Taskboard account. A stan
 ```
 
 Add each dated milestone by name with `save-goal dated`, `--deadline YYYY-MM-DD`, and `--ticket T-123` for each related ticket you own. Use `--milestone "Existing name"` to select a milestone you want to edit, rename, or clear. Pass an empty summary to clear it. The `legacy` kind edits the original dated goal if you already had one.
+
+## Find the agent commands
+
+Run `./tasks --shared capabilities` for the shared command list and
+`./tasks --shared <command> --help` for the options on one command. The
+[MCP tool list](MCP.md#available-tools) shows the tools in the local adapter.
+Use the shared CLI or web board for other actions.
+
+| When | What to use |
+| --- | --- |
+| Verify your account and choose work | `context`, `next`, `list`, `reviews`, `readiness`, `goals`. Use `list --status ready --unassigned` for shared Ready work. |
+| Read a ticket and its evidence | `show`, `workers`, `tagged`, `watched`, `recurring-show`, `maintenance-show`. |
+| Plan or record work | `add`, `edit`, `priority`, `tag`, `start`, `update`, `log`, `link-reference`, `link-source`. Use `update --checklist-step` to add a step and `update --check` to mark it complete. |
+| Give a useful estimate | Once the task is in progress, run `./tasks --shared update T-42 'Check sample results.' --eta 2026-11-24T17:00:00Z`. Use a time with an explicit offset. Revise the estimate when it changes or use `--clear-eta` if you can no longer give one. |
+| Handle a dependency or a later start | Use `wait --on` for a named dependency or `wait --blocked-by` for a ticket, then `resume` after it clears. Use `remind --until` for a known time or `--on` for a Pacific date. Use `park` to defer work and `unpark` to return it to Ready. |
+| Get a human decision | Use `assign-human`, `redirect-decision`, or `withdraw-decision` on work you own. The named human answers in the web board. |
+| Hand off or review | Use `transfer` to hand off the ticket. Project managers can `unassign`, `reassign`, or `reopen` where allowed. Use `delegate --role review` to assign an independent review of the exact revision or artifact, then use `worker-start`, `worker-report`, `worker-collect`, or `worker-stop`. For GitHub work, record the verdict in the repository's review system. |
+| Close or watch work | Use `done` to record a verified outcome, `close` when work will stop, and `watch` or `unwatch` to manage updates. |
+| Repeat work or choose a goal | Use the `recurring-add`, `recurring-pause`, `recurring-resume`, and `recurring-cancel` commands for your recurring work. Use `maintenance-update` if you manage the project. Use `save-goal` for your standing or dated goal. When actionable work is exhausted, start a concrete investigation ticket before its first check. |
+
+The board verifies the signed-in actor and ownership on each write. The shared
+command list excludes local ledger setup, operators' commands, and offline
+human-decision commands.
 
 ## Discover a watcher after a turn or restart
 

@@ -26,7 +26,11 @@ State = Literal["ready", "in_progress", "waiting", "human_review", "parked", "do
 def build_server(board: SharedBoard) -> MCPServer:
     server = MCPServer(
         "Taskboard",
-        instructions="Use your existing Raft agent connection. Check the board and your queue, then act on an eligible ticket.",
+        instructions=(
+            "Use your existing Raft agent connection. Check taskboard_context, then choose work with "
+            "taskboard_queue or taskboard_reviews. See docs/taskboard/MCP.md for the adapter's full tool list. "
+            "Run ./tasks --shared capabilities for additional shared CLI actions."
+        ),
         log_level="WARNING",
     )
     read_only = ToolAnnotations(read_only_hint=True)
@@ -82,7 +86,7 @@ def build_server(board: SharedBoard) -> MCPServer:
 
     @server.tool(annotations=write)
     def taskboard_update(ticket: Ticket, note: Note) -> dict[str, Any]:
-        """Record progress or the next step on an owned in-progress ticket."""
+        """Record progress on an owned in-progress ticket. Use the shared CLI update command for ETA or checklist changes."""
         return advance(ticket, "update", note)
 
     @server.tool(annotations=write)

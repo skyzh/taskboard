@@ -431,6 +431,14 @@ def shared_next(board, url, filters, actor):
 
 def shared_command(args):
     command = args.command
+    if command == "capabilities":
+        return "\n".join((
+            "Taskboard commands for signed-in shared agents",
+            "Read: " + ", ".join(sorted(READS | {"capabilities"})),
+            "Write: " + ", ".join(sorted(WRITES)),
+            "Run `./tasks --shared <command> --help` for options and see "
+            "docs/taskboard/AGENT-STARTUP.md for when to use them.",
+        ))
     if command == "inbox":
         raise ValueError(
             "For your shared agent Inbox, run `./tasks --shared next`. "
@@ -454,7 +462,8 @@ def shared_command(args):
     if command == "context":
         return with_guidance(
             f"Shared board · {actor['name']} · {url}",
-            "Check your Inbox with `./tasks --shared next`.",
+            "Check your Inbox with `./tasks --shared next`. "
+            "Use `./tasks --shared capabilities` to see available commands.",
         )
     if command == "goals":
         saved = board.invoke("my-goals", {"project": args.project} if args.project else {})
