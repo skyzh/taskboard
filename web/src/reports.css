@@ -95,6 +95,7 @@
 .report-note { color: var(--muted); font-size: .8rem; }
 .report-owner-section, .pending-reports { margin-top: .65rem; }
 :is(.report-owner-section, .pending-reports) :is(h3, h4) {
+  margin: 0;
   padding-bottom: .25rem;
   border-bottom: 1px solid var(--line);
   font-size: .86rem;
