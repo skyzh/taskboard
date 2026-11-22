@@ -8,6 +8,7 @@ import { activityExtraText } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { sourceLinkLabel } from './sourceLinks.js'
 import { useTimeZone } from './timeZone.js'
+import { ReportTime } from './ReportTime.jsx'
 
 export const states = {
   human_review: 'Assigned to human',
@@ -142,7 +143,7 @@ export function RecordedActivity({ activity }) {
   if (!activity) return null
   return (
     <p className="last-activity">
-      Last activity <a href={eventHref(activity.id)}><Timestamp at={activity.at} /></a>
+      Last activity <a href={eventHref(activity.id)}><ReportTime at={activity.at} linked /></a>
     </p>
   )
 }

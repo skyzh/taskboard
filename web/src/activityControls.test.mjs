@@ -790,12 +790,13 @@ test('compact ticket history keeps only additional legacy prose in Details', () 
   assert.match(hold, /Two cases passed\. The third is missing\./)
 })
 
-test('ticket activity shows actor photos or initials and preserves an exact timestamp in reader and signed-in views', () => {
+test('ticket activity shows photos or initials and a relative link with an exact timestamp', t => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-21T08:00:01Z'))
   fixture.resources = { '/tasks/1': { data: {
     task: { id: 1, key: 'T-1', title: 'Check the CSV', state: 'done', summary_label: 'Result' },
     checklist: [], workers: [], sources: [],
   } } }
-  const at = '2026-11-20T22:00:15Z'
+  const at = '2026-11-21T07:59:00Z'
   const photo = '/tasks/api/v1/avatars/fixture/digest'
   fixture.pages = { '/tasks/1/activity': { data: { items: [
     { ...selected, actor: 'Portrait Agent', actor_profile: { avatar_url: photo }, at },
@@ -809,7 +810,9 @@ test('ticket activity shows actor photos or initials and preserves an exact time
     assert.ok(markup.includes(`<img class="assignee-avatar" src="${photo}" width="20" height="20" alt=""/>Portrait Agent`))
     assert.match(markup, /aria-hidden="true">MP<\/span>Missing Photo/)
     assert.match(markup, /href="#event-18-log" aria-label="Link to .+ by Portrait Agent at /)
-    assert.ok(markup.includes(`<time dateTime="${at}" title="${at}">${zone.formatCompactTimestamp(at)}</time>`))
+    const exact = zone.formatTimestamp(at)
+    assert.ok(markup.includes(`<time dateTime="${at}" title="${exact}">1m ago`))
+    assert.ok(markup.includes(`by Portrait Agent at ${exact}`))
   }
 })
 

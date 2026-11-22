@@ -8,7 +8,7 @@ import './reports.css'
 
 import { TaskRows } from './WorkRow.jsx'
 import { groupOutcomes } from './Overview.jsx'
-import { ReportTime, ReportTimeProvider } from './ReportTime.jsx'
+import { ReportTime } from './ReportTime.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { useTimeZone } from './timeZone.js'
 import { briefSourceText } from './workCopy.js'
@@ -212,14 +212,12 @@ function ProjectReports({ revision, project, projectTitle, viewer }) {
           <ResourceStatus resource={page} label="reports" />
           {page.data?.items.length === 0 && <p className="section-message" role="status">{empty}</p>}
           {page.data?.items.length > 0 && (
-            <ReportTimeProvider>
-              <ol className="report-list" aria-label={label} role="list">
-                {page.data.items.map(entry => (
-                  <AssigneeReport key={entry.owner} entry={entry} revision={revision}
-                    project={project} projectTitle={projectTitle} />
-                ))}
-              </ol>
-            </ReportTimeProvider>
+            <ol className="report-list" aria-label={label} role="list">
+              {page.data.items.map(entry => (
+                <AssigneeReport key={entry.owner} entry={entry} revision={revision}
+                  project={project} projectTitle={projectTitle} />
+              ))}
+            </ol>
           )}
           <LoadMore page={page} label={projectTitle ? `assignees in ${projectTitle}` : 'assignees'} />
         </div>
