@@ -216,8 +216,13 @@ class TasksServiceTest(unittest.TestCase):
             return self.call(client, path, query_string=filters).get_json()
 
         self.call(app.test_client(), path, status=401)
-        self.assertEqual(view(avery)["items"], [])
+        self.assertEqual(view(avery), {"items": [], "next_cursor": None, "agent_options": None, "has_receipts": False})
         pending = receipt("T-1", add("Pending notice"), pending=True, requested="2026-11-21T19:55:00Z")
+        avery_subject = self.provider.people["Avery"]["sub"]
+        blake_subject = self.provider.people["Blake"]["sub"]
+        self.assertEqual(view(manager), {
+            "items": [], "next_cursor": None, "agent_options": [{"id": avery_subject, "name": "Avery"}], "has_receipts": False,
+        })
         delivered = receipt("T-2", add("Delivered notice"), delivered="2026-11-21T19:56:00Z")
         ack = receipt("T-3", add("Read and acknowledged"), read="2026-11-21T19:58:00Z",
                       acknowledged="2026-11-21T12:00:00-08:00")
@@ -256,9 +261,26 @@ class TasksServiceTest(unittest.TestCase):
         self.assertNotIn(avery_key, json.dumps(manager_rows))
 
         self.assertEqual([row["task"] for row in view(avery)["items"]], ["T-7", "T-3", "T-2", "T-1"])
-        self.assertEqual([row["task"] for row in view(blake, recipient=avery_key)["items"]], ["T-5", "T-4"])
-        self.assertEqual(view(other)["items"], [])
-        self.assertEqual(view(manager, project="COURSE")["items"], [])
+        self.call(blake, path, query_string={"recipient": avery_subject}, status=403)
+        self.assertEqual([row["task"] for row in view(blake)["items"]], ["T-5", "T-4"])
+        self.assertIsNone(view(blake)["agent_options"])
+        self.assertTrue(view(blake, state="pending")["has_receipts"])
+        self.assertFalse(view(avery, project="COURSE", state="history")["items"])
+        self.assertFalse(view(other)["has_receipts"])
+        self.assertFalse(view(manager, project="COURSE")["has_receipts"])
+        self.assertEqual(view(other, project="COURSE")["agent_options"], [{"id": avery_subject, "name": "Avery"}])
+        self.call(other, path, query_string={"project": "COURSE", "recipient": blake_subject}, status=404)
+        manager_view = view(manager, recipient=blake_subject, state="history", kind="ready", limit=1)
+        self.assertEqual(manager_view["agent_options"], [
+            {"id": avery_subject, "name": "Avery"}, {"id": blake_subject, "name": "Blake"},
+        ])
+        self.assertEqual([row["task"] for row in manager_view["items"]], ["T-5"])
+        next_view = view(manager, recipient=blake_subject, state="history", kind="ready", limit=1,
+                         before=manager_view["next_cursor"])
+        self.assertEqual([row["task"] for row in next_view["items"]], ["T-4"])
+        empty_filter = view(manager, recipient=blake_subject, state="pending")
+        self.assertEqual(empty_filter["items"], [])
+        self.assertTrue(empty_filter["has_receipts"])
         self.assertEqual([row["task"] for row in view(other, project="COURSE")["items"]], ["COURSE-1"])
         self.assertEqual([row["task"] for row in view(avery, project="COURSE")["items"]], ["COURSE-1"])
         self.assertEqual([row["task"] for row in view(manager, state="pending")["items"]], ["T-1"])
@@ -4616,7 +4638,8 @@ class TasksServiceTest(unittest.TestCase):
         app = self.app(portal_reader=True)
         for name, fragment in (
             ("Sam", "#notifications-needs-me"),
-            ("Quinn", "#notifications-log?project=COURSE&status=pending&kind=ready"),
+            ("Quinn", "#notifications-log?project=COURSE&status=pending&kind=ready"
+                      f"&agent={self.provider.people['Avery']['sub']}"),
         ):
             with self.subTest(fragment=fragment):
                 client = app.test_client()
@@ -4629,6 +4652,7 @@ class TasksServiceTest(unittest.TestCase):
             "#notifications-log?project=COURSE&project=T",
             "#notifications-log?project=COURSE&status=invalid",
             "#notifications-log?project=COURSE&kind=ready&kind=merge",
+            "#notifications-log?project=COURSE&agent=//other.example",
         ):
             self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
 
