@@ -198,7 +198,10 @@ def watch_two_pickups(board, owner, is_idle, notify, duration, interval=10, idle
 
 def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_delay=120, *, observe_status=None):
     """Stay armed and report the size of a changed, nonempty owned Ready queue."""
-    context = agent_context(board, owner)
+    try:
+        context = agent_context(board, owner)
+    except SharedReadError as error:
+        context = recover_ready_read(lambda: agent_context(board, owner), "startup context", error, emit, interval)
     actor = context["actor"]["id"]
     filters = {"scope": "all", "state": "ready", "limit": 100}
     noticed = frozenset()
@@ -237,13 +240,13 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
         try:
             result = check_when_idle(context, is_idle, next_count, notify_count, float("inf"), interval, idle_delay)
         except SharedReadError as error:
-            recover_ready_read(ready_events, stage, error, emit, interval)
+            recover_ready_read(lambda: ready_events(stage), stage, error, emit, interval, count_ready=True)
             continue
         noticed = current
         emit(result)
 
 
-def recover_ready_read(read, stage, error, emit, interval):
+def recover_ready_read(read, stage, error, emit, interval, *, count_ready=False):
     for attempt in range(1, 4):
         if not error.retryable:
             break
@@ -252,12 +255,15 @@ def recover_ready_read(read, stage, error, emit, interval):
               "reason": error.reason, "attempt": attempt, "retry_in_seconds": delay})
         sleep(delay)
         try:
-            ready = read(stage)
+            result = read()
         except SharedReadError as failure:
             error = failure
         else:
-            emit({"kind": "ready-read-recovered", "at": observation_time(), "stage": stage, "ready_count": len(ready)})
-            return
+            event = {"kind": "ready-read-recovered", "at": observation_time(), "stage": stage}
+            if count_ready:
+                event["ready_count"] = len(result)
+            emit(event)
+            return result
     guidance = (
         "Sign in to the registered Tasks app and verify your session with `./tasks --shared context` before restarting."
         if error.reason == "http-401" else "Verify the registered app, shared session, and queue access before restarting."
