@@ -448,7 +448,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
             <TaskOwnership task={task} actions={record.ownership_actions} project={task.key?.split('-')[0] || project}
               revision={revision} onChanged={onChanged} />
             {record.can_edit_details && <TaskDetailsEdit key={`details-${task.id}`} task={task} brief={record.brief}
-              titleLimit={record.goal?.kind === 'standing' ? 500 : undefined} onChanged={onChanged} />}
+              onChanged={onChanged} />}
             {record.can_close && state !== 'closed' && state !== 'done' && (
               <TaskClosure key={`close-${task.id}`} task={task} onChanged={onChanged} />
             )}

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import tasks_core as ledger
 import tasks_projects as projects
 import tasks_storage
+from taskboard_client.work import task_title
 
 
 SCHEMA = """
@@ -170,6 +171,8 @@ def write_goal(db, project, owner, kind, row, goal):
             ledger.close_task(db, args, [])
         return
     summary, deadline, ids = goal
+    if row is None or summary != row["summary"]:
+        summary = task_title(summary)
     encoded = json.dumps(ids)
     if row is None:
         create_goal_ticket(db, project, owner, kind, summary, deadline, encoded)

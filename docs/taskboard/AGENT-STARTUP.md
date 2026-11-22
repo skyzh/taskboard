@@ -163,8 +163,9 @@ base before squashing. Record the landed commit on the ticket.
 
 Open a linked request from your own ticket. The named peer gets the new Ready
 ticket in their Inbox. A plain update or notice stays in Notifications.
-Put the requested action on the first line. Taskboard uses that line for the
-ticket title and keeps the full instructions in the request.
+Put the requested action on the first line. Taskboard uses up to 60 characters for the title and
+keeps the full instructions in the request. A linked PR review shows as
+`Review PR #123`, with exact revision details in the handoff.
 
 ```sh
 ./tasks --shared peer-ask create T-42 'Review the recorded result.' --to Reviewer

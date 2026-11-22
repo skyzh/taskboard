@@ -357,7 +357,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
         db.execute("INSERT INTO board_settings VALUES ('raft_server_id', ?)", (server_id,))
         audit.record(db, scope="operator", actor=None, operation="set",
                      record_type="board_setting", record_id="raft_server_id", at=ledger.timestamp())
-    peer_asks.migrate_titles(db)
+    peer_asks.refresh_generated_titles(db)
 
 
 def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
@@ -389,7 +389,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
             goals.migrate_goal_tickets(db)
             for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA):
                 db.execute(statement)
-            peer_asks.migrate_titles(db)
+            peer_asks.refresh_generated_titles(db)
 
 
 
@@ -1813,7 +1813,10 @@ def create_app(
             previous = next(iter(goals.standing(connection, owner, project)), None)
             if (previous["summary"] if previous else None) == summary:
                 return previous
-            saved = goals.save_standing(connection, project, owner, summary)
+            try:
+                saved = goals.save_standing(connection, project, owner, summary)
+            except ValueError as error:
+                raise RequestError(str(error)) from error
             ledger.bump_revision(connection)
             return saved
 
@@ -2156,7 +2159,7 @@ def create_app(
             return query().related_activity(key, project=project_scope(data), **page_args(data))
         if name == "create-task":
             return mutate(
-                "add", actor, data, dri=key, title=text(data, "title", maximum=200),
+                "add", actor, data, dri=key, title=data.get("title"),
                 step=text(data, "step"), brief=text(data, "brief", optional=True), project=project_filter(data),
             )
         if name in (maintenance.READ, maintenance.WRITE):
@@ -2173,7 +2176,7 @@ def create_app(
         if name == "recurring-add":
             return mutate(
                 "recurring-add", actor, data, dri=key, key=text(data, "key", maximum=160),
-                title=text(data, "title", maximum=200), step=text(data, "step"),
+                title=text(data, "title"), step=text(data, "step"),
                 cadence_hours=integer(data.get("cadence_hours"), "Cadence hours"),
                 next_at=text(data, "next_at", maximum=40),
             )

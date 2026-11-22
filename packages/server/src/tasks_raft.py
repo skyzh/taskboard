@@ -8,6 +8,8 @@ from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, request
 
+from taskboard_client.work import TASK_TITLE_LIMIT
+
 
 _ACTION_PREFIX = "/api/v1/raft"
 _MANIFEST_PATH = "/.well-known/raft-agent-manifest.json"
@@ -84,11 +86,12 @@ _ACTIONS = {
         "query": "Search by name or handle.", **_PROJECT, **_PAGINATION,
     }),
     "create-task": _Action("POST", "Create a task you will own.", {
-        "title": "Task title.", "step": "First step for the owner.",
+        "title": f"Task title, up to {TASK_TITLE_LIMIT} characters. Put details in the brief.",
+        "step": "First step for the owner.",
     }, {"brief": "Background and scope of the work.", **_PROJECT, **_EVIDENCE}),
     "recurring-add": _Action("POST", "Define recurring work you own.", {
         "key": "Stable key for retrying this definition.",
-        "title": "Title for each occurrence.",
+        "title": f"Title for each occurrence, up to {TASK_TITLE_LIMIT} characters.",
         "step": "First step for each occurrence.",
         "cadence_hours": "Number of whole hours between slots.",
         "next_at": "First slot in UTC, including seconds.",
@@ -150,7 +153,8 @@ _ACTIONS = {
     }, {"related": "Optional related ticket, such as the duplicate or successor.", **_EVIDENCE}),
     "edit-task-details": _Action("POST", "Edit the title or brief as the owner or project manager.", {
         **_TASK, "reason": "Reason for correcting the ticket.",
-    }, {"title": "Replacement title.", "brief": "Replacement brief. Empty clears it.", **_EVIDENCE}),
+    }, {"title": f"Replacement title, up to {TASK_TITLE_LIMIT} characters. Put details in the brief.",
+        "brief": "Replacement brief. Empty clears it.", **_EVIDENCE}),
     "edit-checklist": _Action("POST", "Edit checklist steps as the ticket owner or project manager.", {
         **_TASK, "action": "Choose add, rename, reopen, or remove.",
     }, {"position": "Stable step number for rename, reopen, or remove.", "label": "Step wording for add or rename."}),

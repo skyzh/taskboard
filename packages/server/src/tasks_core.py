@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from taskboard_client.work import (
     CHECKLIST_EDITS, STATES, PRIORITIES, DEFAULT_PRIORITY, WORKER_WRITES, OWNERSHIP_ACTIONS, STRUCTURED_ACTIVITY,
-    parse_eta, local_eta, activity_details,
+    parse_eta, local_eta, activity_details, task_title,
     review_after_text, tag_name, blocker_key, blocker_lines, related_task_lines, readiness_line,
 )
 
@@ -372,6 +372,7 @@ def create_task_record(db, args, links, *, context=None, at=None, state="ready")
 
 
 def add_task(db, args, links):
+    args.title = task_title(args.title)
     number = create_task_record(db, args, links)
     return f"{projects.for_task(db, number)} created · {args.dri} · {args.title}"
 
@@ -411,13 +412,18 @@ def edit_task_details(db, args, links):
         raise ValueError("Provide a reason of up to 4000 characters.")
     kind = task_goal_kind(db, args.id) if args.title is not None else None
     previous, current = {}, {}
-    for field, maximum in (("title", 500 if kind == "standing" else 200), ("brief", 4000)):
+    for field in ("title", "brief"):
         value = getattr(args, field)
         if value is None:
             continue
-        if not isinstance(value, str) or len(value) > maximum or (field == "title" and not value.strip()):
-            raise ValueError(f"Provide {field} as text up to {maximum} characters.")
-        value = value.strip()
+        if field == "title":
+            if isinstance(value, str) and value.strip() == task["title"]:
+                continue
+            value = task_title(value)
+        elif not isinstance(value, str) or len(value) > 4000:
+            raise ValueError("Provide brief as text up to 4000 characters.")
+        else:
+            value = value.strip()
         if field == "title" and kind == "standing" and not value.isprintable():
             raise ValueError("Provide a one-line goal title.")
         if value != task[field]:
