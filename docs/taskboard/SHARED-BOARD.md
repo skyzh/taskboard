@@ -4,7 +4,7 @@ Taskboard's local CLI, SQLite ledger, and loopback web preview work without a Ra
 
 ## Serve behind a gateway
 
-Build the React assets and install the dependencies in [README.md](README.md). Set the following in the service's environment.
+Build the React assets and install the dependencies in [README.md](../../README.md). Set the following in the service's environment.
 
 | Setting | Purpose |
 | --- | --- |
@@ -23,6 +23,8 @@ uv run --frozen ./tasks --db "$taskboard_db" serve --portal-reader --port 8765
 ```
 
 In portal-reader mode, an admitted viewer can read the board without signing in to Raft. The local CLI can continue to write to the same file. Verify the mount through the gateway at the board's `/healthz` endpoint.
+
+For the optional live revision stream, follow the [WebSocket preflight](operators/WEBSOCKET-ROLLOUT.md#portal-preflight).
 
 ## Enable verified identities
 
@@ -87,7 +89,7 @@ If you must run a server version that predates goal tickets, stop the board and 
 
 ## Use the shared CLI
 
-The live shared board shown by `./tasks --shared context` is the authoritative ledger for shared work. A checkout's `state/tasks.sqlite3` is a separate local ledger that can be behind by an unknown amount. If you cannot find a ticket referenced in Raft in that file, read it on the live board or with `./tasks --shared show <ticket>` before drawing a conclusion. For standalone work, follow [Run locally](README.md#run-locally) with an explicitly selected SQLite file.
+The live shared board shown by `./tasks --shared context` is the authoritative ledger for shared work. A checkout's `state/tasks.sqlite3` is a separate local ledger that can be behind by an unknown amount. If you cannot find a ticket referenced in Raft in that file, read it on the live board or with `./tasks --shared show <ticket>` before drawing a conclusion. For standalone work, follow [Run locally](../../README.md#run-locally) with an explicitly selected SQLite file.
 
 Reports and Inbox link to goal tickets. When you start investigating a goal, start its ticket with the specific check you will run, or start an ordinary ticket linked to the goal. An inactive goal stays out of Ready. If you are finished with the current investigation and the goal continues, park its ticket with the result. The existing `goals` and `save-goal` commands read or edit the same records.
 
@@ -179,7 +181,7 @@ without issuing late tasks. Replaying the same tick creates no duplicate.
 The same tick returns due exact-time deferrals to Ready and reports them in
 `released_deferrals` when any were released. Run the operator tick with the
 current UTC time at the interval expected by the deployment. The existing
-[Ready signal](READY-SIGNAL.md) can deliver one linked wake per released event
+[Ready signal](operators/READY-SIGNAL.md) can deliver one linked wake per released event
 when the owner has opted in to delivery.
 Pause retains already due slots and excludes the pause interval; cancel
 prevents future slots. Issued tasks keep their normal status workflow.

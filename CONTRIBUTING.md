@@ -1,10 +1,10 @@
 # Contributing to Taskboard
 
-Use Python 3.11 or later, uv, and Node.js 20.19+ on the 20.x line or 22.12+ on newer supported lines. Follow the [local quick start](README.md#run-locally) to build the web app and try a disposable ledger. The [shared setup guide](SHARED-BOARD.md) describes the optional Raft adapter and its environment settings.
+Use Python 3.11 or later, uv, and Node.js 20.19+ on the 20.x line or 22.12+ on newer supported lines. Follow the [local quick start](README.md#run-locally) to build the web app and try a disposable ledger. The [shared setup guide](docs/taskboard/SHARED-BOARD.md) describes the optional Raft adapter and its environment settings.
 
 ## Propose a change
 
-Open an issue that explains how to reproduce the problem and what outcome you expect. Use fictional task records and example domains in reports, tests, and screenshots. Keep credentials, ledger files, private URLs, and session files in your own environment.
+Open an issue that explains how to reproduce the problem and what outcome you expect. Use fictional task records and example domains in reports and tests. Public screenshots can use independently verified public project facts. Keep credentials, ledger files, private URLs, and session files in your own environment.
 
 Keep each pull request focused. For Taskboard-tracked work, start its title with the ticket ID, for example `[T-123] Keep the selected project on reload`. In the pull request description, explain the change and list the checks you ran and their outcomes. For interface changes, include a reproducible local browser check at the affected viewport and use keyboard navigation to verify changes to controls or focus. Use a commit subject that describes the behavior change.
 

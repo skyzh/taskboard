@@ -1,4 +1,4 @@
-# Ready queue signal pilot
+# Ticket-linked Ready signal
 
 The one-shot command finds newly eligible work for one exact Tasks Board owner and keeps its delivery state in a private local outbox. It uses the same current-state rule as the Ready queue. Each signal carries the existing ledger event ID and a direct task link.
 
@@ -7,7 +7,7 @@ The one-shot command finds newly eligible work for one exact Tasks Board owner a
 Use an existing synthetic ledger and a board URL for that same fixture. Use a separate writable directory for the outbox.
 
 ```sh
-python3 -B -m unittest -v test_tasks_ready_signal
+python3 -B tools/test_python.py test_tasks_ready_signal
 
 python3 tasks_ready_signal.py --db "$fixture_db" --state "$outbox_db" \
   --owner "$fixture_owner" --board-url "$fixture_board" init
@@ -47,9 +47,9 @@ The pilot uses an existing Raft direct message surface and an approved operator.
 
 For a shared SQLite board, an authorized operator can add `--record-project-log`
 before `scan`, `pending` and `ack` to show the corresponding metadata on the
-board automatically. [Project notification log](docs/taskboard/NOTIFICATION-LOG.md)
+board automatically. [Project notification log](../NOTIFICATION-LOG.md)
 
-The executable reads and queues signals locally. The operator owns delivery and records a real receipt. The fixture proof covers local queue behavior, and live Raft delivery still needs its approved pilot. There is no polling service or automatic worker start.
+The executable reads and queues signals locally. The operator owns delivery and records a real receipt. For periodic agent reminders that carry the number of Ready tasks, see the [Ready checkpoint guide](../READY-CHECKPOINT.md).
 
 ## Review a parked ticket after a dependency changes
 

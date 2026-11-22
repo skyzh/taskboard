@@ -28,7 +28,7 @@ Use the [agent startup checklist](../../docs/taskboard/AGENT-STARTUP.md) when jo
 Use the ledger and task ID named in the request. Run checkout commands from the source root. The installed local launcher works from any directory.
 
 - Offline use starts with `./tasks --offline --db "$taskboard_db" show T-1`. Use `--dri` to identify the owner and `--by` to identify who is acting where the command requires it. Use a disposable ledger for demonstrations and test runs.
-- Shared use starts with `./tasks --shared context`. Confirm the board and your verified identity. Use `./tasks --shared next` for your highest-priority Ready task and `./tasks --shared show T-1` to read a specific ticket. Select the actual task ID from the board. The shared CLI uses the configured Raft adapter. See [shared setup](../../SHARED-BOARD.md) when configuring it.
+- Shared use starts with `./tasks --shared context`. Confirm the board and your verified identity. Use `./tasks --shared next` for your highest-priority Ready task and `./tasks --shared show T-1` to read a specific ticket. Select the actual task ID from the board. The shared CLI uses the configured Raft adapter. See [shared setup](../../docs/taskboard/SHARED-BOARD.md) when configuring it.
 
 ## Work the ticket
 
@@ -37,7 +37,7 @@ When setting up a project, record who owns each area and how to route an indepen
 - Check your Ready queue first, then consider eligible work from the shared queue. Check again after a handoff or completion. Give each ticket one accountable owner. Record the original problem and intended outcome in its brief.
 - Start the ticket before doing the work. Use a short checklist for multi-step work, and check each item after verifying it. Run independent parts in parallel when useful. Record real worker assignments and run handles, and collect their evidence on the parent ticket. The owner remains accountable for the result.
 - Keep the current facts and next step on the ticket. Lead with the outcome, next action, or unblock condition. Attach labeled evidence to the ticket. Where the command supports `--details`, use it for supporting context. Keep the headline readable in compact Activity and Reports.
-- Attach verified conversation permalinks under **Sources** using [`link-reference`](../../SHARED-BOARD.md#attach-a-conversation-to-sources) and check the readback. Keep a readable Raft reference when the verified URL is unavailable.
+- Attach verified conversation permalinks under **Sources** using [`link-reference`](../../docs/taskboard/SHARED-BOARD.md#attach-a-conversation-to-sources) and check the readback. Keep a readable Raft reference when the verified URL is unavailable.
 - Hand off the existing ticket when responsibility for the same work changes. Link separate blocking work. Use Waiting only when a dependency actually stops the task. Name who or what can clear it and what evidence lets work resume. Continue eligible independent work.
 - Route a decision to the person who can make it. In the shared board that person answers the exact request in the web UI. Use Needs attention for a specific action or access approval. Put the question and its evidence in the request.
 - Record the solution or decision and how you verified it before closing. If the shared response is uncertain, read back the task and activity before retrying a write.
