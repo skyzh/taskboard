@@ -1,8 +1,15 @@
-import React from 'react'
-import { ArrowRight, Check, ChevronRight, CircleX, Clock, GitPullRequest, MessageSquare, Play, Reply } from 'lucide-react'
+import React, { useState } from 'react'
+import { ArrowRight, Check, CircleX, Clock, GitPullRequest, MessageSquare, Play, Reply } from 'lucide-react'
 import { useLoadedPages } from './data.js'
-import { AssigneeAvatar, eventHref, LoadMore, peerRequestLabels, profileName, ResourceStatus, TaskLink } from './shared.jsx'
+import { DemoControl } from './DemoControl.jsx'
+import { AssigneeAvatar, eventHref, LoadMore, peerRequestLabels, profileName, ResourceStatus, taskHref, TaskLink } from './shared.jsx'
 import { ReportTime } from './ReportTime.jsx'
+import SegmentedControl from './SegmentedControl.jsx'
+
+const displayModes = [
+  { value: 'compact', label: 'Compact' },
+  { value: 'verbose', label: 'Verbose' },
+]
 
 const phases = {
   asked: ['Asked', MessageSquare],
@@ -22,9 +29,11 @@ function Person({ name, profile }) {
   return <span className="request-person"><AssigneeAvatar name={label} url={profile?.avatar_url} />{label}</span>
 }
 
-function RequestRow({ item, viewer, publicPreview }) {
+function RequestRow({ item, viewer, publicPreview, verbose }) {
   const [status, Icon, terminal] = phases[item.phase] || ['Status unavailable', MessageSquare]
   const summary = item.request_title || item.source_title || 'Request'
+  const requestHref = publicPreview ? item.public_url
+    : taskHref(item.request_key ?? item.source_id, item.request_key ?? item.source_key)
   const responseHref = item.response ? eventHref(item.response.id) : null
   const canReviewResponse = item.phase === 'acknowledgment' && item.next_owner && viewer?.id === item.next_owner
   const owner = item.next_owner || item.recipient
@@ -32,17 +41,19 @@ function RequestRow({ item, viewer, publicPreview }) {
   const ownerName = profileName(owner, ownerProfile)
   return (
     <li className={terminal ? 'request-row request-terminal' : 'request-row'}>
-      <details className="request-disclosure">
-        <summary className="request-summary">
-          <Icon size={14} aria-hidden="true" />
-          <span className="request-summary-text" title={summary}>{summary}</span>
-          <span className="relative-time-accessible">{status}</span>
-          {owner && <span className="request-summary-avatar" title={ownerName}>
-            <AssigneeAvatar name={ownerName} url={ownerProfile?.avatar_url} />
-            <span className="relative-time-accessible">{item.next_owner ? `Next for ${ownerName}` : ownerName}</span>
-          </span>}
-          <ChevronRight size={14} aria-hidden="true" className="request-chevron" />
-        </summary>
+      <div className="request-summary">
+        <Icon size={14} aria-hidden="true" />
+        {!verbose && requestHref
+          ? <DemoControl as="a" className="request-summary-text" href={requestHref} title={summary}>{summary}</DemoControl>
+          : <span className="request-summary-text">{summary}</span>}
+        {!verbose && <span className="relative-time-accessible">{status}</span>}
+        {!verbose && owner && <span className="request-summary-avatar" title={ownerName}>
+          <AssigneeAvatar name={ownerName} url={ownerProfile?.avatar_url} />
+          <span className="relative-time-accessible">{item.next_owner ? `Next for ${ownerName}` : ownerName}</span>
+        </span>}
+      </div>
+      {canReviewResponse && responseHref && <a className="request-action" href={responseHref}>Review response</a>}
+      {verbose && (
         <div className="request-details">
           <div className="request-row-line">
             <span className="request-status">
@@ -74,8 +85,7 @@ function RequestRow({ item, viewer, publicPreview }) {
             </div>
           )}
         </div>
-      </details>
-      {canReviewResponse && responseHref && <a className="request-action" href={responseHref}>Review response</a>}
+      )}
     </li>
   )
 }
@@ -105,6 +115,7 @@ function snapshotRows({ reviews, waits, responses }) {
 }
 
 export function QueuedAsksContent({ project, grouped, page, snapshot, viewer }) {
+  const [mode, setMode] = useState('compact')
   const items = snapshot ? snapshotRows(snapshot) : page?.data?.items
   if (items?.length === 0 && (snapshot || (!page.pending && !page.error))) return null
 
@@ -112,11 +123,18 @@ export function QueuedAsksContent({ project, grouped, page, snapshot, viewer }) 
   const Heading = grouped ? 'h3' : 'h2'
   return (
     <section className="queued-asks" aria-labelledby={headingId}>
-      <Heading id={headingId}>Request log</Heading>
+      <div className="request-log-heading">
+        <Heading id={headingId}>Request log</Heading>
+        {items?.length > 0 && (
+          <SegmentedControl className="request-log-mode" label="Request log display" value={mode}
+            options={displayModes} onChange={setMode} />
+        )}
+      </div>
       {page && <ResourceStatus resource={page} label="request log" />}
       {items?.length > 0 && (
-        <ul className="report-outcomes request-log" aria-label="Requests" role="list">
-          {items.map(item => <RequestRow key={item.id} item={item} viewer={viewer} publicPreview={Boolean(snapshot)} />)}
+        <ul className="report-outcomes request-log" aria-label="Requests" role="list" data-mode={mode}>
+          {items.map(item => <RequestRow key={item.id} item={item} viewer={viewer}
+            publicPreview={Boolean(snapshot)} verbose={mode === 'verbose'} />)}
         </ul>
       )}
       {page && <LoadMore page={page} label="requests" />}
