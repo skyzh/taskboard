@@ -31,10 +31,11 @@ Use this checklist when you join a shared board, return after a restart, or arri
    ./tasks --shared show "$taskboard_ticket"
    ```
 
-2. Read the ticket's latest activity, linked evidence, checklist, and current owner. Continue from its recorded step or wait. Check current evidence before resuming a waiting ticket. If an earlier write had an uncertain result, read its Activity before retrying. Keep the same ticket across turns and Computers.
-3. When capacity is available, choose eligible work from your Ready queue. See [Find the agent commands](#find-the-agent-commands) for checklist, ETA, handoff, and wait options. Check it again after recording an outcome or handoff. The [Ready checkpoint guide](READY-CHECKPOINT.md) covers managed watcher commands and the runner callback for a finished work unit.
-4. If your queue has nothing you can move, check the project's unassigned Ready work with `./tasks --shared list --status ready --unassigned --project T`. Use the current project prefix in place of `T` when needed. Take suitable work within your role using the project's ownership rules.
-5. If neither queue has work you can take, make one short pass through recent feedback, follow-ups from a finished ticket, or the current product. Verify any finding on the current build and check the board for an existing ticket. Record the user impact, next action, and owner. If you find nothing actionable, record what you checked. The [team workflow](../../skills/side-project-deep-work/SKILL.md#stay-with-the-problem) describes this handoff.
+2. If the project uses Stamp, confirm your Stamp identity and check `stamp pr list --review-requested --refresh`. Check both review queues before choosing new work. `./tasks --shared reviews` lists Taskboard ticket reviews. Stamp lists the PRs assigned to you. If a candidate needs a newer revision, tell the author what to rebind and continue with an actionable item.
+3. Read the ticket's latest activity, linked evidence, checklist, and current owner. Continue from its recorded step or wait. Check current evidence before resuming a waiting ticket. If an earlier write had an uncertain result, read its Activity before retrying. Keep the same ticket across turns and Computers.
+4. When capacity is available, choose eligible work from your Ready queue. See [Find the agent commands](#find-the-agent-commands) for checklist, ETA, handoff, and wait options. Check it again after recording an outcome or handoff. The [Ready checkpoint guide](READY-CHECKPOINT.md) covers managed watcher commands and the runner callback for a finished work unit.
+5. If your queue has nothing you can move, check the project's unassigned Ready work with `./tasks --shared list --status ready --unassigned --project T`. Use the current project prefix in place of `T` when needed. Take suitable work within your role using the project's ownership rules.
+6. If neither queue has work you can take, make one short pass through recent feedback, follow-ups from a finished ticket, or the current product. Verify any finding on the current build and check the board for an existing ticket. Record the user impact, next action, and owner. If you find nothing actionable, record what you checked. The [team workflow](../../skills/side-project-deep-work/SKILL.md#stay-with-the-problem) describes this handoff.
 
 Set or read your standing role goal with your verified Taskboard account. A standing goal appears at the bottom of Inbox and `next` offers it when there is no actionable work in scope. Inbox and `next` offer unassigned tickets to the project manager who can assign them. Use the standing goal to choose one improvement within your role, verify it, and record the handoff before repeating.
 
@@ -93,6 +94,20 @@ When tracking a review that already has a Taskboard worker run, add
 `--review W-15` when creating the linked request. The existing
 `worker-start`, `worker-report`, `worker-collect`, and `worker-stop` actions
 keep the linked ticket and worker record together.
+
+## Route requests and wakes
+
+Follow the [Taskboard skill](../../skills/taskboard/SKILL.md#route-updates-and-requests) for the routing rules. For example, log a linked deployment on its ticket with the verified release link. For a PR follow-up, send the reviewer the direct Stamp review link in Raft. If a teammate needs to answer a question that changes a ticket, leave the answerable action in **Needs me** and use Raft to point them there if a ping is needed.
+
+Use the project's documented Raft conversation for ordinary coordination. Where the integration supports machine delivery, a project can opt in through an approved sender and a verified Raft channel or conversation. Before enabling it, match the project, destination, recipient, and audience to the approved configuration. With no verified destination, leave machine delivery off. Raft sign-in establishes identity. Use the guidance for your setup.
+
+| Setup | Where work goes |
+| --- | --- |
+| Standalone Taskboard | Use the local CLI and preview. Keep decisions and work logs in the ledger. Check the local queue for new work. |
+| Taskboard with Raft | Use the shared queue for ticket actions and Raft for targeted coordination. Use the managed Ready watcher when the team opts in. |
+| Taskboard with Raft and Stamp | Add the Stamp PR review queue. Its assignment notice arrives through Raft. Use Stamp for the review and the linked ticket for work history. |
+
+Use Raft’s native delivery for the signed-in team. After a review wake, check both queues and open the current revision in Stamp. A conflicting or superseded revision needs an author update and a fresh review request. The existing managed Ready watcher uses Raft Computer for idle detection and reminder delivery. Keep the Stamp verdict and any related ticket record with their existing audiences.
 
 ## Discover a watcher after a turn or restart
 

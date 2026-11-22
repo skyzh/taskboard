@@ -1,6 +1,6 @@
 ---
 name: taskboard
-description: Set up private or shared Taskboard access, resume an agent’s work after a restart or Computer move, and carry out, hand off, review, or finish tickets.
+description: Set up private or shared Taskboard access, resume an agent’s work after a restart or Computer move, and carry out, hand off, review, or finish tickets. Use it to route Taskboard updates and Raft review requests.
 ---
 
 # Taskboard
@@ -42,10 +42,20 @@ When setting up a project, record who owns each area and how to route an indepen
 - Route a decision to the person who can make it. In the shared board that person answers the exact request in the web UI. Use Needs attention for a specific action or access approval. Put the question and its evidence in the request.
 - Record the solution or decision and how you verified it before closing. If the shared response is uncertain, read back the task and activity before retrying a write.
 
+## Route updates and requests
+
+Keep work-log subscriptions, ticket activity, outside-system activity recorded as work logs, and Ready tasks and goals in Taskboard. Use the ticket for decisions, access approvals, and other actions that change its work. Preserve the actor, evidence, and outcome there. A linked GitHub merge can appear in the work log with its source, and an assigned decision stays in **Needs me** until the recipient answers it.
+
+Use Raft for review pings, questions, coordination, and reminders for a named person. Use the shared project channel for updates appropriate to its audience. For a pull request, request the named reviewer in Stamp. Stamp sends the assignment through Raft. When you need to follow up with the reviewer, use Raft and include the direct Stamp review link and revision. After a revision changes, refresh the assignment in Stamp. Keep the formal verdict in Stamp. Use Taskboard for the linked work, evidence, and history so reviewers have one request to answer.
+
+Check both `./tasks --shared reviews` for ticket review assignments and `stamp pr list --review-requested --refresh` for your assigned PR reviews when the project uses Stamp. Use the [startup checklist](../../docs/taskboard/AGENT-STARTUP.md#route-requests-and-wakes) to choose the audience and handle a wake.
+
 ## Build and review changes
 
 Use the recorded task and a local branch or worktree based on main. Write down the behavior to verify, then run the relevant checks documented in the [README](../../README.md). Use a fictional fixture. For a user interface change, verify the affected flow at desktop and phone sizes when test tooling is available.
 
 Pin the candidate revision. For required independent review, give a reviewer who did not author it the exact revision, acceptance criteria, and evidence. Record the verdict on the task and recheck affected behavior if the candidate changes. After the applicable checks and review pass, record the squash commit on main before closing the code ticket.
+
+For a substantial independent review of Taskboard, delegate a distinct check to a subagent when it can run in parallel and the harness permits delegation. For example, pin the same revision for a phone fixture replay while you inspect the task transitions. Keep small reviews and tightly coupled investigation with one executor. The assigned reviewer combines the evidence and owns the exact-revision verdict. Apply the runtime's permissions for delegation and access.
 
 Use a separate release item for deployment. Hand the reviewed artifact, expected base, and checks to the authorized operator or release runner. The operator or runner checks the exact artifact and expected live base, stages the build, keeps a recoverable prior release, and verifies health, assets, and the changed behavior after activation. Record the release outcome on that item.
