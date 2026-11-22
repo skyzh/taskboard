@@ -1,0 +1,96 @@
+{
+  "/tasks/api/v1/frontend-build": {
+    "build": "016eec68424bf75c307684b9009e03db7dc0c2ebb1784adef0d272fac1d62770"
+  },
+  "/tasks/api/v1/session": {
+    "actor": {
+      "avatar_url": null,
+      "id": null,
+      "kind": "local",
+      "name": "Local reader",
+      "role": null
+    }
+  },
+  "/tasks/api/v1/tasks/T-1/activity?limit=20": {
+    "items": [
+      {
+        "action": "add",
+        "actor": "Avery",
+        "actor_profile": null,
+        "at": "2026-11-22T16:37:47Z",
+        "context": {},
+        "id": 1,
+        "label": "Created",
+        "links": [],
+        "note": "Review the sample alignment.",
+        "related_tasks": [],
+        "state": "in_progress",
+        "task_id": 1,
+        "task_key": "T-1",
+        "task_title": "Check the sample ticket",
+        "waiting_on": null,
+        "waiting_profile": null
+      }
+    ],
+    "next_cursor": null
+  },
+  "/tasks/api/v1/tasks/T-1": {
+    "brief": "Synthetic ticket for the Safari alignment check.",
+    "can_close": false,
+    "can_confirm_blocker": false,
+    "can_edit_details": false,
+    "checklist": [],
+    "goal": null,
+    "last_activity": {
+      "at": "2026-11-22T16:37:47Z",
+      "id": 1
+    },
+    "ownership_actions": [],
+    "related_tasks": [],
+    "sources": [],
+    "tag_editable": false,
+    "task": {
+      "action": "add",
+      "at": "2026-11-22T16:37:47Z",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {},
+      "dri": "Avery",
+      "dri_profile": null,
+      "eta": null,
+      "event_id": 1,
+      "id": 1,
+      "key": "T-1",
+      "links": [],
+      "note": "Review the sample alignment.",
+      "priority": "normal",
+      "queued_for_release": false,
+      "release_number": null,
+      "state": "in_progress",
+      "summary_label": "Current step",
+      "title": "Check the sample ticket",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    "workers": []
+  },
+  "/tasks/api/v1/projects": {
+    "items": [
+      {
+        "dri": null,
+        "merge_queue": true,
+        "prefix": "T",
+        "release_queue": {
+          "ticket_fields": [
+            "queued_for_release",
+            "release_number"
+          ]
+        },
+        "title": "Tasks Board"
+      }
+    ]
+  },
+  "/tasks/api/v1/revision": {
+    "revision": "1-0-2026-11-22"
+  }
+}

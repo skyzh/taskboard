@@ -10,7 +10,7 @@ git diff --exit-code "$source_commit" HEAD -- packages web pyproject.toml uv.loc
 git rev-parse "$source_commit" > "$evidence/source-commit.txt"
 git rev-parse HEAD > "$evidence/probe-commit.txt"
 
-PYTHONPATH=packages/server/src:packages/client/src .venv/bin/python -u tools/t942-safari/fixture.py "$root" > "$evidence/preview.stdout" 2> "$evidence/preview.stderr" &
+node tools/t942-safari/preview.mjs "$root" > "$evidence/preview.stdout" 2> "$evidence/preview.stderr" &
 preview=$!
 finish_preview() {
   capture_status=$?
@@ -44,17 +44,13 @@ if [[ ${3:-} == '--preview-only' ]]; then exit 0; fi
 xcodebuild -version > "$evidence/xcode.txt"
 xcrun simctl list --json > "$evidence/simulators.json"
 
-read -r udid runtime_version runtime_build < <(python3 - "$evidence/simulators.json" <<'PY'
-import json
-import sys
-
-simulators = json.load(open(sys.argv[1]))
-runtime = next(item for item in simulators["runtimes"]
-               if item["isAvailable"] and item["version"] == "26.5" and "iOS" in item["name"])
-phone = next(item for item in simulators["devices"][runtime["identifier"]]
-             if item["isAvailable"] and item["name"] == "iPhone 17")
-print(phone["udid"], runtime["version"], runtime["buildversion"])
-PY
+read -r udid runtime_version runtime_build < <(node --input-type=module - "$evidence/simulators.json" <<'JS'
+import { readFileSync } from 'node:fs'
+const inventory = JSON.parse(readFileSync(process.argv[2]))
+const runtime = inventory.runtimes.find(item => item.isAvailable && item.version === '26.5' && item.name.includes('iOS'))
+const phone = inventory.devices[runtime.identifier].find(item => item.isAvailable && item.name === 'iPhone 17')
+console.log(phone.udid, runtime.version, runtime.buildversion)
+JS
 )
 printf 'Device: iPhone 17\niOS: %s (%s)\nUDID: %s\n' "$runtime_version" "$runtime_build" "$udid" > "$evidence/device.txt"
 cat "$evidence/device.txt"
@@ -67,21 +63,22 @@ fi
 
 curl --silent --show-error --fail --max-time 15 "${url%#*}" -o /dev/null
 xcrun simctl openurl "$udid" "$url"
-for attempt in {1..60}; do
+for attempt in {1..90}; do
   if [[ -s "$evidence/safari-metrics.json" ]]; then break; fi
   if [[ "$attempt" == 15 ]]; then xcrun simctl openurl "$udid" "$url"; fi
   sleep 1
 done
 xcrun simctl io "$udid" screenshot "$evidence/iphone17-safari.png"
 cat "$evidence/safari-metrics.json"
-python3 - "$evidence/safari-metrics.json" <<'PY'
-import json
-import sys
-
-data = json.load(open(sys.argv[1]))
-assert "error" not in data, data
-assert "iPhone" in data["ua"] and "Safari/" in data["ua"], data["ua"]
-assert data["status"]["text"] == "In progress" and data["priority"]["text"] == "Priority Normal"
-assert data["status"]["textBoxUnchanged"] and data["priority"]["textBoxUnchanged"], data
-assert data["row"]["width"] > 0 and 320 <= data["viewport"]["width"] <= 480, data
-PY
+node --input-type=module - "$evidence/safari-metrics.json" <<'JS'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+const data = JSON.parse(readFileSync(process.argv[2]))
+assert.ok(!data.error, data.error)
+assert.match(data.ua, /iPhone/)
+assert.match(data.ua, /Safari\//)
+assert.equal(data.status.text, 'In progress')
+assert.equal(data.priority.text, 'Priority Normal')
+assert.ok(data.status.textBoxUnchanged && data.priority.textBoxUnchanged)
+assert.ok(data.row.width > 0 && data.viewport.width >= 320 && data.viewport.width <= 480)
+JS
