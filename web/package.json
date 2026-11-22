@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "vite build --base ./",
-    "lint": "oxlint src public vite.config.js && html-validate index.html dist/index.html"
+    "build:demo": "vite build demo --base ./ --outDir ../dist-demo --emptyOutDir && node demo/copy-licenses.mjs",
+    "lint": "oxlint src public demo vite.config.js && html-validate index.html dist/index.html demo/index.html"
   },
   "dependencies": {
     "lucide-react": "1.60.0",
