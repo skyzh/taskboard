@@ -970,7 +970,7 @@ test('closed tickets show their reason and related ticket and retain the manager
     fixture.state = []
     const detail = renderToStaticMarkup(React.createElement(TaskDetail, { id: task.key, session: {} }))
     if (displayState) {
-      assert.match(detail, /aria-label="Closure reason"><h3>Closure reason<\/h3>/)
+      assert.match(detail, /aria-label="Closure reason"><h2>Closure reason<\/h2>/)
       assert.match(detail, /href="#task-COURSE-2"/)
       assert.match(detail, /<option value="reopen" selected="">Reopen<\/option>/)
     }

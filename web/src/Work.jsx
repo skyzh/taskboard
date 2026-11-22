@@ -306,8 +306,56 @@ function TaskWatch({ id, session, revision, onChanged }) {
   )
 }
 
+function TicketContext({ record, id, task, state, wide, detailed, session, revision, onChanged }) {
+  const [open, setOpen] = useState(false)
+  const content = (
+    <div className="ticket-context-content">
+      {wide && <h2>Details</h2>}
+      <div className="detail-owner">
+        <Assignee task={task} />
+        <TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} />
+      </div>
+      <p className="detail-meta">
+        {(wide || !detailed) && <Status state={state} />}
+        <TaskPriority priority={task.priority} />
+        {task.eta && state !== 'closed' && <span>Estimated completion <Timestamp at={task.eta} /></span>}
+      </p>
+      <RecordedActivity activity={record.last_activity} />
+      {record.goal?.deadline && <p>Due <time dateTime={record.goal.deadline}>{record.goal.deadline}</time></p>}
+      {record.sources.length > 0 && (
+        <details open><summary>Sources · {record.sources.length}</summary><EvidenceLinks links={record.sources} label="Sources" /></details>
+      )}
+      {!!record.related_tasks?.length && (
+        <section aria-label="Related tasks">
+          <h3>Related tasks</h3>
+          <ul className="context-list">
+            {record.related_tasks.map(item => (
+              <li key={item.key}><a href={item.url}><span className="ticket-id">{item.key}</span> {item.title}</a></li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  )
+  if (!detailed) return <div className="ticket-context">{content}</div>
+  return (
+    <details className="ticket-context" open={wide || open}
+      onToggle={wide ? undefined : event => setOpen(event.currentTarget.open)}>
+      <summary>Details</summary>
+      {content}
+    </details>
+  )
+}
+
 export function TaskDetail({ id, revision, session, onChanged, preferredProject = 'T', returnHref, fromSearch }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
+  const article = useRef(null)
+  const [wide, setWide] = useState(false)
+  useEffect(() => {
+    const observer = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= 960))
+    observer.observe(article.current)
+    return () => observer.disconnect()
+  }, [])
   const detail = useResource(`/tasks/${id}`, revision)
   const activity = useLoadedPages(`/tasks/${id}/activity`, {}, revision)
   const record = detail.data
@@ -317,124 +365,117 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   const project = typeof id === 'string' ? id.split('-')[0] : 'T'
   const queueHref = returnHref || (project === 'T' && preferredProject === 'T' ? '#board' : `#project=${project}`)
   const backHref = fromSearch ? `#${new URLSearchParams({ search: fromSearch })}` : queueHref
+  const detailed = Boolean(record && (record.brief || record.checklist.length || record.sources.length
+    || record.related_tasks?.length || record.goal?.tickets.length || state === 'human_review'))
+  const sidebar = wide && detailed
   return (
-    <article id={taskHref(id).slice(1)} className="panel task-detail" aria-labelledby={`task-heading-${id}`} tabIndex={-1}>
+    <article ref={article} id={taskHref(id).slice(1)} className={`panel task-detail${sidebar ? ' has-sidebar' : ''}`}
+      aria-labelledby={`task-heading-${id}`} tabIndex={-1}>
       <a className="back-link" href={backHref}>{fromSearch ? 'Back to Search results' : 'Back to Tasks'}</a>
       <p className="detail-meta">
         <span className="ticket-id">{taskLabel(id, task?.key)}</span>
         {record?.goal && <span>{record.goal.kind === 'standing' ? 'Standing goal' : 'Milestone'}</span>}
-        {task && <><Status state={state} /><TaskPriority priority={task.priority} /></>}
-        {task && <TaskWaitAge task={task} />}
-        {task?.eta && state !== 'closed' && <span>Estimated completion <Timestamp at={task.eta} /></span>}
+        {task && detailed && !sidebar && <Status state={state} />}
       </p>
       <h1 id={`task-heading-${id}`}><MarkdownInline text={task?.title || `Task ${taskLabel(id)}`} relatedTasks={record?.related_tasks} /></h1>
       <ResourceStatus resource={detail} label="task details" />
-      {task && (
-        <>
-          <div className="detail-owner"><Assignee task={task} /><TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} /></div>
-          <TaskOwnership task={task} actions={record.ownership_actions} project={task.key?.split('-')[0] || project}
-            revision={revision} onChanged={onChanged} />
-          {record.can_edit_details && <TaskDetailsEdit key={task.id} task={task} brief={record.brief}
-            titleLimit={record.goal?.kind === 'standing' ? 500 : undefined} onChanged={onChanged} />}
-          {record.can_close && state !== 'closed' && state !== 'done' && (
-            <TaskClosure key={task.id} task={task} onChanged={onChanged} />
-          )}
-          <TaskTags task={task} editable={record.tag_editable} onChanged={onChanged} />
-          <RecordedActivity activity={record.last_activity} />
-          {record.goal?.deadline && <p>Due <time dateTime={record.goal.deadline}>{record.goal.deadline}</time></p>}
-          {record.goal?.tickets.length > 0 && (
-            <ul className="context-list" aria-label="Work linked to this goal">
-              {record.goal.tickets.map(ticket => <li key={ticket.id}>
-                <TaskLink id={ticket.id} reference={ticket.key} title={ticket.title} />
-              </li>)}
-            </ul>
-          )}
-          {record.brief && <Markdown text={record.brief} className="detail-brief prose" relatedTasks={record.related_tasks} />}
-          <section className={`ticket-focus ${state}`} aria-label={summary}>
-            <h3>{summary}</h3>
-            {task.waiting_on && <p><Dependency task={task} /></p>}
-            {task.peer_request && <PeerRequestContext task={task} />}
-            <Markdown text={task.note} relatedTasks={record.related_tasks} />
-            <ClosureReference context={task.context} />
-            <ReminderWhen context={task.context} />
-            {session.data?.actor?.id === task.dri && ['ready', 'in_progress', 'parked'].includes(task.state) && (
-              <ReminderDate key={`${id}:${task.context?.defer_until || task.context?.review_after || ''}`}
-                path={`/tasks/${id}/reminder`} saved={task.context?.review_after}
-                savedUntil={task.context?.defer_until} exactTime onChanged={onChanged} />
-            )}
-            {!mayAnswer(task, session) && <Options options={task.context?.choices} />}
-            <EvidenceLinks links={task.links} />
-            {record.sources.length > 0 && (
-              <details open><summary>Sources · {record.sources.length}</summary><EvidenceLinks links={record.sources} label="Sources" /></details>
-            )}
+      <div className="ticket-detail-layout">
+        <div className="ticket-detail-work">
+          <section className={task ? `ticket-focus ${state}` : undefined} aria-label={summary}>
+            {task && <>
+              <h2>{summary}</h2>
+              <TaskWaitAge task={task} />
+              {task.waiting_on && <p><Dependency task={task} /></p>}
+              {task.peer_request && <PeerRequestContext task={task} />}
+              <Markdown text={task.note} relatedTasks={record.related_tasks} />
+              <ClosureReference context={task.context} />
+              <ReminderWhen context={task.context} />
+              {session.data?.actor?.id === task.dri && ['ready', 'in_progress', 'parked'].includes(task.state) && (
+                <ReminderDate key={`${id}:${task.context?.defer_until || task.context?.review_after || ''}`}
+                  path={`/tasks/${id}/reminder`} saved={task.context?.review_after}
+                  savedUntil={task.context?.defer_until} exactTime onChanged={onChanged} />
+              )}
+              {!mayAnswer(task, session) && <Options options={task.context?.choices} />}
+              <EvidenceLinks links={task.links} />
+            </>}
+            <DecisionForm key={`${id}:${session.data?.actor?.id ?? session.data?.actor?.name ?? ''}`}
+              task={task} session={session} onChanged={onChanged} />
           </section>
-          {(record.checklist.length > 0 || record.can_edit_details) && (
-            <details className="detail-checklist" open={checklistOpen}
-              onToggle={event => setChecklistOpen(event.currentTarget.open)}>
-              <summary>
-                <span>Checklist</span>
-                <span>{task.checklist_completed} of {task.checklist_total} complete</span>
-              </summary>
-              {record.checklist.length > 0 && <ChecklistSteps steps={record.checklist} relatedTasks={record.related_tasks}
-                showMissingTimes
-                editStep={record.can_edit_details ? step => <ChecklistEdit task={task} step={step} onChanged={onChanged} /> : undefined} />}
-              {record.can_edit_details && <ChecklistEdit task={task} onChanged={onChanged} />}
-            </details>
-          )}
-        </>
-      )}
-      <DecisionForm key={`${id}:${session.data?.actor?.id ?? session.data?.actor?.name ?? ''}`}
-        task={task} session={session} onChanged={onChanged} />
-      {task && (
-        <>
-          {!!record.related_tasks?.length && (
-            <section aria-label="Related tasks">
-              <h3>Related tasks</h3>
-              <ul className="context-list">
-                {record.related_tasks.map(item => (
-                  <li key={item.key}><a href={item.url}><span className="ticket-id">{item.key}</span> {item.title}</a></li>
-                ))}
+          {task && <>
+            {record.goal?.tickets.length > 0 && (
+              <ul className="context-list" aria-label="Work linked to this goal">
+                {record.goal.tickets.map(ticket => <li key={ticket.id}>
+                  <TaskLink id={ticket.id} reference={ticket.key} title={ticket.title} />
+                </li>)}
               </ul>
+            )}
+            {record.brief && <Markdown text={record.brief} className="detail-brief prose" relatedTasks={record.related_tasks} />}
+            {(record.checklist.length > 0 || record.can_edit_details) && (
+              <details className="detail-checklist" open={checklistOpen}
+                onToggle={event => setChecklistOpen(event.currentTarget.open)}>
+                <summary>
+                  <span>Checklist</span>
+                  <span>{task.checklist_completed} of {task.checklist_total} complete</span>
+                </summary>
+                {record.checklist.length > 0 && <ChecklistSteps steps={record.checklist} relatedTasks={record.related_tasks}
+                  showMissingTimes
+                  editStep={record.can_edit_details ? step => <ChecklistEdit task={task} step={step} onChanged={onChanged} /> : undefined} />}
+                {record.can_edit_details && <ChecklistEdit task={task} onChanged={onChanged} />}
+              </details>
+            )}
+            <TaskOwnership task={task} actions={record.ownership_actions} project={task.key?.split('-')[0] || project}
+              revision={revision} onChanged={onChanged} />
+            {record.can_edit_details && <TaskDetailsEdit key={task.id} task={task} brief={record.brief}
+              titleLimit={record.goal?.kind === 'standing' ? 500 : undefined} onChanged={onChanged} />}
+            {record.can_close && state !== 'closed' && state !== 'done' && (
+              <TaskClosure key={task.id} task={task} onChanged={onChanged} />
+            )}
+            <TaskTags task={task} editable={record.tag_editable} onChanged={onChanged} />
+          </>}
+        </div>
+        {task && <TicketContext key={id} record={record} id={id} task={task} state={state} wide={sidebar} detailed={detailed}
+          session={session} revision={revision} onChanged={onChanged} />}
+        {task && (
+          <div className="ticket-detail-history">
+            {session.data?.actor?.kind === 'human' && (
+              <details className="ticket-attention">
+                <summary>Attention requests</summary>
+                <AttentionRequests taskId={id} revision={revision} onChanged={onChanged} />
+              </details>
+            )}
+            {record.workers.length > 0 && (
+              <section className="detail-workers" aria-label="Recorded worker runs">
+                <h3>Recorded worker runs</h3>
+                <ul className="context-list">
+                  {record.workers.map(worker => (
+                    <li key={worker.id}>
+                      W-{worker.id} · {profileName(worker.worker, worker.worker_profile)} · <WorkerRunState run={worker} />
+                      <WorkerRunTiming run={worker} />
+                      {(worker.effort?.trim() || worker.brief?.trim()) && (
+                        <details>
+                          <summary>Assignment</summary>
+                          <WorkerAssignment run={worker} />
+                        </details>
+                      )}
+                      {worker.report && <Markdown text={worker.report} />}
+                      {worker.disposition && <Markdown text={worker.disposition} />}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            <section className="ticket-activity" aria-labelledby={`ticket-activity-${id}`}>
+              <h3 id={`ticket-activity-${id}`}>Activity</h3>
+              <ResourceStatus resource={activity} label="task activity" />
+              {activity.data?.items.length === 0 && <p className="section-message">No activity yet.</p>}
+              <ol className="event-list" role="list">
+                {activity.data?.items.map(event => <EventRow key={event.id} event={event} ticketActivity />)}
+              </ol>
+              <LoadMore page={activity} label={`activity for ${taskLabel(id, task.key)}`} />
             </section>
-          )}
-          {session.data?.actor?.kind === 'human' && (
-            <details className="ticket-attention">
-              <summary>Attention requests</summary>
-              <AttentionRequests taskId={id} revision={revision} onChanged={onChanged} />
-            </details>
-          )}
-          {record.workers.length > 0 && (
-            <section className="detail-workers" aria-label="Recorded worker runs">
-              <h3>Recorded worker runs</h3>
-              <ul className="context-list">
-                {record.workers.map(worker => (
-                  <li key={worker.id}>
-                    W-{worker.id} · {profileName(worker.worker, worker.worker_profile)} · <WorkerRunState run={worker} />
-                    <WorkerRunTiming run={worker} />
-                    {(worker.effort?.trim() || worker.brief?.trim()) && (
-                      <details>
-                        <summary>Assignment</summary>
-                        <WorkerAssignment run={worker} />
-                      </details>
-                    )}
-                    {worker.report && <Markdown text={worker.report} />}
-                    {worker.disposition && <Markdown text={worker.disposition} />}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-          <section className="ticket-activity" aria-labelledby={`ticket-activity-${id}`}>
-            <h3 id={`ticket-activity-${id}`}>Activity</h3>
-            <ResourceStatus resource={activity} label="task activity" />
-            {activity.data?.items.length === 0 && <p className="section-message">No activity yet.</p>}
-            <ol className="event-list" role="list">
-              {activity.data?.items.map(event => <EventRow key={event.id} event={event} ticketActivity />)}
-            </ol>
-            <LoadMore page={activity} label={`activity for ${taskLabel(id, task.key)}`} />
-          </section>
-        </>
-      )}
+          </div>
+        )}
+      </div>
     </article>
   )
 }
