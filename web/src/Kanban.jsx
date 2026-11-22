@@ -19,7 +19,7 @@ function usePhoneLayout() {
   return phone
 }
 
-function KanbanColumn({ state, filters, project, revision, navigation, onPage }) {
+function KanbanColumn({ state, count, filters, project, revision, navigation, onPage }) {
   const page = useLoadedPages('/tasks', {
     project, state, dri: filters.dri, unassigned: filters.unassigned, waiting_on: filters.waiting_on, tag: filters.tag,
     order: state === 'ready' ? 'priority' : undefined,
@@ -33,7 +33,7 @@ function KanbanColumn({ state, filters, project, revision, navigation, onPage })
   const label = `tasks marked “${title}”`
   return (
     <section className="kanban-column" aria-labelledby={'kanban-' + state}>
-      <h3 id={'kanban-' + state}>{title}</h3>
+      <h3 id={'kanban-' + state}>{title}{count != null && <span className="kanban-count"> ({count})</span>}</h3>
       <ResourceStatus resource={page} label={label} />
       {items?.length === 0 && <p className="section-message" role="status">No matching tasks.</p>}
       <TaskRows items={items} label={label} />
@@ -42,7 +42,7 @@ function KanbanColumn({ state, filters, project, revision, navigation, onPage })
   )
 }
 
-export default function Kanban({ filters, project, revision, closedAvailable, phoneColumn, setPhoneColumn, navigation, onPage }) {
+export default function Kanban({ filters, project, revision, closedAvailable, phoneColumn, setPhoneColumn, counts, navigation, onPage }) {
   const phone = usePhoneLayout()
   const availableColumns = closedAvailable ? [...columns, 'closed'] : columns
   const chosenState = filters.state || (phone ? phoneColumn : null)
@@ -60,7 +60,8 @@ export default function Kanban({ filters, project, revision, closedAvailable, ph
         role={chosenState ? undefined : 'region'} aria-label={chosenState ? undefined : 'Kanban columns'}
         tabIndex={chosenState ? undefined : 0}>
         {(chosenState ? [chosenState] : availableColumns).map(state => (
-          <KanbanColumn key={state} state={state} filters={filters} project={project}
+          <KanbanColumn key={state} state={state} count={phone && chosenState ? counts?.[state] : undefined}
+            filters={filters} project={project}
             revision={revision} navigation={navigation} onPage={onPage} />
         ))}
       </div>

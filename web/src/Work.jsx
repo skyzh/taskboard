@@ -25,7 +25,7 @@ import { useTimeZone } from './timeZone.js'
 
 const ownerOptionPrefix = 'owner:'
 
-export function WorkQueue({ revision, overview, filters, setFilters, waitingLabel, setWaitingLabel, project,
+export function WorkQueue({ revision, overview, filters, setFilters, waitingLabel, setWaitingLabel, project, projectPicker,
   layout, setLayout, phoneColumn, setPhoneColumn, kanbanNavigation }) {
   const kanban = layout === 'kanban'
   const closedAvailable = overview?.counts?.closed != null
@@ -39,6 +39,7 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
     ...taskFilters, project, order: filters.state === 'ready' ? 'priority' : undefined,
   }, revision)
   const [columnPages, setColumnPages] = useState({})
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const updateColumn = useCallback((state, data) => {
     setColumnPages(previous => ({ ...previous, [state]: data }))
   }, [])
@@ -63,23 +64,36 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
   ]
   for (const task of visibleTasks) addFilterName(waitingOn, task.waiting_on, task.waiting_profile)
   const selectedOwnerProfile = visibleTasks.find(task => task.dri === filters.dri && task.dri_profile)?.dri_profile
+  const otherFilterCount = [ownerSelection, filters.waiting_on, tag].filter(Boolean).length
+  const filterCount = otherFilterCount + Number(Boolean(filters.state))
+  const stateCounts = otherFilterCount === 0 ? overview?.counts : undefined
   return (
     <div className="workspace">
       <section className="feed-section queue" aria-labelledby="queue-heading">
         <h2 id="queue-heading">Work queue</h2>
-        {setLayout && <div className="queue-layout" role="group" aria-label="Task view">
-          <button type="button" aria-pressed={!kanban} onClick={() => setLayout('list')}>List</button>
-          <button type="button" aria-pressed={kanban} onClick={() => setLayout('kanban')}>Kanban</button>
+        <div className="queue-toolbar">
+          {projectPicker && <div className="queue-project">{projectPicker}</div>}
+          {setLayout && <div className="queue-layout" role="group" aria-label="Task view">
+            <button type="button" aria-pressed={!kanban} onClick={() => setLayout('list')}>List</button>
+            <button type="button" aria-pressed={kanban} onClick={() => setLayout('kanban')}>Kanban</button>
+          </div>}
+          <button type="button" className="queue-filter-toggle" aria-expanded={filtersOpen} aria-controls="queue-filters"
+            data-active={filterCount > 0}
+            onClick={() => setFiltersOpen(open => !open)}>
+            {filterCount ? `Filters (${filterCount})` : 'Filters'}
+          </button>
+        </div>
+        {(overview?.merge_queue || overview?.release_queue) && <div className="queue-tools">
+          {overview.merge_queue && <MergeQueue project={project} revision={revision} />}
+          {overview.release_queue && <DeployQueue project={project} revision={revision} />}
         </div>}
-        {overview?.merge_queue && <MergeQueue project={project} revision={revision} />}
-        {overview?.release_queue && <DeployQueue project={project} revision={revision} />}
-        <div className="filters">
+        <div className="filters" id="queue-filters" data-open={filtersOpen}>
           <label>
             Status
             <select value={filters.state || ''} onChange={event => update('state', event.target.value)}>
               <option value="">All statuses</option>
               {Object.entries(states).filter(([key]) => key !== 'closed' || closedAvailable).map(([key, label]) => (
-                <option key={key} value={key}>{label}{overview?.counts?.[key] != null ? ` (${overview.counts[key]})` : ''}</option>
+                <option key={key} value={key}>{label}{stateCounts?.[key] != null ? ` (${stateCounts[key]})` : ''}</option>
               ))}
             </select>
           </label>
@@ -124,11 +138,11 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
         </div>
         {kanban ? <Kanban key={project} project={project} filters={taskFilters} revision={revision}
           closedAvailable={closedAvailable} phoneColumn={phoneColumn} setPhoneColumn={setPhoneColumn}
-          navigation={kanbanNavigation} onPage={updateColumn} /> : (
+          counts={stateCounts} navigation={kanbanNavigation} onPage={updateColumn} /> : (
           <>
             <ResourceStatus resource={page} label="the queue" />
             {page.data?.items.length === 0 && <p className="section-message" role="status">No matching tasks.</p>}
-            <TaskRows items={page.data?.items} label="Work queue" />
+            <TaskRows items={page.data?.items} label="Work queue" compactQueue />
             <LoadMore page={page} label="tasks in the work queue" />
           </>
         )}
