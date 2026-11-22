@@ -6,11 +6,12 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 from tempfile import TemporaryDirectory
 
 from ci_watch import build_checked_commit, resolve_commit
 from deploy_main import predecessor_for
-from github_main import read_github, repository_path, require_protected_tip, verify_required_checks
+from github_main import GitHubRateLimited, read_github, repository_path, require_protected_tip, verify_required_checks
 from local_queue import queue_lock, write_json
 from operator_deploy import deployment_layout, read_operator_config, run_config
 from queue_provenance import GIT_COMMIT
@@ -70,43 +71,68 @@ def deploy_once(config, *, tip=git_main_tip, read=read_github, fetch=fetch_commi
     state = Path(config["ci_state"])
     records = state / "hosted-deployments"
     records.mkdir(mode=0o700, parents=True, exist_ok=True)
-    python = config.get("python", sys.executable)
     with queue_lock(records):
         commit = tip(settings)
         if release_info(layout.current)["commit"] == commit:
             return {"commit": commit, "status": "unchanged"}
-        checked = records / f"{commit}.json"
-        gate = None if checked.is_file() else verify_required_checks(settings, commit, read)
-        target = operate(config, lambda _: None, checked_main=commit, read_state=True)
-        outcome = target["outcome"]
-        if outcome is None:
-            gate = gate or verify_required_checks(settings, commit, read)
-            fetch(Path(config["repo"]), settings, commit)
-            build = build_checked_commit(config["repo"], state, commit, python)
-            candidate = build["candidate"]
-            artifact = state / "artifacts" / candidate
-            base = target["active"]
-            predecessor = predecessor_for(config, state, base)
-            policy = json.loads(Path(config["compatibility_policy"]).read_text(encoding="utf-8"))
-            matrix = run_matrix(artifact, candidate, predecessor, base, policy, python)
-            verify_policy_receipt(matrix, candidate, base, policy, predecessor)
-            evidence = {"github": gate, "build": build, "compatibility": matrix}
-            with TemporaryDirectory(prefix=".package-", dir=records) as directory:
-                archive = Path(directory) / "release.tar"
-                stage_transfer(artifact, candidate, archive)
-                require_protected_tip(settings, commit, read)
-                write_json(checked, evidence)
-                with archive.open("rb") as source:
-                    outcome = operate(config, lambda _: None, checked_main=commit, candidate=candidate,
-                                      base=base, source=source)
-        elif checked.is_file():
-            evidence = json.loads(checked.read_text(encoding="utf-8"))
-        else:
-            raise ReleaseRejected("This commit has a saved release without hosted build metadata.")
+        rate_limit = records / "github-rate-limit.json"
+        try:
+            return deploy_changed(config, layout, records, commit,
+                                  read=respect_rate_limit(read, rate_limit), fetch=fetch, operate=operate)
+        except GitHubRateLimited as error:
+            return {"commit": commit, "status": "rate-limited", "retry_at": error.retry_at}
 
-        if outcome["status"] == "released":
-            save_running_release(layout, evidence, outcome)
-        return {**outcome, "evidence": evidence}
+
+def respect_rate_limit(read, path):
+    def guarded_read(endpoint):
+        if path.is_file():
+            retry_at = json.loads(path.read_text(encoding="utf-8"))["retry_at"]
+            if time.time() < retry_at:
+                raise GitHubRateLimited(retry_at)
+        try:
+            return read(endpoint)
+        except GitHubRateLimited as error:
+            write_json(path, {"retry_at": error.retry_at})
+            raise
+    return guarded_read
+
+
+def deploy_changed(config, layout, records, commit, *, read, fetch, operate):
+    settings = config["github"]
+    state = records.parent
+    python = config.get("python", sys.executable)
+    checked = records / f"{commit}.json"
+    gate = None if checked.is_file() else verify_required_checks(settings, commit, read)
+    target = operate(config, lambda _: None, checked_main=commit, read_state=True)
+    outcome = target["outcome"]
+    if outcome is None:
+        gate = gate or verify_required_checks(settings, commit, read)
+        fetch(Path(config["repo"]), settings, commit)
+        build = build_checked_commit(config["repo"], state, commit, python)
+        candidate = build["candidate"]
+        artifact = state / "artifacts" / candidate
+        base = target["active"]
+        predecessor = predecessor_for(config, state, base)
+        policy = json.loads(Path(config["compatibility_policy"]).read_text(encoding="utf-8"))
+        matrix = run_matrix(artifact, candidate, predecessor, base, policy, python)
+        verify_policy_receipt(matrix, candidate, base, policy, predecessor)
+        evidence = {"github": gate, "build": build, "compatibility": matrix}
+        with TemporaryDirectory(prefix=".package-", dir=records) as directory:
+            archive = Path(directory) / "release.tar"
+            stage_transfer(artifact, candidate, archive)
+            require_protected_tip(settings, commit, read)
+            write_json(checked, evidence)
+            with archive.open("rb") as source:
+                outcome = operate(config, lambda _: None, checked_main=commit, candidate=candidate,
+                                  base=base, source=source)
+    elif checked.is_file():
+        evidence = json.loads(checked.read_text(encoding="utf-8"))
+    else:
+        raise ReleaseRejected("This commit has a saved release without hosted build metadata.")
+
+    if outcome["status"] == "released":
+        save_running_release(layout, evidence, outcome)
+    return {**outcome, "evidence": evidence}
 
 
 def main():
@@ -118,7 +144,7 @@ def main():
     except (OSError, KeyError, ValueError, subprocess.SubprocessError) as error:
         parser.exit(1, f"Deploy protected main: {error}\n")
     print(json.dumps(outcome))
-    return int(outcome["status"] not in {"released", "unchanged"})
+    return int(outcome["status"] not in {"released", "unchanged", "rate-limited"})
 
 
 if __name__ == "__main__":
