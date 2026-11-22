@@ -163,6 +163,7 @@ def request_log_item(row, people):
         "source_key": row["source_key"],
         "source_title": row["source_title"],
         "request_key": row["request_key"],
+        "request_title": row["request_title"],
     }
     if row["result_event_id"] is not None:
         item["response"] = {"id": row["result_event_id"], "at": row["response_at"]}
@@ -1093,6 +1094,7 @@ class BoardQueries:
                        response.id AS result_event_id, response.at AS response_at,
                        request.event_id AS resolution_id, request.at AS resolution_at,
                        request.project_prefix || '-' || COALESCE(request.project_number, request.id) AS request_key,
+                       request.title AS request_title,
                        (ask.review_run_id IS NOT NULL OR EXISTS (
                            SELECT 1 FROM events WHERE task_id = request.id AND action = 'log'
                            AND json_extract(context, '$.stamp_review') IS NOT NULL)) AS is_review
@@ -1105,7 +1107,7 @@ class BoardQueries:
                 UNION ALL
                 SELECT 'wait', tasks.event_id, tasks.at, tasks.id, {TASK_REFERENCE}, tasks.title,
                        event.actor, peer.ledger_key, tasks.dri, 'waiting', NULL, NULL, NULL, FALSE,
-                       NULL, NULL, NULL, NULL, NULL, FALSE
+                       NULL, NULL, NULL, NULL, NULL, NULL, FALSE
                 FROM current AS tasks
                 JOIN events AS event ON event.id = tasks.event_id
                 {self._PEER_WAIT_JOIN}
@@ -1121,7 +1123,7 @@ class BoardQueries:
                             WHEN worker_runs.status = 'reported' THEN 'acknowledgment'
                             WHEN worker_runs.status = 'collected' THEN 'done'
                             WHEN worker_runs.status = 'stopped' THEN 'canceled' END,
-                       NULL, NULL, NULL, FALSE, response.id, response.at, resolved.id, resolved.at, NULL, TRUE
+                       NULL, NULL, NULL, FALSE, response.id, response.at, resolved.id, resolved.at, NULL, NULL, TRUE
                 FROM worker_runs JOIN current AS tasks ON tasks.id = worker_runs.task_id
                 LEFT JOIN events AS response ON response.id = (
                     SELECT MAX(id) FROM events WHERE task_id = tasks.id AND action = 'log'

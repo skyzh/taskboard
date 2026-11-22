@@ -677,6 +677,7 @@ test('Reports shows linked and unlinked asks in one request log without recipien
       recipient: 'Morgan', next_owner: 'Morgan', review: true, phase: 'start_unconfirmed',
     }, {
       id: 'peer:2', source_id: 6, source_key: 'COURSE-3', source_title: 'Review the changes',
+      request_title: 'Verify the export on a phone',
       request_key: 'COURSE-4', requester: 'Morgan', recipient: 'Avery', next_owner: 'Morgan', phase: 'acknowledgment',
       recipient_profile: { name: 'Avery', avatar_url: '/avatar/avery' },
       response: { id: 11 },
@@ -701,7 +702,7 @@ test('Reports shows linked and unlinked asks in one request log without recipien
   assert.match(reader, /Next for Morgan/)
   assert.match(reader, /Start unconfirmed/)
   assert.match(reader, /href="#task-COURSE-3"/)
-  assert.match(reader, /href="#task-COURSE-4"/)
+  assert.match(reader, /href="#task-COURSE-4"[^>]*>.*Verify the export on a phone/)
   assert.match(reader, /Ready to acknowledge/)
   assert.match(reader, /src="\/avatar\/avery"/)
   assert.match(reader, /href="#event-11-log"/)

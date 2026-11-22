@@ -356,6 +356,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
         db.execute("INSERT INTO board_settings VALUES ('raft_server_id', ?)", (server_id,))
         audit.record(db, scope="operator", actor=None, operation="set",
                      record_type="board_setting", record_id="raft_server_id", at=ledger.timestamp())
+    peer_asks.migrate_titles(db)
 
 
 def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
@@ -387,6 +388,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
             goals.migrate_goal_tickets(db)
             for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA):
                 db.execute(statement)
+            peer_asks.migrate_titles(db)
 
 
 

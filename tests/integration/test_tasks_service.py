@@ -4942,7 +4942,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(owner, "create-task", {"project": "COURSE", "title": "Course task", "step": "Read it."})
         self.action(owner, "peer-ask", {"id": "T-1", "transition": "create", "recipient": peer_id, "note": "Review this."})
         work = self.call(peer, "/api/v1/notifications/work").json["items"]
-        request_key = next(item["key"] for item in work if item["title"] == "Peer request for T-1")
+        request_key = next(item["key"] for item in work if item["title"] == "Review this.")
         self.action(peer, "advance-task", {"id": request_key, "transition": "start", "note": "Checking."})
         queue = "/api/v1/tasks?project=T&limit=1"
         default = self.call(owner, queue).json
@@ -5718,6 +5718,51 @@ class TasksServiceTest(unittest.TestCase):
         ):
             with self.subTest(url=url), self.assertRaisesRegex(ValueError, "Invalid TASKS_PUBLIC_RAFT_CHANNEL_URLS"):
                 public_raft_links(json.dumps({"T": url}))
+
+    def test_peer_request_titles_preserve_full_notes_and_upgrade_generated_titles(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        recipient, recipient_id = self.login(app, "Blake")
+        self.cli("register-project", "COURSE", "Course", "--dri", owner_id)
+
+        def ask(project, note):
+            source = self.action(owner, "create-task", {"project": project, "title": "Prepare the export", "step": "Prepare it."})
+            key = source["receipt"].split()[0]
+            created = self.action(owner, "peer-ask", {"id": key, "transition": "create", "recipient": recipient_id, "note": note})
+            return created["receipt"].split()[0]
+
+        note = "Verify  the export on a phone.\n\nCompare it with the desktop result."
+        ask("COURSE", note)
+        long_note = "Read " + "x" * 200 + "\nKeep this second line with the request."
+        long_key = ask("T", long_note)
+
+        def task(key):
+            return self.call(owner, f"/api/v1/tasks/{key}").json["task"]
+
+        request = task("COURSE-2")
+        self.assertEqual((request["title"], request["note"], request["peer_request"]["source_key"]),
+                         ("Verify the export on a phone.", note, "COURSE-1"))
+        self.assertEqual(task(long_key)["title"], long_note[:119] + "…")
+        self.assertEqual(task(long_key)["note"], long_note)
+        self.action(recipient, "edit-task-details", {"id": long_key, "title": "Check the export header", "reason": "Clarify the scope."})
+        self.action(recipient, "advance-task", {"id": "COURSE-2", "transition": "start", "note": "Starting the mobile check."})
+        ordinary = self.action(owner, "create-task", {"title": "Peer request for COURSE-1", "step": "This ordinary ticket is unrelated."})
+        ordinary_key = ordinary["receipt"].split()[0]
+
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("UPDATE tasks SET title = 'Peer request for COURSE-1' WHERE id = ?", (request["id"],))
+            events = db.execute("SELECT * FROM events ORDER BY id").fetchall()
+        self.app(portal_reader=True)
+        self.assertEqual(task("COURSE-2")["title"], "Verify the export on a phone.")
+        self.assertEqual(task("COURSE-2")["note"], "Starting the mobile check.")
+        self.assertEqual(task(long_key)["title"], "Check the export header")
+        self.assertEqual(task(ordinary_key)["title"], "Peer request for COURSE-1")
+        with closing(sqlite3.connect(self.database)) as db:
+            self.assertEqual(db.execute("SELECT * FROM events ORDER BY id").fetchall(), events)
+
+        request_log = self.call(owner, "/api/v1/reports/request-log?project=COURSE").json["items"]
+        self.assertEqual([(item["request_title"], item["source_key"], item["request_key"]) for item in request_log],
+                         [("Verify the export on a phone.", "COURSE-1", "COURSE-2")])
 
     def test_linked_peer_request_lifecycle_returns_the_next_action_to_the_requester(self):
         app = self.app(portal_reader=True)

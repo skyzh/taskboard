@@ -24,6 +24,39 @@ SCHEMA = (
     """,
     "CREATE INDEX IF NOT EXISTS peer_asks_source ON peer_asks (source_task_id, task_id)",
 )
+TITLE_LIMIT = 120
+
+
+def request_title(note, fallback):
+    title = next((" ".join(line.split()) for line in note.splitlines() if line.strip()), fallback)
+    return title if len(title) <= TITLE_LIMIT else title[:TITLE_LIMIT - 1].rstrip() + "…"
+
+
+def migrate_titles(db):
+    """Replace generated titles using the original request, in the startup transaction."""
+    import tasks_core as ledger
+
+    rows = db.execute(
+        """
+        SELECT request.id, request.title, original.note
+        FROM peer_asks AS ask
+        JOIN tasks AS request ON request.id = ask.task_id
+        JOIN tasks AS source ON source.id = ask.source_task_id
+        JOIN events AS original ON original.id = (
+            SELECT MIN(id) FROM events WHERE task_id = request.id AND action = 'add'
+        )
+        WHERE request.title = ('Peer request for ' || source.project_prefix || '-' ||
+                               COALESCE(source.project_number, source.id))
+        """,
+    ).fetchall()
+    changed = False
+    for row in rows:
+        title = request_title(row["note"], row["title"])
+        if title != row["title"]:
+            db.execute("UPDATE tasks SET title = ? WHERE id = ?", (title, row["id"]))
+            changed = True
+    if changed:
+        ledger.bump_revision(db)
 
 
 def find(db, task_id):
@@ -231,7 +264,7 @@ def create(db, args, links, *, named_wait=None):
 
     source_reference = projects.row_reference(source)
     request = Namespace(
-        title=f"Peer request for {source_reference}", brief="",
+        title=request_title(args.note, f"Peer request for {source_reference}"), brief="",
         by=args.by, dri=args.recipient, project=projects.row_project(source), step=args.note,
     )
     task_id = ledger.create_task_record(db, request, links)
