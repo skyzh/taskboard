@@ -112,9 +112,10 @@ test('only signed-in agents and humans have a Sign out action', () => {
 
 test('portal and signed-out viewers can change appearance and still sign in', () => {
   const night = { ...theme, mode: 'night' }
-  for (const [session, buttonLabel] of [[portal, 'Portal reader’s profile'], [{ error: { status: 401 } }, 'Profile']]) {
+  for (const session of [portal, { error: { status: 401 } }]) {
     const header = renderToStaticMarkup(React.createElement(Profile, { session, fragment: '#task-1', theme: night }))
-    assert.ok(header.includes(`aria-label="${buttonLabel}"`))
+    assert.match(header, /aria-label="Not signed in"/)
+    assert.match(header, />Not signed in<\/span>/)
     assert.match(header, /Day mode/)
     assert.match(header, /href="#settings">Settings/)
     assert.match(header, /href="\.\/auth\/login\?fragment=%23task-1">Sign in with Raft<\/a>/)
