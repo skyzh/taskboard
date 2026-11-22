@@ -30,5 +30,7 @@
 :root[data-color-scheme="dark"] :is(.activity-mark.report, .activity-mark.review) { color: var(--green); }
 :root[data-color-scheme="dark"] .assignee-avatar.initials { color: var(--green); background: #293d56; }
 :root[data-color-scheme="dark"] .dri-work-status { background: #a9dfb7; }
-:root[data-color-scheme="dark"] .task-progress progress { background: #3b4e67; }
-:root[data-color-scheme="dark"] .task-progress progress::-webkit-progress-bar { background: #3b4e67; }
+:root[data-color-scheme="dark"] .task-progress {
+  --task-progress-track: #2b3c50;
+  --task-progress-fill: linear-gradient(180deg, #a9bfd4 0%, #7d97af 44%, #59758f 62%, #66829d 100%);
+}
