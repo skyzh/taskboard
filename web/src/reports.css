@@ -1,4 +1,12 @@
 .report-controls { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; font-size: .84rem; }
+.report-project-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem 1rem;
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+.report-project-links a { display: inline-flex; align-items: center; min-height: 2.75rem; }
 .report-controls label { display: flex; align-items: center; gap: .5rem; color: var(--muted); }
 .reports-layout { display: grid; gap: 1.25rem; }
 .project-reports + .project-reports { margin-top: 1.15rem; padding-top: .85rem; border-top: 1px solid var(--line); }
