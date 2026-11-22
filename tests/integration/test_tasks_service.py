@@ -1177,6 +1177,32 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(viewer.get(BASE + "/api/v1/tasks", base_url=ORIGIN, query_string=query).status_code, 403)
         self.call(self.app().test_client(), "/api/v1/tasks", query_string=query, status=401)
 
+    def test_task_suggestions_rank_exact_keys_prefixes_and_title_typos(self):
+        app = self.app(portal_reader=True)
+        owner_client, owner = self.login(app, "Avery")
+        self.cli("register-project", "COURSE", "Synthetic course", "--dri", owner)
+        for number in range(1, 12):
+            title = "Release settings checklist" if number == 1 else f"Sample ticket {number}"
+            self.action(owner_client, "create-task", {"title": title, "step": "Read the fixture."})
+        self.action(owner_client, "create-task", {
+            "project": "COURSE", "title": "Update course settings", "step": "Read the course fixture.",
+        })
+        reader = app.test_client()
+        path = "/api/v1/tasks/suggestions"
+
+        def keys(q, **scope):
+            response = self.call(reader, path, query_string={"q": q, **scope}).get_json()
+            return [item["key"] for item in response["items"]]
+
+        self.assertEqual(keys("t-1", scope="all"), ["T-1", "T-11", "T-10"])
+        self.assertEqual(len(keys("T-", scope="all")), 6)
+        self.assertEqual(keys("relese setings", project="T"), ["T-1"])
+        self.assertEqual(keys("setings", project="COURSE"), ["COURSE-1"])
+        self.assertEqual(keys("COURSE-", project="T"), [])
+        self.assertEqual(keys("unrelated zebra", scope="all"), [])
+        self.assertEqual(reader.get(BASE + path, base_url=ORIGIN, query_string={"q": "T-1"}).status_code, 403)
+        self.call(self.app().test_client(), path, query_string={"q": "T-1"}, status=401)
+
     def test_shared_cli_rejects_two_evidence_links_before_any_write(self):
         app = self.app(portal_reader=True)
         avery, _ = self.login(app, "Avery")

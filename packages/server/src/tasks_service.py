@@ -1118,6 +1118,14 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
             **queue_page_args(args, state),
         )
 
+    @app.get("/api/v1/tasks/suggestions")
+    def task_suggestions():
+        current_actor()
+        args = request.args
+        search = text(args, "q", maximum=160)
+        project = project_scope(args)
+        return {"items": query().task_suggestions(search, project=project) if len(search) >= 2 else []}
+
     @app.get("/api/v1/tags")
     def project_tags():
         current_actor()

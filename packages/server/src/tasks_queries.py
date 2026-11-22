@@ -3,6 +3,8 @@
 import json
 import re
 from datetime import datetime
+from difflib import SequenceMatcher
+from heapq import nsmallest
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
@@ -30,6 +32,22 @@ ROUTINE_ACKNOWLEDGMENT = re.compile(
 )
 PACIFIC = ZoneInfo("America/Los_Angeles")
 TASK_REFERENCE = "tasks.project_prefix || '-' || COALESCE(tasks.project_number, tasks.id)"
+SUGGESTION_KEY = re.compile(r"([A-Z][A-Z0-9]{0,7})-([0-9]*)", re.ASCII)
+SEARCH_WORDS = re.compile(r"[^\W_]+")
+
+
+def title_suggestion_rank(needle, words, title):
+    if needle in title:
+        return 2
+    if not words:
+        return None
+    title_words = SEARCH_WORDS.findall(title)
+    if all(any(candidate.startswith(word) or (
+        len(word) >= 4 and SequenceMatcher(None, word, candidate).ratio() >= 0.8
+    ) for candidate in title_words) for word in words):
+        return 3
+    return None
+
 ACTIVITY_SELECT = (
     "SELECT events.*, tasks.title AS task_title, " + TASK_REFERENCE
     + " AS task_key FROM events JOIN tasks ON tasks.id = events.task_id"
@@ -344,6 +362,31 @@ class BoardQueries:
             last = rows[limit - 1]
             result["next_cursor"] = f"{last['priority']}:{last['event_id']}"
         return result
+
+    def task_suggestions(self, search, *, project):
+        needle = search.casefold()
+        key = SUGGESTION_KEY.fullmatch(search.upper())
+        if key and project not in (None, key[1]):
+            return []
+        project = key[1] if key else project
+        prefix = key[1] + "-" + (key[2].lstrip("0") or key[2]) if key else None
+        words = SEARCH_WORDS.findall(needle)
+        scope = " WHERE project_prefix = ?" if project else ""
+        params = (project,) if project else ()
+        query = ("SELECT id, title, project_prefix, project_number, event_id FROM ("
+                 + ledger.current_tasks_sql(self.db) + ") AS current")
+
+        def matches():
+            for row in self.db.execute(query + scope, params):
+                reference = projects.row_reference(row)
+                if prefix is not None:
+                    rank = 0 if reference == prefix else 1 if reference.startswith(prefix) else None
+                else:
+                    rank = title_suggestion_rank(needle, words, row["title"].casefold())
+                if rank is not None:
+                    yield rank, -row["event_id"], {"id": row["id"], "key": reference, "title": row["title"]}
+
+        return [row for _, _, row in nsmallest(6, matches(), key=lambda match: match[:2])]
 
     def search_rows(self, terms, args, order, limit, priority_order, matches):
         rows = []
