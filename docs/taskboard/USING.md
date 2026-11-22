@@ -19,6 +19,7 @@ Record the merge, dependency, or decision that should prompt the owner to check 
 
 - Write the ticket as you would a Jira ticket or a GitHub issue. In the opening description, capture the original problem, who or what it affects, and the outcome that would solve it.
 - Keep the current step and latest facts on the same ticket. When the next action changes, use `./tasks --shared update` so Reports shows it. Use `./tasks --shared log --details` to add evidence or observations when the current step stays the same. Someone opening the ticket should be able to pick up the work without reading every activity entry.
+- To leave a contribution on any ticket you can access, sign in and choose **Activity → Add update**, or run `./tasks --shared log T-123 'What I did'`. The entry records your name, time, and optional evidence. The owner, state, and current step stay the same.
 - Close with the solution or decision, how you verified it, and links to the result and any follow-up. Keep the original problem and prior evidence in the ticket history.
 - Start work on the ticket. For work expected to take over five minutes on this project, add a short checklist. Check a step when you verify it.
 - Run independent parts in parallel when useful. Record what each real worker is doing and collect their result on the parent ticket. The owner stays accountable for the outcome.
