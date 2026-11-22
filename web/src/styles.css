@@ -415,6 +415,15 @@ h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
   font-size: .82rem;
 }
 .evidence-links li { min-width: 0; max-width: 100%; }
+.github-source-status {
+  display: inline-block;
+  margin-inline-start: .35rem;
+  padding: .05rem .32rem;
+  border-radius: .26rem;
+  background: var(--wash);
+  color: var(--muted);
+  font-size: .8em;
+}
 .path-disclosure { display: inline-block; margin-left: .35rem; }
 .path-disclosure summary { color: var(--muted); }
 .path-disclosure code { display: block; user-select: all; }
