@@ -386,7 +386,6 @@ h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
 .evidence-preview-button { margin-left: .35rem; }
 .evidence-preview { margin-top: .35rem; color: var(--muted); }
 .evidence-preview img { display: block; max-width: 100%; max-height: 24rem; object-fit: contain; }
-.map-disclosure { margin-top: .35rem; }
 .list-continuation {
   display: flex;
   flex-wrap: wrap;

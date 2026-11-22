@@ -13,7 +13,7 @@ import Schedules from './Schedules.jsx'
 import Settings from './Settings.jsx'
 import Stats from './Stats.jsx'
 import { watchBoardSections } from './sectionIndex.js'
-import { notificationLogFilters, signInHref, taskHref } from './shared.jsx'
+import { notificationLogFilters, signInHref } from './shared.jsx'
 import { SearchResults, TaskSearch } from './TaskSearch.jsx'
 import { TaskDetail, WorkLog, WorkQueue } from './Work.jsx'
 import { useTheme } from './theme.js'
@@ -42,6 +42,7 @@ function useFragment() {
     let anchor = fragment.startsWith('task-') ? fragment.split('?', 1)[0] : fragment
     if (fragment.startsWith('notifications-')) anchor = 'notifications'
     if (fragment === 'reports-all') anchor = 'reports'
+    if (fragment === 'map' || fragment === 'workstreams-title') anchor = 'team-overview'
     const id = params.get('dri') ? section || 'assignee-title'
       : params.get('search')?.trim() ? 'search-results' : params.has('schedules') ? 'schedules' : section || anchor
     function reveal() {
@@ -101,10 +102,10 @@ function BoardViews({ current, reportsHref, isAgent, showNotifications }) {
   )
 }
 
-function SectionIndex({ overview, mapAvailable, openMap }) {
+function SectionIndex({ overview }) {
   const nav = useRef(null)
   const [current, setCurrent] = useState(null)
-  useEffect(() => watchBoardSections(nav.current, setCurrent), [mapAvailable])
+  useEffect(() => watchBoardSections(nav.current, setCurrent), [])
 
   const now = overview?.now
   const decisions = overview?.decisions
@@ -112,13 +113,11 @@ function SectionIndex({ overview, mapAvailable, openMap }) {
     ['now-title', 'Now', now?.next_cursor == null ? now?.items.length : undefined],
     ['decisions-title', 'Needs a decision', decisions?.next_cursor == null ? decisions?.items.length : undefined],
     ['outcomes-title', 'Outcomes'],
-    ...(mapAvailable ? [['workstreams-title', 'Workstreams']] : []),
   ]
   return (
     <nav ref={nav} className="section-index" aria-label="Board sections">
       {links.map(([id, label, count]) => (
-        <a key={id} href={`#${id}`} aria-current={current === id ? 'location' : undefined}
-          onClick={id === 'workstreams-title' ? openMap : undefined}>
+        <a key={id} href={`#${id}`} aria-current={current === id ? 'location' : undefined}>
           {label}{count != null && <span className="index-count">{count}</span>}
         </a>
       ))}
@@ -149,7 +148,7 @@ function BoardConnection({ checkedAt, checking, stale, source }) {
   )
 }
 
-export default function App({ MilestoneMap }) {
+export default function App() {
   const fragment = useFragment()
   const theme = useTheme()
   const [timeZonePreference, setTimeZonePreference] = useState(readTimeZonePreference)
@@ -175,10 +174,6 @@ export default function App({ MilestoneMap }) {
   const [connection, setConnection] = useState({ stale: false })
   const [updateDeferred, setUpdateDeferred] = useState(false)
   useEffect(() => watchFrontendBuild(setUpdateDeferred), [])
-  const [mapOpen, setMapOpen] = useState(fragment === 'map' || fragment === 'workstreams-title')
-  useEffect(() => {
-    if (fragment === 'map' || fragment === 'workstreams-title') setMapOpen(true)
-  }, [fragment])
   const sessionResource = useResource('/session')
   const websocket = sessionResource.data?.websocket_revisions === true
   const [savedActor, setSavedActor] = useState(null)
@@ -296,7 +291,7 @@ export default function App({ MilestoneMap }) {
           </div>
         </div>
         {hasSession && <BoardConnection {...connection} />}
-        {view === 'team-overview' && <SectionIndex key={project} overview={overview.data} mapAvailable={Boolean(MilestoneMap)} openMap={() => setMapOpen(true)} />}
+        {view === 'team-overview' && <SectionIndex key={project} overview={overview.data} />}
       </header>
       <main tabIndex={0} aria-label="Taskboard content">
         <div className="main-content">
@@ -339,15 +334,6 @@ export default function App({ MilestoneMap }) {
               <div className="page-heading"><h1 id="team-overview">Team overview</h1></div>
               <Overview key={project} resource={overview} revision={revision} project={project} />
               <Outcomes key={project} revision={revision} project={project} />
-              {MilestoneMap && (
-                <section id="map" className="panel workstreams" aria-labelledby="workstreams-title" tabIndex={-1}>
-                  <h2 id="workstreams-title">Workstreams</h2>
-                  <details className="map-disclosure" open={mapOpen} onToggle={event => setMapOpen(event.currentTarget.open)}>
-                    <summary>Dependency map</summary>
-                    {mapOpen && <MilestoneMap taskHref={taskHref} revision={revision} project={project} />}
-                  </details>
-                </section>
-              )}
             </>
           )}
         </div>
