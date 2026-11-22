@@ -56,12 +56,12 @@ function ReportReleaseResult({ receipt }) {
   )
 }
 
-function ReportPeerRequester({ ask }) {
+function ReportPeerRequester({ ask, parked }) {
   const requester = profileName(ask.requester, { name: ask.requester_name })
   return (
     <p className="report-peer-request">
       <Reply size={14} aria-hidden="true" focusable="false" />
-      {ask.phase === 'asked' ? `Request from ${requester}` : `Responding to ${requester}’s request`}
+      {ask.phase === 'asked' || parked ? `Request from ${requester}` : `Responding to ${requester}’s request`}
       {ask.phase === 'asked' && ask.asked_at && <> <ReportTime at={ask.asked_at} /></>}
     </p>
   )
@@ -71,13 +71,14 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   compactQueue = false, searchQuery, publicPreview = false }) {
   const [showChecklist, setShowChecklist] = useState(false)
   const checklistId = `row-checklist-${task.id}`
-  const cue = report ? reportTaskCue(task) : null
   const reportSummary = report === 'summary'
   const detailedReport = report && !reportSummary && !publicPreview
   const state = taskState(task)
   const ask = publicPreview ? undefined : task.peer_request
   const showRequester = reportSummary && ['asked', 'in_progress'].includes(ask?.phase)
-  const showTaskStatus = !reportSummary || !ask || ask.phase === 'in_progress'
+  const parkedRequest = showRequester && state === 'parked'
+  const cue = report ? reportTaskCue(task, parkedRequest) : null
+  const showTaskStatus = !reportSummary || !ask || ask.phase === 'in_progress' || parkedRequest
   const headingStatus = showTaskStatus && reportSummary && state === 'in_progress'
   const waitingLine = showTaskStatus && reportSummary && state === 'waiting'
   const dependency = task.waiting_on || task.blockers
@@ -90,7 +91,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
     <li className={`task-row${selected ? ' selected' : ''}${report ? ' report-task' : ''}${reportSummary ? ' report-task-summary' : ''}`}>
       {!reportSummary && <TaskPriority priority={task.priority} strip />}
       <div className="task-row-heading">
-        {showRequester && <ReportPeerRequester ask={ask} />}
+        {showRequester && <ReportPeerRequester ask={ask} parked={parkedRequest} />}
         {headingStatus && <Status state={state} compactOnPhone />}
         <TaskLink reference={task.key} id={task.id} title={task.title} current={selected} searchQuery={searchQuery}
           publicHref={publicPreview ? task.public_url || null : undefined} />

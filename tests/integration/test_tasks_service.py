@@ -4967,6 +4967,66 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(owner, f"/api/v1/tasks/{request_key}").json["task"]["key"], request_key)
         self.assertEqual(self.call(owner, f"/api/v1/tasks?project=T&q={request_key}").json["items"][0]["key"], request_key)
 
+    def test_parked_open_peer_requests_stay_in_the_recipient_summary(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        peer, peer_id = self.login(app, "Blake")
+        self.cli("register-project", "T", "Tasks Board", "--dri", owner_id)
+        self.cli("register-project", "COURSE", "Example course", "--dri", owner_id)
+
+        def blocked_request(project, *, start):
+            source = self.action(owner, "create-task", {
+                "project": project, "title": "Check the receipt", "step": "Ask for a review.",
+            })["receipt"].split()[0]
+            advance(owner, source, "start", "Ask for a review.")
+            request = self.action(owner, "peer-ask", {
+                "id": source, "transition": "create", "recipient": peer_id, "note": "Verify the receipt.",
+            })["receipt"].split()[0]
+            if start:
+                advance(peer, request, "start", "Verify the receipt.")
+            advance(peer, request, "park", "Resume after the operator restores access.")
+            return source, request
+
+        def advance(actor, ticket, transition, note):
+            return self.action(actor, "advance-task", {"id": ticket, "transition": transition, "note": note})
+
+        def summary(viewer, *, project="T", view="active", hide=False):
+            rows = self.call(viewer, "/api/v1/reports", query_string={
+                "project": project, "view": view, "hide_requests": "true" if hide else "false",
+            }).json["items"]
+            return next((row for row in rows if row["owner"] == peer_id), None)
+
+        source, request = blocked_request("T", start=True)
+        for viewer in (owner, peer):
+            row = summary(viewer)
+            self.assertEqual((row["task_count"], row["task_counts"]["ready"]), (1, 0))
+            task, = row["tasks"]
+            self.assertEqual((task["key"], task["state"], task["peer_request"]["source_key"]),
+                             (request, "parked", source))
+            self.assertEqual(task["note"], "Resume after the operator restores access.")
+        self.assertIsNone(summary(owner, view="idle"))
+        self.assertIsNone(summary(owner, hide=True))
+        self.assertIsNone(self.action(peer, "my-next")["work"])
+        self.assertEqual(self.action(peer, "my-queue", query_string={"state": "ready"})["items"], [])
+
+        same_owner_source, same_owner_request = blocked_request("T", start=False)
+        self.action(owner, "change-ownership", {
+            "id": same_owner_source, "action": "reassign", "owner": peer_id, "reason": "Peer takes the source.",
+        })
+        ordinary = self.action(peer, "create-task", {"title": "Ordinary parked work", "step": "Check it."})
+        advance(peer, ordinary["receipt"].split()[0], "park", "Wait for the next sample.")
+        _, course_request = blocked_request("COURSE", start=False)
+        self.assertEqual({task["key"] for task in summary(peer)["tasks"]},
+                         {request, same_owner_source, same_owner_request})
+        self.assertEqual([task["key"] for task in summary(peer, project="COURSE")["tasks"]], [course_request])
+
+        self.action(owner, "peer-ask", {"id": request, "transition": "cancel", "note": "Review withdrawn."})
+        advance(peer, same_owner_request, "unpark", "Access restored.")
+        advance(peer, same_owner_request, "start", "Verify the receipt.")
+        self.action(peer, "peer-ask", {"id": same_owner_request, "transition": "result", "note": "Receipt checked."})
+        self.action(owner, "peer-ask", {"id": same_owner_request, "transition": "acknowledge", "note": "Collected."})
+        self.assertEqual([task["key"] for task in summary(peer, view="all")["tasks"]], [same_owner_source])
+
     def test_activity_filters_return_after_sign_in(self):
         app = self.app(portal_reader=True)
         client = app.test_client()

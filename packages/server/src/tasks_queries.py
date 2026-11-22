@@ -1001,6 +1001,12 @@ class BoardQueries:
             if not hide_requests:
                 active_state += " OR (state = 'ready' AND id IN (SELECT task_id FROM peer_asks))"
                 active_event += " OR (events.state = 'ready' AND tasks.id IN (SELECT task_id FROM peer_asks))"
+                active_state += """ OR (state = 'parked' AND EXISTS (
+                    SELECT 1 FROM peer_asks WHERE task_id = current.id
+                      AND recipient = current.dri AND result_event_id IS NULL))"""
+                active_event += """ OR (events.state = 'parked' AND EXISTS (
+                    SELECT 1 FROM peer_asks WHERE task_id = tasks.id
+                      AND recipient = tasks.dri AND result_event_id IS NULL))"""
         work_columns = ", ".join(f"COALESCE(work.{state}, 0) AS {state}" for state in WORK_STATES)
         roster = project == projects.DEFAULT and self.project_roster is not None
         names = projects.roster_owners(self.db, self.project_roster) if roster else {}
@@ -1089,7 +1095,7 @@ class BoardQueries:
                 if row["task_count"]:
                     active = self.db.execute(
                         current + f" AND tasks.dri = ? AND ({active_event}) "
-                        "ORDER BY CASE events.state WHEN 'human_review' THEN 0 WHEN 'waiting' THEN 1 ELSE 2 END, "
+                        "ORDER BY CASE events.state WHEN 'human_review' THEN 0 WHEN 'waiting' THEN 1 WHEN 'parked' THEN 1 ELSE 2 END, "
                         "events.id DESC LIMIT 10",
                         (project, person),
                     ).fetchall()

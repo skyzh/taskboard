@@ -24,8 +24,8 @@ function reportNote(note, title) {
   return separator ? rest.slice(separator[0].length).trimStart() : note
 }
 
-export function reportTaskCue(task) {
-  if (!['ready', 'in_progress', 'waiting', 'human_review'].includes(task.state)) return null
+export function reportTaskCue(task, parkedRequest = false) {
+  if (!parkedRequest && !['ready', 'in_progress', 'waiting', 'human_review'].includes(task.state)) return null
   const text = reportNote(task.note ?? '', task.title)
   const label = task.state === 'human_review' ? undefined : task.summary_label
   const authoredDetails = task.details ?? task.context?.activity_details
