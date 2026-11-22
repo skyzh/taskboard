@@ -141,6 +141,16 @@ Replace the ticket ID and URL with the ones for your work. Check that `show` lis
 
 The Raft agent CLI can resolve a message ID for reading. When you have only a reference such as `#project msg=abcd1234`, keep it as readable text until someone who can copy the permalink supplies it. Attach private conversation links only where the intended readers are authorized to see them. If a write result is uncertain, read the ticket and its recent activity before retrying.
 
+### Project coordination channel
+
+Managers can read the project’s Raft channel with `./tasks --shared raft-channel-show T`.
+Where the server supplies a verified Raft channel lookup, use
+`./tasks --shared raft-channel-set T --channel-id CHANNEL_ID` to save a stable channel ID.
+The setting shows the channel’s current name after the lookup confirms its server, audience, and posting access.
+Use `--clear` to remove the binding. After an uncertain save, read the setting before retrying.
+
+An unavailable setting means Taskboard could not verify a destination. Use the project’s documented Raft conversation for manual coordination. Keep direct review pings and private requests with the named recipient.
+
 ### Stats
 
 The Stats page and `GET /api/v1/stats` use the usual board audience.

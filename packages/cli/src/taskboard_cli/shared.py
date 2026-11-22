@@ -16,10 +16,11 @@ ADVANCES = {
     "start", "update", "wait", "resume", "done", "park", "remind", "unpark",
     "assign-human", "redirect-decision", "withdraw-decision",
 }
-READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged", "readiness", ledger.READ}
+READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
+         "readiness", "raft-channel-show", ledger.READ}
 WRITES = ADVANCES | {
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
-    "tag", "close", "edit", "checklist", "save-goal", ledger.WRITE, PEER_ASK,
+    "tag", "close", "edit", "checklist", "save-goal", "raft-channel-set", ledger.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
 def assert_actor(value, actor):
     if value is None:
@@ -342,6 +343,17 @@ def shared_command(args):
             "Check your Inbox with `./tasks --shared next`. "
             "Use `./tasks --shared capabilities` to see available commands.",
         )
+    if command in {"raft-channel-show", "raft-channel-set"}:
+        write = command == "raft-channel-set"
+        data = {"project": projects.prefix(args.project)}
+        if write:
+            data["channel_id"] = "" if args.clear else args.channel_id
+        result = board.invoke(command, data, write=write)
+        if channel := result["channel"]:
+            summary = f"{result['project']} · Raft channel · {channel['name']} · {channel['id']}"
+        else:
+            summary = f"{result['project']} · Raft channel · {result['state'].capitalize()}"
+        return with_guidance(summary, "Use Raft for shared coordination when a verified channel is configured.")
     if command == "goals":
         saved = board.invoke("my-goals", {"project": args.project} if args.project else {})
         standing, dated = saved["standing_goal"], saved["goal"]

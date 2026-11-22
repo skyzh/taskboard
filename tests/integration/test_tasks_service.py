@@ -5006,6 +5006,67 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "worker-handoff", {"run": "4", "transition": "collect", "note": "Collected."})
         self.assertEqual([row["id"] for row in self.call(reader, route).json["items"]], [2, 1])
 
+    def test_project_manager_sets_only_a_verified_raft_channel_and_clear_persists(self):
+        from taskboard_server.raft_channels import VerifiedChannel
+
+        name = "Fixture coordination"
+        channel = str(UUID(int=65))
+        wrong_audience = str(UUID(int=66))
+        cannot_post = str(UUID(int=67))
+        wrong_server = str(UUID(int=68))
+        fail = False
+
+        def lookup(server, project, requested):
+            self.assertEqual((server, project), (SERVER, "T"))
+            if fail:
+                raise RuntimeError("Provider unavailable")
+            return VerifiedChannel("another-server" if requested == wrong_server else SERVER, requested, name,
+                                   requested != cannot_post, requested != wrong_audience)
+
+        app = self.app(portal_reader=True, raft_channel_lookup=lookup)
+        manager, owner = self.login(app, "Avery")
+        teammate, _ = self.login(app, "Blake")
+        self.cli("register-project", "T", "Tasks Board", "--dri", owner)
+        path = "/api/v1/projects/T/raft-channel"
+        unconfigured = {"project": "T", "state": "unconfigured", "channel": None}
+        self.assertEqual(self.call(manager, path).get_json(), unconfigured)
+        self.call(teammate, path, status=403)
+        self.call(teammate, path, method="PUT", json={"channel_id": channel}, status=403)
+        self.call(manager, path, method="PUT", json={"channel_id": "#by-name"}, status=400)
+        for rejected in (wrong_audience, cannot_post, wrong_server):
+            with self.subTest(rejected=rejected):
+                self.call(manager, path, method="PUT", json={"channel_id": rejected}, status=503)
+                self.assertEqual(self.call(manager, path).get_json(), unconfigured)
+
+        code, output, error = self.shared_cli(manager, "raft-channel-set", "T", "--channel-id", channel)
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn(name, output)
+        name = "Renamed fixture coordination"
+        self.call(manager, path, method="PUT", json={"channel_id": None}, status=400)
+        self.assertEqual(self.call(manager, path).get_json(), {
+            "project": "T", "state": "configured", "channel": {"id": channel, "name": name},
+        })
+        fail = True
+        self.assertEqual(self.call(manager, path).get_json(), {"project": "T", "state": "unavailable", "channel": None})
+        self.call(manager, path, method="PUT", json={"channel_id": wrong_audience}, status=503)
+        fail = False
+        self.assertEqual(self.call(manager, path).get_json()["channel"]["id"], channel)
+        code, output, error = self.shared_cli(manager, "raft-channel-set", "T", "--clear")
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("Unconfigured", output)
+        self.assertEqual(self.call(manager, path).get_json(), unconfigured)
+
+    def test_project_channel_is_unavailable_without_raft_verification(self):
+        app = self.app(portal_reader=True)
+        manager, owner = self.login(app, "Avery")
+        self.cli("register-project", "T", "Tasks Board", "--dri", owner)
+        path = "/api/v1/projects/T/raft-channel"
+        self.assertEqual(self.call(manager, path).get_json(), {"project": "T", "state": "unavailable", "channel": None})
+        self.call(manager, path, method="PUT", json={"channel_id": str(UUID(int=65))}, status=503)
+        code, output, error = self.shared_cli(manager, "raft-channel-show", "T")
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("Unavailable", output)
+
     def test_linked_peer_request_lifecycle_returns_the_next_action_to_the_requester(self):
         app = self.app(portal_reader=True)
         avery, avery_id = self.login(app, "Avery")

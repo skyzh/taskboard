@@ -46,6 +46,7 @@ from tasks_queries import BoardQueries, PACIFIC, pacific_day, task_creation
 
 
 from taskboard_server.paths import CHECKOUT, DIST, PACKAGE
+from taskboard_server import raft_channels
 FRONTEND_BUILD_META = re.compile(rb'<meta name="tasks-frontend-build" content="([0-9a-f]{64})">')
 # Some Linux systems expose the host's localtime file alongside IANA zones.
 TIME_ZONE_NAMES = available_timezones() - {"localtime"}
@@ -552,7 +553,8 @@ def _next_step(name, data, result):
 def create_app(database, *, public_url, raft_config=None, local_readonly=False, portal_reader=False, portal_upstream_token=None,
                identity_provider=None, github_reader=None, dist=DIST, creation_default_subject=None,
                websocket_revisions=False, marketplace_root=None, project_roster=None, release_queue_ticket=None,
-               watcher_measurement_ticket=None, oidc_config=None, postgres_dsn=None, github_merge_projects=()):
+               watcher_measurement_ticket=None, oidc_config=None, postgres_dsn=None, github_merge_projects=(),
+               raft_channel_lookup=None):
     """Configure the board; injected identity providers are used by isolated tests."""
     github_merge_projects = frozenset(projects.prefix(project) for project in github_merge_projects)
     if creation_default_subject:
@@ -790,6 +792,36 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
             raise RequestError(str(error)) from error
         except LookupError as error:
             raise RequestError(str(error), 404) from error
+
+    def project_channel(actor, project, data=None):
+        if not projects.manages(db(), project, actor["ledger_key"]):
+            raise RequestError("Only this project's manager can access its Raft channel setting.", 403)
+        server = g.tenant_server if marketplace else (raft_config or {}).get("server_id")
+        if data is None:
+            return raft_channels.describe(raft_channel_lookup, server, project, raft_channels.saved_channel(db(), project))
+
+        if "channel_id" not in data:
+            raise RequestError("Supply a channel ID or an empty value to clear it.")
+        channel_id = None if data["channel_id"] == "" else text(data, "channel_id", maximum=36)
+        if channel_id is not None:
+            try:
+                channel_id = raft_channels.normalize(channel_id)
+            except ValueError:
+                raise RequestError("Choose a stable Raft channel ID.") from None
+            result = raft_channels.describe(raft_channel_lookup, server, project, channel_id)
+            if result["channel"] is None:
+                raise RequestError("Raft could not verify a permitted channel for this project.", 503)
+        else:
+            result = raft_channels.describe(raft_channel_lookup, server, project, None)
+
+        with tasks_storage.changes(db()) as connection:
+            before = connection.total_changes
+            raft_channels.save(connection, project, channel_id)
+            if connection.total_changes != before:
+                audit.record(connection, scope="private", actor=actor["ledger_key"], operation="set-raft-channel",
+                             record_type="project", record_id=project, at=ledger.timestamp())
+                ledger.bump_revision(connection)
+        return {**result, "receipt": "Raft channel saved." if channel_id else "Raft channel cleared."}
 
     def project_scope(data, default=projects.DEFAULT):
         scope = text(data, "scope", optional=True, maximum=3)
@@ -1033,6 +1065,13 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
         return {"items": [{**dict(row), **projects.project_features(row["prefix"])} for row in db().execute(
             "SELECT prefix, title, dri FROM projects ORDER BY prefix <> 'T', prefix"
         )]}
+
+    @app.route("/api/v1/projects/<project>/raft-channel", methods=("GET", "PUT"))
+    def project_raft_channel(project):
+        write = request.method == "PUT"
+        actor = current_actor(required=True, write=write)
+        data = json_body({"channel_id"}) if write else None
+        return project_channel(actor, project_filter({"project": project}), data)
 
     @app.get("/api/v1/schedules")
     def schedules():
@@ -1881,6 +1920,8 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
         key = actor["ledger_key"]
         if name == "context":
             return {"actor": actor_profile(actor), "board": base + "/"}
+        if name in {"raft-channel-show", "raft-channel-set"}:
+            return project_channel(actor, project_filter(data), data if write else None)
         if name == "my-next":
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:
