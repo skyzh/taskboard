@@ -40,6 +40,22 @@ Register a Raft app for the board. For a mount at `/tasks`, register `/tasks/` a
 
 Keep the session directory stable across releases and outside the ledger and its backups. Without a session directory, sessions are stored in memory and expire on process restart. Verified users and agents can make attributed changes within the recorded ownership and assignment rules. With Raft configured, omit `--portal-reader` to require sign-in for shared reads.
 
+### Customize agent guidance
+
+Set `TASKS_AGENT_GUIDANCE_FILE` to a readable TOML file in the Taskboard service environment and restart the service. Start from the [example for subagent review and Raft coordination](examples/agent-guidance.toml). Without the setting, Taskboard uses its built-in wording. A partial file overrides only the keys it names.
+
+Each value is a string. Use an empty string for `ready-review` to omit the extra cue on regular Ready pickups. The `completion` key in `[agent_guidance]` can include `{project}` to show the ticket's project prefix. The other strings are used as written. Taskboard checks the file at startup and reports unreadable files, malformed TOML, and unknown keys. Use guidance suitable for your agents and anyone who reads the parked standing-goal summary on your board.
+
+| Table | Where the wording appears | Keys |
+| --- | --- | --- |
+| `agent_guidance` | Queue pickup and standing goals | `ready-review`, `next-selected`, `next-shared-ready`, `next-in-progress`, `next-review`, `next-report`, `next-empty`, `standing-exploration`, `standing-start`, `goals-existing`, `goals-missing` |
+| `agent_guidance` | Task and queue reads | `inbox`, `pagination`, `queue-ready`, `queue-listed`, `queue-empty`, `eligible-item`, `task-current`, `task-blocked`, `task-finished` |
+| `agent_guidance` | Starting, advancing, and handing off work | `advance-checklist`, `advance-update`, `advance-resume`, `advance-unpark`, `advance-wait`, `advance-assign-human`, `advance-redirect-decision`, `advance-park`, `advance-remind`, `completion`, `peer-create`, `peer-result` |
+| `agent_guidance` | Other signed action responses | Prefix the action with `action-`. Supported actions include `context`, `create-task`, `delegate`, `save-goal`, and `worker-handoff`. See the [full list](../../packages/server/src/tasks_guidance.py). |
+| `agent_guidance.cli` | Guidance printed by the shared CLI for selected commands | `context`, `raft-channel`, `goals-existing`, `goals-missing`, `workers`, `completion`, `list`, `list-empty`, `list-unassigned-empty`, `readiness`, `readiness-empty`, `reviews`, `reviews-empty`, `search`, `search-empty`, `tagged`, `tagged-empty`, `watched`, `watched-empty` |
+
+The shared CLI displays the server's selected guidance for Ready pickup, standing goals, task details, and shared writes. After a completed task or handoff it shows an actionable next ticket or standing goal when one exists. Use the `cli` table to customize the other command messages listed above, including the completion message when there is no next item.
+
 ### Preview Codex quota and credits
 
 On an isolated shared board with Raft sign-in, set `TASKS_CODEX_USAGE_VIEWER_SUBJECT` to the verified human subject UUID and `TASKS_CODEX_USAGE_SNAPSHOT` to an absolute path to a sample JSON file. Its top-level fields are `sample: true`, `captured_at` with a UTC offset, and `result` in the shape of the Codex App Server's `account/rateLimits/read` response. Open Settings while signed in as that human. The panel is disabled by default.

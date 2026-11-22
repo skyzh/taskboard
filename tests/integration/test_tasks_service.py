@@ -2519,6 +2519,83 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(peer_pickup["work"]["key"], "T-2")
         self.assertNotIn(cue, peer_pickup["next_step"])
 
+    def test_agent_guidance_overrides_normal_signed_workflow(self):
+        from tasks_goals import STANDING_EXPLORATION
+        from tasks_guidance import load
+
+        configuration = self.database.with_name("agent-guidance.toml")
+        configuration.write_text(
+            '[agent_guidance]\n'
+            'ready-review = "Have an independent subagent check the sample revision."\n'
+            'standing-exploration = "Explore a sample and tag each new finding."\n'
+            'standing-start = "Use the goal ticket to record your plan."\n'
+            'peer-create = "Send one ticket link in the example coordination channel."\n'
+            'completion = "Find the next sample in {project}."\n'
+            '[agent_guidance.cli]\n'
+            'context = "Check the example queue."\n',
+            encoding="utf-8",
+        )
+        app = self.app(portal_reader=True, agent_guidance=load(configuration))
+        avery, _ = self.login(app, "Avery")
+        blake, recipient = self.login(app, "Blake")
+        human, _ = self.login(app, "Sam")
+        self.action(human, "context", status=403)
+        self.assertIn("Next: Check the example queue.", self.shared_cli(avery, "context")[1])
+        self.assertEqual(self.action(blake, "my-next")["next_step"],
+                         "Check recent feedback or the product for a concrete improvement within your role.")
+
+        self.action(avery, "save-goal", {"kind": "standing", "summary": "Explore sample work."})
+        self.assertIn("Next: Explore a sample and tag each new finding.", self.shared_cli(avery, "next")[1])
+        output = self.shared_cli(avery, "show", "T-1")[1]
+        self.assertIn("Explore a sample and tag each new finding.", output)
+        self.assertIn("Next: Use the goal ticket to record your plan.", output)
+        history = self.action(avery, "task-activity", query_string={"id": "T-1"})["items"]
+        original_step = next(event["note"] for event in history if event["action"] == "add")
+        self.assertEqual(original_step, STANDING_EXPLORATION)
+
+        self.action(avery, "create-task", {"title": "Check the sample", "step": "Read the sample."})
+        cue = "Have an independent subagent check the sample revision."
+        self.assertIn(cue, self.shared_cli(avery, "next")[1])
+        self.action(avery, "advance-task", {"id": "T-2", "transition": "start", "note": "Read the sample."})
+        ask = self.action(avery, "peer-ask", {
+            "id": "T-2", "transition": "create", "recipient": recipient, "note": "Check the sample.",
+        })
+        self.assertEqual(ask["next_step"], "Send one ticket link in the example coordination channel.")
+        self.assertNotIn(cue, self.shared_cli(blake, "next")[1])
+        self.action(avery, "create-task", {"title": "Verify completion", "step": "Check the receipt."})
+        self.action(avery, "advance-task", {"id": "T-4", "transition": "start", "note": "Check the receipt."})
+        done = self.action(avery, "advance-task", {"id": "T-4", "transition": "done", "note": "Checked."})
+        self.assertEqual(done["next_step"], "Find the next sample in T.")
+
+        configuration.write_text('[agent_guidance]\nready-review = ""\n', encoding="utf-8")
+        self.provider.issued.remove("Avery")
+        avery, _ = self.login(self.app(portal_reader=True, agent_guidance=load(configuration)), "Avery")
+        self.assertNotIn("cli_guidance", self.action(avery, "context"))
+        self.action(avery, "create-task", {"title": "Check the follow-up", "step": "Read the new sample."})
+        self.assertEqual(self.action(avery, "my-next")["next_step"], "Open the selected ticket and check its current step.")
+
+    def test_agent_guidance_rejects_invalid_files_and_accepts_published_example(self):
+        from tasks_guidance import load
+
+        self.assertIn("your project's Raft channel",
+                      load(ROOT / "docs/taskboard/examples/agent-guidance.toml")["peer-create"])
+        configuration = self.database.with_name("agent-guidance.toml")
+        with self.assertRaisesRegex(ValueError, "readable, valid TOML file"):
+            load(configuration)
+        for content, error in (
+            ("[agent_guidance", "readable, valid TOML file"),
+            ("[unrelated]", "supports only"),
+            ("agent_guidance = true", "must be a TOML table"),
+            ("[agent_guidance]\nready_reveiw = 'Review.'", "Unknown guidance key"),
+            ("[agent_guidance]\nready-review = 42", "must be a nonempty string"),
+            ("[agent_guidance]\nstanding-start = ''", "must be a nonempty string"),
+            ("[agent_guidance.cli]\nreview = 'Review.'", "Unknown guidance key"),
+        ):
+            with self.subTest(content=content):
+                configuration.write_text(content, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, error):
+                    load(configuration)
+
     def test_next_guides_an_assigned_review_even_on_a_completed_ticket(self):
         app = self.app()
         owner, _ = self.login(app, "Avery")
