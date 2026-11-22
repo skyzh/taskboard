@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from './data.js'
 import About from './About.jsx'
 import AssigneePage from './AssigneePage.jsx'
@@ -244,9 +245,8 @@ export default function App({ MilestoneMap }) {
     saveTimeZonePreference(preference)
   }
   const projectPicker = hasProjectChoices && (
-    <label>
-      <span>Project</span>
-      <select value={showAllReports ? 'all' : project} onChange={event => {
+    <label className="project-switcher">
+      <select aria-label="Project" value={showAllReports ? 'all' : project} onChange={event => {
         const value = event.target.value
         if (value === 'all') {
           window.location.hash = 'reports-all'
@@ -260,6 +260,7 @@ export default function App({ MilestoneMap }) {
         {view === 'reports' && <option value="all">All projects</option>}
         {visibleProjects.map(entry => <option key={entry.prefix} value={entry.prefix}>{entry.title}</option>)}
       </select>
+      <ChevronDown size={14} aria-hidden="true" focusable="false" />
     </label>
   )
   if (needsOidcSignIn) {
