@@ -979,7 +979,14 @@ test('Closed is a distinct filter and Kanban column when the board supports it',
     filters: {}, overview: { counts: { closed: 1 } }, project: 'T', layout: 'kanban', phoneColumn: 'closed',
   }))
   assert.match(phone, /value="closed" selected="">Closed<\/option>/)
-  assert.match(phone, /<h3 id="kanban-closed">Closed<\/h3>/)
+  assert.match(phone, /<h3 id="kanban-closed">Closed<span class="kanban-count"> \(1\)<\/span><\/h3>/)
+  assert.deepEqual(calls.splice(0), ['closed'])
+
+  fixture.state = [{}, true]
+  const byOwner = renderToStaticMarkup(React.createElement(WorkQueue, {
+    filters: { dri: 'Avery' }, overview: { counts: { closed: 1 } }, project: 'T', layout: 'kanban', phoneColumn: 'closed',
+  }))
+  assert.match(byOwner, /<h3 id="kanban-closed">Closed<\/h3>/)
   assert.deepEqual(calls.splice(0), ['closed'])
 
   fixture.state = [{}, false]

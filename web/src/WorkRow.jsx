@@ -50,7 +50,7 @@ function ReportReleaseResult({ receipt }) {
   )
 }
 
-export function TaskRow({ task, owner = true, selected = false, report = false, ownReport = false, revision }) {
+export function TaskRow({ task, owner = true, selected = false, report = false, ownReport = false, revision, compactQueue = false }) {
   const [showChecklist, setShowChecklist] = useState(false)
   const checklistId = `row-checklist-${task.id}`
   const cue = report ? reportTaskCue(task) : null
@@ -63,9 +63,13 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
       <div className="task-row-heading">
         <TaskLink reference={task.key} id={task.id} title={task.title} current={selected} />
         <div className="task-row-meta">
+          {compactQueue && <span className="queue-task-key ticket-id" aria-hidden="true">{taskLabel(task.id, task.key)}</span>}
           <Status state={taskState(task)} />
           <TaskWaitAge task={task} />
           {owner && <Assignee task={task} compact />}
+          {compactQueue && ['high', 'low'].includes(task.priority) && (
+            <span className="queue-task-priority"><TaskPriority priority={task.priority} /></span>
+          )}
           {report && activityAt && <span>Last activity <ReportTime at={activityAt} /></span>}
         </div>
       </div>
@@ -111,13 +115,13 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   )
 }
 
-export function TaskRows({ items, owner = true, selected, label, report, ownReport, revision }) {
+export function TaskRows({ items, owner = true, selected, label, report, ownReport, revision, compactQueue = false }) {
   if (!items?.length) return null
   return (
-    <ol className="task-rows" aria-label={label} role="list">
+    <ol className={compactQueue ? 'task-rows compact-queue-rows' : 'task-rows'} aria-label={label} role="list">
       {items.map(task => (
         <TaskRow key={task.id} task={task} owner={owner} selected={task.id === selected || task.key === selected}
-          report={report} ownReport={ownReport} revision={revision} />
+          report={report} ownReport={ownReport} revision={revision} compactQueue={compactQueue} />
       ))}
     </ol>
   )

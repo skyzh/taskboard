@@ -216,6 +216,25 @@ export default function App({ MilestoneMap }) {
     setTimeZonePreference(preference)
     saveTimeZonePreference(preference)
   }
+  const projectPicker = hasProjectChoices && (
+    <label>
+      <span>Project</span>
+      <select value={showAllReports ? 'all' : project} onChange={event => {
+        const value = event.target.value
+        if (value === 'all') {
+          window.location.hash = 'reports-all'
+          return
+        }
+        chooseProject(value)
+        setQueueFilters({})
+        setWaitingLabel('')
+        window.location.hash = view
+      }}>
+        {view === 'reports' && <option value="all">All projects</option>}
+        {visibleProjects.map(entry => <option key={entry.prefix} value={entry.prefix}>{entry.title}</option>)}
+      </select>
+    </label>
+  )
   if (needsOidcSignIn) {
     return (
       <main aria-label="Taskboard content">
@@ -228,7 +247,7 @@ export default function App({ MilestoneMap }) {
   }
   return (
     <TimeZoneContext.Provider value={timeZoneFormatters}>
-      <header className="app-header">
+      <header className={view === 'board' ? 'app-header tasks-header' : 'app-header'}>
         <div className="masthead">
           <a className="brand" href={reportsHref}><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>Taskboard</a>
           <BoardViews current={activeTab} reportsHref={reportsHref} isAgent={isAgent}
@@ -244,25 +263,7 @@ export default function App({ MilestoneMap }) {
       <main tabIndex={0} aria-label="Taskboard content">
         <div className="main-content">
           {updateDeferred && <p className="board-connection" role="status">Taskboard will refresh when you finish your changes.</p>}
-          {['reports', 'board', 'team-overview'].includes(view) && hasProjectChoices && (
-            <label>
-              Project
-              <select value={showAllReports ? 'all' : project} onChange={event => {
-                const value = event.target.value
-                if (value === 'all') {
-                  window.location.hash = 'reports-all'
-                  return
-                }
-                chooseProject(value)
-                setQueueFilters({})
-                setWaitingLabel('')
-                window.location.hash = view
-              }}>
-                {view === 'reports' && <option value="all">All projects</option>}
-                {visibleProjects.map(entry => <option key={entry.prefix} value={entry.prefix}>{entry.title}</option>)}
-              </select>
-            </label>
-          )}
+          {['reports', 'team-overview'].includes(view) && projectPicker}
           {view === 'reports' && (
             <Reports revision={revision} project={project}
               projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null} />
@@ -281,11 +282,12 @@ export default function App({ MilestoneMap }) {
             session={session} verified={verified} onChanged={refresh} />}
           {view === 'board' && (
             <>
-              <div className="page-heading"><h1 id="board">Tasks</h1>
+              {projectPicker && <div className="tasks-desktop-project">{projectPicker}</div>}
+              <div className="page-heading tasks-heading"><h1 id="board">Tasks</h1>
                 {verified && <a href={'#' + new URLSearchParams({ schedules: '', project })}>Schedules</a>}
               </div>
               <WorkQueue revision={revision} overview={overview.data} filters={queueFilters} setFilters={setQueueFilters}
-                waitingLabel={waitingLabel} setWaitingLabel={setWaitingLabel} project={project}
+                waitingLabel={waitingLabel} setWaitingLabel={setWaitingLabel} project={project} projectPicker={projectPicker}
                 layout={queueLayout} setLayout={setQueueLayout} phoneColumn={phoneColumn} setPhoneColumn={setPhoneColumn}
                 kanbanNavigation={kanbanNavigation} />
             </>
