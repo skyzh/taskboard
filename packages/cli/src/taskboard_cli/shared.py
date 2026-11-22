@@ -306,18 +306,19 @@ def completion_guidance(board, reference):
     inbox = f"`./tasks --shared next --project {project}`"
     try:
         result = board.invoke("my-next", {"project": project})
-    except (SharedActionUnavailable, SharedReadError):
+        if work := result["work"]:
+            label = NEXT_LABELS.get(work["kind"], "Start Ready work")
+            return f"{label} on {work['key']} · {work['title']}. Read it with {inbox}."
+        if result["standing_goals"]:
+            goal = result["standing_goals"][0]
+            if ticket := goal["ticket"]:
+                return (
+                    f"Start standing goal {ticket} · {goal['summary']}. "
+                    f'Run `./tasks --shared start {ticket} "<what you will check>"`. {result["next_step"]}'
+                )
+    except (SharedActionUnavailable, SharedReadError, KeyError, TypeError):
+        # A failed or incomplete read cannot invalidate the earlier write receipt.
         return f"Check your Inbox with {inbox}. The next item could not be loaded."
-    if work := result["work"]:
-        label = NEXT_LABELS.get(work["kind"], "Start Ready work")
-        return f"{label} on {work['key']} · {work['title']}. Read it with {inbox}."
-    if result["standing_goals"]:
-        goal = result["standing_goals"][0]
-        if ticket := goal.get("ticket"):
-            return (
-                f"Start standing goal {ticket} · {goal['summary']}. "
-                f'Run `./tasks --shared start {ticket} "<what you will check>"`. {result["next_step"]}'
-            )
     return f"Check your Inbox with {inbox}."
 
 

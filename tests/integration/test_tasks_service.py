@@ -643,7 +643,7 @@ class TasksServiceTest(unittest.TestCase):
 
     def shared_cli(
         self, client, *arguments, lose_receipt=False, entrypoint=tasks_main, actions=None,
-        unavailable=(), carrier_errors=None,
+        unavailable=(), carrier_errors=None, carrier_results=None,
     ):
         def invoke(command, *, input, capture_output, text, timeout):
             self.assertEqual(command[:3], ["raft", "integration", "invoke"])
@@ -666,7 +666,8 @@ class TasksServiceTest(unittest.TestCase):
             if input and lose_receipt:
                 raise subprocess.TimeoutExpired(command, timeout)
             if result.status_code == 200:
-                envelope = {"ok": True, "data": {"result": result.get_json()}}
+                data = (carrier_results or {}).get(name, result.get_json())
+                envelope = {"ok": True, "data": {"result": data}}
                 return subprocess.CompletedProcess(command, 0, json.dumps(envelope), "")
             envelope = {"ok": False, "error": {
                 "code": "INTEGRATION_INVOKE_FAILED",
@@ -2409,7 +2410,7 @@ class TasksServiceTest(unittest.TestCase):
         goal = self.action(owner, "my-next")["standing_goals"][0]["ticket"]
 
         for title, command in (("Completed fixture", "done"), ("Handed-off fixture", "transfer"),
-                               ("Next unavailable", "done")):
+                               ("Next unavailable", "done"), ("Next malformed", "done")):
             self.action(owner, "create-task", {"title": title, "step": "Check the live path."})
             ticket = self.action(owner, "my-next")["work"]["key"]
             self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Start the fixture."})
@@ -2419,11 +2420,14 @@ class TasksServiceTest(unittest.TestCase):
                 args = (command, ticket, "Completed the check.")
             actions = []
             unavailable = ("my-next",) if title == "Next unavailable" else ()
-            code, output, error = self.shared_cli(owner, *args, actions=actions, unavailable=unavailable)
+            carrier_results = {"my-next": {}} if title == "Next malformed" else None
+            code, output, error = self.shared_cli(
+                owner, *args, actions=actions, unavailable=unavailable, carrier_results=carrier_results,
+            )
             self.assertEqual((code, error), (0, ""))
             self.assertTrue(output.startswith(f"Committed · {ticket}"))
             self.assertEqual(actions[-1], "my-next")
-            if unavailable:
+            if unavailable or carrier_results:
                 self.assertIn("The next item could not be loaded.", output)
                 self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "done")
             else:
