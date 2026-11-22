@@ -1,80 +1,109 @@
 import React from 'react'
-import { ArrowRight } from 'lucide-react'
-import { useLoadedPages, useResource, queryPath } from './data.js'
-import { LoadMore, ResourceStatus, TaskLink, profileName } from './shared.jsx'
+import { ArrowRight, Check, CircleX, Clock, GitPullRequest, MessageSquare, Play, Reply } from 'lucide-react'
+import { useLoadedPages } from './data.js'
+import { AssigneeAvatar, eventHref, LoadMore, peerRequestLabels, profileName, ResourceStatus, TaskLink } from './shared.jsx'
 import { ReportTime } from './ReportTime.jsx'
-import PeerRequestHistory from './PeerRequestHistory.jsx'
 
-function AskPeople({ sender, recipient, response }) {
-  const target = profileName(recipient)
-  if (!sender) return <span>For {target}</span>
-  const origin = profileName(sender)
-  return (
-    <span className="ask-people">
-      <span className="relative-time-accessible">
-        {response ? `${origin} responded to ${target}` : `${origin} requested ${target}`}
-      </span>
-      <span aria-hidden="true">{origin} <ArrowRight size={13} focusable="false" /> {target}</span>
-    </span>
-  )
+const phases = {
+  asked: ['Asked', MessageSquare],
+  waiting: ['Waiting', Clock],
+  in_progress: ['In progress', Play],
+  start_unconfirmed: ['Start unconfirmed', Clock],
+  acknowledgment: ['Ready to acknowledge', Reply],
+  done: ['Done', Check, true],
+  canceled: ['Canceled', CircleX, true],
+  superseded: [peerRequestLabels.superseded, CircleX, true],
+  closed_without_response: [peerRequestLabels.closed_without_response, CircleX, true],
+  closed: [peerRequestLabels.closed, CircleX, true],
 }
 
-function AskList({ label, page, items, responses = false, publicPreview = false }) {
+function Person({ name, profile }) {
+  const label = profileName(name, profile)
+  return <span className="request-person"><AssigneeAvatar name={label} url={profile?.avatar_url} />{label}</span>
+}
+
+function RequestRow({ item, publicPreview }) {
+  const [status, Icon, terminal] = phases[item.phase] || ['Status unavailable', MessageSquare]
   return (
-    <>
-      {page && <ResourceStatus resource={page} label={label.toLowerCase()} />}
-      {items?.length > 0 && (
-        <ul className="report-outcomes ask-list" aria-label={label} role="list">
-          {items.map(ask => (
-            <li className="ask-row" key={ask.id}>
-              <AskPeople sender={responses ? ask.responder : ask.requester} recipient={ask.recipient} response={responses} />
-              {ask.at && <ReportTime at={ask.at} />}
-              {ask.status && <span className="ask-state">{ask.status}</span>}
-              <span className="ask-ticket"><TaskLink reference={ask.linked_request_id ? ask.linked_request : ask.task_key}
-                id={ask.linked_request_id ?? ask.task_id} title={ask.task_title}
-                publicHref={publicPreview ? ask.public_url || null : undefined} /></span>
-            </li>
-          ))}
-        </ul>
+    <li className={terminal ? 'request-row request-terminal' : 'request-row'}>
+      <div className="request-row-line">
+        <span className="request-status">
+          {item.review && <span className="request-review"><GitPullRequest size={14} aria-hidden="true" />Review</span>}
+          <Icon size={14} aria-hidden="true" /><span>{status}</span>
+        </span>
+        {item.at && <ReportTime at={item.at} />}
+      </div>
+      <div className="request-row-line">
+        {item.requester && <>
+          <Person name={item.requester} profile={item.requester_profile} />
+          <ArrowRight size={13} aria-hidden="true" />
+          <span className="relative-time-accessible">asked</span>
+        </>}
+        <Person name={item.recipient} profile={item.recipient_profile} />
+      </div>
+      {item.next_owner && (
+        <span className="request-owner">Next for {profileName(item.next_owner, item.next_owner_profile)}</span>
       )}
-      {page && !responses && <LoadMore page={page} label={label.toLowerCase()} />}
-    </>
+      <div className="request-row-line">
+        {item.request_key && <TaskLink reference={item.request_key} title="Request" />}
+        <TaskLink id={item.source_id} reference={item.source_key} title={item.source_title}
+          publicHref={publicPreview ? item.public_url || null : undefined} />
+      </div>
+      {(item.response || item.resolution) && (
+        <div className="request-row-line">
+          {item.response && <a href={eventHref(item.response.id)}>Response</a>}
+          {item.resolution && <a href={eventHref(item.resolution.id)}>{status} record</a>}
+        </div>
+      )}
+    </li>
   )
 }
 
-const reviewStates = { planned: 'Planned', running: 'In progress', start_unconfirmed: 'Start unconfirmed' }
+function snapshotRows({ reviews, waits, responses }) {
+  const reviewPhases = { planned: 'asked', running: 'in_progress', start_unconfirmed: 'start_unconfirmed' }
+  const rows = [
+    ...reviews.filter(item => !item.linked_request).map(item => ({
+      ...item, review: true, phase: reviewPhases[item.execution_state ?? item.state] || 'asked',
+    })),
+    ...waits.map(item => ({ ...item, phase: 'waiting' })),
+    ...responses.map(item => ({ ...item, phase: 'done', requester: item.recipient, recipient: item.responder })),
+  ]
+  return rows.map(item => ({
+    id: `${item.phase}:${item.id}`,
+    at: item.at,
+    phase: item.phase,
+    review: item.review,
+    requester: item.requester,
+    recipient: item.recipient,
+    next_owner: item.phase === 'done' ? null : item.recipient,
+    source_id: item.task_id,
+    source_key: item.task_key,
+    source_title: item.task_title,
+    public_url: item.public_url,
+  })).sort((left, right) => (right.at || '').localeCompare(left.at || ''))
+}
 
-export function QueuedAsksContent({ project, grouped, reviews, waits, responses, snapshot, children }) {
-  const waitRows = (snapshot?.waits || waits?.data?.items)?.filter(wait => !wait.linked_request || wait.linked_request_id)
-  const reviewRows = (snapshot?.reviews || reviews?.data?.items)?.filter(review => !review.linked_request).map(review => ({
-    ...review, status: reviewStates[review.execution_state ?? review.state],
-  }))
-  const responseRows = snapshot?.responses || responses?.data?.items
-  if (!children && reviewRows?.length === 0 && waitRows?.length === 0 && responseRows?.length === 0
-    && reviews?.data?.next_cursor == null && waits?.data?.next_cursor == null) return null
+export function QueuedAsksContent({ project, grouped, page, snapshot }) {
+  const items = snapshot ? snapshotRows(snapshot) : page?.data?.items
+  if (items?.length === 0 && (snapshot || (!page.pending && !page.error))) return null
 
-  const headingId = grouped ? `queued-asks-${project}` : 'queued-asks-title'
+  const headingId = grouped ? `request-log-${project}` : 'request-log-title'
   const Heading = grouped ? 'h3' : 'h2'
-  const ResponseHeading = grouped ? 'h4' : 'h3'
   return (
     <section className="queued-asks" aria-labelledby={headingId}>
-      <Heading id={headingId}>Queued asks</Heading>
-      <AskList label="Peer reviews" page={reviews} items={reviewRows} publicPreview={Boolean(snapshot)} />
-      <AskList label="Named peer waits" page={waits} items={waitRows} publicPreview={Boolean(snapshot)} />
-      {responseRows?.length > 0 && <ResponseHeading>Recent responses</ResponseHeading>}
-      <AskList label="Recent responses" page={responses} items={responseRows} responses publicPreview={Boolean(snapshot)} />
-      {children}
+      <Heading id={headingId}>Request log</Heading>
+      {page && <ResourceStatus resource={page} label="request log" />}
+      {items?.length > 0 && (
+        <ul className="report-outcomes request-log" aria-label="Requests" role="list">
+          {items.map(item => <RequestRow key={item.id} item={item} publicPreview={Boolean(snapshot)} />)}
+        </ul>
+      )}
+      {page && <LoadMore page={page} label="requests" />}
     </section>
   )
 }
 
 export default function QueuedAsks({ revision, project, grouped }) {
-  const reviews = useLoadedPages('/reports/queued-reviews', { project }, revision)
-  const waits = useLoadedPages('/reports/queued-peer-waits', { project }, revision)
-  const responses = useResource(queryPath('/reports/recent-peer-responses', { project }), revision)
-  return (
-    <QueuedAsksContent project={project} grouped={grouped} reviews={reviews} waits={waits} responses={responses}>
-      <PeerRequestHistory key={project} project={project} revision={revision} />
-    </QueuedAsksContent>
-  )
+  const page = useLoadedPages('/reports/request-log', { project }, revision, { limit: 10 })
+  return <QueuedAsksContent project={project} grouped={grouped} page={page} />
 }

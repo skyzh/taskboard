@@ -56,18 +56,18 @@
 .project-reports > .page-heading { min-height: 0; }
 .reports-owners, .queued-asks { min-width: 0; }
 .queued-asks { border-top: 1px solid var(--line); padding-top: .85rem; overflow-wrap: anywhere; }
-.ask-list { margin-block: .45rem .65rem; }
 .ask-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: .12rem .5rem; margin-block: .3rem; }
-.ask-people { font-weight: var(--weight-emphasis); }
-.ask-people svg { vertical-align: -.14em; }
-.ask-ticket { min-width: 0; overflow-wrap: anywhere; }
-.ask-state { color: var(--muted); font-size: .8rem; }
-.peer-request-history { margin-block: .6rem; }
-.peer-request-history summary { width: fit-content; padding-block: .45rem; }
-.peer-request-history > :is(p, ul) { margin-block: .25rem .55rem; }
-.peer-history-list li { border-top: 1px solid var(--line); padding-block: .45rem; }
-.peer-history-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: .15rem .55rem; }
-.peer-history-line + .peer-history-line { margin-top: .2rem; }
+.request-log { margin-block: .45rem .65rem; }
+.request-row { display: grid; gap: .25rem; padding-block: .55rem; }
+.request-row + .request-row { border-top: 1px solid var(--line); }
+.request-row-line { display: flex; flex-wrap: wrap; align-items: center; gap: .15rem .55rem; min-width: 0; }
+.request-person, .request-status, .request-review { display: inline-flex; align-items: center; gap: .3rem; min-width: 0; }
+.request-person { font-weight: var(--weight-emphasis); }
+.request-person .assignee-avatar, .request-status svg { flex: none; }
+.request-status, .request-owner { font-size: .8rem; }
+.request-review { padding-inline-end: .35rem; border-inline-end: 1px solid var(--line); }
+.request-terminal :is(.request-person, .request-status, .request-row-line a) { color: var(--muted); }
+.request-terminal a:hover { color: var(--ink); }
 .report-list { list-style: none; padding: 0; }
 .report-owner { min-width: 0; padding: .85rem 0 .75rem; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 .report-owner-heading {

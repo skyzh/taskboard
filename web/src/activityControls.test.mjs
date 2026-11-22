@@ -662,7 +662,7 @@ test('Reports waits for a successful unconfigured response before showing filter
   assert.match(render('COURSE', courseFilter, failure, 'idle'), /<option value="idle" selected/)
 })
 
-test('Reports keeps unlinked peer asks and leaves linked work and personal notices to their own views', () => {
+test('Reports shows linked and unlinked asks in one request log without recipient-only notices', () => {
   const calls = []
   function feed(path, items) {
     return filters => {
@@ -672,12 +672,18 @@ test('Reports keeps unlinked peer asks and leaves linked work and personal notic
     }
   }
   fixture.pages = {
-    '/reports/queued-reviews': feed('reviews', [{
-      id: 1, task_id: 5, task_key: 'COURSE-2', task_title: 'Review samples',
-      recipient: 'Morgan', state: 'running', execution_state: 'start_unconfirmed',
-    }, { id: 8, task_id: 10, task_key: 'COURSE-8', recipient: 'Other', linked_request: 'COURSE-12' }]),
-    '/reports/queued-peer-waits': feed('peer waits', [{
-      id: 2, task_id: 6, task_key: 'COURSE-3', task_title: 'Review the changes', recipient: 'Avery',
+    '/reports/request-log': feed('request log', [{
+      id: 'review:1', source_id: 5, source_key: 'COURSE-2', source_title: 'Review samples',
+      recipient: 'Morgan', next_owner: 'Morgan', review: true, phase: 'start_unconfirmed',
+    }, {
+      id: 'peer:2', source_id: 6, source_key: 'COURSE-3', source_title: 'Review the changes',
+      request_key: 'COURSE-4', requester: 'Morgan', recipient: 'Avery', next_owner: 'Morgan', phase: 'acknowledgment',
+      recipient_profile: { name: 'Avery', avatar_url: '/avatar/avery' },
+      response: { id: 11 },
+    }, {
+      id: 'peer:3', source_id: 8, source_key: 'COURSE-5', source_title: 'Check the sample',
+      request_key: 'COURSE-6', requester: 'Morgan', recipient: 'Avery', phase: 'done',
+      resolution: { id: 12 },
     }]),
     '/notifications/decisions': feed('decisions', [{
       id: 4, key: 'COURSE-1', title: 'Choose sample', note: 'Recipient-only decision.',
@@ -689,19 +695,22 @@ test('Reports keeps unlinked peer asks and leaves linked work and personal notic
 
   const render = viewer => renderToStaticMarkup(React.createElement(QueuedAsks, { project: 'COURSE', viewer }))
   const reader = render(null)
-  assert.deepEqual(calls, ['reviews', 'peer waits'])
+  assert.deepEqual(calls, ['request log'])
+  assert.equal((reader.match(/aria-label="Requests"/g) || []).length, 1)
   assert.match(reader, /href="#task-COURSE-2"/)
-  assert.match(reader, /For Morgan/)
+  assert.match(reader, /Next for Morgan/)
   assert.match(reader, /Start unconfirmed/)
-  assert.match(reader, /aria-label="More peer reviews"/)
   assert.match(reader, /href="#task-COURSE-3"/)
-  assert.match(reader, /Named peer wait/)
-  assert.match(reader, /For Avery/)
-  assert.match(reader, /aria-label="More named peer waits"/)
+  assert.match(reader, /href="#task-COURSE-4"/)
+  assert.match(reader, /Ready to acknowledge/)
+  assert.match(reader, /src="\/avatar\/avery"/)
+  assert.match(reader, /href="#event-11-log"/)
+  assert.match(reader, /request-terminal[\s\S]*href="#event-12-log"/)
+  assert.match(reader, /aria-label="More requests"/)
   assert.doesNotMatch(reader, /Recipient-only/)
   const signedIn = render({ id: 'Avery' })
-  assert.deepEqual(calls, ['reviews', 'peer waits', 'reviews', 'peer waits'])
-  assert.doesNotMatch(signedIn, /Recipient-only|COURSE-8/)
+  assert.deepEqual(calls, ['request log', 'request log'])
+  assert.doesNotMatch(signedIn, /Recipient-only/)
   assert.match(signedIn, /href="#task-COURSE-3"/)
 })
 
