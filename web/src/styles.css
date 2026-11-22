@@ -681,8 +681,9 @@ button:disabled { opacity: .57; }
   .account { grid-column: 3; grid-row: 1; max-width: 100%; }
   .profile-toggle { min-height: 2.75rem; max-width: 100%; }
   .profile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .board-views { grid-column: 1 / -1; flex-wrap: wrap; gap: 0 .6rem; overflow: visible; }
-  .board-views a { min-height: 2.75rem; }
+  .board-views { grid-column: 1 / -1; gap: .35rem; }
+  .board-views a { flex: none; min-height: 2.75rem; min-inline-size: 2.75rem; }
+  .board-views a:focus-visible { outline-offset: -3px; }
   .task-search-toggle {
     grid-column: 2;
     grid-row: 1;
@@ -706,15 +707,7 @@ button:disabled { opacity: .57; }
   .outcome-time { grid-column: 2; }
   .workspace .filters, .log-filters { grid-template-columns: minmax(0, 1fr); }
 }
-@media (max-width: 28rem) {
-  .board-views { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 .3rem; }
-  .board-views a { justify-content: center; text-align: center; white-space: normal; }
-}
-
 @media (max-width: 40rem) {
-  .tasks-header .board-views { display: flex; flex-wrap: nowrap; gap: .35rem; overflow-x: auto; }
-  .tasks-header .board-views a { flex: none; min-inline-size: 2.75rem; white-space: nowrap; }
-  .tasks-header .board-views a:focus-visible { outline-offset: -3px; }
   .tasks-header + main .main-content { padding-top: .6rem; }
   .tasks-desktop-project { display: none; }
   .tasks-heading { min-height: 2rem; margin-bottom: .4rem; }
