@@ -2,9 +2,12 @@
 set -euo pipefail
 
 root="$1"
+source_commit="$2"
 mkdir -p "$root/evidence"
 evidence="$root/evidence"
-git rev-parse HEAD^ > "$evidence/source-commit.txt"
+git merge-base --is-ancestor "$source_commit" HEAD
+git diff --exit-code "$source_commit" HEAD -- packages web pyproject.toml uv.lock
+git rev-parse "$source_commit" > "$evidence/source-commit.txt"
 git rev-parse HEAD > "$evidence/probe-commit.txt"
 xcodebuild -version > "$evidence/xcode.txt"
 xcrun simctl list --json > "$evidence/simulators.json"
