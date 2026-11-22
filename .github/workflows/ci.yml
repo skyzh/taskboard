@@ -65,6 +65,11 @@ jobs:
           test -f tools/release/test_release_compatibility.py
           uv run --no-sync python -B -m unittest discover -s tools/release -p test_release_compatibility.py
 
+      - name: Check the staged app with the launcher and pinned fixtures
+        run: |
+          git fetch --no-tags --depth=1 origin "$(cat tools/release/supported-runner.txt)"
+          uv run --no-sync python -B -W error::ResourceWarning -m unittest discover -s tools/release -p test_installed_runner.py
+
       - name: Test local deployment with disposable inputs
         run: |
           test -f tools/release/test_direct_main.py
