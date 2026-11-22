@@ -180,7 +180,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle }) {
   )
 }
 
-function ProjectReports({ revision, project, projectTitle, viewer }) {
+function ProjectReports({ revision, project, projectTitle }) {
   const [selection, setSelection] = useState(null)
   const filter = selection && selection.project === project ? selection.view : undefined
   const page = useLoadedPages('/reports', { view: filter, project }, revision)
@@ -221,7 +221,7 @@ function ProjectReports({ revision, project, projectTitle, viewer }) {
           )}
           <LoadMore page={page} label={projectTitle ? `assignees in ${projectTitle}` : 'assignees'} />
         </div>
-        <QueuedAsks revision={revision} viewer={viewer} project={project} grouped={Boolean(projectTitle)} />
+        <QueuedAsks revision={revision} project={project} grouped={Boolean(projectTitle)} />
       </div>
     </section>
   )

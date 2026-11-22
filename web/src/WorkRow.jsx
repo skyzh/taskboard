@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useResource } from './data.js'
-import { Assignee, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, ReminderWhen, ResourceStatus, Status, TaskLink, TaskPriority, Timestamp, eventHref, taskLabel, taskState } from './shared.jsx'
+import { Assignee, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, PeerRequestContext, ReminderWhen, ResourceStatus, Status, TaskLink, TaskPriority, Timestamp, eventHref, taskLabel, taskState } from './shared.jsx'
 import { ReportTime } from './ReportTime.jsx'
 import { reportTaskCue } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
@@ -78,6 +78,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
         </div>
       </div>
       <div className="task-row-context">
+        <PeerRequestContext task={task} />
         {task.waiting_on && <p className="task-dependency"><Dependency task={task} /></p>}
         {cue?.text && (
           <div className="report-task-cue">

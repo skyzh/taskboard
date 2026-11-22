@@ -118,6 +118,13 @@ _ACTIONS = {
         "details": "Handoff details for wait or done. With this field, note is a one-line headline.",
         **_EVIDENCE,
     }),
+    "peer-ask": _Action("POST", "Manage an actionable peer request as a linked ticket.", {
+        **_TASK, "transition": "Choose create, result, acknowledge, or cancel.", "note": _NOTE,
+    }, {
+        "recipient": "The selected agent's stable ID. Required for create only.",
+        "review": "Existing planned or running worker review ID. Optional for create.",
+        **_EVIDENCE,
+    }),
     "handoff": _Action("POST", "Transfer an owned task to another assignee.", {
         **_TASK, "owner": "New owner's stable ID from assignees.", "note": "Next step for the new owner.",
     }, _EVIDENCE),

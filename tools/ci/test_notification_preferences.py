@@ -79,7 +79,7 @@ class StorageReplayTest(unittest.TestCase):
         with closing(Postgres(dsn)) as db:
             self.assertEqual(db.execute("SELECT schema_version FROM taskboard_writer WHERE id = 1").fetchone()[0], 1)
             # Recreate the previous table layout in this throwaway schema without Git history.
-            db.execute("DROP TABLE board_standing_goals, board_goal_milestones, notification_log")
+            db.execute("DROP TABLE board_standing_goals, board_goal_milestones, notification_log, peer_asks")
 
         client, _ = self.board.login(self.postgres_app(dsn), "Avery")
         profile = f"/api/v1/assignee?owner={owner}"
@@ -105,3 +105,26 @@ class StorageReplayTest(unittest.TestCase):
         notices = self.board.call(client, "/api/v1/notifications/log").json["items"]
         self.assertEqual([(notice["task"], notice["status"], notice["delivered_at"]) for notice in notices],
                          [("T-1", "pending", None)])
+
+        with closing(Postgres(dsn)) as db:
+            self.assertTrue(db.has_table("peer_asks"))
+        ordinary = []
+        for title in ("Ordinary completion", "Ordinary closure"):
+            receipt = self.board.action(client, "create-task", {"title": title, "step": "Verify ordinary behavior."})
+            ordinary.append(receipt["receipt"].split()[0])
+        self.board.action(client, "advance-task", {"id": ordinary[0], "transition": "start", "note": "Verify it."})
+        self.board.action(client, "advance-task", {"id": ordinary[0], "transition": "done", "note": "Verified."})
+        self.board.action(client, "close-task", {"id": ordinary[1], "reason": "No further work."})
+
+        reviewer, reviewer_id = self.board.login(client.application, "Blake")
+        self.board.action(client, "advance-task", {"id": "T-1", "transition": "start", "note": "Ready for review."})
+        opened = self.board.action(client, "peer-ask", {
+            "id": "T-1", "transition": "create", "recipient": reviewer_id, "note": "Check the existing task.",
+        })["receipt"]
+        linked = opened.split()[0]
+        self.assertIn("Peer request opened", opened)
+        self.board.action(reviewer, "advance-task", {"id": linked, "transition": "start", "note": "Review the task."})
+        self.board.action(reviewer, "peer-ask", {"id": linked, "transition": "result", "note": "Verified."})
+        self.assertEqual(self.board.action(client, "my-next")["work"]["key"], linked)
+        self.board.action(client, "peer-ask", {"id": linked, "transition": "acknowledge", "note": "Accepted."})
+        self.assertEqual(self.board.action(client, "my-next")["work"]["key"], "T-1")

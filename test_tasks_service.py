@@ -4911,6 +4911,113 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "worker-handoff", {"run": "4", "transition": "collect", "note": "Collected."})
         self.assertEqual([row["id"] for row in self.call(reader, route).json["items"]], [2, 1])
 
+    def test_linked_peer_request_lifecycle_returns_the_next_action_to_the_requester(self):
+        app = self.app(portal_reader=True)
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        self.provider.people["Cedar"] = {
+            **self.provider.people["Avery"], "sub": str(UUID(int=59)), "name": "Cedar", "preferred_username": "cedar",
+        }
+        cedar, _ = self.login(app, "Cedar")
+        self.action(avery, "create-task", {"title": "Review the sample", "step": "Prepare it."})
+        advance = {"id": "T-1", "transition": "start", "note": "Sample is ready."}
+        self.action(avery, "advance-task", advance)
+
+        created = {"id": "T-1", "transition": "create", "recipient": blake_id, "note": "Review the sample."}
+        self.action(cedar, "peer-ask", created, status=403)
+        code, output, errors = self.shared_cli(avery, "peer-ask", "create", "T-1", "Review the sample.", "--to", "Blake")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("T-2 · Peer request opened", output)
+        self.assertIn("tag the named reviewer", output)
+        self.assertEqual(self.action(avery, "peer-ask", created)["receipt"], "T-2 · Existing peer request")
+
+        def read(ticket):
+            return self.call(avery, f"/api/v1/tasks/{ticket}").json["task"]
+
+        self.assertEqual((read(1)["state"], read(1)["waiting_on"]), ("waiting", blake_id))
+        self.assertEqual((read(2)["state"], read(2)["dri"]), ("ready", blake_id))
+
+        result = {"id": "T-2", "transition": "result", "note": "Independent check passed."}
+        ack = {"id": "T-2", "transition": "acknowledge", "note": "I applied the verified result."}
+        self.action(blake, "peer-ask", result, status=409)
+        self.action(avery, "peer-ask", ack, status=409)
+        self.action(blake, "advance-task", {**advance, "id": "T-2", "note": "Checking the sample."})
+        self.assertEqual(read(2)["state"], "in_progress")
+        self.action(cedar, "peer-ask", result, status=403)
+        self.action(blake, "peer-ask", result)
+        self.assertIn("Peer result already recorded", self.action(blake, "peer-ask", result)["receipt"])
+        self.assertEqual((read(2)["state"], read(2)["dri"]), ("ready", avery_id))
+        self.assertEqual((read(1)["state"], read(1)["waiting_on"]), ("waiting", "T-2"))
+        self.assertIn("ready for acknowledgment", read(1)["note"])
+        self.action(blake, "peer-ask", ack, status=403)
+        self.action(avery, "peer-ask", ack)
+        self.assertEqual(read(2)["state"], "done")
+        self.assertEqual((read(1)["state"], read(1)["waiting_on"]), ("ready", None))
+        self.assertIn("already acknowledged", self.action(avery, "peer-ask", ack)["receipt"])
+
+        self.action(avery, "advance-task", advance)
+        newer = self.action(avery, "peer-ask", {**created, "note": "Review the revised sample."})
+        self.assertIn("T-3", newer["receipt"])
+        canceled = {"id": "T-3", "transition": "cancel", "note": "The sample was replaced."}
+        self.action(blake, "peer-ask", canceled, status=403)
+        self.action(avery, "peer-ask", canceled)
+        self.assertEqual(read(1)["state"], "ready")
+        self.assertEqual(read(3)["display_state"], "closed")
+
+    def test_linked_worker_review_drives_the_same_ticket_and_keeps_legacy_receipts(self):
+        app = self.app(portal_reader=True)
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        self.action(avery, "create-task", {"title": "Review a change", "step": "Prepare a fixture."})
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Prepare the fixture."})
+        self.action(avery, "advance-task", {
+            "id": "T-1", "transition": "wait", "on": "Blake", "note": "Check the fixture.",
+        })
+        self.action(avery, "delegate", {
+            "id": "T-1", "worker": blake_id, "role": "review", "brief": "Check the fixture.",
+        })
+        requested = {
+            "id": "T-1", "transition": "create", "recipient": blake_id, "note": "Check the fixture.", "review": "W-1",
+        }
+        self.assertEqual(self.action(avery, "peer-ask", requested)["receipt"], "T-2 · Peer request opened")
+        self.assertEqual(self.action(avery, "peer-ask", requested)["receipt"], "T-2 · Existing peer request")
+
+        def summary(person):
+            rows = self.call(avery, "/api/v1/reports?view=all").json["items"]
+            return next(row for row in rows if row["owner"] == person)
+
+        def phase(person):
+            return next(task["peer_request"] for task in summary(person)["tasks"] if task["key"] == "T-2")["phase"]
+
+        self.assertEqual(phase(blake_id), "asked")
+        self.assertEqual(self.action(blake, "my-next")["work"]["key"], "T-2")
+        self.assertEqual(self.action(blake, "my-reviews")["items"][0]["task_key"], "T-1")
+        self.assertEqual(self.call(avery, "/api/v1/reports/queued-reviews").json["items"][0]["linked_request"], "T-2")
+
+        self.action(blake, "worker-handoff", {"run": "W-1", "transition": "start", "handle": "disposable-review"})
+        self.assertEqual(phase(blake_id), "in_progress")
+        native_inbox = self.call(blake, "/api/v1/notifications/work").json["items"]
+        self.assertEqual([item["key"] for item in native_inbox], ["T-2"])
+        self.action(blake, "worker-handoff", {
+            "run": "W-1", "transition": "report", "result": "blocked", "note": "Provide the missing sample.",
+        })
+        self.assertEqual(phase(avery_id), "acknowledgment")
+        self.assertEqual(summary(avery_id)["pending_reports"], [])
+        original = self.call(avery, "/api/v1/tasks/1").json
+        self.assertEqual((original["task"]["state"], original["workers"][0]["result"]), ("waiting", "blocked"))
+        self.assertEqual(original["task"]["waiting_on"], "T-2")
+        filters = {"scope": "all", "state": "ready", "limit": 100}
+        self.assertEqual([task["key"] for task in self.action(avery, "my-queue", query_string=filters)["items"]], ["T-2"])
+        self.assertEqual(self.action(avery, "my-next")["work"]["key"], "T-2")
+        self.assertEqual([item["key"] for item in self.call(avery, "/api/v1/notifications/work").json["items"]], ["T-2"])
+        self.action(avery, "worker-handoff", {
+            "run": "W-1", "transition": "collect", "note": "Added the missing sample.",
+        })
+        linked = self.call(avery, "/api/v1/tasks/2").json["task"]
+        self.assertEqual((linked["state"], linked["peer_request"]["phase"]), ("done", "done"))
+        self.assertEqual([task["key"] for task in self.action(avery, "my-queue", query_string=filters)["items"]], ["T-1"])
+        self.assertEqual(self.action(avery, "my-next")["work"]["key"], "T-1")
+
     def test_queued_peer_waits_show_named_agents_without_duplicating_reviews(self):
         app = self.app(portal_reader=True)
         reader = app.test_client()

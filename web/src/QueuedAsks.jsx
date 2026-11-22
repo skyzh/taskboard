@@ -27,35 +27,18 @@ function AskList({ label, page, items }) {
   )
 }
 
-function PersonalQueuedAsks({ revision, project }) {
-  const decisions = useLoadedPages('/notifications/decisions', { project }, revision)
-  const requests = useLoadedPages('/notifications/requests', { project }, revision)
-  const decisionRows = decisions.data?.items.map(task => ({
-    id: task.id, task_id: task.id, task_key: task.key, task_title: task.title,
-    type: 'Decision request', status: 'Awaiting your decision', note: task.note,
-  }))
-  const requestRows = requests.data?.items.map(request => ({
-    ...request, type: 'Attention request', status: 'Awaiting your attention', note: request.reason,
-  }))
-  return (
-    <>
-      <AskList label="Decision requests" page={decisions} items={decisionRows} />
-      <AskList label="Attention requests" page={requests} items={requestRows} />
-    </>
-  )
-}
-
 const peerReviewStates = { planned: 'Planned', running: 'In progress', start_unconfirmed: 'Start unconfirmed' }
 
-export default function QueuedAsks({ revision, viewer, project, grouped }) {
+export default function QueuedAsks({ revision, project, grouped }) {
   const reviews = useLoadedPages('/reports/queued-reviews', { project }, revision)
   const waits = useLoadedPages('/reports/queued-peer-waits', { project }, revision)
-  const waitRows = waits.data?.items.map(wait => ({
+  const waitRows = waits.data?.items.filter(wait => !wait.linked_request).map(wait => ({
     ...wait, type: 'Named peer wait', status: 'Waiting for reply',
   }))
-  const reviewRows = reviews.data?.items.map(review => ({
+  const reviewRows = reviews.data?.items.filter(review => !review.linked_request).map(review => ({
     ...review, type: 'Peer review', status: peerReviewStates[review.execution_state ?? review.state],
   }))
+  if (reviewRows?.length === 0 && waitRows?.length === 0 && reviews.data.next_cursor == null && waits.data.next_cursor == null) return null
   const headingId = grouped ? `queued-asks-${project}` : 'queued-asks-title'
   const Heading = grouped ? 'h3' : 'h2'
   return (
@@ -63,8 +46,6 @@ export default function QueuedAsks({ revision, viewer, project, grouped }) {
       <Heading id={headingId}>Queued asks</Heading>
       <AskList label="Peer reviews" page={reviews} items={reviewRows} />
       <AskList label="Named peer waits" page={waits} items={waitRows} />
-      {reviewRows?.length === 0 && waitRows?.length === 0 && <p className="section-message">No pending peer asks.</p>}
-      {viewer && <PersonalQueuedAsks key={viewer.id} revision={revision} project={project} />}
     </section>
   )
 }

@@ -12,7 +12,7 @@ import TaskOwnership from './TaskOwnership.jsx'
 import TaskTags from './TaskTags.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import {
-  actions, ActivityMark, addFilterName, Assignee, AssigneeAvatar, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, LoadMore, Options, OutcomeNote, RecordedActivity, ReminderWhen, ResourceStatus, Status,
+  actions, ActivityMark, addFilterName, Assignee, AssigneeAvatar, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, LoadMore, Options, OutcomeNote, PeerRequestContext, RecordedActivity, ReminderWhen, ResourceStatus, Status,
   states, TaskLink, TaskPriority, Timestamp, WorkerAssignment, WorkerRunState, WorkerRunTiming, eventHref, profileName,
   taskHref, taskLabel, taskState,
 } from './shared.jsx'
@@ -310,6 +310,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
           <section className={`ticket-focus ${state}`} aria-label={summary}>
             <h3>{summary}</h3>
             {task.waiting_on && <p><Dependency task={task} /></p>}
+            {task.peer_request && <PeerRequestContext task={task} />}
             <Markdown text={task.note} relatedTasks={record.related_tasks} />
             <ClosureReference context={task.context} />
             <ReminderWhen context={task.context} />

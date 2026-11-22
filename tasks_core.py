@@ -21,6 +21,7 @@ import tasks_audit as audit
 import tasks_maintenance as maintenance
 import tasks_merges as merges
 import tasks_projects as projects
+import tasks_peer_asks as peer_asks
 import tasks_releases as releases
 import tasks_references as references
 import tasks_recurring
@@ -174,7 +175,7 @@ SCHEMA = (
     """,
     "CREATE INDEX IF NOT EXISTS task_tags_by_tag ON task_tags (tag, task_id)",
     TASKNOTE_SCHEMA,
-) + watches.SCHEMA + workers.SCHEMA + tasks_recurring.SCHEMA
+) + watches.SCHEMA + workers.SCHEMA + tasks_recurring.SCHEMA + peer_asks.SCHEMA
 CURRENT_TASKS = """
     SELECT tasks.id, tasks.title, tasks.dri, tasks.brief, {priority} AS priority, {eta} AS eta,
            {project_prefix} AS project_prefix, {project_number} AS project_number,
@@ -532,6 +533,9 @@ def edit_task_details(db, args, links):
 
 def close_task(db, args, links):
     task = get_task(db, args.id)
+    if ask := peer_asks.find(db, task["id"]):
+        args.change = "cancel"
+        return peer_asks.cancel(db, args, links, ask, task)
     if args.by != task["dri"] and not projects.manages(db, projects.row_project(task), args.by):
         raise PermissionError("Only the ticket owner or project manager can close it.")
     if task["state"] == "done":
@@ -557,6 +561,8 @@ def close_task(db, args, links):
 def change_ownership(db, args, links):
     task = get_task(db, args.id)
     action, reference = args.command, projects.row_reference(task)
+    if peer_asks.find(db, task["id"]):
+        raise ValueError("Use the peer-request actions to change who acts next.")
     if not projects.manages(db, projects.row_project(task), args.by):
         raise PermissionError("Only this project's manager can change task ownership.")
     if task_goal_kind(db, args.id):
@@ -816,6 +822,8 @@ def link_attention_wait(db, args, event_id, request_id, previous_event_id):
 
 def change_task(db, args, links):
     task = get_task(db, args.id)
+    if args.command in ("done", "transfer") and peer_asks.find(db, task["id"]):
+        raise ValueError("Use peer-ask result or peer-ask acknowledge to hand off or finish a linked request.")
     previous, state, label = TRANSITIONS[args.command]
     review_source = getattr(args, "review_on", None)
     review_criteria = getattr(args, "review_criteria", None)
@@ -1031,6 +1039,8 @@ def change_worker_run(db, args, links):
         note = workers.activity_note(run, detail)
         context = {"audit": {"action": f"worker-{operation}", "run_id": run["id"], "status": run["status"]}}
     record(db, task["id"], "log", args.by, task["state"], note, None, links, context)
+    if operation != "delegate" and run["role"] == "review":
+        peer_asks.sync_worker(db, run, operation, args.by, links, getattr(args, "related", None))
     return f"W-{run['id']} · {run['status'].capitalize()} · {projects.row_reference(task)}"
 
 
@@ -1844,6 +1854,14 @@ def arguments():
     tagged.add_argument("project", type=nonblank)
     tagged.add_argument("tag", type=nonblank)
 
+    peer = commands.add_parser(peer_asks.COMMAND, help="Open, return, acknowledge, or cancel a linked peer request.")
+    peer.add_argument("change", choices=peer_asks.TRANSITIONS)
+    peer.add_argument("id", type=task_id, help="Source ticket for create. Linked request ticket for every other action.")
+    peer.add_argument("note", type=nonblank)
+    peer.add_argument("--review", type=worker_run_id, help="Link an existing planned or running review, such as W-15.")
+    peer.add_argument("--to", dest="recipient", type=nonblank, help="Named agent for a new request.")
+    peer.add_argument("--link", nargs=2, action="append", default=[], metavar=("LABEL", "TARGET"))
+
     commands.add_parser("capabilities", help="List commands available to shared agents.")
     overview = commands.add_parser(
         "list",
@@ -2019,6 +2037,13 @@ def arguments():
     args.mode = args.mode or ("offline" if args.db is not None else os.environ.get("TASKS_MODE", "offline"))
     if args.mode not in ("offline", "shared"):
         parser.error("TASKS_MODE must be offline or shared.")
+    if args.command == peer_asks.COMMAND:
+        if args.mode != "shared":
+            parser.error("Use --shared peer-ask with a verified board actor.")
+        if (args.change == "create") != bool(args.recipient):
+            parser.error("Provide --to only when creating a peer request.")
+        if args.review is not None and args.change != "create":
+            parser.error("Link a worker review when creating the peer request.")
     if args.command == "capabilities" and args.mode != "shared":
         parser.error("Use --shared capabilities for shared agent commands.")
 
@@ -2322,6 +2347,8 @@ def save_task(db, path, args, links):
             if released := release_due_deferrals(db, as_of):
                 result["released_deferrals"] = released
             output = json.dumps(result)
+        elif args.command == peer_asks.COMMAND:
+            output = peer_asks.change(db, args, links)
         elif args.command == "add":
             output = add_task(db, args, links)
         elif args.command == "priority":
@@ -2355,7 +2382,7 @@ def save_task(db, path, args, links):
             output = change_task(db, args, links)
         unchanged_allowed = (
             args.command in tasks_recurring.EDITS
-            or args.command in ("recurring-tick", maintenance.WRITE, "tag", "remind", "edit")
+            or args.command in ("recurring-tick", maintenance.WRITE, peer_asks.COMMAND, "tag", "remind", "edit")
         )
         if live and (not unchanged_allowed or db.total_changes != before_change):
             bump_revision(db)
