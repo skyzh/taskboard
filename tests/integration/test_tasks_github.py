@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import tasks_core
-from tasks_github import GitHubReader, _source, ingest_linked_github, linked_source
+from tasks_github import GitHubReader, _source, ingest_linked_github, linked_source, service_settings
 import watches
 
 
@@ -28,6 +28,17 @@ ISSUE_URL = f"{GH}/example/board/issues/7"
 def comment(number, *, url=None):
     return {"id": number, "event": "commented", "created_at": "2026-11-18T10:00:00-08:00",
             "user": {"login": "octocat"}, "body": "  A helpful\n\n test. ", "html_url": url}
+
+
+class GitHubServiceSettingsTest(unittest.TestCase):
+    def test_reader_and_project_extensions_keep_their_separate_settings(self):
+        flags = {"TASKS_GITHUB_ENABLED": "1", "TASKS_PROJECT_EXTENSIONS": '{"T":{"github-status":true}}'}
+        for raft, marketplace, enabled in ((True, False, True), (True, True, False), (False, False, False)):
+            with self.subTest(raft=raft, marketplace=marketplace):
+                reader, configured = service_settings(flags, raft_sign_in=raft, marketplace=marketplace)
+                self.assertEqual(isinstance(reader, GitHubReader), enabled)
+                self.assertEqual(configured, {"T": {"github-status": True}})
+        self.assertEqual(service_settings({}, raft_sign_in=True, marketplace=False), (None, {}))
 
 
 class GitHubIntakeTest(unittest.TestCase):

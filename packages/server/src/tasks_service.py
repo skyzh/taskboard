@@ -554,11 +554,28 @@ def _next_step(name, data, result):
     return _NEXT_STEPS.get(name, _CHECK_INBOX)
 
 
-def create_app(database, *, public_url, raft_config=None, local_readonly=False, portal_reader=False, portal_upstream_token=None,
-               identity_provider=None, github_reader=None, dist=DIST, creation_default_subject=None,
-               websocket_revisions=False, marketplace_root=None, project_roster=None, release_queue_ticket=None,
-               watcher_measurement_ticket=None, oidc_config=None, postgres_dsn=None, github_merge_projects=(),
-               raft_channel_lookup=None, project_extensions=None):
+def create_app(
+    database, *,
+    public_url,
+    raft_config=None,
+    local_readonly=False,
+    portal_reader=False,
+    portal_upstream_token=None,
+    identity_provider=None,
+    github_reader=None,
+    dist=DIST,
+    creation_default_subject=None,
+    websocket_revisions=False,
+    marketplace_root=None,
+    project_roster=None,
+    release_queue_ticket=None,
+    watcher_measurement_ticket=None,
+    oidc_config=None,
+    postgres_dsn=None,
+    github_merge_projects=(),
+    raft_channel_lookup=None,
+    project_extensions=None,
+):
     """Configure the board; injected identity providers are used by isolated tests."""
     github_merge_projects = frozenset(projects.prefix(project) for project in github_merge_projects)
     if creation_default_subject:
@@ -2212,6 +2229,7 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
 def serve(database, host, port, *, local_readonly, portal_reader=False, websocket_revisions=False,
           marketplace_root=None, postgres_dsn=None):
     from waitress import serve as run_wsgi
+    from tasks_github import service_settings as github_settings
 
     if websocket_revisions:
         try:
@@ -2261,20 +2279,16 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
                 )
             if config and not marketplace:
                 config["session_dir"] = os.environ.get("TASKS_RAFT_SESSION_DIR")
-    github = None
-    if config and not marketplace and os.environ.get("TASKS_GITHUB_ENABLED") == "1":
-        from tasks_github import GitHubReader
-
-        github = GitHubReader()
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
     with socket.socket(family) as listener:
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind((host, port))
+        github, project_extensions = github_settings(os.environ, raft_sign_in=bool(config), marketplace=marketplace)
         app = create_app(
             database, public_url=url, raft_config=config, oidc_config=oidc_config, postgres_dsn=postgres_dsn,
             local_readonly=local_readonly, portal_reader=portal_reader,
             portal_upstream_token=portal_upstream_token, github_reader=github, websocket_revisions=websocket_revisions,
-            project_extensions=extensions.configuration(os.environ.get("TASKS_PROJECT_EXTENSIONS")),
+            project_extensions=project_extensions,
             creation_default_subject=os.environ.get("TASKS_NEW_TASKS_DEFAULT_SUBJECT")
             if not (local_readonly or marketplace) else None,
             marketplace_root=marketplace_root,

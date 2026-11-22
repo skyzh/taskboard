@@ -392,6 +392,13 @@ class GitHubReader:
         return recent, review_state, errors, metadata
 
 
+def service_settings(environment, *, raft_sign_in, marketplace):
+    """Read the GitHub reader and extension settings for a server launch."""
+    enabled = raft_sign_in and not marketplace and environment.get("TASKS_GITHUB_ENABLED") == "1"
+    reader = GitHubReader() if enabled else None
+    return reader, extensions.configuration(environment.get("TASKS_PROJECT_EXTENSIONS"))
+
+
 def link_settings(db, source_id, project_extensions):
     if not project_extensions:
         return {}
