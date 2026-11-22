@@ -54,9 +54,12 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   const [showChecklist, setShowChecklist] = useState(false)
   const checklistId = `row-checklist-${task.id}`
   const cue = report ? reportTaskCue(task) : null
+  const reportSummary = report === 'summary'
+  const detailedReport = report && !reportSummary
+  const state = taskState(task)
   const activityAt = task.last_activity_at || task.at
-  const detailNote = report && (cue ? cue.details : task.note)
-  const showDetails = report && (detailNote || task.links?.length > 0 || task.event_id)
+  const detailNote = detailedReport && (cue ? cue.details : task.note)
+  const showDetails = detailedReport && (detailNote || task.links?.length > 0 || task.event_id)
   return (
     <li className={`task-row${selected ? ' selected' : ''}${report ? ' report-task' : ''}`}>
       <TaskPriority priority={task.priority} strip />
@@ -64,26 +67,26 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
         <TaskLink reference={task.key} id={task.id} title={task.title} current={selected} />
         <div className="task-row-meta">
           {compactQueue && <span className="queue-task-key ticket-id" aria-hidden="true">{taskLabel(task.id, task.key)}</span>}
-          <Status state={taskState(task)} />
-          <TaskWaitAge task={task} />
+          {(!reportSummary || !['waiting', 'in_progress'].includes(state)) && <Status state={state} />}
+          {!reportSummary && <TaskWaitAge task={task} />}
           {owner && <Assignee task={task} compact />}
           {compactQueue && ['high', 'low'].includes(task.priority) && (
             <span className="queue-task-priority"><TaskPriority priority={task.priority} /></span>
           )}
-          {report && activityAt && <span>Last activity <ReportTime at={activityAt} /></span>}
+          {detailedReport && activityAt && <span>Last activity <ReportTime at={activityAt} /></span>}
         </div>
       </div>
       <div className="task-row-context">
         {task.waiting_on && <p className="task-dependency"><Dependency task={task} /></p>}
         {cue?.text && (
           <div className="report-task-cue">
-            {cue.label && <strong>{cue.label}</strong>}
+            {detailedReport && cue.label && <strong>{cue.label}</strong>}
             <Markdown text={cue.text} className="task-row-note prose" />
-            {task.release_result && task.at && <p className="event-meta">Step updated <ReportTime at={task.at} /></p>}
+            {detailedReport && task.release_result && task.at && <p className="event-meta">Step updated <ReportTime at={task.at} /></p>}
           </div>
         )}
-        {report && task.release_result && <ReportReleaseResult receipt={task.release_result} />}
-        {cue?.text && ownReport && task.release_after_step && (
+        {detailedReport && task.release_result && <ReportReleaseResult receipt={task.release_result} />}
+        {detailedReport && cue?.text && ownReport && task.release_after_step && (
           <p className="report-note">Review your next step after this release result.</p>
         )}
         {!report && task.note && <p className="task-row-note"><MarkdownInline text={task.note} /></p>}

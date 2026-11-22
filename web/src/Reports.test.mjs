@@ -29,7 +29,7 @@ before(async () => {
 })
 after(() => vite?.close())
 
-test('reports show the complete action and relative ages above collapsed source details', t => {
+test('Reports lead with progress and link to goals, outcomes and exact activity times', t => {
   const at = '2026-11-20T21:00:00Z'
   const stepAt = '2026-11-21T05:40:00Z'
   const activityAt = '2026-11-21T06:55:00Z'
@@ -43,6 +43,8 @@ test('reports show the complete action and relative ages above collapsed source 
   const links = [{ label: 'Original receipt', url: 'https://example.test/receipt' }]
   const entry = {
     owner: 'Avery',
+    last_activity: { id: 35, at: activityAt },
+    goals: [{ kind: 'standing', summary: 'Make reports clear.' }],
     tasks: [
       {
         id: 11, key: 'COURSE-11', title: 'Import a sample', at, state: 'waiting', waiting_on: 'Nora',
@@ -87,45 +89,39 @@ test('reports show the complete action and relative ages above collapsed source 
   const zone = createTimeZoneFormatters('America/Los_Angeles')
   const html = renderToStaticMarkup(React.createElement(TimeZoneContext.Provider, { value: zone },
     React.createElement(AssigneeReport, { entry, project: 'COURSE' })))
-  const prose = [
-    'Full decision record from the original author.',
-    'Full worker report from the original author.',
-  ]
   const primary = html.replaceAll(/<details\b[^>]*>[\s\S]*?<\/details>/g, '')
 
   assert.match(primary, /href="#task-COURSE-11"[^>]*>.*Import a sample/)
   assert.match(primary, /href="#task-COURSE-13"[^>]*>.*Choose the export format/)
   assert.match(primary, /Waiting on <strong>Nora<\/strong>/)
   assert.ok(primary.includes(unblock))
-  assert.match(primary, /<strong>Unblock condition<\/strong>/)
   assert.ok(primary.includes(release.replace('\n\n', '</p><p>')))
-  assert.match(primary, /<strong>Current step<\/strong>/)
   assert.ok(primary.includes(step))
   assert.ok(primary.includes(multiline))
   assert.ok(primary.includes(longer))
-  assert.ok(primary.includes(`Last activity <time dateTime="${activityAt}" title="${zone.formatTimestamp(activityAt)}">1m ago</time>`))
+  const exact = zone.formatTimestamp(activityAt)
+  assert.ok(primary.includes(`href="#event-35-log" aria-label="Last activity, ${exact}"><time dateTime="${activityAt}" title="${exact}">1m ago</time>`))
   assert.ok(primary.includes(`Reported <time dateTime="${reportedAt}" title="${zone.formatTimestamp(reportedAt)}">6m ago</time>`))
   assert.ok(!primary.includes(stepAt))
   assert.match(primary, /Checklist for T-12, 1 of 2 complete/)
-  assert.match(primary, /Decision recorded · <strong>CSV<\/strong>/)
+  assert.match(primary, /aria-label="Decision recorded"/)
+  assert.match(primary, /Choose the export format<\/a> · CSV/)
+  assert.match(primary, /href="#event-33-log" aria-label="Open outcome for COURSE-13,/)
   assert.match(primary, /<time datetime="2026-11-20T21:00:00Z"/i)
   assert.match(primary, /href="#dri=Avery&amp;section=ready-title&amp;project=COURSE">Ready <strong>27<\/strong>/)
   assert.match(primary, /href="#event-34-log"/)
-  assert.doesNotMatch(primary, /human_review-title|example\.test/)
-  for (const note of prose) {
-    assert.ok(html.includes(note))
-    assert.ok(!primary.includes(note))
-  }
+  assert.doesNotMatch(primary, /human_review-title|waiting-title|now-title|example\.test|Current step|Unblock condition|>Waiting<|>In progress</)
+  assert.doesNotMatch(html, /Full decision record|Update and evidence for COURSE-11/)
+  assert.match(html, /Full worker report from the original author/)
+  assert.doesNotMatch(primary, /Full worker report/)
   assert.equal(html.split(unblock).length, 2)
   assert.equal(html.split(release.replace('\n\n', '</p><p>')).length, 2)
   assert.equal(html.split(step).length, 2)
-  assert.match(html, /<details class="report-details"><summary aria-label="Update and evidence for COURSE-11">/)
-  assert.match(html, /href="#event-35-log">Open activity entry/)
-  assert.match(html, /href="#event-32-log">Open activity entry/)
-  assert.match(html, /href="https:\/\/example\.test\/receipt"/)
+  assert.match(html, /Current work<\/h3>[\s\S]*?<details class="report-owner-section report-goals-panel"><summary>Goals<\/summary>/)
+  assert.match(html, /href="#dri=Avery&amp;section=dri-standing-goal-title&amp;project=COURSE">Make reports clear\./)
 })
 
-test('reports keep legacy receipts and preceding narrative in details while authored actions stay visible', () => {
+test('Reports leave legacy receipts and preceding narratives on the ticket while showing authored actions', () => {
   const links = [{ label: 'Original proof', url: 'https://example.test/proof' }]
   const receipt = `Review exact 4-file ${'ab'.repeat(32)} in /fixtures/taskboard/release-candidate. The TLS probe reused the original browser and agent CLI sessions across two actual service processes, with no new login. The fixture test suite passed. Absolute expiry, logout, audience scope and private file modes are covered.`
   const narrative = 'The fixture and recorded restart validation are complete.'
@@ -145,16 +141,15 @@ test('reports keep legacy receipts and preceding narrative in details while auth
   const primary = html.replaceAll(/<details\b[^>]*>[\s\S]*?<\/details>/g, '')
   assert.match(primary, /Waiting on <strong>Morgan<\/strong>/)
   assert.doesNotMatch(primary, /Review exact|release-candidate|Original proof/)
-  assert.match(primary, /<strong>Next step<\/strong>/)
+  assert.doesNotMatch(primary, /<strong>Next step<\/strong>/)
   assert.ok(primary.includes(next.replace('\n\n', '</p><p>')))
   assert.ok(primary.includes('Check the signed proof.'))
   assert.equal(html.split(next.replace('\n\n', '</p><p>')).length, 2)
   for (const text of [receipt, narrative, details]) {
-    assert.ok(html.includes(text))
-    assert.ok(!primary.includes(text))
+    assert.ok(!html.includes(text))
   }
-  for (const id of [140, 141, 142]) assert.match(html, new RegExp(`href="#event-${id}-log"`))
-  assert.match(html, /href="https:\/\/example\.test\/proof"/)
+  for (const id of [40, 41, 42]) assert.match(html, new RegExp(`href="#task-${id}"`))
+  assert.doesNotMatch(html, /https:\/\/example\.test\/proof/)
 })
 
 test('Reports leaves the recorded worker count on the DRI view', () => {
