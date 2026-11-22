@@ -26,15 +26,14 @@ before(async () => {
 })
 after(() => vite?.close())
 
-const teamSections = ['now-title', 'decisions-title', 'outcomes-title', 'workstreams-title']
-const MilestoneMap = () => React.createElement('p', null, 'Fixture dependency map')
+const teamSections = ['now-title', 'decisions-title', 'outcomes-title']
 
 function render(fragment) {
   const previous = { window: globalThis.window, document: globalThis.document }
   try {
     globalThis.window = { location: { hash: fragment }, matchMedia: () => ({ matches: false }) }
     globalThis.document = { documentElement: { dataset: {} } }
-    return renderToStaticMarkup(React.createElement(App, { MilestoneMap }))
+    return renderToStaticMarkup(React.createElement(App))
   } finally {
     Object.assign(globalThis, previous)
   }
@@ -54,16 +53,14 @@ test('Reports links to Team overview without embedding the board-wide feed', () 
   assert.match(reports, /href="#team-overview">Team overview/)
   assert.doesNotMatch(reports, /id="queue-heading"|class="section-index"/)
 
-  for (const fragment of ['team-overview', ...teamSections, 'map']) {
+  for (const fragment of ['team-overview', ...teamSections, 'map', 'workstreams-title']) {
     const overview = render(`#${fragment}`)
     assert.match(overview, /id="team-overview"[^>]*>Team overview/)
     assert.match(overview, /href="#reports" aria-current="page">Reports/)
     assert.match(overview, /class="section-index"/)
     assert.doesNotMatch(overview, /id="queue-heading"|href="#queue-heading"|class="task-detail"/)
     for (const id of teamSections) assert.ok(overview.includes(`id="${id}"`))
-    if (fragment === 'map' || fragment === 'workstreams-title') {
-      assert.match(overview, /Fixture dependency map/)
-    }
+    assert.doesNotMatch(overview, /Dependency map|Workstreams|href="#workstreams-title"/)
   }
 })
 
