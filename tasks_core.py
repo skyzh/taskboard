@@ -1704,9 +1704,9 @@ def arguments():
         if action == "park":
             command.add_argument("--review-after", type=review_date, metavar="YYYY-MM-DD")
             command.add_argument("--review-on", type=nonblank, metavar="T-ID",
-                                 help="Prompt for review when this dependency changes.")
+                                 help="Prompt for review when this dependency changes. Requires --review-criteria.")
             command.add_argument("--review-criteria", type=nonblank, metavar="TEXT",
-                                 help="Record what needs to be true before this ticket returns to Ready.")
+                                 help="Describe when this ticket can return to Ready. Requires --review-on.")
             command.add_argument("--feature-deferred", action="store_true",
                                  help="Record an explicit feature deferral for dependent tickets.")
         if action == "transfer":
@@ -2320,6 +2320,10 @@ def main():
         or args.command in tasks_recurring.EDITS or args.command in ("recurring-tick", maintenance.WRITE)
     )
     try:
+        if args.command == "park" and (args.review_on is None) != (args.review_criteria is None):
+            if args.review_on is None:
+                raise ValueError("--review-criteria requires --review-on.")
+            raise ValueError("--review-on requires --review-criteria.")
         if args.command in STRUCTURED_ACTIVITY:
             if args.details is not None:
                 args.details = activity_details(args.note, args.details)

@@ -389,7 +389,7 @@ class TasksServiceTest(unittest.TestCase):
         viewer = app.test_client()
         self.cli("register-project", "COURSE", "Example project", "--dri", owner_key)
         self.cli("add", "Final release check", "--dri", dependency_key, "--step", "Review the code.")
-        for title in ("Audit the batch", "Review rollout follow-through"):
+        for title in ("Audit the batch", "Review rollout follow-through", "Park without a dependency"):
             self.cli("add", title, "--dri", owner_key, "--step", "Review after the final merge.",
                      "--project", "COURSE")
 
@@ -406,6 +406,21 @@ class TasksServiceTest(unittest.TestCase):
         self.action(owner, "advance-task", {"id": "COURSE-1", "transition": "park",
                     "note": "Wait.", "review_on": "T-1"}, status=400)
 
+        for flag, value, missing in (
+            ("--review-on", "T-1", "--review-criteria"),
+            ("--review-criteria", "Review evidence.", "--review-on"),
+        ):
+            with self.subTest(flag=flag):
+                actions = []
+                code, output, errors = self.shared_cli(
+                    owner, "park", "COURSE-1", "Wait for the final change.", flag, value, actions=actions,
+                )
+                self.assertEqual((code, output, actions), (1, "", []))
+                self.assertIn(f"{flag} requires {missing}.", errors)
+
+        code, output, errors = self.shared_cli(owner, "park", "COURSE-3", "Pause without a dependency.")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("Parked", output)
         reason = "Verify the final squash or an explicit deferral with an owner."
         code, output, errors = self.shared_cli(
             owner, "park", "COURSE-1", "Wait for the final change.", "--review-on", "T-1",

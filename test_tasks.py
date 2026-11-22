@@ -640,6 +640,18 @@ class TasksTest(unittest.TestCase):
 
     def test_parked_tasks_need_explicit_unpark_and_keep_their_review_dates(self):
         self.add("Deferred sample")
+        help_text = " ".join(self.run_tasks("park", "--help").split())
+        self.assertIn("Requires --review-on.", help_text)
+        self.assertIn("Requires --review-criteria.", help_text)
+        before = self.run_tasks("show", "T-1")
+        for flag, value, missing in (
+            ("--review-on", "T-2", "--review-criteria"),
+            ("--review-criteria", "Check the change.", "--review-on"),
+        ):
+            with self.subTest(flag=flag):
+                error = self.change("park", "Review the sample.", flag, value, code=1)
+                self.assertIn(f"{flag} requires {missing}.", error)
+                self.assertEqual(self.run_tasks("show", "T-1"), before)
         self.change("park", "Review with the next batch.", "--review-after", "2099-04-05")
         self.add("Paused check")
         self.change("start", "Verify the sample.", number="T-2")
@@ -665,6 +677,11 @@ class TasksTest(unittest.TestCase):
         active, history = self.run_tasks("show", "T-1").split("Activity", 1)
         self.assertNotIn("2099-04-05", active)
         self.assertIn("Review on or after 2099-04-05", history)
+        self.change(
+            "park", "Review the dependent change.", "--review-on", "T-2",
+            "--review-criteria", "Check the change.",
+        )
+        self.assertIn("Review after a change on T-2: Check the change.", self.run_tasks("show", "T-1"))
 
     def test_workstream_milestones_link_prerequisites_and_follow_ticket_status(self):
         self.add("Prepare the baseline")
