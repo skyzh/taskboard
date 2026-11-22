@@ -68,6 +68,7 @@ test('the combined Reports link opens the Reports tab', () => {
   const combined = render('#reports-all')
   assert.match(combined, /href="#reports-all" aria-current="page">Reports/)
   assert.match(combined, /<h1 id="reports">Reports/)
+  assert.match(combined, /role="status">Loading Reports…/)
   assert.doesNotMatch(combined, /id="queue-heading"/)
 })
 
