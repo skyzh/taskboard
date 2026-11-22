@@ -22,6 +22,7 @@ function usePhoneLayout() {
 function KanbanColumn({ state, count, filters, project, revision, navigation, onPage }) {
   const page = useLoadedPages('/tasks', {
     project, state, dri: filters.dri, unassigned: filters.unassigned, waiting_on: filters.waiting_on, tag: filters.tag,
+    ...(filters.hide_requests && { hide_requests: true }),
     order: state === 'ready' ? 'priority' : undefined,
   }, revision, { rememberedNavigation: navigation })
   const items = page.data?.items

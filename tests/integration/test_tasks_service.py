@@ -4656,6 +4656,42 @@ class TasksServiceTest(unittest.TestCase):
         ):
             self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
 
+    def test_general_lists_hide_peer_requests_before_pagination(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        peer, peer_id = self.login(app, "Blake")
+        self.cli("register-project", "COURSE", "Course", "--dri", owner_id)
+        for number, title in enumerate(("First ordinary task", "Second ordinary task"), 1):
+            self.action(owner, "create-task", {"title": title, "step": "Check it."})
+            self.action(owner, "advance-task", {"id": f"T-{number}", "transition": "start", "note": "Check it."})
+        self.action(owner, "create-task", {"project": "COURSE", "title": "Course task", "step": "Read it."})
+        self.action(owner, "peer-ask", {"id": "T-1", "transition": "create", "recipient": peer_id, "note": "Review this."})
+        work = self.call(peer, "/api/v1/notifications/work").json["items"]
+        request_key = next(item["key"] for item in work if item["title"] == "Peer request for T-1")
+        self.action(peer, "advance-task", {"id": request_key, "transition": "start", "note": "Checking."})
+        queue = "/api/v1/tasks?project=T&limit=1"
+        default = self.call(owner, queue).json
+        self.assertEqual(default["items"][0]["key"], request_key)
+        filtered = self.call(owner, queue + "&hide_requests=true").json
+        self.assertEqual(filtered["items"][0]["key"], "T-1")
+        more = self.call(owner, queue + f"&hide_requests=true&before={filtered['next_cursor']}").json
+        self.assertEqual([task["key"] for task in more["items"]], ["T-2"])
+        self.assertIsNone(more["next_cursor"])
+        log = "/api/v1/activity?project=T&detail=all&limit=1"
+        self.assertEqual(self.call(owner, log).json["items"][0]["task_key"], request_key)
+        filtered_event = self.call(owner, log + "&hide_requests=true").json
+        self.assertEqual(filtered_event["items"][0]["task_key"], "T-1")
+        self.assertIsNotNone(filtered_event["next_cursor"])
+
+        reports = "/api/v1/reports?project=T&view=all"
+        for suffix, expected in (("", {request_key}), ("&hide_requests=true", set())):
+            people = self.call(owner, reports + suffix).json["items"]
+            shown = [row for row in people if row["owner"] == peer_id]
+            self.assertEqual({task["key"] for row in shown for task in row["tasks"]}, expected)
+            self.assertEqual(sum(row["task_count"] for row in shown), len(expected))
+        self.assertEqual(self.call(owner, f"/api/v1/tasks/{request_key}").json["task"]["key"], request_key)
+        self.assertEqual(self.call(owner, f"/api/v1/tasks?project=T&q={request_key}").json["items"][0]["key"], request_key)
+
     def test_activity_filters_return_after_sign_in(self):
         app = self.app(portal_reader=True)
         client = app.test_client()

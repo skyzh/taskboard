@@ -89,7 +89,7 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
   ]
   for (const task of visibleTasks) addFilterName(waitingOn, task.waiting_on, task.waiting_profile)
   const selectedOwnerProfile = visibleTasks.find(task => task.dri === filters.dri && task.dri_profile)?.dri_profile
-  const otherFilterCount = [ownerSelection, filters.waiting_on, tag].filter(Boolean).length
+  const otherFilterCount = [ownerSelection, filters.waiting_on, tag, filters.hide_requests].filter(Boolean).length
   const filterCount = otherFilterCount + Number(Boolean(filters.state))
   const stateCounts = otherFilterCount === 0 ? overview?.counts : undefined
   return (
@@ -146,6 +146,11 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
             <datalist id="dependencies">
               {[...waitingOn.keys()].sort().map(name => <option key={name} value={name} />)}
             </datalist>
+          </label>
+          <label className="activity-mode">
+            <input type="checkbox" checked={Boolean(filters.hide_requests)}
+              onChange={event => update('hide_requests', event.target.checked || undefined)} />
+            Hide peer requests
           </label>
           {tagOptions.size > 0 && (
             <label>
@@ -535,14 +540,16 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   const requestedAction = params.get('action')
   const action = Object.hasOwn(actions, requestedAction) ? requestedAction : ''
   const complete = params.get('detail') === 'all'
+  const hideRequests = params.get('hide_requests') === 'true'
   const [actorDraft, setActorDraft] = useState(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const filterToggle = useRef(null)
   const actorInput = useRef(null)
   const full = complete || Boolean(action)
-  const filterCount = [actor, action, complete].filter(Boolean).length
+  const filterCount = [actor, action, complete, hideRequests].filter(Boolean).length
   const filtered = filterCount > 0
-  const page = useLoadedPages('/activity', { scope: 'all', actor, action, detail: full ? 'all' : 'outcomes' }, revision)
+  const page = useLoadedPages('/activity', { scope: 'all', actor, action, detail: full ? 'all' : 'outcomes',
+    ...(hideRequests && { hide_requests: true }) }, revision)
   const items = page.data?.items || []
   const onPage = items.some(event => event.id === requested)
   const linked = useResource(requested && !onPage ? `/activity/${requested}` : null, revision)
@@ -561,11 +568,12 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
     : ([...actorNames].find(([, key]) => key === actor)?.[0] || profileName(actor))
 
   function changeFilters(next, replace = false) {
-    const filters = { actor, action, complete, ...next }
+    const filters = { actor, action, complete, hideRequests, ...next }
     const scope = new URLSearchParams({
       ...(filters.actor && { actor: filters.actor }),
       ...(filters.action && { action: filters.action }),
       ...(filters.complete && { detail: 'all' }),
+      ...(filters.hideRequests && { hide_requests: 'true' }),
     })
     const base = requested ? eventHref(requested).slice(1) : 'activity'
     onFiltersChange(scope.size ? `${base}?${scope}` : base, replace)
@@ -573,7 +581,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
 
   function clearFilters() {
     setActorDraft(null)
-    changeFilters({ actor: '', action: '', complete: false })
+    changeFilters({ actor: '', action: '', complete: false, hideRequests: false })
     const target = filterToggle.current?.getClientRects().length ? filterToggle.current : actorInput.current
     target?.focus()
   }
@@ -613,6 +621,10 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
         <label className="activity-mode">
           <input type="checkbox" checked={complete} onChange={event => changeFilters({ complete: event.target.checked })} />
           Include routine activity
+        </label>
+        <label className="activity-mode">
+          <input type="checkbox" checked={hideRequests} onChange={event => changeFilters({ hideRequests: event.target.checked })} />
+          Hide peer requests
         </label>
       </div>
       <ResourceStatus resource={page} label="activity" />
