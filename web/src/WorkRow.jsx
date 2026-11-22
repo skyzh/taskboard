@@ -118,10 +118,12 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   )
 }
 
-export function TaskRows({ items, owner = true, selected, label, report, ownReport, revision, compactQueue = false }) {
+export function TaskRows({ items, owner = true, selected, label, report, ownReport, revision, compactQueue = false,
+  listRef, onClick }) {
   if (!items?.length) return null
   return (
-    <ol className={compactQueue ? 'task-rows compact-queue-rows' : 'task-rows'} aria-label={label} role="list">
+    <ol ref={listRef} onClick={onClick} className={compactQueue ? 'task-rows compact-queue-rows' : 'task-rows'}
+      aria-label={label} role="list">
       {items.map(task => (
         <TaskRow key={task.id} task={task} owner={owner} selected={task.id === selected || task.key === selected}
           report={report} ownReport={ownReport} revision={revision} compactQueue={compactQueue} />
