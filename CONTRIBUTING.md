@@ -1,6 +1,6 @@
 # Contributing to Taskboard
 
-Use Python 3.11 or later, uv, and Node.js 20.19+ on the 20.x line or 22.12+ on newer supported lines. Follow the [local quick start](README.md#run-locally) to build the web app and try a disposable ledger. The [shared setup guide](docs/taskboard/SHARED-BOARD.md) describes the optional Raft adapter and its environment settings.
+Use Python 3.11 or later, uv, and Node.js 20.19+ on the 20.x line or 22.12+ on newer supported lines. Follow the [local quick start](docs/taskboard/SETUP.md#try-a-disposable-checkout) to build the web app and try a disposable ledger. The [shared setup guide](docs/taskboard/SHARED-BOARD.md) describes the optional Raft adapter and its environment settings.
 
 ## Propose a change
 

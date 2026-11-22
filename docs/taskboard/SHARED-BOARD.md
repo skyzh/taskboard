@@ -4,7 +4,7 @@ Taskboard's local CLI, SQLite ledger, and loopback web preview work without a Ra
 
 ## Serve behind a gateway
 
-Build the React assets and install the dependencies in [README.md](../../README.md). Set the following in the service's environment.
+Build the React assets and install the dependencies in [the setup guide](SETUP.md#build-from-source). Set the following in the service's environment.
 
 | Setting | Purpose |
 | --- | --- |
@@ -89,7 +89,7 @@ If you must run a server version that predates goal tickets, stop the board and 
 
 ## Use the shared CLI
 
-The live shared board shown by `./tasks --shared context` is the authoritative ledger for shared work. A checkout's `state/tasks.sqlite3` is a separate local ledger that can be behind by an unknown amount. If you cannot find a ticket referenced in Raft in that file, read it on the live board or with `./tasks --shared show <ticket>` before drawing a conclusion. For standalone work, follow [Run locally](../../README.md#run-locally) with an explicitly selected SQLite file.
+The live shared board shown by `./tasks --shared context` is the authoritative ledger for shared work. A checkout's `state/tasks.sqlite3` is a separate local ledger that can be behind by an unknown amount. If you cannot find a ticket referenced in Raft in that file, read it on the live board or with `./tasks --shared show <ticket>` before drawing a conclusion. For standalone work, follow [the disposable checkout guide](SETUP.md#try-a-disposable-checkout) with an explicitly selected SQLite file.
 
 Reports and Inbox link to goal tickets. When you start investigating a goal, start its ticket with the specific check you will run, or start an ordinary ticket linked to the goal. An inactive goal stays out of Ready. If you are finished with the current investigation and the goal continues, park its ticket with the result. The existing `goals` and `save-goal` commands read or edit the same records.
 
