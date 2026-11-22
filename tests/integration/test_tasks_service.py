@@ -5239,6 +5239,73 @@ class TasksServiceTest(unittest.TestCase):
             self.action(avery, "peer-ask", {"id": request, "transition": "acknowledge", "note": "Read."})
             self.assertEqual(self.call(reader, route, query_string={"project": project}).json["items"], visible)
 
+    def test_peer_request_history_pages_recorded_lifecycles_by_project(self):
+        app = self.app(portal_reader=True)
+        reader = app.test_client()
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        self.cli("register-project", "COURSE", "Course", "--dri", avery_id)
+        route = "/api/v1/reports/peer-request-history"
+
+        self.assertEqual(reader.get(BASE + route, base_url=ORIGIN).status_code, 403)
+        self.assertEqual(self.call(reader, route).json, {"items": [], "next_cursor": None})
+
+        def add(project, number):
+            source = f"{project}-{number}"
+            self.action(avery, "create-task", {
+                "project": project, "title": f"Review sample {number}", "step": "Read the draft.",
+            })
+            self.action(avery, "peer-ask", {
+                "id": source, "transition": "create", "recipient": blake_id, "note": "Read the private outline.",
+            })
+            return f"{project}-{number + 1}"
+
+        asked = add("T", 1)
+        started = add("T", 3)
+        responded = add("T", 5)
+        acknowledged = add("T", 7)
+        canceled = add("T", 9)
+        course = add("COURSE", 1)
+        for request in (started, responded, acknowledged, canceled):
+            self.action(blake, "advance-task", {"id": request, "transition": "start", "note": "Read the outline."})
+        response_at = "2026-11-22T04:37:00Z"
+        with patch("tasks_core.timestamp", return_value=response_at):
+            for request in (responded, acknowledged, canceled):
+                self.action(blake, "peer-ask", {
+                    "id": request, "transition": "result", "note": "Private response note.",
+                })
+        close_at = "2026-11-22T04:39:00Z"
+        with patch("tasks_core.timestamp", return_value=close_at):
+            self.action(avery, "peer-ask", {"id": acknowledged, "transition": "acknowledge", "note": "Read."})
+            self.action(avery, "peer-ask", {"id": canceled, "transition": "cancel", "note": "Review was superseded."})
+        self.action(avery, "record-activity", {"id": acknowledged, "note": "A later unrelated log."})
+        legacy = self.action(avery, "create-task", {"title": "Old named wait", "step": "Read the draft."})
+        legacy_id = legacy["receipt"].split()[0]
+        self.action(avery, "advance-task", {"id": legacy_id, "transition": "start", "note": "Prepare the summary."})
+        self.action(avery, "advance-task", {"id": legacy_id, "transition": "wait", "on": "Blake", "note": "Check it."})
+
+        first = self.call(reader, route, query_string={"limit": 2}).json
+        second = self.call(reader, route, query_string={"before": first["next_cursor"]}).json
+        items = first["items"] + second["items"]
+        self.assertIsNone(second["next_cursor"])
+        self.assertEqual([(item["task_key"], item["phase"]) for item in items], [
+            (canceled, "canceled"), (acknowledged, "done"), (responded, "acknowledgment"),
+            (started, "in_progress"), (asked, "asked"),
+        ])
+        for index, item in enumerate(items):
+            self.assertEqual((item["requester"], item["recipient"]), ("Avery", "Blake"))
+            self.assertEqual(item["source_key"], f"T-{9 - index * 2}")
+            self.assertIsNotNone(item["asked_at"])
+            self.assertNotIn("note", item)
+        self.assertEqual([item["response"]["at"] for item in items[:3]], [response_at] * 3)
+        self.assertEqual([item["resolution"]["at"] for item in items[:2]], [close_at] * 2)
+        self.assertNotIn("resolution", items[2])
+        self.assertNotIn("response", items[3])
+        self.assertEqual(
+            [item["task_key"] for item in self.call(reader, route, query_string={"project": "COURSE"}).json["items"]],
+            [course],
+        )
+
     def test_queued_peer_waits_show_named_agents_without_duplicating_reviews(self):
         app = self.app(portal_reader=True)
         reader = app.test_client()

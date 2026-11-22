@@ -11,6 +11,12 @@
 .ask-people svg { vertical-align: -.14em; }
 .ask-ticket { min-width: 0; overflow-wrap: anywhere; }
 .ask-state { color: var(--muted); font-size: .8rem; }
+.peer-request-history { margin-block: .6rem; }
+.peer-request-history summary { width: fit-content; padding-block: .45rem; }
+.peer-request-history > :is(p, ul) { margin-block: .25rem .55rem; }
+.peer-history-list li { border-top: 1px solid var(--line); padding-block: .45rem; }
+.peer-history-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: .15rem .55rem; }
+.peer-history-line + .peer-history-line { margin-top: .2rem; }
 .report-list { list-style: none; padding: 0; }
 .report-owner { min-width: 0; padding: .85rem 0 .75rem; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 .report-owner-heading {

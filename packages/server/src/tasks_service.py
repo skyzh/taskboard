@@ -1368,6 +1368,12 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
         current_actor()
         return query().recent_peer_responses(project_filter(request.args, projects.DEFAULT))
 
+    @app.get("/api/v1/reports/peer-request-history")
+    def report_peer_request_history():
+        current_actor()
+        args = request.args
+        return query().peer_request_history(project=project_filter(args, projects.DEFAULT), **page_args(args))
+
     @app.get("/api/v1/reports/pending")
     def more_reports():
         current_actor()

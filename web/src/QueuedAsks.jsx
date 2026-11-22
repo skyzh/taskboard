@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react'
 import { useLoadedPages, useResource, queryPath } from './data.js'
 import { LoadMore, ResourceStatus, TaskLink, profileName } from './shared.jsx'
 import { ReportTime } from './ReportTime.jsx'
+import PeerRequestHistory from './PeerRequestHistory.jsx'
 
 function AskPeople({ sender, recipient, response }) {
   const target = profileName(recipient)
@@ -42,13 +43,13 @@ function AskList({ label, page, items, responses = false, publicPreview = false 
 
 const reviewStates = { planned: 'Planned', running: 'In progress', start_unconfirmed: 'Start unconfirmed' }
 
-export function QueuedAsksContent({ project, grouped, reviews, waits, responses, snapshot }) {
+export function QueuedAsksContent({ project, grouped, reviews, waits, responses, snapshot, children }) {
   const waitRows = (snapshot?.waits || waits?.data?.items)?.filter(wait => !wait.linked_request)
   const reviewRows = (snapshot?.reviews || reviews?.data?.items)?.filter(review => !review.linked_request).map(review => ({
     ...review, status: reviewStates[review.execution_state ?? review.state],
   }))
   const responseRows = snapshot?.responses || responses?.data?.items
-  if (reviewRows?.length === 0 && waitRows?.length === 0 && responseRows?.length === 0
+  if (!children && reviewRows?.length === 0 && waitRows?.length === 0 && responseRows?.length === 0
     && reviews?.data?.next_cursor == null && waits?.data?.next_cursor == null) return null
 
   const headingId = grouped ? `queued-asks-${project}` : 'queued-asks-title'
@@ -61,6 +62,7 @@ export function QueuedAsksContent({ project, grouped, reviews, waits, responses,
       <AskList label="Named peer waits" page={waits} items={waitRows} publicPreview={Boolean(snapshot)} />
       {responseRows?.length > 0 && <ResponseHeading>Recent responses</ResponseHeading>}
       <AskList label="Recent responses" page={responses} items={responseRows} responses publicPreview={Boolean(snapshot)} />
+      {children}
     </section>
   )
 }
@@ -69,5 +71,9 @@ export default function QueuedAsks({ revision, project, grouped }) {
   const reviews = useLoadedPages('/reports/queued-reviews', { project }, revision)
   const waits = useLoadedPages('/reports/queued-peer-waits', { project }, revision)
   const responses = useResource(queryPath('/reports/recent-peer-responses', { project }), revision)
-  return <QueuedAsksContent project={project} grouped={grouped} reviews={reviews} waits={waits} responses={responses} />
+  return (
+    <QueuedAsksContent project={project} grouped={grouped} reviews={reviews} waits={waits} responses={responses}>
+      <PeerRequestHistory key={project} project={project} revision={revision} />
+    </QueuedAsksContent>
+  )
 }
