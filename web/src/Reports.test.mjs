@@ -46,7 +46,10 @@ test('Reports lead with progress and link to goals, outcomes and exact activity 
   const entry = {
     owner: 'Avery',
     last_activity: { id: 35, at: activityAt },
-    goals: [{ kind: 'standing', summary: 'Make reports clear.' }],
+    goals: [
+      { kind: 'standing', summary: 'Make reports clear.' },
+      { kind: 'milestone', summary: 'Verify the export.', ticket: 'COURSE-20' },
+    ],
     tasks: [
       {
         id: 11, key: 'COURSE-11', title: 'Import a sample', at, state: 'waiting', waiting_on: 'Nora',
@@ -122,7 +125,8 @@ test('Reports lead with progress and link to goals, outcomes and exact activity 
   assert.equal(html.split(unblock).length, 2)
   assert.equal(html.split(release.replace('\n\n', '</p><p>')).length, 2)
   assert.equal(html.split(step).length, 2)
-  assert.match(html, /Current work<\/h3>[\s\S]*?<details class="report-owner-section report-goals-panel"><summary>Goals<\/summary>/)
+  assert.match(html, /Current work<\/h3>[\s\S]*?<div class="report-owner-section report-goals-panel"><h3>Goals<\/h3>/)
+  assert.match(html, /href="#task-COURSE-20"><span class="ticket-id">COURSE-20<\/span> <span>Verify the export\.<\/span>/)
   assert.match(html, /href="#dri=Avery&amp;section=dri-standing-goal-title&amp;project=COURSE">Make reports clear\./)
 })
 
