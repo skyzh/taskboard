@@ -434,6 +434,33 @@ select { height: 2.5rem; }
 select option { background-color: var(--paper); color: var(--ink); }
 select option:checked { background-color: Highlight; color: HighlightText; }
 select option:disabled { color: GrayText; }
+.project-switcher {
+  display: inline-grid;
+  max-width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+.project-switcher > * { grid-area: 1 / 1; }
+.project-switcher select {
+  appearance: none;
+  field-sizing: content;
+  min-width: 0;
+  max-width: 100%;
+  min-block-size: 2rem;
+  height: 2rem;
+  border: 0;
+  background: transparent;
+  padding-inline: 0 1.4rem;
+  color: var(--ink);
+  font-weight: var(--weight-emphasis);
+  cursor: pointer;
+}
+.project-switcher svg {
+  justify-self: end;
+  margin-inline-end: .16rem;
+  color: var(--muted);
+  pointer-events: none;
+}
 form [role="alert"] { color: var(--field-error); }
 button:enabled { cursor: pointer; }
 button:enabled:hover { background: var(--wash); }
@@ -743,7 +770,7 @@ button:disabled { opacity: .57; }
   .tasks-header + main .main-content { padding-top: .6rem; }
   .tasks-desktop-project { display: none; }
   .tasks-heading { min-height: 2rem; margin-bottom: .4rem; }
-  .queue > h2, .queue-project label > span, .compact-queue-rows .task-row-heading > a > .ticket-id {
+  .queue > h2, .compact-queue-rows .task-row-heading > a > .ticket-id {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -755,7 +782,7 @@ button:disabled { opacity: .57; }
   }
   .queue-toolbar { display: flex; align-items: center; gap: .35rem; margin-bottom: .5rem; }
   .queue-project { display: block; flex: 1; min-width: 0; }
-  .queue-project select { width: 100%; min-height: 2.75rem; height: 2.75rem; }
+  .project-switcher select { height: 2.75rem; }
   .queue-toolbar .queue-layout { margin: 0; gap: .25rem; }
   .queue-toolbar button { min-height: 2.75rem; min-width: 2.75rem; }
   .queue-filter-toggle { display: inline-block; margin-inline-start: auto; white-space: nowrap; }
