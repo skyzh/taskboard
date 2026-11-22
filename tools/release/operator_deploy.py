@@ -186,6 +186,13 @@ def run_config(config, record, run=subprocess.run, *, checked_main=None, candida
     return drain_queue(config["queue"], layout, config["artifacts"], verify, restart, healthy, record, apply_app)
 
 
+def read_operator_config(path):
+    metadata = path.stat()
+    if metadata.st_uid != os.getuid() or metadata.st_mode & 0o022:
+        raise ValueError("The operator configuration must have an authorized owner and private write access.")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True, help="Private existing-operator configuration.")
@@ -206,10 +213,7 @@ def main():
     if (args.activity_url or args.read_state) and (args.candidate or args.base):
         parser.error("Read or project a saved outcome without a new transfer.")
     try:
-        metadata = args.config.stat()
-        if metadata.st_uid != os.getuid() or metadata.st_mode & 0o022:
-            raise ValueError("The operator configuration must have an authorized owner and private write access.")
-        config = json.loads(args.config.read_text(encoding="utf-8"))
+        config = read_operator_config(args.config)
         invoke = signed_in_service(args.record_service) if args.record_service else None
 
         def record(outcome):

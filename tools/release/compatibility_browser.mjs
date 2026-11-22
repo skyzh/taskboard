@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 
-const [module, origin, expectedHtml, expectedTitle, manifest] = process.argv.slice(2)
+const [module, origin, expectedHtml, expectedTitle, manifest, executablePath] = process.argv.slice(2)
 const manifestRows = (await readFile(manifest, 'utf8')).trim().split('\n')
 const expectedAssets = new Map(manifestRows.map(row => [row.slice(66), row.slice(0, 64)]))
 assert.equal(expectedHtml, expectedAssets.get('web/dist/index.html'))
 const { chromium } = await import(pathToFileURL(module).href)
-const browser = await chromium.launch({ headless: true })
+const browser = await chromium.launch({ headless: true, executablePath })
 try {
   const context = await browser.newContext({
     ignoreHTTPSErrors: true,

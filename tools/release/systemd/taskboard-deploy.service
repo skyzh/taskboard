@@ -1,0 +1,7 @@
+[Unit]
+Description=Deploy checked Taskboard main
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/share/taskboard/node/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 -B %h/.local/share/taskboard/operator/tools/release/deploy_hosted.py --config %h/.config/taskboard/deploy.json
