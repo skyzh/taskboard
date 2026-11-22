@@ -520,8 +520,12 @@ export function WorkLog({ requested, revision, ownerProfiles }) {
   const [actorLabel, setActorLabel] = useState('')
   const [action, setAction] = useState('')
   const [complete, setComplete] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const filterToggle = useRef(null)
+  const actorInput = useRef(null)
   const full = complete || Boolean(action)
-  const filtered = Boolean(actorLabel || action || complete)
+  const filterCount = [actorLabel, action, complete].filter(Boolean).length
+  const filtered = filterCount > 0
   const page = useLoadedPages('/activity', { scope: 'all', actor: actor.trim(), action, detail: full ? 'all' : 'outcomes' }, revision)
   const items = page.data?.items || []
   const onPage = items.some(event => event.id === requested)
@@ -537,13 +541,31 @@ export function WorkLog({ requested, revision, ownerProfiles }) {
   for (const [key, profile] of Object.entries(ownerProfiles || {})) addFilterName(actorNames, key, profile)
   for (const event of items) addFilterName(actorNames, event.actor, event.actor_profile)
   if (linkedEvent) addFilterName(actorNames, linkedEvent.actor, linkedEvent.actor_profile)
+  function clearFilters() {
+    setActor('')
+    setActorLabel('')
+    setAction('')
+    setComplete(false)
+    const target = filterToggle.current?.getClientRects().length ? filterToggle.current : actorInput.current
+    target?.focus()
+  }
   return (
     <section className="work-log" id="work-log-title" aria-labelledby="activity" tabIndex={-1}>
-      <div className="page-heading"><h1 id="activity">Activity</h1></div>
-      <div className="filters log-filters">
+      <div className="page-heading activity-heading">
+        <h1 id="activity">Activity</h1>
+        <div className="activity-filter-controls">
+          <button type="button" className="activity-filter-toggle" ref={filterToggle}
+            aria-expanded={filtersOpen} aria-controls="activity-filters" data-active={filtered}
+            onClick={() => setFiltersOpen(open => !open)}>
+            {filtered ? `Filters (${filterCount})` : 'Filters'}
+          </button>
+          {filtered && <button type="button" className="activity-filter-clear" onClick={clearFilters}>Clear filters</button>}
+        </div>
+      </div>
+      <div className="filters log-filters" id="activity-filters" data-open={filtersOpen}>
         <label>
           Actor
-          <input type="text" list="activity-actors" value={actorLabel} onChange={event => {
+          <input type="text" list="activity-actors" ref={actorInput} value={actorLabel} onChange={event => {
             const label = event.target.value
             setActorLabel(label)
             setActor(actorNames.get(label) || label.trim())
@@ -563,12 +585,6 @@ export function WorkLog({ requested, revision, ownerProfiles }) {
           <input type="checkbox" checked={complete} onChange={event => setComplete(event.target.checked)} />
           Include routine activity
         </label>
-        {filtered && <button type="button" onClick={() => {
-          setActor('')
-          setActorLabel('')
-          setAction('')
-          setComplete(false)
-        }}>Clear filters</button>}
       </div>
       <ResourceStatus resource={page} label="activity" />
       {linked.pending && <p role="status" className="section-message">Loading linked activity…</p>}
