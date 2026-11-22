@@ -2,6 +2,8 @@
 
 This guide covers self-hosted projects that record local Git merges. For pull requests to the public Taskboard repository, follow [the contributor workflow](../../../CONTRIBUTING.md#propose-a-change).
 
+Set `TASKS_GITHUB_MERGE_PROJECTS=T` in the serving environment to hide the local Merge queue panel for project `T` when it merges on GitHub. Separate multiple project prefixes with commas. The board keeps existing queue records and links when the panel is hidden.
+
 The default Taskboard project shows reviewed local changes under **Tasks → Work queue → Merge queue**. Each row shows the task, its current owner, the exact candidate commit, the local target branch, and the independent review. Task status and the deploy queue have their own records.
 
 ## Record a candidate and review

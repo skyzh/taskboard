@@ -3059,6 +3059,18 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(task["release_number"], 1)
         self.assertEqual(self.call(viewer, "/api/v1/deploy-queue").get_json()["items"][0]["status"], "released")
 
+    def test_github_merge_project_hides_only_the_local_queue_panel_capability(self):
+        app = self.app(portal_reader=True)
+        _, owner = self.login(app, "Avery")
+        self.cli("register-project", "COURSE", "Course board", "--dri", owner)
+        local = app.test_client()
+        github = self.app(portal_reader=True, github_merge_projects=("T",)).test_client()
+        self.assertTrue(self.call(local, "/api/v1/overview?project=T").json["merge_queue"])
+        self.assertNotIn("merge_queue", self.call(github, "/api/v1/overview?project=T").json)
+        self.assertNotIn("merge_queue", self.call(github, "/api/v1/overview?project=COURSE").json)
+        self.assertEqual(self.call(github, "/api/v1/merge-queue?project=T").json,
+                         self.call(local, "/api/v1/merge-queue?project=T").json)
+
     def test_deployment_mark_requires_the_matching_typed_activity_on_the_release_ticket(self):
         app = self.app(portal_reader=True)
         operator, _ = self.login(app, "Avery")

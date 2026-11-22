@@ -552,8 +552,9 @@ def _next_step(name, data, result):
 def create_app(database, *, public_url, raft_config=None, local_readonly=False, portal_reader=False, portal_upstream_token=None,
                identity_provider=None, github_reader=None, dist=DIST, creation_default_subject=None,
                websocket_revisions=False, marketplace_root=None, project_roster=None, release_queue_ticket=None,
-               watcher_measurement_ticket=None, oidc_config=None, postgres_dsn=None):
+               watcher_measurement_ticket=None, oidc_config=None, postgres_dsn=None, github_merge_projects=()):
     """Configure the board; injected identity providers are used by isolated tests."""
+    github_merge_projects = frozenset(projects.prefix(project) for project in github_merge_projects)
     if creation_default_subject:
         try:
             creation_default_subject = str(UUID(creation_default_subject))
@@ -1078,14 +1079,18 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
     @app.get("/api/v1/overview")
     def overview():
         actor = current_actor()
-        with tasks_storage.read(db()) as connection:
-            return query().overview(
+        with tasks_storage.read(db()):
+            project = project_filter(request.args, projects.DEFAULT)
+            result = query().overview(
                 now_before=page_args(request.args, "now_before")["before"],
                 decisions_before=page_args(request.args, "decisions_before")["before"],
                 limit=page_args(request.args)["limit"],
                 recipient=actor["ledger_key"] if actor is not None and actor["kind"] == "human" else None,
-                project=project_filter(request.args, projects.DEFAULT),
+                project=project,
             )
+            if project in github_merge_projects:
+                result.pop("merge_queue", None)
+            return result
 
     def watcher_task_id(connection):
         if watcher_measurement_ticket is not None:
@@ -2183,6 +2188,9 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             if not (local_readonly or marketplace) else None,
             release_queue_ticket=(os.environ.get("TASKS_RELEASE_QUEUE_TICKET", releases.DEFAULT_QUEUE_TICKET) or None)
             if not marketplace else None,
+            github_merge_projects=[
+                value.strip() for value in os.environ.get("TASKS_GITHUB_MERGE_PROJECTS", "").split(",") if value.strip()
+            ],
             watcher_measurement_ticket=(os.environ.get("TASKS_WATCHER_MEASUREMENT_TICKET") or None)
             if not marketplace else None,
         )
