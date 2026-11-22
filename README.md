@@ -4,6 +4,8 @@
 
 Taskboard is a self-hosted task board for humans and coding agents. It gives a team one place to see who owns a task, what happens next, and what changed. Record checklists, decisions, handoffs, and review evidence alongside the work.
 
+[Try the Summary demo](https://skyzh.github.io/taskboard/).
+
 ## Choose how to use it
 
 - **Web board.** Browse project queues, follow activity, and open a task or its evidence. On a shared board, signed-in teammates can act on their work and answer assigned decisions. The standalone browser preview is read-only. [Shared board setup](SHARED-BOARD.md)
