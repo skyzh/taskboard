@@ -1,25 +1,32 @@
 import React, { useState } from 'react'
 import { request } from './data.js'
 
-export default function TaskActivityUpdate({ task, onChanged }) {
+export default function TaskActivityUpdate({ task, onChanged, confirmBlocker = false }) {
   const [note, setNote] = useState('')
   const [evidence, setEvidence] = useState('')
   const [saving, setSaving] = useState(false)
   const [result, setResult] = useState(null)
+  const evidenceRequired = confirmBlocker && !task.context?.blocked_by
+  const canSubmit = note.trim() && (!evidenceRequired || evidence.trim()) && !saving
 
   async function submit(event) {
     event.preventDefault()
-    if (!note.trim() || saving) return
+    if (!canSubmit) return
     setSaving(true)
     setResult(null)
     try {
-      await request(`/tasks/${encodeURIComponent(task.key || task.id)}/activity`, {
-        body: { note: note.trim(), ...(evidence.trim() && { url: evidence.trim() }) },
+      const action = confirmBlocker ? 'confirm-blocker' : 'activity'
+      await request(`/tasks/${encodeURIComponent(task.key || task.id)}/${action}`, {
+        body: {
+          note: note.trim(),
+          ...(confirmBlocker && { wait_event: task.event_id }),
+          ...(evidence.trim() && { url: evidence.trim() }),
+        },
       })
       setNote('')
       setEvidence('')
       onChanged()
-      setResult({ message: 'Update added.' })
+      setResult({ message: confirmBlocker ? 'Blocker confirmed.' : 'Update added.' })
     } catch (error) {
       setResult({ error: true, message: error.message })
     } finally {
@@ -29,19 +36,21 @@ export default function TaskActivityUpdate({ task, onChanged }) {
 
   return (
     <details className="task-ownership">
-      <summary>Add update</summary>
+      <summary>{confirmBlocker ? 'Confirm blocker cleared' : 'Add update'}</summary>
       <form className="ownership-form" onSubmit={submit} data-reload-blocked={Boolean(saving || note || evidence)}>
         <label>
-          Update
+          {confirmBlocker ? 'Verified outcome' : 'Update'}
           <textarea value={note} onChange={event => { setNote(event.target.value); setResult(null) }}
             rows={3} maxLength={4000} required disabled={saving} />
         </label>
         <label>
-          Evidence link (optional)
+          {evidenceRequired ? 'Evidence link' : 'Evidence link (optional)'}
           <input type="url" value={evidence} onChange={event => { setEvidence(event.target.value); setResult(null) }}
-            maxLength={2000} disabled={saving} />
+            maxLength={2000} required={evidenceRequired} disabled={saving} />
         </label>
-        <button type="submit" disabled={!note.trim() || saving}>{saving ? 'Posting…' : 'Post update'}</button>
+        <button type="submit" disabled={!canSubmit}>
+          {saving ? 'Posting…' : confirmBlocker ? 'Confirm and return to Ready' : 'Post update'}
+        </button>
         {result && <p role={result.error ? 'alert' : 'status'}>{result.message}</p>}
       </form>
     </details>

@@ -19,6 +19,7 @@ ADVANCES = {
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
          "search", "readiness", "raft-channel-show", ledger.READ}
 WRITES = ADVANCES | {
+    "confirm-blocker",
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
     "tag", "close", "edit", "checklist", "save-goal", "raft-channel-set", ledger.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
@@ -172,6 +173,9 @@ def shared_write(board, args):
     elif command == "add":
         action = "create-task"
         data.update(title=args.title, step=args.step, brief=args.brief, project=args.project)
+    elif command == "confirm-blocker":
+        action = command
+        data.update(id=task_ref(args.id), wait_event=args.wait_event, note=args.note)
     elif command == "close":
         action = "close-task"
         data.update(id=task_ref(args.id), reason=args.note)

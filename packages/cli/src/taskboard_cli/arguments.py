@@ -207,6 +207,12 @@ def arguments(argv=None):
     add_details_flag(log)
     add_link_flag(log)
 
+    confirm = commands.add_parser("confirm-blocker", help="Return a verified trigger wait to Ready on the shared board.")
+    confirm.add_argument("id", type=task_id)
+    confirm.add_argument("wait_event", type=int, help="Activity event ID for the current wait.")
+    confirm.add_argument("note", type=nonblank, help="The verified outcome.")
+    add_link_flag(confirm)
+
     edit = commands.add_parser("edit", help="Correct an owned or managed ticket’s title or brief.")
     edit.add_argument("id", type=task_id)
     edit.add_argument("note", type=nonblank, metavar="REASON")

@@ -398,6 +398,9 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
               )}
               {!mayAnswer(task, session) && <Options options={task.context?.choices} />}
               <EvidenceLinks links={task.links} />
+              {record.can_confirm_blocker && (
+                <TaskActivityUpdate key={task.event_id} task={task} onChanged={onChanged} confirmBlocker />
+              )}
             </>}
             <DecisionForm key={`${id}:${session.data?.actor?.id ?? session.data?.actor?.name ?? ''}`}
               task={task} session={session} onChanged={onChanged} />

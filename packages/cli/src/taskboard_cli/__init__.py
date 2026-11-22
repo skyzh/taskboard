@@ -26,6 +26,8 @@ def main(argv=None):
             return 0
         if args.command == "search":
             raise ValueError("Search uses the shared board. Run `./tasks --shared search QUERY`.")
+        if args.command == "confirm-blocker":
+            raise ValueError("Blocker confirmation uses the shared board. Run `./tasks --shared confirm-blocker --help`.")
         try:
             from tasks_core import run_local
         except ModuleNotFoundError as error:

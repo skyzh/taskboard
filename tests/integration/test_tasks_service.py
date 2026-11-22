@@ -134,6 +134,56 @@ class TasksServiceTest(unittest.TestCase):
             db.execute("INSERT INTO task_sources (task_id, source_id) VALUES (?, ?)", (task_id, source_id))
         return source_id
 
+    def test_confirm_blocker_checks_the_current_wait_and_returns_its_owner_to_ready(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        manager, manager_id = self.login(app, "Sam")
+        other, _ = self.login(app, "Quinn")
+        self.cli("register-project", "T", "Tasks", "--dri", manager_id)
+        for title in ("Review PR", "Build the replacement", "Verify the build"):
+            self.action(owner, "create-task", {"title": title, "step": "Check the evidence."})
+
+        def advance(ticket, transition, **data):
+            return self.action(owner, "advance-task", {"id": ticket, "transition": transition,
+                                                      "note": "Check the evidence.", **data})
+
+        def read(client, ticket):
+            return self.call(client, f"/api/v1/tasks/{ticket}").json
+
+        def confirm(client, ticket, event, status=200, **data):
+            return self.call(client, f"/api/v1/tasks/{ticket}/confirm-blocker", method="POST", status=status,
+                             json={"wait_event": event, "note": "The expected result is verified.", **data}).json
+
+        advance("T-1", "start")
+        advance("T-1", "wait", on="Portable checks", automation="true")
+        event = read(owner, "T-1")["task"]["event_id"]
+        self.assertTrue(read(manager, "T-1")["can_confirm_blocker"])
+        self.assertFalse(read(other, "T-1")["can_confirm_blocker"])
+        proof = {"url": "https://ci.example.test/runs/7"}
+        confirm(other, "T-1", event, status=403, **proof)
+        confirm(manager, "T-1", event, status=400)
+        confirm(manager, "T-1", event - 1, status=409, **proof)
+        verified = confirm(manager, "T-1", event, **proof)
+        task = read(owner, "T-1")["task"]
+        self.assertEqual((task["state"], task["dri"], task["event_id"]),
+                         ("ready", owner_id, verified["event_id"]))
+        self.assertEqual(task["context"]["confirmed_blocker_event"], event)
+        self.assertEqual(task["links"][0]["url"], proof["url"])
+        confirm(manager, "T-1", event, status=409, **proof)
+
+        advance("T-3", "start")
+        advance("T-3", "wait", blocked_by="T-2")
+        event = read(owner, "T-3")["task"]["event_id"]
+        confirm(owner, "T-3", event, status=409)
+        advance("T-2", "start")
+        advance("T-2", "done")
+        code, output, errors = self.shared_cli(owner, "confirm-blocker", "T-3", str(event), "T-2 is Done.")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("T-3 · Blocker confirmed", output)
+        task = read(owner, "T-3")["task"]
+        self.assertEqual((task["state"], task["dri"]), ("ready", owner_id))
+        self.assertTrue(task["links"][0]["url"].endswith("/#task-2"))
+
     def test_project_notification_log_uses_only_scoped_receipts(self):
         app = self.app(portal_reader=True)
         avery, avery_key = self.login(app, "Avery")
