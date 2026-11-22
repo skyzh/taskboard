@@ -51,7 +51,8 @@ def invocation_error(result, reply, service, action):
             "Raft rejected the invocation before dispatch. "
             f"Check the supported actions with `raft integration invoke --service {quote(service)} --list-actions`."
         )
-    status = re.search(r"\bHTTP (\d{3})\b", str(message) + "\n" + result.stderr)
+    status_text, _, embedded_body = str(message if failure else result.stderr).partition("; response body: ")
+    status = re.search(r"\bHTTP (\d{3})\b", status_text)
     if code == "INTEGRATION_INVOKE_FAILED" and status and int(status[1]) in APP_REJECTION:
         if status[1] == "401":
             return (
@@ -59,7 +60,7 @@ def invocation_error(result, reply, service, action):
                 f"Run `raft integration login --service {quote(service)}`, then verify the account and board "
                 "with `./tasks --shared context`."
             )
-        body = details.get("response_body")
+        body = details.get("response_body", embedded_body)
         if isinstance(body, str):
             body = reply_json(body)
         explanation = body.get("error") if isinstance(body, dict) else None
@@ -97,6 +98,10 @@ class SharedBoard:
         except (subprocess.TimeoutExpired, KeyboardInterrupt) as error:
             raise RuntimeError(unknown) from error
         reply = reply_json(result.stdout)
+        if result.returncode != 0 and not reply:
+            failure = reply_json(result.stderr)
+            if failure.get("ok") is False:
+                reply = failure
         if result.returncode != 0 or reply.get("ok") is not True:
             reason = invocation_error(result, reply, self.service, action)
             if reason:
