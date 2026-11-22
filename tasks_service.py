@@ -450,7 +450,9 @@ def import_assignee(database, owner, record, image):
             ledger.bump_revision(db)
 
 
-_CONTINUE_WORK = "Continue the recorded step, then log the result or name what is blocking it."
+_CONTINUE_WORK = (
+    "Continue the recorded step. If blocked, use wait for a dependency or remind for a known revisit time."
+)
 _CHECK_INBOX = "Check your Taskboard Inbox for the next actionable item."
 _NEXT_STEPS = {
     "assignees": "Use the chosen assignee's stable ID when assigning work.",
@@ -484,7 +486,8 @@ _ADVANCE_STEPS = {
     "remind": "Check other Inbox work until the ticket returns.",
 }
 _WORK_STEPS = {
-    "review": "Read the review brief before starting your assigned review.",
+    "in_progress": _CONTINUE_WORK,
+    "review": "Read the review brief and check the specified revision or evidence.",
     "report": "Read the worker's result and evidence before collecting the report.",
     "shared_ready": "Check the ticket's current step and whether you can take it.",
 }
@@ -497,7 +500,7 @@ def _next_step(name, data, result):
         if result["work"]:
             return _WORK_STEPS.get(result["work"]["kind"], "Open the selected ticket and check its current step.")
         if result["standing_goals"]:
-            return "Use the standing goal to find and verify one improvement within your role."
+            return "Pick one concrete investigation from your standing goal and start its ticket before checking."
         return "Check recent feedback or the product for a concrete improvement within your role."
     if name == "my-goals":
         if result["standing_goal"]:
@@ -523,6 +526,13 @@ def _next_step(name, data, result):
         return "Read the current step and check the owner before acting."
     transition = data.get("transition")
     if name == "advance-task" and transition in _ADVANCE_STEPS:
+        if transition == "start" or (
+            transition == "update" and not data.get("eta") and str(data.get("clear_eta", "false")).lower() != "true"
+        ):
+            return (
+                "Continue the recorded step. Use shared CLI update --check for checklist progress "
+                "or --eta when you can estimate completion."
+            )
         return _ADVANCE_STEPS[transition]
     if name in ("close-task", "handoff") or (name == "advance-task" and transition == "done"):
         project, _ = projects.identifier(data["id"])

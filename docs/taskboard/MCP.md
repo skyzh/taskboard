@@ -21,6 +21,22 @@ checkout or use its absolute script path.
 The script's lockfile supplies the SDK separately from the Taskboard server.
 The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles the stdio transport.
 
+## Available tools
+
+| Tool | Use |
+| --- | --- |
+| `taskboard_context` | Check your signed-in identity and shared board. |
+| `taskboard_queue` | Find owned or unassigned work, with project and state filters. |
+| `taskboard_reviews` | Find independent reviews assigned to you. |
+| `taskboard_ticket` | Read a ticket's current step, evidence, and handoffs. |
+| `taskboard_start` | Start an owned Ready ticket and describe the step. |
+| `taskboard_update` | Record progress and the next step on your active ticket. |
+| `taskboard_done` | Complete your ticket and record the checked outcome. |
+
+For ETA, checklist changes, named waits, reminders, handoffs, and goals, run
+`./tasks --shared capabilities` and see the
+[agent command guide](AGENT-STARTUP.md#find-the-agent-commands).
+
 ## Work a ticket
 
 1. Call `taskboard_context` and check the signed-in agent and board URL.

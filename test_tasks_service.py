@@ -1469,7 +1469,11 @@ class TasksServiceTest(unittest.TestCase):
             self.action(avery, "create-task", {"title": title, "step": "Read."})
         self.action(avery, "set-priority", {"id": "T-3", "priority": "high"})
         base = {"id": "T-1", "note": "Compare the samples."}
-        self.action(avery, "advance-task", {**base, "transition": "start"})
+        status, output, errors = self.shared_cli(avery, "start", "T-1", base["note"])
+        self.assertEqual((status, errors), (0, ""))
+        self.assertIn("Committed · T-1 · Started", output)
+        self.assertIn("update --check", output)
+        self.assertIn("--eta", output)
         update = {**base, "transition": "update"}
         path = "/api/v1/tasks/1"
         self.assertIsNone(self.call(viewer, path).json["task"]["eta"])
@@ -1492,6 +1496,7 @@ class TasksServiceTest(unittest.TestCase):
         status, output, errors = self.shared_cli(avery, "update", "T-1", base["note"], "--eta", estimate)
         self.assertEqual(status, 0, errors)
         self.assertIn("Committed · T-1 · Progress", output)
+        self.assertNotIn("--eta", output)
         current = self.call(viewer, path).json["task"]
         self.assertEqual((current["eta"], current["state"], current["priority"], current["dri"]),
                          ("2026-11-24T22:15:00.342117Z", "in_progress", "normal", avery_id))
@@ -1499,10 +1504,13 @@ class TasksServiceTest(unittest.TestCase):
 
         revised = "2026-11-25T12:30Z"
         self.action(avery, "advance-task", {**update, "eta": revised})
-        self.action(avery, "advance-task", {**update, "note": "Check the final sample."})
+        progress = self.action(avery, "advance-task", {**update, "note": "Check the final sample."})
+        self.assertEqual(progress["receipt"], "T-1 · Progress")
+        self.assertIn("--eta", progress["next_step"])
         self.assertEqual(self.call(viewer, path).json["task"]["eta"], "2026-11-25T12:30:00Z")
-        status, _, errors = self.shared_cli(avery, "update", "T-1", base["note"], "--clear-eta")
+        status, output, errors = self.shared_cli(avery, "update", "T-1", base["note"], "--clear-eta")
         self.assertEqual(status, 0, errors)
+        self.assertNotIn("--eta", output)
         self.assertIsNone(self.call(viewer, path).json["task"]["eta"])
         self.assertNotIn("Estimated:", self.shared_cli(avery, "show", "T-1")[1])
         events = self.call(viewer, path + "/activity").json["items"]
@@ -1761,8 +1769,18 @@ class TasksServiceTest(unittest.TestCase):
         )
 
     def test_shared_action_guidance_preserves_receipts_and_the_project_queue(self):
+        from tasks_shared_cli import READS, WRITES
+
         app = self.app(portal_reader=True)
         owner, owner_key = self.login(app, "Avery")
+        actions = []
+        code, output, errors = self.shared_cli(owner, "capabilities", actions=actions)
+        self.assertEqual((code, errors, actions), (0, "", []))
+        _, reads, writes, help_line = output.splitlines()
+        self.assertEqual(set(reads.removeprefix("Read: ").split(", ")), READS | {"capabilities"})
+        self.assertEqual(set(writes.removeprefix("Write: ").split(", ")), set(WRITES))
+        self.assertIn("`./tasks --shared <command> --help`", help_line)
+        self.assertIn("`./tasks --shared capabilities`", self.shared_cli(owner, "context")[1])
         teammate, teammate_key = self.login(app, "Blake")
         self.cli("register-project", "COURSE", "Example course", "--dri", owner_key)
         self.cli("register-project", "T", "Tasks Board", "--dri", teammate_key)
@@ -1901,7 +1919,9 @@ class TasksServiceTest(unittest.TestCase):
         code, output, errors = self.shared_cli(reviewer, "next")
         self.assertEqual((code, errors), (0, ""))
         self.assertIn("Independent review", output)
-        self.assertTrue(output.rstrip().endswith("Next: Read the review brief before starting your assigned review."))
+        self.assertTrue(output.rstrip().endswith(
+            "Next: Read the review brief and check the specified revision or evidence."
+        ))
 
     def test_shared_cli_missing_merge_sha_fails_before_dispatch_and_valid_timeout_needs_readback(self):
         app = self.app(portal_reader=True)

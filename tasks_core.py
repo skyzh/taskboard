@@ -1796,6 +1796,7 @@ def arguments():
     tagged.add_argument("project", type=nonblank)
     tagged.add_argument("tag", type=nonblank)
 
+    commands.add_parser("capabilities", help="List commands available to shared agents.")
     overview = commands.add_parser(
         "list",
         help="List tasks in your shared queue or offline ledger.",
@@ -1969,6 +1970,8 @@ def arguments():
     args.mode = args.mode or ("offline" if args.db is not None else os.environ.get("TASKS_MODE", "offline"))
     if args.mode not in ("offline", "shared"):
         parser.error("TASKS_MODE must be offline or shared.")
+    if args.command == "capabilities" and args.mode != "shared":
+        parser.error("Use --shared capabilities for shared agent commands.")
 
     if args.command == "oidc-member":
         if args.mode != "offline" or args.db is None:
