@@ -1,0 +1,48 @@
+name: Summary visual checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/summary-visual.yml
+      - tools/summary-visual/**
+      - web/src/Reports.jsx
+      - web/src/WorkRow.jsx
+      - web/src/shared.jsx
+      - web/src/reports.css
+      - web/src/styles.css
+      - web/src/night.css
+
+permissions:
+  contents: read
+
+jobs:
+  status-baselines:
+    name: Summary baselines in Safari and Chromium
+    runs-on: macos-26
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.3'
+          package-manager-cache: false
+      - name: Build and install the desktop renderer
+        run: |
+          npm --prefix web ci --no-audit --no-fund
+          npm --prefix web run build
+          npm install --prefix "$RUNNER_TEMP/taskboard-visual" --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.63.0
+          "$RUNNER_TEMP/taskboard-visual/node_modules/.bin/playwright" install chromium
+      - name: Verify the same fictional rows in both browsers
+        run: |
+          bash tools/summary-visual/capture.sh web/dist "$RUNNER_TEMP/summary-visual-evidence" \
+            "$RUNNER_TEMP/taskboard-visual/node_modules/playwright/index.mjs"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: summary-visual-evidence
+          path: ${{ runner.temp }}/summary-visual-evidence/
+          retention-days: 7
