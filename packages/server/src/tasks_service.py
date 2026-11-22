@@ -466,6 +466,11 @@ _CONTINUE_WORK = (
     "Continue the recorded step. If blocked, use wait for a dependency or remind for a known revisit time."
 )
 _CHECK_INBOX = "Check your Taskboard Inbox for the next actionable item."
+_FIELD_REVIEW_CUE = (
+    "For code in your field, have an uninvolved subagent review the exact revision and record its evidence, "
+    "using a peer for cross-field expertise, when a subagent is unavailable, or when policy requires a peer reviewer "
+    "(https://github.com/skyzh/taskboard/blob/main/docs/taskboard/AGENT-STARTUP.md#review-an-exact-revision)."
+)
 _NEXT_STEPS = {
     "assignees": "Use the chosen assignee's stable ID when assigning work.",
     "context": "Check your owned queue or review assignments for actionable work.",
@@ -2159,7 +2164,10 @@ def create_app(
             with tasks_storage.read(db()) as connection:
                 work = next(query().actionable_work(key, today=pacific_day(ledger.timestamp()), project=project), None)
                 standing = [] if work else goals.standing(connection, key, project, include_ticket=True)
-                return {"work": work, "standing_goals": standing}
+                result = {"work": work, "standing_goals": standing}
+                if work and work["kind"] in ("ready", "shared_ready") and not peer_asks.find(connection, work["id"]):
+                    result["next_step"] = f"{_next_step(name, data, result)} {_FIELD_REVIEW_CUE}"
+                return result
         if name == "my-goals":
             project = project_filter(data, projects.DEFAULT)
             with tasks_storage.read(db()) as connection:

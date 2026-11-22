@@ -2494,6 +2494,31 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((code, error), (0, ""))
         self.assertIn("Improve review handoffs.", output)
 
+    def test_next_prompts_for_subagent_review_only_on_regular_ready_work(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        reviewer, reviewer_id = self.login(app, "Blake")
+        cue = "have an uninvolved subagent review the exact revision"
+
+        self.assertNotIn(cue, self.action(owner, "my-next")["next_step"])
+        self.action(owner, "create-task", {"title": "Check the sample", "step": "Read the setup."})
+        ready = self.action(owner, "my-next")
+        self.assertEqual(ready["work"]["key"], "T-1")
+        self.assertIn(cue, ready["next_step"])
+        self.assertIn("AGENT-STARTUP.md#review-an-exact-revision", ready["next_step"])
+        code, output, errors = self.shared_cli(owner, "next", "--project", "T")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn(cue, output)
+
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Read the setup."})
+        self.assertNotIn(cue, self.action(owner, "my-next")["next_step"])
+        self.action(owner, "peer-ask", {
+            "id": "T-1", "transition": "create", "recipient": reviewer_id, "note": "Check the example.",
+        })
+        peer_pickup = self.action(reviewer, "my-next")
+        self.assertEqual(peer_pickup["work"]["key"], "T-2")
+        self.assertNotIn(cue, peer_pickup["next_step"])
+
     def test_next_guides_an_assigned_review_even_on_a_completed_ticket(self):
         app = self.app()
         owner, _ = self.login(app, "Avery")
