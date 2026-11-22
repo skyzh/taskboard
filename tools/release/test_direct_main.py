@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import test_ci_watch
-from deploy_hosted import deploy_once
+from deploy_hosted import deploy_once, git_main_tip
 from deploy_main import run_main
 from operator_deploy import (
     checked_main_receipt, project_checked_main, read_main_state, receive_checked_main,
@@ -156,6 +156,21 @@ class MainReleaseTest(unittest.TestCase):
             },
         }
 
+    def test_public_git_lookup_requires_the_exact_main_ref(self):
+        sha = "1" * 40
+        with patch("deploy_hosted.subprocess.run") as launch:
+            launch.return_value.stdout = f"{sha}\trefs/heads/main\n"
+            self.assertEqual(git_main_tip({"repo": "fixture/taskboard"}), sha)
+            self.assertEqual(launch.call_args.args[0], [
+                "git", "ls-remote", "--exit-code", "--refs", "https://github.com/fixture/taskboard.git",
+                "refs/heads/main",
+            ])
+            self.assertEqual(launch.call_args.kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
+            for malformed in ("", f"{sha}\trefs/heads/other\n", "short\trefs/heads/main\n"):
+                launch.return_value.stdout = malformed
+                with self.subTest(malformed=malformed), self.assertRaises(ReleaseRejected):
+                    git_main_tip({"repo": "fixture/taskboard"})
+
     def test_unverified_github_checks_never_build_or_activate(self):
         self.prepare_target()
         commit = test_ci_watch.resolve_commit(self.ci.repo, "HEAD")
@@ -181,7 +196,7 @@ class MainReleaseTest(unittest.TestCase):
                     rules[1]["parameters"]["strict_required_status_checks_policy"] = False
                 fetch, operate = Mock(), Mock()
                 with patch("deploy_hosted.build_checked_commit") as build, self.assertRaises(ReleaseRejected):
-                    deploy_once(self.config, read=responses.__getitem__, fetch=fetch, operate=operate)
+                    deploy_once(self.config, tip=lambda _: commit, read=responses.__getitem__, fetch=fetch, operate=operate)
                 fetch.assert_not_called()
                 build.assert_not_called()
                 operate.assert_not_called()
@@ -214,7 +229,7 @@ class MainReleaseTest(unittest.TestCase):
             patch("deploy_hosted.verify_policy_receipt"),
         ):
             self.assertEqual(release_info(layout.current), dict.fromkeys(("commit", "built_at", "deployed_at")))
-            first = deploy_once(self.config, read=responses.__getitem__, fetch=fetch, operate=operate)
+            first = deploy_once(self.config, tip=lambda _: commit, read=responses.__getitem__, fetch=fetch, operate=operate)
             self.assertEqual(first["status"], "released")
             candidate = first["candidate"]
             running = release_info(layout.current)
@@ -224,8 +239,13 @@ class MainReleaseTest(unittest.TestCase):
             self.assertEqual(first["evidence"]["github"]["commit"], commit)
             verify_manifest(layout.current, candidate)
             self.assertEqual((layout.current / "web/dist/index.html").read_text(), "Built from protected main")
-            self.assertEqual(deploy_once(self.config, read=responses.__getitem__, fetch=fetch, operate=operate),
-                             {"commit": commit, "status": "unchanged"})
+            read = Mock(side_effect=AssertionError("An unchanged tick used the REST API"))
+            tip = Mock(return_value=commit)
+            for _ in range(3):
+                self.assertEqual(deploy_once(self.config, tip=tip, read=read, fetch=fetch, operate=operate),
+                                 {"commit": commit, "status": "unchanged"})
+            self.assertEqual(tip.call_count, 3)
+            read.assert_not_called()
             self.assertEqual(transfers, [(commit, candidate, before)])
             self.assertEqual(restarts, [True])
             fetch.assert_called_once()
@@ -233,7 +253,7 @@ class MainReleaseTest(unittest.TestCase):
             self.ci.write("web/src/title.txt", "Disposable rollback")
             newer = self.ci.commit("Test rejected mounted health")
             fail_except = candidate
-            rolled = deploy_once(self.config, read=self.github_responses(newer).__getitem__,
+            rolled = deploy_once(self.config, tip=lambda _: newer, read=self.github_responses(newer).__getitem__,
                                  fetch=fetch, operate=operate)
             self.assertEqual((rolled["status"], rolled["active"]), ("rolled_back", candidate))
             self.assertEqual(release_info(layout.current), running)
