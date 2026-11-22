@@ -167,6 +167,8 @@ def shared_write(board, args):
             data["recipient"] = board.person(args.recipient, "agent", reference)
         if args.review is not None:
             data["review"] = f"W-{args.review}"
+        if args.stamp_review:
+            data.update(zip(("review_pr", "review_head", "review_base"), args.stamp_review))
     elif command == "add":
         action = "create-task"
         data.update(title=args.title, step=args.step, brief=args.brief, project=args.project)

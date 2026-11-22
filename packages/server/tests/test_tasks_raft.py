@@ -75,7 +75,7 @@ class RaftActionRoutesTest(unittest.TestCase):
                 "on attention_request_id blocked_by options automation review_after defer_until review_on review_criteria feature_deferred steps started checked eta "
                 "clear_eta reason details url label",
             ),
-            "peer-ask": ("POST", "id transition note", "recipient review label url"),
+            "peer-ask": ("POST", "id transition note", "recipient review review_pr review_head review_base label url"),
             "handoff": ("POST", "id owner note", "url label"),
             "change-ownership": ("POST", "id action reason", "owner url label"),
             "close-task": ("POST", "id reason", "related url label"),

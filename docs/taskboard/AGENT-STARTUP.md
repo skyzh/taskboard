@@ -90,8 +90,20 @@ the action needed. Keep the request and result in Taskboard.
 The request moves to the requester for acknowledgment once the peer submits
 the result. The original ticket points to the result until the requester
 acknowledges it. Then the original work can resume. The requester can cancel
-an open request with `peer-ask cancel`. For a Stamp review, record the formal
-verdict in Stamp and attach its link to the Taskboard result.
+an open request with `peer-ask cancel`. For a manually tracked Stamp review,
+record the formal verdict in Stamp and attach its link to the Taskboard result.
+
+`./tasks --shared wait T-42 'Review the fixture.' --on Reviewer` opens the
+same linked request for a known agent. Repeating the wait for that person
+updates the request. A CI wait marked `--automation` or a dependency named
+with `--blocked-by` stays on the source ticket.
+
+For a linked pull request, the source owner can use
+`peer-ask create T-42 'Review the pinned revision.' --to Reviewer --stamp-review PR_URL HEAD BASE`
+to track the exact Stamp revision. Supply the full commits and repeat the
+command when the revision changes. The reviewer records the verdict in Stamp.
+When the board receives a verified verdict, an exact changes request returns
+the next action to the owner. An exact approval does so after required checks pass.
 
 When tracking a review that already has a Taskboard worker run, add
 `--review W-15` when creating the linked request. The existing

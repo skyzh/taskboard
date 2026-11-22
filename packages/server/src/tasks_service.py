@@ -1855,6 +1855,13 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
             raise RequestError("automation must be true or false.")
         if attention_request is not None and automation == "true":
             raise RequestError("An attention wait cannot be marked as automation.")
+        peer = None
+        if command == "wait" and on and blocked_by is None and automation == "false":
+            peer = peer_asks.named_recipient(db(), on)
+            if peer == actor["ledger_key"]:
+                peer = None
+            if peer is not None:
+                peer = require_person(peer, "agent", task_id=number)
         review_on = text(data, "review_on", optional=True, maximum=28)
         review_criteria = text(data, "review_criteria", optional=True)
         feature_deferred = str(data.get("feature_deferred", "false")).lower()
@@ -1893,7 +1900,7 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
             raise RequestError("clear_eta must be true or false.")
         return mutate(
             command, actor, data, id=number, on=on, option=options,
-            blocked_by=blocked_by,
+            blocked_by=blocked_by, peer_recipient=peer,
             reason=reason, automation=automation == "true", review_after=review,
             review_on=review_on, review_criteria=review_criteria, feature_deferred=feature_deferred == "true", defer_until=defer_until,
             checklist_step=steps, start_check=started, check=checked, attention_request_id=attention_request,
@@ -2067,10 +2074,14 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
             elif recipient is not None:
                 raise RequestError("Provide a recipient only when creating a peer request.")
             review = record_id(data["review"], "W-", "review ID") if data.get("review") is not None else None
-            if review is not None and change != "create":
-                raise RequestError("Link a worker review only when creating a peer request.")
+            pin_fields = ("review_pr", "review_head", "review_base")
+            stamp_review = None
+            if any(field in data for field in pin_fields):
+                stamp_review = tuple(text(data, field) for field in pin_fields)
+            if (review is not None or stamp_review is not None) and change != "create":
+                raise RequestError("Link a review only when creating or refreshing a peer request.")
             return mutate(peer_asks.COMMAND, actor, data, id=number, change=change,
-                          note=text(data, "note"), recipient=recipient, review_run=review)
+                          note=text(data, "note"), recipient=recipient, review_run=review, stamp_review=stamp_review)
         if name == "change-ownership":
             return change_ownership(actor, number, data)
         if name == "close-task":

@@ -259,7 +259,10 @@ def arguments(argv=None):
     peer.add_argument("change", choices=PEER_ASK_TRANSITIONS)
     peer.add_argument("id", type=task_id, help="Source ticket for create. Linked request ticket for every other action.")
     peer.add_argument("note", type=nonblank)
-    peer.add_argument("--review", type=worker_run_id, help="Link an existing planned or running review, such as W-15.")
+    peer_review = peer.add_mutually_exclusive_group()
+    peer_review.add_argument("--review", type=worker_run_id, help="Link an existing planned or running review, such as W-15.")
+    peer_review.add_argument("--stamp-review", nargs=3, metavar=("PR_URL", "HEAD", "BASE"),
+                             help="Track the exact Stamp review revision for a linked GitHub PR.")
     peer.add_argument("--to", dest="recipient", type=nonblank, help="Named agent for a new request.")
     peer.add_argument("--link", nargs=2, action="append", default=[], metavar=("LABEL", "TARGET"))
 
@@ -450,8 +453,8 @@ def arguments(argv=None):
             parser.error("Use --shared peer-ask with a verified board actor.")
         if (args.change == "create") != bool(args.recipient):
             parser.error("Provide --to only when creating a peer request.")
-        if args.review is not None and args.change != "create":
-            parser.error("Link a worker review when creating the peer request.")
+        if (args.review is not None or args.stamp_review is not None) and args.change != "create":
+            parser.error("Link a review when creating or refreshing the peer request.")
     if args.command == "capabilities" and args.mode != "shared":
         parser.error("Use --shared capabilities for shared agent commands.")
     if args.command in {"raft-channel-show", "raft-channel-set"} and args.mode != "shared":

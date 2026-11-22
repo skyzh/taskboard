@@ -5155,18 +5155,18 @@ class TasksServiceTest(unittest.TestCase):
         blake, blake_id = self.login(app, "Blake")
         self.action(avery, "create-task", {"title": "Review a change", "step": "Prepare a fixture."})
         self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Prepare the fixture."})
-        self.action(avery, "advance-task", {
-            "id": "T-1", "transition": "wait", "on": "Blake", "note": "Check the fixture.",
-        })
+        asked_at = "2026-11-20T23:55:00Z"
+        with patch("tasks_core.timestamp", return_value=asked_at):
+            self.action(avery, "advance-task", {
+                "id": "T-1", "transition": "wait", "on": "Blake", "note": "Check the fixture.",
+            })
         self.action(avery, "delegate", {
             "id": "T-1", "worker": blake_id, "role": "review", "brief": "Check the fixture.",
         })
         requested = {
             "id": "T-1", "transition": "create", "recipient": blake_id, "note": "Check the fixture.", "review": "W-1",
         }
-        asked_at = "2026-11-20T23:55:00Z"
-        with patch("tasks_core.timestamp", return_value=asked_at):
-            self.assertEqual(self.action(avery, "peer-ask", requested)["receipt"], "T-2 · Peer request opened")
+        self.assertEqual(self.action(avery, "peer-ask", requested)["receipt"], "T-2 · Existing peer request")
         self.assertEqual(self.action(avery, "peer-ask", requested)["receipt"], "T-2 · Existing peer request")
 
         def summary(person):
@@ -5294,7 +5294,7 @@ class TasksServiceTest(unittest.TestCase):
         legacy = self.action(avery, "create-task", {"title": "Old named wait", "step": "Read the draft."})
         legacy_id = legacy["receipt"].split()[0]
         self.action(avery, "advance-task", {"id": legacy_id, "transition": "start", "note": "Prepare the summary."})
-        self.action(avery, "advance-task", {"id": legacy_id, "transition": "wait", "on": "Blake", "note": "Check it."})
+        self.cli("wait", legacy_id, "Check it.", "--on", "Blake", "--by", avery_id)
 
         first = self.call(reader, route, query_string={"limit": 2}).json
         second = self.call(reader, route, query_string={"before": first["next_cursor"]}).json
@@ -5331,6 +5331,21 @@ class TasksServiceTest(unittest.TestCase):
                 "project": ticket.split("-")[0], "title": "Review the export", "step": "Read the changes.",
             })
             self.action(avery, "advance-task", {"id": ticket, "transition": "start", "note": "Prepare the diff."})
+            if "on" in dependency and not dependency.get("automation"):
+                # Reproduce rows saved by clients before named waits became linked requests.
+                from argparse import Namespace
+                from tasks_core import change_task
+                from tasks_projects import resolve
+                from tasks_storage import open_sqlite, write
+
+                with (
+                    patch("tasks_core.timestamp", return_value="2026-11-22T04:00:00Z"),
+                    closing(open_sqlite(self.database)) as db,
+                    write(db),
+                ):
+                    change_task(db, Namespace(command="wait", id=resolve(db, ticket), by=avery_id, on=dependency["on"],
+                                              automation=False, note="Private fixture note."), [])
+                return
             with patch("tasks_core.timestamp", return_value="2026-11-22T04:00:00Z"):
                 self.action(avery, "advance-task", {
                     "id": ticket, "transition": "wait", "note": "Private fixture note.", **dependency,
@@ -5367,8 +5382,98 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([item["task_key"] for item in course["items"]], ["COURSE-1"])
         reviews = self.call(reader, "/api/v1/reports/queued-reviews").json
         self.assertEqual([item["task_key"] for item in reviews["items"]], ["T-3"])
+        summary = self.call(reader, "/api/v1/reports").json["items"]
+        incoming = next(row["legacy_peer_waits"] for row in summary if row["owner"] == blake_id)
+        self.assertEqual([item["task_key"] for item in incoming], ["T-2", "T-1"])
+        self.assertNotIn("Private fixture note.", json.dumps(incoming))
         self.action(avery, "advance-task", {"id": "T-1", "transition": "resume", "note": "Review received."})
         self.assertEqual([item["task_key"] for item in self.call(reader, route).json["items"]], ["T-2"])
+
+    def test_named_wait_updates_one_request_and_keeps_the_source_owner(self):
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        blake, reviewer = self.login(app, "Blake")
+        self.provider.people["Cedar"] = {
+            **self.provider.people["Avery"], "sub": str(UUID(int=59)), "name": "Cedar", "preferred_username": "cedar",
+        }
+        cedar, second_reviewer = self.login(app, "Cedar")
+        self.action(avery, "create-task", {"title": "Check a peer fixture", "step": "Prepare."})
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Prepare."})
+        wait = {"id": "T-1", "transition": "wait", "on": "Blake", "note": "Review the fixture."}
+        for _ in range(2):
+            self.assertEqual(self.action(avery, "advance-task", wait)["receipt"], "T-1 · Wait recorded")
+        self.action(avery, "advance-task", {**wait, "on": reviewer, "note": "Review the edited fixture."})
+        asks = self.call(avery, "/api/v1/reports/queued-peer-waits").json["items"]
+        self.assertEqual([(ask["task_key"], ask["linked_request"], ask["linked_request_id"]) for ask in asks],
+                         [("T-1", "T-2", 2)])
+        self.assertEqual(self.action(blake, "my-next")["work"]["key"], "T-2")
+        self.action(blake, "advance-task", {"id": "T-2", "transition": "start", "note": "Checking."})
+        reports = self.call(avery, "/api/v1/reports").json["items"]
+        self.assertFalse(any(row["legacy_peer_waits"] for row in reports))
+        rows = [task for row in reports if row["owner"] == reviewer for task in row["tasks"]]
+        self.assertEqual([(row["key"], row["peer_request"]["phase"]) for row in rows], [("T-2", "in_progress")])
+
+        self.action(avery, "advance-task", {**wait, "on": second_reviewer, "note": "Review the new sample."})
+        self.assertEqual(self.call(avery, "/api/v1/tasks/2").json["task"]["display_state"], "closed")
+        self.assertEqual(self.action(cedar, "my-next")["work"]["key"], "T-3")
+        self.action(cedar, "advance-task", {"id": "T-3", "transition": "start", "note": "Checking."})
+        self.action(cedar, "peer-ask", {"id": "T-3", "transition": "result", "note": "Passed."})
+        self.assertEqual(self.action(avery, "my-next")["work"]["key"], "T-3")
+        self.assertEqual(self.call(avery, "/api/v1/reports/queued-peer-waits").json["items"], [])
+        self.action(avery, "peer-ask", {"id": "T-3", "transition": "acknowledge", "note": "Applied."})
+        source = self.call(avery, "/api/v1/tasks/1").json["task"]
+        self.assertEqual((source["dri"], source["state"]), (owner, "ready"))
+
+    def test_stamp_verdict_uses_the_pending_pr_reviewer_and_exact_revision(self):
+        from tasks_peer_asks import apply_stamp_verdict
+        from tasks_storage import open_sqlite, write
+
+        app = self.app(portal_reader=True)
+        prism, owner = self.login(app, "Avery")
+        gauge, reviewer = self.login(app, "Blake")
+        pr = "https://github.com/skyzh/taskboard/pull/40"
+        head = "0894bb876e67df89a8cd372c8ab2023a3dcd8f7c"
+        base = "c420f23ce39df0e252dfe94e8dffd2453a21d7b3"
+        self.action(prism, "create-task", {"title": "T-772 progress fixture", "step": "Prepare review."})
+        self.action(prism, "advance-task", {"id": "T-1", "transition": "start", "note": "Ready for review."})
+        self.action(prism, "link-reference", {"id": "T-1", "label": "Progress PR", "url": pr})
+        self.action(prism, "advance-task", {"id": "T-1", "transition": "wait", "on": reviewer,
+                                            "note": "Review the progress bar."})
+        request = ("peer-ask", "create", "T-1", "Review the progress bar.", "--to", "Blake", "--stamp-review", pr)
+        old_head = "a" * 40
+        for requested_head in (old_head, head):
+            status, output, error = self.shared_cli(prism, *request, requested_head, base)
+            self.assertEqual((status, error), (0, ""))
+            self.assertIn("T-2 · Existing peer request", output)
+        self.action(gauge, "peer-ask", {"id": "T-2", "transition": "result", "note": "Chat approval."}, status=409)
+        result = {
+            "pull": "skyzh/taskboard#40", "reviewer": reviewer, "verdict": "approved", "head": head, "base": base,
+            "evidence_id": "dcbcfb41a420f3803042615cb0f0007f",
+            "evidence_url": "https://stamp.build/s/skyzh/github/skyzh/taskboard/pull/40/approvals/dcbcfb41a420f3803042615cb0f0007f/evidence",
+            "current_head": head, "current_base": base, "checks_passed": True,
+        }
+        with closing(open_sqlite(self.database)) as db, write(db):
+            for different in (
+                {"pull": "skyzh/taskboard#41"}, {"reviewer": owner}, {"head": old_head, "current_head": old_head},
+                {"current_base": "b" * 40}, {"checks_passed": False},
+            ):
+                self.assertFalse(apply_stamp_verdict(db, 2, **{**result, **different}))
+            self.assertTrue(apply_stamp_verdict(db, 2, **result))
+            self.assertFalse(apply_stamp_verdict(db, 2, **result))
+        self.assertEqual(self.action(prism, "my-next")["work"]["key"], "T-2")
+        self.assertEqual(self.call(prism, "/api/v1/reports/queued-peer-waits").json["items"], [])
+        self.assertEqual(self.call(prism, "/api/v1/tasks/1").json["task"]["dri"], owner)
+        refreshed = "c" * 40
+        status, output, error = self.shared_cli(prism, *request, refreshed, base)
+        self.assertEqual((status, error), (0, ""))
+        self.assertIn("T-3 · Peer request opened", output)
+        with closing(open_sqlite(self.database)) as db, write(db):
+            self.assertFalse(apply_stamp_verdict(db, 3, **result))
+            changes = {**result, "head": refreshed, "current_head": refreshed, "verdict": "changes_requested",
+                       "evidence_id": "fixture-changes", "checks_passed": False}
+            self.assertTrue(apply_stamp_verdict(db, 3, **changes))
+        self.assertEqual(self.action(prism, "my-next")["work"]["key"], "T-3")
+        self.assertEqual(len(self.call(prism, "/api/v1/reports/recent-peer-responses").json["items"]), 2)
 
     def test_reports_only_loads_personal_asks_through_the_verified_recipient_feeds(self):
         app = self.app(portal_reader=True)

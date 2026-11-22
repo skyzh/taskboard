@@ -167,6 +167,20 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
           {taskCount > tasks.length && <p className="report-note">Showing {tasks.length} of {taskCount} current tasks.</p>}
         </div>
       )}
+      {!publicPreview && entry.legacy_peer_waits?.length > 0 && (
+        <div className="report-owner-section">
+          <WorkHeading>Waiting on {name}</WorkHeading>
+          <ul className="report-outcomes" aria-label={`Requests for ${name}`} role="list">
+            {entry.legacy_peer_waits.map(wait => (
+              <li className="ask-row" key={wait.id}>
+                <span>Request from {wait.requester}</span>
+                <ReportTime at={wait.at} />
+                <TaskLink reference={wait.task_key} id={wait.task_id} title={wait.task_title} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {entry.goals?.length > 0 && <ReportGoals goals={entry.goals} owner={owner} project={project} publicPreview={publicPreview}
         target={tourTargets.goals} highlighted={tourTargets.goals === activeTarget && Boolean(activeTarget)} />}
       {outcomes.size > 0 && (
