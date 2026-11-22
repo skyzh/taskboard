@@ -5538,7 +5538,7 @@ class TasksServiceTest(unittest.TestCase):
                 return refresh(db, reader, configured, release_source=current, board_url=ORIGIN + BASE)
 
         pin(second, "0" * 64)
-        self.assertEqual(tick(), {"sources": 5, "deployments": 0, "errors": [
+        self.assertEqual(tick(), {"sources": 5, "activity": 0, "deployments": 0, "errors": [
             {"project": "T", "error": "pi_release_unverified"},
         ]})
         self.assertEqual([status("T-1", "pull/1")["state"], status("T-1", "issues/5")["state"],
@@ -5636,6 +5636,111 @@ class TasksServiceTest(unittest.TestCase):
         release["commit"] = new
         self.assertEqual(tick()["deployments"], 1)
         self.assertEqual(compared[previous:], [(n, new) for n in range(1, 11)])
+
+    def test_github_activity_keeps_event_rules_and_notifications_scoped_across_refresh_and_fetch(self):
+        from tasks_extensions import configuration
+        from tasks_github_extensions import refresh
+        from tasks_storage import open_sqlite
+
+        at = "2026-11-20T10:00:00Z"
+        page = "?per_page=20&page=1"
+        root = "https://api.github.com/repos/example/board/"
+        link = "https://github.com/example/board/"
+        actor = {"login": "fixture-contributor"}
+
+        def timeline(kind, number, anchor, body=None):
+            return {"event": kind, "id": number, "created_at": at, "actor": actor,
+                    "html_url": link + anchor, "body": body}
+
+        reviews = [{
+            "id": 45, "state": "APPROVED", "submitted_at": at, "user": actor,
+            "body": "The example is accurate.", "html_url": link + "pull/2#pullrequestreview-45",
+        }]
+        responses = {
+            "issues/1/timeline" + page: [
+                timeline("commented", 11, "issues/1#issuecomment-11", "Thanks for the sample."),
+                timeline("closed", 12, "issues/1#event-12"),
+                timeline("labeled", 13, "issues/1#event-13"),
+            ],
+            "issues/1": {"state": "closed"},
+            "issues/2/timeline" + page: [timeline("commented", 21, "pull/2#issuecomment-21", "Ready for review.")],
+            "pulls/2/reviews" + page: reviews,
+            "pulls/2/comments" + page: [{
+                "id": 46, "created_at": at, "user": actor, "body": "Clarify this line.",
+                "html_url": link + "pull/2#discussion_r46",
+            }],
+            "pulls/2": {"state": "open", "draft": False, "merged": False},
+        }
+        reads = []
+
+        def read(request):
+            self.assertTrue(request.full_url.startswith(root))
+            key = request.full_url.removeprefix(root)
+            reads.append(key)
+            return 200, {}, responses[key]
+
+        config = configuration(json.dumps({"T": {
+            "github-status": True,
+            "github-events": {"repository": "example/board", "activity": {
+                "commented": {"notify_dri": True},
+                "closed": {"complete": True},
+                "review-approved": {},
+                "review-changes-requested": {"notify_dri": True},
+                "review_comment": {"notify_dri": True},
+            }},
+        }}))
+        reader = GitHubReader(transport=read)
+        app = self.app(reader, portal_reader=True, project_extensions=config)
+        avery, _ = self.login(app, "Avery")
+        blake, manager = self.login(app, "Blake")
+        self.cli("register-project", "COURSE", "Course", "--dri", manager)
+
+        def add(client, number, project, source):
+            self.action(client, "create-task", {"title": "GitHub fixture", "step": "Check the sample.", "project": project})
+            self.action(client, "advance-task", {"id": number, "transition": "start", "note": "Check the sample."})
+            if source:
+                self.action(client, "link-reference", {"id": number, "label": "GitHub", "url": link + source})
+
+        add(avery, "T-1", "T", "issues/1")
+        add(avery, "T-2", "T", "pull/2")
+        add(avery, "T-3", "T", None)
+        add(blake, "COURSE-1", "COURSE", "pull/2")
+
+        def tick():
+            with closing(open_sqlite(self.database)) as db:
+                return refresh(db, reader, config, board_url=ORIGIN + BASE)
+
+        def recorded(number):
+            route = f"/api/v1/tasks/{number}/activity"
+            return [event for event in self.call(avery, route).json["items"] if event["context"].get("extension")]
+
+        self.assertEqual(tick(), {"sources": 2, "activity": 5, "deployments": 0, "errors": []})
+        self.assertEqual(set(reads), set(responses))
+        self.assertEqual(tick()["activity"], 0)
+        self.assertEqual({event["context"]["github_event"] for event in recorded("T-1")}, {"commented", "closed"})
+        self.assertEqual({event["context"]["github_event"] for event in recorded("T-2")},
+                         {"commented", "review-approved", "review_comment"})
+        self.assertEqual(recorded("T-3"), [])
+        self.assertEqual(recorded("COURSE-1"), [])
+        self.assertEqual(self.call(avery, "/api/v1/tasks/T-1").json["task"]["state"], "done")
+        self.assertEqual(self.call(avery, "/api/v1/tasks/T-2").json["task"]["state"], "in_progress")
+        inline = next(event for event in recorded("T-2") if event["context"]["github_event"] == "review_comment")
+        self.assertEqual(inline["context"]["provider_actor"], "fixture-contributor")
+        self.assertIn(link + "pull/2#discussion_r46", [entry["url"] for entry in inline["links"]])
+        inbox_route = "/api/v1/notifications/inbox?scope=all&view=updates"
+        notices = self.call(avery, inbox_route).json["items"]
+        self.assertEqual({entry["item"]["context"]["github_event"] for entry in notices}, {"commented", "review_comment"})
+        self.assertEqual(len(notices), 3)
+        self.assertEqual(self.call(blake, inbox_route).json["items"], [])
+
+        reviews.append({"id": 47, "state": "CHANGES_REQUESTED", "submitted_at": at, "user": actor})
+        self.action(avery, "fetch-github", {"id": "T-2"})
+        self.assertEqual(tick()["activity"], 0)
+        tally = [event["context"]["github_event"] for event in recorded("T-2")]
+        self.assertEqual(len(tally), 4)
+        self.assertEqual(set(tally), {"commented", "review-approved", "review_comment", "review-changes-requested"})
+        self.assertEqual(recorded("COURSE-1"), [])
+        self.assertEqual(self.call(blake, "/api/v1/tasks/COURSE-1").json["task"]["state"], "in_progress")
 
     def test_github_extension_uses_only_matching_successful_deployment_status(self):
         from tasks_extensions import EVENTS, configuration

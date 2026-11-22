@@ -328,7 +328,7 @@ class GitHubReader:
             raise _ReadError("invalid_github_comparison")
         return status == "ahead" and base_sha == merged
 
-    def _read_item(self, item, *, issue_status=False):
+    def _read_item(self, item, *, issue_status=False, review_comments=False):
         updates, errors = {}, []
         opening = None
         opening_key = f"github:pull-opened:{item.number}"
@@ -337,15 +337,18 @@ class GitHubReader:
         lists = [("timeline", timeline)]
         if item.kind == "pull":
             lists.append(("reviews", f"{pull}/reviews"))
+            if review_comments:
+                lists.append(("review_comments", f"{pull}/comments"))
         for stage, path in lists:
             try:
                 documents, warning = self._recent(path)
             except _ReadError as error:
-                errors.append((stage, str(error)))
-                continue
+                documents, warning = (), str(error)
             if warning is not None:
                 errors.append((stage, warning))
             for document in documents:
+                if stage == "review_comments" and isinstance(document, dict):
+                    document = {**document, "event": "review_comment"}
                 update = _update(item, document, review=stage == "reviews")
                 if update is None:
                     continue
@@ -353,8 +356,11 @@ class GitHubReader:
                     opening = replace(update, delivery_key=opening_key)
                 else:
                     updates[update.delivery_key] = update
+            if warning == "github_rate_limited":
+                break
         review_state = metadata = None
-        if item.kind == "pull":
+        rate_limited = bool(errors and errors[-1][1] == "github_rate_limited")
+        if not rate_limited and item.kind == "pull":
             try:
                 metadata = self.read_metadata(item)
                 review_state = _pull_state(metadata)
@@ -364,7 +370,7 @@ class GitHubReader:
                     opening = _Update(opening_key, opened_at, author, "opened", "Pull request opened.", item.url)
             except _ReadError as error:
                 errors.append(("review_state", str(error)))
-        elif issue_status:
+        elif not rate_limited and issue_status:
             try:
                 metadata = self.read_metadata(item)
             except _ReadError as error:
@@ -425,6 +431,60 @@ def observe_metadata(db, source, item, metadata, settings, checked_at):
     return recorded
 
 
+def activity_rules(settings, item):
+    return {
+        number: config[extensions.EVENTS].activity
+        for number, config in settings.items()
+        if config.get(extensions.EVENTS) and config[extensions.EVENTS].repository == repository(item)
+        and config[extensions.EVENTS].activity
+    }
+
+
+def save_updates(db, source, item, updates, linked, rules, *, manual=False, review_state=None, merged=()):
+    inserted = 0
+    has_extensions = manual and tasks_storage.has_table(db, "extension_deliveries")
+    for update in reversed(updates):
+        if manual:
+            if not watches.accept_delivery(db, source["id"], update.delivery_key):
+                continue
+            # Older ledgers already saved opening events with the timeline's delivery key.
+            if update.delivery_key.startswith("github:pull-opened:") and db.execute(
+                "SELECT 1 FROM source_deliveries WHERE source_id = ? AND delivery_key LIKE 'github:opened:%' LIMIT 1",
+                (source["id"],),
+            ).fetchone():
+                continue
+        elif db.execute(
+            "SELECT 1 FROM source_deliveries WHERE source_id = ? AND delivery_key = ?",
+            (source["id"], update.delivery_key),
+        ).fetchone():
+            continue
+        links = [(watches.source_label(source), item.url)]
+        if update.url != item.url:
+            links.append(("GitHub event", update.url))
+        context = {"source_kind": "github", "source_key": source["source_key"],
+                   "provider_at": update.provider_at, "event_kind": update.kind,
+                   "provider_actor": update.actor}
+        if update.kind == "closed" and review_state and review_state["merged"] is False:
+            context["pull_closed_without_merge"] = True
+        note = f"{update.actor}: {update.message}"
+        observation = f"activity:{update.delivery_key}"
+        effect = False
+        for number in linked:
+            if update.kind == "merged" and number in merged:
+                continue
+            policy = rules.get(number, {}).get(update.kind)
+            if policy is not None:
+                evidence = {"kind": update.kind, "at": update.provider_at, "note": note,
+                            "links": links, "context": context}
+                effect = extensions.record(db, number, source["id"], observation, evidence, policy) or effect
+            elif manual and not (has_extensions and extensions.already_recorded(db, number, source["id"], observation)):
+                status = tasks_core.get_task(db, number)["state"]
+                tasks_core.record(db, number, "source-event", "GitHub", status, note, None, links, context)
+                effect = True
+        inserted += int(manual or effect)
+    return inserted
+
+
 def ingest_linked_github(db, task_id, client, *, project_extensions=None):
     """Fetch configured items and record each new delivery for all linked tasks."""
     if db.in_transaction:
@@ -444,8 +504,11 @@ def ingest_linked_github(db, task_id, client, *, project_extensions=None):
             continue
         configured = link_settings(db, source["id"], project_extensions)
         issue_status = any(config.get(extensions.STATUS) for config in configured.values())
+        review_comments = any("review_comment" in rules for rules in activity_rules(configured, item).values())
         checked_at = tasks_core.timestamp()
-        updates, review_state, errors, metadata = client._read_item(item, issue_status=issue_status)
+        updates, review_state, errors, metadata = client._read_item(
+            item, issue_status=issue_status, review_comments=review_comments,
+        )
         entry = {"source_key": key, "source_url": item.url, "updates": [asdict(update) for update in updates],
                  "review_state": review_state, "inserted": 0}
         result["items"].append(entry)
@@ -461,33 +524,12 @@ def ingest_linked_github(db, task_id, client, *, project_extensions=None):
                 result["errors"].append({"source_key": entry["source_key"], "stage": "source",
                                          "error": "github_source_no_longer_linked"})
                 continue
-            recorded = observe_metadata(
-                db, source, item, metadata, link_settings(db, source["id"], project_extensions), checked_at,
+            configured = link_settings(db, source["id"], project_extensions)
+            merged = observe_metadata(db, source, item, metadata, configured, checked_at)
+            inserted = save_updates(
+                db, source, item, updates, linked, activity_rules(configured, item),
+                manual=True, review_state=entry["review_state"], merged=merged,
             )
-            for update in reversed(updates):
-                if not watches.accept_delivery(db, source["id"], update.delivery_key):
-                    continue
-                # Record the stable key as an alias when an older release already saved the opening.
-                if update.delivery_key.startswith("github:pull-opened:") and db.execute(
-                    "SELECT 1 FROM source_deliveries WHERE source_id = ? AND delivery_key LIKE 'github:opened:%' LIMIT 1",
-                    (source["id"],),
-                ).fetchone():
-                    continue
-                links = [(watches.source_label(source), entry["source_url"])]
-                if update.url != entry["source_url"]:
-                    links.append(("GitHub event", update.url))
-                context = {"source_kind": "github", "source_key": source["source_key"],
-                           "provider_at": update.provider_at, "event_kind": update.kind,
-                           "provider_actor": update.actor}
-                review_state = entry["review_state"]
-                if update.kind == "closed" and review_state and review_state["merged"] is False:
-                    context["pull_closed_without_merge"] = True
-                for number in linked:
-                    if update.kind == "merged" and number in recorded:
-                        continue
-                    status = tasks_core.get_task(db, number)["state"]
-                    tasks_core.record(db, number, "source-event", "GitHub", status,
-                                      f"{update.actor}: {update.message}", None, links, context)
-                entry["inserted"] += 1
-                result["inserted"] += 1
+            entry["inserted"] += inserted
+            result["inserted"] += inserted
     return result

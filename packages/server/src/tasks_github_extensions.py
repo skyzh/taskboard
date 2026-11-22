@@ -5,7 +5,7 @@ from pathlib import Path
 
 import tasks_core as ledger
 import tasks_extensions as extensions
-from tasks_github import _ReadError, _source, _time, link_settings, observe_metadata, repository
+from tasks_github import _ReadError, _source, _time, activity_rules, link_settings, observe_metadata, repository, save_updates
 from tasks_release_info import release_info
 import tasks_storage
 
@@ -21,7 +21,10 @@ def _metadata_sources(db, configured):
         if config.get(extensions.STATUS):
             filters.append("tasks.project_prefix = ?")
         else:
-            target = f'https://github.com/{config[extensions.EVENTS].repository}/pull/'
+            rule = config[extensions.EVENTS]
+            target = f"https://github.com/{rule.repository}/"
+            if not rule.activity:
+                target += "pull/"
             filters.append("(tasks.project_prefix = ? AND SUBSTR(LOWER(sources.target), 1, ?) = ?)")
             args.extend((len(target), target))
     scope = " OR ".join(filters)
@@ -71,10 +74,7 @@ def _deployed(db, reader, compare, project, rule, running_release, board_url, re
             continue
         merged = row["merge_commit"]
         key = f"deploy:{rule.deployment.provider}:{environment}:{merged}"
-        if db.execute(
-            "SELECT 1 FROM extension_deliveries WHERE task_id = ? AND source_id = ? AND observation = ?",
-            (row["task_id"], row["source_id"], key),
-        ).fetchone():
+        if extensions.already_recorded(db, row["task_id"], row["source_id"], key):
             continue
         if merged not in matches:
             included = compare(rule.repository, merged, commit)
@@ -102,10 +102,23 @@ def _deployed(db, reader, compare, project, rule, running_release, board_url, re
                 result["deployments"] += 1
 
 
+def _read_observations(db, source, item, reader, configured):
+    settings = link_settings(db, source["id"], configured)
+    rules = activity_rules(settings, item)
+    if rules:
+        issue_status = any(options.get(extensions.STATUS) for options in settings.values())
+        review_comments = any("review_comment" in policies for policies in rules.values())
+        return reader._read_item(item, issue_status=issue_status, review_comments=review_comments)
+    try:
+        return (), None, (), reader.read_metadata(item)
+    except _ReadError as error:
+        return (), None, (("status", str(error)),), None
+
+
 def refresh(db, reader, configured, *, release_source=None, board_url):
     """Run one bounded provider read and project rule pass outside service requests."""
     configured = {key: value for key, value in configured.items() if any(value.values())}
-    result = {"sources": 0, "deployments": 0, "errors": []}
+    result = {"sources": 0, "activity": 0, "deployments": 0, "errors": []}
     if not configured:
         return result
     for source in _metadata_sources(db, configured):
@@ -118,19 +131,18 @@ def refresh(db, reader, configured, *, release_source=None, board_url):
                 extensions.save_status(db, source["id"], None, checked_at)
                 ledger.bump_revision(db)
             continue
-        rate_limited = False
-        try:
-            metadata = reader.read_metadata(item)
-        except _ReadError as error:
-            metadata = None
-            rate_limited = str(error) == "github_rate_limited"
-            result["errors"].append({"source": source["source_key"], "error": str(error)})
+        updates, review_state, errors, metadata = _read_observations(db, source, item, reader, configured)
+        result["errors"].extend({"source": source["source_key"], "error": error} for _, error in errors)
         with tasks_storage.write(db):
             settings = link_settings(db, source["id"], configured)
-            observe_metadata(db, source, item, metadata, settings, checked_at)
+            merged = observe_metadata(db, source, item, metadata, settings, checked_at)
+            result["activity"] += save_updates(
+                db, source, item, updates, settings, activity_rules(settings, item),
+                review_state=review_state, merged=merged,
+            )
             ledger.bump_revision(db)
         result["sources"] += 1
-        if rate_limited:
+        if any(error == "github_rate_limited" for _, error in errors):
             return result
     running_release = release_info(Path(release_source)) if release_source is not None else {}
     remaining = _COMPARISONS_PER_REFRESH
