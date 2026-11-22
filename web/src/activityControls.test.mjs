@@ -23,6 +23,7 @@ let TaskTags
 let ReminderDate
 let PendingReports
 let Reports
+let AssigneePage
 let EventRow
 let OutcomeRow
 let Outcomes
@@ -49,6 +50,7 @@ before(async () => {
         export { default as TaskTags } from './TaskTags.jsx'
         export { default as ReminderDate } from './ReminderDate.jsx'
         export { default as Reports, PendingReports } from './Reports.jsx'
+        export { default as AssigneePage } from './AssigneePage.jsx'
         export { OutcomeRow, Outcomes } from './Overview.jsx'
         export { TimeZoneContext, createTimeZoneFormatters } from './timeZone.js'
         export { default as Notifications } from './Notifications.jsx'
@@ -114,10 +116,26 @@ before(async () => {
   new Function('require', 'module', result.outputFiles[0].text)(require, module)
   ;({
     WorkLog, WorkQueue, TaskDetail, DecisionForm, TaskClosure, TaskDetailsEdit, TaskOwnership, TaskTags,
-    ReminderDate, PendingReports, Reports, EventRow, OutcomeRow, Outcomes,
+    ReminderDate, PendingReports, Reports, AssigneePage, EventRow, OutcomeRow, Outcomes,
     TimeZoneContext, createTimeZoneFormatters,
     Notifications, DriGoal, DriMilestones, DeployQueue, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity,
   } = module.exports)
+})
+
+test('an assignee returns to the current Reports scope', () => {
+  const props = { owner: 'Sample owner', project: 'DEMO' }
+  const path = queryPath('/assignee', props)
+  fixture.resources[path] = { data: { pending_reports: [], has_outcomes: false, task_counts: {
+    ready: 0, in_progress: 0, waiting: 0, human_review: 0, parked: 0,
+  } } }
+  try {
+    const combined = renderToStaticMarkup(React.createElement(AssigneePage, { ...props, reportsHref: '#reports-all' }))
+    assert.match(combined, /href="#reports-all">Back to Reports/)
+    const direct = renderToStaticMarkup(React.createElement(AssigneePage, props))
+    assert.match(direct, /href="#reports">Back to Reports/)
+  } finally {
+    delete fixture.resources[path]
+  }
 })
 
 test('task reminders show the selected local time and reopen the exact instant in the board time zone', () => {

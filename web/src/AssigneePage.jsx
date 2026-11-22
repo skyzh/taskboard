@@ -23,7 +23,7 @@ function OwnerWork({ owner, state, id, title, label, revision, project }) {
   )
 }
 
-export default function AssigneePage({ owner, section, revision, project, canEditGoal }) {
+export default function AssigneePage({ owner, section, revision, project, reportsHref = '#reports', canEditGoal }) {
   const resource = useResource(queryPath('/assignee', { owner, project }), revision)
   const entry = resource.data
   if (!entry) return <ResourceStatus resource={resource} label="assignee profile" />
@@ -41,7 +41,7 @@ export default function AssigneePage({ owner, section, revision, project, canEdi
   const ready = sections.find(({ state }) => state === 'ready')
   return (
     <ReportTimeProvider>
-      <a className="back-link" href="#reports">Back to Reports</a>
+      <a className="back-link" href={reportsHref}>Back to Reports</a>
       <header id="assignee-title" className="assignee-page-heading">
         <AssigneeAvatar name={name} url={profile?.avatar_url} large />
         <div>
