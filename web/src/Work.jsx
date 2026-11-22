@@ -336,7 +336,6 @@ function TicketContext({ record, id, task, state, wide, detailed, session, revis
         <TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} />
       </TicketIdentity> : <TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} />}
       <RecordedActivity activity={record.last_activity} />
-      {record.goal?.deadline && <p>Due <GoalDeadline deadline={record.goal.deadline} finished={state === 'done' || state === 'closed'} /></p>}
       {record.sources.length > 0 && (
         <details open><summary>Sources · {record.sources.length}</summary><EvidenceLinks links={record.sources} label="Sources" /></details>
       )}
@@ -383,6 +382,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   const detailed = Boolean(record && (record.brief || record.checklist.length || record.sources.length
     || record.related_tasks?.length || record.goal?.tickets.length || state === 'human_review'))
   const sidebar = wide && detailed
+  const deadline = record?.goal?.deadline
   return (
     <article ref={article} id={taskHref(id).slice(1)} className={`panel task-detail${sidebar ? ' has-sidebar' : ''}`}
       aria-labelledby={`task-heading-${id}`} tabIndex={-1}>
@@ -393,6 +393,9 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
       </p>
       <h1 id={`task-heading-${id}`}><MarkdownInline text={task?.title || `Task ${taskLabel(id)}`} relatedTasks={record?.related_tasks} /></h1>
       {task && !sidebar && <div className="ticket-primary-identity"><TicketIdentity task={task} state={state} /></div>}
+      {deadline && (
+        <p>Due <GoalDeadline deadline={deadline} finished={state === 'done' || state === 'closed'} /></p>
+      )}
       <ResourceStatus resource={detail} label="task details" />
       <div className="ticket-detail-layout">
         <div className="ticket-detail-work">
