@@ -63,6 +63,15 @@ class TasksTest(unittest.TestCase):
         self.assertIn("Local proof", detail)
         self.assertIn("https://example.test/review", detail)
 
+    def test_raft_channel_commands_require_shared_mode(self):
+        self.add()
+        before = self.db.read_bytes()
+        for action in (("raft-channel-show", "T"), ("raft-channel-set", "T", "--clear")):
+            with self.subTest(command=action[0]):
+                error = self.run_tasks("--offline", *action, code=2)
+                self.assertIn(f"{action[0]} requires --shared.", error)
+        self.assertEqual(self.db.read_bytes(), before)
+
     def test_offline_show_prints_unique_related_links_without_rewriting_work(self):
         self.add("Compare T-2 with t-002, T-999 and T-1")
         self.add("Original source")

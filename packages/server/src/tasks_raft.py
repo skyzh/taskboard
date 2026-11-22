@@ -42,6 +42,11 @@ class _Action:
 
 _ACTIONS = {
     "context": _Action("GET", "Identify your signed-in Raft principal and board profile."),
+    "raft-channel-show": _Action("GET", "Show the selected project's Raft coordination channel.",
+                                 {"project": "Taskboard project prefix."}),
+    "raft-channel-set": _Action("POST", "Set or clear the project's verified Raft coordination channel.",
+                                {"project": "Taskboard project prefix.",
+                                 "channel_id": "Stable Raft channel ID. Send an empty string to clear it."}),
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE),
     "my-goals": _Action("GET", "Read your standing and dated goals for one project.", optional=_PROJECT),
     "save-goal": _Action("POST", "Save or clear one of your project goals.", {

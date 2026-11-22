@@ -308,6 +308,13 @@ def arguments(argv=None):
     goal_save.add_argument("--milestone", type=nonblank, help="Existing dated milestone name when editing or clearing it.")
     reviews = commands.add_parser("reviews", help="List your actionable review assignments across projects.")
     reviews.add_argument("--project", type=nonblank, help="Limit to one project prefix.")
+    channel_show = commands.add_parser("raft-channel-show", help="Show your project's Raft coordination channel.")
+    channel_show.add_argument("project", type=nonblank)
+    channel_set = commands.add_parser("raft-channel-set", help="Set or clear a project's verified Raft channel as manager.")
+    channel_set.add_argument("project", type=nonblank)
+    channel_value = channel_set.add_mutually_exclusive_group(required=True)
+    channel_value.add_argument("--channel-id", type=nonblank, help="Stable Raft channel ID.")
+    channel_value.add_argument("--clear", action="store_true", help="Clear the project's saved Raft channel.")
     register_project = commands.add_parser("register-project", help="Register a project in an operator's local ledger.")
     register_project.add_argument("prefix", type=nonblank)
     register_project.add_argument("title", type=nonblank)
@@ -447,6 +454,8 @@ def arguments(argv=None):
             parser.error("Link a worker review when creating the peer request.")
     if args.command == "capabilities" and args.mode != "shared":
         parser.error("Use --shared capabilities for shared agent commands.")
+    if args.command in {"raft-channel-show", "raft-channel-set"} and args.mode != "shared":
+        parser.error(f"{args.command} requires --shared.")
 
     if args.command == "oidc-member":
         if args.mode != "offline" or args.db is None:
