@@ -52,7 +52,7 @@ For a Raft attachment, link to its message. For an artifact, use its Raft link. 
 
 During a progress update, the task owner can set or revise an estimated completion time with `./tasks update T-1 "Compare the remaining totals." --by "Sample owner" --eta 2026-11-24T16:30:00-08:00`. Include a UTC offset or `Z`. Use `--clear-eta` to remove the estimate. It appears as Estimated completion in task detail.
 
-See [the Taskboard skill](skills/taskboard/SKILL.md) for task execution, review, and handoff guidance. See [project registration](PROJECTS.md) for project prefixes and scoped views, [local merge records](MERGE-QUEUE.md) for the merge queue, and [release receipts](RELEASE-QUEUE.md) for the deploy queue.
+See [the Taskboard skill](skills/taskboard/SKILL.md) for task execution, review, and handoff guidance. See [project registration](PROJECTS.md) for project prefixes and scoped views, [local merge records](MERGE-QUEUE.md) for the merge queue, and [historical release receipts](RELEASE-QUEUE.md) for the legacy API and import format.
 
 ## Project layout
 

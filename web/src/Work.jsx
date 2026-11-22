@@ -1,10 +1,8 @@
 import React, { useCallback, useState } from 'react'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
-import ActiveRelease from './ActiveRelease.jsx'
 import { ActivityDate } from './Overview.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
-import { DeployQueue, ReleaseFields } from './DeployQueue.jsx'
 import { MergeQueue } from './MergeQueue.jsx'
 import ReminderDate from './ReminderDate.jsx'
 import Kanban from './Kanban.jsx'
@@ -83,9 +81,8 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
             {filterCount ? `Filters (${filterCount})` : 'Filters'}
           </button>
         </div>
-        {(overview?.merge_queue || overview?.release_queue) && <div className="queue-tools">
-          {overview.merge_queue && <MergeQueue project={project} revision={revision} />}
-          {overview.release_queue && <DeployQueue project={project} revision={revision} />}
+        {overview?.merge_queue && <div className="queue-tools">
+          <MergeQueue project={project} revision={revision} />
         </div>}
         <div className="filters" id="queue-filters" data-open={filtersOpen}>
           <label>
@@ -273,14 +270,12 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
           )}
           <TaskTags task={task} editable={record.tag_editable} onChanged={onChanged} />
           <RecordedActivity activity={record.last_activity} />
-          <ReleaseFields task={task} />
           {record.brief && <Markdown text={record.brief} className="detail-brief prose" relatedTasks={record.related_tasks} />}
           <section className={`ticket-focus ${state}`} aria-label={summary}>
             <h3>{summary}</h3>
             {task.waiting_on && <p><Dependency task={task} /></p>}
             <Markdown text={task.note} relatedTasks={record.related_tasks} />
             <ClosureReference context={task.context} />
-            <ActiveRelease receipt={record.active_release} />
             <ReminderWhen context={task.context} />
             {session.data?.actor?.id === task.dri && ['ready', 'in_progress', 'parked'].includes(task.state) && (
               <ReminderDate key={`${id}:${task.context?.defer_until || task.context?.review_after || ''}`}

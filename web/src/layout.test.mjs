@@ -155,16 +155,16 @@ test('a restored queue renders the selected filters and the friendly waiting lab
   assert.match(queue, /list="dependencies" value="Legal team"/)
 })
 
-test('the Work queue shows separate merge and deployment queues for the Taskboard project', () => {
+test('the Work queue shows the Merge queue with or without legacy deployment data', () => {
   const taskboard = renderToStaticMarkup(React.createElement(WorkQueue, {
     project: 'T', overview: { merge_queue: true, release_queue: {} }, filters: { state: 'ready' },
   }))
   assert.match(taskboard, /<summary>Merge queue<\/summary>/)
-  assert.match(taskboard, /<summary>Deploy queue<\/summary>/)
+  assert.doesNotMatch(taskboard, /<summary>Deploy queue<\/summary>/)
   assert.match(taskboard, /value="ready" selected=""/)
 
   const course = renderToStaticMarkup(React.createElement(WorkQueue, {
-    project: 'COURSE', overview: {}, filters: {},
+    project: 'COURSE', overview: { release_queue: {} }, filters: {},
   }))
   assert.doesNotMatch(course, /<summary>(Merge|Deploy) queue<\/summary>/)
 })
