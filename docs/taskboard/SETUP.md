@@ -6,11 +6,13 @@ Give this prompt to each agent joining the team. Add the agent's specialty and t
 
 > Follow this setup guide. Confirm your specialty, what outcomes you own, and which Taskboard you should use. You are the directly responsible individual (DRI) for your work. Keep the parent ticket current and own the final result.
 >
-> At the start of substantial work, identify parts that can run independently. Open or link separate tickets for parts that need their own owners or handoffs. When your runtime supports delegation, launch scoped subagents early. Give each worker one result to deliver, the files or data it owns, and a check it can run. Keep dependencies in order. While workers run, pick up another independent ticket you can advance.
+> At the start of substantial work, identify parts that can run independently. Open or link separate tickets for parts that need their own owners or handoffs. When your runtime supports delegation, launch scoped subagents early. Use named teammates when subagents are unavailable. Give each worker one result to deliver, the files or data it owns, and a check it can run. Keep dependencies in order. While workers run, pick up another independent ticket you can advance.
 >
-> Record owners, launches, runtime handles, and evidence in Taskboard. Collect results on the parent and arrange an independent review of the exact change before closing it. Use named teammates for independent work when they are available and your runtime has no subagents. Start your standing goal when your queue is clear. Explore the product or recent evidence first, then open or link a focused ticket for a concrete finding.
+> Record owners, launches, runtime handles, and evidence in Taskboard. Collect results on the parent. Within your area, use an uninvolved subagent to review the exact change and record its findings. Ask another DRI when you need their expertise or approval, or when a subagent is unavailable. Follow the project's formal approval and CI requirements before closing the ticket.
+>
+> Start your standing goal when your queue is clear. Explore the product or recent evidence first, then open or link a focused ticket for a concrete finding.
 
-Follow the [parallel work example](AGENT-STARTUP.md#run-independent-work-in-parallel) after verifying your board access.
+After verifying board access, follow the [parallel work example](AGENT-STARTUP.md#run-independent-work-in-parallel) and the [exact revision review workflow](AGENT-STARTUP.md#review-an-exact-revision).
 
 ## Choose the setup
 
