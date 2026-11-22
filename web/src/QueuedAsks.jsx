@@ -126,8 +126,7 @@ export function QueuedAsksContent({ project, grouped, page, snapshot, viewer }) 
       <div className="request-log-heading">
         <Heading id={headingId}>Request log</Heading>
         {items?.length > 0 && (
-          <SegmentedControl className="request-log-mode" label="Request log display" value={mode}
-            options={displayModes} onChange={setMode} />
+          <SegmentedControl label="Request log display" value={mode} options={displayModes} onChange={setMode} />
         )}
       </div>
       {page && <ResourceStatus resource={page} label="request log" />}

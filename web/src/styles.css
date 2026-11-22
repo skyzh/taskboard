@@ -915,12 +915,11 @@ button:disabled { opacity: .57; }
     overflow: hidden;
     white-space: nowrap;
   }
-  .queue-toolbar { display: flex; align-items: center; gap: .35rem; margin-bottom: .5rem; }
+  .queue-toolbar { display: flex; align-items: center; gap: .35rem; margin-block: .65rem .5rem; }
   .queue-project { display: block; flex: 1; min-width: 0; }
   .project-switcher select { height: 2.75rem; }
-  .queue-toolbar .queue-layout { margin: 0; gap: .25rem; }
-  .queue-toolbar button { min-height: 2.75rem; min-width: 2.75rem; }
-  .queue-filter-toggle { display: inline-block; margin-inline-start: auto; white-space: nowrap; }
+  .queue-toolbar .queue-layout { margin: 0; }
+  .queue-filter-toggle { display: inline-block; margin-inline-start: auto; min-height: 2.75rem; min-width: 2.75rem; white-space: nowrap; }
   .queue-filter-toggle:is([data-active="true"], [aria-expanded="true"]) {
     border-color: var(--green);
     color: var(--green);

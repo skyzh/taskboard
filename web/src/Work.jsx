@@ -25,8 +25,10 @@ import { TaskWaitAge } from './WaitAge.jsx'
 import { useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
+import SegmentedControl from './SegmentedControl.jsx'
 
 const ownerOptionPrefix = 'owner:'
+const layoutOptions = [{ value: 'list', label: 'List' }, { value: 'kanban', label: 'Kanban' }]
 
 export function WorkQueue({ revision, overview, filters, setFilters, waitingLabel, setWaitingLabel, project, projectPicker,
   layout, setLayout, phoneColumn, setPhoneColumn, kanbanNavigation, listNavigation, listReturn }) {
@@ -100,10 +102,8 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
         <h2 id="queue-heading">Work queue</h2>
         <div className="queue-toolbar">
           {projectPicker && <div className="queue-project">{projectPicker}</div>}
-          {setLayout && <div className="queue-layout" role="group" aria-label="Task view">
-            <button type="button" aria-pressed={!kanban} onClick={() => setLayout('list')}>List</button>
-            <button type="button" aria-pressed={kanban} onClick={() => setLayout('kanban')}>Kanban</button>
-          </div>}
+          {setLayout && <SegmentedControl className="queue-layout" label="Task view"
+            value={kanban ? 'kanban' : 'list'} options={layoutOptions} onChange={setLayout} />}
           <button type="button" className="queue-filter-toggle" aria-expanded={filtersOpen} aria-controls="queue-filters"
             data-active={filterCount > 0}
             onClick={() => setFiltersOpen(open => !open)}>

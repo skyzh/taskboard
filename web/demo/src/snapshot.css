@@ -19,7 +19,7 @@
   font-weight: var(--weight-heading);
   padding-inline: 1.1rem;
 }
-.snapshot button:not([data-demo-unavailable]), .snapshot-tour button { min-height: 2.75rem; }
+.snapshot button:not([data-demo-unavailable], .segmented-control > button), .snapshot-tour button { min-height: 2.75rem; }
 .snapshot [data-tour-current="true"] { outline: 2px solid currentColor; outline-offset: .25rem; }
 .snapshot .report-outcome { align-items: start; }
 .snapshot .report-outcome-title { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
