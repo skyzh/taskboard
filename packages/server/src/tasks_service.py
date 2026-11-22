@@ -48,7 +48,7 @@ from tasks_queries import BoardQueries, PACIFIC, pacific_day, task_creation
 
 
 from taskboard_server.paths import CHECKOUT, DIST, PACKAGE
-from taskboard_server import raft_channels
+from taskboard_server import project_links, raft_channels
 FRONTEND_BUILD_META = re.compile(rb'<meta name="tasks-frontend-build" content="([0-9a-f]{64})">')
 # Some Linux systems expose the host's localtime file alongside IANA zones.
 TIME_ZONE_NAMES = available_timezones() - {"localtime"}
@@ -1129,6 +1129,32 @@ def create_app(
         actor = current_actor(required=True, write=write)
         data = json_body({"channel_id"}) if write else None
         return project_channel(actor, project_filter({"project": project}), data)
+
+    @app.route("/api/v1/projects/<project>/links", methods=("GET", "PUT"))
+    def project_destinations(project):
+        write = request.method == "PUT"
+        actor = current_actor(required=write, write=write)
+        project = project_filter({"project": project})
+        if write:
+            if not projects.manages(db(), project, actor["ledger_key"]):
+                raise RequestError("Only this project's manager can update its links.", 403)
+            try:
+                values = project_links.validate(json_body(set(project_links.REPOSITORY_LINKS)))
+            except ValueError as error:
+                raise RequestError(str(error)) from error
+            with tasks_storage.changes(db()) as connection:
+                before = connection.total_changes
+                project_links.save(connection, project, values)
+                if connection.total_changes != before:
+                    audit.record(connection, scope="private", actor=actor["ledger_key"], operation="set-project-links",
+                                 record_type="project", record_id=project, at=ledger.timestamp())
+                    ledger.bump_revision(connection)
+
+        server = g.tenant_server if marketplace else (raft_config or {}).get("server_id")
+        raft_url = raft_channels.browser_link(
+            raft_channel_lookup, server, project, raft_channels.saved_channel(db(), project),
+        )
+        return project_links.read(db(), project, project_extensions.get(project, {}), raft_url)
 
     @app.get("/api/v1/schedules")
     def schedules():

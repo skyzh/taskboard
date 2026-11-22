@@ -1,6 +1,7 @@
 """Resolve a project's coordination destination with the configured Raft adapter."""
 
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 from uuid import UUID
 
 
@@ -11,6 +12,8 @@ class VerifiedChannel:
     name: str
     may_post: bool
     matches_project_audience: bool
+    # The adapter supplies this only when the channel link is safe for the board audience.
+    browser_url: str | None = None
 
 
 def setting_key(project):
@@ -22,8 +25,7 @@ def saved_channel(db, project):
     return row["value"] if row else None
 
 
-def resolve(lookup, server_id, project, channel_id):
-    """Return only the verified channel ID and its current display name."""
+def verified_channel(lookup, server_id, project, channel_id):
     if lookup is None or server_id is None:
         return None
     try:
@@ -34,7 +36,28 @@ def resolve(lookup, server_id, project, channel_id):
             or not isinstance(channel.name, str) or not channel.name.strip()
             or channel.may_post is not True or channel.matches_project_audience is not True):
         return None
+    return channel
+
+
+def resolve(lookup, server_id, project, channel_id):
+    """Return only the verified channel ID and its current display name."""
+    channel = verified_channel(lookup, server_id, project, channel_id)
+    if channel is None:
+        return None
     return {"id": channel.channel_id, "name": channel.name}
+
+
+def browser_link(lookup, server_id, project, channel_id):
+    channel = verified_channel(lookup, server_id, project, channel_id) if channel_id else None
+    if channel is None or not isinstance(channel.browser_url, str):
+        return None
+    try:
+        url = urlsplit(channel.browser_url)
+    except ValueError:
+        return None
+    if url.scheme == "https" and url.netloc.lower() in ("raft.build", "app.raft.build"):
+        return channel.browser_url
+    return None
 
 
 def describe(lookup, server_id, project, channel_id):
