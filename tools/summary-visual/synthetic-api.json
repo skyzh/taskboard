@@ -1,0 +1,311 @@
+{
+  "/tasks/api/v1/frontend-build": {
+    "build": "2900a63b304014a4670c9e2cab30524f56c62abb5e00aa4917fc0cde0b005519"
+  },
+  "/tasks/api/v1/session": {
+    "actor": {
+      "avatar_url": null,
+      "id": null,
+      "kind": "portal",
+      "name": "Portal reader",
+      "role": null
+    },
+    "sign_in_available": true
+  },
+  "/tasks/api/v1/projects": {
+    "items": [
+      {
+        "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "merge_queue": true,
+        "prefix": "T",
+        "release_queue": {
+          "ticket_fields": [
+            "queued_for_release",
+            "release_number"
+          ]
+        },
+        "title": "Taskboard"
+      }
+    ]
+  },
+  "/tasks/api/v1/revision": {
+    "revision": "9-9-2026-11-22"
+  },
+  "/tasks/api/v1/reports/request-log?project=T&limit=10": {
+    "items": [
+      {
+        "at": "2026-11-22T21:04:19Z",
+        "id": "peer:4",
+        "next_owner": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "next_owner_profile": {
+          "avatar_url": null,
+          "description": null,
+          "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "kind": "agent",
+          "name": "Blake",
+          "role": null,
+          "username": "blake"
+        },
+        "phase": "asked",
+        "recipient": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "recipient_profile": {
+          "avatar_url": null,
+          "description": null,
+          "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "kind": "agent",
+          "name": "Blake",
+          "role": null,
+          "username": "blake"
+        },
+        "request_key": "T-4",
+        "request_title": "Wait for the response.",
+        "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "requester_profile": {
+          "avatar_url": null,
+          "description": null,
+          "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "kind": "agent",
+          "name": "Avery",
+          "role": null,
+          "username": "avery"
+        },
+        "review": false,
+        "source_id": 3,
+        "source_key": "T-3",
+        "source_title": "Wait for the sample response"
+      }
+    ],
+    "next_cursor": null
+  },
+  "/tasks/api/v1/projects/T/links": {
+    "links": []
+  },
+  "/tasks/api/v1/reports?project=T&limit=20": {
+    "items": [
+      {
+        "as_of": "2026-11-22T21:04:19Z",
+        "goals": [],
+        "last_activity": {
+          "at": "2026-11-22T21:04:19Z",
+          "id": 9
+        },
+        "legacy_peer_waits": [],
+        "owner": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "pending_reports": [],
+        "pending_reports_before": null,
+        "profile": {
+          "avatar_url": null,
+          "description": null,
+          "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "kind": "agent",
+          "name": "Avery",
+          "role": null,
+          "username": "avery"
+        },
+        "recent_outcomes": [],
+        "report_count": 0,
+        "task_count": 3,
+        "task_counts": {
+          "human_review": 0,
+          "in_progress": 2,
+          "ready": 0,
+          "waiting": 1
+        },
+        "tasks": [
+          {
+            "action": "wait",
+            "at": "2026-11-22T21:04:19Z",
+            "checklist_completed": 0,
+            "checklist_total": 0,
+            "context": {
+              "named_peer_wait": true,
+              "peer_ask_ticket": "T-4"
+            },
+            "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "dri_profile": {
+              "avatar_url": null,
+              "description": null,
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "event_id": 9,
+            "id": 3,
+            "key": "T-3",
+            "last_activity_at": "2026-11-22T21:04:19Z",
+            "links": [],
+            "note": "Wait for the response.",
+            "priority": "normal",
+            "queued_for_release": false,
+            "release_number": null,
+            "state": "waiting",
+            "summary_label": "Unblock condition",
+            "title": "Wait for the sample response",
+            "wait_kind": "person",
+            "waiting_on": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "waiting_profile": {
+              "avatar_url": null,
+              "description": null,
+              "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+              "kind": "agent",
+              "name": "Blake",
+              "role": null,
+              "username": "blake"
+            },
+            "waiting_since": "2026-11-22T21:04:19Z"
+          },
+          {
+            "action": "start",
+            "at": "2026-11-22T21:04:19Z",
+            "checklist_completed": 0,
+            "checklist_total": 0,
+            "context": {},
+            "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "dri_profile": {
+              "avatar_url": null,
+              "description": null,
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "event_id": 4,
+            "id": 2,
+            "key": "T-2",
+            "last_activity_at": "2026-11-22T21:04:19Z",
+            "links": [],
+            "note": "Check the fictional example.",
+            "priority": "high",
+            "queued_for_release": false,
+            "release_number": null,
+            "state": "in_progress",
+            "summary_label": "Current step",
+            "title": "Check that this longer sample title wraps onto a new line and keeps its status indicator beside the first line",
+            "waiting_on": null,
+            "waiting_profile": null
+          },
+          {
+            "action": "start",
+            "at": "2026-11-22T21:04:19Z",
+            "checklist_completed": 0,
+            "checklist_total": 0,
+            "context": {},
+            "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "dri_profile": {
+              "avatar_url": null,
+              "description": null,
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "event_id": 2,
+            "id": 1,
+            "key": "T-1",
+            "last_activity_at": "2026-11-22T21:04:19Z",
+            "links": [],
+            "note": "Check the fictional example.",
+            "priority": "normal",
+            "queued_for_release": false,
+            "release_number": null,
+            "state": "in_progress",
+            "summary_label": "Current step",
+            "title": "Check the sample",
+            "waiting_on": null,
+            "waiting_profile": null
+          }
+        ],
+        "worker_counts": {
+          "launched": 0,
+          "launched_reviews": 0,
+          "recorded": 0,
+          "running": 0,
+          "running_reviews": 0
+        }
+      },
+      {
+        "as_of": "2026-11-22T21:04:19Z",
+        "goals": [],
+        "last_activity": {
+          "at": "2026-11-22T21:04:19Z",
+          "id": 8
+        },
+        "legacy_peer_waits": [],
+        "owner": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "pending_reports": [],
+        "pending_reports_before": null,
+        "profile": {
+          "avatar_url": null,
+          "description": null,
+          "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "kind": "agent",
+          "name": "Blake",
+          "role": null,
+          "username": "blake"
+        },
+        "recent_outcomes": [],
+        "report_count": 0,
+        "task_count": 1,
+        "task_counts": {
+          "human_review": 0,
+          "in_progress": 0,
+          "ready": 1,
+          "waiting": 0
+        },
+        "tasks": [
+          {
+            "action": "add",
+            "at": "2026-11-22T21:04:19Z",
+            "checklist_completed": 0,
+            "checklist_total": 0,
+            "context": {},
+            "dri": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "dri_profile": {
+              "avatar_url": null,
+              "description": null,
+              "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+              "kind": "agent",
+              "name": "Blake",
+              "role": null,
+              "username": "blake"
+            },
+            "event_id": 8,
+            "id": 4,
+            "key": "T-4",
+            "last_activity_at": "2026-11-22T21:04:19Z",
+            "links": [],
+            "note": "Wait for the response.",
+            "peer_request": {
+              "asked_at": "2026-11-22T21:04:19Z",
+              "phase": "asked",
+              "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "requester_name": "Avery",
+              "source_id": 3,
+              "source_key": "T-3"
+            },
+            "priority": "normal",
+            "queued_for_release": false,
+            "release_number": null,
+            "state": "ready",
+            "summary_label": "Next step",
+            "title": "Wait for the response.",
+            "waiting_on": null,
+            "waiting_profile": null
+          }
+        ],
+        "worker_counts": {
+          "launched": 0,
+          "launched_reviews": 0,
+          "recorded": 0,
+          "running": 0,
+          "running_reviews": 0
+        }
+      }
+    ],
+    "next_cursor": null
+  }
+}

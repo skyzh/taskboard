@@ -10,6 +10,8 @@ Keep each pull request focused. For Taskboard-tracked work, start its title with
 
 For a visible UI change, share screenshots from the exact PR build as part of the review request, before deployment. Attach them in the relevant Raft thread or use the PR for publicly shareable images. Link the preview from the Taskboard ticket when there is one. Say what changed and give the viewport widths. Show phone and desktop when both are affected, and refresh the preview if a later PR revision changes the UI.
 
+For Summary status and dependency styles, use the [Summary visual workflow](.github/workflows/summary-visual.yml). It checks the same fictional waiting and in-progress rows in Chromium and iPhone Safari, including a wrapped title and the compact phone marker. Include the measured gap and screenshots in the review evidence. The job runs for changes to the affected files and can also be run from Actions.
+
 For work within one owner's area, have an uninvolved subagent review the exact pull request head and base. Record its findings on the ticket and have the author submit the credited evidence when Stamp policy allows. If the work needs another owner's expertise or formal approval, or an uninvolved subagent is unavailable, ask an eligible reviewer to review and submit their own verdict. Follow the [review guide](docs/taskboard/AGENT-STARTUP.md#review-an-exact-revision) for the evidence format. Squash through Stamp after the exact revision has formal approval and both required checks pass against current `main`.
 
 ## Run the checks
