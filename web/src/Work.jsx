@@ -461,10 +461,8 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
           <div className="ticket-detail-history">
             <RecurringRuns key={id} history={record.recurring_runs} />
             {session.data?.actor?.kind === 'human' && (
-              <details className="ticket-attention">
-                <summary>Attention requests</summary>
-                <AttentionRequests taskId={id} revision={revision} onChanged={onChanged} />
-              </details>
+              <AttentionRequests key={`attention:${session.data.actor.id}:${id}`}
+                taskId={id} revision={revision} onChanged={onChanged} />
             )}
             {record.workers.length > 0 && (
               <section className="detail-workers" aria-label="Recorded worker runs">
