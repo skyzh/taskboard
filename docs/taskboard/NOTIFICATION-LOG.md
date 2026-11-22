@@ -1,6 +1,6 @@
 # Project notification log
 
-Open **Notifications → Project log** to see recorded Taskboard notices for one project. Project managers can see the project's entries. A signed-in recipient can see their own entries. The status and kind filters use the same scope on every page.
+Open **Notifications → Project log** to see recorded Ready and merge notices linked to tickets in one project. Project managers can use **Agent** to select a recipient. Other signed-in users see their own entries. The project, status, notice kind, and agent selection are preserved in the URL and across pages. The empty message distinguishes a log with no recorded receipts in your scope from filters that match none.
 
 ## Record from the sender
 

@@ -147,7 +147,7 @@ test('About has its own route and loads the running release', () => {
 })
 
 test('a filtered Project log has the Notifications route', () => {
-  const projectLog = render('#notifications-log?project=T&status=pending&kind=ready')
+  const projectLog = render('#notifications-log?project=T&status=pending&kind=ready&agent=00000000-0000-0000-0000-000000000028')
   assert.match(projectLog, /id="notifications">Notifications<\/h1>/)
   assert.doesNotMatch(projectLog, /id="queue-heading"/)
 })

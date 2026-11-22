@@ -204,6 +204,42 @@ def publish_after_sender(result, ledger_path, receipts):
     return {**result, "project_log": publication}
 
 
+def project_agents(db, project, roster):
+    roster_scope = " OR principals.subject IN (" + ", ".join("?" for _ in roster) + ")" if roster else ""
+    return db.execute(
+        f"""
+        WITH people AS (
+            SELECT dri FROM projects WHERE prefix = ?
+            UNION SELECT dri FROM tasks WHERE project_prefix = ?
+            UNION SELECT notices.recipient
+                FROM notification_log AS notices
+                JOIN events ON events.id = notices.source_event_id
+                JOIN tasks ON tasks.id = events.task_id
+                WHERE tasks.project_prefix = ?
+        )
+        SELECT principals.subject, principals.ledger_key,
+               COALESCE(NULLIF(principals.name, ''), NULLIF(principals.username, ''), principals.ledger_key) AS name
+        FROM board_principals AS principals
+        WHERE principals.kind = 'agent' AND (principals.ledger_key IN (SELECT dri FROM people){roster_scope})
+        ORDER BY LOWER(name), principals.subject
+        """, (project, project, project, *roster),
+    ).fetchall()
+
+
+def has_receipts(db, project, recipient):
+    scope = "" if recipient is None else " AND notices.recipient = ?"
+    bindings = (project,) if recipient is None else (project, recipient)
+    return db.execute(
+        f"""
+        SELECT 1 FROM notification_log AS notices
+        JOIN events ON events.id = notices.source_event_id
+        JOIN tasks ON tasks.id = events.task_id
+        WHERE tasks.project_prefix = ?{scope}
+        LIMIT 1
+        """, bindings,
+    ).fetchone() is not None
+
+
 def listing(db, project, recipient, state, kind, *, before, limit):
     filters, bindings = ["tasks.project_prefix = ?"], [project]
     if recipient is not None:

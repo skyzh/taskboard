@@ -1515,8 +1515,29 @@ def create_app(
         project = project_filter(request.args, projects.DEFAULT)
         key = actor["ledger_key"]
         with tasks_storage.read(db()) as connection:
-            recipient = None if projects.manages(connection, project, key) else key
-            return notification_log.listing(connection, project, recipient, state, kind, **page_args(request.args))
+            manager = projects.manages(connection, project, key)
+            requested = request.args.get("recipient")
+            if requested is not None and not manager:
+                raise RequestError("Only this project's manager can filter by agent.", 403)
+            options = None
+            recipient = None if manager else key
+            if manager:
+                roster = (project_roster or {}) if project == projects.DEFAULT else {}
+                agents = notification_log.project_agents(connection, project, roster)
+                options = [{"id": row["subject"], "name": row["name"]} for row in agents]
+                if requested is not None:
+                    selected = next((row for row in agents if row["subject"] == requested), None)
+                    if selected is None:
+                        raise RequestError("Choose an available agent for this project.", 404)
+                    recipient = selected["ledger_key"]
+            page = notification_log.listing(connection, project, recipient, state, kind, **page_args(request.args))
+            return {
+                **page,
+                "agent_options": options,
+                "has_receipts": bool(page["items"]) or notification_log.has_receipts(
+                    connection, project, None if manager else key,
+                ),
+            }
 
     @app.get("/api/v1/notifications/watched")
     def watched_notifications():
