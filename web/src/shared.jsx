@@ -130,7 +130,8 @@ export function signInHref(hash) {
   const login = './auth/login'
   const [anchor] = hash.split('?', 1)
   const taskLink = /^#task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9]\d{0,18}$/.test(anchor)
-  const returnToBoard = taskLink || /^#(?:event-[1-9]\d{0,18}-log|notifications(?:-needs-me)?|reports(?:-all|\?project=[A-Z][A-Z0-9]{0,7})|settings|about)$/.test(hash)
+  const statsLink = /^#stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/.test(hash)
+  const returnToBoard = taskLink || statsLink || /^#(?:event-[1-9]\d{0,18}-log|notifications(?:-needs-me)?|reports(?:-all|\?project=[A-Z][A-Z0-9]{0,7})|settings|about)$/.test(hash)
     || (hash.startsWith('#') && notificationLogFilters(hash.slice(1)))
   return returnToBoard ? `${login}?fragment=${encodeURIComponent(taskLink ? anchor : hash)}` : login
 }

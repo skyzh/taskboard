@@ -47,6 +47,7 @@ function useFragment() {
     let anchor = fragment.startsWith('task-') ? fragment.split('?', 1)[0] : fragment
     if (fragment.startsWith('notifications-')) anchor = 'notifications'
     if (fragment === 'reports-all' || fragment.startsWith('reports?')) anchor = 'reports'
+    if (fragment.startsWith('stats?')) anchor = 'stats'
     if (fragment === 'map' || fragment === 'workstreams-title') anchor = 'team-overview'
     const id = params.get('dri') ? section || 'assignee-title'
       : params.get('search')?.trim() ? 'search-results' : params.has('schedules') ? 'schedules' : section || anchor
@@ -171,6 +172,11 @@ export default function App() {
   const projectList = useResource(hasSession ? '/projects' : null, revision)
   const visibleProjects = projectList.data?.items
   const hasProjectChoices = visibleProjects?.length > 1
+  const statsFilters = taskAnchor === 'stats' ? new URLSearchParams(taskContext) : null
+  const requestedStatsPeriod = statsFilters?.get('period')
+  const statsPeriod = ['hour', 'week'].includes(requestedStatsPeriod) ? requestedStatsPeriod : 'day'
+  const requestedStatsProject = statsFilters?.get('project')
+  const statsProject = /^[A-Z][A-Z0-9]{0,7}$/.test(requestedStatsProject || '') ? requestedStatsProject : undefined
   const owner = params.get('dri')
   const search = selected ? '' : params.get('search')?.trim() || ''
   let view = 'board'
@@ -180,7 +186,7 @@ export default function App() {
   else if (fragment === 'settings') view = 'settings'
   else if (fragment === 'about') view = 'about'
   else if (params.has('schedules')) view = 'schedules'
-  else if (fragment === 'stats') view = 'stats'
+  else if (taskAnchor === 'stats') view = 'stats'
   else if (logFilters || ['notifications', 'notifications-needs-me'].includes(fragment)) view = 'notifications'
   else if (fragment === 'my-activity' && isAgent) view = 'my-activity'
   else if (linkedEvent || ['activity', 'work-log-title'].includes(fragment)) view = 'activity'
@@ -300,7 +306,7 @@ export default function App() {
             ? <p className="section-message" role="status">Loading Reports…</p>
             : <Reports revision={revision} project={project}
               projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null} />)}
-          {view === 'stats' && <Stats revision={revision} />}
+          {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject} />}
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}
             chooseTimeZone={chooseTimeZone} onProfileSaved={actor => { setSavedActor(actor); refresh() }} />}
           {view === 'about' && <About revision={revision} />}

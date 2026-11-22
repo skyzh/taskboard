@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { queryPath, useResource } from './data.js'
 import { AssigneeAvatar, ResourceStatus, Status, TaskLink, Timestamp, taskState } from './shared.jsx'
 import { useTimeZone } from './timeZone.js'
@@ -149,8 +149,7 @@ function Breakdown({ activity }) {
   )
 }
 
-export default function Stats({ revision }) {
-  const [period, setPeriod] = useState('day')
+export default function Stats({ revision, period = 'day', project }) {
   const resource = useResource(queryPath('/stats', { period }), revision)
   const data = resource.data
   return (
@@ -158,7 +157,13 @@ export default function Stats({ revision }) {
       <div className="page-heading">
         <h1 id="stats">Stats</h1>
         <div className="stats-controls">
-          <label>Time period <select value={period} onChange={event => setPeriod(event.target.value)}>
+          <label>Time period <select value={period} onChange={event => {
+            const selection = event.target.value
+            const filters = new URLSearchParams({
+              ...(project && { project }), ...(selection !== 'day' && { period: selection }),
+            })
+            window.location.hash = filters.size ? `stats?${filters}` : 'stats'
+          }}>
             <option value="hour">Past hour</option>
             <option value="day">Past day</option>
             <option value="week">Past week</option>

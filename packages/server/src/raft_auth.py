@@ -33,7 +33,10 @@ _BEARER = re.compile(r"[A-Za-z0-9._~+/-]+=*")
 BOARD_FRAGMENT = re.compile(
     r"#(?:task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9][0-9]{0,18}|event-[1-9][0-9]{0,18}-log"
     r"|notifications(?:-needs-me|-log(?:\?project=[A-Z][A-Z0-9]{0,7}"
-    r"(?:&status=(?:pending|history))?(?:&kind=(?:ready|merge))?)?)?|reports(?:-all|\?project=[A-Z][A-Z0-9]{0,7})|settings|about)"
+    r"(?:&status=(?:pending|history))?(?:&kind=(?:ready|merge))?)?)?"
+    r"|reports(?:-all|\?project=[A-Z][A-Z0-9]{0,7})"
+    r"|stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?"
+    r"|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?|settings|about)"
 )
 _MAX_PROVIDER_RESPONSE = 64 * 1024
 _RAFT_API_ORIGIN = "https://api.raft.build"
