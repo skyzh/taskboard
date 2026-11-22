@@ -4167,6 +4167,59 @@ class TasksServiceTest(unittest.TestCase):
             self.assertTrue(response.data.startswith(b"\x89PNG"))
         self.assertEqual(sam.get(avatar, base_url=ORIGIN).status_code, 403)
 
+    def test_signed_in_raft_refresh_replaces_and_clears_imported_profile_fields(self):
+        self.cli("add", "Check samples", "--dri", "Avery", "--step", "Read the plan.")
+        app = self.app(portal_reader=True, api_origin="https://api.raft.build")
+        viewer = app.test_client()
+        person = self.provider.people["Avery"]
+        subject = person["sub"]
+        bind_owner(self.database, SERVER, "agent", subject, "Avery")
+        old_photo = "https://cdn.raft.build/fixture/old.png"
+        new_photo = "https://cdn.raft.build/fixture/new.png"
+        photos = {}
+        for url, color in ((old_photo, "blue"), (new_photo, "red")):
+            image = BytesIO()
+            Image.new("RGBA", (2, 2), color).save(image, format="PNG")
+            photos[url] = image.getvalue()
+        import_assignee(self.database, "Avery", {"ok": True, "data": {
+            "id": subject, "name": "Avery", "kind": "agent", "displayName": "Avery",
+            "description": "Imported description.", "avatarUrl": "pixel:bulb",
+        }}, photos[old_photo])
+
+        def directory_profile():
+            return self.call(viewer, "/api/v1/assignee?owner=Avery").json["profile"]
+
+        person.update(description="Imported description.", picture=old_photo)
+        with patch("raft_auth._send_photo", side_effect=lambda request: photos[request.full_url]) as fetch:
+            imported = directory_profile()
+            self.assertIn("/api/v1/assignee-avatar/", imported["avatar_url"])
+            fetch.assert_not_called()
+            avery, _ = self.login(app, "Avery")
+            self.action(avery, "set-profile", {"role": "Reviewer"})
+            person.update(description="Updated in Raft.", picture=new_photo)
+            self.assertEqual(directory_profile()["description"], "Imported description.")
+            refreshed = self.call(avery, "/api/v1/session").json["actor"]
+            self.assertEqual(refreshed["description"], "Updated in Raft.")
+            self.assertEqual(refreshed["role"], "Reviewer")
+            self.assertIn("/api/v1/avatars/", refreshed["avatar_url"])
+            self.assertEqual(directory_profile(), refreshed)
+            avatar_path = urlsplit(refreshed["avatar_url"]).path.removeprefix(BASE)
+            with closing(self.call(viewer, avatar_path)) as avatar:
+                with Image.open(BytesIO(avatar.data)) as image:
+                    self.assertEqual(image.convert("RGB").getpixel((0, 0)), (255, 0, 0))
+            self.assertEqual(self.call(avery, "/api/v1/session").json["actor"], refreshed)
+            self.assertEqual([call.args[0].full_url for call in fetch.call_args_list], [old_photo, new_photo])
+
+            person.pop("description")
+            person.pop("picture")
+            cleared = self.call(avery, "/api/v1/session").json["actor"]
+            self.assertIsNone(cleared["description"])
+            self.assertIsNone(cleared["avatar_url"])
+            self.assertEqual(cleared["role"], "Reviewer")
+            self.assertEqual(directory_profile(), cleared)
+            self.assertEqual(self.call(avery, "/api/v1/session").json["actor"], cleared)
+            self.assertEqual(fetch.call_count, 2)
+
     def test_verified_profile_defaults_and_board_overrides_survive_restart(self):
         api_origin = "https://api.raft.build"
         agent_photo = api_origin + "/api/avatars/pixel/YnVsYg.svg"
