@@ -64,6 +64,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "search-tasks": ("GET", "q project", "before limit"),
             "task-tag": ("POST", "id tag action", ""),
             "task-activity": ("GET", "id", "before limit"),
+            "confirm-blocker": ("POST", "id wait_event note", "url label"),
             "assignees": ("GET", "", "query project before limit"),
             "create-task": ("POST", "title step", "brief project url label"),
             "recurring-add": ("POST", "key title step cadence_hours next_at", ""),

@@ -464,6 +464,7 @@ _CHECK_INBOX = "Check your Taskboard Inbox for the next actionable item."
 _NEXT_STEPS = {
     "assignees": "Use the chosen assignee's stable ID when assigning work.",
     "context": "Check your owned queue or review assignments for actionable work.",
+    "confirm-blocker": "Pick up the unblocked ticket from its owner's Inbox.",
     "create-task": "Start the task when you can act on its first step.",
     "delegate": "Give the worker the ticket link and verify that the run starts.",
     "fetch-github": "Open the task's Activity to read the imported updates.",
@@ -895,7 +896,38 @@ def create_app(
             "tag_editable": editable,
             "can_close": may_close and task["state"] != "done",
             "can_edit_details": editable,
+            "can_confirm_blocker": editable and has_verifiable_blocker(task["state"], task["context"]),
         }
+
+    def has_verifiable_blocker(state, context):
+        return state == "waiting" and not context.get("peer_ask_ticket") and (
+            "blocked_by" in context or context.get("wait_kind") == "automation"
+        )
+
+    def confirm_blocker(actor, number, wait_event, note, links):
+        key = actor["ledger_key"]
+        with tasks_storage.write(db()) as connection:
+            task = ledger.get_task(connection, number)
+            if task["dri"] != key and not projects.manages(connection, projects.row_project(task), key):
+                raise RequestError("Only the ticket owner or project manager can confirm its blocker.", 403)
+            context = ledger.event_context(task)
+            if not has_verifiable_blocker(task["state"], context) or task["event_id"] != wait_event:
+                raise RequestError("This blocker has changed. Open the current ticket before confirming it.", 409)
+            if blocker_id := context.get("blocked_by"):
+                blocker = ledger.get_task(connection, blocker_id)
+                if blocker["display_state"] != "done":
+                    raise RequestError("The linked ticket is not Done.", 409)
+                target = projects.row_reference(blocker)
+                anchor = blocker_id if projects.row_project(blocker) == projects.DEFAULT else target
+                links = [("Completed blocker", f"{base}/#task-{anchor}"), *links]
+            elif not links:
+                raise RequestError("Include a link to the verified automation result.")
+            event = ledger.record(
+                connection, number, "resume", key, "ready", note, None, links,
+                {"confirmed_blocker_event": wait_event},
+            )
+            ledger.bump_revision(connection)
+        return {"receipt": f"{projects.row_reference(task)} · Blocker confirmed", "event_id": event}
 
     def mutate(command, actor, data, **fields):
         args = Namespace(command=command, by=actor["ledger_key"], **fields)
@@ -1233,6 +1265,15 @@ def create_app(
         actor = current_actor(write=True)
         data = json_body({"reason", "related"})
         return close_ticket(actor, task_number(number), data)
+
+    @app.post("/api/v1/tasks/<number>/confirm-blocker")
+    def task_confirm_blocker(number):
+        actor = current_actor(write=True)
+        data = json_body({"wait_event", "note", "label", "url"})
+        return confirm_blocker(
+            actor, task_number(number), integer(data.get("wait_event"), "wait_event"),
+            text(data, "note"), one_link(data),
+        )
 
     @app.post("/api/v1/tasks/<number>/details")
     def task_details_edit(number):
@@ -2028,6 +2069,11 @@ def create_app(
             return query().actionable_reviews(key, project=project_filter(data), **page_args(data))
         if name == "task":
             return detail(task_number(data.get("id")), actor)
+        if name == "confirm-blocker":
+            return confirm_blocker(
+                actor, task_number(data.get("id")), integer(data.get("wait_event"), "wait_event"),
+                text(data, "note"), one_link(data),
+            )
         if name == "task-activity":
             number = task_number(data.get("id"))
             activity = query().events(number=number, **page_args(data))
