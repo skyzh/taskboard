@@ -1448,6 +1448,41 @@ class TasksServiceTest(unittest.TestCase):
             self.assertIn("Independent count verified.", [event["note"] for event in summary])
         self.assertEqual(self.call(viewer, f"/api/v1/activity/{events[0]['id']}").get_json(), events[0])
 
+    def test_ticket_activity_append_uses_signed_in_author_without_advancing_ticket(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        contributor, contributor_id = self.login(app, "Blake")
+        human, human_id = self.login(app, "Sam")
+        self.action(owner, "create-task", {"title": "Verify samples", "step": "Read the plan."})
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Verify samples."})
+        detail = "/api/v1/tasks/T-1"
+        activity = detail + "/activity"
+        original = self.call(owner, detail).get_json()["task"]
+
+        self.call(app.test_client(), activity, method="POST", status=401, json={"note": "Anonymous entry."})
+        self.call(contributor, activity, method="POST", status=400, json={"note": "   "})
+        self.call(contributor, activity, method="POST", status=400,
+                  json={"note": "Invalid evidence.", "url": "file:///tmp/sample"})
+        self.call(contributor, activity, method="POST", json={
+            "note": "Checked the sample independently.", "url": "https://example.test/sample", "label": "Sample",
+        })
+        self.call(owner, activity, method="POST", json={"note": "Added the sample to Activity."})
+        self.call(human, activity, method="POST", json={"note": "Reviewed the artifact."})
+
+        current = self.call(owner, detail).get_json()["task"]
+        for field in ("state", "dri", "note", "at", "event_id"):
+            self.assertEqual(current[field], original[field])
+        events = self.call(contributor, activity).get_json()["items"]
+        added = {event["note"]: event for event in events if event["action"] == "log"}
+        self.assertEqual({note: event["actor"] for note, event in added.items()}, {
+            "Checked the sample independently.": contributor_id,
+            "Added the sample to Activity.": owner_id,
+            "Reviewed the artifact.": human_id,
+        })
+        evidence = added["Checked the sample independently."]
+        self.assertTrue(evidence["at"])
+        self.assertEqual(evidence["links"], [{"label": "Sample", "url": "https://example.test/sample", "unavailable": False}])
+
     def test_checklist_edits_keep_step_numbers_and_historical_wording(self):
         app = self.app(portal_reader=True)
         avery, avery_id = self.login(app, "Avery")

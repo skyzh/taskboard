@@ -7,6 +7,7 @@ import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
 import { MergeQueue } from './MergeQueue.jsx'
 import ReminderDate from './ReminderDate.jsx'
 import Kanban from './Kanban.jsx'
+import TaskActivityUpdate from './TaskActivityUpdate.jsx'
 import TaskClosure from './TaskClosure.jsx'
 import TaskDetailsEdit from './TaskDetailsEdit.jsx'
 import TaskOwnership from './TaskOwnership.jsx'
@@ -466,6 +467,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
             )}
             <section className="ticket-activity" aria-labelledby={`ticket-activity-${id}`}>
               <h3 id={`ticket-activity-${id}`}>Activity</h3>
+              {['agent', 'human'].includes(session.data?.actor?.kind) && <TaskActivityUpdate task={task} onChanged={onChanged} />}
               <ResourceStatus resource={activity} label="task activity" />
               {activity.data?.items.length === 0 && <p className="section-message">No activity yet.</p>}
               <ol className="event-list" role="list">

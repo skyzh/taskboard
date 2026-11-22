@@ -1252,6 +1252,24 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
         current_actor()
         return query().events(number=task_number(number), **page_args(request.args))
 
+    def record_activity(actor, number, data):
+        from tasks_ready_measurement import activity_measurements
+
+        fields = activity_text(data, "log")
+        try:
+            measurements = activity_measurements(fields.get("details"))
+        except ValueError as error:
+            raise RequestError(str(error)) from error
+        if measurements is not None and number != watcher_task_id(db()):
+            raise RequestError("Use the configured watcher measurement ticket.", 403)
+        return mutate("log", actor, data, id=number, watcher_measurements=measurements, **fields)
+
+    @app.post("/api/v1/tasks/<number>/activity")
+    def task_activity_add(number):
+        actor = current_actor(write=True)
+        data = json_body({"note", "label", "url"})
+        return record_activity(actor, task_number(number), data)
+
     @app.get("/api/v1/activity")
     def activity():
         current_actor()
@@ -2102,16 +2120,7 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
                 dri=require_person(text(data, "owner", maximum=160), "agent", task_id=number),
             )
         if name == "record-activity":
-            from tasks_ready_measurement import activity_measurements
-
-            fields = activity_text(data, "log")
-            try:
-                measurements = activity_measurements(fields.get("details"))
-            except ValueError as error:
-                raise RequestError(str(error)) from error
-            if measurements is not None and number != watcher_task_id(db()):
-                raise RequestError("Use the configured watcher measurement ticket.", 403)
-            return mutate("log", actor, data, id=number, watcher_measurements=measurements, **fields)
+            return record_activity(actor, number, data)
         if name == "delegate":
             role = text(data, "role", maximum=30)
             if role not in ("build", "review"):
