@@ -293,6 +293,15 @@ class MainReleaseTest(unittest.TestCase):
             self.assertEqual([call.args[0] for call in moving.call_args_list], [checks, branch, rules, branch])
             self.assertFalse(transfers)
             self.assertEqual(file_hash(layout.current / "SHA256SUMS"), before)
+            records = self.ci.state / "hosted-deployments"
+            failure_path = records / "last-staged-failure.json"
+            failure = json.loads(failure_path.read_text())
+            self.assertEqual((failure["commit"], failure["stage"], failure["reason_code"]),
+                             (commit, "protected_tip", "rejected"))
+            verify_manifest(self.ci.state / "artifacts" / failure["candidate"], failure["candidate"])
+            self.assertFalse((records / f"{commit}.json").exists())
+            self.assertFalse(checked_main_receipt(self.config, commit).exists())
+            self.assertEqual(failure_path.stat().st_mode & 0o777, 0o600)
             fetch.reset_mock()
 
             read = Mock(side_effect=responses.__getitem__)
@@ -330,6 +339,54 @@ class MainReleaseTest(unittest.TestCase):
             self.assertEqual(len(transfers), 2)
             self.assertEqual(len(restarts), 3)
             self.assertEqual(fetch.call_count, 2)
+            self.assertEqual(json.loads(failure_path.read_text()), failure)
+
+    def test_staged_failure_receipt_uses_the_invocation_and_omits_command_details(self):
+        layout, before = self.prepare_target()
+        self.ci.write("web/src/title.txt", "Checked candidate with a blocked gate")
+        commit = self.ci.commit("Build the staged fixture")
+        read = self.github_responses(commit).__getitem__
+        fetch = Mock()
+        invocation = "9" * 32
+        error = subprocess.CalledProcessError(
+            1, ["fixture", "/private/example"], stderr=b"fixture-private-output",
+        )
+        target = {"outcome": None, "active": before}
+        operate = Mock(return_value=target)
+        path = self.ci.state / "hosted-deployments/last-staged-failure.json"
+        with patch.dict(os.environ, {"INVOCATION_ID": invocation}), (
+            patch("deploy_hosted.run_matrix", side_effect=error)
+        ), self.assertRaises(subprocess.CalledProcessError):
+            deploy_once(self.config, tip=lambda _: commit, read=read, fetch=fetch, operate=operate)
+        operate.assert_called_once_with(self.config, unittest.mock.ANY, checked_main=commit, read_state=True)
+        raw = path.read_text()
+        result = json.loads(raw)
+        self.assertEqual(set(result), {
+            "schema_version", "attempt", "at", "commit", "candidate", "status", "stage", "reason_code",
+        })
+        self.assertEqual(
+            (result["attempt"], result["commit"], result["status"], result["stage"], result["reason_code"]),
+            (invocation, commit, "unconfirmed", "compatibility", "command_failed"),
+        )
+        self.assertNotIn("fixture-private-output", raw)
+        self.assertNotIn("/private/example", raw)
+
+        operate = Mock(side_effect=[target, OSError("private operator path")])
+        with (
+            patch.dict(os.environ, {"INVOCATION_ID": "unexpected private value"}),
+            patch("deploy_hosted.run_matrix", return_value={"status": "pass"}),
+            patch("deploy_hosted.verify_policy_receipt"),
+            self.assertRaisesRegex(OSError, "private operator path"),
+        ):
+            deploy_once(self.config, tip=lambda _: commit, read=read, fetch=fetch, operate=operate)
+        handoff = json.loads(path.read_text())
+        self.assertRegex(handoff["attempt"], r"^[0-9a-f]{32}$")
+        self.assertNotEqual(handoff["attempt"], result["attempt"])
+        self.assertEqual((handoff["status"], handoff["stage"], handoff["reason_code"]),
+                         ("unconfirmed", "operator_handoff", "io_error"))
+        self.assertNotIn("private", path.read_text())
+        self.assertEqual(file_hash(layout.current / "SHA256SUMS"), before)
+        self.assertFalse(checked_main_receipt(self.config, commit).exists())
 
     def test_projection_imports_the_saved_outcome_into_the_existing_ledger(self):
         root = Path(__file__).resolve().parents[2]

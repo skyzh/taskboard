@@ -215,6 +215,17 @@ compares Git main with the running commit and skips REST requests. Its journal
 reports `rate-limited` with the `retry_at` UTC epoch timestamp for a deferred
 candidate.
 
+If an invocation builds an artifact and then raises an error before receiving
+the operator outcome, read `$ci_state/hosted-deployments/last-staged-failure.json`.
+This operator-private file holds the most recent such failure. It includes the
+systemd invocation ID (or a generated ID for a manual run), UTC time, commit,
+artifact digest, stage reached, and a fixed reason code. Compare the ID and time
+with the timer invocation. A later successful run leaves the last failure
+available for inspection. The stage distinguishes compatibility, transfer,
+the final protected-tip check, the checked receipt, and the operator handoff.
+If the failure reached the operator handoff, check the existing operator
+result or activation journal to determine the active release.
+
 The mounted `GET /api/v1/release` reads the commit, build time and successful
 deploy time for the matching active manifest. Metadata is written after the
 mounted check passes. A rollback leaves the restored version's metadata in
