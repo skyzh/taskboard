@@ -3,6 +3,7 @@
 from contextlib import closing
 import sqlite3
 
+from tasks_goals import migrate_goal_tickets
 from tasks_oidc_members import bind_issuer
 from tasks_service import prepare_postgres
 from tasks_storage import Postgres, write
@@ -15,7 +16,7 @@ TABLES = (
     "task_references", "task_watches", "worker_runs", "recurring_definitions",
     "recurring_occurrences", "project_maintenance", "release_batches", "release_events",
     "release_tasks", "release_changelogs", "merge_candidates", "board_principals",
-    "board_assignee_imports", "board_project_goals", "board_standing_goals", "board_goal_milestones",
+    "board_assignee_imports", "board_project_goals", "board_standing_goals", "board_goal_milestones", "task_goals",
     "oidc_members", "audit_events",
     "intake_errors", "attention_requests", "attention_wait_links", "notification_preferences", "notification_log",
 )
@@ -80,6 +81,7 @@ def import_snapshot(path, dsn):
             destination.execute("INSERT INTO projects VALUES ('T', 'Tasks Board', NULL) ON CONFLICT DO NOTHING")
             for table, column in IDENTITIES.items():
                 reset_identity(destination, table, column)
+            migrate_goal_tickets(destination)
             return counts
 
 

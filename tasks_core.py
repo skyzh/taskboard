@@ -450,14 +450,14 @@ def record(db, number, action, actor, state, note, waiting_on, links, context=No
     )
 
 
-def create_task_record(db, args, links, *, context=None, at=None):
+def create_task_record(db, args, links, *, context=None, at=None, state="ready"):
     project = projects.require(db, getattr(args, "project", None) or projects.DEFAULT)
     project_number = projects.next_number(db, project)
     number = tasks_storage.insert_id(
         db, "INSERT INTO tasks (title, dri, brief, project_prefix, project_number) VALUES (?, ?, ?, ?, ?)",
         (args.title, args.dri, args.brief or "", project, project_number),
     )
-    record(db, number, "add", args.by or args.dri, "ready", args.step, None, links, context, at=at)
+    record(db, number, "add", args.by or args.dri, state, args.step, None, links, context, at=at)
     return number
 
 
@@ -477,6 +477,13 @@ def get_task(db, number):
     return task
 
 
+def task_goal_kind(db, number):
+    if not tasks_storage.table_columns(db, "task_goals"):
+        return None
+    row = db.execute("SELECT kind FROM task_goals WHERE task_id = ? AND retired = 0", (number,)).fetchone()
+    return row["kind"] if row else None
+
+
 def ownership_actions(task):
     if task["state"] == "done":
         return ["reopen"]
@@ -492,19 +499,28 @@ def edit_task_details(db, args, links):
     reason = args.note.strip()
     if not reason or len(reason) > 4000:
         raise ValueError("Provide a reason of up to 4000 characters.")
+    kind = task_goal_kind(db, args.id) if args.title is not None else None
     previous, current = {}, {}
-    for field, maximum in (("title", 200), ("brief", 4000)):
+    for field, maximum in (("title", 500 if kind == "standing" else 200), ("brief", 4000)):
         value = getattr(args, field)
         if value is None:
             continue
         if not isinstance(value, str) or len(value) > maximum or (field == "title" and not value.strip()):
             raise ValueError(f"Provide {field} as text up to {maximum} characters.")
         value = value.strip()
+        if field == "title" and kind == "standing" and not value.isprintable():
+            raise ValueError("Provide a one-line goal title.")
         if value != task[field]:
             previous[field], current[field] = task[field], value
     reference = projects.row_reference(task)
     if not current:
         return f"{reference} · Details unchanged"
+    if kind == "milestone" and "title" in current:
+        from tasks_goals import goal_rows
+
+        if any(row["summary"] == current["title"]
+               for row in goal_rows(db, [task["dri"]], projects.row_project(task), kind)):
+            raise ValueError("Choose a different milestone name.")
     db.execute("UPDATE tasks SET title = ?, brief = ? WHERE id = ?",
                (current.get("title", task["title"]), current.get("brief", task["brief"]), args.id))
     record(db, args.id, "log", args.by, task["state"], "Ticket details updated.", None, links, {
@@ -543,6 +559,8 @@ def change_ownership(db, args, links):
     action, reference = args.command, projects.row_reference(task)
     if not projects.manages(db, projects.row_project(task), args.by):
         raise PermissionError("Only this project's manager can change task ownership.")
+    if task_goal_kind(db, args.id):
+        raise ValueError("A goal belongs to its owner. Use the owner's goal settings to manage it.")
     if action not in ownership_actions(task):
         raise ValueError(f"Cannot {action} {reference} in its current state.")
     owner = "" if action == "unassign" else args.dri
@@ -803,6 +821,17 @@ def change_task(db, args, links):
     review_criteria = getattr(args, "review_criteria", None)
     feature_deferred = getattr(args, "feature_deferred", False)
     if args.command == "park" and (review_source is not None or review_criteria is not None or feature_deferred):
+        previous = (*previous, "parked")
+    goal_kind = task_goal_kind(db, args.id) if state == "ready" or args.command in ("start", "remind", "done") else None
+    if goal_kind and args.command in ("transfer", "unpark"):
+        raise ValueError("A goal stays with its owner. Start it with the concrete step you will work on.")
+    if goal_kind and args.command == "remind" and getattr(args, "defer_until", None):
+        raise ValueError("A goal can have a review date. Start it explicitly when you have an investigation.")
+    if goal_kind == "standing" and args.command == "done":
+        raise ValueError("Park the standing goal after recording the investigation outcome.")
+    if goal_kind and state == "ready":
+        state = "parked"
+    if goal_kind and args.command == "start" and task["state"] == "parked":
         previous = (*previous, "parked")
     if task["state"] not in previous:
         required = " or ".join(STATES[value] for value in previous)
@@ -1907,6 +1936,7 @@ def arguments():
     oidc.add_argument("--ledger-key", type=nonblank)
     oidc.add_argument("--name", type=nonblank)
     postgres_copy = commands.add_parser("postgres-import", help="Load a closed SQLite snapshot into an empty PostgreSQL board.")
+    commands.add_parser("restore-legacy-goals", help="Restore goal records before reverting a stopped board to an older server.")
     postgres_copy.add_argument("snapshot", type=Path)
     imported = commands.add_parser("import-assignee", help="Import visible Raft profile metadata for an exact ledger owner.")
     imported.add_argument("owner", type=nonblank)
@@ -1977,7 +2007,7 @@ def arguments():
     if args.mode == "postgres":
         if args.db is not None:
             parser.error("--postgres selects the configured connection. Pass the SQLite snapshot to postgres-import.")
-        if args.command not in {"serve", "postgres-import", "register-project", "oidc-member", "release-event", "notification-event"}:
+        if args.command not in {"serve", "postgres-import", "register-project", "oidc-member", "release-event", "notification-event", "restore-legacy-goals"}:
             parser.error("Use --postgres for serving, snapshot import, project setup, membership, or operator receipts.")
         if args.command == "oidc-member" and args.operation == "revoke" and (args.ledger_key or args.name):
             parser.error("Revoke a member by issuer and subject.")
@@ -2003,6 +2033,8 @@ def arguments():
         parser.error(f"{args.command} requires an explicit local --db in offline mode.")
     if args.command in ("release-event", "notification-event") and (args.mode != "offline" or args.db is None):
         parser.error(f"{args.command} requires a specific offline database selected with --db.")
+    if args.command == "restore-legacy-goals" and (args.mode != "offline" or args.db is None):
+        parser.error("restore-legacy-goals requires a specific offline database selected with --db.")
     if args.mode == "offline":
         if args.command == "reviews":
             parser.error("reviews requires shared mode.")
@@ -2383,6 +2415,10 @@ def main():
                     elif args.command == "notification-event":
                         with args.receipt.open(encoding="utf-8") as receipt:
                             print(json.dumps(import_notification_on(db, json.load(receipt))))
+                    elif args.command == "restore-legacy-goals":
+                        from tasks_goals import restore_legacy_goals
+
+                        print(f"Restored {restore_legacy_goals(db)} legacy goals.")
                     else:
                         from tasks_service import set_oidc_member_on
 
@@ -2394,6 +2430,14 @@ def main():
         if getattr(args, "attention_request_id", None) is not None:
             raise ValueError("Use --shared to link a wait to a Needs me request.")
         path = args.db.expanduser().resolve()
+        if args.command == "restore-legacy-goals":
+            from tasks_goals import restore_legacy_goals
+
+            if not path.is_file():
+                raise ValueError("Select an initialized task ledger.")
+            with closing(tasks_storage.open_sqlite(path)) as db:
+                print(f"Restored {restore_legacy_goals(db)} legacy goals.")
+            return 0
         if args.command == "serve":
             try:
                 from tasks_service import serve
