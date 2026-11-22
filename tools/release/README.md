@@ -111,8 +111,8 @@ use the reviewed operator script and its existing private configuration,
 service account, unit, staged check package and SQLite ledger.
 
 From the trusted checkout, archive the complete tracked source at the reviewed
-operator commit. The launcher imports top-level modules such as
-`tasks_release_changelog.py`. Keep this archive separate from the app artifact.
+operator commit. The launcher loads the release record contract from the same checkout.
+Keep this archive separate from the app artifact.
 
 ```sh
 git archive --format=tar --output="$operator_archive" "$reviewed_operator_commit"

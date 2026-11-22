@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Command line entry point for Tasks."""
+"""Launch taskboard_cli from this checkout."""
 
-import sys
+from tools.checkout import add_packages
 
-from tasks_core import main
+add_packages("client", "cli", "server")
+
+from taskboard_cli import main
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

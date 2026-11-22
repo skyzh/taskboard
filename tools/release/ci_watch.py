@@ -215,8 +215,11 @@ def check_snapshot(repo, state, commit, python, npm, integration=None):
         if receipt["checks"].get("web", {}).get("status") == "pass":
             # Mounted Python fixtures need the matching built frontend.
             if "python" in suites:
+                test_runner = ["tools/test_python.py"] if (root / "tools/test_python.py").is_file() else [
+                    "-m", "unittest", "discover", "-q",
+                ]
                 receipt["checks"]["python"] = run_check(root, [
-                    python, "-B", "-W", "error::ResourceWarning", "-m", "unittest", "discover", "-q",
+                    python, "-B", "-W", "error::ResourceWarning", *test_runner,
                 ], log, python)
                 if (root / "tools" / "release" / "test_ci_watch.py").is_file():
                     receipt["checks"]["release"] = run_check(root, [

@@ -35,7 +35,14 @@ TLS_EXPECTED = {
 CHECKSUM_LINE = re.compile(r"([0-9a-f]{64}) [ *](.+)")
 PYTHON_HARNESS = """\
 from contextlib import redirect_stdout
+from pathlib import Path
 import json, sys, unittest
+
+if Path("tools/checkout.py").is_file():
+    from tools.checkout import add_packages, add_tests
+
+    add_packages("client", "cli", "server")
+    add_tests()
 
 with redirect_stdout(sys.stderr):
     tests = unittest.defaultTestLoader.loadTestsFromNames(sys.argv[1:])

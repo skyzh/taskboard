@@ -5,6 +5,11 @@ import os
 import unittest
 from uuid import uuid4
 
+from tools.checkout import add_packages, add_tests
+
+add_packages("client", "cli", "server")
+add_tests()
+
 import test_tasks_service as fixture
 from tasks_core import import_notification_on
 from tasks_service import create_app

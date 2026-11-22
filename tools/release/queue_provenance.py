@@ -6,8 +6,8 @@ from pathlib import Path
 import re
 import sys
 
-# Direct operator scripts start with tools/release on the import path.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+# Load the release record contract from this reviewed checkout.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "packages/server/src"))
 from tasks_release_changelog import GIT_COMMIT, MAX_BOARD_ID, TICKET, normalize_changelog
 
 SUBMISSION = "taskboard-release/v1"
@@ -166,7 +166,7 @@ def read_reviewed_job(
 ):
     """Use only read actions from the configured authenticated Tasks integration.
 
-    Pass `tasks_shared_cli.SharedBoard(service).invoke` or a fixture callable.
+    Pass `taskboard_client.SharedBoard(service).invoke` or a fixture callable.
     """
     submission_event = exact_activity(invoke, queue_ticket, submission_id)
     ticket = event_details(submission_event, SUBMISSION).get("ticket")

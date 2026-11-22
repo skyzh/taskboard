@@ -27,11 +27,15 @@ def check_existing_path(path, *, directory):
 
 
 def copy_source(source, destination):
-    for name in ("tasks", "board.html.in", "pyproject.toml", "uv.lock"):
+    for name in ("tasks", "pyproject.toml", "uv.lock"):
         shutil.copy2(source / name, destination / name)
-    for module in source.glob("*.py"):
-        if not module.name.startswith(("test_", "bench_")):
-            shutil.copy2(module, destination / module.name)
+    tools = destination / "tools"
+    tools.mkdir()
+    shutil.copy2(source / "tools/checkout.py", tools)
+    for component in ("client", "cli", "server"):
+        relative = Path("packages") / component / "src"
+        shutil.copytree(source / relative, destination / relative,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.egg-info"))
 
     web = destination / "web"
     web.mkdir()

@@ -158,8 +158,12 @@ class AuthoritativeFixtureTest(unittest.TestCase):
     def test_real_actions_attribute_and_return_exact_activity(self):
         source = Path(os.environ["TASKS_PROFILE_FIXTURE"]).resolve(strict=True)
         with patch.object(sys, "path", [str(source), *sys.path]):
+            from tools.checkout import add_packages, add_tests
+
+            add_packages("client", "cli", "server")
+            add_tests()
             import test_tasks_service as service
-            from tasks_shared_cli import SharedBoard
+            from taskboard_client import SharedBoard
 
             fixture = service.TasksServiceTest()
             fixture.setUp()
@@ -200,7 +204,7 @@ class AuthoritativeFixtureTest(unittest.TestCase):
                 "ci_receipt": {"status": "pass", "commit": COMMIT, "candidate": APP},
                 "active_base": BASE, "reviewers": {reviewer_id},
             }
-            with patch("tasks_shared_cli.subprocess.run", side_effect=local_integration):
+            with patch("taskboard_client.connection.subprocess.run", side_effect=local_integration):
                 invoke = SharedBoard("synthetic").invoke
                 job = read_reviewed_job(invoke, **settings)
                 self.assertEqual((job["ticket"], job["author"], job["review"]["reviewer"]),

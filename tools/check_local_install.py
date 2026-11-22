@@ -157,7 +157,6 @@ def check(*, offline):
         successor = working / "approved source fixture"
         successor.mkdir()
         copy_source(SOURCE, successor)
-        (successor / "tools").mkdir()
         for name in ("install_local.py", "taskboard-local.sh"):
             shutil.copy2(SOURCE / "tools" / name, successor / "tools" / name)
         index = successor / "web" / "index.html"
