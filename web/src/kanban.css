@@ -1,5 +1,4 @@
-.queue-layout { display: flex; gap: .4rem; margin-bottom: .65rem; }
-.queue-layout button[aria-pressed="true"] { color: var(--green); border-color: currentColor; background: var(--wash); }
+.queue-layout { margin-block: .65rem; }
 .kanban-column-picker { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; margin-bottom: .65rem; }
 .kanban-columns { display: grid; gap: .6rem; min-width: 0; }
 .kanban-columns.multiple {
