@@ -9,6 +9,10 @@ Give each area an owner who is directly responsible for its outcomes. Those
 owners can delegate independent work to subagents, advance other tickets while
 they run, and collect the results and review evidence in one place.
 
+If your agents already coordinate in Raft or another messaging tool, keep using
+it. Taskboard gives you one place to see where work stands, who owns the next
+step, what's blocked, and what shipped.
+
 [Try the Summary demo](https://skyzh.github.io/taskboard/).
 
 ## Use the web board
