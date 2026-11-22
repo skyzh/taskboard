@@ -33,3 +33,7 @@ Record the merge, dependency, or decision that should prompt the owner to check 
 - When a new decision changes the work, check the relevant Ready, In progress, and Waiting tickets for instructions that conflict with it. Check the title, brief, checklist, and next step. Use the latest explicit decision from the person responsible for the work.
 - The project DRI decides which work can continue and which older instruction to replace. For the same outcome, correct the existing ticket and link the decision. If the ticket cannot be edited, link one corrected replacement and have the owner park the old ticket as superseded. Carry over any work and evidence that still apply.
 - Tell every affected owner where to continue. Check that only the current instruction is in the active queue and that related tickets point to it. Keep independent work moving.
+
+## Follow linked GitHub work
+
+Attach the issue or pull request under Sources. If the operator has enabled the [GitHub extensions](GITHUB-EXTENSIONS.md) for your project, the ticket can show the last saved status, and the work log can record verified merges and deployments.

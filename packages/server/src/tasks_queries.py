@@ -436,7 +436,7 @@ class BoardQueries:
             **projects.project_features(project),
         }
 
-    def detail(self, number):
+    def detail(self, number, *, project_extensions=None):
         row = ledger.get_task(self.db, number)
         steps = [dict(step) for step in ledger.checklist_rows(self.db, number)]
         attribution = ("started_by", "completed_by")
@@ -449,10 +449,18 @@ class BoardQueries:
                     step[field + "_name"] = actor.get("name") or actor.get("username")
         related, source_links = ledger.task_links(self.db, row, steps, self.base + "/")
         sources = []
+        github = {}
+        extensions = (project_extensions or {}).get(projects.row_project(row), {})
+        if extensions.get("github-status"):
+            from tasks_extensions import source_states
+
+            github = source_states(self.db, number)
         for label, url, generated in source_links:
             link, = self.links([(label, url)])
             if generated:
                 link["generated"] = True
+            if url in github:
+                link["github"] = github[url]
             sources.append(link)
         runs = [dict(run) for run in self.db.execute(
             f"""
@@ -1108,7 +1116,7 @@ class BoardQueries:
 
     def inbox(self, recipient, *, creations, today, before, limit, project=None, include_actions=True):
         current_tasks = ledger.current_tasks_sql(self.db)
-        args = [project, project, recipient, project, project, creations, recipient,
+        args = [project, project, recipient, project, project, creations, recipient, recipient, recipient,
                 include_actions, recipient, include_actions, recipient, today]
         cursor_filter = ""
         if before is not None:
@@ -1129,6 +1137,14 @@ class BoardQueries:
                 JOIN visible_tasks ON visible_tasks.id = events.task_id
                 WHERE task_watches.watcher = ? AND events.id > task_watches.after_event
                   AND events.action NOT IN ('add', 'assign-human', 'redirect-decision', 'withdraw-decision', 'decide')
+                UNION ALL
+                SELECT events.at, 'event', events.id, 'watched'
+                FROM extension_notifications JOIN events ON events.id = extension_notifications.event_id
+                JOIN visible_tasks ON visible_tasks.id = events.task_id
+                WHERE extension_notifications.recipient = ? AND NOT EXISTS (
+                    SELECT 1 FROM task_watches WHERE task_watches.task_id = events.task_id
+                    AND task_watches.watcher = ? AND events.id > task_watches.after_event
+                )
                 UNION ALL
                 SELECT at, 'decision', event_id, 'decision'
                 FROM current_tasks JOIN visible_tasks ON visible_tasks.id = current_tasks.id

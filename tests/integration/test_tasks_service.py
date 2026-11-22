@@ -5381,6 +5381,209 @@ class TasksServiceTest(unittest.TestCase):
         self.assertTrue(note_change["links"][0]["unavailable"])
         self.assertEqual(blake_activity["source_errors"][0]["source_key"], "example/tasks#2")
 
+    def test_github_extensions_project_policy_status_staleness_and_verified_pi_deployments(self):
+        from hashlib import sha256
+
+        from tasks_extensions import configuration
+        from tasks_github_extensions import refresh
+        from tasks_storage import open_sqlite
+
+        url = "https://github.com/example/board/"
+        repo = "https://api.github.com/repos/example/board/"
+        first, second, third, active = (char * 40 for char in "abcd")
+        merged_at = "2026-11-19T10:00:00Z"
+        deployed_at = "2026-11-20T10:00:00Z"
+        metadata = {
+            "pulls/1": {"state": "closed", "merged": True, "merge_commit_sha": first, "merged_at": merged_at},
+            "pulls/2": {"state": "closed", "merged": True, "merge_commit_sha": second, "merged_at": merged_at},
+            "pulls/3": {"state": "closed", "merged": False},
+            "pulls/4": {"state": "open", "draft": True, "merged": False},
+            "issues/5": {"state": "open"},
+            f"compare/{first}...{second}?per_page=1": {"status": "ahead", "merge_base_commit": {"sha": first}},
+            f"compare/{third}...{active}?per_page=1": {"status": "ahead", "merge_base_commit": {"sha": third}},
+        }
+        reads = []
+
+        def transport(request):
+            self.assertEqual(request.get_method(), "GET")
+            self.assertTrue(request.full_url.startswith(repo))
+            key = request.full_url.removeprefix(repo)
+            reads.append(key)
+            return (200, {}, metadata[key]) if key in metadata else (503, {}, None)
+
+        configured = configuration(json.dumps({"T": {
+            "github-status": True,
+            "github-events": {
+                "repository": "Example/Board", "merge": {"notify_dri": True},
+                "deployment": {"provider": "pi", "environment": "Production", "complete": True},
+            },
+        }}))
+        reader = GitHubReader(transport=transport)
+        app = self.app(reader, portal_reader=True, project_extensions=configured)
+        avery, owner = self.login(app, "Avery")
+        other, other_id = self.login(app, "Blake")
+        self.cli("register-project", "COURSE", "Course", "--dri", other_id)
+
+        def add(client, title, project, number, sources):
+            self.action(client, "create-task", {"title": title, "step": "Verify source.", "project": project})
+            self.action(client, "advance-task", {"id": number, "transition": "start", "note": "Verify source."})
+            for source in sources:
+                self.action(client, "link-reference", {"id": number, "label": source, "url": url + source})
+
+        add(avery, "First change", "T", "T-1", ("pull/1", "issues/5"))
+        add(avery, "Second change", "T", "T-2", ("pull/2",))
+        add(avery, "Third change", "T", "T-3", ("pull/3", "pull/4"))
+        add(other, "Disabled project", "COURSE", "COURSE-1", ("pull/2",))
+        self.action(avery, "watch-task", {"id": "T-1"})
+
+        def detail(number):
+            return self.call(avery, f"/api/v1/tasks/{number}").get_json()
+
+        def status(number, label):
+            return next(link.get("github") for link in detail(number)["sources"] if link["label"] == label)
+
+        def notices(client):
+            return self.call(client, "/api/v1/notifications/inbox?scope=all&view=updates").get_json()["items"]
+
+        self.assertEqual(status("T-1", "pull/1"), {"state": None, "checked_at": None, "stale": False})
+        current = self.database.parent / "live"
+        current.mkdir()
+        manifest = b"fixture manifest"
+        (current / "SHA256SUMS").write_bytes(manifest)
+        release = current.parent / "active-release.json"
+
+        def pin(commit, digest):
+            release.write_text(json.dumps({
+                "manifest": digest, "commit": commit, "built_at": merged_at, "deployed_at": deployed_at,
+            }))
+
+        def tick():
+            with closing(open_sqlite(self.database)) as db:
+                return refresh(db, reader, configured, release_source=current, board_url=ORIGIN + BASE)
+
+        pin(second, "0" * 64)
+        self.assertEqual(tick(), {"sources": 5, "deployments": 0, "errors": [
+            {"project": "T", "error": "pi_release_unverified"},
+        ]})
+        self.assertEqual([status("T-1", "pull/1")["state"], status("T-1", "issues/5")["state"],
+                          status("T-3", "pull/3")["state"], status("T-3", "pull/4")["state"]],
+                         ["merged", "open", "closed", "draft"])
+        self.assertIsNone(status("COURSE-1", "pull/2"))
+        self.assertEqual(detail("T-1")["task"]["state"], "in_progress")
+        self.assertEqual(detail("T-1")["task"]["dri"], owner)
+        merges = [entry["item"] for entry in notices(avery)
+                  if entry["item"].get("context", {}).get("github_event") == "pull-merged"]
+        self.assertEqual({item["task_key"] for item in merges}, {"T-1", "T-2"})
+        self.assertEqual(len(merges), 2)
+        self.assertFalse(any(entry["item"].get("actor") == "GitHub extension" for entry in notices(other)))
+
+        pin(second, sha256(manifest).hexdigest())
+        self.assertEqual(tick()["deployments"], 2)
+        self.assertEqual(tick()["deployments"], 0)
+        self.assertEqual([detail(n)["task"]["state"] for n in ("T-1", "T-2", "T-3", "COURSE-1")],
+                         ["done", "done", "in_progress", "in_progress"])
+        history = self.call(avery, "/api/v1/tasks/T-1/activity").get_json()["items"]
+        self.assertEqual([event["action"] for event in history if event["actor"] == "GitHub extension"],
+                         ["done", "log", "log"])
+        self.assertEqual(reads.count(f"compare/{first}...{second}?per_page=1"), 1)
+
+        metadata["pulls/3"].update(merged=True, merge_commit_sha=third, merged_at=merged_at)
+        metadata.pop("issues/5")
+        pin(active, sha256(manifest).hexdigest())
+        report = tick()
+        self.assertEqual(report["deployments"], 1)
+        self.assertEqual(report["errors"], [{"source": "example/board#5", "error": "github_unavailable"}])
+        self.assertTrue(status("T-1", "issues/5")["stale"])
+        self.assertEqual(status("T-1", "issues/5")["state"], "open")
+        self.assertEqual(detail("T-3")["task"]["state"], "done")
+
+    def test_github_extension_bounds_and_resumes_deployment_comparisons(self):
+        from tasks_extensions import configuration, save_status
+        from tasks_github_extensions import refresh
+        from tasks_storage import open_sqlite, write
+
+        compared = []
+        old, new = "a" * 40, "b" * 40
+        merged_at = "2026-11-19T10:00:00Z"
+        release = {"commit": old, "deployed_at": "2026-11-20T10:00:00Z"}
+        stop = True
+
+        def transport(request):
+            nonlocal stop
+            path = urlsplit(request.full_url).path
+            if "/pulls/" in path:
+                number = int(path.rsplit("/", 1)[1])
+                return (200, {}, {"state": "closed", "merged": True,
+                                  "merge_commit_sha": f"{number:040x}", "merged_at": merged_at})
+            merge, active = path.rsplit("/", 1)[1].split("...")
+            number = int(merge, 16)
+            compared.append((number, active))
+            if number == 4 and stop:
+                stop = False
+                return 403, {"X-RateLimit-Remaining": "0"}, None
+            if (number, active) in {(61, old), (1, new)}:
+                return 200, {}, {"status": "ahead", "merge_base_commit": {"sha": merge}}
+            return 200, {}, {"status": "diverged", "merge_base_commit": {"sha": "0" * 40}}
+
+        configured = configuration(json.dumps({"T": {"github-events": {
+            "repository": "example/board", "deployment": {"provider": "pi", "environment": "production"},
+        }}}))
+        reader = GitHubReader(transport=transport)
+        avery, _ = self.login(self.app(reader, project_extensions=configured), "Avery")
+        self.action(avery, "create-task", {"title": "Linked pull requests", "step": "Verify deployment."})
+        for number in range(1, 62):
+            self.action(avery, "link-reference", {
+                "id": "T-1", "label": str(number), "url": f"https://github.com/example/board/pull/{number}",
+            })
+        with closing(open_sqlite(self.database)) as db, write(db):
+            for row in db.execute("SELECT id, target FROM sources ORDER BY id"):
+                number = int(row["target"].rsplit("/", 1)[1])
+                save_status(db, row["id"], "merged", merged_at, merge_commit=f"{number:040x}", merged_at=merged_at)
+
+        def tick():
+            with closing(open_sqlite(self.database)) as db, (
+                patch("tasks_github_extensions.release_info", return_value=release)
+            ):
+                return refresh(db, reader, configured, release_source=Path("fixture"), board_url=ORIGIN + BASE)
+
+        self.assertEqual(tick()["errors"], [{"project": "T", "error": "github_rate_limited"}])
+        self.assertEqual(compared, [(n, old) for n in range(1, 5)])
+        for start in (4, 14, 24, 34, 44, 54):
+            previous = len(compared)
+            outcome = tick()
+            self.assertEqual(compared[previous:], [(n, old) for n in range(start, min(start + 10, 62))])
+            self.assertEqual(outcome["deployments"], int(start == 54))
+        previous = len(compared)
+        self.assertEqual(tick()["deployments"], 0)
+        self.assertEqual(len(compared), previous)
+
+        release["commit"] = new
+        self.assertEqual(tick()["deployments"], 1)
+        self.assertEqual(compared[previous:], [(n, new) for n in range(1, 11)])
+
+    def test_github_extension_uses_only_matching_successful_deployment_status(self):
+        from tasks_extensions import EVENTS, configuration
+
+        commit = "b" * 40
+        root = "https://api.github.com/repos/example/board/deployments"
+        metadata = {
+            root + "?environment=Public+docs&per_page=1": [
+                {"id": 19, "environment": "Public docs", "sha": commit},
+            ],
+            root + "/19/statuses?per_page=1": [
+                {"state": "pending", "environment": "Public docs", "created_at": "2026-11-20T10:00:00Z"},
+            ],
+        }
+        rule = configuration(json.dumps({"T": {EVENTS: {"repository": "Example/Board", "deployment": {
+            "provider": "github", "environment": "Public docs",
+        }}}}))["T"][EVENTS]
+        reader = GitHubReader(transport=lambda request: (200, {}, metadata[request.full_url]))
+        self.assertIsNone(reader.deployed_commit(rule))
+        metadata[root + "/19/statuses?per_page=1"][0]["state"] = "success"
+        self.assertEqual(reader.deployed_commit(rule), (commit, "2026-11-20T10:00:00Z", root + "/19"))
+        with self.assertRaisesRegex(ValueError, "boolean"):
+            configuration('{"T":{"github-events":{"repository":"example/board","merge":{"complete":"true"}}}}')
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -761,7 +761,7 @@ def link_attention_wait(db, args, event_id, request_id, previous_event_id):
     )
 
 
-def change_task(db, args, links):
+def change_task(db, args, links, *, automation=None):
     task = get_task(db, args.id)
     if args.command in ("done", "transfer") and peer_asks.find(db, task["id"]):
         raise ValueError("Use peer-ask result or peer-ask acknowledge to hand off or finish a linked request.")
@@ -864,10 +864,20 @@ def change_task(db, args, links):
     request_id = getattr(args, "attention_request_id", None)
     if request_id is not None:
         waiting_on = "Needs me"
-    event_id = record(db, args.id, action, args.by, state, note, waiting_on, links, context)
+    attribution = args.by
+    if automation is not None:
+        attribution, evidence = automation
+        context.update(evidence)
+    event_id = record(db, args.id, action, attribution, state, note, waiting_on, links, context)
     if request_id is not None:
         link_attention_wait(db, args, event_id, request_id, task["event_id"])
     return f"{projects.row_reference(task)} · {label}"
+
+
+def complete_from_extension(db, task, actor, note, links, context):
+    """Apply the normal completion transition with explicit system attribution."""
+    args = argparse.Namespace(id=task["id"], by=task["dri"], command="done", note=note, check=[])
+    change_task(db, args, links, automation=(actor, context))
 
 
 def save_milestone(db, args):

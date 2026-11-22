@@ -1,0 +1,167 @@
+"""Configuration and task effects for the board's bundled extensions."""
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+import json
+import re
+
+from taskboard_client.references import prefix
+
+import tasks_core as ledger
+import tasks_projects as projects
+
+
+STATUS = "github-status"
+EVENTS = "github-events"
+ACTOR = "GitHub extension"
+STALE_AFTER = timedelta(hours=1)
+REPOSITORY = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
+ENVIRONMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ./_-]{0,79}")
+COMMIT = re.compile(r"[0-9a-f]{40}")
+SCHEMA = (
+    """CREATE TABLE IF NOT EXISTS github_source_status (
+        source_id INTEGER PRIMARY KEY REFERENCES sources (id),
+        state TEXT,
+        checked_at TEXT,
+        attempted_at TEXT NOT NULL,
+        failed INTEGER NOT NULL,
+        merge_commit TEXT,
+        merged_at TEXT
+    )""",
+    """CREATE TABLE IF NOT EXISTS extension_deliveries (
+        task_id INTEGER NOT NULL REFERENCES tasks (id),
+        source_id INTEGER NOT NULL REFERENCES sources (id),
+        observation TEXT NOT NULL,
+        PRIMARY KEY (task_id, source_id, observation)
+    )""",
+    """CREATE TABLE IF NOT EXISTS extension_notifications (
+        event_id INTEGER PRIMARY KEY REFERENCES events (id),
+        recipient TEXT NOT NULL REFERENCES board_principals (ledger_key)
+    )""",
+    "CREATE INDEX IF NOT EXISTS extension_notifications_recipient ON extension_notifications (recipient, event_id)",
+)
+
+
+@dataclass(frozen=True)
+class Actions:
+    complete: bool = False
+    notify_dri: bool = False
+
+
+@dataclass(frozen=True)
+class Deployment:
+    provider: str
+    environment: str
+    actions: Actions
+
+
+@dataclass(frozen=True)
+class GitHubEvents:
+    repository: str
+    merge: Actions
+    deployment: Deployment | None
+
+
+def _actions(config):
+    if (not isinstance(config, dict) or config.keys() - {"complete", "notify_dri"}
+            or any(type(value) is not bool for value in config.values())):
+        raise ValueError("Use boolean complete and notify_dri rule settings.")
+    return Actions(**config)
+
+
+def _events(config):
+    if (not isinstance(config, dict) or config.keys() - {"repository", "merge", "deployment"}
+            or not isinstance(config.get("repository"), str) or not REPOSITORY.fullmatch(config["repository"])
+            or config["repository"].split("/")[1] in (".", "..")):
+        raise ValueError("Name a public GitHub repository as owner/repository.")
+    merge = _actions(config.get("merge", {}))
+    deployment = None
+    if "deployment" in config:
+        value = config["deployment"]
+        if (not isinstance(value, dict) or value.keys() - {"provider", "environment", "complete", "notify_dri"}
+                or value.get("provider") not in ("pi", "github") or not isinstance(value.get("environment"), str)
+                or not ENVIRONMENT.fullmatch(value["environment"])):
+            raise ValueError("Choose a deployment provider (pi or github) and an environment.")
+        actions = _actions({key: value[key] for key in ("complete", "notify_dri") if key in value})
+        deployment = Deployment(value["provider"], value["environment"], actions)
+    return GitHubEvents(config["repository"].lower(), merge, deployment)
+
+
+REGISTRY = {STATUS: lambda value: value is True, EVENTS: _events}
+
+
+def configuration(raw):
+    if raw is None:
+        return {}
+    try:
+        document = json.loads(raw)
+        if not isinstance(document, dict):
+            raise ValueError("Map project prefixes to bundled extensions.")
+        parsed = {}
+        for project, extensions in document.items():
+            project = prefix(project)
+            if project in parsed or not isinstance(extensions, dict) or extensions.keys() - REGISTRY.keys():
+                raise ValueError("Configure each project once and choose bundled extensions.")
+            if STATUS in extensions and type(extensions[STATUS]) is not bool:
+                raise ValueError("Use true or false to enable or disable GitHub status.")
+            parsed[project] = {key: REGISTRY[key](value) for key, value in extensions.items()}
+        return parsed
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"Invalid TASKS_PROJECT_EXTENSIONS. {error}") from None
+
+
+def source_states(db, number, now=None):
+    now = now or datetime.now(timezone.utc)
+    rows = db.execute(
+        """SELECT target, state, checked_at, failed
+           FROM task_sources JOIN sources ON sources.id = task_sources.source_id
+           LEFT JOIN github_source_status ON github_source_status.source_id = sources.id
+           WHERE task_sources.task_id = ? AND sources.kind = 'github'""", (number,),
+    )
+    return {
+        row["target"]: {
+            "state": row["state"], "checked_at": row["checked_at"],
+            "stale": bool(row["state"] and (row["failed"] or
+                                           now - datetime.fromisoformat(row["checked_at"]) >= STALE_AFTER)),
+        }
+        for row in rows
+    }
+
+
+def save_status(db, source, state, checked_at, *, merge_commit=None, merged_at=None):
+    db.execute(
+        """INSERT INTO github_source_status VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (source_id) DO UPDATE SET
+             state = COALESCE(excluded.state, github_source_status.state),
+             checked_at = COALESCE(excluded.checked_at, github_source_status.checked_at),
+             attempted_at = excluded.attempted_at,
+             failed = excluded.failed,
+             merge_commit = COALESCE(excluded.merge_commit, github_source_status.merge_commit),
+             merged_at = COALESCE(excluded.merged_at, github_source_status.merged_at)
+           WHERE excluded.attempted_at >= github_source_status.attempted_at""",
+        (source, state, checked_at if state else None, checked_at, int(state is None), merge_commit, merged_at),
+    )
+
+
+def record(db, task_id, source_id, observation, evidence, actions):
+    if not db.execute(
+        "INSERT INTO extension_deliveries VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+        (task_id, source_id, observation),
+    ).rowcount:
+        return False
+    task = ledger.get_task(db, task_id)
+    context = {"extension": EVENTS, "github_event": evidence["kind"], "provider_at": evidence["at"],
+               **evidence["context"]}
+    event = ledger.record(
+        db, task_id, "log", ACTOR, task["state"], evidence["note"], None, evidence["links"], context,
+    )
+    if actions.notify_dri:
+        db.execute(
+            """INSERT INTO extension_notifications (event_id, recipient)
+               SELECT ?, ledger_key FROM board_principals WHERE ledger_key = ? AND kind = 'agent'""",
+            (event, task["dri"]),
+        )
+    if (actions.complete and task["state"] in ledger.TRANSITIONS["done"][0]
+            and ledger.task_goal_kind(db, task_id) != "standing" and not ledger.peer_asks.find(db, task_id)):
+        ledger.complete_from_extension(db, task, ACTOR, evidence["note"], evidence["links"], context)
+    return True
