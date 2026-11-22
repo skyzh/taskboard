@@ -4945,6 +4945,12 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "peer-ask", ack, status=409)
         self.action(blake, "advance-task", {**advance, "id": "T-2", "note": "Checking the sample."})
         self.assertEqual(read(2)["state"], "in_progress")
+        self.action(blake, "advance-task", {
+            "id": "T-2", "transition": "wait", "on": avery_id, "note": "Need the updated sample.",
+        })
+        paused = read(2)
+        self.assertEqual((paused["state"], paused["peer_request"]["phase"]), ("waiting", "in_progress"))
+        self.action(blake, "advance-task", {"id": "T-2", "transition": "resume", "note": "Updated sample received."})
         self.action(cedar, "peer-ask", result, status=403)
         self.action(blake, "peer-ask", result)
         self.assertIn("Peer result already recorded", self.action(blake, "peer-ask", result)["receipt"])
@@ -4981,17 +4987,27 @@ class TasksServiceTest(unittest.TestCase):
         requested = {
             "id": "T-1", "transition": "create", "recipient": blake_id, "note": "Check the fixture.", "review": "W-1",
         }
-        self.assertEqual(self.action(avery, "peer-ask", requested)["receipt"], "T-2 · Peer request opened")
+        asked_at = "2026-11-20T23:55:00Z"
+        with patch("tasks_core.timestamp", return_value=asked_at):
+            self.assertEqual(self.action(avery, "peer-ask", requested)["receipt"], "T-2 · Peer request opened")
         self.assertEqual(self.action(avery, "peer-ask", requested)["receipt"], "T-2 · Existing peer request")
 
         def summary(person):
             rows = self.call(avery, "/api/v1/reports?view=all").json["items"]
             return next(row for row in rows if row["owner"] == person)
 
+        def request_task(person):
+            return next(task for task in summary(person)["tasks"] if task["key"] == "T-2")
+
         def phase(person):
-            return next(task["peer_request"] for task in summary(person)["tasks"] if task["key"] == "T-2")["phase"]
+            return request_task(person)["peer_request"]["phase"]
 
         self.assertEqual(phase(blake_id), "asked")
+        followup_at = "2026-11-21T02:00:00Z"
+        with patch("tasks_core.timestamp", return_value=followup_at):
+            self.action(blake, "record-activity", {"id": "T-2", "note": "Added the sample link."})
+        pending = request_task(blake_id)
+        self.assertEqual((pending["peer_request"]["asked_at"], pending["last_activity_at"]), (asked_at, followup_at))
         self.assertEqual(self.action(blake, "my-next")["work"]["key"], "T-2")
         self.assertEqual(self.action(blake, "my-reviews")["items"][0]["task_key"], "T-1")
         self.assertEqual(self.call(avery, "/api/v1/reports/queued-reviews").json["items"][0]["linked_request"], "T-2")

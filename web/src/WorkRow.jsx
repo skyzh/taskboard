@@ -58,7 +58,9 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   const reportSummary = report === 'summary'
   const detailedReport = report && !reportSummary
   const state = taskState(task)
-  const headingStatus = reportSummary && ['waiting', 'in_progress'].includes(state)
+  const showRequestState = !reportSummary || task.peer_request?.phase !== 'in_progress'
+  const showTaskStatus = !reportSummary || !task.peer_request || !showRequestState
+  const headingStatus = showTaskStatus && reportSummary && ['waiting', 'in_progress'].includes(state)
   const activityAt = task.last_activity_at || task.at
   const detailNote = detailedReport && (cue ? cue.details : task.note)
   const showDetails = detailedReport && (detailNote || task.links?.length > 0 || task.event_id)
@@ -70,7 +72,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
         <TaskLink reference={task.key} id={task.id} title={task.title} current={selected} searchQuery={searchQuery} />
         <div className="task-row-meta">
           {compactQueue && <span className="queue-task-key ticket-id" aria-hidden="true">{taskLabel(task.id, task.key)}</span>}
-          {!headingStatus && <Status state={state} />}
+          {showTaskStatus && !headingStatus && <Status state={state} />}
           {!reportSummary && <TaskWaitAge task={task} />}
           {owner && <Assignee task={task} compact />}
           {compactQueue && ['high', 'low'].includes(task.priority) && (
@@ -80,7 +82,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
         </div>
       </div>
       <div className="task-row-context">
-        <PeerRequestContext task={task} />
+        <PeerRequestContext task={task} showAskedAge={reportSummary} showState={showRequestState} />
         {task.waiting_on && <p className="task-dependency"><Dependency task={task} /></p>}
         {cue?.text && (
           <div className="report-task-cue">

@@ -249,7 +249,8 @@ class BoardQueries:
             if ask := requests.get(row["id"]):
                 item["peer_request"] = {
                     "source_id": ask["source_task_id"], "source_key": projects.row_reference(ask),
-                    "phase": peer_asks.phase(ask, row), "requester": ask["requester"],
+                    "phase": peer_asks.phase(ask, row, has_started=ask["has_started"]), "requester": ask["requester"],
+                    "asked_at": ask["asked_at"],
                 }
             if include_report_fields:
                 item["last_activity_at"] = activity_times.get(row["id"], row["at"])
