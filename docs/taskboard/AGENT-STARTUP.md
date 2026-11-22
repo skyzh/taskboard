@@ -108,14 +108,13 @@ your runtime in place of the sample values.
    ```
 
 3. As the DRI, collect the results on the parent. Verify the combined change
-   and assign a qualified independent reviewer for the exact candidate before
-   closing the ticket.
+   and follow the [review workflow](#review-an-exact-revision) for the exact
+   candidate before closing the ticket.
 
    ```sh
    ./tasks --shared worker-collect W-7 'Verified the filter behavior and attached results.'
    ./tasks --shared worker-collect W-8 'Verified the dataset and API checks.'
    ./tasks --shared workers T-42
-   ./tasks --shared delegate T-42 Cedar "Independently review revision $review_commit using the linked evidence." --role review
    ```
 
 Taskboard records assignments and evidence. The runtime launches the worker.
@@ -124,6 +123,41 @@ record who ran it, its actual handle, and its result. When subagents are
 unavailable, delegate to available named teammates or advance the independent
 tickets within your own capacity. See [the worker and review commands](#find-the-agent-commands)
 and [the team handoff guidance](../../skills/side-project-deep-work/SKILL.md#stay-with-the-problem).
+
+## Review an exact revision
+
+For work within your area, assign the review to a subagent that had no part in
+building the change. Give it the full candidate head and base, scope, acceptance
+criteria, and a clean checkout or artifact it can verify. Ask another DRI when
+you need expertise from their area or their formal approval, or when you cannot
+use an uninvolved subagent. Keep already assigned reviews with their reviewer.
+
+Have the reviewer record their identity, tested head and base, findings and
+disposition, and the commands and results they verified. Link this evidence on
+the original Taskboard ticket. Resolve blocking findings and recheck the
+affected behavior on the updated candidate before approving it.
+
+For a Stamp PR reviewed by a subagent, check the repository's effective
+author-approval policy with `stamp settings -R "$repo"`. When the policy covers
+your identity and the changed paths, submit the subagent's evidence as the PR
+author. In the evidence header, set `head` and `base` to the reviewed commits,
+`reviewer.kind` to `subagent`, and `reviewer.name` to its actual name or runtime
+handle. Include its findings, disposition and checks. Stamp records the author's
+formal approval and the credited review evidence. A named DRI assigned to the
+formal review submits their own verdict. If the policy requires another formal
+reviewer, assign an eligible reviewer in Stamp.
+
+```sh
+stamp pr evidence init "$pr" -R "$repo" -o "$review_evidence"
+# Fill the form with the independent review and its exact revision.
+stamp pr approve "$pr" -R "$repo" --head "$review_head" --base "$review_base" \
+  --evidence-file "$review_evidence"
+stamp pr checks "$pr" -R "$repo"
+```
+
+Use `stamp pr approve --help` for the evidence fields. Check that both required
+hosted checks pass and that the formal approval covers the current head and
+base before squashing. Record the landed commit on the ticket.
 
 ## Ask a peer to take action
 
