@@ -151,6 +151,12 @@ Use `--clear` to remove the binding. After an uncertain save, read the setting b
 
 An unavailable setting means Taskboard could not verify a destination. Use the project’s documented Raft conversation for manual coordination. Keep direct review pings and private requests with the named recipient.
 
+### Project Summary links
+
+`GET /api/v1/projects/<project>/links` returns the links available to the board audience. A configured GitHub events extension supplies the GitHub repository when the project has no saved destination. A Raft link appears when the channel adapter verifies its browser URL for this board’s audience.
+
+The project manager can set either repository with `PUT /api/v1/projects/<project>/links`. Send `github` or `stamp` as an `owner/repository` string, or send an empty string to clear that setting. Fields left out keep their existing values. The Raft channel uses its separate verified channel setting.
+
 ### Stats
 
 The Stats page and `GET /api/v1/stats` use the usual board audience.

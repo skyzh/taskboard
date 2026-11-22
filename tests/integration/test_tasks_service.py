@@ -5164,6 +5164,61 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((code, error), (0, ""))
         self.assertIn("Unavailable", output)
 
+    def test_summary_links_are_project_scoped_and_manager_configured(self):
+        from taskboard_server.raft_channels import VerifiedChannel
+        from tasks_extensions import configuration
+
+        channel = str(UUID(int=65))
+        safe_raft = "https://app.raft.build/fixture/channel/" + channel
+        browser_url, audience = safe_raft, True
+
+        def lookup(server, project, requested):
+            self.assertEqual((server, requested), (SERVER, channel))
+            self.assertIn(project, ("T", "COURSE"))
+            return VerifiedChannel(server, channel, "Fixture channel", True, audience, browser_url)
+
+        configured = configuration('{"T":{"github-events":{"repository":"example/source"}}}')
+        app = self.app(portal_reader=True, raft_channel_lookup=lookup, project_extensions=configured)
+        manager, identity = self.login(app, "Avery")
+        teammate, _ = self.login(app, "Blake")
+        portal = app.test_client()
+        self.cli("register-project", "T", "Tasks Board", "--dri", identity)
+        self.cli("register-project", "COURSE", "Fixture course", "--dri", identity)
+        path, course = "/api/v1/projects/T/links", "/api/v1/projects/COURSE/links"
+        github = {"kind": "github", "url": "https://github.com/example/source"}
+        raft = {"kind": "raft", "url": safe_raft}
+        stamp = {"kind": "stamp", "url": "https://stamp.build/github/example/board"}
+        self.assertEqual(self.call(portal, path).json, {"links": [github]})
+        self.assertEqual(self.call(portal, course).json, {"links": []})
+        self.call(portal, "/api/v1/projects/UNKNOWN/links", status=404)
+        self.call(portal, path, method="PUT", json={"stamp": "example/board"}, status=401)
+        self.call(teammate, path, method="PUT", json={"stamp": "example/board"}, status=403)
+        for invalid in ({}, {"raft": safe_raft}, {"stamp": "https://other.example/r"}, {"github": "example/.."}):
+            self.call(manager, path, method="PUT", json=invalid, status=400)
+
+        self.call(manager, "/api/v1/projects/T/raft-channel", method="PUT", json={"channel_id": channel})
+        self.assertEqual(self.call(manager, path, method="PUT", json={"stamp": "Example/Board"}).json,
+                         {"links": [raft, github, stamp]})
+        self.assertEqual(self.call(portal, path).json, {"links": [raft, github, stamp]})
+        self.assertEqual(self.call(portal, course).json, {"links": []})
+        self.call(manager, "/api/v1/projects/COURSE/raft-channel", method="PUT", json={"channel_id": channel})
+        self.assertEqual(self.call(portal, course).json, {"links": [raft]})
+        self.assertEqual(self.call(manager, course, method="PUT", json={"github": "course/work"}).json,
+                         {"links": [raft, {"kind": "github", "url": "https://github.com/course/work"}]})
+
+        audience = False
+        self.assertEqual(self.call(portal, path).json, {"links": [github, stamp]})
+        audience, browser_url = True, "https://app.raft.build@other.example/fixture"
+        self.assertEqual(self.call(portal, path).json, {"links": [github, stamp]})
+        browser_url = None
+        self.assertEqual(self.call(portal, path).json, {"links": [github, stamp]})
+        self.assertEqual(self.call(manager, path, method="PUT", json={"stamp": ""}).json, {"links": [github]})
+
+        preview = create_app(self.database.with_name("standalone.sqlite3"), public_url="http://127.0.0.1/tasks",
+                             local_readonly=True).test_client()
+        response = preview.get("/tasks" + path, base_url="http://127.0.0.1")
+        self.assertEqual((response.status_code, response.json), (200, {"links": []}))
+
     def test_linked_peer_request_lifecycle_returns_the_next_action_to_the_requester(self):
         app = self.app(portal_reader=True)
         avery, avery_id = self.login(app, "Avery")
