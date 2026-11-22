@@ -1809,9 +1809,23 @@ def arguments():
     assignee.add_argument("--dri", type=nonblank, help="Filter by owner offline or confirm your own identity in shared mode.")
     assignee.add_argument("--unassigned", action="store_true", help="Show tasks that need an owner.")
     overview.add_argument("--waiting-on", type=nonblank, help="Filter the listed tasks by who they are waiting on.")
-    inbox = commands.add_parser("inbox", help="Read decisions assigned to one person.")
+    inbox = commands.add_parser(
+        "inbox",
+        help="Read human decisions from the offline ledger.",
+        description=(
+            "Read decisions assigned to one person in the offline ledger. "
+            "For your shared agent Inbox, use `./tasks --shared next`."
+        ),
+    )
     inbox.add_argument("person", type=nonblank)
-    next_item = commands.add_parser("next", help="Read the highest-priority Ready task for one owner.")
+    next_item = commands.add_parser(
+        "next",
+        help="Read your next shared Inbox item or highest-priority offline Ready task.",
+        description=(
+            "Read the next actionable item in your shared Inbox, or your standing goal when the queue is clear. "
+            "In offline mode, read the highest-priority Ready task for one owner."
+        ),
+    )
     next_item.add_argument("--dri", type=nonblank)
     for listing in (overview, next_item):
         listing.add_argument("--project", type=nonblank, help="Limit to one project prefix.")
