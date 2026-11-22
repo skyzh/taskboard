@@ -124,7 +124,7 @@ export function notificationLogProject(fragment) {
 
 export function signInHref(hash) {
   const login = './auth/login'
-  const returnToBoard = /^#(?:task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9]\d{0,18}|event-[1-9]\d{0,18}-log|notifications(?:-needs-me|-log)?|reports-all|settings)$/.test(hash)
+  const returnToBoard = /^#(?:task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9]\d{0,18}|event-[1-9]\d{0,18}-log|notifications(?:-needs-me|-log)?|reports-all|settings|about)$/.test(hash)
     || (hash.startsWith('#') && notificationLogProject(hash.slice(1)))
   return returnToBoard ? `${login}?fragment=${encodeURIComponent(hash)}` : login
 }

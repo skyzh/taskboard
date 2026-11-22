@@ -132,6 +132,15 @@ h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
   gap: .55rem 1.25rem;
   margin-bottom: .7rem;
 }
+.about { max-width: 40rem; }
+.about-release { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: .85rem 1rem; margin: 0; }
+.about-release dt { font-weight: var(--weight-emphasis); }
+.about-release dd { min-width: 0; margin: 0; }
+.about-release a code { font-size: .87rem; }
+.about-utc, .about-copy-status { display: block; color: var(--muted); font-size: .82rem; }
+.about-unavailable { color: var(--muted); }
+.about-copy { display: block; margin-top: .35rem; min-height: 2.75rem; }
+.about-copy-status:not(:empty) { margin-top: .25rem; }
 .board-views { display: flex; gap: .95rem; align-items: stretch; }
 .board-views a {
   display: inline-flex;
@@ -744,6 +753,8 @@ button:disabled { opacity: .57; }
   .queue-task-key, .queue-task-priority { display: inline; }
   .compact-queue-rows .task-row-note { font-size: .84rem; -webkit-line-clamp: 1; }
   .compact-queue-rows .task-row-note:focus-within { display: block; }
+  .about-release { grid-template-columns: minmax(0, 1fr); row-gap: .2rem; }
+  .about-release dt:not(:first-child) { margin-top: .65rem; }
 }
 
 .detail-owner, .request-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem; }

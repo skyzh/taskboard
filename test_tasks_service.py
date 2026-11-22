@@ -4229,14 +4229,15 @@ class TasksServiceTest(unittest.TestCase):
         for fragment in ("#notifications-log?project=//other.example", "#notifications-log?project=COURSE&project=T"):
             self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
 
-    def test_all_projects_reports_returns_after_sign_in(self):
+    def test_reports_and_about_return_after_sign_in(self):
         app = self.app(portal_reader=True)
-        client = app.test_client()
-        fragment = "#reports-all"
-        login = self.call(client, "/auth/login", query_string={"fragment": fragment}, status=302)
-        state = parse_qs(urlsplit(login.location).query)["state"][0]
-        result = self.call(client, "/auth/callback", query_string={"code": "Sam", "state": state}, status=302)
-        self.assertEqual(result.location, ORIGIN + BASE + "/" + fragment)
+        for name, fragment in (("Sam", "#reports-all"), ("Quinn", "#about")):
+            with self.subTest(fragment=fragment):
+                client = app.test_client()
+                login = self.call(client, "/auth/login", query_string={"fragment": fragment}, status=302)
+                state = parse_qs(urlsplit(login.location).query)["state"][0]
+                result = self.call(client, "/auth/callback", query_string={"code": name, "state": state}, status=302)
+                self.assertEqual(result.location, ORIGIN + BASE + "/" + fragment)
 
     def test_settings_returns_after_sign_in_and_loads_the_same_origin_theme_script(self):
         app = self.app(portal_reader=True)

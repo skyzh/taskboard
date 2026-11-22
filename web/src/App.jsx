@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from './data.js'
+import About from './About.jsx'
 import AssigneePage from './AssigneePage.jsx'
 import Notifications from './Notifications.jsx'
 import MyActivity from './MyActivity.jsx'
@@ -171,6 +172,7 @@ export default function App({ MilestoneMap }) {
   else if (search) view = 'search'
   else if (!fragment || fragment === reportsMode) view = 'reports'
   else if (fragment === 'settings') view = 'settings'
+  else if (fragment === 'about') view = 'about'
   else if (params.has('schedules')) view = 'schedules'
   else if (fragment === 'stats') view = 'stats'
   else if (logProject || ['notifications', 'notifications-needs-me', 'notifications-log'].includes(fragment)) view = 'notifications'
@@ -271,6 +273,7 @@ export default function App({ MilestoneMap }) {
           {view === 'stats' && <Stats revision={revision} />}
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}
             chooseTimeZone={chooseTimeZone} onProfileSaved={actor => { setSavedActor(actor); refresh() }} />}
+          {view === 'about' && <About revision={revision} />}
           {view === 'search' && <SearchResults query={search} revision={revision} />}
           {view === 'assignee' && <AssigneePage key={`${project}:${owner}`} owner={owner} section={params.get('section')} revision={revision} project={project}
             canEditGoal={verified && session.data.actor.id === owner} />}
