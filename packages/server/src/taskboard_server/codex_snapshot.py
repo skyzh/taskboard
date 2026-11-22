@@ -84,6 +84,8 @@ def _outcome(raw, config):
     paths = dict(config.sources) if config and len(config.sources) == 2 else {}
     if source not in paths:
         raise ValueError("A configured source is required.")
+    if len({os.path.realpath(path) for path in paths.values()}) != 2:
+        raise ValueError("Configure two distinct snapshot files.")
     at = _time(envelope.get("attempted_at"))
     snapshot = {"attempted_at": at.isoformat()}
     common = {"source", "attempted_at", "status"}

@@ -98,6 +98,18 @@ class CodexSnapshotTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "owner-only snapshot directory"):
             install(encode(success()), self.config)
 
+    def test_source_paths_must_not_alias_the_same_file(self):
+        alias = self.root / "alias"
+        alias.symlink_to(self.root, target_is_directory=True)
+        config = configuration({**self.environment, "TASKS_CODEX_USAGE_SOURCES": json.dumps({
+            "A": str(self.first), "B": str(alias / self.first.name),
+        })})
+        before = self.first.read_bytes()
+        failure = {"source": "B", "attempted_at": SECOND, "status": "failure", "failure": "timeout"}
+        with self.assertRaisesRegex(ValueError, "distinct snapshot files"):
+            install(encode(failure), config)
+        self.assertEqual(self.first.read_bytes(), before)
+
     def test_concurrent_updates_finish_with_the_latest_attempt(self):
         with ThreadPoolExecutor(max_workers=2) as pool:
             list(pool.map(lambda at: install(encode(success(at=at)), self.config), (THIRD, FIRST)))
