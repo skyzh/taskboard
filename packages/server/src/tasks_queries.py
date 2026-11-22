@@ -221,6 +221,14 @@ class BoardQueries:
         recipients = profiles.visible_by_keys(self.db, [row["waiting_on"] for row in rows if row["waiting_on"]], self.base)
         tasks_by_id = {row["id"]: row for row in rows}
         wait_starts = self.wait_starts(rows)
+        attention_waits = set()
+        attention_events = [row["event_id"] for row in rows
+                            if row["state"] == "waiting" and row["waiting_on"] == "Needs me"]
+        if attention_events and watches.has_table(self.db, "attention_wait_links"):
+            marks = ", ".join("?" for _ in attention_events)
+            attention_waits = {row[0] for row in self.db.execute(
+                f"SELECT event_id FROM attention_wait_links WHERE event_id IN ({marks})", attention_events,
+            )}
 
         def lookup(number):
             if number not in tasks_by_id:
@@ -240,6 +248,20 @@ class BoardQueries:
             context = ledger.event_context(row)
             details = context.get("activity_details")
             blockers = ledger.blocker_chain(row["id"], ledger.ticket_blocker(row), lookup)
+            wait_kind = None
+            if row["state"] == "human_review":
+                wait_kind = "person"
+            elif row["state"] == "waiting":
+                if blockers:
+                    wait_kind = "ticket"
+                elif context.get("wait_kind") == "automation":
+                    wait_kind = "automation"
+                elif row["event_id"] in attention_waits:
+                    wait_kind = "attention"
+                elif context.get("peer_ask_ticket") and row["waiting_on"] in recipients:
+                    wait_kind = "person"
+                else:
+                    wait_kind = "legacy"
             item = {
                 "id": row["id"],
                 "key": projects.row_reference(row),
@@ -254,6 +276,7 @@ class BoardQueries:
                 "summary_label": label,
                 "waiting_on": row["waiting_on"],
                 "waiting_profile": recipients.get(row["waiting_on"]),
+                **({"wait_kind": wait_kind} if wait_kind else {}),
                 **({"waiting_since": wait_starts[row["id"]]} if row["id"] in wait_starts else {}),
                 **({"blockers": blockers} if blockers else {}),
                 "context": {

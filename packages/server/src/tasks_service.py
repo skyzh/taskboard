@@ -1999,8 +1999,6 @@ def create_app(
             on = require_person(person["ledger_key"], person["kind"], task_id=number)
             if on == actor["ledger_key"]:
                 raise RequestError("Choose a different person for this wait.")
-            if peer_asks.find(db(), number):
-                raise RequestError("Request another person's help from the source ticket.")
             human_wait = person["kind"] == "human"
             if not human_wait:
                 peer = on

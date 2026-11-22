@@ -90,8 +90,10 @@ def named_person(db, name):
     person = db.execute("SELECT ledger_key, kind FROM board_principals WHERE ledger_key = ?", (key,)).fetchone()
     if person is None:
         matches = db.execute(
-            "SELECT ledger_key, kind FROM board_principals WHERE username <> '' AND LOWER(username) = LOWER(?) LIMIT 2",
-            (key,),
+            """
+            SELECT ledger_key, kind FROM board_principals
+            WHERE LOWER(username) = LOWER(?) OR LOWER(name) = LOWER(?) LIMIT 2
+            """, (key, key),
         ).fetchall()
         person = matches[0] if len(matches) == 1 else None
     return person
@@ -147,8 +149,6 @@ def record_wait(db, source, args, links, context):
     import tasks_core as ledger
 
     recipient = getattr(args, "peer_recipient", None)
-    if find(db, source["id"]):
-        return False
     previous = current_wait(db, source)
     if previous and previous["recipient"] != recipient:
         if recipient is None and not ledger.event_context(source).get("named_peer_wait"):

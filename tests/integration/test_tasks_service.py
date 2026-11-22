@@ -850,7 +850,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(blake, "worker-handoff", {"run": "W-1", "transition": "start", "handle": "fixture-review"})
         self.action(avery, "create-task", {"title": "Second milestone task", "step": "Review the import."})
         self.action(avery, "advance-task", {"id": "T-4", "transition": "start", "note": "Read the import."})
-        self.action(avery, "advance-task", {"id": "T-4", "transition": "wait", "on": "Fixture dependency", "note": "Wait."})
+        self.cli("wait", "T-4", "Wait.", "--on", "Fixture dependency", "--by", owner)
 
         def save(*args):
             code, _, errors = self.shared_cli(avery, "save-goal", *args)
@@ -923,7 +923,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.action(avery, "my-next")["work"]["kind"], "review")
         self.action(avery, "worker-handoff", {"run": "W-1", "transition": "report", "note": "Reviewed.", "result": "completed"})
         self.assertEqual(self.action(avery, "my-next")["work"]["kind"], "in_progress")
-        self.action(avery, "advance-task", {"id": "T-1", "transition": "wait", "on": "Fixture dependency", "note": "Wait for input."})
+        self.cli("wait", "T-1", "Wait for input.", "--on", "Fixture dependency", "--by", owner)
         self.assertIn("Review unassigned Ready work", self.shared_cli(avery, "next", "--project", "T")[1])
         self.action(avery, "change-ownership", {"id": "T-2", "action": "reassign", "owner": owner, "reason": "Close it."})
         self.action(avery, "close-task", {"id": "T-2", "reason": "Duplicate test work."})
@@ -1323,6 +1323,7 @@ class TasksServiceTest(unittest.TestCase):
     def test_shared_cli_rejects_two_evidence_links_before_any_write(self):
         app = self.app(portal_reader=True)
         avery, _ = self.login(app, "Avery")
+        self.login(app, "Blake")
         self.action(avery, "create-task", {"title": "Check links", "step": "Read the sample."})
         route = "/api/v1/tasks/1/activity"
         original = self.call(avery, route).get_json()
@@ -1739,7 +1740,7 @@ class TasksServiceTest(unittest.TestCase):
         run(avery, "assign-human", "T-1", "Choose a format.", "--on", "@sam")
         run(avery, "add", "Wait for a fixture", "--step", "Run the fixture.")
         run(avery, "start", "T-2", "Run the fixture.")
-        run(avery, "wait", "T-2", "Wait for the result.", "--on", "Fixture host")
+        run(avery, "wait", "T-2", "Wait for the result.", "--on", "Fixture host", "--automation")
         run(blake, "add", "Other person's decision", "--step", "Contact Sam.")
         run(blake, "start", "T-3", "Contact Sam.")
         run(blake, "assign-human", "T-3", "Choose a label.", "--on", "Sam Reviewer")
@@ -1751,7 +1752,9 @@ class TasksServiceTest(unittest.TestCase):
                 self.assertIn("Waiting on Sam Reviewer", output)
                 self.assertNotIn("T-2", output)
                 self.assertNotIn("T-3", output)
-        self.assertIn("T-2 · Waiting", run(avery, "list", "--waiting-on", "Fixture host"))
+        automation = run(avery, "list", "--waiting-on", "Fixture host")
+        self.assertIn("T-2 · Waiting", automation)
+        self.assertIn("Blocked by Fixture host", automation)
         self.assertEqual(run(avery, "list", "--waiting-on", "Fixture").splitlines(), [
             "No matching tasks in your queue (Avery).",
             "Next: Check your Inbox or adjust the filters.",
@@ -1966,6 +1969,7 @@ class TasksServiceTest(unittest.TestCase):
         detail = self.call(viewer, "/api/v1/tasks/1").json["task"]
         self.assertEqual((detail["dri"], detail["state"], detail["blockers"], detail["priority"]),
                          (avery_id, "waiting", chain, "high"))
+        self.assertEqual(detail["wait_kind"], "ticket")
         reports = self.call(viewer, "/api/v1/reports").json["items"]
         owner = next(group for group in reports if group["owner"] == avery_id)
         self.assertEqual(next(item for item in owner["tasks"] if item["id"] == 1)["blockers"], chain)
@@ -2086,8 +2090,8 @@ class TasksServiceTest(unittest.TestCase):
 
         advance("start", "2026-11-20T01:00:00Z")
         first_wait = "2026-11-20T02:00:00Z"
-        advance("wait", first_wait, on="Sample team")
-        advance("wait", "2026-11-20T03:00:00Z", on="Sample team")
+        advance("wait", first_wait, on="Sample export", automation=True)
+        advance("wait", "2026-11-20T03:00:00Z", on="Sample export", automation=True)
         self.action(owner, "set-priority", {"id": "T-1", "priority": "high"})
         detail = task()
         self.assertEqual((detail["waiting_since"], detail["at"], detail["priority"]),
@@ -2666,6 +2670,7 @@ class TasksServiceTest(unittest.TestCase):
             self.assertEqual(self.shared_cli(blake, "wait", "T-2", "The signed-in check is still open.", *link)[0], 0)
         waiting = self.call(viewer, "/api/v1/tasks/2").json["task"]
         self.assertEqual((waiting["state"], waiting["waiting_on"], waiting["context"]), ("waiting", "Needs me", {}))
+        self.assertEqual(waiting["wait_kind"], "attention")
         self.assertEqual((waiting["waiting_since"], waiting["at"]), (linked_at, repeated_at))
         self.assertTrue({"request_id", "attention_request_id", "started_event_id"}.isdisjoint(waiting))
 
@@ -2691,7 +2696,7 @@ class TasksServiceTest(unittest.TestCase):
 
     def test_handling_attention_keeps_superseded_and_legacy_named_waits(self):
         app = self.app(portal_reader=True)
-        avery, _ = self.login(app, "Avery")
+        avery, avery_id = self.login(app, "Avery")
         sam, sam_id = self.login(app, "Sam")
         self.action(avery, "create-task", {"title": "Check a report", "step": "Read it."})
         self.assertEqual(self.shared_cli(avery, "start", "T-1", "Read it.")[0], 0)
@@ -2726,9 +2731,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.shared_cli(avery, "resume", "T-1", "Continue checking.")[0], 0)
         self.assertNotIn("waiting_since", self.call(viewer, "/api/v1/tasks/1").json["task"])
         wait_on(second, "2026-11-20T12:00:00Z")
-        self.assertEqual(self.shared_cli(
-            avery, "wait", "T-1", "Wait for an independent review.", "--on", "Blake",
-        )[0], 0)
+        self.cli("wait", "T-1", "Wait for an independent review.", "--on", "Blake", "--by", avery_id)
         self.assertNotIn("unblocked_task_id", handle(second))
         handled = self.call(sam, "/api/v1/notifications/requests?state=handled").json["items"]
         self.assertEqual({row["id"] for row in handled}, {first, second})
@@ -4763,10 +4766,10 @@ class TasksServiceTest(unittest.TestCase):
         })
         self.assertNotEqual(revision, self.call(avery, "/api/v1/revision").get_json()["revision"])
         self.action(blake, "advance-task", {"id": "2", "transition": "start", "note": "Read draft."})
-        self.action(blake, "advance-task", {
-            "id": "2", "transition": "wait", "note": "Wait for approval.", "on": "Legal reviewer",
-            "details": "Use the signed comparison spreadsheet.",
-        })
+        self.cli(
+            "wait", "T-2", "Wait for approval.", "--on", "Legal reviewer", "--by", blake_id,
+            "--details", "Use the signed comparison spreadsheet.",
+        )
         for run in range(1, 12):
             self.action(avery, "delegate", {"id": "1", "worker": blake_id, "role": "review", "brief": "Check rows."})
             self.action(avery, "worker-handoff", {"run": str(run), "transition": "start", "handle": "fixture-review"})
@@ -5377,7 +5380,10 @@ class TasksServiceTest(unittest.TestCase):
         })
         paused = read(2)
         self.assertEqual((paused["state"], paused["peer_request"]["phase"]), ("waiting", "in_progress"))
+        self.assertEqual((paused["waiting_on"], paused["wait_kind"]), (avery_id, "person"))
+        self.assertEqual(self.action(avery, "my-next")["work"]["key"], "T-3")
         self.action(blake, "advance-task", {"id": "T-2", "transition": "resume", "note": "Updated sample received."})
+        self.assertEqual(read(3)["display_state"], "closed")
         self.action(cedar, "peer-ask", result, status=403)
         self.action(blake, "peer-ask", result)
         self.assertIn("Peer result already recorded", self.action(blake, "peer-ask", result)["receipt"])
@@ -5392,12 +5398,12 @@ class TasksServiceTest(unittest.TestCase):
 
         self.action(avery, "advance-task", advance)
         newer = self.action(avery, "peer-ask", {**created, "note": "Review the revised sample."})
-        self.assertIn("T-3", newer["receipt"])
-        canceled = {"id": "T-3", "transition": "cancel", "note": "The sample was replaced."}
+        self.assertIn("T-4", newer["receipt"])
+        canceled = {"id": "T-4", "transition": "cancel", "note": "The sample was replaced."}
         self.action(blake, "peer-ask", canceled, status=403)
         self.action(avery, "peer-ask", canceled)
         self.assertEqual(read(1)["state"], "ready")
-        self.assertEqual(read(3)["display_state"], "closed")
+        self.assertEqual(read(4)["display_state"], "closed")
 
     def test_linked_worker_review_drives_the_same_ticket_and_keeps_legacy_receipts(self):
         app = self.app(portal_reader=True)
@@ -5638,6 +5644,51 @@ class TasksServiceTest(unittest.TestCase):
         self.assertNotIn("Private fixture note.", json.dumps(incoming))
         self.action(avery, "advance-task", {"id": "T-1", "transition": "resume", "note": "Review received."})
         self.assertEqual([item["task_key"] for item in self.call(reader, route).json["items"]], ["T-2"])
+
+    def test_shared_wait_requires_one_verified_recipient_and_reuses_inboxes(self):
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        blake, reviewer = self.login(app, "Blake")
+        sam, sam_id = self.login(app, "Sam")
+        quinn, quinn_id = self.login(app, "Quinn")
+        self.provider.people["Quinn"]["name"] = "Sam"
+        self.call(quinn, "/api/v1/session")
+        self.action(avery, "create-task", {"title": "Verify wait delivery", "step": "Prepare."})
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Prepare."})
+        wait = {"id": "T-1", "transition": "wait", "note": "Read the fixture."}
+        decisions = "/api/v1/notifications/decisions"
+        path = "/api/v1/tasks/1"
+        for value in ("Unverified coordinator", owner, "Sam"):
+            self.action(avery, "advance-task", {**wait, "on": value}, status=400)
+        self.assertEqual(self.call(avery, path).json["task"]["state"], "in_progress")
+
+        status, _, error = self.shared_cli(avery, "wait", "T-1", "Read the fixture.", "--on", sam_id)
+        self.assertEqual((status, error), (0, ""))
+        first, = self.call(sam, decisions).json["items"]
+        self.action(avery, "advance-task", {**wait, "on": sam_id})
+        self.assertEqual([item["event_id"] for item in self.call(sam, decisions).json["items"]], [first["event_id"]])
+        row = self.call(avery, path).json["task"]
+        self.assertEqual((row["dri"], row["waiting_on"], row["wait_kind"]), (owner, sam_id, "person"))
+
+        self.action(avery, "advance-task", {**wait, "on": quinn_id, "note": "Verify the updated fixture."})
+        self.assertEqual(self.call(sam, decisions).json["items"], [])
+        second, = self.call(quinn, decisions).json["items"]
+        self.assertEqual(second["note"], "Verify the updated fixture.")
+        self.action(avery, "advance-task", {**wait, "on": reviewer})
+        self.assertEqual(self.call(quinn, decisions).json["items"], [])
+        self.assertEqual(self.action(blake, "my-next")["work"]["key"], "T-2")
+        row = self.call(avery, path).json["task"]
+        self.assertEqual((row["dri"], row["waiting_on"], row["wait_kind"]), (owner, reviewer, "person"))
+
+        self.action(avery, "advance-task", {**wait, "on": sam_id})
+        self.assertEqual(self.call(avery, "/api/v1/tasks/2").json["task"]["display_state"], "closed")
+        final, = self.call(sam, decisions).json["items"]
+        self.call(sam, "/api/v1/tasks/T-1/decision", method="POST", json={
+            "request_id": final["event_id"], "note": "Verified.",
+        })
+        row = self.call(avery, path).json["task"]
+        self.assertEqual((row["dri"], row["state"]), (owner, "ready"))
+        self.assertNotIn("wait_kind", row)
 
     def test_named_wait_updates_one_request_and_keeps_the_source_owner(self):
         app = self.app(portal_reader=True)

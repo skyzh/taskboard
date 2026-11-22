@@ -835,7 +835,7 @@ def change_task(db, args, links, *, automation=None):
     if human_wait:
         context["human_wait"] = True
         if (replacing_human_wait and waiting_on == task["waiting_on"] and args.note == task["note"]
-                and args.details == event_context(task).get("activity_details")
+                and (getattr(args, "details", None) or "") == (event_context(task).get("activity_details") or "")
                 and json.loads(task["current_links"]) == [list(link) for link in links]):
             return f"{projects.row_reference(task)} · Decision already requested"
         peer_asks.withdraw_named_wait(db, task, args.by, "The owner replaced this wait with a human decision.")
@@ -877,7 +877,7 @@ def change_task(db, args, links, *, automation=None):
             context["readiness"] = current["readiness"]
         note = task["note"]
         links = json.loads(task["current_links"])
-    if args.command == "redirect-decision":
+    if args.command == "redirect-decision" and not human_wait:
         note = task["note"]
         request = db.execute("SELECT links FROM events WHERE id = ?", (task["event_id"],)).fetchone()
         links = [*json.loads(request["links"]), *links]
@@ -890,7 +890,6 @@ def change_task(db, args, links, *, automation=None):
     request_id = getattr(args, "attention_request_id", None)
     if request_id is not None:
         waiting_on = "Needs me"
-        context["attention_request_id"] = request_id
     attribution = args.by
     if automation is not None:
         attribution, evidence = automation

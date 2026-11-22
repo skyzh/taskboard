@@ -136,7 +136,7 @@ def arguments(argv=None):
             command.add_argument("--reason", required=True, type=nonblank, help="Why the request was withdrawn.")
         if action == "wait":
             dependency = command.add_mutually_exclusive_group(required=True)
-            dependency.add_argument("--on", type=nonblank, help="Owner of the dependency.")
+            dependency.add_argument("--on", type=nonblank, help="Verified teammate in shared mode, or an automation name with --automation.")
             dependency.add_argument("--blocked-by", type=task_id, help="Another ticket that must move first.")
             dependency.add_argument(
                 "--attention-request-id", type=int, metavar="ID",
