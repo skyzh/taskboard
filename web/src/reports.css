@@ -158,6 +158,8 @@
 .report-details[open] { padding-bottom: .2rem; }
 .report-details[open] > summary { margin-bottom: .28rem; }
 .report-details .prose { margin-bottom: .22rem; }
+.report-list-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .3rem .75rem; }
+.report-list-display { font-size: .8rem; }
 .pending-report { border-top: 1px solid var(--line); padding: .42rem 0; font-size: .86rem; }
 .pending-report:first-child { border-top: 0; }
 .pending-report-meta {
