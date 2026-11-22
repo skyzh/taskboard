@@ -226,6 +226,16 @@ place. An installation without matching metadata reports null values.
 python -B -W error::ResourceWarning -m unittest discover -s tools/release -q
 ```
 
+Build the web app before running `test_installed_runner.py`. The test uses
+the tracked revision and the supported public launcher and check package
+pinned in [supported-runner.txt](supported-runner.txt). CI fetches that exact
+revision. Fetch it locally with
+`git fetch --no-tags --depth=1 origin "$(cat tools/release/supported-runner.txt)"`
+if it is missing. The test runs both the pinned and candidate launchers and
+checks against the same staged app manifest. If a change requires replacing
+the installed launcher or checks, review the operator handoff and update the
+supported pin explicitly. CI cannot inspect a private installation’s pins.
+
 The default run uses synthetic local fixtures. Release operators can enable additional process replays using artifacts verified against trusted digests from their release records. Supply settings in the test environment. Keep artifacts, pins and receipts outside the source checkout.
 
 | Setting | Operator-supplied input |
