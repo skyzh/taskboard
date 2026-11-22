@@ -24,38 +24,70 @@ SCHEMA = (
     """,
     "CREATE INDEX IF NOT EXISTS peer_asks_source ON peer_asks (source_task_id, task_id)",
 )
-TITLE_LIMIT = 120
+TITLE_LIMIT = 72
+PREVIOUS_TITLE_LIMIT = 120
+REVIEW_ACTION = re.compile(r"^(?:(?:please|independently)\s+)*(?:review|rebind|recheck|approve)\b", re.IGNORECASE)
+PULL_REFERENCE = re.compile(r"\b(?:PR|pull request)\s*#(\d+)\b|https://github\.com/[^\s/]+/[^\s/]+/pull/(\d+)\b",
+                            re.IGNORECASE)
 
 
-def request_title(note, fallback):
-    title = next((" ".join(line.split()) for line in note.splitlines() if line.strip()), fallback)
-    return title if len(title) <= TITLE_LIMIT else title[:TITLE_LIMIT - 1].rstrip() + "…"
+def _first_line(note, fallback):
+    return next((" ".join(line.split()) for line in note.splitlines() if line.strip()), fallback)
 
 
-def migrate_titles(db):
-    """Replace generated titles using the original request, in the startup transaction."""
+def request_title(note, fallback, *, pull=None):
+    line = _first_line(note, fallback)
+    if pull:
+        title = f"Review PR #{pull.rsplit('#', 1)[-1]}"
+    elif REVIEW_ACTION.match(line) and (match := PULL_REFERENCE.search(line)):
+        title = f"Review PR #{match[1] or match[2]}"
+    else:
+        title = re.sub(r"^please\s+", "", line, flags=re.IGNORECASE).rstrip(".")
+    if not title:
+        return fallback
+    title = title[0].upper() + title[1:]
+    if len(title) <= TITLE_LIMIT:
+        return title
+    preview = title[:TITLE_LIMIT - 1]
+    word_break = preview.rfind(" ")
+    return (preview[:word_break] if word_break >= TITLE_LIMIT // 2 else preview.rstrip()) + "…"
+
+
+def refresh_generated_titles(db, *, task_id=None):
+    """Update old generated titles or one request after attaching a Stamp pin."""
     import tasks_core as ledger
 
+    scope = "AND request.id = ?" if task_id is not None else ""
     rows = db.execute(
-        """
-        SELECT request.id, request.title, original.note
+        f"""
+        SELECT request.id, request.title, original.note,
+               'Peer request for ' || source.project_prefix || '-' || COALESCE(source.project_number, source.id) AS fallback
         FROM peer_asks AS ask
         JOIN tasks AS request ON request.id = ask.task_id
         JOIN tasks AS source ON source.id = ask.source_task_id
         JOIN events AS original ON original.id = (
             SELECT MIN(id) FROM events WHERE task_id = request.id AND action = 'add'
         )
-        WHERE request.title = ('Peer request for ' || source.project_prefix || '-' ||
-                               COALESCE(source.project_number, source.id))
-        """,
+        WHERE NOT EXISTS (
+            SELECT 1 FROM events AS edited WHERE edited.task_id = request.id AND edited.action = 'log'
+              AND json_type(edited.context, '$.audit.current.title') = 'text'
+        ) {scope}
+        """, (task_id,) if task_id is not None else (),
     ).fetchall()
     changed = False
     for row in rows:
-        title = request_title(row["note"], row["title"])
+        previous = _first_line(row["note"], row["fallback"])
+        if len(previous) > PREVIOUS_TITLE_LIMIT:
+            previous = previous[:PREVIOUS_TITLE_LIMIT - 1].rstrip() + "…"
+        generated = (row["fallback"], previous, request_title(row["note"], row["fallback"]))
+        if row["title"] not in generated and not re.fullmatch(r"Review PR #[0-9]+", row["title"]):
+            continue
+        pin = pending_stamp_review(db, row["id"])
+        title = request_title(row["note"], row["fallback"], pull=pin["pull"] if pin else None)
         if title != row["title"]:
             db.execute("UPDATE tasks SET title = ? WHERE id = ?", (title, row["id"]))
             changed = True
-    if changed:
+    if changed and task_id is None:
         ledger.bump_revision(db)
 
 
@@ -260,11 +292,13 @@ def create(db, args, links, *, named_wait=None):
                 record_named_wait(db, source, active, args, links, named_wait)
         if stamp_review:
             record_stamp_request(db, active["id"], args.by, active["state"], stamp_review)
+            refresh_generated_titles(db, task_id=active["id"])
         return f"{projects.row_reference(active)} · Existing peer request"
 
     source_reference = projects.row_reference(source)
     request = Namespace(
-        title=request_title(args.note, f"Peer request for {source_reference}"), brief="",
+        title=request_title(args.note, f"Peer request for {source_reference}",
+                            pull=stamp_review["pull"] if stamp_review else None), brief="",
         by=args.by, dri=args.recipient, project=projects.row_project(source), step=args.note,
     )
     task_id = ledger.create_task_record(db, request, links)

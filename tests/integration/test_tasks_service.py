@@ -5099,7 +5099,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(owner, "create-task", {"project": "COURSE", "title": "Course task", "step": "Read it."})
         self.action(owner, "peer-ask", {"id": "T-1", "transition": "create", "recipient": peer_id, "note": "Review this."})
         work = self.call(peer, "/api/v1/notifications/work").json["items"]
-        request_key = next(item["key"] for item in work if item["title"] == "Review this.")
+        request_key = next(item["key"] for item in work if item["title"] == "Review this")
         self.action(peer, "advance-task", {"id": request_key, "transition": "start", "note": "Checking."})
         queue = "/api/v1/tasks?project=T&limit=1"
         default = self.call(owner, queue).json
@@ -5898,8 +5898,8 @@ class TasksServiceTest(unittest.TestCase):
 
         request = task("COURSE-2")
         self.assertEqual((request["title"], request["note"], request["peer_request"]["source_key"]),
-                         ("Verify the export on a phone.", note, "COURSE-1"))
-        self.assertEqual(task(long_key)["title"], long_note[:119] + "…")
+                         ("Verify the export on a phone", note, "COURSE-1"))
+        self.assertEqual(task(long_key)["title"], long_note[:71] + "…")
         self.assertEqual(task(long_key)["note"], long_note)
         self.action(recipient, "edit-task-details", {"id": long_key, "title": "Check the export header", "reason": "Clarify the scope."})
         self.action(recipient, "advance-task", {"id": "COURSE-2", "transition": "start", "note": "Starting the mobile check."})
@@ -5910,7 +5910,7 @@ class TasksServiceTest(unittest.TestCase):
             db.execute("UPDATE tasks SET title = 'Peer request for COURSE-1' WHERE id = ?", (request["id"],))
             events = db.execute("SELECT * FROM events ORDER BY id").fetchall()
         self.app(portal_reader=True)
-        self.assertEqual(task("COURSE-2")["title"], "Verify the export on a phone.")
+        self.assertEqual(task("COURSE-2")["title"], "Verify the export on a phone")
         self.assertEqual(task("COURSE-2")["note"], "Starting the mobile check.")
         self.assertEqual(task(long_key)["title"], "Check the export header")
         self.assertEqual(task(ordinary_key)["title"], "Peer request for COURSE-1")
@@ -5919,7 +5919,34 @@ class TasksServiceTest(unittest.TestCase):
 
         request_log = self.call(owner, "/api/v1/reports/request-log?project=COURSE").json["items"]
         self.assertEqual([(item["request_title"], item["source_key"], item["request_key"]) for item in request_log],
-                         [("Verify the export on a phone.", "COURSE-1", "COURSE-2")])
+                         [("Verify the export on a phone", "COURSE-1", "COURSE-2")])
+
+    def test_long_generated_review_title_is_short_even_after_upgrade(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        reviewer, reviewer_id = self.login(app, "Blake")
+        self.action(owner, "create-task", {"title": "Publish the demo", "step": "Prepare."})
+        note = f"Rebind exact PR #126 review to {'a' * 40} on {'b' * 40}. README and public HTML match."
+        self.action(owner, "peer-ask", {"id": "T-1", "transition": "create", "recipient": reviewer_id, "note": note})
+
+        def detail():
+            return self.call(owner, "/api/v1/tasks/T-2").json["task"]
+
+        self.assertEqual((detail()["title"], detail()["note"], detail()["peer_request"]["source_key"]),
+                         ("Review PR #126", note, "T-1"))
+        old_title = note[:119].rstrip() + "…"
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("UPDATE tasks SET title = ? WHERE id = 2", (old_title,))
+            old_events = db.execute("SELECT * FROM events ORDER BY id").fetchall()
+        self.app(portal_reader=True)
+        self.assertEqual(detail()["title"], "Review PR #126")
+        with closing(sqlite3.connect(self.database)) as db:
+            self.assertEqual(db.execute("SELECT * FROM events ORDER BY id").fetchall(), old_events)
+        request_log = self.call(owner, "/api/v1/reports/request-log?project=T").json["items"]
+        self.assertEqual([(item["request_title"], item["source_key"]) for item in request_log], [("Review PR #126", "T-1")])
+        self.action(reviewer, "edit-task-details", {"id": "T-2", "title": old_title, "reason": "Use this explicit wording."})
+        self.app(portal_reader=True)
+        self.assertEqual(detail()["title"], old_title)
 
     def test_linked_peer_request_lifecycle_returns_the_next_action_to_the_requester(self):
         app = self.app(portal_reader=True)
@@ -6537,6 +6564,7 @@ class TasksServiceTest(unittest.TestCase):
             status, output, error = self.shared_cli(prism, *request, requested_head, base)
             self.assertEqual((status, error), (0, ""))
             self.assertIn("T-2 · Existing peer request", output)
+            self.assertEqual(self.call(prism, "/api/v1/tasks/T-2").json["task"]["title"], "Review PR #40")
         self.provider = FixtureRaft()
         without_import = self.app(portal_reader=True)
         peer, _ = self.login(without_import, "Blake")
