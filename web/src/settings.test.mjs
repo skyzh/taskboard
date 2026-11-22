@@ -13,6 +13,7 @@ let vite
 let Profile
 let Settings
 let CodexUsageDetails
+let CodexUsageSources
 
 before(async () => {
   vite = await createServer({
@@ -23,7 +24,9 @@ before(async () => {
   })
   Profile = (await vite.ssrLoadModule('/src/Profile.jsx')).default
   Settings = (await vite.ssrLoadModule('/src/Settings.jsx')).default
-  CodexUsageDetails = (await vite.ssrLoadModule('/src/CodexUsage.jsx')).CodexUsageDetails
+  const usage = await vite.ssrLoadModule('/src/CodexUsage.jsx')
+  CodexUsageDetails = usage.CodexUsageDetails
+  CodexUsageSources = usage.CodexUsageSources
 })
 after(() => vite?.close())
 
@@ -49,6 +52,15 @@ test('private quota presentation separates paid and reset credits, including una
   }))
   assert.match(unlimited, /<dt>Paid credits<\/dt><dd>Unlimited<\/dd>/)
   assert.match(unlimited, /<dt>Rate-limit reset credits<\/dt><dd>Unavailable<\/dd>/)
+})
+
+test('private quota sources show independent capture and availability', () => {
+  const html = renderToStaticMarkup(React.createElement(CodexUsageSources, { data: { sources: [
+    { label: 'Source A', usage: { sample: true, captured_at: '2026-11-01T12:00:00Z', buckets: [], paid_balance: '25.50' } },
+    { label: 'Source B', usage: null },
+  ] } }))
+  assert.match(html, /<h3>Source A<\/h3>.*Sample data.*Last read <time datetime="2026-11-01T12:00:00Z">/i)
+  assert.match(html, /Paid credits.*25.50.*<h3>Source B<\/h3><p>Codex usage is unavailable.<\/p>$/)
 })
 
 test('pre-paint scheme and React agree on explicit, system and unavailable storage', () => {

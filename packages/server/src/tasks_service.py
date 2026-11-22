@@ -1103,7 +1103,7 @@ def create_app(
         actor = current_actor(required=True, sync_profile=False)
         if actor["kind"] != "human" or actor["subject"] != codex_usage.viewer_subject:
             raise NotFound()
-        return {"usage": codex_usage.read()}
+        return codex_usage.read()
 
     @app.get("/api/v1/frontend-build")
     def frontend_build():

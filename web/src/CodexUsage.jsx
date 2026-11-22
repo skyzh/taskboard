@@ -42,6 +42,16 @@ export function CodexUsageDetails({ usage }) {
   )
 }
 
+export function CodexUsageSources({ data }) {
+  const sources = data.sources ?? [{ label: null, usage: data.usage }]
+  return sources.map(({ label, usage }) => (
+    <React.Fragment key={label ?? 'Codex'}>
+      {label && <h3>{label}</h3>}
+      {usage ? <CodexUsageDetails usage={usage} /> : <p>Codex usage is unavailable.</p>}
+    </React.Fragment>
+  ))
+}
+
 export default function CodexUsage() {
   const { data, error, retry, pending } = useResource('/account/codex-usage')
   const [hasRead, setHasRead] = useState(false)
@@ -56,8 +66,7 @@ export default function CodexUsage() {
     <section className="panel settings-panel" aria-labelledby="codex-usage-heading">
       <h2 id="codex-usage-heading">Codex quota and credits</h2>
       {transientFailure && <p role="status">Couldn’t refresh Codex usage. Try again.</p>}
-      {data?.usage && <CodexUsageDetails usage={data.usage} />}
-      {data && !data.usage && <p>Codex usage is unavailable.</p>}
+      {data && <CodexUsageSources data={data} />}
       <button type="button" disabled={pending} onClick={retry}>{pending ? 'Refreshing…' : 'Refresh usage'}</button>
     </section>
   )
