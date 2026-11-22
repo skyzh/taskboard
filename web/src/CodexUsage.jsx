@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useResource } from './data.js'
 import { useTimeZone } from './timeZone.js'
 
@@ -43,12 +43,21 @@ export function CodexUsageDetails({ usage }) {
 }
 
 export default function CodexUsage() {
-  const { data, retry, pending } = useResource('/account/codex-usage')
-  if (!data) return null
+  const { data, error, retry, pending } = useResource('/account/codex-usage')
+  const [hasRead, setHasRead] = useState(false)
+  const transientFailure = Boolean(error && (error.status == null || error.status >= 500))
+  useEffect(() => {
+    if (data) setHasRead(true)
+    if (error && !transientFailure) setHasRead(false)
+  }, [data, error, transientFailure])
+
+  if (!data && !(hasRead && (pending || transientFailure))) return null
   return (
     <section className="panel settings-panel" aria-labelledby="codex-usage-heading">
       <h2 id="codex-usage-heading">Codex quota and credits</h2>
-      {data.usage ? <CodexUsageDetails usage={data.usage} /> : <p>Codex usage is unavailable.</p>}
+      {transientFailure && <p role="status">Couldn’t refresh Codex usage. Try again.</p>}
+      {data?.usage && <CodexUsageDetails usage={data.usage} />}
+      {data && !data.usage && <p>Codex usage is unavailable.</p>}
       <button type="button" disabled={pending} onClick={retry}>{pending ? 'Refreshing…' : 'Refresh usage'}</button>
     </section>
   )
