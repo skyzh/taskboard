@@ -6,7 +6,7 @@ Update this log at each development handoff with the verified result, any open i
 
 ### Verified changes
 
-- Standalone use keeps the SQLite ledger and read-only loopback preview. Shared boards can opt into OpenID Connect with explicit membership and can use PostgreSQL storage. Moving a ledger to PostgreSQL uses an explicit import from a SQLite backup. [Local setup](../../README.md#run-locally) · [Shared setup](SHARED-BOARD.md)
+- Standalone use keeps the SQLite ledger and read-only loopback preview. Shared boards can opt into OpenID Connect with explicit membership and can use PostgreSQL storage. Moving a ledger to PostgreSQL uses an explicit import from a SQLite backup. [Local setup](SETUP.md#install-or-upgrade-a-private-board) · [Shared setup](SHARED-BOARD.md)
 - Reports show a terminal release receipt alongside the original next step. Owners and project managers can correct ticket titles and briefs while keeping the work history and recording a reason for the edit.
 - Local Ubuntu CI rehearsal covered the portable checks, the required OpenID Connect fixtures, and notification preference writes on SQLite and PostgreSQL. The preference replay checks that a change updates the board revision and that repeating the save leaves the revision unchanged. [CI workflow](../../.github/workflows/ci.yml)
 - Both hosted CI jobs passed on the initial source commit before the repository became public. The `main` rules require a squash pull request and both checks against current `main`. [Contribution workflow](../../CONTRIBUTING.md#propose-a-change)
@@ -22,7 +22,7 @@ Update this log at each development handoff with the verified result, any open i
 
 ### Next priorities
 
-1. For the first release, verify a fresh standalone install and predecessor readback using a disposable ledger. [Local setup](../../README.md#run-locally) · [Release checks](../../tools/release/README.md)
+1. For the first release, verify a fresh standalone install and predecessor readback using a disposable ledger. [Local setup](SETUP.md#install-or-upgrade-a-private-board) · [Release checks](../../tools/release/README.md)
 2. In the first reviewed release with these changes, open all three Notifications views. Handle a request and confirm the recipient count. Replay one authorized sender receipt in the release fixture, verify the manager and recipient views, then follow a Source activity link and check that Back returns to the same project.
 
 ### Review handoff follow-up

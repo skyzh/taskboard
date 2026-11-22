@@ -2,15 +2,17 @@
 
 ![An illustrated Taskboard banner with three connected task cards](docs/taskboard/images/taskboard-banner.webp)
 
+**Taskboard for building your AI factory.**
+
 Taskboard is a self-hosted task board for humans and coding agents. It gives a team one place to see who owns a task, what happens next, and what changed. Record checklists, decisions, handoffs, and review evidence alongside the work.
 
 [Try the Summary demo](https://skyzh.github.io/taskboard/).
 
 ## Choose how to use it
 
-- **Web board.** Browse project queues, follow activity, and open a task or its evidence. On a shared board, signed-in teammates can act on their work and answer assigned decisions. The standalone browser preview is read-only. [Shared board setup](docs/taskboard/SHARED-BOARD.md)
-- **CLI.** Start, update, or finish a task from a terminal. Use a private SQLite ledger for standalone work or use `./tasks --shared context` to verify your identity and board before working against the shared ledger. [Shared CLI setup](docs/taskboard/SHARED-BOARD.md#use-the-shared-cli)
-- **MCP.** Connect a coding agent to the shared board with the local stdio adapter and the agent’s existing Raft sign-in. Inspect queues, open tickets, and record progress from the MCP host. [MCP setup and supported actions](docs/taskboard/MCP.md)
+- **Web board.** Browse project queues, follow activity, and open a task or its evidence. On a shared board, signed-in teammates can act on their work and answer assigned decisions. The standalone browser preview is read-only.
+- **CLI.** Start, update, or finish a task from a terminal. Use a private SQLite ledger for standalone work or act on a shared board with a verified identity.
+- **MCP.** Connect a coding agent to the shared board with the local stdio adapter and the agent’s existing Raft sign-in. Inspect queues, open tickets, and record progress from the MCP host.
 
 For shared work, use the live board or `./tasks --shared show <ticket>` to read the current task. A standalone checkout has its own ledger.
 
@@ -28,32 +30,9 @@ Both screenshots show the same live Project T Reports view. They include current
 
 <img src="docs/taskboard/images/reports-phone.png" width="390" alt="Phone Reports showing the same current work and recent outcomes for Prism">
 
-## Run locally
+## Setup
 
-Use [the user-local installer](docs/taskboard/LOCAL-INSTALL.md) for a persistent CLI, a private ledger, and a browser preview on your computer. For a temporary development checkout, use the commands below.
-
-Use Python 3.11 or later, uv, and Node.js 20.19 or later on the 20.x line, or Node.js 22.12 or later. Run from the repository root.
-
-```sh
-uv sync --frozen
-npm --prefix web ci
-npm --prefix web run build
-```
-
-Create a temporary ledger and start a fictional task.
-
-```sh
-taskboard_dir="$(mktemp -d)"
-taskboard_db="$taskboard_dir/taskboard.sqlite3"
-uv run --frozen ./tasks --offline --db "$taskboard_db" add 'Check the sample export' \
-  --dri 'Sample owner' --step 'Read the signed sample.'
-uv run --frozen ./tasks --offline --db "$taskboard_db" start T-1 'Compare totals with the signed sample.' \
-  --by 'Sample owner'
-uv run --frozen ./tasks --offline --db "$taskboard_db" show T-1
-uv run --frozen ./tasks --db "$taskboard_db" serve --local-readonly --port 18765
-```
-
-Open [the local board](http://127.0.0.1:18765/). If that port is occupied, use another port in both the command and the URL. The HTTP preview binds to loopback and is read-only. Use the CLI with the same database file to update the task. The example's task ID is T-1 because the ledger is empty before creation. Use the ID the CLI returns in an existing ledger.
+Prompt your agents to follow [the setup guide](docs/taskboard/SETUP.md).
 
 ## Work from a ledger
 
@@ -72,7 +51,7 @@ See [the Taskboard skill](skills/taskboard/SKILL.md) for task execution, review,
 
 ## Project layout
 
-The `./tasks` entry point runs the commands in `packages/cli/`. The other Python packages provide the shared API client (`packages/client/`), the HTTP service and ledger (`packages/server/`), and the local MCP adapter (`packages/mcp/`). The React client lives in `web/`. The optional Raft integration provides sign-in, principal mapping, and a shared command transport. It uses the same task and ownership rules as the local workflow. See [shared-board setup](docs/taskboard/SHARED-BOARD.md) for the adapter.
+The `./tasks` entry point runs the commands in `packages/cli/`. The other Python packages provide the shared API client (`packages/client/`), the HTTP service and ledger (`packages/server/`), and the local MCP adapter (`packages/mcp/`). The React client lives in `web/`. The optional Raft integration provides sign-in, principal mapping, and a shared command transport. It uses the same task and ownership rules as the local workflow.
 
 The optional [Marketplace mode](docs/taskboard/MARKETPLACE.md) keeps a separate ledger per installed Raft server. The [release tools](tools/release/README.md) build and verify immutable artifacts for operators. Self-hosted operators can also consult the [local merge queue](docs/taskboard/operators/MERGE-QUEUE.md) and [historical release receipts](docs/taskboard/operators/RELEASE-QUEUE.md).
 
