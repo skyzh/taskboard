@@ -124,6 +124,7 @@ class GitHubIntakeTest(unittest.TestCase):
         self.assertEqual(json.loads(event["context"]), {
             "source_kind": "github", "source_key": "example/board#7", "provider_at": "2026-11-18T18:00:00Z",
             "event_kind": "commented", "provider_actor": "octocat",
+            "github_repository": "example/board", "github_activity_id": "github:commented:201",
         })
         self.assertEqual(json.loads(event["links"]), [["GitHub · example/board#7", ISSUE_URL],
                                                       ["GitHub event", comment_url]])
