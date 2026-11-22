@@ -36,11 +36,16 @@ jobs:
 
       - name: Install the locked dependencies
         run: |
-          uv sync --locked --extra websocket
+          uv sync --locked --extra websocket --group lint
           npm --prefix web ci --no-audit --no-fund
 
       - name: Build the web app
         run: npm --prefix web run build
+
+      - name: Lint Python, JavaScript and HTML
+        run: |
+          uv run --no-sync ruff check .
+          npm --prefix web run lint
 
       - name: Run Python tests
         run: uv run --no-sync python -B -W error::ResourceWarning -m unittest discover -q

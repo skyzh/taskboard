@@ -11,6 +11,11 @@ dependencies = [
 [tool.uv]
 package = false
 
+[dependency-groups]
+lint = [
+    "ruff>=0.17.6",
+]
+
 [project.optional-dependencies]
 websocket = [
     "flask-sock>=0.7,<1",
@@ -24,3 +29,6 @@ oidc = [
 postgres = [
     "psycopg[binary]>=3.2,<4",
 ]
+
+[tool.ruff.lint]
+select = ["F821", "F822", "F823"]

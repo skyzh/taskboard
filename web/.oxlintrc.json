@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react"],
+  "categories": {
+    "correctness": "off"
+  },
+  "env": {
+    "browser": true
+  },
+  "rules": {
+    "eslint/no-dupe-keys": "error",
+    "eslint/no-undef": "error",
+    "eslint/no-unreachable": "error",
+    "react/jsx-no-undef": "error"
+  },
+  "overrides": [
+    {
+      "files": ["src/**/*.test.mjs", "vite.config.js"],
+      "env": { "node": true }
+    }
+  ]
+}

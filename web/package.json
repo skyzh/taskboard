@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build --base ./"
+    "build": "vite build --base ./",
+    "lint": "oxlint src public vite.config.js && html-validate index.html dist/index.html"
   },
   "dependencies": {
     "lucide-react": "1.60.0",
@@ -13,6 +14,8 @@
     "react-dom": "19.2.9"
   },
   "devDependencies": {
+    "html-validate": "10.8.0",
+    "oxlint": "1.94.0",
     "vite": "7.3.8"
   }
 }

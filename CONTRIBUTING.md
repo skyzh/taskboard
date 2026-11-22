@@ -14,15 +14,17 @@ Each requested independent reviewer records their own verdict in Stamp for the e
 
 GitHub’s classic branch protection for `main` requires a pull request and both of the following checks against up-to-date `main`. Before merging, reviewers verify that both jobs in the [Taskboard CI workflow](.github/workflows/ci.yml) passed for the reviewed pull request.
 
-- **Portable checks** builds the app and runs the Python, Node.js, disposable mount, and synthetic client compatibility checks. The workflow also runs the required OpenID Connect fixture tests with locked dependencies and fails if any are skipped.
+- **Portable checks** builds the app, checks Python, JavaScript and HTML, and runs the Python, Node.js, disposable mount, and synthetic client compatibility tests. The workflow also runs the required OpenID Connect fixture tests with locked dependencies and fails if any are skipped.
 - **SQLite and PostgreSQL preference replay** runs the same notification preference test on SQLite and a disposable PostgreSQL 16 service with the locked driver. It checks that a changed preference is saved and advances the board revision, and that saving the same value again leaves the revision unchanged.
 
 To reproduce the core checks, install dependencies from the lockfiles and build the web assets before running the service tests. The workflow records the exact tool versions.
 
 ```sh
-uv sync --locked --extra websocket
+uv sync --locked --extra websocket --group lint
 npm --prefix web ci --no-audit --no-fund
 npm --prefix web run build
+uv run --no-sync ruff check .
+npm --prefix web run lint
 uv run --no-sync python -B -W error::ResourceWarning -m unittest -v
 (cd web && node --test)
 uv run --no-sync python -B -m unittest discover -s tools/release/checks -p test_release_smoke.py
