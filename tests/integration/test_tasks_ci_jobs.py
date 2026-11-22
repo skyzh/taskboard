@@ -96,6 +96,55 @@ class GitHubCIJobsTest(unittest.TestCase):
         self.assertEqual(len(fixture.call(owner, notices).json["items"]), 6)
         self.assertEqual(fixture.call(other, notices).json["items"], [])
 
+    def test_ci_only_records_jobs_without_backfilling_merges(self):
+        fixture = fixtures.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        configured = configuration(json.dumps({
+            "T": {"github-events": {"repository": "example/board", "merge": False, "ci_jobs": {}}},
+            "COURSE": {"github-events": {"repository": "example/board"}},
+        }))
+        app = fixture.app(portal_reader=True, project_extensions=configured)
+        owner, owner_key = fixture.login(app, "Avery")
+        fixture.cli("register-project", "COURSE", "Course", "--dri", owner_key)
+        pull = "https://github.com/example/board/pull/4"
+        for project in ("T", "COURSE"):
+            fixture.action(owner, "create-task", {"title": "Check CI", "step": "Read CI.", "project": project})
+            fixture.action(owner, "link-reference", {"id": f"{project}-1", "label": "GitHub PR", "url": pull})
+            fixture.cli("start", f"{project}-1", "Reading CI.", "--by", owner_key)
+
+        head = "a" * 40
+        at = "2026-11-22T10:00:00Z"
+        requests = []
+
+        def read(request):
+            url = request.full_url
+            requests.append(url)
+            root = "https://api.github.com/repos/example/board/"
+            if url == root + "pulls/4":
+                return 200, {}, {"state": "closed", "merged": True, "merge_commit_sha": "b" * 40,
+                                 "merged_at": at, "head": {"sha": head}}
+            self.assertEqual(url, root + f"commits/{head}/check-runs?filter=all&per_page=100")
+            return 200, {}, {"check_runs": [{
+                "id": 1, "name": "Portable checks", "status": "completed", "conclusion": "success",
+                "completed_at": at, "head_sha": head, "app": {"slug": "github-actions"},
+                "html_url": "https://github.com/example/board/actions/runs/8/job/1",
+            }]}
+
+        with closing(open_sqlite(fixture.database)) as db:
+            reader = GitHubReader(transport=read)
+            self.assertEqual(refresh(db, reader, configured, board_url=fixtures.ORIGIN + fixtures.BASE),
+                             {"sources": 1, "activity": 1, "deployments": 0, "errors": []})
+            self.assertEqual(len(requests), 2)
+            self.assertEqual(refresh(db, reader, configured, board_url=fixtures.ORIGIN + fixtures.BASE)["activity"], 0)
+
+        for ticket, event_kind in (("T-1", "ci-job"), ("COURSE-1", "pull-merged")):
+            events = fixture.call(owner, f"/api/v1/tasks/{ticket}/activity").json["items"]
+            self.assertEqual([event["context"]["github_event"] for event in events
+                              if "github_event" in event["context"]], [event_kind])
+            self.assertEqual(fixture.call(owner, f"/api/v1/tasks/{ticket}").json["task"]["state"], "in_progress")
+        self.assertEqual(fixture.call(owner, "/api/v1/notifications/inbox?scope=all&view=updates").json["items"], [])
+
     def test_ci_job_rule_does_not_allow_automatic_completion(self):
         with self.assertRaisesRegex(ValueError, "Set only notify_dri"):
             configuration('{"T":{"github-events":{"repository":"example/board","ci_jobs":{"complete":true}}}}')

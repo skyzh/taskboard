@@ -487,7 +487,7 @@ def observe_metadata(db, source, item, metadata, settings, checked_at):
     }
     for number, config in settings.items():
         rule = config.get(extensions.EVENTS)
-        if rule and rule.repository == repository(item):
+        if rule and rule.merge is not None and rule.repository == repository(item):
             extensions.record(db, number, source["id"], f"merged:{commit}", evidence, rule.merge)
             recorded.add(number)
     return recorded

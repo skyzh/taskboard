@@ -55,6 +55,8 @@ These notices are work updates. Review assignments and verdicts belong in Stamp.
 
 Enable `ci_jobs` under `github-events` to record completed GitHub Actions jobs for a linked pull request's current head. Set `notify_dri` to true to send those outcomes to the ticket owner's Inbox. Each event includes the job link and head revision. Repeated refreshes reuse the same event, and a distinct rerun can record a new outcome. The optional rule adds at most one check-runs page per linked pull request within the existing read budget.
 
+For CI Work Log entries only, set `"merge": false` and `"ci_jobs": {}` alongside `repository` in `github-events`. Leaving `merge` out still records merge observations by default. An explicit deployment or activity rule retains its behavior, as does a manual GitHub refresh.
+
 To read an explicitly linked pull request through the installed Stamp CLI, run
 `taskboard-extensions --db "$board_db" --stamp-pull "$pull_url"`. It checks that
 the linked ticket has the matching project setting before calling Stamp. Read the
