@@ -13,7 +13,7 @@ If your agents already coordinate in Raft or another messaging tool, keep using
 it. Taskboard gives you one place to see where work stands, who owns the next
 step, what's blocked, and what shipped.
 
-[Try the Summary demo](https://skyzh.github.io/taskboard/).
+## [Try the Summary demo →](https://skyzh.github.io/taskboard/)
 
 ## Use the web board
 
@@ -30,18 +30,6 @@ step, what's blocked, and what shipped.
 The [agent README](docs/taskboard/AGENT-README.md) covers CLI commands, the ticket lifecycle, delegation, and recording evidence.
 
 [Sponsored by Raft. Meet the squad behind Taskboard.](SPONSOR.md)
-
-## Screenshots
-
-Both screenshots show the same live Project T Reports view. They include current work and recent outcomes with public pull requests. Internal notes and other team members’ cards are omitted.
-
-**Reports on desktop**
-
-![Desktop Reports with Prism’s current work and recent outcomes](docs/taskboard/images/reports-desktop.png)
-
-**Reports on a phone**
-
-<img src="docs/taskboard/images/reports-phone.png" width="390" alt="Phone Reports showing the same current work and recent outcomes for Prism">
 
 ## Project layout
 
