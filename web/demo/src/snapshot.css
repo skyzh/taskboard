@@ -12,6 +12,13 @@
 .snapshot-tour h2 span { color: var(--muted); font-size: .875rem; font-weight: 400; margin-inline-start: .4rem; }
 .snapshot-tour p { margin: .35rem 0 .6rem; }
 .snapshot-tour-actions { display: flex; gap: .375rem; flex-wrap: wrap; }
+.snapshot .snapshot-tour-trigger {
+  border-color: var(--green);
+  background: var(--green);
+  color: var(--canvas);
+  font-weight: var(--weight-heading);
+  padding-inline: 1.1rem;
+}
 .snapshot button:not([data-demo-unavailable]), .snapshot-tour button { min-height: 2.75rem; }
 .snapshot [data-tour-current="true"] { outline: 2px solid currentColor; outline-offset: .25rem; }
 .snapshot .report-outcome { align-items: start; }
