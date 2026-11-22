@@ -143,7 +143,7 @@ export function taskLabel(id, reference) {
 }
 
 export function taskHref(id, reference) {
-  const anchor = reference && !reference.startsWith('T-') ? reference : id
+  const anchor = reference && (id == null || !reference.startsWith('T-')) ? reference : id
   return `#task-${anchor}`
 }
 
