@@ -138,23 +138,39 @@ function TimingExamples({ examples }) {
   )
 }
 
-function FlowTrend({ buckets }) {
-  const { formatTimestamp } = useTimeZone()
+function FlowTrend({ buckets, bucketSeconds, period }) {
+  const { formatTimestamp, formatDay, timeZone } = useTimeZone()
   const maximum = Math.max(1, ...buckets.flatMap(row => FLOW_METRICS.map(([key]) => row[key])))
+  const first = buckets[0].from
+  const last = buckets.at(-1).to
+  const date = { month: 'short', day: 'numeric' }
+  const clock = { hour: 'numeric', minute: '2-digit' }
+  const tick = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    ...(period === 'week' ? date : formatDay(first) === formatDay(last) ? clock : { ...date, ...clock }),
+  })
+  const bucketLabel = bucketSeconds < 3600 ? `${bucketSeconds / 60}-minute` : `${bucketSeconds / 3600}-hour`
   return (
     <>
-      <p className="stats-legend stats-flow-legend">{FLOW_METRICS.map(([key, label]) => <span key={key}>{label}</span>)}</p>
-      <div className="stats-chart stats-flow-chart" aria-hidden="true">
-        {buckets.map(row => (
-          <div key={row.from} title={formatTimestamp(row.from)}>
-            {FLOW_METRICS.map(([key, label]) => (
-              <span key={key} title={`${label}: ${number.format(row[key])}`} style={{ height: `${100 * row[key] / maximum}%` }} />
-            ))}
-          </div>
-        ))}
+      <div className="stats-flow-heading">
+        <h3>Recorded ticket activity</h3>
+        <span className="stats-note">{bucketLabel} buckets</span>
       </div>
-      <div className="stats-axis" aria-hidden="true">
-        <span><Timestamp at={buckets[0].from} /></span><span><Timestamp at={buckets.at(-1).to} /></span>
+      <p className="stats-legend stats-flow-legend">{FLOW_METRICS.map(([key, label]) => <span key={key}>{label}</span>)}</p>
+      <div className="stats-flow-plot" aria-hidden="true">
+        <div className="stats-flow-scale"><span>{number.format(maximum)}</span><span>0</span></div>
+        <div className="stats-chart stats-flow-chart">
+          {buckets.map(row => (
+            <div key={row.from} title={formatTimestamp(row.from)}>
+              {FLOW_METRICS.map(([key, label]) => (
+                <span key={key} title={`${label}: ${number.format(row[key])}`} style={{ height: `${100 * row[key] / maximum}%` }} />
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="stats-axis stats-flow-axis">
+          {[first, last].map(at => <time key={at} dateTime={at} title={formatTimestamp(at)}>{tick.format(new Date(at))}</time>)}
+        </div>
       </div>
       <details className="stats-bucket-list">
         <summary>View recorded trend counts</summary>
@@ -180,20 +196,34 @@ function FlowTrend({ buckets }) {
 function TicketFlow({ data }) {
   const flow = data.ticket_flow
   const timing = flow.start_to_done
+  const { timeZone, formatDay, formatClock } = useTimeZone()
+  const dates = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone })
   return (
     <section className="panel" aria-labelledby="stats-ticket-flow">
-      <h2 id="stats-ticket-flow">Ticket turnaround</h2>
-      <p className="stats-note"><Timestamp at={data.from} /> to <Timestamp at={data.to} /></p>
-      <dl className="stats-totals">
-        {FLOW_METRICS.map(([key, label]) => (
-          <div key={key}><dt>{label}</dt><dd>{number.format(flow[key])}</dd></div>
-        ))}
+      <div className="stats-flow-heading">
+        <h2 id="stats-ticket-flow">Ticket turnaround</h2>
+        <span className="stats-note">{dates.formatRange(new Date(data.from), new Date(data.to))}</span>
+      </div>
+      <dl className="stats-flow-primary">
+        <div><dt>Recorded Done</dt><dd>{number.format(flow.done)}</dd></div>
         <div><dt>Median Start to Done</dt><dd>{elapsed(timing.median_seconds)}</dd></div>
       </dl>
       <TimingCoverage timing={timing} population="Done records" />
+      <dl className="stats-flow-secondary">
+        <div><dt>New tickets</dt><dd>{number.format(flow.new)}</dd></div>
+        <div><dt>Closed</dt><dd>{number.format(flow.closed)}</dd></div>
+      </dl>
+      <FlowTrend buckets={data.buckets} bucketSeconds={data.bucket_seconds} period={data.period} />
+      <details className="stats-bucket-list">
+        <summary>Dates and definitions</summary>
+        <p className="stats-note">
+          <time dateTime={data.from}>{formatDay(data.from)} {formatClock(data.from)}</time>
+          {' to '}
+          <time dateTime={data.to}>{formatDay(data.to)} {formatClock(data.to)}</time>
+        </p>
+        <p className="stats-note">Closed counts administrative closures. Done includes entries recorded after the work happened. Start to Done measures elapsed time between recorded events.</p>
+      </details>
       <TimingExamples examples={timing.examples} />
-      <p className="stats-note">Closed counts administrative closures. Done includes entries recorded after the work happened. Start to Done measures elapsed time between recorded events.</p>
-      <FlowTrend buckets={data.buckets} />
     </section>
   )
 }

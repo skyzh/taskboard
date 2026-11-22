@@ -1,5 +1,12 @@
 .stats-page > * + * { margin-top: .85rem; }
-.stats-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.stats-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .65rem;
+  width: min(100%, 23rem);
+}
+.stats-controls label { display: grid; gap: .2rem; color: var(--muted); font-size: .83rem; }
+.stats-controls select { width: 100%; min-width: 0; height: 2.75rem; font-size: 1rem; }
 .stats-note, .stats-axis { color: var(--muted); font-size: .83rem; }
 .stats-note { margin-block: .35rem; }
 .stats-totals {
@@ -33,6 +40,40 @@
 .stats-chart span { flex: 1; background: var(--green); }
 .stats-chart span + span { background: #96602b; }
 .stats-flow-legend span:last-child::before, .stats-flow-chart span:last-child { background: var(--muted); }
+.stats-flow-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .15rem .8rem; }
+.stats-flow-heading .stats-note { margin: 0; }
+.stats-flow-primary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .85rem;
+  margin: .6rem 0 .3rem;
+}
+.stats-flow-primary > div { display: grid; grid-template-rows: 1fr auto; }
+.stats-flow-primary dt, .stats-flow-secondary dt { color: var(--muted); font-size: .83rem; }
+.stats-flow-primary dd {
+  margin: .08rem 0 0;
+  font-size: clamp(1.2rem, 5.6vw, 1.65rem);
+  font-weight: var(--weight-heading);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.stats-flow-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem 1.3rem;
+  border-block: 1px solid var(--line);
+  margin: .65rem 0 .75rem;
+  padding-block: .4rem;
+}
+.stats-flow-secondary > div { display: flex; align-items: baseline; gap: .4rem; }
+.stats-flow-secondary dd { margin: 0; font-weight: var(--weight-emphasis); }
+.stats-flow-legend { gap: .25rem .75rem; margin: .35rem 0 .45rem; }
+.stats-flow-plot { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem .45rem; }
+.stats-flow-scale { display: flex; flex-direction: column; justify-content: space-between; text-align: right; }
+.stats-flow-scale, .stats-flow-axis { color: var(--muted); font-size: .75rem; line-height: 1; }
+.stats-flow-chart { margin-top: 0; border-top: 1px solid var(--line); gap: .1rem; }
+.stats-axis.stats-flow-axis { grid-column: 2; gap: .45rem; }
+.stats-flow-axis time:last-child { text-align: right; }
 .stats-coverage {
   display: block;
   color: var(--muted);
