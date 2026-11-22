@@ -1,6 +1,7 @@
 """Read formal approval receipts from Stamp's structured pull request view."""
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import re
 import subprocess
@@ -15,6 +16,34 @@ import tasks_storage
 
 RECEIPT = re.compile(r"[0-9a-f]{32}")
 SERVER = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}")
+
+
+class ReaderUnavailable(RuntimeError):
+    """The configured runtime cannot start the Stamp reader."""
+
+
+def review_health(db, project, repo):
+    if repo is None:
+        return {"state": "unconfigured"}
+    row = db.execute(
+        """SELECT pull, checked_at, succeeded_at, failure FROM stamp_review_health
+           WHERE project = ? AND repository = ?""", (project, repo),
+    ).fetchone()
+    if row is None:
+        return {"state": "unchecked", "repository": repo}
+    return {"state": "failing" if row["failure"] else "verified", "repository": repo, **dict(row)}
+
+
+def save_health(db, project, repo, url, failure=None):
+    at = datetime.now(timezone.utc).isoformat()
+    db.execute(
+        """INSERT INTO stamp_review_health VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT (project, repository) DO UPDATE SET
+               pull = excluded.pull, checked_at = excluded.checked_at,
+               succeeded_at = COALESCE(excluded.succeeded_at, stamp_review_health.succeeded_at),
+               failure = excluded.failure""",
+        (project, repo, url, at, None if failure else at, failure),
+    )
 
 
 @dataclass(frozen=True)
@@ -98,7 +127,9 @@ class StampReader:
                 [*self.command, "pr", "view", item.number, "--repo", repository(item), "--json"],
                 capture_output=True, text=True, timeout=20, check=True,
             )
-        except (OSError, subprocess.SubprocessError) as error:
+        except OSError as error:
+            raise ReaderUnavailable("The Stamp CLI could not start. Check the operator's installed executable and PATH.") from error
+        except subprocess.SubprocessError as error:
             raise RuntimeError("Stamp could not read the linked pull request.") from error
         try:
             document = json.loads(result.stdout)
@@ -117,7 +148,7 @@ def linked_tickets(db, url, repo, configured):
     ) if configured.get(row["project_prefix"], {}).get(STAMP_REVIEWS) == repo]
 
 
-def refresh_approvals(db, reader, configured, pull):
+def refresh_approvals(db, reader, configured, pull, *, require_link=False):
     """Record a linked approval and apply it to the exact current peer request."""
     key, url = linked_source(pull)
     item = _source(url)
@@ -125,10 +156,25 @@ def refresh_approvals(db, reader, configured, pull):
         raise ValueError("Stamp reviews require an explicitly linked pull request.")
     repo = repository(item)
     result = {"recorded": 0, "ready_for_acknowledgment": 0}
-    if not linked_tickets(db, url, repo, configured):
+    selected = linked_tickets(db, url, repo, configured)
+    if not selected:
+        if require_link:
+            raise ValueError("Choose a pull request linked to a ticket in this project and its configured repository.")
         return result
-    observations = reader.approvals(url)
+    selected_projects = {row["project_prefix"] for row in selected}
+    try:
+        observations = reader.approvals(url)
+    except (RuntimeError, ValueError) as error:
+        failure = "reader_unavailable" if isinstance(error, ReaderUnavailable) else "read_failed"
+        with tasks_storage.write(db):
+            for project in selected_projects:
+                save_health(db, project, repo, url, failure)
+        if isinstance(error, ReaderUnavailable):
+            raise
+        raise RuntimeError("Stamp could not verify the linked pull request response.") from None
     with tasks_storage.write(db):
+        for project in selected_projects:
+            save_health(db, project, repo, url)
         for row in linked_tickets(db, url, repo, configured):
             for approval in observations:
                 person = db.execute(

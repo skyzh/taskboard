@@ -41,6 +41,15 @@ SCHEMA = (
         recipient TEXT NOT NULL REFERENCES board_principals (ledger_key)
     )""",
     "CREATE INDEX IF NOT EXISTS extension_notifications_recipient ON extension_notifications (recipient, event_id)",
+    """CREATE TABLE IF NOT EXISTS stamp_review_health (
+        project TEXT NOT NULL REFERENCES projects (prefix),
+        repository TEXT NOT NULL,
+        pull TEXT NOT NULL,
+        checked_at TEXT NOT NULL,
+        succeeded_at TEXT,
+        failure TEXT,
+        PRIMARY KEY (project, repository)
+    )""",
 )
 
 

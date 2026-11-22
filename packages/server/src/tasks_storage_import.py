@@ -18,7 +18,7 @@ TABLES = (
     "release_tasks", "release_changelogs", "merge_candidates", "board_principals",
     "board_assignee_imports", "board_project_goals", "board_standing_goals", "board_goal_milestones", "task_goals",
     "oidc_members", "audit_events",
-    "github_source_status", "extension_deliveries", "extension_notifications",
+    "github_source_status", "extension_deliveries", "extension_notifications", "stamp_review_health",
     "intake_errors", "attention_requests", "attention_wait_links", "notification_preferences", "notification_log",
 )
 IDENTITIES = {

@@ -14,6 +14,7 @@ import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { useTimeZone } from './timeZone.js'
 import { briefSourceText } from './workCopy.js'
 import QueuedAsks from './QueuedAsks.jsx'
+import StampIntegration from './StampIntegration.jsx'
 
 export const ownerWorkSections = [
   { state: 'human_review', id: 'human_review-title', title: 'Needs a decision', label: 'tasks needing a decision' },
@@ -288,6 +289,7 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, request
           </label>
         )}
       </ReportsHeading>
+      {!projectTitle && <StampIntegration key={project} project={project} revision={revision} />}
       <ReportsLayout sidebar={<QueuedAsks revision={revision} project={project} grouped={Boolean(projectTitle)} />}>
         <ResourceStatus resource={page} label="reports" />
         {page.data?.items.length === 0 && <p className="section-message" role="status">{empty}</p>}

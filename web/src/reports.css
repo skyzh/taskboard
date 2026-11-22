@@ -1,4 +1,14 @@
 .report-controls { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; font-size: .84rem; }
+.stamp-integration {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 1rem;
+  padding-block: .5rem .75rem;
+}
+.stamp-integration summary { cursor: pointer; }
+.stamp-integration :is(p, form) { margin-block: .55rem; }
+.stamp-integration form { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
+.stamp-integration label { display: grid; gap: .25rem; width: min(100%, 28rem); }
+.stamp-integration input { width: 100%; }
 .report-project-links {
   display: flex;
   flex-wrap: wrap;
