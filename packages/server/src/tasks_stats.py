@@ -258,7 +258,7 @@ def ticket_flow(db, scope, context, bounds, first, width, count):
 
 
 def peer_timings(db, scope, context, bounds, first, end):
-    counts = dict.fromkeys(("opened", "pending", "awaiting_ack", "acknowledged", "canceled", "already_started"), 0)
+    counts = dict.fromkeys(("opened", "pending", "awaiting_ack", "acknowledged", "canceled", "closed", "already_started"), 0)
     stages = {name: Timing() for name in ("add_to_start", "start_to_result", "add_to_result", "result_to_ack")}
     if tasks_storage.has_table(db, "peer_asks"):
         selection, params = scope
@@ -276,7 +276,9 @@ def peer_timings(db, scope, context, bounds, first, end):
                 WHERE opened.at >= ? AND opened.at < ?
             )
             SELECT cohort.*, events.id AS event_id, at,
-                   CASE WHEN {closure_sql(context)} THEN 'closed'
+                   CASE WHEN {closure_sql(context)}
+                             THEN COALESCE(json_extract({context}, '$.closure.peer_outcome'), 'closed')
+                        WHEN action = 'done' AND json_extract({context}, '$.peer_correction') IS NOT NULL THEN 'corrected'
                         WHEN action = 'transfer' AND events.id = cohort.result_event_id THEN 'result'
                         WHEN action = 'done' AND actor = requester THEN 'ack'
                         ELSE action END AS stage
@@ -292,7 +294,8 @@ def peer_timings(db, scope, context, bounds, first, end):
                 continue
             counts["opened"] += 1
             start = result = acknowledged = None
-            canceled = False
+            closed = None
+            corrected = False
             for row in history:
                 stage = row["stage"]
                 if stage == "start" and start is None and result is None:
@@ -302,8 +305,12 @@ def peer_timings(db, scope, context, bounds, first, end):
                 elif stage == "ack" and result is not None:
                     acknowledged = row
                     break
-                elif stage == "closed":
-                    canceled = True
+                elif stage in ("canceled", "superseded", "closed_without_response", "closed"):
+                    closed = "canceled" if stage == "canceled" else "closed"
+                elif stage == "corrected":
+                    acknowledged = row
+                    closed = None
+                    corrected = True
                     break
 
             if start is not None:
@@ -315,16 +322,16 @@ def peer_timings(db, scope, context, bounds, first, end):
                     if prestarted:
                         start = None
                     stages["add_to_start"].observe(added, added, start)
-            elif not canceled:
+            elif not closed and not corrected:
                 stages["add_to_start"].observe(added, added, None)
 
             if result is not None:
                 stages["start_to_result"].observe(added, start, result)
                 stages["add_to_result"].observe(added, added, result)
-            if acknowledged is not None:
+            if acknowledged is not None and not corrected:
                 stages["result_to_ack"].observe(added, result, acknowledged)
-            if canceled:
-                counts["canceled"] += 1
+            if closed:
+                counts[closed] += 1
             elif acknowledged is not None:
                 counts["acknowledged"] += 1
             elif result is not None:

@@ -26,7 +26,7 @@ STATES = {
 
 
 PEER_ASK = "peer-ask"
-PEER_ASK_TRANSITIONS = ("create", "result", "acknowledge", "cancel")
+PEER_ASK_TRANSITIONS = ("create", "result", "acknowledge", "cancel", "correct-result")
 
 
 PRIORITIES = ("high", "normal", "low")

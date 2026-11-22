@@ -205,8 +205,8 @@ function PeerRequests({ requests }) {
       <dl className="stats-totals">
         {[
           ['opened', 'Opened in this period'], ['pending', 'Awaiting a result'], ['awaiting_ack', 'Awaiting acknowledgment'],
-          ['acknowledged', 'Acknowledged'], ['canceled', 'Canceled'],
-        ].map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{number.format(requests[key])}</dd></div>)}
+          ['acknowledged', 'Completed'], ['canceled', 'Canceled'], ['closed', 'Other closures'],
+        ].map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{number.format(requests[key] ?? 0)}</dd></div>)}
       </dl>
       {requests.already_started > 0 && (
         <p className="stats-note">Already started when opened · {number.format(requests.already_started)}</p>

@@ -267,12 +267,13 @@ def arguments(argv=None):
     search.add_argument("--limit", type=int, default=20, help="Maximum results on this page (1–100).")
     search.add_argument("--before", type=int, help="Cursor from the previous result page.")
 
-    peer = commands.add_parser(PEER_ASK, help="Open, return, acknowledge, or cancel a linked peer request.")
+    peer = commands.add_parser(PEER_ASK, help="Open, return, acknowledge, cancel, or correct a linked peer request.")
     peer.add_argument("change", choices=PEER_ASK_TRANSITIONS)
     peer.add_argument("id", type=task_id, help="Source ticket for create. Linked request ticket for every other action.")
     peer.add_argument("note", type=nonblank)
     peer_review = peer.add_mutually_exclusive_group()
-    peer_review.add_argument("--review", type=worker_run_id, help="Link an existing planned or running review, such as W-15.")
+    peer_review.add_argument("--review", type=worker_run_id,
+                             help="Link a planned review or a collected review when correcting an outcome.")
     peer_review.add_argument("--stamp-review", nargs=3, metavar=("PR_URL", "HEAD", "BASE"),
                              help="Track the exact Stamp review revision for a linked GitHub PR.")
     peer.add_argument("--to", dest="recipient", type=nonblank, help="Named agent for a new request.")

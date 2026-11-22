@@ -5725,6 +5725,92 @@ class TasksServiceTest(unittest.TestCase):
         source = self.call(avery, "/api/v1/tasks/1").json["task"]
         self.assertEqual((source["dri"], source["state"]), (owner, "ready"))
 
+    def test_request_history_distinguishes_results_retired_waits_and_withdrawals(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        reviewer, reviewer_id = self.login(app, "Blake")
+        self.provider.people["Drew"] = {
+            **self.provider.people["Blake"],
+            "name": "Drew", "preferred_username": "drew", "sub": str(UUID(int=400)),
+        }
+        _, next_reviewer = self.login(app, "Drew")
+
+        def advance(client, ticket, transition, **other):
+            return self.action(client, "advance-task", {
+                "id": ticket, "transition": transition, "note": "Check the fixture.", **other,
+            })
+
+        def start_request(**wait):
+            receipt = self.action(owner, "create-task", {"title": "Review source", "step": "Prepare."})["receipt"]
+            source = receipt.split()[0]
+            advance(owner, source, "start")
+            advance(owner, source, "wait", on=reviewer_id, **wait)
+            task = self.call(owner, f"/api/v1/tasks/{source}").json["task"]
+            return source, task["context"]["peer_ask_ticket"]
+
+        def peer(client, ticket, transition, status=200, **other):
+            return self.action(client, "peer-ask", {
+                "id": ticket, "transition": transition, "note": "Review result recorded.", **other,
+            }, status=status)
+
+        source, delivered = start_request()
+        advance(reviewer, delivered, "start")
+        peer(reviewer, delivered, "result")
+        advance(owner, source, "resume")
+
+        source, delivered_before_replacement = start_request()
+        advance(reviewer, delivered_before_replacement, "start")
+        peer(reviewer, delivered_before_replacement, "result")
+        advance(owner, source, "wait", on=next_reviewer)
+        replacement = self.call(owner, f"/api/v1/tasks/{source}").json["task"]["context"]["peer_ask_ticket"]
+
+        source, retired = start_request(url="https://github.com/example/board/pull/76")
+
+        def report_review(evidence):
+            run = self.action(owner, "delegate", {
+                "id": source, "worker": reviewer_id, "role": "review", "brief": "Review the linked change.",
+            })["receipt"].split()[0]
+            self.action(owner, "worker-handoff", {"run": run, "transition": "start", "handle": "fixture:review"})
+            self.action(reviewer, "worker-handoff", {
+                "run": run, "transition": "report", "result": "completed", "note": "Reviewed.", "url": evidence,
+            })
+            self.action(owner, "worker-handoff", {"run": run, "transition": "collect", "note": "Verified."})
+            return run
+
+        wrong_pull = report_review("https://github.com/example/board/pull/77#pullrequestreview-3")
+        evidence = "https://stamp.build/s/example/github/example/board/pull/76/approvals/a123/evidence"
+        run = report_review(evidence)
+        advance(owner, source, "resume")
+        _, canceled = start_request()
+        peer(owner, canceled, "cancel")
+
+        history_url = "/api/v1/reports/peer-request-history"
+
+        def history():
+            return {item["task_key"]: item for item in self.call(owner, history_url).json["items"]}
+
+        before = history()
+        self.assertEqual([before[key]["phase"] for key in (delivered, retired, canceled)],
+                         ["done", "closed_without_response", "canceled"])
+        self.assertEqual(before[delivered_before_replacement]["phase"], "done")
+        self.assertEqual(before[replacement]["phase"], "asked")
+        totals = self.call(owner, "/api/v1/stats", query_string={"period": "day"}).json["peer_requests"]
+        self.assertEqual((totals["acknowledged"], totals["canceled"], totals["closed"]), (2, 1, 1))
+        peer(reviewer, retired, "correct-result", review=run, status=403)
+        peer(owner, canceled, "correct-result", review=run, status=409)
+        peer(owner, retired, "correct-result", status=409)
+        peer(owner, retired, "correct-result", review=wrong_pull, status=409)
+        peer(owner, retired, "correct-result", review=run)
+        self.assertIn("already corrected", peer(owner, retired, "correct-result", review=run)["receipt"])
+        corrected = history()[retired]
+        self.assertEqual(corrected["phase"], "done")
+        detail = self.call(owner, f"/api/v1/tasks/{retired}").json["task"]
+        self.assertEqual(detail["context"]["peer_correction"]["previous_close"], before[retired]["resolution"]["id"])
+        self.assertEqual(detail["links"][0]["url"], evidence)
+        self.assertEqual(self.call(owner, f"/api/v1/tasks/{source}").json["task"]["dri"], owner_id)
+        totals = self.call(owner, "/api/v1/stats", query_string={"period": "day"}).json["peer_requests"]
+        self.assertEqual((totals["acknowledged"], totals["canceled"], totals["closed"]), (3, 1, 0))
+
     def test_stamp_verdict_uses_the_pending_pr_reviewer_and_exact_revision(self):
         from tasks_peer_asks import apply_stamp_verdict
         from tasks_storage import open_sqlite, write

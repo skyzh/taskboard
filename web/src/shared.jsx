@@ -245,12 +245,15 @@ export function TaskLink({ id, title, current, reference, searchQuery, publicHre
   return href ? <a href={href} aria-current={current ? 'true' : undefined}>{label}</a> : <span className="static-task-title">{label}</span>
 }
 
-const peerRequestLabels = {
+export const peerRequestLabels = {
   asked: 'Asked',
   in_progress: 'In progress',
   acknowledgment: 'Ready for acknowledgment',
-  done: 'Acknowledged',
+  done: 'Completed',
   canceled: 'Canceled',
+  superseded: 'Superseded',
+  closed_without_response: 'Closed without a response',
+  closed: 'Closed',
 }
 
 export function PeerRequestContext({ task, showState = true }) {

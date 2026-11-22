@@ -130,10 +130,10 @@ _ACTIONS = {
         **_EVIDENCE,
     }),
     "peer-ask": _Action("POST", "Manage an actionable peer request as a linked ticket.", {
-        **_TASK, "transition": "Choose create, result, acknowledge, or cancel.", "note": _NOTE,
+        **_TASK, "transition": "Choose create, result, acknowledge, cancel, or correct-result.", "note": _NOTE,
     }, {
         "recipient": "The selected agent's stable ID. Required for create only.",
-        "review": "Existing planned or running worker review ID. Optional for create.",
+        "review": "A planned or running review for create, or an exact collected review for correct-result.",
         "review_pr": "The GitHub pull request already linked to the source ticket.",
         "review_head": "The full Stamp review head commit.",
         "review_base": "The full Stamp review base commit.",

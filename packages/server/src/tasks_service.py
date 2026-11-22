@@ -2226,7 +2226,7 @@ def create_app(
         if name == peer_asks.COMMAND:
             change = text(data, "transition", maximum=20)
             if change not in peer_asks.TRANSITIONS:
-                raise RequestError("Choose create, result, acknowledge, or cancel.")
+                raise RequestError("Choose a supported peer-request action.")
             recipient = text(data, "recipient", optional=change != "create", maximum=160)
             if change == "create":
                 recipient = require_person(recipient, "agent", task_id=number)
@@ -2237,8 +2237,10 @@ def create_app(
             stamp_review = None
             if any(field in data for field in pin_fields):
                 stamp_review = tuple(text(data, field) for field in pin_fields)
-            if (review is not None or stamp_review is not None) and change != "create":
-                raise RequestError("Link a review only when creating or refreshing a peer request.")
+            if review is not None and change not in ("create", "correct-result"):
+                raise RequestError("Link a review when creating a peer request or correcting a recorded result.")
+            if stamp_review is not None and change != "create":
+                raise RequestError("Pin a Stamp review only when creating or refreshing a peer request.")
             return mutate(peer_asks.COMMAND, actor, data, id=number, change=change,
                           note=text(data, "note"), recipient=recipient, review_run=review, stamp_review=stamp_review)
         if name == "change-ownership":

@@ -2,6 +2,7 @@
 
 from argparse import Namespace
 import json
+import re
 
 from taskboard_client.work import PEER_ASK as COMMAND, PEER_ASK_TRANSITIONS as TRANSITIONS
 
@@ -62,7 +63,7 @@ def review_links(db, run_ids):
 
 def phase(ask, task, *, has_started=False):
     if task["display_state"] == "closed":
-        return "canceled"
+        return json.loads(task["context"]).get("closure", {}).get("peer_outcome", "closed")
     if task["state"] == "done":
         return "done"
     if ask["result_event_id"]:
@@ -153,8 +154,7 @@ def record_wait(db, source, args, links, context):
     if previous and previous["recipient"] != recipient:
         if recipient is None and not ledger.event_context(source).get("named_peer_wait"):
             return False
-        cancel(db, Namespace(by=args.by, change="cancel", note="The owner replaced this wait."),
-               [], previous, ledger.get_task(db, previous["task_id"]))
+        retire_wait(db, previous, args.by, "The owner replaced this wait.", outcome="superseded")
     if recipient is None:
         return False
     request = Namespace(id=source["id"], by=args.by, recipient=recipient, review_run=None, note=args.note)
@@ -180,8 +180,7 @@ def create(db, args, links, *, named_wait=None):
         named_wait = {}
         previous = current_wait(db, source)
         if previous and previous["recipient"] != args.recipient:
-            cancel(db, Namespace(by=args.by, change="cancel", note="The owner changed the named reviewer."),
-                   [], previous, ledger.get_task(db, previous["task_id"]))
+            retire_wait(db, previous, args.by, "The owner changed the named reviewer.", outcome="superseded")
             source = ledger.get_task(db, args.id)
 
     run = None
@@ -206,8 +205,8 @@ def create(db, args, links, *, named_wait=None):
     if stamp_review and active and active["result_event_id"]:
         if stamp_review == pending_stamp_review(db, active["id"]):
             return f"{projects.row_reference(active)} · Existing peer request"
-        close_request(db, Namespace(by=args.by, note="A refreshed Stamp review replaced this request."),
-                      [], find(db, active["id"]), active)
+        finish(db, Namespace(by=args.by, change="acknowledge", note="The requester received the review before refreshing it."),
+               [], find(db, active["id"]), active)
         active = None
     if active is not None:
         if (stamp_review and active["review_run_id"]) or (run and pending_stamp_review(db, active["id"])):
@@ -268,12 +267,23 @@ def write_named_wait(db, source, reference, args, links, context):
                          {**context, "peer_ask_ticket": reference, "named_peer_wait": True})
 
 
-def withdraw_named_wait(db, source, actor, note):
+def withdraw_named_wait(db, source, actor, note, *, outcome="closed_without_response"):
     import tasks_core as ledger
 
     if ledger.event_context(source).get("named_peer_wait") and (ask := current_wait(db, source)):
-        cancel(db, Namespace(by=actor, change="cancel", note=note),
-               [], ask, ledger.get_task(db, ask["task_id"]))
+        retire_wait(db, ask, actor, note, outcome=outcome)
+
+
+def retire_wait(db, ask, actor, note, *, outcome):
+    import tasks_core as ledger
+
+    task = ledger.get_task(db, ask["task_id"])
+    if ask["result_event_id"] and not ask["review_run_id"]:
+        if actor == ask["requester"]:
+            finish(db, Namespace(by=actor, change="acknowledge", note="The requester continued after receiving the response."),
+                   [], ask, task)
+        return
+    cancel(db, Namespace(by=actor, change="cancel", note=note, peer_outcome=outcome), [], ask, task)
 
 
 def record_named_wait(db, source, request, args, links, context):
@@ -376,8 +386,8 @@ def finish(db, args, links, ask, task):
 
     if actor != ask["requester"] and not projects.manages(db, projects.row_project(task), actor):
         raise PermissionError("Only the requester or project manager can cancel this peer request.")
-    if phase(ask, task) == "canceled":
-        return f"{reference} · Peer request already canceled"
+    if task["display_state"] == "closed":
+        return f"{reference} · Peer request already closed"
     if task["state"] == "done":
         raise ValueError("This peer request is already complete.")
     return close_request(db, args, links, ask, task)
@@ -387,7 +397,8 @@ def close_request(db, args, links, ask, task):
     import tasks_core as ledger
 
     reference = projects.row_reference(task)
-    closure = {}
+    outcome = getattr(args, "peer_outcome", "canceled")
+    closure = {"peer_outcome": outcome}
     if related := getattr(args, "related", None):
         try:
             related_task = ledger.get_task(db, projects.resolve(db, related))
@@ -397,8 +408,9 @@ def close_request(db, args, links, ask, task):
             raise ValueError("Choose a different ticket to link.")
         closure["related"] = projects.row_reference(related_task)
     ledger.record(db, task["id"], "update", args.by, "done", args.note, None, links, {"closure": closure})
-    update_source(db, ask, args.by, reference, f"Peer request {reference} was canceled. Check the next step.")
-    return f"{reference} · Peer request canceled"
+    status = {"canceled": "canceled", "superseded": "superseded", "closed_without_response": "closed without a response"}[outcome]
+    update_source(db, ask, args.by, reference, f"Peer request {reference} was {status}. Check the next step.")
+    return f"{reference} · Peer request {status}"
 
 
 def cancel(db, args, links, ask, task):
@@ -411,12 +423,92 @@ def cancel(db, args, links, ask, task):
         ledger.change_worker_run(db, Namespace(
             command="worker-stop", by=args.by, run=run["id"], note=args.note,
             related=getattr(args, "related", None),
+            peer_outcome=getattr(args, "peer_outcome", "canceled"),
         ), links)
         return f"{projects.row_reference(task)} · Peer request canceled"
     return finish(db, args, links, ask, task)
 
 
-def sync_worker(db, run, operation, actor, links, related=None):
+def review_pull_requests(links):
+    from tasks_github import linked_source
+
+    pulls = set()
+    for _, url in json.loads(links):
+        target = url.partition("#")[0]
+        stamp = re.fullmatch(
+            r"https://stamp\.build/(?:s/[A-Za-z0-9-]+/)?github/(.+/pull/[1-9][0-9]*)"
+            r"/approvals/[a-fA-F0-9]+/evidence",
+            target,
+        )
+        if stamp:
+            target = f"https://github.com/{stamp[1]}"
+        try:
+            key, canonical = linked_source(target)
+        except ValueError:
+            continue
+        if "/pull/" in canonical:
+            pulls.add(key)
+    return pulls
+
+
+def correct_result(db, args, ask, task):
+    import tasks_core as ledger
+
+    reference = projects.row_reference(task)
+    if args.by != ask["requester"] and not projects.manages(db, projects.row_project(task), args.by):
+        raise PermissionError("Only the requester or project manager can correct its recorded outcome.")
+    context = ledger.event_context(task)
+    if context.get("peer_correction"):
+        return f"{reference} · Peer outcome already corrected"
+    outcome = context.get("closure", {}).get("peer_outcome")
+    retired = outcome in ("superseded", "closed_without_response") or (
+        outcome is None and task["note"] == "The source owner resumed the work."
+    )
+    if task["display_state"] != "closed" or not retired:
+        raise ValueError("Choose a request closed when its source moved on.")
+
+    if args.review_run is None and ask["result_event_id"]:
+        response = db.execute(
+            "SELECT id, links FROM events WHERE id = ? AND task_id = ? AND actor = ?",
+            (ask["result_event_id"], task["id"], ask["recipient"]),
+        ).fetchone()
+    else:
+        if pending_stamp_review(db, task["id"]):
+            raise ValueError("Use a recorded Stamp result for the exact requested revision.")
+        run = workers.get_run(db, args.review_run) if args.review_run is not None else None
+        if run is None or (run["task_id"], run["worker"], run["role"], run["status"], run["result"]) != (
+            ask["source_task_id"], ask["recipient"], "review", "collected", "completed",
+        ):
+            raise ValueError("Choose a completed review collected on the source ticket from this reviewer.")
+        response = db.execute(
+            """
+            SELECT id, links FROM events
+            WHERE task_id = ? AND actor = ? AND json_extract(context, '$.worker_report_id') = ?
+              AND id > (SELECT MIN(id) FROM events WHERE task_id = ? AND action = 'add')
+              AND id < ?
+            ORDER BY id DESC LIMIT 1
+            """, (ask["source_task_id"], ask["recipient"], run["id"], task["id"], task["event_id"]),
+        ).fetchone()
+        if response is not None:
+            if not json.loads(response["links"]):
+                raise ValueError("Choose a collected review with recorded evidence.")
+            opening = db.execute(
+                "SELECT links FROM events WHERE task_id = ? AND action = 'add' ORDER BY id LIMIT 1",
+                (task["id"],),
+            ).fetchone()
+            if not review_pull_requests(opening["links"]) <= review_pull_requests(response["links"]):
+                raise ValueError("Choose a review that matches the pull request linked when the request was opened.")
+    if response is None:
+        raise ValueError("There is no verified response recorded during this request.")
+    ledger.record(db, task["id"], "done", args.by, "done", args.note, None, json.loads(response["links"]), {
+        "peer_correction": {
+            "previous_close": task["event_id"], "response_event": response["id"], "review_run": args.review_run,
+        },
+    })
+    return f"{reference} · Peer outcome corrected"
+
+
+def sync_worker(db, run, operation, actor, links, related=None, *, peer_outcome="canceled"):
     import tasks_core as ledger
 
     ask = db.execute("SELECT * FROM peer_asks WHERE review_run_id = ?", (run["id"],)).fetchone()
@@ -430,7 +522,8 @@ def sync_worker(db, run, operation, actor, links, related=None):
     elif operation == "collect" and actor == ask["requester"]:
         finish(db, Namespace(by=actor, note=run["disposition"], change="acknowledge"), links, ask, task)
     elif operation == "stop":
-        close_request(db, Namespace(by=actor, note=run["disposition"], related=related), links, ask, task)
+        close_request(db, Namespace(by=actor, note=run["disposition"], related=related, peer_outcome=peer_outcome),
+                      links, ask, task)
 
 
 def change(db, args, links):
@@ -442,6 +535,10 @@ def change(db, args, links):
     ask = find(db, task["id"])
     if ask is None:
         raise ValueError("Choose a linked peer-request ticket.")
+    if args.change == "correct-result":
+        if links:
+            raise ValueError("Use the evidence already on the recorded review or response.")
+        return correct_result(db, args, ask, task)
     if args.change == "cancel":
         return cancel(db, args, links, ask, task)
     if ask["review_run_id"]:
