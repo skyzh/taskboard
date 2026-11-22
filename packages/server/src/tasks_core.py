@@ -717,6 +717,7 @@ def transition_context(args, task):
             "request_event_id": task["event_id"],
             "decision_reason": args.note,
             "choices": event_context(task).get("choices", []),
+            **({"human_wait": True} if event_context(task).get("human_wait") else {}),
         }
     if args.command == "withdraw-decision":
         return {"request_event_id": task["event_id"], "decision_reason": args.reason}
@@ -766,9 +767,20 @@ def link_attention_wait(db, args, event_id, request_id, previous_event_id):
 
 def change_task(db, args, links, *, automation=None):
     task = get_task(db, args.id)
+    human_wait = getattr(args, "human_wait", False)
+    replacing_human_wait = task["state"] == "human_review" and event_context(task).get("human_wait")
+    if human_wait:
+        command = "assign-human"
+        if replacing_human_wait and task["waiting_on"] != args.on:
+            command = "redirect-decision"
+        args = argparse.Namespace(**{**vars(args), "command": command})
     if args.command in ("done", "transfer") and peer_asks.find(db, task["id"]):
         raise ValueError("Use peer-ask result or peer-ask acknowledge to hand off or finish a linked request.")
     previous, state, label = TRANSITIONS[args.command]
+    if human_wait and args.command == "assign-human":
+        previous = (*previous, "waiting", *(("human_review",) if replacing_human_wait else ()))
+    if args.command == "wait" and replacing_human_wait:
+        previous = (*previous, "human_review")
     review_source = getattr(args, "review_on", None)
     review_criteria = getattr(args, "review_criteria", None)
     feature_deferred = getattr(args, "feature_deferred", False)
@@ -820,6 +832,13 @@ def change_task(db, args, links, *, automation=None):
         waiting_on, context = wait_details(db, task, args)
     else:
         context = transition_context(args, task)
+    if human_wait:
+        context["human_wait"] = True
+        if (replacing_human_wait and waiting_on == task["waiting_on"] and args.note == task["note"]
+                and (getattr(args, "details", None) or "") == (event_context(task).get("activity_details") or "")
+                and json.loads(task["current_links"]) == [list(link) for link in links]):
+            return f"{projects.row_reference(task)} · Decision already requested"
+        peer_asks.withdraw_named_wait(db, task, args.by, "The owner replaced this wait with a human decision.")
     if args.command == "park":
         current = event_context(task) if task["state"] == "parked" else {}
         for field in ("review_after", "defer_until", "defer_at"):
@@ -858,7 +877,7 @@ def change_task(db, args, links, *, automation=None):
             context["readiness"] = current["readiness"]
         note = task["note"]
         links = json.loads(task["current_links"])
-    if args.command == "redirect-decision":
+    if args.command == "redirect-decision" and not human_wait:
         note = task["note"]
         request = db.execute("SELECT links FROM events WHERE id = ?", (task["event_id"],)).fetchone()
         links = [*json.loads(request["links"]), *links]

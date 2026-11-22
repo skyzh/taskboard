@@ -83,8 +83,17 @@ def task_lines(task, board_url):
     if task.get("blockers"):
         lines.extend(f"  {line}" for line in ledger.blocker_lines(task["blockers"], board_url))
     elif task["waiting_on"]:
-        wait = (task["waiting_profile"] or {}).get("name") or task["waiting_on"]
-        lines.append(f"  Waiting on {wait}")
+        wait = task["waiting_on"]
+        kind = task.get("wait_kind")
+        if kind == "automation":
+            lines.append(f"  Blocked by {wait}")
+        elif kind == "legacy":
+            lines.append(f"  Recorded wait: {wait}")
+        elif kind == "attention":
+            lines.append("  Waiting for a reply in Needs me")
+        else:
+            recipient = (task["waiting_profile"] or {}).get("name") or wait
+            lines.append(f"  Waiting on {recipient}")
     lines.extend(f"  {line}" for line in task["note"].splitlines())
     return lines
 

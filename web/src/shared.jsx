@@ -4,7 +4,7 @@ import {
   FileCheck, GitMerge, GitPullRequest, GitPullRequestClosed, Pause, Play, Plus, Rocket, RotateCcw,
   TriangleAlert, Undo2, X,
 } from 'lucide-react'
-import { activityExtraText } from './workCopy.js'
+import { activityExtraText, waitLabel } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { sourceLinkLabel } from './sourceLinks.js'
 import { useTimeZone } from './timeZone.js'
@@ -322,10 +322,7 @@ export function Dependency({ task, publicPreview = false }) {
     )
   }
   if (!task.waiting_on) return null
-  const label = task.state === 'human_review'
-    ? 'Assigned to'
-    : task.context?.wait_kind === 'automation' ? 'Automation' : 'Waiting on'
-  return <span>{label} <strong>{profileName(task.waiting_on, task.waiting_profile)}</strong></span>
+  return <span>{waitLabel(task)} <strong>{profileName(task.waiting_on, task.waiting_profile)}</strong></span>
 }
 
 export function addFilterName(filters, key, profile) {
@@ -474,7 +471,7 @@ export function OutcomeNote({ event, headline, withEvidence = true, choiceShown 
   waitShown = false, disclosure }) {
   const context = event.context || {}
   const text = headline == null ? event.details ?? event.note : activityExtraText(event, headline)
-  const dependency = event.waiting_on && !waitShown
+  const dependency = (event.waiting_on || event.blockers) && !waitShown
   const choice = !choiceShown && context.choice
   const evidence = withEvidence && event.links?.length > 0
   if (!text && !dependency && !choice && !evidence && !context.decision_reason &&

@@ -99,7 +99,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
       </div>
       <div className="task-row-context">
         {!publicPreview && <PeerRequestContext task={task} showState={!showRequester} />}
-        {(task.waiting_on || (publicPreview && task.blockers)) && (
+        {(task.waiting_on || task.blockers) && (
           <p className="task-dependency"><Dependency task={task} publicPreview={publicPreview} /></p>
         )}
         {cue?.text && (

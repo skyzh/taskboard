@@ -60,7 +60,7 @@ Use the shared CLI or web board for other actions.
 | Find related work or read evidence | Use `search "short phrase" --project T` to check for an existing ticket, then `show` to read it. Use `workers`, `tagged`, `watched`, `recurring-show`, or `maintenance-show` for their specific records. |
 | Plan or record work | `add`, `edit`, `priority`, `tag`, `start`, `update`, `log`, `link-reference`, `link-source`. Use `update --checklist-step` to add a step and `update --check` to mark it complete. |
 | Give a useful estimate | Once the task is in progress, run `./tasks --shared update T-42 'Check sample results.' --eta 2026-11-24T17:00:00Z`. Use a time with an explicit offset. Revise the estimate when it changes or use `--clear-eta` if you can no longer give one. |
-| Handle a dependency or a later start | Use `wait --on` for a named dependency or `wait --blocked-by` for a ticket, then `resume` after it clears. Use `remind --until` for a known time or `--on` for a Pacific date. Use `park` to defer work and `unpark` to return it to Ready. |
+| Handle a dependency or a later start | Use `wait --on` for a verified person, `wait --blocked-by` for a ticket, or add `--automation` for an automation wait. Use `remind --until` for a known time or `--on` for a Pacific date. Use `park` to defer work and `unpark` to return it to Ready. |
 | Confirm a trigger cleared | On the ticket, use **Confirm blocker cleared**. In the CLI, run `confirm-blocker T-42 123 "The expected result is verified."` with the wait's Activity event ID. The board checks that a linked ticket is Done. For a CI or deployment result, include `--link Evidence URL`. |
 | Get a human decision | Use `assign-human`, `redirect-decision`, or `withdraw-decision` on work you own. The named human answers in the web board. |
 | Hand off or review | Use `transfer` to hand off the ticket. Project managers can `unassign`, `reassign`, or `reopen` where allowed. Use `delegate --role review` to assign an independent review of the exact revision or artifact, then use `worker-start`, `worker-report`, `worker-collect`, or `worker-stop`. For GitHub work, record the verdict in the repository's review system. |
@@ -95,9 +95,9 @@ an open request with `peer-ask cancel`. For a manually tracked Stamp review,
 record the formal verdict in Stamp and attach its link to the Taskboard result.
 
 `./tasks --shared wait T-42 'Review the fixture.' --on Reviewer` opens the
-same linked request for a known agent. Repeating the wait for that person
-updates the request. A CI wait marked `--automation` or a dependency named
-with `--blocked-by` stays on the source ticket.
+same linked request for a verified agent. A verified human receives a decision
+request in Needs me. The task keeps its owner. A CI wait marked `--automation`
+or a dependency named with `--blocked-by` stays on the source ticket.
 
 For a linked pull request, the source owner can use
 `peer-ask create T-42 'Review the pinned revision.' --to Reviewer --stamp-review PR_URL HEAD BASE`
