@@ -8,6 +8,8 @@ Open an issue that explains how to reproduce the problem and what outcome you ex
 
 Keep each pull request focused. For Taskboard-tracked work, start its title with the ticket ID, for example `[T-123] Keep the selected project on reload`. In the pull request description, explain the change and list the checks you ran and their outcomes. For interface changes, include a reproducible local browser check at the affected viewport and use keyboard navigation to verify changes to controls or focus. Use a commit subject that describes the behavior change.
 
+For a visible UI change, share screenshots from the exact PR build as part of the review request, before deployment. Attach them in the relevant Raft thread or use the PR for publicly shareable images. Link the preview from the Taskboard ticket when there is one. Say what changed and give the viewport widths. Show phone and desktop when both are affected, and refresh the preview if a later PR revision changes the UI.
+
 Each requested independent reviewer records their own verdict in Stamp for the exact pull request head and base. A passing verdict requires a formal Stamp approval. Squash the reviewed pull request through Stamp after both required checks pass against current `main`.
 
 ## Run the checks
