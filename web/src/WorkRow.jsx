@@ -58,6 +58,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   const reportSummary = report === 'summary'
   const detailedReport = report && !reportSummary
   const state = taskState(task)
+  const headingStatus = reportSummary && ['waiting', 'in_progress'].includes(state)
   const activityAt = task.last_activity_at || task.at
   const detailNote = detailedReport && (cue ? cue.details : task.note)
   const showDetails = detailedReport && (detailNote || task.links?.length > 0 || task.event_id)
@@ -65,10 +66,11 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
     <li className={`task-row${selected ? ' selected' : ''}${report ? ' report-task' : ''}`}>
       <TaskPriority priority={task.priority} strip />
       <div className="task-row-heading">
+        {headingStatus && <Status state={state} compactOnPhone />}
         <TaskLink reference={task.key} id={task.id} title={task.title} current={selected} searchQuery={searchQuery} />
         <div className="task-row-meta">
           {compactQueue && <span className="queue-task-key ticket-id" aria-hidden="true">{taskLabel(task.id, task.key)}</span>}
-          {(!reportSummary || task.goal_kind || !['waiting', 'in_progress'].includes(state)) && <Status state={state} />}
+          {!headingStatus && <Status state={state} />}
           {!reportSummary && <TaskWaitAge task={task} />}
           {owner && <Assignee task={task} compact />}
           {compactQueue && ['high', 'low'].includes(task.priority) && (

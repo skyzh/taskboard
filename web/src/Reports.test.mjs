@@ -57,7 +57,7 @@ test('Reports lead with progress and link to goals, outcomes and exact activity 
       },
       {
         id: 14, title: 'Compare the export', at: stepAt, last_activity_at: activityAt,
-        state: 'in_progress', action: 'update', note: step, summary_label: 'Current step', event_id: 35, links,
+        state: 'in_progress', goal_kind: 'standing', action: 'update', note: step, summary_label: 'Current step', event_id: 35, links,
       },
       {
         id: 15, title: 'Verify the signed count', at, state: 'in_progress', action: 'update',
@@ -110,7 +110,10 @@ test('Reports lead with progress and link to goals, outcomes and exact activity 
   assert.match(primary, /<time datetime="2026-11-20T21:00:00Z"/i)
   assert.match(primary, /href="#dri=Avery&amp;section=ready-title&amp;project=COURSE">Ready <strong>27<\/strong>/)
   assert.match(primary, /href="#event-34-log"/)
-  assert.doesNotMatch(primary, /human_review-title|waiting-title|now-title|example\.test|Current step|Unblock condition|>Waiting<|>In progress</)
+  assert.match(primary, /class="status waiting report-status"><span>Waiting<\/span><\/span>/)
+  assert.match(primary, /class="status in_progress report-status"><span>In progress<\/span><\/span>/)
+  assert.equal((primary.match(/class="status in_progress/g) || []).length, 4)
+  assert.doesNotMatch(primary, /human_review-title|waiting-title|now-title|example\.test|Current step|Unblock condition/)
   assert.doesNotMatch(html, /Full decision record|Update and evidence for COURSE-11/)
   assert.match(html, /Full worker report from the original author/)
   assert.doesNotMatch(primary, /Full worker report/)
