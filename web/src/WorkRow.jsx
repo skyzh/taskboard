@@ -77,6 +77,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   const activityAt = task.last_activity_at || task.at
   const detailNote = detailedReport && (cue ? cue.details : task.note)
   const showDetails = detailedReport && (detailNote || task.links?.length > 0 || task.event_id)
+  const cueLabel = publicPreview ? task.summary_label : detailedReport && cue?.label
   return (
     <li className={`task-row${selected ? ' selected' : ''}${report ? ' report-task' : ''}`}>
       <TaskPriority priority={task.priority} strip />
@@ -98,10 +99,12 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
       </div>
       <div className="task-row-context">
         {!publicPreview && <PeerRequestContext task={task} showState={!showRequester} />}
-        {!publicPreview && task.waiting_on && <p className="task-dependency"><Dependency task={task} /></p>}
+        {(task.waiting_on || (publicPreview && task.blockers)) && (
+          <p className="task-dependency"><Dependency task={task} publicPreview={publicPreview} /></p>
+        )}
         {cue?.text && (
           <div className="report-task-cue">
-            {detailedReport && cue.label && <strong>{cue.label}</strong>}
+            {cueLabel && <strong>{cueLabel}</strong>}
             {publicPreview ? <p className="task-row-note prose">{cue.text}</p>
               : <Markdown text={cue.text} className="task-row-note prose" />}
             {detailedReport && task.release_result && task.at && <p className="event-meta">Step updated <ReportTime at={task.at} /></p>}

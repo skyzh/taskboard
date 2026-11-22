@@ -165,6 +165,23 @@ test('Reports leaves the recorded worker count on the DRI view', () => {
   assert.match(workers, /Recorded worker runs · 2 running · 3 started/)
 })
 
+test('the public Summary renders captured next steps and blocker references without private links', () => {
+  const tasks = [
+    { id: 1, key: 'T-1', title: 'Read the signed count', state: 'in_progress',
+      note: 'Compare the two totals.', summary_label: 'Next step' },
+    { id: 2, key: 'T-2', title: 'Publish the result', state: 'waiting',
+      note: 'Wait for the signed count.', summary_label: 'Unblock condition',
+      blockers: { tickets: [{ id: 1, state: 'in_progress' }, { id: 3, state: 'waiting' }] },
+      details: 'Private evidence', event_id: 8, links: [{ label: 'Proof', url: 'https://example.test/private' }] },
+  ]
+  const entry = { owner: 'Avery', tasks, task_count: tasks.length }
+  const html = renderToStaticMarkup(React.createElement(AssigneeReport, { entry, publicPreview: true }))
+  assert.match(html, /<strong>Next step<\/strong><p[^>]*>Compare the two totals\.<\/p>/)
+  assert.match(html, /Blocked by <strong>T-1<\/strong> \(In progress\) → <strong>T-3<\/strong> \(Waiting\)/)
+  assert.match(html, /<strong>Unblock condition<\/strong><p[^>]*>Wait for the signed count\.<\/p>/)
+  assert.doesNotMatch(html, /example\.test|#event-|#task-|Private evidence/)
+})
+
 test('one visible clock updates ages and resumes with the current time after hiding', t => {
   const at = '2026-11-21T06:55:00Z'
   const globals = { document: globalThis.document, window: globalThis.window }

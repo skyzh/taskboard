@@ -15,7 +15,17 @@
           "state": "waiting",
           "priority": "normal",
           "checklist_total": 4,
-          "checklist_completed": 0
+          "checklist_completed": 0,
+          "note": "The first supported release is waiting for the Raft photo fix and authorized test sessions.",
+          "summary_label": "Unblock condition",
+          "blockers": {
+            "tickets": [
+              {
+                "id": 183,
+                "state": "waiting"
+              }
+            ]
+          }
         },
         {
           "id": 234,
@@ -24,7 +34,9 @@
           "state": "in_progress",
           "priority": "high",
           "checklist_total": 4,
-          "checklist_completed": 3
+          "checklist_completed": 3,
+          "note": "Measure Ready pickups and workflow friction, and report the seven-day results on November 28.",
+          "summary_label": "Next step"
         }
       ],
       "task_count": 2,
@@ -79,7 +91,9 @@
           "state": "in_progress",
           "priority": "normal",
           "checklist_total": 3,
-          "checklist_completed": 1
+          "checklist_completed": 1,
+          "note": "Beacon confirmed the first-party app posting model. The setting reuses the manager check and the existing board settings table. It keeps the stable channel ID and reads its current name only after the configured adapter verifies the server, audience and posting access.",
+          "summary_label": "Next step"
         },
         {
           "id": 789,
@@ -88,7 +102,9 @@
           "state": "in_progress",
           "priority": "normal",
           "checklist_total": 3,
-          "checklist_completed": 1
+          "checklist_completed": 1,
+          "note": "Standalone ticket work and review delegation passed without invoking Raft or Stamp. Nineteen disposable tests passed for Taskboard peer requests, review routing, Ready pickup, busy owners and duplicate reminders. The existing repeat watcher only sees Ready tickets. Native Stamp turn openings remain to be measured.",
+          "summary_label": "Next step"
         },
         {
           "id": 779,
@@ -97,7 +113,9 @@
           "state": "in_progress",
           "priority": "normal",
           "checklist_total": 3,
-          "checklist_completed": 2
+          "checklist_completed": 2,
+          "note": "Point the reminder straight to the Taskboard review list and use Stamp’s refresh command when several PRs are pending. Recheck both prompt forms.",
+          "summary_label": "Next step"
         }
       ],
       "task_count": 3,
@@ -155,7 +173,9 @@
           "checklist_total": 0,
           "checklist_completed": 0,
           "note": "Gauge is checking the Activity display built on the merged checklist changes.",
-          "public_url": "https://github.com/skyzh/taskboard/pull/53"
+          "public_url": "https://github.com/skyzh/taskboard/pull/53",
+          "summary_label": "Unblock condition",
+          "waiting_on": "Gauge"
         },
         {
           "id": 768,
@@ -166,7 +186,9 @@
           "checklist_total": 0,
           "checklist_completed": 0,
           "note": "Loom is reviewing the guide moves and package-era references.",
-          "public_url": "https://github.com/skyzh/taskboard/pull/42"
+          "public_url": "https://github.com/skyzh/taskboard/pull/42",
+          "summary_label": "Unblock condition",
+          "waiting_on": "Loom"
         },
         {
           "id": 183,
@@ -175,7 +197,9 @@
           "state": "waiting",
           "priority": "normal",
           "checklist_total": 0,
-          "checklist_completed": 0
+          "checklist_completed": 0,
+          "note": "Wait for Raft to confirm its production CDN rollout or an approved photo retrieval path.",
+          "summary_label": "Unblock condition"
         },
         {
           "id": 783,
@@ -185,7 +209,9 @@
           "priority": "normal",
           "checklist_total": 0,
           "checklist_completed": 0,
-          "public_url": "https://github.com/skyzh/taskboard/pull/46"
+          "public_url": "https://github.com/skyzh/taskboard/pull/46",
+          "note": "Inbox inventory recorded. Skill and startup guide are in PR #46. Check the wording with Gauge and align it with the documentation move and current main before exact review.",
+          "summary_label": "Next step"
         }
       ],
       "task_count": 4,
@@ -241,7 +267,10 @@
           "priority": "high",
           "checklist_total": 0,
           "checklist_completed": 0,
-          "public_url": "https://github.com/skyzh/taskboard/pull/50"
+          "public_url": "https://github.com/skyzh/taskboard/pull/50",
+          "note": "Waiting for the repaired Pi timer and the public checksum merge",
+          "summary_label": "Unblock condition",
+          "waiting_on": "Beacon"
         },
         {
           "id": 775,
@@ -251,7 +280,8 @@
           "priority": "normal",
           "checklist_total": 0,
           "checklist_completed": 0,
-          "note": "Trace the existing GitHub status and verified release records. Agree on the linked-item response before implementing project rules."
+          "note": "Trace the existing GitHub status and verified release records. Agree on the linked-item response before implementing project rules.",
+          "summary_label": "Next step"
         }
       ],
       "task_count": 2,
@@ -304,7 +334,10 @@
           "priority": "normal",
           "checklist_total": 0,
           "checklist_completed": 0,
-          "public_url": "https://github.com/skyzh/taskboard/pull/49"
+          "public_url": "https://github.com/skyzh/taskboard/pull/49",
+          "note": "Herald is reviewing the packaged Reports follow-up. Resume after independent Stamp approval and both hosted checks on the current base.",
+          "summary_label": "Unblock condition",
+          "waiting_on": "Herald"
         },
         {
           "id": 776,
@@ -314,7 +347,17 @@
           "priority": "normal",
           "checklist_total": 0,
           "checklist_completed": 0,
-          "public_url": "https://github.com/skyzh/taskboard/pull/43"
+          "public_url": "https://github.com/skyzh/taskboard/pull/43",
+          "note": "The status labels passed the mounted fixture. Resume when T-775 returns real GitHub source metadata, then replay the enabled and disabled board and obtain exact review.",
+          "summary_label": "Unblock condition",
+          "blockers": {
+            "tickets": [
+              {
+                "id": 775,
+                "state": "in_progress"
+              }
+            ]
+          }
         },
         {
           "id": 777,
@@ -323,7 +366,9 @@
           "state": "in_progress",
           "priority": "normal",
           "checklist_total": 0,
-          "checklist_completed": 0
+          "checklist_completed": 0,
+          "note": "T-769 is Done at 047bd0e. Bring the merge-queue visibility patch onto current main, then verify the native and external queue modes with the pinned reviewer.",
+          "summary_label": "Next step"
         },
         {
           "id": 772,
@@ -332,7 +377,9 @@
           "state": "in_progress",
           "priority": "normal",
           "checklist_total": 0,
-          "checklist_completed": 0
+          "checklist_completed": 0,
+          "note": "Gauge approved the exact light and dark progress fill at 2e2b85b on 047bd0e. Both hosted checks passed. Rebind if the base advances, then take the merge slot after the queued changes.",
+          "summary_label": "Next step"
         },
         {
           "id": 788,
@@ -342,7 +389,8 @@
           "priority": "normal",
           "checklist_total": 0,
           "checklist_completed": 0,
-          "note": "I’m comparing the current ticket layout at desktop and phone widths and sketching where metadata, action and Activity should sit for sparse, long and decision-ready tickets."
+          "note": "I’m comparing the current ticket layout at desktop and phone widths and sketching where metadata, action and Activity should sit for sparse, long and decision-ready tickets.",
+          "summary_label": "Next step"
         },
         {
           "id": 786,
@@ -352,7 +400,8 @@
           "priority": "normal",
           "checklist_total": 0,
           "checklist_completed": 0,
-          "note": "I’m comparing the public snapshot’s Summary markup with the live Reports component, then I’ll test shared rendering with the demo’s offline payload and navigation."
+          "note": "I’m comparing the public snapshot’s Summary markup with the live Reports component, then I’ll test shared rendering with the demo’s offline payload and navigation.",
+          "summary_label": "Next step"
         }
       ],
       "task_count": 6,

@@ -302,14 +302,17 @@ export function Assignee({ task, compact = false }) {
   )
 }
 
-export function Dependency({ task }) {
+export function Dependency({ task, publicPreview = false }) {
   if (task.blockers) {
     const { tickets, cycle } = task.blockers
     return (
       <span>
         Blocked by {tickets.map((ticket, index) => (
           <React.Fragment key={index}>
-            {index > 0 && ' → '}<a href={taskHref(ticket.id, ticket.key)}>{taskLabel(ticket.id, ticket.key)}</a> ({states[ticket.state]})
+            {index > 0 && ' → '}
+            {publicPreview ? <strong>{taskLabel(ticket.id, ticket.key)}</strong>
+              : <a href={taskHref(ticket.id, ticket.key)}>{taskLabel(ticket.id, ticket.key)}</a>}
+            {' '}({states[ticket.state]})
           </React.Fragment>
         ))}
         {cycle != null && <strong> · Existing dependency cycle</strong>}
