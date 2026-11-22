@@ -866,6 +866,9 @@ def change_task(db, args, links, *, automation=None):
         if estimate != task["eta"]:
             db.execute("UPDATE tasks SET eta = ? WHERE id = ?", (estimate, args.id))
             context["eta"] = estimate
+    elif args.command == "start" and goal_kind == "standing" and task["eta"] is not None:
+        db.execute("UPDATE tasks SET eta = NULL WHERE id = ?", (args.id,))
+        context["eta"] = None
     note = args.note
     if getattr(args, "details", None) is not None:
         context["activity_details"] = args.details

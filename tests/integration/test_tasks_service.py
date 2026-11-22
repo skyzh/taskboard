@@ -899,6 +899,32 @@ class TasksServiceTest(unittest.TestCase):
         detail = self.call(avery, "/api/v1/tasks/T-1").json["task"]
         self.assertEqual((detail["summary_label"], detail["note"]), ("Current step", "Inspect the current queue."))
 
+    def test_standing_goal_start_clears_prior_investigation_estimate(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        self.action(owner, "save-goal", {"kind": "standing", "summary": "Keep handoffs reliable."})
+        estimate = "2030-11-22T22:29:00Z"
+        for command in (
+            ("start", "T-1", "Check the previous handoff."),
+            ("update", "T-1", "Finish the previous check.", "--eta", estimate),
+        ):
+            status, _, error = self.shared_cli(owner, *command)
+            self.assertEqual((status, error), (0, ""))
+
+        path = "/api/v1/tasks/T-1"
+        self.assertEqual(self.call(owner, path).json["task"]["eta"], estimate)
+        for command in (
+            ("park", "T-1", "Previous check finished."),
+            ("start", "T-1", "Inspect a different handoff."),
+        ):
+            status, _, error = self.shared_cli(owner, *command)
+            self.assertEqual((status, error), (0, ""))
+
+        self.assertIsNone(self.call(owner, path).json["task"]["eta"])
+        self.assertNotIn("Estimated:", self.shared_cli(owner, "show", "T-1")[1])
+        events = self.call(owner, path + "/activity").json["items"]
+        self.assertIn(estimate, [event["context"].get("eta") for event in events if event["action"] == "update"])
+
     def test_standing_goal_is_owner_scoped_and_only_next_after_actionable_work(self):
         app = self.app(portal_reader=True)
         avery, owner = self.login(app, "Avery")
