@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useLoadedPages, useResource } from './data.js'
 import {
-  ActivityMark, AssigneeAvatar, EvidenceLinks, LoadMore, ResourceStatus, TaskLink, WorkerResult,
+  ActivityMark, AssigneeAvatar, DriWorkStatus, EvidenceLinks, LoadMore, ResourceStatus, TaskLink, WorkerResult,
   eventHref, ownerHref, profileName, taskHref, taskLabel,
 } from './shared.jsx'
 import './reports.css'
@@ -141,6 +141,8 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
     pending_reports: reports, pending_reports_before: before, report_count: reportCount } = entry
   const name = profileName(owner, profile)
   const outcomes = groupOutcomes(entry.recent_outcomes || [])
+  const progressCount = entry.task_counts?.in_progress
+  const inProgress = progressCount == null ? tasks.some(task => task.state === 'in_progress') : progressCount > 0
   const OwnerHeading = projectTitle ? 'h3' : 'h2'
   const WorkHeading = projectTitle ? 'h4' : 'h3'
   const WorkLink = publicPreview ? 'span' : 'a'
@@ -153,6 +155,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
           <div className="dri-name-line">
             <OwnerHeading>
               <a href={publicPreview ? entry.public_url : ownerHref(owner, undefined, project)}>{name}</a>
+              <DriWorkStatus inProgress={inProgress} compact />
             </OwnerHeading>
             {projectTitle && <span className="report-project-label">{projectTitle}</span>}
           </div>
