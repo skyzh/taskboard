@@ -21,14 +21,14 @@ class StampExtensionTest(unittest.TestCase):
         fixture = fixtures.TasksServiceTest()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
-        app = fixture.app(portal_reader=True)
+        configured = configuration('{"T":{"stamp-reviews":"example/board"}}')
+        app = fixture.app(portal_reader=True, project_extensions=configured)
         owner, owner_key = fixture.login(app, "Avery")
         _, reviewer = fixture.login(app, "Blake")
         pull = "https://github.com/example/board/pull/8"
         head, base = "a" * 40, "b" * 40
         evidence_id = "c" * 32
         evidence_url = f"https://stamp.build/s/fixture/github/example/board/pull/8/approvals/{evidence_id}/evidence"
-        configured = configuration('{"T":{"stamp-reviews":"example/board"}}')
         reader = Mock()
         fixture.action(owner, "create-task", {"title": "Original ticket", "step": "Prepare review."})
         fixture.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Prepare review."})

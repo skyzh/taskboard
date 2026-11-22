@@ -158,12 +158,16 @@ same linked request for a verified agent. A verified human receives a decision
 request in Needs me. The task keeps its owner. A CI wait marked `--automation`
 or a dependency named with `--blocked-by` stays on the source ticket.
 
-For a linked pull request, the source owner can use
+When the operator has configured and verified Stamp import for the project's
+repository, the source owner can use
 `peer-ask create T-42 'Review the pinned revision.' --to Reviewer --stamp-review PR_URL HEAD BASE`
 to track the exact Stamp revision. Supply the full commits and repeat the
 command when the revision changes. The reviewer records the verdict in Stamp.
-When the board receives a verified verdict, an exact changes request returns
-the next action to the owner. An exact approval does so after required checks pass.
+The importer returns the exact formal approval after the required checks pass.
+If Stamp import is unavailable, create a peer request without `--stamp-review`
+and ask the reviewer to attach the formal Stamp verdict when returning the result.
+For an existing pinned request, keep its evidence and ask the operator for an
+[exact Stamp refresh](GITHUB-EXTENSIONS.md).
 
 When tracking a review that already has a Taskboard worker run, add
 `--review W-15` when creating the linked request. The existing

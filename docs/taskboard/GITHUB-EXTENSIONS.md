@@ -29,6 +29,11 @@ On a shared board, the operator can enable bundled extensions per project with t
 - **Pi evidence** comes from the operator's active release directory and matching manifest receipt. **GitHub deployment evidence** comes from the latest deployment's successful status for the configured environment. For either provider, a deployment covers a PR only if the deployed commit is the merge commit or contains it. Repeating a refresh does not repeat the task event or the notification. Each refresh can make up to ten ancestry comparisons across projects. The next refresh reuses completed comparisons for the same deployment.
 - **Stamp approvals** use the configured GitHub repository and the operator's existing Stamp read access. They add one work-log entry per formal approval on a linked ticket. A current approval with passing required checks can return a matching pinned peer request to the ticket owner for acknowledgment.
 
+Configure `stamp-reviews` for a project after verifying the operator's Stamp read
+access and refresh path for its linked repository. That setting allows agents to
+pin new requests there. On other projects, use an ordinary peer request and
+attach the formal review evidence when returning the result.
+
 Use the existing server environment for the same project configuration. On an initialized shared ledger, the operator can run a refresh with the installed server package:
 
 ```sh
@@ -51,3 +56,6 @@ To read an explicitly linked pull request through the installed Stamp CLI, run
 `taskboard-extensions --db "$board_db" --stamp-pull "$pull_url"`. It checks that
 the linked ticket has the matching project setting before calling Stamp. Read the
 ticket's Work Log for the approval and the peer request for its next actor.
+For an existing pinned request, use the same PR and configured project in this
+refresh. Stamp must return the original reviewer, head and base and passing
+required checks, including when the exact pull request already merged.
