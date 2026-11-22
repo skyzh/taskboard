@@ -3,6 +3,7 @@ import { Search } from 'lucide-react'
 import { useLoadedPages } from './data.js'
 import { LoadMore, ResourceStatus } from './shared.jsx'
 import { TaskRows } from './WorkRow.jsx'
+import { matchesBoardShortcut } from './shortcuts.js'
 
 export function TaskSearch({ query, fragment }) {
   const [draft, setDraft] = useState(query)
@@ -19,6 +20,16 @@ export function TaskSearch({ query, fragment }) {
   useEffect(() => {
     if (expanded) input.current?.focus()
   }, [expanded])
+  useEffect(() => {
+    function searchShortcut(event) {
+      if (!matchesBoardShortcut(event, 'KeyS')) return
+      event.preventDefault()
+      if (!expanded && toggle.current.getClientRects().length) setOpenedOn(fragment)
+      else input.current.focus()
+    }
+    window.addEventListener('keydown', searchShortcut)
+    return () => window.removeEventListener('keydown', searchShortcut)
+  }, [expanded, fragment])
 
   function closeSearch() {
     setOpenedOn(null)
@@ -43,7 +54,8 @@ export function TaskSearch({ query, fragment }) {
   return (
     <>
       <button ref={toggle} type="button" className="task-search-toggle" aria-label="Search tasks"
-        aria-expanded={expanded} aria-controls={formId} onClick={expanded ? dismissSearch : () => setOpenedOn(fragment)}>
+        aria-keyshortcuts="Alt+Shift+S" aria-expanded={expanded} aria-controls={formId}
+        onClick={expanded ? dismissSearch : () => setOpenedOn(fragment)}>
         <Search size={19} aria-hidden="true" focusable="false" />
       </button>
       <form id={formId} className="task-search" role="search" onSubmit={submit}
@@ -54,7 +66,8 @@ export function TaskSearch({ query, fragment }) {
             dismissSearch()
           }
         }}>
-        <input ref={input} type="search" aria-label="Search tasks" placeholder="Search tasks" maxLength={160} required
+        <input ref={input} type="search" aria-label="Search tasks" aria-keyshortcuts="Alt+Shift+S"
+          placeholder="Search tasks" maxLength={160} required
           value={draft} onChange={event => setDraft(event.target.value)} />
         <button type="submit">Search</button>
       </form>
