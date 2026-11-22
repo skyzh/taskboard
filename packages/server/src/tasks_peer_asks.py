@@ -32,7 +32,12 @@ def source_links(db, task_ids):
     placeholders = ", ".join("?" for _ in task_ids)
     rows = db.execute(
         f"""
-        SELECT peer_asks.*, source.project_prefix, source.project_number, source.id
+        SELECT peer_asks.*, source.project_prefix, source.project_number, source.id,
+               (SELECT events.at FROM events
+                WHERE events.task_id = peer_asks.task_id AND events.action = 'add'
+                ORDER BY events.id LIMIT 1) AS asked_at,
+               EXISTS (SELECT 1 FROM events
+                       WHERE events.task_id = peer_asks.task_id AND events.action = 'start') AS has_started
         FROM peer_asks JOIN tasks AS source ON source.id = peer_asks.source_task_id
         WHERE peer_asks.task_id IN ({placeholders})
         """, task_ids,
@@ -54,14 +59,14 @@ def review_links(db, run_ids):
     return {row["review_run_id"]: projects.row_reference(row) for row in rows}
 
 
-def phase(ask, task):
+def phase(ask, task, *, has_started=False):
     if task["display_state"] == "closed":
         return "canceled"
     if task["state"] == "done":
         return "done"
     if ask["result_event_id"]:
         return "acknowledgment"
-    return "in_progress" if task["state"] == "in_progress" else "asked"
+    return "in_progress" if has_started or task["state"] == "in_progress" else "asked"
 
 
 def matches_recipient(db, source, recipient):
