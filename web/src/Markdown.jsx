@@ -38,7 +38,8 @@ function tokensToElements(tokens, links, related) {
         const href = links && markdownHref(target)
         const automatic = ['autolink', 'linkify'].includes(opened.token.markup)
         if (href) {
-          const label = automatic ? sourceLinkLabel(href) : opened.children
+          const task = automatic && [...related.values()].find(item => item.url === href)
+          const label = automatic ? task?.key || sourceLinkLabel(href) : opened.children
           parent.push(<a key={opened.index} href={href} title={opened.token.attrGet('title') || undefined}>{label}</a>)
         } else {
           parent.push(...opened.children)

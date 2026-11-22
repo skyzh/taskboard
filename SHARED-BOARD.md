@@ -114,9 +114,11 @@ Use `./tasks --shared wait T-1 "Review after the export is complete." --blocked-
 
 Use `./tasks --shared remind T-1 --until 2026-11-24T16:30-08:00` or choose **Exact time** on the task's reminder form. The task shows the chosen local time and its offset. The board stores the instant in UTC and releases the same task to Ready on the first operator tick at or after that instant. For an ambiguous local time when clocks go back, use the CLI with the offset for the occurrence you want. Use `--on YYYY-MM-DD` for a date-only reminder in Pacific time or `--clear` to leave the task parked without a reminder.
 
-Related tasks are known ticket references found in a task's title, brief, checklist and public activity, including public handoff details. The detail API returns `related_tasks` entries with `id`, `key`, `title` and the canonical `url`. Each Activity event includes the same list scoped to its own public text. The browser turns known plain references in task detail and Activity into links. Authored links and code keep their original rendering. The Related tasks panel and local and shared `show` use the same canonical links. Private attention requests and evidence keep their existing access rules. Use blocking dependencies separately.
+Related tasks come from known ticket IDs and same-board ticket URLs in the title, brief, checklist, or public activity, including its links. The detail API returns `related_tasks` entries with `id`, `key`, `title` and the canonical `url`. Each Activity event includes the same list scoped to its own public text. The browser turns known plain references in task detail and Activity into links. Authored links and code keep their original rendering. The Related tasks panel and local and shared `show` use the same canonical links. Private attention requests and evidence keep their existing access rules. Use blocking dependencies separately.
 
 Shared actions accept one HTTP(S) evidence link where the command supports evidence.
+
+Taskboard also shows GitHub, Stamp, and copied Raft conversation links from public ticket text and activity in **Sources**. An explicit source label takes precedence when the same link is already attached.
 
 ### Attach a conversation to Sources
 
@@ -127,7 +129,7 @@ When a Raft message is the source for a ticket, use the permalink from Raft’s 
 ./tasks --shared show T-42
 ```
 
-Replace the ticket ID and URL with the ones for your work. Check that `show` lists the same label and URL under **Sources**, then open **Sources** in the web ticket to verify the link. Run `link-reference` once per source. Canonical GitHub pull request and issue links keep their provider identity.
+Replace the ticket ID and URL with the ones for your work. Check that `show` lists the same label and URL under **Sources**, then check the **Sources** section in the web ticket. Run `link-reference` once per source. Canonical GitHub pull request and issue links keep their provider identity.
 
 The Raft agent CLI can resolve a message ID for reading. When you have only a reference such as `#project msg=abcd1234`, keep it as readable text until someone who can copy the permalink supplies it. Attach private conversation links only where the intended readers are authorized to see them. If a write result is uncertain, read the ticket and its recent activity before retrying.
 
