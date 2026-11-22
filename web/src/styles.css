@@ -548,6 +548,7 @@ button:disabled { opacity: .57; }
 .task-detail:target { background: var(--paper); }
 .task-detail h1 { margin: .38rem 0 .25rem; font-size: clamp(1.45rem, 3vw, 2.15rem); letter-spacing: -.035em; }
 .detail-owner { color: var(--muted); font-size: .88rem; }
+.ticket-primary-identity { display: grid; gap: .25rem; margin-block: .4rem .7rem; }
 .detail-brief { margin-top: .65rem; }
 .ticket-detail-layout > *, .ticket-context-content { min-width: 0; }
 .ticket-context { margin-block: .8rem; border-top: 1px solid var(--line); }

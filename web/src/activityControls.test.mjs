@@ -815,14 +815,15 @@ test('ticket activity shows photos or initials and a relative link with an exact
   }
 })
 
-test('ticket history leads with decisions and keeps extra prose and evidence in one disclosure', () => {
+test('ticket history shows the first evidence link and keeps additional detail together', () => {
   fixture.resources = { '/tasks/1': { data: {
     task: { id: 1, key: 'T-1', title: 'Check the CSV', state: 'done', summary_label: 'Result' },
     checklist: [], workers: [], sources: [],
   } } }
   const evidence = { label: 'Receipt', url: 'https://example.test/receipt' }
   const short = { ...selected, details: selected.headline.replace(/\.$/, ''), links: [evidence] }
-  const long = { ...short, id: 19, details: selected.headline + '\n\nThe fixture included 20 sample rows.' }
+  const long = { ...short, id: 19, details: selected.headline + '\n\nThe fixture included 20 sample rows.',
+    links: [evidence, { label: 'Sample', url: 'https://example.test/sample' }] }
   const decision = {
     ...selected, id: 20, action: 'decide', label: 'Decision recorded', headline: 'CSV', note: 'CSV',
     context: { choice: 'CSV', request_event_id: 8 },
@@ -832,11 +833,10 @@ test('ticket history leads with decisions and keeps extra prose and evidence in 
   fixture.state = []
   const ticket = renderToStaticMarkup(React.createElement(TaskDetail, { id: 1, session: {} }))
   const [, evidenceOnly, additional, answer, fallback] = ticket.split('<li class="event-row ticket-event-row">')
-  for (const row of [evidenceOnly, additional]) {
-    assert.equal([...row.matchAll(/<details /g)].length, 1)
-    assert.match(row, /<summary>Details<\/summary>.*href="https:\/\/example\.test\/receipt">Receipt<\/a>/s)
-    assert.equal(row.split(selected.headline).length, 2)
-  }
+  assert.doesNotMatch(evidenceOnly, /<summary>Details<\/summary>/)
+  assert.match(evidenceOnly, /href="https:\/\/example\.test\/receipt">Receipt<\/a>/)
+  assert.match(additional, /href="https:\/\/example\.test\/receipt">Receipt<\/a>.*<summary>Details<\/summary>.*href="https:\/\/example\.test\/sample">Sample<\/a>/s)
+  assert.equal(additional.split(selected.headline).length, 2)
   assert.match(additional, /The fixture included 20 sample rows\./)
   assert.match(answer, /class="activity-result">CSV<\/p>/)
   assert.match(answer, /href="#event-8-log">Decision request<\/a>/)

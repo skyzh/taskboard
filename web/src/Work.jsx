@@ -235,6 +235,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
   )
   if (ticketActivity) {
     const { choice, result: visibleResult, details } = ticketActivityCopy(event, result)
+    const [firstEvidence, ...additionalEvidence] = event.links || []
     return (
       <li className="event-row ticket-event-row" id={id} tabIndex={permalink ? -1 : undefined}>
         <ActivityMark event={event} />
@@ -252,7 +253,8 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
           <ActivityChanges event={event} />
           <ClosureReference context={event.context} />
           {children}
-          <OutcomeNote event={{ ...event, details }} disclosure="event-disclosure"
+          {firstEvidence && <EvidenceLinks links={[firstEvidence]} />}
+          <OutcomeNote event={{ ...event, details, links: additionalEvidence }} disclosure="event-disclosure"
             choiceShown={Boolean(choice)} waitShown={event.action === 'wait'} />
         </div>
       </li>
@@ -307,20 +309,27 @@ function TaskWatch({ id, session, revision, onChanged }) {
   )
 }
 
+function TicketIdentity({ task, state, children }) {
+  return (
+    <>
+      <div className="detail-owner"><Assignee task={task} />{children}</div>
+      <p className="detail-meta">
+        <Status state={state} />
+        <TaskPriority priority={task.priority} />
+        {task.eta && state !== 'closed' && <span>Estimated completion <Timestamp at={task.eta} /></span>}
+      </p>
+    </>
+  )
+}
+
 function TicketContext({ record, id, task, state, wide, detailed, session, revision, onChanged }) {
   const [open, setOpen] = useState(false)
   const content = (
     <div className="ticket-context-content">
       {wide && <h2>Details</h2>}
-      <div className="detail-owner">
-        <Assignee task={task} />
+      {wide ? <TicketIdentity task={task} state={state}>
         <TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} />
-      </div>
-      <p className="detail-meta">
-        {(wide || !detailed) && <Status state={state} />}
-        <TaskPriority priority={task.priority} />
-        {task.eta && state !== 'closed' && <span>Estimated completion <Timestamp at={task.eta} /></span>}
-      </p>
+      </TicketIdentity> : <TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} />}
       <RecordedActivity activity={record.last_activity} />
       {record.goal?.deadline && <p>Due <time dateTime={record.goal.deadline}>{record.goal.deadline}</time></p>}
       {record.sources.length > 0 && (
@@ -376,9 +385,9 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
       <p className="detail-meta">
         <span className="ticket-id">{taskLabel(id, task?.key)}</span>
         {record?.goal && <span>{record.goal.kind === 'standing' ? 'Standing goal' : 'Milestone'}</span>}
-        {task && detailed && !sidebar && <Status state={state} />}
       </p>
       <h1 id={`task-heading-${id}`}><MarkdownInline text={task?.title || `Task ${taskLabel(id)}`} relatedTasks={record?.related_tasks} /></h1>
+      {task && !sidebar && <div className="ticket-primary-identity"><TicketIdentity task={task} state={state} /></div>}
       <ResourceStatus resource={detail} label="task details" />
       <div className="ticket-detail-layout">
         <div className="ticket-detail-work">
@@ -429,10 +438,10 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
             )}
             <TaskOwnership task={task} actions={record.ownership_actions} project={task.key?.split('-')[0] || project}
               revision={revision} onChanged={onChanged} />
-            {record.can_edit_details && <TaskDetailsEdit key={task.id} task={task} brief={record.brief}
+            {record.can_edit_details && <TaskDetailsEdit key={`details-${task.id}`} task={task} brief={record.brief}
               titleLimit={record.goal?.kind === 'standing' ? 500 : undefined} onChanged={onChanged} />}
             {record.can_close && state !== 'closed' && state !== 'done' && (
-              <TaskClosure key={task.id} task={task} onChanged={onChanged} />
+              <TaskClosure key={`close-${task.id}`} task={task} onChanged={onChanged} />
             )}
             <TaskTags task={task} editable={record.tag_editable} onChanged={onChanged} />
           </>}

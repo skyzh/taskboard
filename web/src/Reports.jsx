@@ -86,22 +86,27 @@ const goalSections = {
   milestone: 'dri-milestones-title',
 }
 
-function ReportGoals({ goals, owner, project, publicPreview, target, highlighted }) {
+function ReportGoals({ goals, owner, project, publicPreview, target, highlighted, heading: Heading }) {
   return (
-    <details className="report-owner-section report-goals-panel"
+    <div className="report-owner-section report-goals-panel"
       id={target} data-tour-current={highlighted || undefined}>
-      <summary>Goals</summary>
+      <Heading>Goals</Heading>
       <ul className="report-goals" role="list">
-        {goals.map(({ kind, summary, deadline, ticket, public_url: source }) => (
-          <li key={ticket || kind + ':' + summary}>
-            {publicPreview && !source ? <span className="report-goal-text">{summary}</span>
-              : <a href={publicPreview ? source : ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{summary}</a>}
-            {kind === 'standing' && <span>Standing goal</span>}
-            {deadline && <time dateTime={deadline}>{deadline}</time>}
-          </li>
-        ))}
+        {goals.map(({ kind, summary, deadline, ticket, public_url: source }) => {
+          const label = ticket == null ? summary : (
+            <><span className="ticket-id">{taskLabel(ticket)}</span>{' '}<span>{summary}</span></>
+          )
+          return (
+            <li key={ticket || kind + ':' + summary}>
+              {publicPreview && !source ? <span className="report-goal-text">{label}</span>
+                : <a href={publicPreview ? source : ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{label}</a>}
+              {kind === 'standing' && <span>Standing goal</span>}
+              {deadline && <time dateTime={deadline}>{deadline}</time>}
+            </li>
+          )
+        })}
       </ul>
-    </details>
+    </div>
   )
 }
 
@@ -182,7 +187,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         </div>
       )}
       {entry.goals?.length > 0 && <ReportGoals goals={entry.goals} owner={owner} project={project} publicPreview={publicPreview}
-        target={tourTargets.goals} highlighted={tourTargets.goals === activeTarget && Boolean(activeTarget)} />}
+        target={tourTargets.goals} heading={WorkHeading} highlighted={tourTargets.goals === activeTarget && Boolean(activeTarget)} />}
       {outcomes.size > 0 && (
         <div className="report-owner-section" id={tourTargets.outcomes} data-tour-current={tourTargets.outcomes === activeTarget && activeTarget ? true : undefined}>
           <WorkHeading>Recent outcomes</WorkHeading>
