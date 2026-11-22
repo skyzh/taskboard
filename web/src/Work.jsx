@@ -18,7 +18,7 @@ import {
   states, TaskLink, TaskPriority, Timestamp, WorkerAssignment, WorkerRunState, WorkerRunTiming, eventHref, profileName,
   taskHref, taskLabel, taskState,
 } from './shared.jsx'
-import { activityHeadline, ticketActivityCopy } from './workCopy.js'
+import { activityHeadline, ticketActivityCopy, waitLabel } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { TaskWaitAge } from './WaitAge.jsx'
 import { useTimeZone } from './timeZone.js'
@@ -134,7 +134,7 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
             </select>
           </label>
           <label>
-            Waiting on
+            Wait or blocker
             <input
               type="text" list="dependencies" value={waitingLabel}
               onChange={event => {
@@ -183,8 +183,7 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
 function ActivityWait({ event, headline }) {
   if (event.action !== 'wait' || !event.waiting_on) return null
   const owner = profileName(event.waiting_on, event.waiting_profile)
-  if (event.context?.wait_kind !== 'automation' &&
-    headline.toLowerCase().startsWith('waiting on ' + owner.toLowerCase())) return null
+  if (headline.toLowerCase().startsWith(`${waitLabel(event)} ${owner}`.toLowerCase())) return null
   return <Dependency task={event} />
 }
 
@@ -400,7 +399,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
             {task && <>
               <h2>{summary}</h2>
               <TaskWaitAge task={task} />
-              {task.waiting_on && <p><Dependency task={task} /></p>}
+              {(task.waiting_on || task.blockers) && <p><Dependency task={task} /></p>}
               {task.peer_request && <PeerRequestContext task={task} />}
               <Markdown text={task.note} relatedTasks={record.related_tasks} />
               <ClosureReference context={task.context} />

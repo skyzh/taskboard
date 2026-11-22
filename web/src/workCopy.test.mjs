@@ -53,10 +53,14 @@ test('Older Activity keeps readable results, named waits and explicit holds', ()
   }), 'Found an empty header.')
   assert.equal(activityHeadline({
     ...base, action: 'wait', waiting_on: 'Avery', note: 'Review the candidate at /tmp/taskboard-review/candidate',
-  }), 'Waiting on Avery')
+  }), 'Wait note Avery')
   assert.equal(activityHeadline({
-    ...base, action: 'wait', waiting_profile: { name: 'Blake' }, note: 'Send the revised CSV.',
+    ...base, action: 'wait', wait_kind: 'person', waiting_profile: { name: 'Blake' }, note: 'Send the revised CSV.',
   }), 'Waiting on Blake · Send the revised CSV.')
+  assert.equal(activityHeadline({
+    ...base, action: 'wait', waiting_on: 'Build checks', wait_kind: 'automation',
+    headline: 'Waiting on Build checks · Publish after green.',
+  }), 'Blocked by Build checks · Publish after green.')
   assert.equal(activityHeadline({
     ...base, action: 'log', note: ['Checks passed. Do not deploy', 'a'.repeat(64), 'until approval.'].join(' '),
   }), 'Hold recorded')

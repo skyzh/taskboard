@@ -98,7 +98,7 @@ test('Reports lead with progress and link to goals, outcomes and exact activity 
 
   assert.match(primary, /href="#task-COURSE-11"[^>]*>.*Import a sample/)
   assert.match(primary, /href="#task-COURSE-13"[^>]*>.*Choose the export format/)
-  assert.match(primary, /Waiting on <strong>Nora<\/strong>/)
+  assert.match(primary, /Wait note <strong>Nora<\/strong>/)
   assert.ok(primary.includes(unblock))
   assert.ok(primary.includes(release.replace('\n\n', '</p><p>')))
   assert.ok(primary.includes(step))
@@ -148,7 +148,7 @@ test('Reports leave legacy receipts and preceding narratives on the ticket while
   const entry = { owner: 'Avery', tasks, task_count: tasks.length, pending_reports: [], report_count: 0 }
   const html = renderToStaticMarkup(React.createElement(AssigneeReport, { entry, project: 'COURSE' }))
   const primary = html.replaceAll(/<details\b[^>]*>[\s\S]*?<\/details>/g, '')
-  assert.match(primary, /Waiting on <strong>Morgan<\/strong>/)
+  assert.match(primary, /Wait note <strong>Morgan<\/strong>/)
   assert.doesNotMatch(primary, /Review exact|release-candidate|Original proof/)
   assert.doesNotMatch(primary, /<strong>Next step<\/strong>/)
   assert.ok(primary.includes(next.replace('\n\n', '</p><p>')))

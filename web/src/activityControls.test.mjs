@@ -774,7 +774,7 @@ test('compact ticket history keeps only additional legacy prose in Details', () 
     ticketActivity: true, event: { ...selected, headline: undefined, links: [], ...fields },
   }))
   const wait = render({ action: 'wait', waiting_on: 'Fixture reviewer', note: 'Send the revised CSV.' })
-  assert.match(wait, /Waiting on Fixture reviewer · Send the revised CSV\./)
+  assert.match(wait, /Wait note Fixture reviewer · Send the revised CSV\./)
   assert.equal(wait.split('Send the revised CSV.').length, 2)
   assert.doesNotMatch(wait, /<summary>Details/)
   const legacy = render({ task_title: 'Review export', action: 'done',

@@ -61,6 +61,21 @@ export function activityResult(event) {
   )
 }
 
+export function waitLabel(record) {
+  const kind = record.wait_kind ?? record.context?.wait_kind
+  if (record.blockers || kind === 'ticket' || kind === 'automation') return 'Blocked by'
+  if (kind === 'person') return 'Waiting on'
+  if (kind === 'attention' || record.state === 'human_review') return 'Assigned to'
+  const profile = record.waiting_profile
+  if (!kind && profile?.id === record.waiting_on && ['agent', 'human'].includes(profile?.kind)) return 'Waiting on'
+  return 'Wait note'
+}
+
+function waitHeadline(event) {
+  const owner = event.waiting_profile?.name || event.waiting_on
+  return owner ? waitLabel(event) + ' ' + owner : 'Waiting'
+}
+
 export function activityHeadline(event) {
   const context = event.context
   if (context?.ownership_action === 'reassign' || (
@@ -74,7 +89,14 @@ export function activityHeadline(event) {
     if (titleChanged) return 'Title updated'
     if (briefChanged) return 'Brief updated'
   }
-  if (event.headline) return event.headline
+  if (event.headline) {
+    if (event.action !== 'wait') return event.headline
+    const prior = 'Waiting on ' + (event.waiting_profile?.name || event.waiting_on)
+    if (event.headline === prior || event.headline.startsWith(prior + ' · ')) {
+      return waitHeadline(event) + event.headline.slice(prior.length)
+    }
+    return event.headline
+  }
 
   const sentences = activityResult(event).split(/(?<=[.!?])\s+|\r?\n/).map(line => line.trim()).filter(Boolean)
   const hold = sentences.find(line => /^(?:hold\b|do not (?:activate|deploy|launch|merge|publish|release|roll out|ship)\b)/i.test(line))
@@ -84,8 +106,7 @@ export function activityHeadline(event) {
 
   if (hold) return summary || 'Hold recorded'
   if (event.action === 'wait') {
-    const owner = event.waiting_profile?.name || event.waiting_on
-    const waiting = owner ? 'Waiting on ' + owner : 'Waiting'
+    const waiting = waitHeadline(event)
     if (/^waiting\b/i.test(summary)) return summary
     return summary && waiting.length + summary.length + 3 <= 180 ? waiting + ' · ' + summary : waiting
   }
@@ -105,8 +126,7 @@ export function ticketActivityCopy(event, headline) {
   const withoutPunctuation = text => text.trim().replace(/[.!?]+$/, '')
   const comparable = text => withoutPunctuation(text).toLowerCase()
   const result = choice && (comparable(choice) === comparable(headline) || headline === event.label) ? '' : headline
-  const owner = event.waiting_profile?.name || event.waiting_on
-  const waitPrefix = (owner ? 'Waiting on ' + owner : 'Waiting') + ' · '
+  const waitPrefix = waitHeadline(event) + ' · '
   const shownResult = event.action === 'wait' && result.startsWith(waitPrefix) ? result.slice(waitPrefix.length) : result
   const shown = [shownResult, choice].filter(Boolean)
 
