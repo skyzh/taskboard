@@ -64,7 +64,7 @@ main { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.appbar-connection time { white-space: nowrap; }
+:is(.appbar-connection, .profile-freshness) time { white-space: nowrap; }
 .appbar-connection [role="status"]:empty { position: absolute; }
 .appbar-connection [role="status"]:not(:empty) { color: var(--ink); }
 .main-content > :is(.panel, .workspace, .feed-section) + :is(.panel, .workspace, .feed-section) { margin-top: 1.5rem; }
@@ -105,8 +105,12 @@ main { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
   align-items: center;
   gap: .4rem;
   min-height: 2.5rem;
+  padding-inline: .25rem;
+  border: 0;
+  background: transparent;
   text-align: start;
 }
+.profile-toggle:hover, .profile-toggle[aria-expanded="true"] { background: var(--wash); }
 .profile-name { min-width: 0; }
 .profile-chevron {
   width: .42rem;
@@ -128,7 +132,7 @@ main { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
   background: var(--paper);
   box-shadow: 0 .4rem 1rem #0002;
 }
-.profile-actions :is(button, a) {
+.profile-actions > :is(button, a) {
   display: block;
   width: 100%;
   padding: .5rem .65rem;
@@ -139,7 +143,8 @@ main { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
   text-align: start;
   text-decoration: none;
 }
-.profile-actions :is(button, a):hover { background: var(--wash); }
+.profile-actions > :is(button, a):hover { background: var(--wash); }
+.profile-freshness { display: none; }
 h1 { font-size: 1.68rem; line-height: 1.2; font-weight: var(--weight-heading); letter-spacing: -.035em; }
 h2 { font-size: 1.03rem; font-weight: var(--weight-heading); line-height: 1.3; }
 h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
@@ -695,6 +700,16 @@ button:disabled { opacity: .57; }
   .account { grid-column: 3; grid-row: 1; max-width: 100%; }
   .profile-toggle { min-height: 2.75rem; max-width: 100%; }
   .profile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .appbar-connection { padding-block-end: 0; }
+  .appbar-connection [role="status"]:not(:empty) { padding-block-end: .35rem; }
+  .appbar-freshness { display: none; }
+  .profile-freshness {
+    display: block;
+    padding: .5rem .65rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: .76rem;
+  }
   .board-views { grid-column: 1 / -1; gap: .35rem; }
   .board-views a { flex: none; min-height: 2.75rem; min-inline-size: 2.75rem; }
   .board-views a:focus-visible { outline-offset: -3px; }

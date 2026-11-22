@@ -125,21 +125,26 @@ function SectionIndex({ overview, mapAvailable, openMap }) {
   )
 }
 
-function BoardConnection({ checkedAt, checking, stale, source }) {
+function BoardFreshness({ checkedAt, source, className }) {
+  if (!checkedAt) return null
   const socket = source === 'socket'
+  return (
+    <span className={className}>
+      {socket ? 'Updated at ' : 'Checked at '}
+      <ReportTime at={checkedAt} />
+    </span>
+  )
+}
+
+function BoardConnection({ checkedAt, checking, stale, source }) {
   const status = stale ? 'Updates interrupted' : !checkedAt && checking ? 'Checking for updates…' : ''
   if (!checkedAt && !status) return null
 
   return (
-    <p className="appbar-connection">
+    <div className="appbar-connection">
       <span role="status">{status}</span>
-      {checkedAt && (
-        <span>
-          {socket ? 'Updated ' : 'Checked '}
-          <ReportTime at={checkedAt} />
-        </span>
-      )}
-    </p>
+      <BoardFreshness checkedAt={checkedAt} source={source} className="appbar-freshness" />
+    </div>
   )
 }
 
@@ -276,7 +281,9 @@ export default function App({ MilestoneMap }) {
             showNotifications={verified || session.data?.sign_in_available} />
           <TaskSearch query={search} fragment={fragment} />
           <div className="account">
-            <Profile session={session} fragment={`#${fragment}`} theme={theme} />
+            <Profile session={session} fragment={`#${fragment}`} theme={theme}
+              freshness={hasSession && <BoardFreshness checkedAt={connection.checkedAt}
+                source={connection.source} className="profile-freshness" />} />
           </div>
         </div>
         {hasSession && <BoardConnection {...connection} />}

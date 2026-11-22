@@ -66,7 +66,7 @@ export function ProfileSignIn({ session, fragment }) {
   return <a href={signInHref(fragment)}>Sign in with Raft</a>
 }
 
-export default function Profile({ session, fragment, theme }) {
+export default function Profile({ session, fragment, theme, freshness }) {
   const actor = session.data?.actor
   const panelId = useId()
   const profile = useRef(null)
@@ -75,6 +75,7 @@ export default function Profile({ session, fragment, theme }) {
   const [signingOut, setSigningOut] = useState(false)
   const [signOutFailed, setSignOutFailed] = useState(false)
   const verified = actor?.kind === 'human' || actor?.kind === 'agent'
+  const name = verified ? actor.name : 'Not signed in'
   const nextMode = theme.mode === 'night' ? 'day' : 'night'
 
   useEffect(() => {
@@ -123,9 +124,9 @@ export default function Profile({ session, fragment, theme }) {
     <div className="profile" ref={profile}
       onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false) }}>
       <button ref={trigger} type="button" className="profile-toggle" aria-expanded={open} aria-controls={panelId}
-        aria-label={actor?.name ? `${actor.name}’s profile` : 'Profile'} onClick={() => setOpen(value => !value)}>
+        aria-label={verified ? `${name}’s profile` : name} onClick={() => setOpen(value => !value)}>
         {verified && <AssigneeAvatar name={actor.name} url={actor.avatar_url} />}
-        <span className="profile-name">{actor?.name || 'Profile'}</span>
+        <span className="profile-name">{name}</span>
         <span className="profile-chevron" aria-hidden="true" />
       </button>
       <div id={panelId} className="profile-actions" hidden={!open}>
@@ -138,6 +139,7 @@ export default function Profile({ session, fragment, theme }) {
         {verified && <button type="button" onClick={handleSignOut} disabled={signingOut}>
           {signingOut ? 'Signing out…' : 'Sign out'}
         </button>}
+        {freshness}
         {signOutFailed && <p role="alert">Couldn’t sign out. Try again.</p>}
       </div>
     </div>
