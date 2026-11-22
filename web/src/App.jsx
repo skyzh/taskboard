@@ -22,6 +22,10 @@ import {
   browserTimeZone, createTimeZoneFormatters, readTimeZonePreference, saveTimeZonePreference, TimeZoneContext,
 } from './timeZone.js'
 
+function reportFragment(project) {
+  return project === 'T' ? 'reports' : `reports?${new URLSearchParams({ project })}`
+}
+
 function fragmentId(fragment, pattern) {
   const match = fragment.match(pattern)
   const id = match ? Number(match[1]) : null
@@ -42,7 +46,7 @@ function useFragment() {
     const section = params.get('section')
     let anchor = fragment.startsWith('task-') ? fragment.split('?', 1)[0] : fragment
     if (fragment.startsWith('notifications-')) anchor = 'notifications'
-    if (fragment === 'reports-all') anchor = 'reports'
+    if (fragment === 'reports-all' || fragment.startsWith('reports?')) anchor = 'reports'
     if (fragment === 'map' || fragment === 'workstreams-title') anchor = 'team-overview'
     const id = params.get('dri') ? section || 'assignee-title'
       : params.get('search')?.trim() ? 'search-results' : params.has('schedules') ? 'schedules' : section || anchor
@@ -122,8 +126,9 @@ export default function App() {
   const selected = namedTask || fragmentId(taskAnchor, /^task-([1-9]\d*)$/)
   const fromSearch = selected ? new URLSearchParams(taskContext).get('from-search')?.trim() : ''
   const [preferredProject, chooseProject] = useState('T')
-  const reportsMode = fragment === 'reports-all' ? 'reports-all' : 'reports'
-  const [preferredReportsMode, rememberReportsMode] = useState(reportsMode)
+  const requestedReportsProject = taskAnchor === 'reports' ? new URLSearchParams(taskContext).get('project') : null
+  const allReports = fragment === 'reports-all'
+  const [preferredReportsMode, rememberReportsMode] = useState(allReports ? 'reports-all' : 'reports')
   const linkedEvent = fragmentId(fragment, /^event-([1-9]\d*)-log$/)
   const [queueFilters, setQueueFilters] = useState({})
   const [queueLayout, setQueueLayout] = useState('list')
@@ -163,18 +168,15 @@ export default function App() {
   const verified = ['agent', 'human'].includes(session.data?.actor?.kind)
   const params = new URLSearchParams(fragment)
   const logFilters = notificationLogFilters(fragment)
-  const project = selected ? namedTask?.split('-')[0] || 'T' : logFilters?.project || params.get('project') || preferredProject
-  useEffect(() => {
-    setQueueFilters(previous => previous.tag && previous.tag.project !== project
-      ? { ...previous, tag: undefined }
-      : previous)
-  }, [project])
+  const projectList = useResource(hasSession ? '/projects' : null, revision)
+  const visibleProjects = projectList.data?.items
+  const hasProjectChoices = visibleProjects?.length > 1
   const owner = params.get('dri')
   const search = selected ? '' : params.get('search')?.trim() || ''
   let view = 'board'
   if (owner) view = 'assignee'
   else if (search) view = 'search'
-  else if (!fragment || fragment === reportsMode) view = 'reports'
+  else if (!fragment || taskAnchor === 'reports' || allReports) view = 'reports'
   else if (fragment === 'settings') view = 'settings'
   else if (fragment === 'about') view = 'about'
   else if (params.has('schedules')) view = 'schedules'
@@ -183,9 +185,19 @@ export default function App() {
   else if (fragment === 'my-activity' && isAgent) view = 'my-activity'
   else if (linkedEvent || ['activity', 'work-log-title'].includes(fragment)) view = 'activity'
   else if (selected) view = 'task'
-  else if (['team-overview', 'now-title', 'decisions-title', 'outcomes-title', 'workstreams-title', 'map'].includes(fragment)) {
+  else if (params.get('section') === 'team-overview' ||
+    ['team-overview', 'now-title', 'decisions-title', 'outcomes-title', 'workstreams-title', 'map'].includes(fragment)) {
     view = 'team-overview'
   }
+  const reportsProject = visibleProjects?.find(entry => entry.prefix === requestedReportsProject)?.prefix
+    || visibleProjects?.find(entry => entry.prefix === 'T')?.prefix || visibleProjects?.[0]?.prefix || 'T'
+  const project = view === 'reports' ? reportsProject : selected ? namedTask?.split('-')[0] || 'T'
+    : logFilters?.project || params.get('project') || preferredProject
+  useEffect(() => {
+    setQueueFilters(previous => previous.tag && previous.tag.project !== project
+      ? { ...previous, tag: undefined }
+      : previous)
+  }, [project])
   const linkedOwner = view === 'board' && params.get('section') === 'queue-heading' && params.get('owner')
   const linkedQueue = linkedOwner ? fragment : null
   const fromList = view === 'task' && listReturn.current?.ticket === `#${fragment}`
@@ -206,14 +218,20 @@ export default function App() {
       : null,
     revision,
   )
-  const projectList = useResource(hasSession ? '/projects' : null, revision)
-  const visibleProjects = projectList.data?.items
-  const hasProjectChoices = visibleProjects?.length > 1
-  const showAllReports = view === 'reports' && hasProjectChoices && reportsMode === 'reports-all'
+  const showAllReports = view === 'reports' && hasProjectChoices && allReports
+  const reportsPending = Boolean(requestedReportsProject && !visibleProjects &&
+    (sessionResource.pending || (hasSession && !projectList.error)))
+  const reportsMode = allReports ? 'reports-all'
+    : reportsPending ? fragment : reportFragment(reportsProject)
   const reportsHref = `#${view === 'reports' ? reportsMode : preferredReportsMode}`
   useEffect(() => {
-    if (view === 'reports') rememberReportsMode(reportsMode)
-  }, [view, reportsMode])
+    if (view === 'reports' && !reportsPending) {
+      rememberReportsMode(reportsMode)
+      if (requestedReportsProject && visibleProjects && requestedReportsProject !== reportsProject) {
+        window.location.replace(`#${reportsMode}`)
+      }
+    }
+  }, [view, reportsPending, reportsMode, requestedReportsProject, visibleProjects, reportsProject])
   const activeTab = ['assignee', 'team-overview'].includes(view) ? 'reports' : ['task', 'schedules'].includes(view) ? 'board' : view
   const refresh = useCallback(() => setRevision(value => value + 1), [])
   const updateConnection = useCallback(status => {
@@ -237,7 +255,9 @@ export default function App() {
         chooseProject(value)
         setQueueFilters({})
         setWaitingLabel('')
-        window.location.hash = view
+        window.location.hash = view === 'reports' ? reportFragment(value)
+          : view === 'team-overview' ? new URLSearchParams({ project: value, section: 'team-overview' }).toString()
+          : view
       }}>
         {view === 'reports' && <option value="all">All projects</option>}
         {visibleProjects.map(entry => <option key={entry.prefix} value={entry.prefix}>{entry.title}</option>)}
@@ -276,10 +296,10 @@ export default function App() {
         <div className="main-content">
           {updateDeferred && <p className="board-connection" role="status">Taskboard will refresh when you finish your changes.</p>}
           {['reports', 'team-overview'].includes(view) && projectPicker}
-          {view === 'reports' && (
-            <Reports revision={revision} project={project}
-              projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null} />
-          )}
+          {view === 'reports' && (reportsPending
+            ? <p className="section-message" role="status">Loading Reports…</p>
+            : <Reports revision={revision} project={project}
+              projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null} />)}
           {view === 'stats' && <Stats revision={revision} />}
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}
             chooseTimeZone={chooseTimeZone} onProfileSaved={actor => { setSavedActor(actor); refresh() }} />}

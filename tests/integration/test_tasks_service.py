@@ -4509,13 +4509,22 @@ class TasksServiceTest(unittest.TestCase):
 
     def test_reports_and_about_return_after_sign_in(self):
         app = self.app(portal_reader=True)
-        for name, fragment in (("Sam", "#reports-all"), ("Quinn", "#about")):
+        self.provider.people["Casey"] = {
+            **self.provider.people["Sam"], "sub": str(UUID(int=65)),
+            "name": "Casey", "preferred_username": "casey",
+        }
+        for name, fragment in (
+            ("Sam", "#reports-all"), ("Quinn", "#about"), ("Casey", "#reports?project=COURSE"),
+        ):
             with self.subTest(fragment=fragment):
                 client = app.test_client()
                 login = self.call(client, "/auth/login", query_string={"fragment": fragment}, status=302)
                 state = parse_qs(urlsplit(login.location).query)["state"][0]
                 result = self.call(client, "/auth/callback", query_string={"code": name, "state": state}, status=302)
                 self.assertEqual(result.location, ORIGIN + BASE + "/" + fragment)
+
+        for fragment in ("#reports?project=//other.example", "#reports?project=COURSE&project=T"):
+            self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
 
     def test_settings_returns_after_sign_in_and_loads_the_same_origin_theme_script(self):
         app = self.app(portal_reader=True)

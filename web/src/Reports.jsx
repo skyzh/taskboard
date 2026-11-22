@@ -234,7 +234,8 @@ function ProjectReports({ revision, project, projectTitle }) {
   return (
     <section className={projectTitle ? 'project-reports' : 'reports'} aria-labelledby={headingId}>
       <ReportsHeading headingId={headingId} projectTitle={projectTitle}>
-        {!projectTitle && <a href="#team-overview">Team overview</a>}
+        {!projectTitle && <a href={project && project !== 'T'
+          ? `#${new URLSearchParams({ project, section: 'team-overview' })}` : '#team-overview'}>Team overview</a>}
         {showFilters && (
           <label>
             Assignees
