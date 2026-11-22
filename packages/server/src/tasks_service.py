@@ -507,7 +507,8 @@ def _next_step(name, data, result):
         return "Check recent feedback or the product for a concrete improvement within your role."
     if name == peer_asks.COMMAND:
         return {
-            "create": "For a review that needs a nudge, tag the named reviewer in Raft with the linked ticket.",
+            "create": ("When Raft is available and the recipient still needs a notice, "
+                       "mention them once in Raft with the linked ticket URL and the action needed."),
             "result": "The original requester can acknowledge the result after handling it.",
         }.get(data["transition"], _CHECK_INBOX)
     if name == "my-goals":
