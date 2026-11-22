@@ -4728,6 +4728,56 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "worker-handoff", {"run": "4", "transition": "collect", "note": "Collected."})
         self.assertEqual([row["id"] for row in self.call(reader, route).json["items"]], [2, 1])
 
+    def test_queued_peer_waits_show_named_agents_without_duplicating_reviews(self):
+        app = self.app(portal_reader=True)
+        reader = app.test_client()
+        avery, avery_id = self.login(app, "Avery")
+        _, blake_id = self.login(app, "Blake")
+        _, sam_id = self.login(app, "Sam")
+        self.cli("register-project", "COURSE", "Course", "--dri", avery_id)
+
+        def wait(ticket, **dependency):
+            self.action(avery, "create-task", {
+                "project": ticket.split("-")[0], "title": "Review the export", "step": "Read the changes.",
+            })
+            self.action(avery, "advance-task", {"id": ticket, "transition": "start", "note": "Prepare the diff."})
+            self.action(avery, "advance-task", {
+                "id": ticket, "transition": "wait", "note": "Private fixture note.", **dependency,
+            })
+
+        wait("T-1", on="Blake")
+        wait("T-2", on=blake_id)
+        wait("T-3", on=blake_id)
+        self.action(avery, "delegate", {
+            "id": "T-3", "worker": blake_id, "role": "review", "brief": "Review the fixture.",
+        })
+        wait("T-4", blocked_by="T-1")
+        wait("T-5", on=blake_id, automation=True)
+        wait("T-6", on=sam_id)
+        wait("T-7", on="Nightly import")
+        wait("T-8", on=avery_id)
+        wait("COURSE-1", on=blake_id)
+
+        route = "/api/v1/reports/queued-peer-waits"
+        self.assertEqual(reader.get(BASE + route, base_url=ORIGIN).status_code, 403)
+        response = self.call(reader, route, query_string={"limit": 1})
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        first = response.json
+        self.assertEqual(first["items"], [{
+            "id": first["next_cursor"], "task_id": 2, "task_key": "T-2",
+            "task_title": "Review the export", "recipient": "Blake",
+        }])
+        self.assertIsNotNone(first["next_cursor"])
+        second = self.call(reader, route, query_string={"limit": 1, "before": first["next_cursor"]}).json
+        self.assertEqual([(item["task_key"], item["recipient"]) for item in second["items"]], [("T-1", "Blake")])
+        self.assertIsNone(second["next_cursor"])
+        course = self.call(reader, route, query_string={"project": "COURSE"}).json
+        self.assertEqual([item["task_key"] for item in course["items"]], ["COURSE-1"])
+        reviews = self.call(reader, "/api/v1/reports/queued-reviews").json
+        self.assertEqual([item["task_key"] for item in reviews["items"]], ["T-3"])
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "resume", "note": "Review received."})
+        self.assertEqual([item["task_key"] for item in self.call(reader, route).json["items"]], ["T-2"])
+
     def test_reports_only_loads_personal_asks_through_the_verified_recipient_feeds(self):
         app = self.app(portal_reader=True)
         reader = app.test_client()

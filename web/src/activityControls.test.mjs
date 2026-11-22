@@ -722,6 +722,9 @@ test('Queued asks uses private feeds only for the viewer and preserves project a
       id: 1, task_id: 5, task_key: 'COURSE-2', task_title: 'Review samples',
       recipient: 'Morgan', state: 'running', execution_state: 'start_unconfirmed',
     }]),
+    '/reports/queued-peer-waits': feed('peer waits', [{
+      id: 2, task_id: 6, task_key: 'COURSE-3', task_title: 'Review the changes', recipient: 'Avery',
+    }]),
     '/notifications/decisions': feed('decisions', [{
       id: 4, key: 'COURSE-1', title: 'Choose sample', note: 'Recipient-only decision.',
     }]),
@@ -732,14 +735,18 @@ test('Queued asks uses private feeds only for the viewer and preserves project a
 
   const render = viewer => renderToStaticMarkup(React.createElement(QueuedAsks, { project: 'COURSE', viewer }))
   const reader = render(null)
-  assert.deepEqual(calls, ['reviews'])
+  assert.deepEqual(calls, ['reviews', 'peer waits'])
   assert.match(reader, /href="#task-COURSE-2"/)
   assert.match(reader, /For Morgan/)
   assert.match(reader, /Start unconfirmed/)
   assert.match(reader, /aria-label="More peer reviews"/)
+  assert.match(reader, /href="#task-COURSE-3"/)
+  assert.match(reader, /Named peer wait/)
+  assert.match(reader, /For Avery/)
+  assert.match(reader, /aria-label="More named peer waits"/)
   assert.doesNotMatch(reader, /Recipient-only/)
   const signedIn = render({ id: 'Avery' })
-  assert.deepEqual(calls, ['reviews', 'reviews', 'decisions', 'requests'])
+  assert.deepEqual(calls, ['reviews', 'peer waits', 'reviews', 'peer waits', 'decisions', 'requests'])
   assert.match(signedIn, /href="#task-COURSE-1"/)
   assert.match(signedIn, /Recipient-only decision/)
   assert.match(signedIn, /Recipient-only attention/)

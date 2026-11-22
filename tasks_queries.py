@@ -720,6 +720,34 @@ class BoardQueries:
 
         return page(rows, limit, "id", render)
 
+    def queued_peer_waits(self, *, before, limit, project=projects.DEFAULT):
+        rows = self.db.execute(
+            f"""
+            WITH current AS ({ledger.current_tasks_sql(self.db)} WHERE tasks.project_prefix = ?)
+            SELECT tasks.event_id AS id, tasks.id AS task_id, tasks.title AS task_title,
+                   {TASK_REFERENCE} AS task_key,
+                   COALESCE(NULLIF(peer.name, ''), NULLIF(peer.username, ''), peer.ledger_key) AS recipient
+            FROM current AS tasks
+            JOIN board_principals AS peer ON peer.ledger_key = COALESCE(
+                (SELECT ledger_key FROM board_principals WHERE ledger_key = tasks.waiting_on),
+                (SELECT MIN(ledger_key) FROM board_principals
+                 WHERE username <> '' AND LOWER(username) = LOWER(tasks.waiting_on)
+                 HAVING COUNT(*) = 1)
+            )
+            WHERE tasks.state = 'waiting' AND tasks.event_id < ?
+              AND peer.kind = 'agent' AND peer.ledger_key <> tasks.dri
+              AND COALESCE(json_extract(tasks.context, '$.wait_kind'), '') <> 'automation'
+              AND json_extract(tasks.context, '$.blocked_by') IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM worker_runs
+                  WHERE task_id = tasks.id AND worker = peer.ledger_key AND role = 'review'
+                    AND status IN ('planned', 'running')
+              )
+            ORDER BY tasks.event_id DESC LIMIT ?
+            """, (project, before or projects.MAX_ID, limit + 1),
+        ).fetchall()
+        return page(rows, limit, "id", lambda visible: [dict(row) for row in visible])
+
     def recent_report_outcomes(self, owner, project):
         # Read each action in event ID order before combining the small results.
         recent_ids = """

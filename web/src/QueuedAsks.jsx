@@ -3,11 +3,10 @@ import { useLoadedPages } from './data.js'
 import { LoadMore, ResourceStatus, TaskLink, profileName } from './shared.jsx'
 import { Markdown } from './Markdown.jsx'
 
-function AskList({ label, page, items, empty }) {
+function AskList({ label, page, items }) {
   return (
     <>
       <ResourceStatus resource={page} label={label.toLowerCase()} />
-      {items?.length === 0 && empty && <p className="section-message">{empty}</p>}
       {items?.length > 0 && (
         <ul className="event-list" aria-label={label} role="list">
           {items.map(ask => (
@@ -50,6 +49,10 @@ const peerReviewStates = { planned: 'Planned', running: 'In progress', start_unc
 
 export default function QueuedAsks({ revision, viewer, project, grouped }) {
   const reviews = useLoadedPages('/reports/queued-reviews', { project }, revision)
+  const waits = useLoadedPages('/reports/queued-peer-waits', { project }, revision)
+  const waitRows = waits.data?.items.map(wait => ({
+    ...wait, type: 'Named peer wait', status: 'Waiting for reply',
+  }))
   const reviewRows = reviews.data?.items.map(review => ({
     ...review, type: 'Peer review', status: peerReviewStates[review.execution_state ?? review.state],
   }))
@@ -58,7 +61,9 @@ export default function QueuedAsks({ revision, viewer, project, grouped }) {
   return (
     <section className="queued-asks" aria-labelledby={headingId}>
       <Heading id={headingId}>Queued asks</Heading>
-      <AskList label="Peer reviews" page={reviews} items={reviewRows} empty="No pending peer reviews." />
+      <AskList label="Peer reviews" page={reviews} items={reviewRows} />
+      <AskList label="Named peer waits" page={waits} items={waitRows} />
+      {reviewRows?.length === 0 && waitRows?.length === 0 && <p className="section-message">No pending peer asks.</p>}
       {viewer && <PersonalQueuedAsks key={viewer.id} revision={revision} project={project} />}
     </section>
   )
