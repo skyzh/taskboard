@@ -461,6 +461,7 @@ def close_task(db, args, links):
         if number == task["id"]:
             raise ValueError("Choose a different ticket to link.")
         closure["related"] = projects.row_reference(get_task(db, number))
+    peer_asks.withdraw_named_wait(db, task, args.by, "The source ticket was closed.")
     # Legacy readers recognize a terminal Done row. The closure metadata
     # distinguishes it from a completion in newer readers and statistics.
     record(db, task["id"], "update", args.by, "done", reason, None, links, {"closure": closure})
@@ -481,6 +482,8 @@ def change_ownership(db, args, links):
     owner = "" if action == "unassign" else args.dri
     if action == "reassign" and owner == task["dri"]:
         raise ValueError("Choose a different owner.")
+    peer_asks.withdraw_named_wait(db, task, args.by, "The source ticket changed owners.")
+    task = get_task(db, task["id"])
     db.execute("UPDATE tasks SET dri = ? WHERE id = ?", (owner, args.id))
     label = OWNERSHIP_ACTIONS[action]
     change = {"ownership_action": action, "previous_dri": task["dri"], "next_dri": owner}
@@ -838,6 +841,10 @@ def change_task(db, args, links, *, automation=None):
     note = args.note
     if getattr(args, "details", None) is not None:
         context["activity_details"] = args.details
+    if args.command == "wait" and peer_asks.record_wait(db, task, args, links, context):
+        return f"{projects.row_reference(task)} · {label}"
+    if args.command == "resume":
+        peer_asks.withdraw_named_wait(db, task, args.by, "The source owner resumed the work.")
     if args.command == "remind":
         if not context and task["state"] != "parked":
             raise ValueError("Choose a reminder date or defer time to park this task.")
@@ -1913,6 +1920,7 @@ def save_task(db, path, args, links):
         unchanged_allowed = (
             args.command in tasks_recurring.EDITS
             or args.command in ("recurring-tick", maintenance.WRITE, peer_asks.COMMAND, "tag", "remind", "edit", "checklist")
+            or (args.command == "wait" and getattr(args, "peer_recipient", None) is not None)
         )
         if live and (not unchanged_allowed or db.total_changes != before_change):
             bump_revision(db)

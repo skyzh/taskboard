@@ -813,38 +813,50 @@ class BoardQueries:
 
         return page(rows, limit, "id", render)
 
-    def queued_peer_waits(self, *, before, limit, project=projects.DEFAULT):
+    _PEER_WAIT_JOIN = """
+        JOIN board_principals AS peer ON peer.ledger_key = COALESCE(
+            (SELECT ledger_key FROM board_principals WHERE ledger_key = tasks.waiting_on),
+            (SELECT MIN(ledger_key) FROM board_principals
+             WHERE username <> '' AND LOWER(username) = LOWER(tasks.waiting_on)
+             HAVING COUNT(*) = 1)
+        )
+    """
+    _PEER_WAIT_CONDITIONS = """
+        tasks.state = 'waiting' AND peer.kind = 'agent' AND peer.ledger_key <> tasks.dri
+        AND COALESCE(json_extract(tasks.context, '$.wait_kind'), '') <> 'automation'
+        AND json_extract(tasks.context, '$.blocked_by') IS NULL
+        AND (json_extract(tasks.context, '$.named_peer_wait') IS NOT NULL OR NOT EXISTS (
+            SELECT 1 FROM worker_runs
+            WHERE task_id = tasks.id AND worker = peer.ledger_key AND role = 'review'
+              AND status IN ('planned', 'running')
+        ))
+    """
+
+    def queued_peer_waits(self, *, before, limit, project=projects.DEFAULT, legacy_recipient=None):
+        legacy = "" if legacy_recipient is None else (
+            "AND peer.ledger_key = ? AND json_extract(tasks.context, '$.peer_ask_ticket') IS NULL"
+        )
+        args = () if legacy_recipient is None else (legacy_recipient,)
         rows = self.db.execute(
             f"""
             WITH current AS ({ledger.current_tasks_sql(self.db)} WHERE tasks.project_prefix = ?)
             SELECT tasks.event_id AS id, tasks.id AS task_id, tasks.title AS task_title,
                    {TASK_REFERENCE} AS task_key, tasks.at, request_event.actor AS requester,
                    json_extract(tasks.context, '$.peer_ask_ticket') AS linked_request,
+                   (SELECT task_id FROM peer_asks WHERE source_wait_event_id = tasks.event_id
+                    AND json_extract(tasks.context, '$.named_peer_wait') IS NOT NULL) AS linked_request_id,
                    COALESCE(NULLIF(peer.name, ''), NULLIF(peer.username, ''), peer.ledger_key) AS recipient
             FROM current AS tasks
             JOIN events AS request_event ON request_event.id = tasks.event_id
-            JOIN board_principals AS peer ON peer.ledger_key = COALESCE(
-                (SELECT ledger_key FROM board_principals WHERE ledger_key = tasks.waiting_on),
-                (SELECT MIN(ledger_key) FROM board_principals
-                 WHERE username <> '' AND LOWER(username) = LOWER(tasks.waiting_on)
-                 HAVING COUNT(*) = 1)
-            )
-            WHERE tasks.state = 'waiting' AND tasks.event_id < ?
-              AND peer.kind = 'agent' AND peer.ledger_key <> tasks.dri
-              AND COALESCE(json_extract(tasks.context, '$.wait_kind'), '') <> 'automation'
-              AND json_extract(tasks.context, '$.blocked_by') IS NULL
-              AND NOT EXISTS (
-                  SELECT 1 FROM worker_runs
-                  WHERE task_id = tasks.id AND worker = peer.ledger_key AND role = 'review'
-                    AND status IN ('planned', 'running')
-              )
+            {self._PEER_WAIT_JOIN}
+            WHERE {self._PEER_WAIT_CONDITIONS} AND tasks.event_id < ? {legacy}
             ORDER BY tasks.event_id DESC LIMIT ?
-            """, (project, before or projects.MAX_ID, limit + 1),
+            """, (project, before or projects.MAX_ID, *args, limit + 1),
         ).fetchall()
         def render(visible):
             people = profiles.visible_by_keys(self.db, [row["requester"] for row in visible], self.base)
             return [{
-                **{key: row[key] for key in row.keys() if key != "linked_request" or row[key]},
+                **{key: row[key] for key in row.keys() if key not in ("linked_request", "linked_request_id") or row[key]},
                 "requester": people.get(row["requester"], {}).get("name") or row["requester"],
             } for row in visible]
 
@@ -958,7 +970,8 @@ class BoardQueries:
             return {"items": [], "next_cursor": None}
         owner_source = """SELECT dri FROM project_tasks WHERE dri <> ''
                           UNION SELECT ledger_key FROM board_principals WHERE kind = 'agent' AND ? = 'T'
-                          UNION SELECT dri FROM projects WHERE prefix = ? AND dri IS NOT NULL"""
+                          UNION SELECT dri FROM projects WHERE prefix = ? AND dri IS NOT NULL
+                          UNION SELECT recipient FROM legacy_waits"""
         owner_args = (project, project)
         if roster:
             owner_source = "VALUES " + ", ".join("(?)" for _ in names)
@@ -970,6 +983,13 @@ class BoardQueries:
             f"""
             WITH current AS ({current}),
                  project_tasks AS (SELECT id, dri FROM tasks WHERE project_prefix = ?),
+                 legacy_waits AS (
+                     SELECT peer.ledger_key AS recipient, MAX(tasks.at) AS updated
+                     FROM current AS tasks {self._PEER_WAIT_JOIN}
+                     WHERE {self._PEER_WAIT_CONDITIONS}
+                       AND json_extract(tasks.context, '$.peer_ask_ticket') IS NULL
+                     GROUP BY peer.ledger_key
+                 ),
                  work AS (
                      SELECT dri, {WORK_COUNTS},
                             COUNT(CASE WHEN {active_state} THEN 1 END) AS task_count,
@@ -997,16 +1017,19 @@ class BoardQueries:
                             COALESCE(runs.launched_builds, 0) AS launched_builds,
                             COALESCE(runs.running_reviews, 0) AS running_reviews,
                             COALESCE(runs.launched_reviews, 0) AS launched_reviews,
+                            legacy_waits.recipient IS NOT NULL AS has_legacy_waits,
                             NULLIF({tasks_storage.greatest(self.db)}(
-                                COALESCE(work.updated, ''), COALESCE(reports.updated, '')
+                                COALESCE(work.updated, ''), COALESCE(reports.updated, ''), COALESCE(legacy_waits.updated, '')
                             ), '') AS as_of,
                             (COALESCE(work.task_count, 0) > 0 OR reports.dri IS NOT NULL
+                                OR legacy_waits.recipient IS NOT NULL
                                 OR COALESCE(runs.running_builds, 0) > 0
                                 OR COALESCE(runs.running_reviews, 0) > 0) AS is_active
                      FROM owners
                      LEFT JOIN work ON work.dri = owners.dri
                      LEFT JOIN reports ON reports.dri = owners.dri
                      LEFT JOIN runs ON runs.dri = owners.dri
+                     LEFT JOIN legacy_waits ON legacy_waits.recipient = owners.dri
                  ),
                  ordered AS (
                      SELECT summary.*, (CASE WHEN is_active THEN '0:' ELSE '1:' END) || dri AS cursor
@@ -1049,6 +1072,9 @@ class BoardQueries:
                     "as_of": row["as_of"],
                     "last_activity": self.last_activity(owner=person, project=project),
                     "tasks": owned,
+                    "legacy_peer_waits": self.queued_peer_waits(
+                        before=None, limit=10, project=project, legacy_recipient=person,
+                    )["items"] if row["has_legacy_waits"] else [],
                     "task_count": row["task_count"],
                     "task_counts": {state: row[state] for state in WORK_STATES},
                     "recent_outcomes": self.recent_report_outcomes(person, project),

@@ -128,6 +128,9 @@ _ACTIONS = {
     }, {
         "recipient": "The selected agent's stable ID. Required for create only.",
         "review": "Existing planned or running worker review ID. Optional for create.",
+        "review_pr": "The GitHub pull request already linked to the source ticket.",
+        "review_head": "The full Stamp review head commit.",
+        "review_base": "The full Stamp review base commit.",
         **_EVIDENCE,
     }),
     "handoff": _Action("POST", "Transfer an owned task to another assignee.", {

@@ -30,7 +30,8 @@ function AskList({ label, page, items, responses = false, publicPreview = false 
               <AskPeople sender={responses ? ask.responder : ask.requester} recipient={ask.recipient} response={responses} />
               {ask.at && <ReportTime at={ask.at} />}
               {ask.status && <span className="ask-state">{ask.status}</span>}
-              <span className="ask-ticket"><TaskLink reference={ask.task_key} id={ask.task_id} title={ask.task_title}
+              <span className="ask-ticket"><TaskLink reference={ask.linked_request_id ? ask.linked_request : ask.task_key}
+                id={ask.linked_request_id ?? ask.task_id} title={ask.task_title}
                 publicHref={publicPreview ? ask.public_url || null : undefined} /></span>
             </li>
           ))}
@@ -44,7 +45,7 @@ function AskList({ label, page, items, responses = false, publicPreview = false 
 const reviewStates = { planned: 'Planned', running: 'In progress', start_unconfirmed: 'Start unconfirmed' }
 
 export function QueuedAsksContent({ project, grouped, reviews, waits, responses, snapshot, children }) {
-  const waitRows = (snapshot?.waits || waits?.data?.items)?.filter(wait => !wait.linked_request)
+  const waitRows = (snapshot?.waits || waits?.data?.items)?.filter(wait => !wait.linked_request || wait.linked_request_id)
   const reviewRows = (snapshot?.reviews || reviews?.data?.items)?.filter(review => !review.linked_request).map(review => ({
     ...review, status: reviewStates[review.execution_state ?? review.state],
   }))
