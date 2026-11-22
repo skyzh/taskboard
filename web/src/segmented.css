@@ -6,7 +6,7 @@
   background: var(--wash);
 }
 .segmented-control > button {
-  flex: 1;
+  flex: none;
   min-block-size: max(1.5rem, 1.625lh);
   min-inline-size: 2.75rem;
   padding: 0 .65rem;
