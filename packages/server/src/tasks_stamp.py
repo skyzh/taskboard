@@ -26,6 +26,7 @@ class Approval:
     head: str
     base: str
     ready_to_merge: bool
+    merged_with_checks: bool = False
 
 
 def approvals(document, item):
@@ -50,6 +51,17 @@ def approvals(document, item):
         and document.get("baseRefHeadSha") == base and document.get("mergeBaseSha") == base
         and document.get("stale") is False and document.get("invalidated") is False
     )
+    passed = verdict.get("requiredPassed")
+    merged_with_checks = (
+        verdict.get("state") == "MERGED" and verdict.get("requiredKnown") is True
+        and document.get("mergeBaseSha") == base
+        and document.get("stale") is False and document.get("invalidated") is False
+        and isinstance(passed, list) and bool(passed)
+        and all(isinstance(name, str) and name for name in passed)
+        and all(verdict.get(key) == [] for key in (
+            "requiredFailing", "requiredPending", "requiredSkipped", "requiredSkippedByWorkflow",
+        ))
+    )
     records = verdict.get("approvals")
     if not isinstance(records, list):
         raise ValueError("Stamp did not return its formal approval records.")
@@ -68,7 +80,8 @@ def approvals(document, item):
                 or not isinstance(receipt, str) or not RECEIPT.fullmatch(receipt)):
             continue
         result.append(Approval(receipt, f"https://stamp.build/s/{slug}{path}/approvals/{receipt}/evidence",
-                               reviewer, server["id"], head, base, ready))
+                               reviewer, server["id"], head, base, ready,
+                               merged_with_checks and row.get("carried") is None))
     return result
 
 
@@ -134,14 +147,14 @@ def refresh_approvals(db, reader, configured, pull):
                     {"extension": STAMP_REVIEWS, "stamp_verdict": verdict},
                 )
                 result["recorded"] += int(recorded is not None)
-                if approval.ready_to_merge:
+                if approval.ready_to_merge or approval.merged_with_checks:
                     task = recorded[0] if recorded is not None else ledger.get_task(db, row["id"])
                     ask = peer_asks.current_wait(db, task)
                     if ask and peer_asks.apply_stamp_verdict(
                         db, ask["task_id"], pull=key, reviewer=person["ledger_key"], verdict="approved",
                         head=approval.head, base=approval.base, evidence_id=approval.evidence_id,
                         evidence_url=approval.evidence_url, current_head=approval.head,
-                        current_base=approval.base, checks_passed=True,
+                        current_base=approval.base, checks_passed=True, merged=approval.merged_with_checks,
                     ):
                         result["ready_for_acknowledgment"] += 1
         if any(result.values()):

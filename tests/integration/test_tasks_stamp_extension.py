@@ -12,6 +12,12 @@ import test_tasks_service as fixtures
 
 class StampExtensionTest(unittest.TestCase):
     def test_records_once_and_preserves_the_source_owner_when_ci_becomes_actionable(self):
+        self.replay_completed_review(merged=False)
+
+    def test_returns_the_merged_review_once_without_a_merge_action(self):
+        self.replay_completed_review(merged=True)
+
+    def replay_completed_review(self, *, merged):
         fixture = fixtures.TasksServiceTest()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
@@ -47,7 +53,10 @@ class StampExtensionTest(unittest.TestCase):
             reader.approvals.return_value = [Approval(evidence_id, evidence_url, subject, fixtures.SERVER, head, base, False)]
             self.assertEqual(refresh_approvals(db, reader, configured, pull),
                              {"recorded": 1, "ready_for_acknowledgment": 0})
-            reader.approvals.return_value = [Approval(evidence_id, evidence_url, subject, fixtures.SERVER, head, base, True)]
+            reader.approvals.return_value = [
+                Approval(evidence_id, evidence_url, subject, fixtures.SERVER, head, base,
+                         ready_to_merge=not merged, merged_with_checks=merged),
+            ]
             self.assertEqual(refresh_approvals(db, reader, configured, pull),
                              {"recorded": 0, "ready_for_acknowledgment": 1})
             self.assertEqual(refresh_approvals(db, reader, configured, pull),
@@ -61,3 +70,7 @@ class StampExtensionTest(unittest.TestCase):
         self.assertEqual(len(recorded), 1)
         self.assertEqual(recorded[0]["context"]["stamp_verdict"]["reviewer"], reviewer)
         self.assertIn(evidence_url, [link["url"] for link in recorded[0]["links"]])
+        request = fixture.call(owner, "/api/v1/tasks/T-2").json["task"]
+        self.assertEqual(request["dri"], owner_key)
+        if merged:
+            self.assertEqual(request["note"], "Stamp approved the merged revision and all required checks passed.")

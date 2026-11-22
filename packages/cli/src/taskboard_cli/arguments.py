@@ -466,8 +466,10 @@ def arguments(argv=None):
             parser.error("Use --shared peer-ask with a verified board actor.")
         if (args.change == "create") != bool(args.recipient):
             parser.error("Provide --to only when creating a peer request.")
-        if (args.review is not None or args.stamp_review is not None) and args.change != "create":
-            parser.error("Link a review when creating or refreshing the peer request.")
+        if args.review is not None and args.change not in ("create", "correct-result"):
+            parser.error("Use --review when creating a peer request or correcting its recorded result.")
+        if args.stamp_review is not None and args.change != "create":
+            parser.error("Use --stamp-review when creating or refreshing a peer request.")
     if args.command == "capabilities" and args.mode != "shared":
         parser.error("Use --shared capabilities for shared agent commands.")
     if args.command in {"raft-channel-show", "raft-channel-set"} and args.mode != "shared":

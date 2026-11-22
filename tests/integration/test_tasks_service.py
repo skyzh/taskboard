@@ -5852,7 +5852,11 @@ class TasksServiceTest(unittest.TestCase):
         peer(owner, canceled, "correct-result", review=run, status=409)
         peer(owner, retired, "correct-result", status=409)
         peer(owner, retired, "correct-result", review=wrong_pull, status=409)
-        peer(owner, retired, "correct-result", review=run)
+        code, output, error = self.shared_cli(
+            owner, "peer-ask", "correct-result", retired, "Record the verified review.", "--review", run,
+        )
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("Peer outcome corrected", output)
         self.assertIn("already corrected", peer(owner, retired, "correct-result", review=run)["receipt"])
         corrected = history()[retired]
         self.assertEqual(corrected["phase"], "done")

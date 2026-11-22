@@ -57,6 +57,30 @@ class StampReaderTest(unittest.TestCase):
                 approval, = self.approvals()
                 self.assertFalse(approval.ready_to_merge)
 
+    def test_merged_revision_keeps_its_exact_result_after_base_advances(self):
+        self.reply["baseRefHeadSha"] = "a" * 40
+        verdict = self.reply["verdict"]
+        verdict.update(state="MERGED", requiredPassed=["Portable checks", "Database replay"],
+                       requiredFailing=[], requiredPending=[], requiredSkipped=[], requiredSkippedByWorkflow=[])
+        approval, = self.approvals()
+        self.assertFalse(approval.ready_to_merge)
+        self.assertTrue(approval.merged_with_checks)
+        self.assertEqual((approval.head, approval.base), (HEAD, BASE))
+        for field, value in (
+            ("requiredKnown", False), ("requiredPassed", []), ("requiredFailing", ["Portable checks"]),
+            ("requiredPending", ["Portable checks"]), ("requiredSkipped", ["Portable checks"]),
+            ("requiredSkippedByWorkflow", ["Portable checks"]),
+        ):
+            with self.subTest(field=field):
+                previous = verdict[field]
+                verdict[field] = value
+                approval, = self.approvals()
+                self.assertFalse(approval.merged_with_checks)
+                verdict[field] = previous
+        verdict["approvals"][0]["carried"] = {"headSha": "e" * 40}
+        approval, = self.approvals()
+        self.assertFalse(approval.merged_with_checks)
+
     def test_disagreed_revision_and_comment_only_review_cannot_become_approval(self):
         records = self.reply["verdict"]["approvals"]
         receipt = records[0]
