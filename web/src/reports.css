@@ -98,6 +98,18 @@
 .report-status { margin-inline-end: .45rem; }
 .report-owner .task-row-meta:empty { display: none; }
 .report-task .task-row-meta { color: var(--muted); font-size: .8rem; }
+.task-row.report-task-summary { padding-inline-start: 0; }
+.report-task-summary .task-row-heading > .task-priority { margin-inline-start: .4rem; white-space: nowrap; }
+.report-priority-accessible {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.report-waiting-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: .12rem .45rem; }
+.report-waiting-line > .task-dependency { overflow-wrap: anywhere; }
 .report-task-cue { overflow-wrap: anywhere; }
 .report-peer-request { margin-bottom: .15rem; color: var(--muted); font-size: .81rem; }
 .report-peer-request svg { margin-inline-end: .32rem; vertical-align: -.17em; }
