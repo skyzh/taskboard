@@ -100,6 +100,17 @@ class StatsTest(unittest.TestCase):
             self.assertEqual(len(stats["buckets"]), count)
             self.assertEqual(stats["activity"]["events"], 7)
 
+    def test_live_activity_includes_events_from_the_current_partial_second(self):
+        self.event(1, "log", "Avery", "11:00", "ready")
+        self.event(2, "log", "Avery", "12:00", "ready")
+        self.event(3, "log", "Avery", "12:01", "ready")
+
+        activity = tasks_stats.snapshot(self.db, "hour", NOW.replace(microsecond=500_000))["activity"]
+
+        self.assertEqual(activity["events"], 1)
+        self.assertEqual([task["id"] for task in activity["tasks"]], [2])
+        self.assertEqual(activity["agents"][0]["events"], 1)
+
     def test_current_task_state_is_independent_of_window_completions(self):
         self.event(1, "done", "Avery", "10:55", "done")
         self.event(1, "log", "Avery", "11:10", "in_progress")

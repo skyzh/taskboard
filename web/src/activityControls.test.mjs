@@ -238,6 +238,13 @@ test('Stats uses current states and keeps window and agent completion totals', (
   assert.match(markup, /<td>Unavailable<\/td>/)
   assert.match(markup, /<span>Avery Agent<\/span><\/span><\/th><td>5<\/td><td>2<\/td>/)
   assert.doesNotMatch(markup, /TaskNote|Note events/i)
+  assert.doesNotMatch(markup, />Refresh<\/button>/)
+  assert.doesNotMatch(markup, />Retry<\/button>/)
+
+  fixture.resources = { '/stats?period=day': { error: new Error('Temporary failure.') } }
+  const failed = renderToStaticMarkup(React.createElement(Stats))
+  assert.match(failed, /Unable to load stats. Temporary failure./)
+  assert.match(failed, />Retry<\/button>/)
 })
 
 test('Stats shows watcher coverage, leaves missing baseline values blank, and displays measured zero', () => {
