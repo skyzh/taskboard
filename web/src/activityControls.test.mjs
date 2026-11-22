@@ -745,9 +745,9 @@ test('ticket detail opens its checklist with a progress count and readable step 
   fixture.state = []
   const markup = renderToStaticMarkup(React.createElement(TaskDetail, { id: 1, session: {} }))
   assert.match(markup, /<details class="detail-checklist" open=""><summary><span>Checklist<\/span><span>1 of 3 complete<\/span><\/summary>/)
-  assert.match(markup, /aria-label="Complete">✓.*?Read the input/)
-  assert.match(markup, /aria-label="In progress">◐.*?Check the sums/)
-  assert.match(markup, /aria-label="Open">○.*?Write the result/)
+  assert.match(markup, /aria-label="Complete"><svg[^>]*>.*?<\/svg><\/span><span class="checklist-step-number">1<\/span>.*?Read the input/)
+  assert.match(markup, /aria-label="In progress"><svg[^>]*>.*?<\/svg><\/span><span class="checklist-step-number">2<\/span>.*?Check the sums/)
+  assert.match(markup, /aria-label="Pending"><svg[^>]*>.*?<\/svg><\/span><span class="checklist-step-number">3<\/span>.*?Write the result/)
   assert.match(markup, /by Avery Reader/)
   assert.match(markup, /by Blake Writer/)
 })

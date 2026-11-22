@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import {
-  ArrowUpRight, Ban, Check, CircleQuestionMark, ClipboardList, Clock, CornerUpRight, Diamond, Dot,
+  ArrowUpRight, Ban, Check, Circle, CircleQuestionMark, ClipboardList, Clock, CornerUpRight, Diamond, Dot,
   FileCheck, GitMerge, GitPullRequest, GitPullRequestClosed, Pause, Play, Plus, Rocket, RotateCcw,
   TriangleAlert, Undo2, X,
 } from 'lucide-react'
@@ -400,25 +400,28 @@ export function Options({ options }) {
 export function ChecklistSteps({ steps, relatedTasks }) {
   return (
     <ol className="context-list checklist-steps" role="list">
-      {steps.map(step => (
-        <li className="checklist-step" key={step.position}>
-          <span className="checklist-step-mark" role="img"
-            aria-label={step.checked ? 'Complete' : step.started_at ? 'In progress' : 'Open'}>
-            {step.checked ? '✓' : step.started_at ? '◐' : '○'}
-          </span>{' '}
-          <span className="checklist-step-copy">
-            <MarkdownInline text={step.label} relatedTasks={relatedTasks} />
-            {step.started_at && <small className="checklist-step-history">
-              <span aria-hidden="true"> · </span>Started <Timestamp at={step.started_at} />
-              {step.started_by && <> by {profileName(step.started_by, { name: step.started_by_name })}</>}
-            </small>}
-            {step.completed_at && <small className="checklist-step-history">
-              <span aria-hidden="true"> · </span>Completed <Timestamp at={step.completed_at} />
-              {step.completed_by && <> by {profileName(step.completed_by, { name: step.completed_by_name })}</>}
-            </small>}
-          </span>
-        </li>
-      ))}
+      {steps.map(step => {
+        const [Icon, status] = step.checked ? [Check, 'Complete'] : step.started_at ? [Play, 'In progress'] : [Circle, 'Pending']
+        return (
+          <li className="checklist-step" key={step.position}>
+            <span className="checklist-step-mark" role="img" aria-label={status}>
+              <Icon size={14} aria-hidden="true" focusable="false" />
+            </span>
+            <span className="checklist-step-number">{step.position}</span>
+            <span className="checklist-step-copy">
+              <MarkdownInline text={step.label} relatedTasks={relatedTasks} />
+              {step.started_at && <small className="checklist-step-history">
+                <span aria-hidden="true"> · </span>Started <Timestamp at={step.started_at} />
+                {step.started_by && <> by {profileName(step.started_by, { name: step.started_by_name })}</>}
+              </small>}
+              {step.completed_at && <small className="checklist-step-history">
+                <span aria-hidden="true"> · </span>Completed <Timestamp at={step.completed_at} />
+                {step.completed_by && <> by {profileName(step.completed_by, { name: step.completed_by_name })}</>}
+              </small>}
+            </span>
+          </li>
+        )
+      })}
     </ol>
   )
 }

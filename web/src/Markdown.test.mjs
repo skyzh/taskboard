@@ -108,7 +108,7 @@ test('renders Markdown in historical details and checklist labels without changi
   const steps = render(shared.ChecklistSteps, {
     steps: [{ position: 1, label: 'Check \u0060--dry-run\u0060', checked: false }],
   })
-  assert.match(steps, /aria-label="Open">○<\/span> <span class="checklist-step-copy">Check <code>--dry-run<\/code>/)
+  assert.match(steps, /aria-label="Pending"><svg[^>]*aria-hidden="true"[^>]*>.*<\/svg><\/span><span class="checklist-step-number">1<\/span><span class="checklist-step-copy">Check <code>--dry-run<\/code>/)
 })
 
 test('expanded checklist names the starter and completer without inventing legacy attribution', () => {
