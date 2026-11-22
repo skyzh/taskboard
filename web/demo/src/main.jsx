@@ -6,6 +6,8 @@ import { AssigneeReportList, ReportsHeading, ReportsLayout } from '../../src/Rep
 import { QueuedAsksContent } from '../../src/QueuedAsks.jsx'
 import { BoardBrand } from '../../src/shared.jsx'
 import { useTheme } from '../../src/theme.js'
+import { DemoControl } from '../../src/DemoControl.jsx'
+import DemoNotice from './DemoNotice.jsx'
 import { capturedAt, entries, queuedAsks, repository } from './snapshot.js'
 import '../../src/styles.css'
 import '../../src/night.css'
@@ -31,6 +33,19 @@ function SummaryDemo() {
   const panel = useRef(null)
   const restoreFocus = useRef(false)
   const active = step == null ? null : tour[step]
+
+  useEffect(() => {
+    const element = header.current
+    const style = document.documentElement.style
+    const reserveSpace = () => style.setProperty('--app-header-height', `${element.getBoundingClientRect().height}px`)
+    reserveSpace()
+    const resize = new ResizeObserver(reserveSpace)
+    resize.observe(element)
+    return () => {
+      resize.disconnect()
+      style.removeProperty('--app-header-height')
+    }
+  }, [])
 
   useEffect(() => {
     if (!active) {
@@ -69,11 +84,11 @@ function SummaryDemo() {
             <h2 id="tour-title">{active.title} <span>{step + 1} of {tour.length}</span></h2>
             <p>{active.text}</p>
             <div className="snapshot-tour-actions">
-              <button type="button" disabled={step === 0} onClick={() => setStep(step - 1)}>Back</button>
-              <button type="button" onClick={() => step + 1 === tour.length ? finish() : setStep(step + 1)}>
+              <DemoControl as="button" type="button" disabled={step === 0} onClick={() => setStep(step - 1)}>Back</DemoControl>
+              <DemoControl as="button" type="button" onClick={() => step + 1 === tour.length ? finish() : setStep(step + 1)}>
                 {step + 1 === tour.length ? 'Finish' : 'Next'}
-              </button>
-              <button type="button" onClick={finish}>Skip</button>
+              </DemoControl>
+              <DemoControl as="button" type="button" onClick={finish}>Skip</DemoControl>
             </div>
           </aside>
         )}
@@ -84,7 +99,7 @@ function SummaryDemo() {
           <section className="reports" aria-labelledby="reports">
             <ReportsHeading headingId="reports">
               <span>Team overview</span>
-              <button ref={trigger} type="button" onClick={() => setStep(0)} hidden={Boolean(active)}>Start tour</button>
+              <DemoControl as="button" ref={trigger} type="button" onClick={() => setStep(0)} hidden={Boolean(active)}>Start tour</DemoControl>
             </ReportsHeading>
             <ReportTimeProvider capturedAt={capturedAt}>
               <ReportsLayout sidebar={queuedAsks && Object.values(queuedAsks).some(rows => rows.length > 0)
@@ -100,4 +115,4 @@ function SummaryDemo() {
   )
 }
 
-createRoot(document.getElementById('root')).render(<SummaryDemo />)
+createRoot(document.getElementById('root')).render(<DemoNotice><SummaryDemo /></DemoNotice>)

@@ -12,6 +12,45 @@
 .snapshot-tour h2 span { color: var(--muted); font-size: .875rem; font-weight: 400; margin-inline-start: .4rem; }
 .snapshot-tour p { margin: .35rem 0 .6rem; }
 .snapshot-tour-actions { display: flex; gap: .375rem; flex-wrap: wrap; }
-.snapshot button, .snapshot-tour button { min-height: 2.75rem; }
+.snapshot button:not([data-demo-unavailable]), .snapshot-tour button { min-height: 2.75rem; }
 .snapshot [data-tour-current="true"] { outline: 2px solid currentColor; outline-offset: .25rem; }
-.snapshot .report-outcome-title { white-space: normal; overflow-wrap: anywhere; }
+.snapshot .report-outcome { align-items: start; }
+.snapshot .report-outcome-title { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+
+button[data-demo-unavailable] {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--green);
+  text-align: start;
+  text-decoration: underline dotted;
+  text-underline-offset: .15em;
+}
+.board-views button.offline-view { justify-content: center; padding-inline: .22rem; border-radius: 0; }
+.board-views button.offline-view:focus-visible { outline-offset: -3px; }
+.snapshot button.static-task-title { overflow-wrap: anywhere; }
+.demo-tooltip {
+  position: fixed;
+  z-index: 5;
+  width: min(18rem, calc(100vw - 1rem));
+  left: clamp(.5rem, var(--demo-notice-left), max(.5rem, 100vw - 18.5rem));
+  padding: .45rem .6rem;
+  border: 1px solid var(--line);
+  border-radius: .35rem;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 .2rem .75rem rgb(0 0 0 / .2);
+  font-size: .82rem;
+}
+.demo-tooltip[data-touch] { pointer-events: none; }
+.demo-dialog {
+  width: min(22rem, calc(100% - 2rem));
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: .45rem;
+  background: var(--paper);
+  color: var(--ink);
+}
+.demo-dialog::backdrop { background: #0006; }
+.demo-dialog-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin-top: .9rem; }
+.demo-dialog-actions > :is(a, button) { display: inline-flex; align-items: center; min-height: 2.75rem; }

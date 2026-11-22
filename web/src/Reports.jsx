@@ -15,6 +15,7 @@ import { useTimeZone } from './timeZone.js'
 import { briefSourceText } from './workCopy.js'
 import QueuedAsks from './QueuedAsks.jsx'
 import StampIntegration from './StampIntegration.jsx'
+import { DemoControl, DemoUnavailable } from './DemoControl.jsx'
 
 export const ownerWorkSections = [
   { state: 'human_review', id: 'human_review-title', title: 'Needs a decision', label: 'tasks needing a decision' },
@@ -24,13 +25,13 @@ export const ownerWorkSections = [
 ]
 
 export function OwnerWorkLinks({ owner, counts, project, summary = false, publicPreview = false }) {
-  const Link = publicPreview ? 'span' : 'a'
-  return ownerWorkSections.map(({ state, id, title }) =>
-    counts?.[state] !== 0 && (!summary || state === 'human_review' || state === 'ready') && (
-      <Link key={id} href={publicPreview ? undefined : ownerHref(owner, id, project)}>
-        {title}{counts?.[state] != null && <> <strong>{counts[state]}</strong></>}
-      </Link>
-    ))
+  return ownerWorkSections.filter(({ state }) =>
+    counts?.[state] !== 0 && (!summary || state === 'human_review' || state === 'ready')
+  ).map(({ state, id, title }) => {
+    const label = <>{title}{counts?.[state] != null && <> <strong>{counts[state]}</strong></>}</>
+    return publicPreview ? <DemoUnavailable key={id}>{label}</DemoUnavailable>
+      : <a key={id} href={ownerHref(owner, id, project)}>{label}</a>
+  })
 }
 
 function PendingReport({ report }) {
@@ -89,10 +90,11 @@ const goalSections = {
 }
 
 function ReportGoals({ goals, owner, project, publicPreview, target, highlighted, heading: Heading }) {
+  const Panel = publicPreview ? 'details' : 'div'
   return (
-    <div className="report-owner-section report-goals-panel"
+    <Panel className="report-owner-section report-goals-panel"
       id={target} data-tour-current={highlighted || undefined}>
-      <Heading>Goals</Heading>
+      {publicPreview ? <DemoControl as="summary">Goals</DemoControl> : <Heading>Goals</Heading>}
       <ul className="report-goals" role="list">
         {goals.map(({ kind, summary, deadline, ticket, public_url: source }) => {
           const label = ticket == null ? summary : (
@@ -100,15 +102,15 @@ function ReportGoals({ goals, owner, project, publicPreview, target, highlighted
           )
           return (
             <li key={ticket || kind + ':' + summary}>
-              {publicPreview && !source ? <span className="report-goal-text">{label}</span>
-                : <a href={publicPreview ? source : ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{label}</a>}
+              {publicPreview && !source ? <DemoUnavailable className="report-goal-text">{label}</DemoUnavailable>
+                : <DemoControl as="a" href={publicPreview ? source : ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{label}</DemoControl>}
               {kind === 'standing' && <span>Standing goal</span>}
               {deadline && <GoalDeadline deadline={deadline} />}
             </li>
           )
         })}
       </ul>
-    </div>
+    </Panel>
   )
 }
 
@@ -147,7 +149,6 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
   const inProgress = progressCount == null ? tasks.some(task => task.state === 'in_progress') : progressCount > 0
   const OwnerHeading = projectTitle ? 'h3' : 'h2'
   const WorkHeading = projectTitle ? 'h4' : 'h3'
-  const WorkLink = publicPreview ? 'span' : 'a'
   const queueLink = `#${new URLSearchParams({ ...(project && { project }), section: 'queue-heading', owner })}`
   return (
     <li className="report-owner">
@@ -156,7 +157,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         <div>
           <div className="dri-name-line">
             <OwnerHeading>
-              <a href={publicPreview ? entry.public_url : ownerHref(owner, undefined, project)}>{name}</a>
+              <DemoControl as="a" href={publicPreview ? entry.public_url : ownerHref(owner, undefined, project)}>{name}</DemoControl>
               <DriWorkStatus inProgress={inProgress} compact />
             </OwnerHeading>
             {projectTitle && <span className="report-project-label">{projectTitle}</span>}
@@ -203,8 +204,9 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
       )}
       {(!publicPreview || entry.task_counts) && <div className="owner-links">
         <OwnerWorkLinks owner={owner} counts={entry.task_counts} project={project} summary publicPreview={publicPreview} />
-        {outcomes.size > 0 && <WorkLink href={publicPreview ? undefined : ownerHref(owner, 'outcomes-title', project)}>All outcomes</WorkLink>}
-        <WorkLink href={publicPreview ? undefined : queueLink}>All tasks</WorkLink>
+        {outcomes.size > 0 && (publicPreview ? <DemoUnavailable>All outcomes</DemoUnavailable>
+          : <a href={ownerHref(owner, 'outcomes-title', project)}>All outcomes</a>)}
+        {publicPreview ? <DemoUnavailable>All tasks</DemoUnavailable> : <a href={queueLink}>All tasks</a>}
       </div>}
       {!publicPreview && reports.length > 0 && (
         <PendingReports owner={owner} project={project} projectTitle={projectTitle} name={name} initial={reports}
