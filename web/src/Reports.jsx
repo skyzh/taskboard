@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useLoadedPages } from './data.js'
 import {
-  ActivityMark, AssigneeAvatar, EvidenceLinks, LoadMore, ResourceStatus, TaskLink, WorkerResult,
+  ActivityMark, AssigneeAvatar, EvidenceLinks, LoadMore, ResourceStatus, Status, TaskLink, TaskPriority, WorkerResult,
   eventHref, ownerHref, profileName, taskHref, taskLabel,
 } from './shared.jsx'
 import './reports.css'
@@ -85,14 +85,15 @@ const goalSections = {
   milestone: 'dri-milestones-title',
 }
 
-function ReportGoals({ goals, owner, project }) {
+function ReportGoals({ goals, owner, project, publicPreview, target, highlighted }) {
   return (
-    <details className="report-owner-section report-goals-panel">
+    <details className="report-owner-section report-goals-panel"
+      id={target} data-tour-current={highlighted || undefined} open={publicPreview || undefined}>
       <summary>Goals</summary>
       <ul className="report-goals" role="list">
-        {goals.map(({ kind, summary, deadline, ticket }) => (
+        {goals.map(({ kind, summary, deadline, ticket, public_url: source }) => (
           <li key={ticket || kind + ':' + summary}>
-            <a href={ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{summary}</a>
+            <a href={publicPreview ? source : ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{summary}</a>
             {kind === 'standing' && <span>Standing goal</span>}
             {deadline && <time dateTime={deadline}>{deadline}</time>}
           </li>
@@ -111,21 +112,44 @@ function ReportActivityTime({ event, label }) {
   )
 }
 
-function ReportOutcome({ event }) {
+function ReportOutcome({ event, publicPreview }) {
   const choice = briefSourceText(event.context?.choice)
   return (
     <li className="report-outcome" id={`event-${event.id}-outcome`} tabIndex={-1}>
       <ActivityMark event={event} />
       <div className="report-outcome-title">
-        <TaskLink reference={event.task_key} id={event.task_id} title={event.task_title} />
+        {publicPreview
+          ? <><span className="ticket-id">{event.task_key}</span> <a href={event.public_url}>{event.task_title}</a></>
+          : <TaskLink reference={event.task_key} id={event.task_id} title={event.task_title} />}
         {choice && <> · <MarkdownInline text={choice} /></>}
       </div>
-      <ReportActivityTime event={event} label={`Open outcome for ${taskLabel(event.task_id, event.task_key)}`} />
+      {publicPreview
+        ? <time dateTime={event.at}>{event.at}</time>
+        : <ReportActivityTime event={event} label={`Open outcome for ${taskLabel(event.task_id, event.task_key)}`} />}
     </li>
   )
 }
 
-export function AssigneeReport({ entry, revision, project, projectTitle }) {
+function PreviewWork({ items, label }) {
+  return (
+    <ol className="task-rows" aria-label={label} role="list">
+      {items.map(task => (
+        <li key={task.id} className="task-row report-task snapshot-work-row">
+          <TaskPriority priority={task.priority} strip />
+          <div className="task-row-heading">
+            <a href={task.public_url}><span className="ticket-id">{task.key}</span> {task.title}</a>
+            <div className="task-row-meta"><Status state={task.state} /></div>
+          </div>
+          <div className="task-row-context">
+            <p className="task-row-note">{task.note}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+export function AssigneeReport({ entry, revision, project, projectTitle, publicPreview = false, tourTargets = {}, activeTarget }) {
   const { owner, profile, tasks, task_count: taskCount,
     pending_reports: reports, pending_reports_before: before, report_count: reportCount } = entry
   const name = profileName(owner, profile)
@@ -140,7 +164,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle }) {
         <div>
           <div className="dri-name-line">
             <OwnerHeading>
-              <a href={ownerHref(owner, undefined, project)}>{name}</a>
+              <a href={publicPreview ? entry.public_url : ownerHref(owner, undefined, project)}>{name}</a>
             </OwnerHeading>
             {projectTitle && <span className="report-project-label">{projectTitle}</span>}
           </div>
@@ -152,26 +176,28 @@ export function AssigneeReport({ entry, revision, project, projectTitle }) {
         </div>
       </div>
       {tasks.length > 0 && (
-        <div className="report-owner-section">
+        <div className="report-owner-section" id={tourTargets.current} data-tour-current={tourTargets.current === activeTarget && activeTarget ? true : undefined}>
           <WorkHeading>Current work</WorkHeading>
-          <TaskRows items={tasks} owner={false} label={`Current work for ${name}`} report="summary" revision={revision} />
+          {publicPreview ? <PreviewWork items={tasks} label={`Current work for ${name}`} />
+            : <TaskRows items={tasks} owner={false} label={`Current work for ${name}`} report="summary" revision={revision} />}
           {taskCount > tasks.length && <p className="report-note">Showing {tasks.length} of {taskCount} current tasks.</p>}
         </div>
       )}
-      {entry.goals?.length > 0 && <ReportGoals goals={entry.goals} owner={owner} project={project} />}
+      {entry.goals?.length > 0 && <ReportGoals goals={entry.goals} owner={owner} project={project} publicPreview={publicPreview}
+        target={tourTargets.goals} highlighted={tourTargets.goals === activeTarget && Boolean(activeTarget)} />}
       {outcomes.size > 0 && (
-        <div className="report-owner-section">
+        <div className="report-owner-section" id={tourTargets.outcomes} data-tour-current={tourTargets.outcomes === activeTarget && activeTarget ? true : undefined}>
           <WorkHeading>Recent outcomes</WorkHeading>
           <ol className="report-outcomes" aria-label={`Recent outcomes for ${name}`} role="list">
-            {[...outcomes].map(([id, events]) => <ReportOutcome key={id} event={events[0]} />)}
+            {[...outcomes].map(([id, events]) => <ReportOutcome key={id} event={events[0]} publicPreview={publicPreview} />)}
           </ol>
         </div>
       )}
-      <div className="owner-links">
+      {!publicPreview && <div className="owner-links">
         <OwnerWorkLinks owner={owner} counts={entry.task_counts} project={project} summary />
         {outcomes.size > 0 && <a href={ownerHref(owner, 'outcomes-title', project)}>All outcomes</a>}
         <a href={queueLink}>All tasks</a>
-      </div>
+      </div>}
       {reports.length > 0 && (
         <PendingReports owner={owner} project={project} projectTitle={projectTitle} name={name} initial={reports}
           total={reportCount} cursor={before} />
