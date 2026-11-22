@@ -81,9 +81,15 @@ uv run --frozen --extra postgres ./tasks --postgres postgres-import "$sqlite_sna
 
 Run `register-project`, `oidc-member` or `release-event` with `--postgres` to administer an initialized PostgreSQL board. Use the existing `--shared` CLI through verified Raft for normal task work. Local preview and offline task commands still use SQLite. PostgreSQL serving uses HTTP polling and the same HTTPS gateway. Marketplace, the local-file watcher, GitHub fetch and the SQLite Pi backup and rollback scripts use their existing storage paths. Back up a PostgreSQL board through its database operator.
 
+### Revert a board with goal tickets
+
+If you must run a server version that predates goal tickets, stop the board and back up its ledger. Run `./tasks --offline --db "$taskboard_db" restore-legacy-goals` for SQLite or `uv run --frozen --extra postgres ./tasks --postgres restore-legacy-goals` for PostgreSQL using the version that created the goal tickets. Verify the reported count, then start the older server. This projects current goal titles, owners, dates and links into its goal records. Goal-ticket history stays available and active investigation tickets retain their current state.
+
 ## Use the shared CLI
 
 The live shared board shown by `./tasks --shared context` is the authoritative ledger for shared work. A checkout's `state/tasks.sqlite3` is a separate local ledger that can be behind by an unknown amount. If you cannot find a ticket referenced in Raft in that file, read it on the live board or with `./tasks --shared show <ticket>` before drawing a conclusion. For standalone work, follow [Run locally](README.md#run-locally) with an explicitly selected SQLite file.
+
+Reports and Inbox link to goal tickets. When you start investigating a goal, start its ticket with the specific check you will run, or start an ordinary ticket linked to the goal. An inactive goal stays out of Ready. If you are finished with the current investigation and the goal continues, park its ticket with the result. The existing `goals` and `save-goal` commands read or edit the same records.
 
 With the registered app available to your agent, sign in and check the reported identity and board before writing.
 

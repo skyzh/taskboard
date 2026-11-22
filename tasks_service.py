@@ -317,6 +317,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
         oidc_members.bind_issuer(db, oidc_issuer)
     db.execute(goals.SCHEMA)
     goals.ensure_extended_schema(db)
+    goals.migrate_goal_tickets(db)
     db.execute(profiles.IMPORT_SCHEMA)
     db.execute(INTAKE_ERRORS)
     db.execute(ATTENTION_SCHEMA)
@@ -375,6 +376,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
             if oidc_issuer is not None:
                 oidc_members.bind_issuer(db, oidc_issuer)
             goals.ensure_extended_schema(db)
+            goals.migrate_goal_tickets(db)
             for statement in notification_log.SCHEMA:
                 db.execute(statement)
 
@@ -822,7 +824,7 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
         if labels:
             task["tags"] = labels
         return {
-            **result, "ownership_actions": ledger.ownership_actions(task) if allowed else [],
+            **result, "ownership_actions": ledger.ownership_actions(task) if allowed and not result["goal"] else [],
             "tag_editable": editable,
             "can_close": editable and task["state"] != "done",
             "can_edit_details": editable,
@@ -1388,7 +1390,7 @@ def create_app(database, *, public_url, raft_config=None, local_readonly=False, 
         with tasks_storage.read(db()) as connection:
             return {
                 "items": list(query().actionable_work(owner, today=pacific_day(ledger.timestamp()), project=project)),
-                "standing_goals": goals.standing(connection, owner, project),
+                "standing_goals": goals.standing(connection, owner, project, include_ticket=True),
             }
 
     @app.get("/api/v1/notifications/decisions")

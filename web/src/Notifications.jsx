@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { request, useLoadedPages, useResource } from './data.js'
-import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificationLogFilters, ownerHref, profileName, signInHref } from './shared.jsx'
+import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificationLogFilters, ownerHref, profileName, signInHref, taskHref } from './shared.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import NotificationLog from './NotificationLog.jsx'
 import DecisionForm from './DecisionForm.jsx'
@@ -92,7 +92,7 @@ function InboxStandingGoals({ goals, owner }) {
     <ul className="event-list" aria-label="Standing goals" role="list">
       {goals.map(goal => (
         <li className="event-row dri-goal" key={goal.project}>
-          <p className="event-ticket"><a href={ownerHref(owner, 'dri-standing-goal-title', goal.project)}>Standing goal</a></p>
+          <p className="event-ticket"><a href={goal.ticket ? taskHref(goal.ticket) : ownerHref(owner, 'dri-standing-goal-title', goal.project)}>Standing goal</a></p>
           <p>{goal.summary}</p>
         </li>
       ))}

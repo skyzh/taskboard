@@ -67,7 +67,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
         <TaskLink reference={task.key} id={task.id} title={task.title} current={selected} />
         <div className="task-row-meta">
           {compactQueue && <span className="queue-task-key ticket-id" aria-hidden="true">{taskLabel(task.id, task.key)}</span>}
-          {(!reportSummary || !['waiting', 'in_progress'].includes(state)) && <Status state={state} />}
+          {(!reportSummary || task.goal_kind || !['waiting', 'in_progress'].includes(state)) && <Status state={state} />}
           {!reportSummary && <TaskWaitAge task={task} />}
           {owner && <Assignee task={task} compact />}
           {compactQueue && ['high', 'low'].includes(task.priority) && (

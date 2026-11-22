@@ -254,6 +254,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
       <a className="back-link" href={queueHref}>Back to Tasks</a>
       <p className="detail-meta">
         <span className="ticket-id">{taskLabel(id, task?.key)}</span>
+        {record?.goal && <span>{record.goal.kind === 'standing' ? 'Standing goal' : 'Milestone'}</span>}
         {task && <><Status state={state} /><TaskPriority priority={task.priority} /></>}
         {task && <TaskWaitAge task={task} />}
         {task?.eta && state !== 'closed' && <span>Estimated completion <Timestamp at={task.eta} /></span>}
@@ -265,12 +266,21 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
           <div className="detail-owner"><Assignee task={task} /><TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} /></div>
           <TaskOwnership task={task} actions={record.ownership_actions} project={task.key?.split('-')[0] || project}
             revision={revision} onChanged={onChanged} />
-          {record.can_edit_details && <TaskDetailsEdit key={task.id} task={task} brief={record.brief} onChanged={onChanged} />}
+          {record.can_edit_details && <TaskDetailsEdit key={task.id} task={task} brief={record.brief}
+            titleLimit={record.goal?.kind === 'standing' ? 500 : undefined} onChanged={onChanged} />}
           {record.can_close && state !== 'closed' && state !== 'done' && (
             <TaskClosure key={task.id} task={task} onChanged={onChanged} />
           )}
           <TaskTags task={task} editable={record.tag_editable} onChanged={onChanged} />
           <RecordedActivity activity={record.last_activity} />
+          {record.goal?.deadline && <p>Due <time dateTime={record.goal.deadline}>{record.goal.deadline}</time></p>}
+          {record.goal?.tickets.length > 0 && (
+            <ul className="context-list" aria-label="Work linked to this goal">
+              {record.goal.tickets.map(ticket => <li key={ticket.id}>
+                <TaskLink id={ticket.id} reference={ticket.key} title={ticket.title} />
+              </li>)}
+            </ul>
+          )}
           {record.brief && <Markdown text={record.brief} className="detail-brief prose" relatedTasks={record.related_tasks} />}
           <section className={`ticket-focus ${state}`} aria-label={summary}>
             <h3>{summary}</h3>

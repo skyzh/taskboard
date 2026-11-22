@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { useLoadedPages } from './data.js'
 import {
   ActivityMark, AssigneeAvatar, EvidenceLinks, LoadMore, ResourceStatus, TaskLink, WorkerResult,
-  eventHref, ownerHref, profileName, taskLabel,
+  eventHref, ownerHref, profileName, taskHref, taskLabel,
 } from './shared.jsx'
 import './reports.css'
 
@@ -90,9 +90,9 @@ function ReportGoals({ goals, owner, project }) {
     <details className="report-owner-section report-goals-panel">
       <summary>Goals</summary>
       <ul className="report-goals" role="list">
-        {goals.map(({ kind, summary, deadline }) => (
-          <li key={kind + ':' + summary}>
-            <a href={ownerHref(owner, goalSections[kind], project)}>{summary}</a>
+        {goals.map(({ kind, summary, deadline, ticket }) => (
+          <li key={ticket || kind + ':' + summary}>
+            <a href={ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{summary}</a>
             {kind === 'standing' && <span>Standing goal</span>}
             {deadline && <time dateTime={deadline}>{deadline}</time>}
           </li>

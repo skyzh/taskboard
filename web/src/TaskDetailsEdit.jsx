@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { request } from './data.js'
 
-export default function TaskDetailsEdit({ task, brief, onChanged }) {
+export default function TaskDetailsEdit({ task, brief, onChanged, titleLimit = 200 }) {
   const [draft, setDraft] = useState({})
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
@@ -42,7 +42,7 @@ export default function TaskDetailsEdit({ task, brief, onChanged }) {
         <label>
           Title
           <input value={title} onChange={event => setDraft({ ...draft, title: event.target.value })}
-            maxLength={200} disabled={saving} required />
+            maxLength={titleLimit} disabled={saving} required />
         </label>
         <label>
           Brief

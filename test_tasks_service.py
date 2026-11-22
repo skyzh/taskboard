@@ -673,6 +673,58 @@ class TasksServiceTest(unittest.TestCase):
                 self.assertNotIn("High-priority course task", output)
                 self.assertNotIn("T-2", output)
 
+    def test_existing_goals_migrate_once_to_parked_tickets(self):
+        app = self.app()
+        owner, owner_key = self.login(app, "Avery")
+        self.cli("register-project", "COURSE", "Example project", "--dri", owner_key)
+        self.action(owner, "create-task", {"project": "COURSE", "title": "Check the sample", "step": "Read it."})
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("INSERT INTO board_standing_goals VALUES ('COURSE', ?, 'Make reviews clear.')", (owner_key,))
+            db.execute("INSERT INTO board_project_goals VALUES ('COURSE', ?, 'Review the first batch.', '2030-12-03', '[1]')",
+                       (owner_key,))
+            db.execute("INSERT INTO board_goal_milestones VALUES ('COURSE', ?, 'Review the next batch.', '2030-12-10', '[1]')",
+                       (owner_key,))
+
+        for _ in range(2):
+            self.app()
+            with closing(sqlite3.connect(self.database)) as db:
+                rows = db.execute("""
+                    SELECT tasks.project_prefix, tasks.dri, tasks.title, kind, deadline, ticket_ids, events.state
+                    FROM task_goals JOIN tasks ON tasks.id = task_goals.task_id
+                    JOIN events ON events.task_id = tasks.id ORDER BY kind
+                """).fetchall()
+                self.assertEqual(rows, [
+                    ("COURSE", owner_key, "Review the next batch.", "milestone", "2030-12-10", "[1]", "parked"),
+                    ("COURSE", owner_key, "Review the first batch.", "original", "2030-12-03", "[1]", "parked"),
+                    ("COURSE", owner_key, "Make reviews clear.", "standing", None, "[]", "parked"),
+                ])
+                self.assertEqual(db.execute("SELECT title FROM tasks WHERE id = 1").fetchone(), ("Check the sample",))
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM events WHERE state = 'ready'").fetchone()[0], 1)
+
+        self.action(owner, "save-goal", {"project": "COURSE", "kind": "standing", "summary": "Make handoffs clear."})
+        result = self.action(owner, "task", query_string={"id": "COURSE-4"})
+        self.assertEqual((result["task"]["title"], result["goal"]["kind"]), ("Make handoffs clear.", "standing"))
+        self.assertEqual(result["ownership_actions"], [])
+        self.action(owner, "change-ownership", {
+            "id": "COURSE-4", "action": "unassign", "reason": "Check standing goal ownership.",
+        }, status=409)
+        self.action(owner, "advance-task", {
+            "id": "COURSE-4", "transition": "unpark", "note": "Check the Ready count.",
+        }, status=409)
+        self.action(owner, "advance-task", {
+            "id": "COURSE-4", "transition": "start", "note": "Measure time from review to handoff.",
+        })
+        self.action(owner, "advance-task", {
+            "id": "COURSE-4", "transition": "done", "note": "The sample is complete.",
+        }, status=409)
+        self.assertIn("Restored 3 legacy goals.", self.cli("restore-legacy-goals"))
+        self.assertIn("Restored 0 legacy goals.", self.cli("restore-legacy-goals"))
+        with closing(sqlite3.connect(self.database)) as db:
+            restored = db.execute("SELECT summary FROM board_standing_goals WHERE owner=?", (owner_key,)).fetchone()
+            self.assertEqual(restored, ("Make handoffs clear.",))
+            self.assertEqual(db.execute("SELECT state FROM events WHERE task_id=4 ORDER BY id DESC LIMIT 1").fetchone(),
+                             ("in_progress",))
+
     def test_project_goals_link_owned_board_tickets_and_keep_project_scope(self):
         self.cli("add", "Taskboard fixture", "--dri", "Avery", "--step", "Review notes.")
         self.cli("add", "Blake fixture", "--dri", "Blake", "--step", "Review notes.")
@@ -755,7 +807,16 @@ class TasksServiceTest(unittest.TestCase):
 
         def report_goals(project):
             rows = self.call(blake, "/api/v1/reports", query_string={"project": project, "view": "all"}).json["items"]
-            return {row["owner"]: row["goals"] for row in rows}
+            result = {}
+            for row in rows:
+                result[row["owner"]] = []
+                for goal in row["goals"]:
+                    reference = goal["ticket"]
+                    detail = self.call(blake, f"/api/v1/tasks/{reference}").json
+                    self.assertEqual((detail["task"]["title"], detail["task"]["state"], detail["task"]["dri"]),
+                                     (goal["summary"], "parked", row["owner"]))
+                    result[row["owner"]].append({key: value for key, value in goal.items() if key != "ticket"})
+            return result
 
         self.assertEqual(report_goals("T"), {
             owner: [
@@ -773,7 +834,8 @@ class TasksServiceTest(unittest.TestCase):
         path = "/api/v1/notifications/work"
         work = self.call(avery, path).json
         self.assertEqual([item["kind"] for item in work["items"]], ["ready", "review", "shared_ready"])
-        self.assertEqual(work["standing_goals"], [standing])
+        standing_ticket = work["standing_goals"][0]["ticket"]
+        self.assertEqual(work["standing_goals"], [{**standing, "ticket": standing_ticket}])
         self.assertEqual(self.call(blake, path).json["standing_goals"], [])
         self.assertNotIn("Improve the work queue", self.shared_cli(avery, "next", "--project", "T")[1])
         self.assertIn("Improve course handoffs", self.shared_cli(avery, "next", "--project", "COURSE")[1])
@@ -794,6 +856,16 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("Improve the work queue", fallback_output)
         self.assertIn(f"Next: {fallback['next_step']}", fallback_output)
         self.assertEqual(self.action(avery, "my-queue", query_string={"state": "ready"})["items"], [])
+        self.action(avery, "advance-task", {
+            "id": standing_ticket, "transition": "start", "note": "Measure queue handoffs on a sample ledger.",
+        })
+        self.assertEqual(self.action(avery, "my-next")["work"]["key"], standing_ticket)
+        rows = self.call(blake, "/api/v1/reports", query_string={"view": "all"}).json["items"]
+        active_goal = next(task for row in rows for task in row["tasks"] if task["key"] == standing_ticket)
+        self.assertEqual((active_goal["goal_kind"], active_goal["state"], active_goal["note"]),
+                         ("standing", "in_progress", "Measure queue handoffs on a sample ledger."))
+        self.action(avery, "advance-task", {"id": standing_ticket, "transition": "park", "note": "Sample checked."})
+        self.assertIsNone(self.action(avery, "my-next")["work"])
         self.call(avery, "/api/v1/profile/standing-goal", method="PATCH", json={"summary": None})
         milestone = "/api/v1/profile/milestone"
         change = {"summary": "Confirm the import", "deadline": "2026-12-04", "tickets": ["T-4"]}
