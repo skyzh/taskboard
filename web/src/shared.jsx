@@ -197,8 +197,13 @@ export function WorkerAssignment({ run }) {
   )
 }
 
-export function Status({ state }) {
-  return <span className={`status ${state}`}>{states[state] || state}</span>
+export function Status({ state, compactOnPhone = false }) {
+  const label = states[state] || state
+  return (
+    <span className={`status ${state}${compactOnPhone ? ' report-status' : ''}`}>
+      {compactOnPhone ? <span>{label}</span> : label}
+    </span>
+  )
 }
 
 export function taskState(task) {

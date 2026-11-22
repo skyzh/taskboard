@@ -44,7 +44,8 @@
 .report-outcome-title a:focus-visible { outline-offset: -2px; }
 .report-outcome > a { white-space: nowrap; }
 .report-outcome time { font-size: .79rem; }
-.report-owner .report-task .task-row-note { color: var(--ink); font-weight: var(--weight-emphasis); }
+.report-owner .report-task .task-row-note { color: var(--ink); }
+.report-status { margin-inline-end: .45rem; }
 .report-owner .task-row-meta:empty { display: none; }
 .report-task .task-row-meta { color: var(--muted); font-size: .8rem; }
 .report-task-cue { overflow-wrap: anywhere; }
@@ -79,6 +80,16 @@
   .owner-links a { display: inline-flex; align-items: center; gap: .28rem; min-height: 2rem; }
   .report-details > summary { padding-block: .18rem; }
   .report-goals-panel > summary { min-height: 2rem; align-content: center; }
+  .report-status { vertical-align: .12em; }
+  .status.report-status::before { width: .5rem; height: .5rem; }
+  .report-status > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 .dri-goal { padding: .75rem 0; border-bottom: 1px solid var(--line); }
