@@ -198,9 +198,10 @@ systemctl --user list-timers taskboard-deploy.timer
 journalctl --user -u taskboard-deploy.service
 ```
 
-The service reads GitHub anonymously. It skips the commit already running and
-requires successful checks from the configured apps on the exact protected
-main SHA before fetching or building it. It installs locked dependencies,
+The service reads GitHub anonymously. It compares the public Git main ref
+with the running commit first. A matching SHA needs no GitHub REST calls.
+For a new SHA it verifies the active protection and successful REST check
+results from the configured apps before fetching or building it. It installs locked dependencies,
 builds and verifies the manifest, then uses the compatibility matrix and the
 existing serialized Pi backup, smoke, and rollback transaction. The timer
 checks again two minutes after the last invocation ends. Read its journal and
