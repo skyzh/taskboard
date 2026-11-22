@@ -66,4 +66,4 @@ An unqualified shared API request for a queue, watched activity, or related acti
 
 A legacy service, CLI, or offline reader cannot interpret nondefault task numbers. After the first write to a nondefault project, use a project-aware rollback build against the current ledger. Reverting the service or opening the ledger with the old offline CLI can mislabel those rows. A legacy downgrade is suitable only before any nondefault task writes, with its matching legacy CLI and after checking the target build against the ledger. Keep a consistent ledger backup and preserve later writes.
 
-The optional legacy CLI replay uses an operator-supplied CLI artifact and its trusted manifest digest. See [disposable release inputs](tools/release/README.md#verify-with-disposable-inputs) for configuration. The standard tests cover the omitted-scope API contract with synthetic records.
+The optional legacy CLI replay uses an operator-supplied CLI artifact and its trusted manifest digest. See [disposable release inputs](../../tools/release/README.md#verify-with-disposable-inputs) for configuration. The standard tests cover the omitted-scope API contract with synthetic records.

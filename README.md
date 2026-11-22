@@ -8,8 +8,8 @@ Taskboard is a self-hosted task board for humans and coding agents. It gives a t
 
 ## Choose how to use it
 
-- **Web board.** Browse project queues, follow activity, and open a task or its evidence. On a shared board, signed-in teammates can act on their work and answer assigned decisions. The standalone browser preview is read-only. [Shared board setup](SHARED-BOARD.md)
-- **CLI.** Start, update, or finish a task from a terminal. Use a private SQLite ledger for standalone work or use `./tasks --shared context` to verify your identity and board before working against the shared ledger. [Shared CLI setup](SHARED-BOARD.md#use-the-shared-cli)
+- **Web board.** Browse project queues, follow activity, and open a task or its evidence. On a shared board, signed-in teammates can act on their work and answer assigned decisions. The standalone browser preview is read-only. [Shared board setup](docs/taskboard/SHARED-BOARD.md)
+- **CLI.** Start, update, or finish a task from a terminal. Use a private SQLite ledger for standalone work or use `./tasks --shared context` to verify your identity and board before working against the shared ledger. [Shared CLI setup](docs/taskboard/SHARED-BOARD.md#use-the-shared-cli)
 - **MCP.** Connect a coding agent to the shared board with the local stdio adapter and the agent’s existing Raft sign-in. Inspect queues, open tickets, and record progress from the MCP host. [MCP setup and supported actions](docs/taskboard/MCP.md)
 
 For shared work, use the live board or `./tasks --shared show <ticket>` to read the current task. A standalone checkout has its own ledger.
@@ -68,14 +68,14 @@ For a Raft attachment, link to its message. For an artifact, use its Raft link. 
 
 During a progress update, the task owner can set or revise an estimated completion time with `./tasks update T-1 "Compare the remaining totals." --by "Sample owner" --eta 2026-11-24T16:30:00-08:00`. Include a UTC offset or `Z`. Use `--clear-eta` to remove the estimate. It appears as Estimated completion in task detail.
 
-See [the Taskboard skill](skills/taskboard/SKILL.md) for task execution, review, and handoff guidance. See [project registration](PROJECTS.md) for project prefixes and scoped views, [local merge records](MERGE-QUEUE.md) for the merge queue, and [historical release receipts](RELEASE-QUEUE.md) for the legacy API and import format.
+See [the Taskboard skill](skills/taskboard/SKILL.md) for task execution, review, and handoff guidance, [project registration](docs/taskboard/PROJECTS.md) for project prefixes and scoped views, and [activity history](docs/taskboard/CHANGE-HISTORY.md) for what each operation records.
 
 ## Project layout
 
-The root-level Python modules and `./tasks` entry point provide the task commands, SQLite ledger, and HTTP service. The React client lives in `web/`. The optional Raft integration provides sign-in, principal mapping, and a shared command transport. It uses the same task and ownership rules as the local workflow. See [shared-board setup](SHARED-BOARD.md) for the adapter.
+The `./tasks` entry point runs the commands in `packages/cli/`. The other Python packages provide the shared API client (`packages/client/`), the HTTP service and ledger (`packages/server/`), and the local MCP adapter (`packages/mcp/`). The React client lives in `web/`. The optional Raft integration provides sign-in, principal mapping, and a shared command transport. It uses the same task and ownership rules as the local workflow. See [shared-board setup](docs/taskboard/SHARED-BOARD.md) for the adapter.
 
-The optional [Marketplace mode](MARKETPLACE.md) keeps a separate ledger per installed Raft server. The [release tools](tools/release/README.md) build and verify immutable artifacts for operators.
+The optional [Marketplace mode](docs/taskboard/MARKETPLACE.md) keeps a separate ledger per installed Raft server. The [release tools](tools/release/README.md) build and verify immutable artifacts for operators. Self-hosted operators can also consult the [local merge queue](docs/taskboard/operators/MERGE-QUEUE.md) and [historical release receipts](docs/taskboard/operators/RELEASE-QUEUE.md).
 
 ## Contribute
 
-See [Contributing](CONTRIBUTING.md) for test commands, compatibility expectations, and review. Taskboard is distributed under the [MIT License](LICENSE).
+See [Contributing](CONTRIBUTING.md) for test commands, compatibility expectations, and review. The [development log](docs/taskboard/DEVELOPMENT_LOG.md) records verified changes and next priorities. Taskboard is distributed under the [MIT License](LICENSE).

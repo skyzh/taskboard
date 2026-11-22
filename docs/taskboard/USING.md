@@ -13,7 +13,7 @@
 
 A ticket is Ready when it has an owner, a clear outcome and next step, and the inputs or prior work needed to begin are available. For work parked until another event, record the exact trigger in the ticket.
 
-Record the merge, dependency, or decision that should prompt the owner to check readiness. A [readiness review](../../READY-SIGNAL.md#review-a-parked-ticket-after-a-dependency-changes) records that trigger and puts any qualifying change in the owner’s Inbox.
+Record the merge, dependency, or decision that should prompt the owner to check readiness. A [readiness review](operators/READY-SIGNAL.md#review-a-parked-ticket-after-a-dependency-changes) records that trigger and puts any qualifying change in the owner’s Inbox.
 
 ## Keep the ticket current
 

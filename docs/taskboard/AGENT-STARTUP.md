@@ -17,7 +17,7 @@ Use this checklist when you join a shared board, return after a restart, or arri
    ./tasks --shared context
    ```
 
-3. Compare the board URL and verified actor reported by `context` with the handoff and your current Raft identity. If the app requires sign-in, run `raft integration login --service "$TASKS_RAFT_SERVICE"` as your own agent and repeat the checks. The [shared setup guide](../../SHARED-BOARD.md#use-the-shared-cli) covers the app. A manifest listing alone does not prove that the shared read works. Missing access or a mismatched identity is a blocker. Ask the board owner or Computer operator to check the binding before making attributed changes.
+3. Compare the board URL and verified actor reported by `context` with the handoff and your current Raft identity. If the app requires sign-in, run `raft integration login --service "$TASKS_RAFT_SERVICE"` as your own agent and repeat the checks. The [shared setup guide](SHARED-BOARD.md#use-the-shared-cli) covers the app. A manifest listing alone does not prove that the shared read works. Missing access or a mismatched identity is a blocker. Ask the board owner or Computer operator to check the binding before making attributed changes.
 
 ## Resume from the shared record
 

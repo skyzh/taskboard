@@ -1,5 +1,7 @@
 # Local merge queue
 
+This guide covers self-hosted projects that record local Git merges. For pull requests to the public Taskboard repository, follow [the contributor workflow](../../../CONTRIBUTING.md#propose-a-change).
+
 The default Taskboard project shows reviewed local changes under **Tasks → Work queue → Merge queue**. Each row shows the task, its current owner, the exact candidate commit, the local target branch, and the independent review. Task status and the deploy queue have their own records.
 
 ## Record a candidate and review
@@ -68,6 +70,6 @@ Use the owner who received the send if a handoff happened between sending and ac
 
 For a shared SQLite board, an authorized operator can add `--record-project-log`
 before `pending` and `ack`. Pending offers and confirmed sends then appear in
-the project log when the sender runs those commands. [Project notification log](docs/taskboard/NOTIFICATION-LOG.md)
+the project log when the sender runs those commands. [Project notification log](../NOTIFICATION-LOG.md)
 
 A hosted adapter can use a pull request closing event to request verification. Read the exact linked repository and pull request number, confirm the PR was merged, and record the provider’s final `merge_commit_sha` for each linked ticket. Reuse the ticket and landed commit as the delivery key. The final SHA on the merged PR is the source of truth because the same field can identify a temporary test merge before the PR lands. [GitHub pull request API](https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request)
