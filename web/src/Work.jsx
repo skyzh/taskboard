@@ -263,7 +263,7 @@ function TaskWatch({ id, session, revision, onChanged }) {
   )
 }
 
-export function TaskDetail({ id, revision, session, onChanged, preferredProject = 'T', returnHref }) {
+export function TaskDetail({ id, revision, session, onChanged, preferredProject = 'T', returnHref, fromSearch }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
   const detail = useResource(`/tasks/${id}`, revision)
   const activity = useLoadedPages(`/tasks/${id}/activity`, {}, revision)
@@ -273,9 +273,10 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   const summary = state === 'closed' ? 'Closure reason' : task?.summary_label
   const project = typeof id === 'string' ? id.split('-')[0] : 'T'
   const queueHref = returnHref || (project === 'T' && preferredProject === 'T' ? '#board' : `#project=${project}`)
+  const backHref = fromSearch ? `#${new URLSearchParams({ search: fromSearch })}` : queueHref
   return (
     <article id={taskHref(id).slice(1)} className="panel task-detail" aria-labelledby={`task-heading-${id}`} tabIndex={-1}>
-      <a className="back-link" href={queueHref}>Back to Tasks</a>
+      <a className="back-link" href={backHref}>{fromSearch ? 'Back to Search results' : 'Back to Tasks'}</a>
       <p className="detail-meta">
         <span className="ticket-id">{taskLabel(id, task?.key)}</span>
         {record?.goal && <span>{record.goal.kind === 'standing' ? 'Standing goal' : 'Milestone'}</span>}

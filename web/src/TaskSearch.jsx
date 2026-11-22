@@ -73,7 +73,7 @@ export function SearchResults({ query, revision }) {
       </div>
       <ResourceStatus resource={page} label="search results" />
       {items?.length === 0 && <p className="section-message" role="status">No tasks match your search.</p>}
-      <TaskRows items={items} label="Matching tasks" />
+      <TaskRows items={items} label="Matching tasks" searchQuery={query} />
       <LoadMore page={page} label="search results" />
     </section>
   )
