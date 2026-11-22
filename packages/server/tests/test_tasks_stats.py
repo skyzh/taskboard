@@ -3,13 +3,16 @@
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
+import json
 from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
 
 import tasks_core
+import tasks_peer_asks
 import tasks_profiles
+import tasks_projects
 import tasks_stats
 from tasks_service import create_app
 
@@ -24,6 +27,8 @@ class StatsTest(unittest.TestCase):
         self.db.row_factory = sqlite3.Row
         self.addCleanup(self.db.close)
         for statement in tasks_core.SCHEMA:
+            self.db.execute(statement)
+        for statement in tasks_peer_asks.SCHEMA:
             self.db.execute(statement)
         self.db.execute(tasks_profiles.SCHEMA)
         self.db.execute(tasks_profiles.IMPORT_SCHEMA)
@@ -40,25 +45,132 @@ class StatsTest(unittest.TestCase):
                    ("human", "fixture-b", "Blake", "Blake Human")),
         )
 
-    def event(self, task, action, actor, clock, state):
-        self.db.execute(
+    def event(self, task, action, actor, clock, state, context=None):
+        return self.db.execute(
             """
-            INSERT INTO events (task_id, action, actor, at, state, note, links)
-            VALUES (?, ?, ?, ?, ?, 'Private body', '[]')
-            """, (task, action, actor, DAY + clock + ":00Z", state),
-        )
+            INSERT INTO events (task_id, action, actor, at, state, note, links, context)
+            VALUES (?, ?, ?, ?, ?, 'Private body', '[]', ?)
+            """, (task, action, actor, DAY + clock + ":00Z", state, json.dumps(context or {})),
+        ).lastrowid
 
-    def worker(self, who, status, assigned, started=None, reported=None, finalized=None):
+    def worker(self, who, status, assigned, started=None, reported=None, finalized=None, *, task=1):
         def at(clock):
             return DAY + clock + ":00Z" if clock is not None else None
 
-        self.db.execute(
+        return self.db.execute(
             """
             INSERT INTO worker_runs (task_id, worker, role, brief, effort, status, assigned_at,
                                      started_at, reported_at, finalized_at)
-            VALUES (1, ?, 'build', 'Private worker brief', 'High', ?, ?, ?, ?, ?)
-            """, (who, status, at(assigned), at(started), at(reported), at(finalized)),
+            VALUES (?, ?, 'build', 'Private worker brief', 'High', ?, ?, ?, ?, ?)
+            """, (task, who, status, at(assigned), at(started), at(reported), at(finalized)),
+        ).lastrowid
+
+    def test_ticket_turnaround_pairs_episodes_and_reports_unknowns(self):
+        start = self.event(1, "start", "Avery", "10:40", "in_progress")
+        self.event(1, "transfer", "Avery", "10:45", "ready")
+        self.event(1, "start", "Blake", "10:50", "in_progress")
+        done = self.event(1, "done", "Blake", "11:05", "done")
+        self.event(1, "transfer", "Blake", "11:06", "ready", {"ownership_action": "reopen"})
+        self.event(1, "start", "Blake", "11:10", "in_progress")
+        self.event(1, "done", "Blake", "11:20", "done")
+        self.event(1, "done", "Blake", "11:22", "done")
+        self.event(2, "start", "Avery", "11:25", "in_progress")
+        self.event(2, "update", "Avery", "11:30", "done", {"closure": {}})
+        self.event(2, "done", "Avery", "11:35", "done")
+        self.event(3, "start", "Quinn", "11:40", "in_progress")
+        self.event(3, "done", "Quinn", "11:40", "done")
+        self.event(4, "add", "Quinn", "11:40", "ready")
+        self.event(4, "resume", "Quinn", "11:50", "in_progress")
+        self.event(4, "done", "Quinn", "11:55", "done")
+        self.event(5, "start", "Blake", "11:55", "in_progress")
+        self.event(5, "done", "Blake", "12:00", "done")
+
+        stats = tasks_stats.snapshot(self.db, "hour", NOW)
+        flow = stats["ticket_flow"]
+        self.assertEqual((flow["new"], flow["done"], flow["closed"]), (1, 6, 1))
+        turnaround = flow["start_to_done"]
+        self.assertEqual((turnaround["eligible"], turnaround["measured"], turnaround["unknown"]), (6, 2, 4))
+        self.assertEqual(turnaround["median_seconds"], 1050)
+        self.assertEqual(turnaround["examples"][0], {"task": "T-1", "start_event": start, "end_event": done})
+        self.assertEqual(sum(bucket["done"] for bucket in stats["buckets"]), 6)
+        self.assertEqual((stats["buckets"][1]["done"], stats["buckets"][6]["closed"]), (1, 1))
+
+    def test_peer_request_timings_use_linked_results_and_requester_acknowledgments(self):
+        self.db.execute("INSERT INTO tasks (id, title, dri, brief) VALUES (6, 'Outside window', 'Blake', '')")
+        run = self.worker("Avery", "collected", "10:40", "10:45", "11:15", "11:16")
+        self.db.executemany(
+            "INSERT INTO peer_asks (task_id, source_task_id, requester, recipient, review_run_id) VALUES (?, 1, 'Blake', 'Avery', ?)",
+            ((2, run), (3, None), (4, None), (5, None), (6, None)),
         )
+        adopted_add = self.event(2, "add", "Blake", "11:00", "ready")
+        adopted_start = self.event(2, "start", "Avery", "10:45", "in_progress")
+        self.event(2, "transfer", "Avery", "11:10", "ready")
+        adopted_result = self.event(2, "transfer", "Avery", "11:15", "ready")
+        self.event(2, "done", "Avery", "11:17", "done")
+        adopted_ack = self.event(2, "done", "Blake", "11:20", "done")
+        self.event(3, "add", "Blake", "11:15", "ready")
+        self.event(3, "start", "Avery", "11:22", "in_progress")
+        result = self.event(3, "transfer", "Avery", "11:30", "ready")
+        self.event(3, "done", "Blake", "12:00", "done")
+        self.event(4, "add", "Blake", "11:20", "ready")
+        self.event(4, "update", "Blake", "11:30", "done", {"closure": {}})
+        self.event(5, "add", "Blake", "11:25", "ready")
+        self.event(6, "add", "Blake", "10:59", "ready")
+        self.event(6, "add", "Blake", "11:00", "ready")  # Use the original Add.
+        self.db.executemany("UPDATE peer_asks SET result_event_id = ? WHERE task_id = ?",
+                            ((adopted_result, 2), (result, 3), (result, 5)))
+
+        peer = tasks_stats.snapshot(self.db, "hour", NOW)["peer_requests"]
+        self.assertEqual({key: value for key, value in peer.items() if key != "timings"}, {
+            "opened": 4, "pending": 1, "awaiting_ack": 1, "acknowledged": 1, "canceled": 1, "already_started": 1,
+        })
+        timings = peer["timings"]
+        self.assertEqual(timings["add_to_start"]["median_seconds"], 420)
+        self.assertEqual((timings["add_to_start"]["eligible"], timings["add_to_start"]["unknown"]), (2, 1))
+        self.assertEqual(timings["start_to_result"]["median_seconds"], 1140)
+        self.assertEqual(timings["start_to_result"]["examples"][0],
+                         {"task": "T-2", "start_event": adopted_start, "end_event": adopted_result})
+        self.assertEqual(timings["add_to_result"]["examples"][0]["start_event"], adopted_add)
+        self.assertEqual(timings["result_to_ack"], {
+            "eligible": 1, "measured": 1, "unknown": 0, "median_seconds": 300,
+            "examples": [{"task": "T-2", "start_event": adopted_result, "end_event": adopted_ack}],
+        })
+
+    def test_project_scopes_old_metrics_new_timings_and_watcher_evidence(self):
+        tasks_projects.ensure_schema(self.db)
+        self.db.execute("UPDATE tasks SET project_prefix = 'DEMO', project_number = id WHERE id IN (2, 3)")
+        self.event(1, "start", "Avery", "11:00", "in_progress")
+        self.event(1, "done", "Avery", "11:10", "done")
+        self.event(2, "start", "Blake", "11:00", "in_progress")
+        self.event(2, "done", "Blake", "11:15", "done")
+        self.event(3, "add", "Blake", "11:20", "ready")
+        self.db.execute("INSERT INTO peer_asks (task_id, source_task_id, requester, recipient) VALUES (3, 2, 'Blake', 'Avery')")
+        self.event(1, "log", "Avery", "11:30", "done", {"watcher_measurements": {"cohorts": []}})
+        self.worker("Avery", "collected", "11:00", "11:00", "11:10")
+        self.worker("Blake", "collected", "11:00", "11:00", "11:15", task=2)
+
+        demo = tasks_stats.snapshot(self.db, "hour", NOW, watcher_task=1, project="DEMO")
+        self.assertEqual((demo["project"], demo["activity"]["completions"], demo["peer_requests"]["opened"]), ("DEMO", 1, 1))
+        self.assertEqual({task["key"] for task in demo["activity"]["tasks"]}, {"DEMO-2", "DEMO-3"})
+        self.assertEqual(demo["ticket_flow"]["start_to_done"]["median_seconds"], 900)
+        self.assertEqual(demo["worker_hours"]["elapsed_seconds"], 900)
+        self.assertEqual((demo["buckets"][0]["dris"], demo["buckets"][0]["workers"]), (1, 1))
+        self.assertNotIn("watcher_measurements", demo)
+        default = tasks_stats.snapshot(self.db, "hour", NOW, watcher_task=1, project="T")
+        self.assertEqual(default["peer_requests"]["opened"], 0)
+        self.assertEqual(default["watcher_measurements"], {"cohorts": []})
+
+    def test_legacy_board_without_typed_events_or_peer_asks(self):
+        self.event(1, "start", "Avery", "11:00", "in_progress")
+        self.event(1, "done", "Avery", "11:05", "done")
+        self.db.execute("DROP TABLE peer_asks")
+        self.db.execute("ALTER TABLE events DROP COLUMN context")
+
+        stats = tasks_stats.snapshot(self.db, "hour", NOW, watcher_task=1)
+        self.assertEqual(stats["ticket_flow"]["start_to_done"]["median_seconds"], 300)
+        self.assertEqual(stats["peer_requests"]["opened"], 0)
+        self.assertIsNone(stats["peer_requests"]["timings"]["add_to_result"]["median_seconds"])
+        self.assertNotIn("watcher_measurements", stats)
 
     def test_counts_partition_activity_and_keep_half_open_utc_boundaries(self):
         self.event(1, "start", "Avery", "10:55", "in_progress")
@@ -274,6 +386,12 @@ class StatsTest(unittest.TestCase):
                 ])
                 self.assertEqual([(row["id"], row["key"]) for row in stats.get_json()["activity"]["tasks"]],
                                  [(1, "T-1"), (2, "DEMO-1")])
+            with closing(portal.get(path + "?period=hour&project=DEMO", base_url=origin, headers=headers)) as stats:
+                self.assertEqual(stats.status_code, 200)
+                self.assertEqual(stats.get_json()["ticket_flow"]["new"], 1)
+                self.assertEqual([row["key"] for row in stats.get_json()["activity"]["tasks"]], ["DEMO-1"])
+            self.assertEqual(portal.get(path + "?project=OTHER", base_url=origin, headers=headers).status_code, 404)
+            self.assertEqual(portal.get(path + "?project=%21", base_url=origin, headers=headers).status_code, 400)
             with closing(portal.get("/tasks/api/v1/tasks/DEMO-1", base_url=origin, headers=headers)) as detail:
                 task = detail.get_json()["task"]
                 self.assertEqual((task["id"], task["key"], task["title"]), (2, "DEMO-1", "Sample"))
