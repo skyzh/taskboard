@@ -85,7 +85,7 @@ def matches_recipient(db, source, recipient):
     return match is not None and match[0] == recipient
 
 
-def named_recipient(db, name):
+def named_person(db, name):
     key = name.removeprefix("@")
     person = db.execute("SELECT ledger_key, kind FROM board_principals WHERE ledger_key = ?", (key,)).fetchone()
     if person is None:
@@ -94,7 +94,7 @@ def named_recipient(db, name):
             (key,),
         ).fetchall()
         person = matches[0] if len(matches) == 1 else None
-    return person["ledger_key"] if person is not None and person["kind"] == "agent" else None
+    return person
 
 
 def current_wait(db, source):

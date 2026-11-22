@@ -1991,13 +1991,19 @@ def create_app(
             raise RequestError("automation must be true or false.")
         if attention_request is not None and automation == "true":
             raise RequestError("An attention wait cannot be marked as automation.")
-        peer = None
+        peer, human_wait = None, False
         if command == "wait" and on and blocked_by is None and automation == "false":
-            peer = peer_asks.named_recipient(db(), on)
-            if peer == actor["ledger_key"]:
-                peer = None
-            if peer is not None:
-                peer = require_person(peer, "agent", task_id=number)
+            person = peer_asks.named_person(db(), on)
+            if person is None or person["kind"] not in ("agent", "human"):
+                raise RequestError("Choose one verified human or agent, or supply a blocking ticket or automation wait.")
+            on = require_person(person["ledger_key"], person["kind"], task_id=number)
+            if on == actor["ledger_key"]:
+                raise RequestError("Choose a different person for this wait.")
+            if peer_asks.find(db(), number):
+                raise RequestError("Request another person's help from the source ticket.")
+            human_wait = person["kind"] == "human"
+            if not human_wait:
+                peer = on
         review_on = text(data, "review_on", optional=True, maximum=28)
         review_criteria = text(data, "review_criteria", optional=True)
         feature_deferred = str(data.get("feature_deferred", "false")).lower()
@@ -2036,7 +2042,7 @@ def create_app(
             raise RequestError("clear_eta must be true or false.")
         return mutate(
             command, actor, data, id=number, on=on, option=options,
-            blocked_by=blocked_by, peer_recipient=peer,
+            blocked_by=blocked_by, peer_recipient=peer, human_wait=human_wait,
             reason=reason, automation=automation == "true", review_after=review,
             review_on=review_on, review_criteria=review_criteria, feature_deferred=feature_deferred == "true", defer_until=defer_until,
             checklist_step=steps, start_check=started, check=checked, attention_request_id=attention_request,
