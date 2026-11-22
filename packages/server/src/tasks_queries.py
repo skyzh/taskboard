@@ -214,7 +214,10 @@ class BoardQueries:
                 WHERE tasks.id IN ({placeholders})
                 """, ids,
             ))
-        owners = profiles.visible_by_keys(self.db, [row["dri"] for row in rows], self.base)
+        owner_keys = [row["dri"] for row in rows]
+        if include_report_fields:
+            owner_keys.extend(ask["requester"] for ask in requests.values())
+        owners = profiles.visible_by_keys(self.db, owner_keys, self.base)
         recipients = profiles.visible_by_keys(self.db, [row["waiting_on"] for row in rows if row["waiting_on"]], self.base)
         tasks_by_id = {row["id"]: row for row in rows}
         wait_starts = self.wait_starts(rows)
@@ -271,6 +274,8 @@ class BoardQueries:
                     "phase": peer_asks.phase(ask, row, has_started=ask["has_started"]), "requester": ask["requester"],
                     "asked_at": ask["asked_at"],
                 }
+                if include_report_fields and (requester := owners.get(ask["requester"])):
+                    item["peer_request"]["requester_name"] = requester.get("name") or requester.get("username")
             if include_report_fields:
                 item["last_activity_at"] = activity_times.get(row["id"], row["at"])
                 if isinstance(details, str):

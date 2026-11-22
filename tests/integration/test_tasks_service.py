@@ -5088,6 +5088,7 @@ class TasksServiceTest(unittest.TestCase):
         with patch("tasks_core.timestamp", return_value=followup_at):
             self.action(blake, "record-activity", {"id": "T-2", "note": "Added the sample link."})
         pending = request_task(blake_id)
+        self.assertEqual(pending["peer_request"]["requester_name"], "Avery")
         self.assertEqual((pending["peer_request"]["asked_at"], pending["last_activity_at"]), (asked_at, followup_at))
         self.assertEqual(self.action(blake, "my-next")["work"]["key"], "T-2")
         self.assertEqual(self.action(blake, "my-reviews")["items"][0]["task_key"], "T-1")
