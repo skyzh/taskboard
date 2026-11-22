@@ -44,17 +44,37 @@ class SharedConnectionTest(unittest.TestCase):
             (subprocess.CompletedProcess([], 1, "", json.dumps({
                 "ok": False, "error": {"code": "INTEGRATION_INVOKE_FAILED",
                                        "message": 'failed; response body: {"error":"HTTP 503"}'},
-            })), "unclassified", False),
+            })), "raft-invocation-failed", False),
             (subprocess.CompletedProcess([], 1, "", json.dumps({
                 "ok": False, "error": {"code": "INTEGRATION_INVOKE_FAILED",
                                        "message": "Unknown carrier failure mentioning HTTP 503"},
-            })), "unclassified", False),
+            })), "raft-invocation-failed", False),
         )
         for result, reason, retryable in cases:
             with self.subTest(reason=reason), patch("taskboard_client.connection.subprocess.run", side_effect=[result]) as call:
                 with self.assertRaises(SharedReadError) as failure:
                     SharedBoard("fixture-board").invoke("my-queue")
                 self.assertEqual((failure.exception.reason, failure.exception.retryable), (reason, retryable))
+                self.assertEqual(call.call_count, 1)
+
+    def test_terminal_read_diagnostics_distinguish_safe_carrier_categories(self):
+        for code, domain, expected in (
+            ("INTEGRATION_NOT_FOUND", None, "raft-integration-missing"),
+            ("INVALID_ARG", None, "raft-before-dispatch"),
+            ("INTEGRATION_INVOKE_FAILED", "integration_action_transport", "raft-action-transport"),
+            ("UNRECOGNIZED_FIXTURE_ERROR", "private-fixture-domain", "unclassified"),
+            (None, None, "carrier-no-reply"),
+        ):
+            response = {"ok": False, "error": {
+                "code": code, "fault_domain": domain, "message": "private-fixture-output",
+            }}
+            result = subprocess.CompletedProcess([], 1, "", json.dumps(response) if code else "private-fixture-output")
+            with self.subTest(expected=expected), patch("taskboard_client.connection.subprocess.run", return_value=result) as call:
+                with self.assertRaises(SharedReadError) as failure:
+                    SharedBoard("fixture-board").invoke("my-queue")
+                self.assertEqual(failure.exception.reason, expected)
+                self.assertFalse(failure.exception.retryable)
+                self.assertNotIn("private-fixture", str(failure.exception))
                 self.assertEqual(call.call_count, 1)
 
     def test_only_typed_carrier_timeouts_are_retryable_reads(self):

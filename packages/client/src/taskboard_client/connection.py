@@ -62,7 +62,8 @@ def invocation_failure(result, reply, service, action):
         code_match = re.search(r"^Code: ([A-Z_]+)$", result.stderr, re.MULTILINE)
         code = code_match[1] if code_match else None
     if code == "INTEGRATION_NOT_FOUND":
-        return "The Tasks app is missing from your Raft integration inventory. Check `raft integration list`.", None
+        return ("The Tasks app is missing from your Raft integration inventory. Check `raft integration list`.",
+                None, "raft-integration-missing")
     missing_action = f"manifest does not define action {action}"
     if code == "INTEGRATION_ACTION_NOT_FOUND" or (
         code == "INVALID_ARG" and (message == missing_action or f"Error: {missing_action}" in result.stderr.splitlines())
@@ -76,7 +77,7 @@ def invocation_failure(result, reply, service, action):
             "Raft rejected the invocation before dispatch. "
             f"Check the supported actions with `raft integration invoke --service {quote(service)} --list-actions`."
         )
-        return reason, None
+        return reason, None, "raft-before-dispatch"
     status_text, _, embedded_body = str(message if failure else result.stderr).partition("; response body: ")
     match = re.search(r"\bHTTP (\d{3})\b", status_text)
     status = int(match[1]) if code == "INTEGRATION_INVOKE_FAILED" and match else None
@@ -91,7 +92,7 @@ def invocation_failure(result, reply, service, action):
                 f"Run `raft integration login --service {quote(service)}`, then verify the account and board "
                 "with `./tasks --shared context`."
             )
-            return reason, status
+            return reason, status, None
         body = details.get("response_body", embedded_body)
         if isinstance(body, str):
             body = reply_json(body)
@@ -99,9 +100,18 @@ def invocation_failure(result, reply, service, action):
         if isinstance(explanation, dict):
             explanation = explanation.get("message")
         if isinstance(explanation, str) and explanation.strip():
-            return " ".join(explanation.split())[:300], status
-        return f"The Tasks app rejected the action (HTTP {status}).", status
-    return None, status
+            return " ".join(explanation.split())[:300], status, None
+        return f"The Tasks app rejected the action (HTTP {status}).", status, None
+    if status is not None:
+        return None, status, None
+    if code == "INTEGRATION_INVOKE_FAILED":
+        category = ("raft-action-transport" if failure.get("fault_domain") == "integration_action_transport"
+                    else "raft-invocation-failed")
+    elif not reply and code is None:
+        category = "carrier-no-reply"
+    else:
+        category = "unclassified"
+    return None, None, category
 
 
 class SharedBoard:
@@ -146,12 +156,12 @@ class SharedBoard:
         if result.returncode != 0 or reply.get("ok") is not True:
             if not write and action_transport_timed_out(reply):
                 raise SharedReadError(unknown, reason="timeout", retryable=True)
-            reason, status = invocation_failure(result, reply, self.service, action)
+            reason, status, category = invocation_failure(result, reply, self.service, action)
             if write:
                 raise RuntimeError(f"Shared write rejected. {reason}" if reason else unknown)
             raise SharedReadError(
                 f"Shared read failed. {reason}" if reason else unknown,
-                reason=f"http-{status}" if status is not None else "unclassified",
+                reason=f"http-{status}" if status is not None else category,
                 retryable=status in TEMPORARY_READ_STATUS,
             )
         envelope = reply.get("data")

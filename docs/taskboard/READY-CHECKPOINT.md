@@ -43,7 +43,11 @@ from the original sample. After recovery, it waits through a fresh idle window
 and checks the queue again before requesting a wake. It
 remembers which Ready events it already announced. Other read failures, including
 permission errors and unclassified failures, stop the job with the failing
-stage and a reason. Read `raft proc logs <watcher-name>`, then confirm the shared
+stage and a reason. When Raft supplies a recognized carrier category, the log
+distinguishes a missing integration, a rejection before dispatch, a transport
+failure, or a failed invocation. A missing reply has its own reason. These
+reasons contain no response body and do not imply an HTTP status. Read
+`raft proc logs <watcher-name>`, then confirm the shared
 app and signed-in account with `./tasks --shared context` before restarting the
 failed job.
 
