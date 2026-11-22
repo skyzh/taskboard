@@ -432,10 +432,6 @@ button:disabled { opacity: .57; }
 .queue-project, .queue-filter-toggle, .queue-task-key, .queue-task-priority, .kanban-count { display: none; }
 .log-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .detail-meta { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem .65rem; }
-.task-release-fields { margin: .5rem 0; display: flex; flex-wrap: wrap; gap: .25rem .8rem; }
-.task-release-fields div { display: flex; gap: .35rem; }
-.task-release-fields dt { color: var(--muted); }
-.task-release-fields dd { margin: 0; }
 .merge-candidate { overflow-wrap: anywhere; }
 .status {
   display: inline-flex;
@@ -527,8 +523,6 @@ button:disabled { opacity: .57; }
 .detail-checklist .checklist-step-copy { overflow-wrap: anywhere; }
 .detail-checklist .checklist-step-history { display: block; margin-block-start: .15rem; color: var(--muted); }
 .detail-checklist .checklist-step-history > [aria-hidden] { display: none; }
-.active-release { border-inline-start: 2px solid var(--line); padding-inline-start: .65rem; overflow-wrap: anywhere; }
-.active-release h4 { margin-block: 0 .2rem; font-size: .88rem; }
 .context-list { padding-inline-start: 1.25rem; }
 .detail-workers, .ticket-activity { margin-top: .8rem; }
 .decision-form, .profile-form, .ownership-form {

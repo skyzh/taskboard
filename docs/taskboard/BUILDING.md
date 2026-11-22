@@ -10,6 +10,6 @@ When changing how Activity or release receipts are matched to tickets, run the a
 
 ## Verify a release
 
-A release operator selects an independently reviewed candidate and checks it against the expected active predecessor. Stage the exact artifacts, keep a recoverable prior release, and verify the mounted service after activation. If activation fails, restore the prior release and verify it before declaring the rollout resolved.
+Merge the independently reviewed change into protected `main` through Stamp. The Pi timer deploys the tip of `main` after both required GitHub checks pass on that commit. Open **About** from the Taskboard account menu to verify the running commit, build time, and deployment time.
 
-Follow the [operator guide](../../tools/release/README.md) to bind review and changelog to the candidate. Record which versions of the app and separately loaded [check package](../../tools/release/checks/README.md) were used. Record the resulting active release and check outcomes in the deployment record.
+Use the [Pi operator guide](../../tools/release/README.md#run-protected-github-main-deployments-on-pi) for timer setup, rollout verification, and recovery.

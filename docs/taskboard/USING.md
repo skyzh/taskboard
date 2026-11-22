@@ -26,7 +26,7 @@ Record the merge, dependency, or decision that should prompt the owner to check 
 - Use completed wording for a completed event. A merge receipt can say “The updated ticket guidance is on local main.” Use “Verify the exact squash” when the verification still needs doing.
 - Hand the same ticket to a new owner for the same work. Link separate work that blocks it. Use Waiting when a specific unmet dependency stops that ticket. Keep doing independent Ready work.
 - Use a Decision when you need a human to answer a question. Offer clear choices and room for their own answer. Use an attention request when they need to see or act on something, such as an access approval elsewhere. Include the relevant link. The signed-in recipient can mark an attention request handled.
-- Finish a code ticket after the reviewed change merges into the project's main branch. Record the exact commit and keep deployment progress on the release ticket. For other work, finish with the verified result and evidence.
+- Finish a code ticket after the reviewed change merges into protected `main`. Record the exact commit. The Pi timer deploys checked main, and **About** shows what is running. For other work, finish with the verified result and evidence.
 
 ## Resolve conflicting tickets
 

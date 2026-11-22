@@ -32,7 +32,6 @@ let createTimeZoneFormatters
 let Notifications
 let DriGoal
 let DriMilestones
-let DeployQueue
 let TaskRow
 let AttentionRequests
 let Stats
@@ -55,7 +54,6 @@ before(async () => {
         export { TimeZoneContext, createTimeZoneFormatters } from './timeZone.js'
         export { default as Notifications } from './Notifications.jsx'
         export { default as DriGoal, DriMilestones } from './DriGoal.jsx'
-        export { DeployQueue } from './DeployQueue.jsx'
         export { TaskRow } from './WorkRow.jsx'
         export { default as AttentionRequests } from './AttentionRequests.jsx'
         export { default as Stats } from './Stats.jsx'
@@ -118,7 +116,7 @@ before(async () => {
     WorkLog, WorkQueue, TaskDetail, DecisionForm, TaskClosure, TaskDetailsEdit, TaskOwnership, TaskTags,
     ReminderDate, PendingReports, Reports, AssigneePage, EventRow, OutcomeRow, Outcomes,
     TimeZoneContext, createTimeZoneFormatters,
-    Notifications, DriGoal, DriMilestones, DeployQueue, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity,
+    Notifications, DriGoal, DriMilestones, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity,
   } = module.exports)
 })
 
@@ -500,88 +498,6 @@ test('project-scoped report pagination retains prefixed task links', () => {
   assert.match(markup, /href="#task-COURSE-1"/)
   assert.match(markup, /Initial feedback\./)
   assert.doesNotMatch(markup, /aria-label="More reports for Avery"/)
-})
-
-test('project-scoped Deploy queue keeps receipts and task references when More appends', () => {
-  const batch = {
-    release_id: 'fixture-release', status: 'released', release_number: 3, at: selected.at,
-    receipt_url: 'https://example.test/receipt',
-    tickets: [{ id: 17, key: 'COURSE-1', title: 'Course sample' }],
-  }
-  const render = (items, next_cursor) => {
-    fixture.state = [true]
-    fixture.pages = {
-      '/deploy-queue': filters => {
-        assert.deepEqual(filters, { project: 'COURSE' })
-        return { data: { items, next_cursor }, loadMore: () => {} }
-      },
-    }
-    return renderToStaticMarkup(React.createElement(DeployQueue, { project: 'COURSE', revision: 0 }))
-  }
-  const first = render([batch], 5)
-  assert.match(first, /aria-label="More deploy queue entries"[^>]*>More<\/button>/)
-  const complete = render([batch, {
-    ...batch, release_id: 'second-release', release_number: 2, receipt_url: null,
-  }], null)
-  assert.match(complete, /href="https:\/\/example.test\/receipt">Receipt<\/a>/)
-  assert.match(complete, /href="#task-COURSE-1"/)
-  assert.match(complete, /<strong>Release #3<\/strong>.*<strong>Release #2<\/strong>/)
-  assert.match(complete, /<details><summary>Release details<\/summary><p>Release ID <code>second-release<\/code><\/p><\/details>/)
-  assert.doesNotMatch(complete, /aria-label="More deploy queue entries"/)
-})
-
-test('Deploy queue shows compact labels while retaining release details and changelogs', () => {
-  const batch = {
-    release_id: `fixture-release-${'a'.repeat(112)}`, status: 'released', release_number: 2, at: selected.at,
-    receipt_url: 'https://example.test/tasks/#event-1590-log',
-    tickets: [{ id: 169, key: 'T-169', title: 'Checklist timing implementation' }],
-    changelog: {
-      base_commit: 'b22aca3fe4fe234753e00fced4242092120253a9',
-      head_commit: 'b6a2b3f04dca094b150391f406085d33c748085e',
-      entries: [{
-        ticket: 'T-169', summary: 'See when each checklist step started and finished.',
-        merge_commit: 'b6a2b3f04dca094b150391f406085d33c748085e', merge_receipt_id: 1476,
-        merge_receipt_url: 'https://example.test/tasks/#event-1476-log',
-      }, {
-        ticket: 'T-169', summary: 'See more changes in ticket history.',
-        merge_commit: 'd996902bc9488b9b5564016068ffd3abb9a6ca18', merge_receipt_id: 1477,
-        merge_receipt_url: 'https://example.test/tasks/#event-1477-log',
-      }],
-    },
-  }
-  const render = item => {
-    fixture.state = [true]
-    fixture.pages = { '/deploy-queue': { data: { items: [item], next_cursor: null } } }
-    return renderToStaticMarkup(React.createElement(DeployQueue, { project: 'T', revision: 0 }))
-  }
-
-  const released = render(batch)
-  assert.match(released, /<p><strong>Release #2<\/strong><\/p><p class="event-meta"><span>Released<\/span><time/)
-  assert.match(released, /href="#task-169".*?See when each checklist step started and finished\./)
-  assert.match(released, /href="https:\/\/example.test\/tasks\/#event-1476-log".*?aria-label="Merge receipt for T-169"/)
-  assert.match(released, /href="#task-169".*?See more changes in ticket history\./)
-  assert.match(released, /href="https:\/\/example.test\/tasks\/#event-1477-log".*?aria-label="Merge receipt for T-169"/)
-
-  for (const [item, label] of [
-    [{ ...batch, changelog: null }, 'Release #2'],
-    [{ ...batch, status: 'queued', release_number: null }, 'Queued'],
-    [{ ...batch, status: 'running', release_number: null }, 'Deploying'],
-    [{ ...batch, status: 'rejected', release_number: null }, 'Rejected'],
-    [{ ...batch, status: 'rolled_back', release_number: null }, 'Rolled back'],
-    [{ ...batch, status: 'rollback_failed', release_number: null }, 'Rollback failed'],
-  ]) {
-    const markup = render(item)
-    assert.ok(markup.includes(`<p><strong>${label}</strong></p>`))
-    assert.match(markup, /Checklist timing implementation/)
-    assert.doesNotMatch(markup, /Merge receipt for T-169/)
-  }
-  for (const markup of [released, render({ ...batch, status: 'queued', release_number: null })]) {
-    const [overview, details] = markup.split('<details><summary>Release details</summary>')
-    assert.ok(details?.includes(`<p>Release ID <code>${batch.release_id}</code></p>`))
-    assert.match(details, /href="https:\/\/example.test\/tasks\/#event-1590-log">Receipt<\/a>/)
-    assert.ok(!overview.includes(batch.release_id))
-    assert.doesNotMatch(overview, /#event-1590-log/)
-  }
 })
 
 test('Activity and task history show only new sentences from a legacy receipt', () => {
