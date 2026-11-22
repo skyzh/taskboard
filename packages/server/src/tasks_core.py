@@ -784,7 +784,9 @@ def change_task(db, args, links, *, automation=None):
     review_source = getattr(args, "review_on", None)
     review_criteria = getattr(args, "review_criteria", None)
     feature_deferred = getattr(args, "feature_deferred", False)
-    if args.command == "park" and (review_source is not None or review_criteria is not None or feature_deferred):
+    if args.command == "park" and (
+        args.review_after is None or review_source is not None or review_criteria is not None or feature_deferred
+    ):
         previous = (*previous, "parked")
     goal_kind = task_goal_kind(db, args.id) if state == "ready" or args.command in ("start", "remind", "done") else None
     if goal_kind and args.command in ("transfer", "unpark"):
