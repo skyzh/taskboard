@@ -120,6 +120,13 @@ test('Settings remains a separate route alongside the layout views', () => {
   assert.doesNotMatch(settings, /id="queue-heading"|id="now-title"|class="task-detail"/)
 })
 
+test('About has its own route and loads the running release', () => {
+  const about = render('#about')
+  assert.match(about, /id="about">About<\/h1>/)
+  assert.match(about, /role="status">Loading release information…/)
+  assert.doesNotMatch(about, /id="queue-heading"|github\.com\/skyzh\/taskboard\/commit\//)
+})
+
 test('a restored queue renders the selected filters and the friendly waiting label', () => {
   const queue = renderToStaticMarkup(React.createElement(WorkQueue, {
     filters: { state: 'waiting', dri: 'Avery', waiting_on: 'raft:human:fixture' },

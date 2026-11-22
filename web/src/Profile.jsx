@@ -133,6 +133,7 @@ export default function Profile({ session, fragment, theme }) {
           {nextMode === 'night' ? 'Night mode' : 'Day mode'}
         </button>
         <a href="#settings" onClick={closeAndFocus}>Settings</a>
+        <a href="#about" onClick={closeAndFocus}>About</a>
         <ProfileSignIn session={session} fragment={fragment} />
         {verified && <button type="button" onClick={handleSignOut} disabled={signingOut}>
           {signingOut ? 'Signing out…' : 'Sign out'}
