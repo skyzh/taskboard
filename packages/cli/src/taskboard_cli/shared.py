@@ -114,7 +114,7 @@ def event_lines(event, url):
     return lines
 
 
-def task_details(board, url, number, *, workers_only=False, guidance=None):
+def task_details(board, url, number, *, workers_only=False, guidance=None, context_lines=()):
     ident = {"id": task_ref(number)}
     detail = board.invoke("task", ident)
     text = task_lines(detail["task"], url)
@@ -151,6 +151,8 @@ def task_details(board, url, number, *, workers_only=False, guidance=None):
         text.extend(("", "Recent activity"))
         for event in history:
             text.extend(event_lines(event, url))
+    if context_lines:
+        text.extend(("", *context_lines))
     if guidance is None:
         guidance = (
             "Read the worker status and outstanding handoff before changing it."
@@ -324,6 +326,28 @@ def completion_guidance(board, reference, fallback=None):
     return fallback or f"Check your Inbox with {inbox}."
 
 
+def queue_goal_lines(result, url):
+    lines = []
+    for label, goals in (
+        ("Standing goal", result["standing_goals"]),
+        ("Dated goal", result.get("dated_goals", [])),
+    ):
+        for goal in goals:
+            ticket = goal.get("ticket")
+            heading = f"{ticket or goal['project']} · {label}"
+            if deadline := goal.get("deadline"):
+                heading += f" · {deadline}"
+            lines.extend((heading, f"  {goal['summary']}"))
+            if ticket:
+                _, number = projects.identifier(ticket)
+                lines.append(f"  {task_url(url, {'id': number, 'key': ticket})}")
+            lines.extend(
+                f"  {related['key']} · {related['title']} · {task_url(url, related)}"
+                for related in goal.get("tickets", [])
+            )
+    return lines
+
+
 def shared_next(board, url, filters, actor):
     try:
         result = board.invoke("my-next", filters)
@@ -334,18 +358,14 @@ def shared_next(board, url, filters, actor):
         project_flag = f" --project {projects.prefix(filters['project'])}" if "project" in filters else ""
         command_line = "`./tasks --shared list --status ready --unassigned" + project_flag + "`."
         return f"No ready tasks in your queue ({actor['name']}).\nNext: Check shared Ready work with {command_line}"
+    goal_lines = queue_goal_lines(result, url)
     if work := result["work"]:
-        details = task_details(board, url, work["key"], guidance=result.get("next_step"))
+        details = task_details(board, url, work["key"], guidance=result.get("next_step"), context_lines=goal_lines)
         label = NEXT_LABELS.get(work["kind"])
         return f"{label}\n{details}" if label else details
-    if result["standing_goals"]:
-        output = "\n".join(
-            f"{goal.get('ticket') or goal['project']} · Standing goal\n  {goal['summary']}"
-            for goal in result["standing_goals"]
-        )
-    else:
-        output = f"No actionable work in your queue ({actor['name']})."
-    return with_guidance(output, result["next_step"])
+    if not result["standing_goals"]:
+        goal_lines.insert(0, f"No actionable work in your queue ({actor['name']}).")
+    return with_guidance("\n".join(goal_lines), result["next_step"])
 
 
 def shared_command(args):

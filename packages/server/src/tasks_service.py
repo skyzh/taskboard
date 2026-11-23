@@ -2101,8 +2101,7 @@ def create_app(
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:
                 work = next(query().actionable_work(key, today=pacific_day(ledger.timestamp()), project=project), None)
-                standing = [] if work else goals.standing(connection, key, project, include_ticket=True)
-                result = {"work": work, "standing_goals": standing}
+                result = {"work": work, **goals.queue_context(connection, key, project)}
                 cue = agent_guidance["ready-review"]
                 if cue and work and work["kind"] in ("ready", "shared_ready") and not peer_asks.find(connection, work["id"]):
                     result["next_step"] = f"{agent_guidance.next_step(name, data, result)} {cue}"
