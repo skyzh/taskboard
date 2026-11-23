@@ -46,6 +46,8 @@ A project manager selects an enrolled, team-assignable Raft agent in the project
 
 Sign in to a Taskboard deployment with a fixed Raft server, open **Integrations → Personal Agents**, and create a connection for the session. Put the one-time token in the session’s `TASKBOARD_PERSONAL_AGENT_TOKEN` environment variable. Each connection expires after at most eight hours or when its browser sign-in ends, whichever comes first. Revoke it from Integrations as needed. Use the selected DRI’s signed Raft integration for workflows that run as a standing agent.
 
+After importing a SQLite board into PostgreSQL, sign in on the destination and issue a new connection. The import preserves the work history and leaves browser-bound connections on their original deployment.
+
 Send the connection only to the exact supplied Taskboard HTTPS base as `Authorization: Bearer <token>`. Use the board’s scheme, host, and port, without its path, as the `Origin` header for writes. Send POST parameters as JSON with `Content-Type: application/json`. Keep the token out of prompts, Activity, and published notes. Use the base mount path for every request and resolve manifest paths relative to its origin.
 
 Read `GET /.well-known/raft-agent-manifest.json` under the board mount for the full shared action names and parameter contract. The actions below use `/api/v1/raft/{action}`. Use query parameters for GET and a JSON object for POST. Direct board APIs such as Reports retain their usual access checks.

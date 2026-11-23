@@ -78,12 +78,18 @@ class StorageReplayTest(unittest.TestCase):
         self.replay(self.postgres_app(self.postgres_fixture()))
 
     def test_wake_subscriptions_and_idle_offers_survive_sqlite_import(self):
-        client, owner = self.board.login(self.board.app(portal_reader=True), "Avery")
+        source_app = self.board.app(portal_reader=True)
+        client, owner = self.board.login(source_app, "Avery")
         self.board.action(client, "set-wake-subscription", {"event_type": OWNED_READY, "enabled": "true"})
         self.board.action(client, "save-goal", {"kind": "standing", "summary": "Check a fictional workflow."})
         handoff = {"handoff_id": str(uuid4())}
         original = self.board.action(client, "idle-goal-offer", handoff)["offer"]
         self.board.action(client, "set-goal-review-time", {"id": "T-1", "time": "09:15"})
+        human, _ = self.board.login(source_app, "Sam")
+        token = self.board.call(
+            human, "/api/v1/personal-agents/connections", method="POST",
+            headers={"Origin": fixture.ORIGIN}, json={"session": "Source connection"},
+        ).json["token"]
         snapshot = self.board.database.with_name("snapshot.sqlite3")
         with closing(sqlite3.connect(self.board.database)) as source, closing(sqlite3.connect(snapshot)) as backup:
             source.backup(backup)
@@ -93,7 +99,11 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual(imported["wake_subscriptions"], 1)
         self.assertEqual(imported["goal_idle_offers"], 1)
         self.assertEqual(imported["goal_review_times"], 1)
-        client, _ = self.board.login(self.postgres_app(dsn), "Avery")
+        self.assertNotIn("personal_agent_connections", imported)
+        destination_app = self.postgres_app(dsn)
+        self.board.action(destination_app.test_client(), "context",
+                          headers={"Authorization": f"Bearer {token}"}, status=401)
+        client, _ = self.board.login(destination_app, "Avery")
         self.assertEqual(self.board.action(client, "idle-goal-offer", handoff)["offer"], original)
         self.assertEqual(self.board.action(client, "my-goals")["review_times"], {"T-1": "09:15"})
         cues = self.board.action(client, "my-goal-cues", query_string={"project": "T"})

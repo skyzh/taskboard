@@ -23,6 +23,8 @@ TABLES = (
     "intake_errors", "attention_requests", "attention_wait_links", "notification_preferences", "notification_log",
     "wake_subscriptions", "wake_log", "goal_idle_offers",
 )
+# Connections depend on the source deployment's live browser sessions.
+NON_PORTABLE_TABLES = {"personal_agent_connections"}
 IDENTITIES = {
     "tasks": "id", "events": "id", "sources": "id", "worker_runs": "id",
     "recurring_definitions": "id", "release_batches": "id", "board_principals": "principal_order",
@@ -54,7 +56,7 @@ def import_snapshot(path, dsn):
         tables = {row[0] for row in source.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
         )}
-        if not {"tasks", "events"} <= tables or tables - set(TABLES):
+        if not {"tasks", "events"} <= tables or tables - set(TABLES) - NON_PORTABLE_TABLES:
             raise ValueError("This snapshot does not have a supported Taskboard schema.")
         if source.execute("PRAGMA foreign_key_check").fetchone():
             raise ValueError("The source snapshot contains a broken reference.")
