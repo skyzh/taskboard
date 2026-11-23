@@ -161,7 +161,7 @@ test('a filtered Project log has the Notifications route', () => {
   }
 })
 
-test('wake evidence shows only observed delivery and Start', () => {
+test('wake evidence keeps request acknowledgment separate from delivery and Start', () => {
   const at = '2026-11-23T02:00:17Z'
   const item = {
     id: 42, task_id: 20, task: 'T-20', kind: 'wake', recipient: 'Avery',
@@ -176,7 +176,13 @@ test('wake evidence shows only observed delivery and Start', () => {
   assert.match(accepted, /Raft delivery<\/dt><dd><span>Unknown<\/span><\/dd>/)
   assert.match(accepted, /First signed queue check<\/dt><dd><span>No eligible work<\/span><time /)
   assert.match(accepted, /<dt>Start<\/dt><dd><span>Not observed<\/span><\/dd>/)
-  assert.doesNotMatch(accepted, /Start activity|Delivered/)
+  assert.doesNotMatch(accepted, /Start activity|Delivered|Acknowledgment activity/)
+
+  const acknowledged = renderWake({ request_acknowledgment: { id: 53, at } })
+  assert.match(acknowledged, /Request acknowledgment<\/dt><dd><span>Acknowledged<\/span><time /)
+  assert.match(acknowledged, /href="#event-53-log">Acknowledgment activity<\/a>/)
+  assert.match(acknowledged, /<dt>Start<\/dt><dd><span>Not observed<\/span><\/dd>/)
+  assert.match(acknowledged, /Raft delivery<\/dt><dd><span>Unknown<\/span><\/dd>/)
 
   const started = renderWake({
     delivery: 'delivered', delivery_at: at, next_result: 'offered', started_at: at, start_event_id: 55,

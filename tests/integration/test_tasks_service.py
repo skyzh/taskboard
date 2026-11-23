@@ -1371,6 +1371,60 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(started["acceptance_at"], accepted["acceptance_at"])
         self.assertEqual(notice("ready"), fallback)
 
+    def test_wake_log_links_only_the_exact_signed_request_acknowledgment(self):
+        app = self.app(portal_reader=True)
+        owner, owner_key = self.login(app, "Avery")
+        peer, peer_key = self.login(app, "Blake")
+        manager, manager_key = self.login(app, "Sam")
+        self.cli("register-project", "T", "Tasks", "--dri", manager_key)
+        path = "/api/v1/notifications/log"
+
+        def action(client, ticket, change):
+            return self.action(client, "peer-ask", {"id": ticket, "transition": change, "note": "Fixture evidence."})
+
+        def record(client, ticket, recipient):
+            source = self.task_event(client, ticket)
+            with closing(open_sqlite(self.database)) as db:
+                import_notification_on(db, {
+                    "schema": WAKE_SCHEMA, "source": source, "recipient": recipient,
+                    "observations": {"acceptance": {"status": "accepted", "at": source["at"]}},
+                })
+            return source["event"]
+
+        def wakes(client):
+            return {row["id"]: row for row in self.call(client, path, query_string={"kind": "wake"}).json["items"]}
+
+        def return_request(source, request):
+            self.action(owner, "create-task", {"title": "Review a sample", "step": "Prepare the sample."})
+            self.action(owner, "peer-ask", {
+                "id": source, "transition": "create", "recipient": peer_key, "note": "Check the sample.",
+            })
+            opened = record(peer, request, peer_key)
+            self.action(peer, "advance-task", {"id": request, "transition": "start", "note": "Read the sample."})
+            action(peer, request, "result")
+            return opened, record(owner, request, owner_key)
+
+        opened, returned = return_request("T-1", "T-2")
+        self.assertNotIn("request_acknowledgment", wakes(owner)[returned])
+        action(owner, "T-2", "acknowledge")
+        acknowledgment = self.task_event(owner, "T-2")
+        self.action(owner, "record-activity", {"id": "T-2", "note": "A later note is not the acknowledgment."})
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Apply the result."})
+        _, canceled = return_request("T-3", "T-4")
+        action(owner, "T-4", "cancel")
+
+        rows = wakes(owner)
+        visible = rows[returned]
+        expected = {"id": acknowledgment["event"], "at": acknowledgment["at"]}
+        self.assertEqual(visible["request_acknowledgment"], expected)
+        self.assertEqual(wakes(manager)[returned]["request_acknowledgment"], expected)
+        self.assertIsNone(visible["delivery"])
+        self.assertIsNone(visible["start_event_id"])
+        self.assertNotIn("request_acknowledgment", rows[canceled])
+        self.assertNotIn(returned, wakes(peer))
+        self.assertNotIn("request_acknowledgment", wakes(peer)[opened])
+        self.call(app.test_client(), path, query_string={"kind": "wake"}, status=401)
+
     def test_ready_wake_fixture_retries_unknown_with_same_id_after_reopening_ledger(self):
         app = self.app(portal_reader=True)
         avery, owner = self.login(app, "Avery")

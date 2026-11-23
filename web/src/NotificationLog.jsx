@@ -35,7 +35,11 @@ function WakeEvidence({ item }) {
     ['Raft acceptance', acceptance[item.acceptance] ?? 'Unknown', item.acceptance_at],
     ['Raft delivery', delivery[item.delivery] ?? 'Unknown', item.delivery_at],
     ['First signed queue check', nextResults[item.next_result] ?? 'Not observed', item.next_at],
-    ['Start', item.started_at ? 'Started' : 'Not observed', item.started_at, item.start_event_id],
+    ...(item.request_acknowledgment ? [[
+      'Request acknowledgment', 'Acknowledged', item.request_acknowledgment.at,
+      item.request_acknowledgment.id, 'Acknowledgment activity',
+    ]] : []),
+    ['Start', item.started_at ? 'Started' : 'Not observed', item.started_at, item.start_event_id, 'Start activity'],
   ]
 
   return (
@@ -43,13 +47,13 @@ function WakeEvidence({ item }) {
       <p className="notification-log-cue">{item.cue}</p>
       {item.receipt_ref && <p className="event-meta"><span title={item.receipt_ref}>Receipt {item.receipt_ref.slice(0, 12)}</span></p>}
       <dl className="notification-log-times wake-log-times">
-        {stages.map(([label, outcome, at, eventId]) => (
+        {stages.map(([label, outcome, at, eventId, linkLabel]) => (
           <div key={label}>
             <dt>{label}</dt>
             <dd>
               <span>{outcome}</span>
               {at && <time dateTime={at} title={at}>{formatDay(at)} · {formatClock(at)}</time>}
-              {at && eventId && <a href={eventHref(eventId)}>Start activity</a>}
+              {at && eventId && <a href={eventHref(eventId)}>{linkLabel}</a>}
             </dd>
           </div>
         ))}
