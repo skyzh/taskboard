@@ -332,14 +332,15 @@ function TicketIdentity({ task, state, children }) {
   )
 }
 
-function TicketContext({ record, id, task, state, wide, detailed, session, revision, onChanged }) {
+function TicketContext({ record, id, task, state, wide, detailed, session, revision, onChanged, showActions }) {
   const [open, setOpen] = useState(false)
+  const watch = <div hidden={!showActions}><TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} /></div>
   const content = (
     <div className="ticket-context-content">
       {wide && <h2>Ticket details</h2>}
       {wide ? <TicketIdentity task={task} state={state}>
-        <TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} />
-      </TicketIdentity> : <TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} />}
+        {watch}
+      </TicketIdentity> : watch}
       <RecordedActivity activity={record.last_activity} />
       {record.sources.length > 0 && (
         <details open><summary>Sources · {record.sources.length}</summary><EvidenceLinks links={record.sources} label="Sources" ticketSources /></details>
@@ -368,6 +369,7 @@ function TicketContext({ record, id, task, state, wide, detailed, session, revis
 
 export function TaskDetail({ id, revision, session, onChanged, preferredProject = 'T', returnHref, fromSearch }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
+  const [actionsOpen, setActionsOpen] = useState(false)
   const article = useRef(null)
   const [wide, setWide] = useState(false)
   useEffect(() => {
@@ -384,6 +386,9 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   const project = typeof id === 'string' ? id.split('-')[0] : 'T'
   const taskProject = task?.key?.split('-')[0] || project
   const signedIn = ['agent', 'human'].includes(session.data?.actor?.kind)
+  const signedHuman = session.data?.actor?.kind === 'human'
+  const showActions = !signedHuman || actionsOpen
+  const canAnswer = task && mayAnswer(task, session)
   const ownsReturnPath = task && session.data?.actor?.id && session.data.actor.id === task.dri
     && ['ready', 'in_progress', 'parked'].includes(task.state)
   const showReturnPath = !record?.goal && typeof record?.can_edit_parking === 'boolean'
@@ -405,6 +410,8 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
           <span className="ticket-id">{taskLabel(id, task?.key)}</span>
           {record?.goal && <span>{record.goal.kind === 'standing' ? 'Standing goal' : 'Milestone'}</span>}
         </p>
+        {signedHuman && task && <button className="ticket-actions-toggle" type="button"
+          aria-expanded={actionsOpen} onClick={() => setActionsOpen(open => !open)}>Ticket actions</button>}
       </div>
       <h1 id={`task-heading-${id}`}><MarkdownInline text={task?.title || `Task ${taskLabel(id)}`} relatedTasks={record?.related_tasks} /></h1>
       {task && !sidebar && <div className="ticket-primary-identity"><TicketIdentity task={task} state={state} /></div>}
@@ -427,19 +434,22 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
               </>}
               <ClosureReference context={task.context} />
               <ReminderWhen context={task.context} />
-              {showReturnPath && (record.goal ? (
+              {showReturnPath && <div hidden={!showActions}>{record.goal ? (
                   <ReminderDate key={`${id}:${task.context?.review_after || ''}`}
                     path={`/tasks/${id}/reminder`} saved={task.context?.review_after}
                     onChanged={onChanged} />
-                ) : <ParkingForm key={task.event_id} task={task} onChanged={onChanged} />)}
-              {!mayAnswer(task, session) && <Options options={task.context?.choices} />}
+                ) : <ParkingForm key={task.event_id} task={task} onChanged={onChanged} />}</div>}
+              {(!canAnswer || !showActions) && <Options options={task.context?.choices} />}
+              {canAnswer && !showActions && <p className="event-meta">Open Ticket actions to answer this decision.</p>}
               <EvidenceLinks links={task.links} />
               {record.can_confirm_blocker && (
-                <TaskActivityUpdate key={task.event_id} task={task} onChanged={onChanged} field={fields?.activity} confirmBlocker />
+                <div hidden={!showActions}>
+                  <TaskActivityUpdate key={task.event_id} task={task} onChanged={onChanged} field={fields?.activity} confirmBlocker />
+                </div>
               )}
             </>}
             <DecisionForm key={`${id}:${session.data?.actor?.id ?? session.data?.actor?.name ?? ''}`}
-              task={task} session={session} onChanged={onChanged} />
+              task={task} session={session} onChanged={onChanged} showControls={showActions} />
           </section>
           {task && <>
             {record.goal?.tickets.length > 0 && (
@@ -455,6 +465,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
             </section>}
             {(record.checklist.length > 0 || record.can_edit_details) && (
               <details className="detail-checklist" open={checklistOpen}
+                hidden={!record.checklist.length && !showActions}
                 onToggle={event => setChecklistOpen(event.currentTarget.open)}>
                 <summary>
                   <span>Checklist</span>
@@ -462,28 +473,32 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
                 </summary>
                 {record.checklist.length > 0 && <ChecklistSteps steps={record.checklist} relatedTasks={record.related_tasks}
                   showMissingTimes
-                  editStep={record.can_edit_details ? step => <ChecklistEdit task={task} step={step} onChanged={onChanged} /> : undefined} />}
-                {record.can_edit_details && <ChecklistEdit task={task} onChanged={onChanged} />}
+                  editStep={record.can_edit_details ? step => <div hidden={!showActions}>
+                    <ChecklistEdit task={task} step={step} onChanged={onChanged} />
+                  </div> : undefined} />}
+                {record.can_edit_details && <div hidden={!showActions}><ChecklistEdit task={task} onChanged={onChanged} /></div>}
               </details>
             )}
-            <TaskOwnership task={task} actions={record.ownership_actions} project={taskProject}
-              revision={revision} onChanged={onChanged} />
-            {record.can_edit_details && <TaskDetailsEdit key={`details-${task.id}`} task={task} brief={record.brief}
-              onChanged={onChanged} fields={fields} />}
-            {record.can_close && state !== 'closed' && state !== 'done' && (
-              <TaskClosure key={`close-${task.id}`} task={task} onChanged={onChanged} />
-            )}
-            <TaskTags task={task} editable={record.tag_editable} onChanged={onChanged} />
+            <div hidden={!showActions}>
+              <TaskOwnership task={task} actions={record.ownership_actions} project={taskProject}
+                revision={revision} onChanged={onChanged} />
+              {record.can_edit_details && <TaskDetailsEdit key={`details-${task.id}`} task={task} brief={record.brief}
+                onChanged={onChanged} fields={fields} />}
+              {record.can_close && state !== 'closed' && state !== 'done' && (
+                <TaskClosure key={`close-${task.id}`} task={task} onChanged={onChanged} />
+              )}
+            </div>
+            <TaskTags task={task} editable={showActions && record.tag_editable} onChanged={onChanged} />
           </>}
         </div>
         {task && <TicketContext key={id} record={record} id={id} task={task} state={state} wide={sidebar} detailed={detailed}
-          session={session} revision={revision} onChanged={onChanged} />}
+          session={session} revision={revision} onChanged={onChanged} showActions={showActions} />}
         {task && (
           <div className="ticket-detail-history">
             <RecurringRuns key={id} history={record.recurring_runs} />
             {session.data?.actor?.kind === 'human' && (
               <AttentionRequests key={`attention:${session.data.actor.id}:${id}`}
-                taskId={id} revision={revision} onChanged={onChanged} />
+                taskId={id} revision={revision} onChanged={onChanged} showControls={showActions} />
             )}
             {record.workers.length > 0 && (
               <section className="detail-workers" aria-label="Recorded worker runs">
@@ -508,7 +523,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
             )}
             <section className="ticket-activity" aria-labelledby={`ticket-activity-${id}`}>
               <h3 id={`ticket-activity-${id}`}>Activity</h3>
-              {signedIn && <TaskActivityUpdate task={task} onChanged={onChanged} field={fields?.activity} />}
+              {signedIn && <div hidden={!showActions}><TaskActivityUpdate task={task} onChanged={onChanged} field={fields?.activity} /></div>}
               <ResourceStatus resource={activity} label="task activity" />
               {activity.data?.items.length === 0 && <p className="section-message">No activity yet.</p>}
               <ol className="event-list" role="list">

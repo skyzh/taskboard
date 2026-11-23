@@ -626,6 +626,14 @@ button:disabled { opacity: .57; }
 .task-detail:target { background: var(--paper); }
 /* Deep links focus the article. Interactive controls retain their normal focus rings. */
 .task-detail:focus-visible { outline: none; }
+.ticket-heading-meta:has(.ticket-actions-toggle) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: .65rem;
+}
+.ticket-heading-meta:has(.ticket-actions-toggle) .back-link { margin: 0; }
+.ticket-actions-toggle { min-height: 2.75rem; margin-inline-start: auto; }
 .task-detail h1 { margin: .38rem 0 .25rem; font-size: clamp(1.45rem, 3vw, 2.15rem); letter-spacing: -.035em; }
 .detail-owner { color: var(--muted); font-size: .88rem; }
 .ticket-primary-identity { display: grid; gap: .25rem; margin-block: .4rem .7rem; }

@@ -33,7 +33,7 @@ export function AttentionImpact({ item }) {
   )
 }
 
-export default function AttentionRequests({ revision, onChanged, taskId }) {
+export default function AttentionRequests({ revision, onChanged, taskId, showControls = true }) {
   const onTicket = taskId != null
   const [state, setState] = useState('open')
   const [pending, setPending] = useState(null)
@@ -113,7 +113,7 @@ export default function AttentionRequests({ revision, onChanged, taskId }) {
             </div>
             {item.handled_at
               ? <span className="event-meta">Handled <Timestamp at={item.handled_at} /></span>
-              : (
+              : showControls && (
                 <div>
                   <button type="button" disabled={pending !== null} onClick={() => handle(item.id)}>Mark handled</button>
                   <ReminderDate key={item.remind_on || ''} path={`/notifications/requests/${item.id}/reminder`}
