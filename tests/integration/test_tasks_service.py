@@ -257,7 +257,7 @@ class TasksServiceTest(unittest.TestCase):
         disabled = self.app(portal_reader=True)
         self.call(disabled.test_client(), connection_endpoint, headers=second_headers, status=404)
 
-    def test_personal_codex_tailnet_reporting_uses_verified_ingress_and_existing_owner(self):
+    def test_personal_codex_tailnet_reporting_uses_verified_ingress_and_claims_ready_ticket(self):
         subject = self.provider.people["Sam"]["sub"]
         env = {"TASKS_PERSONAL_CODEX_PILOT_TICKET": "T-1", "TASKS_PERSONAL_CODEX_PILOT_SUBJECT": subject}
         self.assertEqual(personal_codex.configuration(env).reporting_auth, "login_required")
@@ -292,7 +292,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(owner, setup + "/status").json["reporting_auth"], "login_required")
 
         with closing(open_sqlite(self.database)) as db, db:
-            db.execute("UPDATE tasks SET dri = ? WHERE id = 1", (owner_id,))
+            db.execute("UPDATE tasks SET dri = '' WHERE id = 1")
         self.assertEqual(self.call(anonymous, endpoint, headers=tailnet).json["status"], "ready")
         self.call(anonymous, endpoint.replace("T-1", "T-2"), status=404, headers=tailnet)
         self.call(anonymous, endpoint, status=401, headers={**tailnet, "Authorization": "Bearer invalid"})
@@ -305,6 +305,20 @@ class TasksServiceTest(unittest.TestCase):
                   json={**checkpoint, "session_id": "invalid"})
         self.call(anonymous, progress, method="POST", status=400, headers=report_headers,
                   json={**checkpoint, "status": "done"})
+
+        record_activity = personal_codex.ledger.record
+
+        def reject_progress(db, number, operation, actor, state, note, *args):
+            if note == checkpoint["headline"]:
+                raise ValueError("Cannot save this report.")
+            return record_activity(db, number, operation, actor, state, note, *args)
+
+        with patch.object(personal_codex.ledger, "record", side_effect=reject_progress):
+            self.call(anonymous, progress, method="POST", status=409, headers=report_headers, json=checkpoint)
+        claimed_note = "The first tailnet report assigned the pilot ticket to its configured human owner."
+        with closing(open_sqlite(self.database)) as db:
+            self.assertEqual(db.execute("SELECT dri FROM tasks WHERE id = 1").fetchone()["dri"], "")
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM events WHERE note = ?", (claimed_note,)).fetchone()[0], 0)
 
         def report(_attempt):
             return self.call(app.test_client(), progress, method="POST", headers=report_headers, json=checkpoint).json
@@ -330,14 +344,24 @@ class TasksServiceTest(unittest.TestCase):
         self.call(anonymous, endpoint, status=401, headers=bearer)
 
         with closing(open_sqlite(self.database)) as db, db:
+            self.assertEqual(db.execute("SELECT dri FROM tasks WHERE id = 1").fetchone()["dri"], owner_id)
+            claims = db.execute("SELECT actor FROM events WHERE note = ?", (claimed_note,)).fetchall()
+            self.assertEqual([row["actor"] for row in claims], [owner_id])
             reports = db.execute("SELECT actor, context FROM events WHERE note = ? ORDER BY id",
                                  (checkpoint["headline"],)).fetchall()
             self.assertEqual([row["actor"] for row in reports], [owner_id, owner_id])
             metadata = json.loads(reports[0]["context"])["personal_codex"]
             self.assertEqual(metadata, {"reporting_auth": "tailnet", "session_id": checkpoint["session_id"],
                                         "label": checkpoint["session"]})
+            db.execute("UPDATE tasks SET dri = '' WHERE id = 1")
+            events = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        self.assertEqual(report(3), first)
+        with closing(open_sqlite(self.database)) as db, db:
+            self.assertEqual(db.execute("SELECT dri FROM tasks WHERE id = 1").fetchone()["dri"], "")
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0], events)
             db.execute("UPDATE tasks SET dri = ? WHERE id = 1", (agent_id,))
         self.call(anonymous, endpoint, status=409, headers=tailnet)
+        self.call(anonymous, progress, method="POST", status=409, headers=report_headers, json=checkpoint)
 
     def call(self, client, path, *, method="GET", status=200, **options):
         headers = {PORTAL_HEADER: PORTAL_FIXTURE, **options.pop("headers", {})}

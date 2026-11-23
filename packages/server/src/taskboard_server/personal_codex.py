@@ -138,19 +138,30 @@ def list_connections(db, owner, number):
     ).fetchall()
 
 
-def issue(db, number, owner, label):
+def eligible_ticket(db, number, owner):
     task = ledger.get_task(db, number)
     if ledger.task_goal_kind(db, number) or peer_asks.find(db, number):
         raise ValueError("Use an ordinary ticket for the pilot.")
-    if task["dri"] != owner:
-        if task["dri"] or task["display_state"] != "ready":
-            raise ValueError("The pilot ticket must belong to you or be Ready and unassigned.")
-        db.execute("UPDATE tasks SET dri = ? WHERE id = ?", (owner, number))
-        ledger.record(
-            db, number, "log", owner, "ready", "The human owner connected the personal Codex pilot.", None, [],
-            {"ownership_action": "reassign", "previous_dri": "", "next_dri": owner},
-        )
-        ledger.bump_revision(db)
+    if task["dri"] != owner and (task["dri"] or task["display_state"] != "ready"):
+        raise ValueError("The pilot ticket must belong to the configured human or be Ready and unassigned.")
+    return task
+
+
+def claim_ticket(db, task, owner, note):
+    if task["dri"] == owner:
+        return
+    number = task["id"]
+    db.execute("UPDATE tasks SET dri = ? WHERE id = ?", (owner, number))
+    ledger.record(
+        db, number, "log", owner, "ready", note, None, [],
+        {"ownership_action": "reassign", "previous_dri": "", "next_dri": owner},
+    )
+    ledger.bump_revision(db)
+
+
+def issue(db, number, owner, label):
+    task = eligible_ticket(db, number, owner)
+    claim_ticket(db, task, owner, "The human owner connected the personal Codex pilot.")
     token = token_urlsafe(32)
     expiry = (utc_now() + SESSION_DURATION).isoformat()
     db.execute(
@@ -193,18 +204,16 @@ def authorized_connection(db, pilot, ticket, authorization):
 
 
 def tailnet_ticket(db, number, server, subject):
-    task = ledger.find_task(db, number)
-    if task is None:
-        raise LookupError("The pilot ticket does not exist.")
     owner = db.execute(
         """
         SELECT ledger_key FROM board_principals
-        WHERE ledger_key = ? AND server_id = ? AND kind = 'human' AND subject = ?
-        """, (task["dri"], server, subject),
+        WHERE server_id = ? AND kind = 'human' AND subject = ?
+        """, (server, subject),
     ).fetchone()
-    if owner is None or ledger.task_goal_kind(db, number) or peer_asks.find(db, number):
-        raise LookupError("The operator must assign an ordinary pilot ticket to the configured human.")
-    return task
+    if owner is None:
+        raise ValueError("The configured human profile is unavailable.")
+    key = owner["ledger_key"]
+    return eligible_ticket(db, number, key), key
 
 
 def append_progress(db, reporter, task, replay_key, headline, details, *, tailnet=False):
@@ -237,6 +246,8 @@ def append_progress(db, reporter, task, replay_key, headline, details, *, tailne
             raise ValueError("This replay key already identifies a different checkpoint.")
         return receipt["event_id"]
 
+    if tailnet:
+        claim_ticket(db, task, owner, "The first tailnet report assigned the pilot ticket to its configured human owner.")
     event = ledger.record(
         db, task["id"], "log", owner, task["state"], headline, None, [],
         {
