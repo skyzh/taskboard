@@ -2643,6 +2643,9 @@ class TasksServiceTest(unittest.TestCase):
         reports = self.call(agent, "/api/v1/reports", query_string={"view": "all", "project": "T"}).json["items"]
         agent_report = next(report for report in reports if report["owner"] == agent_id)
         self.assertEqual([event["task_key"] for event in agent_report["recent_outcomes"]], ["T-5"])
+        activity = self.action(agent, "my-activity", query_string={"project": "T", "limit": 100})["items"]
+        self.assertTrue(activity)
+        self.assertTrue(all(event["task_key"] not in {"T-1", "T-2"} for event in activity))
         self.action(manager, "change-ownership", {"id": "T-1", "action": "reopen", "owner": agent_id,
                                                   "reason": "Rejected work transition."}, status=409)
         self.action(agent, "edit-task-details", {"id": "T-1", "brief": "Invalid edit.", "reason": "Denied."}, status=403)
@@ -2673,7 +2676,10 @@ class TasksServiceTest(unittest.TestCase):
         inbox = self.call(human, "/api/v1/notifications/inbox").json["items"]
         self.assertEqual({row["item"]["task_id"] for row in inbox if row["kind"] == "creation"}, {3, 4, 5, 6})
 
+        self.action(agent, "watch-task", {"id": "T-1", "watch": "true"})
         self.action(manager, "edit-task-details", {"id": "T-1", "brief": "Revised guidance.", "reason": "Updated rule."})
+        activity = self.action(agent, "my-activity", query_string={"project": "T", "limit": 100})["items"]
+        self.assertEqual(activity[0]["task_key"], "T-1")
         changed = self.action(manager, "task-activity", query_string={"id": "T-1"})["items"][0]
         self.assertEqual(changed["actor"], manager_id)
         self.assertEqual(self.action(agent, "task", query_string={"id": "T-1"})["brief"], "Revised guidance.")

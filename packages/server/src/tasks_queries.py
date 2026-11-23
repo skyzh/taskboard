@@ -966,7 +966,7 @@ class BoardQueries:
             args.append(watcher)
         if owner_or_watcher is not None:
             terms.append(
-                """(tasks.dri = ? OR EXISTS (
+                f"""((tasks.dri = ? AND {ledger.work_records_sql(self.db)}) OR EXISTS (
                     SELECT 1 FROM task_watches
                     WHERE task_watches.task_id = tasks.id AND task_watches.watcher = ?
                       AND events.id > task_watches.after_event
@@ -1069,7 +1069,7 @@ class BoardQueries:
         day_sql = self.outcome_day_sql(time_zone)
         terms, args = [OUTCOME_ACTIONS], []
         if dri is not None:
-            terms.append("tasks.dri = ?")
+            terms.extend(("tasks.dri = ?", ledger.work_records_sql(self.db)))
             args.append(dri)
         if project is not None:
             terms.append("tasks.project_prefix = ?")
@@ -1090,18 +1090,18 @@ class BoardQueries:
     def related_activity(self, person, *, before, limit, project=None):
         result = self.events(before=before, limit=limit, owner_or_watcher=person, project=project)
         failures = self.db.execute(
-            """
+            f"""
             SELECT sources.source_key, intake_errors.error, intake_errors.at
             FROM intake_errors JOIN sources ON sources.id = intake_errors.source_id
             WHERE EXISTS (
                 SELECT 1 FROM task_sources
                 JOIN tasks ON tasks.id = task_sources.task_id
                 LEFT JOIN task_watches ON task_watches.task_id = tasks.id AND task_watches.watcher = ?
-                WHERE task_sources.source_id = sources.id AND (tasks.dri = ? OR task_watches.watcher IS NOT NULL)
-                    AND (? IS NULL OR tasks.project_prefix = ?)
+                WHERE task_sources.source_id = sources.id AND (? IS NULL OR tasks.project_prefix = ?)
+                    AND (task_watches.watcher IS NOT NULL OR (tasks.dri = ? AND {ledger.work_records_sql(self.db)}))
             )
             ORDER BY intake_errors.at DESC, sources.source_key LIMIT 20
-            """, (person, person, project, project),
+            """, (person, project, project, person),
         )
         return {**result, "source_errors": [dict(error) for error in failures]}
 
@@ -1126,7 +1126,8 @@ class BoardQueries:
                             worker_runs.started_at, worker_runs.assigned_at) AS updated_at,
                    tasks.id AS task_id, tasks.title AS task_title, {TASK_REFERENCE} AS task_key
             FROM worker_runs JOIN tasks ON tasks.id = worker_runs.task_id
-            WHERE tasks.dri = ? AND (? IS NULL OR tasks.project_prefix = ?){where}
+            WHERE tasks.dri = ? AND (? IS NULL OR tasks.project_prefix = ?)
+                AND {ledger.work_records_sql(self.db)}{where}
             ORDER BY {order} LIMIT ?
             """, (owner, project, project, *parameters, limit + 1),
         ).fetchall()
