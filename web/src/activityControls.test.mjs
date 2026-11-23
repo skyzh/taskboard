@@ -563,7 +563,8 @@ test('Goal activity filters owners and goals, and labels unavailable idle counts
   }
   const dated = {
     key: 'T-43', owner: 'Blake', kind: 'milestone', summary: 'Review the launch checklist',
-    deadline: '2030-12-01', starts: 0, completed_checks: 0, idle_offers: 0, outcomes: [],
+    deadline: '2020-12-01', starts: 1, completed_checks: 1, last_completed_at: lastCheck,
+    idle_offers: 0, outcomes: [{ id: 29, at: lastCheck, note: 'Checklist reviewed.' }],
   }
   fixture.resources = { '/reports/goal-activity?project=T': { data: { items: [standing, dated] } } }
   const render = (agent, goal) => renderToStaticMarkup(React.createElement(GoalActivity, { project: 'T', agent, goal }))
@@ -573,8 +574,8 @@ test('Goal activity filters owners and goals, and labels unavailable idle counts
   assert.match(all, /Completed checks<\/dt><dd>1/)
   assert.match(all, /href="#event-28-log"><time dateTime="2026-11-22T14:30:00Z"/)
   assert.match(all, /No issue found/)
-  assert.match(all, /dateTime="2030-12-01"/)
-  assert.match(all, /None recorded/)
+  assert.match(all, /dateTime="2020-12-01"/)
+  assert.doesNotMatch(all, /Overdue/)
   assert.doesNotMatch(render('Avery'), /href="#task-T-43"/)
   assert.doesNotMatch(render(null, 'T-43'), /href="#task-T-42"|href="#event-28-log"/)
 })

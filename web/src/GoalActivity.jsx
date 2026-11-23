@@ -2,7 +2,6 @@ import React from 'react'
 import { ChevronDown } from 'lucide-react'
 import { queryPath, useResource } from './data.js'
 import { ResourceStatus, TaskLink, Timestamp, eventHref, profileName, taskHref } from './shared.jsx'
-import { GoalDeadline } from './DriGoal.jsx'
 import { MarkdownInline } from './Markdown.jsx'
 
 export function goalActivityFragment(project, agent, goal) {
@@ -20,7 +19,7 @@ function GoalActivityRow({ goal }) {
       <p className="goal-activity-context">
         <span>{name}</span>
         <span>{goal.kind === 'standing' ? 'Standing goal' : 'Dated goal'}</span>
-        {goal.deadline && <GoalDeadline deadline={goal.deadline} />}
+        {goal.deadline && <time dateTime={goal.deadline}>{goal.deadline}</time>}
       </p>
       <dl className="goal-activity-counts">
         <div><dt>Starts</dt><dd>{goal.starts}</dd></div>
