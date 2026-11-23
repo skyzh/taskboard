@@ -75,6 +75,12 @@ class SharedConnectionTest(unittest.TestCase):
                 self.assertEqual(failure.exception.reason, expected)
                 self.assertFalse(failure.exception.retryable)
                 self.assertNotIn("private-fixture", str(failure.exception))
+                diagnostic = {"exit_code": 1, "output": "error-envelope" if code else "unstructured"}
+                if code:
+                    diagnostic["error_code"] = "other" if expected == "unclassified" else code
+                if expected == "raft-action-transport":
+                    diagnostic["fault_domain"] = domain
+                self.assertEqual(failure.exception.carrier, diagnostic)
                 self.assertEqual(call.call_count, 1)
 
     def test_only_typed_carrier_timeouts_are_retryable_reads(self):
