@@ -37,7 +37,9 @@ BOARD_FRAGMENT = re.compile(
     r"|notifications(?:-needs-me|-log(?:\?project=[A-Z][A-Z0-9]{0,7}"
     r"(?:&status=(?:pending|history))?(?:&kind=(?:ready|merge|wake))?"
     r"(?:&agent=[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})?)?)?"
-    r"|reports(?:-all|\?project=[A-Z][A-Z0-9]{0,7})"
+    r"|reports(?:-all|\?project=[A-Z][A-Z0-9]{0,7}"
+    r"|\?view=goal-activity&project=[A-Z][A-Z0-9]{0,7}(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?"
+    r"(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9][0-9]{0,18})?)"
     r"|stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?"
     r"|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?|settings|about)"
 )

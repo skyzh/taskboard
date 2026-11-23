@@ -30,6 +30,7 @@ let Outcomes
 let TimeZoneContext
 let createTimeZoneFormatters
 let Notifications
+let GoalActivity
 let DriGoal
 let DriMilestones
 let TaskRow
@@ -53,6 +54,7 @@ before(async () => {
         export { OutcomeRow, Outcomes } from './Overview.jsx'
         export { TimeZoneContext, createTimeZoneFormatters } from './timeZone.js'
         export { default as Notifications } from './Notifications.jsx'
+        export { default as GoalActivity } from './GoalActivity.jsx'
         export { default as DriGoal, DriMilestones } from './DriGoal.jsx'
         export { TaskRow } from './WorkRow.jsx'
         export { default as AttentionRequests } from './AttentionRequests.jsx'
@@ -116,7 +118,7 @@ before(async () => {
     WorkLog, WorkQueue, TaskDetail, DecisionForm, TaskClosure, TaskDetailsEdit, TaskOwnership, TaskTags,
     ReminderDate, PendingReports, Reports, AssigneePage, EventRow, OutcomeRow, Outcomes,
     TimeZoneContext, createTimeZoneFormatters,
-    Notifications, DriGoal, DriMilestones, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity,
+    Notifications, GoalActivity, DriGoal, DriMilestones, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity,
   } = module.exports)
 })
 
@@ -550,6 +552,31 @@ test('Inbox shows empty only after its required reads settle successfully', () =
   const updateFailure = render({ ...empty, ...failed }, empty)
   assert.match(updateFailure, /Unable to load your inbox\. Try again later\./)
   assert.doesNotMatch(updateFailure, /Your inbox is empty/)
+})
+
+test('Goal activity filters owners and goals, and labels unavailable idle counts separately', () => {
+  const lastCheck = '2026-11-22T14:30:00Z'
+  const standing = {
+    key: 'T-42', owner: 'Avery', kind: 'standing', summary: 'Improve handoffs',
+    starts: 2, completed_checks: 1, last_completed_at: lastCheck, idle_offers: null,
+    outcomes: [{ id: 28, at: lastCheck, note: 'No issue found.' }],
+  }
+  const dated = {
+    key: 'T-43', owner: 'Blake', kind: 'milestone', summary: 'Review the launch checklist',
+    deadline: '2030-12-01', starts: 0, completed_checks: 0, idle_offers: 0, outcomes: [],
+  }
+  fixture.resources = { '/reports/goal-activity?project=T': { data: { items: [standing, dated] } } }
+  const render = (agent, goal) => renderToStaticMarkup(React.createElement(GoalActivity, { project: 'T', agent, goal }))
+  const all = render()
+  assert.match(all, /Idle offers<\/dt><dd>Unmeasured/)
+  assert.match(all, /Idle offers<\/dt><dd>0/)
+  assert.match(all, /Completed checks<\/dt><dd>1/)
+  assert.match(all, /href="#event-28-log"><time dateTime="2026-11-22T14:30:00Z"/)
+  assert.match(all, /No issue found/)
+  assert.match(all, /dateTime="2030-12-01"/)
+  assert.match(all, /None recorded/)
+  assert.doesNotMatch(render('Avery'), /href="#task-T-43"/)
+  assert.doesNotMatch(render(null, 'T-43'), /href="#task-T-42"|href="#event-28-log"/)
 })
 
 test('Project log shows empty only after the current read succeeds', () => {

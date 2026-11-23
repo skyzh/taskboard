@@ -169,7 +169,8 @@ export function signInHref(hash) {
   const taskLink = /^#task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9]\d{0,18}$/.test(anchor)
   const statsLink = /^#stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/.test(hash)
   const activityLink = /^#(?:activity|event-[1-9]\d{0,18}-log)(?:\?(?:actor=[A-Za-z0-9_%+.*-]{1,1920}&?)?(?:action=[a-z-]{1,30}&?)?(?:detail=all&?)?(?:hide_requests=true)?)?$/.test(hash)
-  const returnToBoard = taskLink || statsLink || activityLink || /^#(?:notifications(?:-needs-me)?|reports(?:-all|\?project=[A-Z][A-Z0-9]{0,7})|settings|about)$/.test(hash)
+  const goalActivityLink = /^#reports\?view=goal-activity&project=[A-Z][A-Z0-9]{0,7}(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})?$/.test(hash)
+  const returnToBoard = taskLink || statsLink || activityLink || goalActivityLink || /^#(?:notifications(?:-needs-me)?|reports(?:-all|\?project=[A-Z][A-Z0-9]{0,7})|settings|about)$/.test(hash)
     || (hash.startsWith('#') && notificationLogFilters(hash.slice(1)))
   return returnToBoard ? `${login}?fragment=${encodeURIComponent(taskLink ? anchor : hash)}` : login
 }
