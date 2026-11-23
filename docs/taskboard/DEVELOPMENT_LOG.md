@@ -6,6 +6,12 @@ Update this log at each development handoff with the verified result, any open i
 
 - **Optional stalled-work wake.** The existing Ready watcher can follow up after 30 minutes of sampled Raft Idle on a runnable In progress step or a started peer ask. It takes effect when you relaunch the updated watcher with `--wake-stalled`. [Opt in, verify the running job, or restore the previous options.](READY-CHECKPOINT.md#try-the-stalled-work-wake)
 
+## November 22, 2026
+
+### Workflow change
+
+- With this guide update, put blocking human questions on their existing tickets as named Decisions in every project using Taskboard. The recipient finds the Decision in **Notifications → Needs me**. When reviewing existing Parked tickets, move unanswered human blockers into this workflow. If someone already answered elsewhere, record the answer and its source once, clear any open Decision for that question, and continue the authorized work. [Decision workflow and migration steps](USING.md#ask-a-human-to-unblock-a-ticket)
+
 ## November 21, 2026
 
 ### Verified changes
