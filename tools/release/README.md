@@ -132,6 +132,9 @@ the WebSocket extra. Both slots use the same SQLite ledger and durable
 session directory. Keep the prior app running after a switch so its
 established revision sockets can finish, up to their normal two-minute
 reconnect. An unfinished browser sign-in may need a fresh attempt.
+The pinned services keep the current Pi restart policy. During the
+attended rehearsal, confirm that a failed process restarts at the same
+release and that an intentional stop leaves the unit stopped.
 
 Install the reviewed [slot restore user unit](systemd/taskboard-slot-restore.service)
 before enabling automatic deploys. It restores only the selected pinned
