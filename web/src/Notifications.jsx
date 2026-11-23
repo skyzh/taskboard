@@ -4,6 +4,7 @@ import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificat
 import AttentionRequests from './AttentionRequests.jsx'
 import NotificationLog from './NotificationLog.jsx'
 import DecisionForm from './DecisionForm.jsx'
+import { GoalDeadline } from './DriGoal.jsx'
 import { Markdown } from './Markdown.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import { EventRow } from './Work.jsx'
@@ -86,6 +87,20 @@ function InboxWork({ items }) {
   )
 }
 
+function InboxDatedGoals({ goals }) {
+  if (goals.length === 0) return null
+  return (
+    <ul className="event-list" aria-label="Dated goals" role="list">
+      {goals.map(goal => (
+        <li className="event-row dri-goal" key={goal.ticket}>
+          <p className="event-ticket"><TaskLink reference={goal.ticket} title={goal.summary} /></p>
+          <p>Due <GoalDeadline deadline={goal.deadline} /></p>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function InboxStandingGoals({ goals, owner }) {
   if (goals.length === 0) return null
   return (
@@ -104,6 +119,7 @@ function InboxEntries({ revision, owner }) {
   const page = useLoadedPages('/notifications/inbox', { scope: 'all', view: 'updates' }, revision)
   const work = useResource('/notifications/work?scope=all', revision)
   const items = page.data?.items ?? []
+  const datedGoals = work.data?.dated_goals || []
   const standingGoals = work.data?.standing_goals || []
   const actionable = (work.data?.items || []).filter(item => Object.hasOwn(workLabels, item.kind))
 
@@ -112,9 +128,8 @@ function InboxEntries({ revision, owner }) {
       <ResourceStatus resource={page} label="your inbox" />
       {work.error && work.error.status !== 404 && <ResourceStatus resource={work} label="next actionable work" />}
       <InboxWork items={actionable} />
-      {page.data && !work.pending && items.length === 0 && actionable.length === 0 && standingGoals.length === 0 && (
-        <p className="section-message">Your inbox is empty.</p>
-      )}
+      {page.data && !work.pending && items.length === 0 && actionable.length === 0
+        && datedGoals.length === 0 && standingGoals.length === 0 && <p className="section-message">Your inbox is empty.</p>}
       {items.length > 0 && (
         <ol className="event-list" aria-label="Inbox" role="list">
           {items.map(({ kind, id, item }) => {
@@ -127,6 +142,7 @@ function InboxEntries({ revision, owner }) {
         </ol>
       )}
       <LoadMore page={page} label="inbox items" />
+      <InboxDatedGoals goals={datedGoals} />
       <InboxStandingGoals goals={standingGoals} owner={owner} />
     </>
   )

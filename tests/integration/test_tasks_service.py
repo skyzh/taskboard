@@ -1261,6 +1261,11 @@ class TasksServiceTest(unittest.TestCase):
             for number, goal in enumerate([original, *my_goals["milestones"]], start=5)
         ]
         self.assertEqual(next_work["dated_goals"], dates)
+        self.assertEqual(work["dated_goals"], dates)
+        self.assertEqual(self.call(blake, path).json["dated_goals"], [])
+        course_work = self.call(avery, path, query_string={"project": "COURSE"}).json
+        self.assertEqual(course_work["dated_goals"], [])
+        self.assertEqual([goal["project"] for goal in course_work["standing_goals"]], ["COURSE"])
         ready_output = self.shared_cli(avery, "next", "--project", "T")[1]
         self.assertLess(ready_output.index("Own Ready"), ready_output.index("Improve the work queue"))
         self.assertIn("Original dated goal", ready_output)

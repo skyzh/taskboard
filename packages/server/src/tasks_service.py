@@ -1619,7 +1619,7 @@ def create_app(
         with tasks_storage.read(db()) as connection:
             return {
                 "items": list(query().actionable_work(owner, today=pacific_day(ledger.timestamp()), project=project)),
-                "standing_goals": goals.standing(connection, owner, project, include_ticket=True),
+                **goals.queue_context(connection, owner, project),
             }
 
     @app.get("/api/v1/notifications/needs-you")
