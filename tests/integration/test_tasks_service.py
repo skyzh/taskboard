@@ -4128,6 +4128,49 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(revised["note"], "Check the revised samples.")
         self.assertEqual(revised["links"], original["links"])
 
+    def test_task_detail_offers_ordinary_parking_only_to_eligible_owner(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        manager, manager_id = self.login(app, "Sam")
+        other, _ = self.login(app, "Blake")
+        anonymous = app.test_client()
+        self.cli("register-project", "T", "Taskboard", "--dri", manager_id)
+        self.action(owner, "create-task", {"title": "Review the samples", "step": "Read the worksheet."})
+        route = "/api/v1/tasks/T-1"
+        data = {"note": "Read the next worksheet.", "review_after": "2030-04-01"}
+
+        def can_park(client, path=route):
+            return self.call(client, path).json["can_edit_parking"]
+
+        self.assertTrue(can_park(owner))
+        self.assertTrue(self.call(manager, route).json["can_edit_details"])
+        for client in (manager, other, anonymous):
+            self.assertFalse(can_park(client))
+        self.call(manager, route + "/parking", method="POST", json=data, status=409)
+        self.call(anonymous, route + "/parking", method="POST", json=data, status=401)
+
+        def advance(transition, **extra):
+            return self.action(owner, "advance-task", {
+                "id": "T-1", "transition": transition, "note": "Read the sample.", **extra,
+            })
+
+        advance("start")
+        self.assertTrue(can_park(owner))
+        advance("wait", on="Sample export", automation=True)
+        self.assertFalse(can_park(owner))
+        self.call(owner, route + "/parking", method="POST", json=data, status=409)
+        advance("resume")
+        self.call(owner, route + "/parking", method="POST", json=data)
+        self.assertTrue(can_park(owner))
+        advance("unpark")
+        advance("start")
+        advance("done")
+        self.assertFalse(can_park(owner))
+
+        self.action(owner, "save-goal", {"kind": "standing", "summary": "Keep checking the sample."})
+        goal = self.action(owner, "my-next")["standing_goals"][0]["ticket"]
+        self.assertFalse(can_park(owner, f"/api/v1/tasks/{goal}"))
+
     def test_task_parking_repairs_a_legacy_record_without_rewriting_history(self):
         app = self.app(portal_reader=True)
         avery, owner = self.login(app, "Avery")

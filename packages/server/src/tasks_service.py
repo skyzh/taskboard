@@ -976,6 +976,10 @@ def create_app(
             "tag_editable": editable,
             "can_close": may_close and task["state"] != "done",
             "can_edit_details": editable,
+            "can_edit_parking": (
+                key is not None and key == task["dri"] and not result["goal"]
+                and task["state"] in ledger.TRANSITIONS["park"][0]
+            ),
             "can_confirm_blocker": editable and has_verifiable_blocker(task["state"], task["context"]),
         }
 

@@ -382,6 +382,10 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   const project = typeof id === 'string' ? id.split('-')[0] : 'T'
   const taskProject = task?.key?.split('-')[0] || project
   const signedIn = ['agent', 'human'].includes(session.data?.actor?.kind)
+  const ownsReturnPath = task && session.data?.actor?.id && session.data.actor.id === task.dri
+    && ['ready', 'in_progress', 'parked'].includes(task.state)
+  const showReturnPath = !record?.goal && typeof record?.can_edit_parking === 'boolean'
+    ? signedIn && record.can_edit_parking : ownsReturnPath
   const { data: fieldGuidance } = useFieldGuidance(signedIn && task ? taskProject : null, revision)
   const fields = fieldGuidance?.fields
   const queueHref = returnHref || (project === 'T' && preferredProject === 'T' ? '#board' : `#project=${project}`)
@@ -419,8 +423,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
               </>}
               <ClosureReference context={task.context} />
               <ReminderWhen context={task.context} />
-              {session.data?.actor?.id && session.data.actor.id === task.dri &&
-                ['ready', 'in_progress', 'parked'].includes(task.state) && (record.goal ? (
+              {showReturnPath && (record.goal ? (
                   <ReminderDate key={`${id}:${task.context?.review_after || ''}`}
                     path={`/tasks/${id}/reminder`} saved={task.context?.review_after}
                     onChanged={onChanged} />
