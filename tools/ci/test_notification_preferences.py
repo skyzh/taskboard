@@ -2,6 +2,7 @@
 
 from contextlib import closing
 import os
+import sqlite3
 import unittest
 from uuid import uuid4
 
@@ -14,6 +15,8 @@ import test_tasks_service as fixture
 from tasks_core import import_notification_on
 from tasks_service import create_app
 from tasks_storage import Postgres
+from tasks_storage_import import import_snapshot
+from tasks_wake_subscriptions import OWNED_READY, has_subscription
 
 
 PREFERENCE = "/api/v1/notifications/preferences"
@@ -73,6 +76,18 @@ class StorageReplayTest(unittest.TestCase):
     def test_postgres(self):
         self.replay(self.postgres_app(self.postgres_fixture()))
 
+    def test_wake_subscriptions_survive_sqlite_import(self):
+        client, owner = self.board.login(self.board.app(portal_reader=True), "Avery")
+        self.board.action(client, "set-wake-subscription", {"event_type": OWNED_READY, "enabled": "true"})
+        snapshot = self.board.database.with_name("snapshot.sqlite3")
+        with closing(sqlite3.connect(self.board.database)) as source, closing(sqlite3.connect(snapshot)) as backup:
+            source.backup(backup)
+
+        dsn = self.postgres_fixture()
+        self.assertEqual(import_snapshot(snapshot, dsn)["wake_subscriptions"], 1)
+        with closing(Postgres(dsn)) as db:
+            self.assertTrue(has_subscription(db, "T", owner, OWNED_READY))
+
     def test_postgres_reopens_a_populated_version_one_board(self):
         dsn = self.postgres_fixture()
         client, owner = self.board.login(self.postgres_app(dsn), "Avery")
@@ -85,6 +100,7 @@ class StorageReplayTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT schema_version FROM taskboard_writer WHERE id = 1").fetchone()[0], 1)
             # Recreate the previous table layout in this throwaway schema without Git history.
             db.execute("DROP TABLE board_standing_goals, board_goal_milestones, notification_log, peer_asks")
+            db.execute("DROP TABLE wake_subscriptions")
 
         client, _ = self.board.login(self.postgres_app(dsn), "Avery")
         profile = f"/api/v1/assignee?owner={owner}"
@@ -93,6 +109,9 @@ class StorageReplayTest(unittest.TestCase):
         self.board.action(client, "save-goal", {
             "kind": "dated", "summary": "Verify the upgrade", "deadline": "2030-12-03", "tickets": '["T-1"]',
         })
+        self.assertEqual(self.board.action(client, "my-wake-subscriptions")["subscriptions"], [])
+        wake = {"event_type": "owned-ready", "enabled": "true"}
+        self.assertEqual(self.board.action(client, "set-wake-subscription", wake)["subscriptions"], ["owned-ready"])
         receipt = {
             "schema": "taskboard-notification/v1", "kind": "ready",
             "source": {"task": "T-1", "event": source["event_id"], "at": source["at"]},
@@ -106,6 +125,8 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual(saved["goal"], original)
         self.assertEqual(saved["standing_goal"]["summary"], "Improve handoffs")
         self.assertEqual(saved["milestones"][0]["tickets"], original["tickets"])
+        self.assertEqual(self.board.action(client, "my-wake-subscriptions")["subscriptions"], ["owned-ready"])
+        self.assertEqual(self.board.action(client, "set-wake-subscription", {**wake, "enabled": "false"})["subscriptions"], [])
         self.assertEqual(self.board.action(client, "my-next")["work"]["key"], "T-1")
         notices = self.board.call(client, "/api/v1/notifications/log").json["items"]
         self.assertEqual([(notice["task"], notice["status"], notice["delivered_at"]) for notice in notices],

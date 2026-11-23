@@ -20,6 +20,7 @@ TABLES = (
     "oidc_members", "audit_events",
     "github_source_status", "extension_deliveries", "extension_notifications", "stamp_review_health",
     "intake_errors", "attention_requests", "attention_wait_links", "notification_preferences", "notification_log",
+    "wake_subscriptions",
 )
 IDENTITIES = {
     "tasks": "id", "events": "id", "sources": "id", "worker_runs": "id",

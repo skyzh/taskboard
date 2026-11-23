@@ -17,11 +17,12 @@ ADVANCES = {
     "assign-human", "redirect-decision", "withdraw-decision",
 }
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
-         "search", "readiness", "raft-channel-show", ledger.READ}
+         "search", "readiness", "raft-channel-show", "wake-subscriptions", ledger.READ}
 WRITES = ADVANCES | {
     "confirm-blocker",
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
-    "tag", "close", "edit", "checklist", "save-goal", "raft-channel-set", ledger.WRITE, PEER_ASK,
+    "tag", "close", "edit", "checklist", "save-goal", "raft-channel-set", "wake-subscribe", "wake-unsubscribe",
+    ledger.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
 def assert_actor(value, actor):
     if value is None:
@@ -397,6 +398,17 @@ def shared_command(args):
         return with_guidance(summary, prompts.get(
             "raft-channel", "Use Raft for shared coordination when a verified channel is configured.",
         ))
+    if command in {"wake-subscriptions", "wake-subscribe", "wake-unsubscribe"}:
+        data = {"project": projects.prefix(args.project)} if args.project else {}
+        write = command != "wake-subscriptions"
+        if write:
+            data.update(event_type=args.event_type, enabled="true" if command == "wake-subscribe" else "false")
+        result = board.invoke("set-wake-subscription" if write else "my-wake-subscriptions", data, write=write)
+        selection = ", ".join(result["subscriptions"]) or "None"
+        output = f"Wake subscriptions · {result['project']} · {selection}"
+        if write:
+            output = f"Committed · {result['receipt']}\n{output}"
+        return with_guidance(output, result["next_step"])
     if command == "goals":
         saved = board.invoke("my-goals", {"project": args.project} if args.project else {})
         standing, dated = saved["standing_goal"], saved["goal"]

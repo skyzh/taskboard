@@ -31,6 +31,7 @@ from taskboard_cli import main as tasks_main
 from taskboard_cli.ready_checkpoint import watch_ready_count
 from taskboard_client import SharedBoard
 from tasks_core import SCHEMA, import_release_event, record
+from tasks_wake_subscriptions import OWNED_READY, has_subscription
 
 
 SERVER = str(UUID(int=17))
@@ -898,6 +899,62 @@ class TasksServiceTest(unittest.TestCase):
         self.assertNotEqual(active["next_step"], STANDING_EXPLORATION)
         detail = self.call(avery, "/api/v1/tasks/T-1").json["task"]
         self.assertEqual((detail["summary_label"], detail["note"]), ("Current step", "Inspect the current queue."))
+
+    def test_signed_wake_subscriptions_follow_the_principal_and_project(self):
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        blake, other = self.login(app, "Blake")
+        human, _ = self.login(app, "Sam")
+        self.cli("register-project", "COURSE", "Sample course", "--dri", other)
+
+        def saved(client, project="T"):
+            return self.action(client, "my-wake-subscriptions", query_string={"project": project})["subscriptions"]
+
+        for principal in (avery, blake):
+            self.assertEqual(saved(principal), [])
+        for principal, status in ((human, 403), (app.test_client(), 401)):
+            self.action(principal, "my-wake-subscriptions", status=status)
+            self.action(principal, "set-wake-subscription", {"event_type": OWNED_READY, "enabled": "true"}, status=status)
+        for fields in ({"event_type": "all"}, {"enabled": "maybe"}, {"owner": other}):
+            self.action(avery, "set-wake-subscription", {
+                "event_type": OWNED_READY, "enabled": "true", **fields,
+            }, status=400)
+        self.action(avery, "my-wake-subscriptions", query_string={"project": "UNKNOWN"}, status=404)
+
+        for _ in range(2):
+            code, output, error = self.shared_cli(avery, "wake-subscribe", OWNED_READY)
+            self.assertEqual((code, error), (0, ""))
+            self.assertIn("Committed · T", output)
+            self.assertIn("Wake subscriptions · T · owned-ready", output)
+        self.assertEqual(saved(avery, "COURSE"), [])
+        self.assertEqual(saved(blake), [])
+        with closing(sqlite3.connect(self.database)) as db:
+            self.assertTrue(has_subscription(db, "T", owner, OWNED_READY))
+            self.assertFalse(has_subscription(db, "T", other, OWNED_READY))
+            self.assertFalse(has_subscription(db, "COURSE", owner, OWNED_READY))
+
+        self.provider.issued.discard("Avery")
+        fresh, principal = self.login(self.app(portal_reader=True), "Avery")
+        self.assertEqual(principal, owner)
+        self.assertEqual(saved(fresh), [OWNED_READY])
+        self.assertEqual(self.shared_cli(fresh, "wake-subscribe", OWNED_READY, "--project", "COURSE")[0], 0)
+        for _ in range(2):
+            code, output, error = self.shared_cli(fresh, "wake-unsubscribe", OWNED_READY, "--project", "T")
+            self.assertEqual((code, error), (0, ""))
+            self.assertIn("Wake subscriptions · T · None", output)
+        self.assertEqual(saved(fresh), [])
+        self.assertEqual(saved(fresh, "COURSE"), [OWNED_READY])
+        self.assertIn("Wake subscriptions · COURSE · owned-ready",
+                      self.shared_cli(fresh, "wake-subscriptions", "--project", "COURSE")[1])
+
+    def test_wake_subscriptions_use_the_configured_project_roster(self):
+        roster = {self.provider.people["Avery"]["sub"]: "Avery"}
+        app = self.app(portal_reader=True, project_roster=roster)
+        avery, _ = self.login(app, "Avery")
+        blake, _ = self.login(app, "Blake")
+        self.assertEqual(self.action(avery, "my-wake-subscriptions")["subscriptions"], [])
+        self.action(blake, "my-wake-subscriptions", status=403)
+        self.action(blake, "set-wake-subscription", {"event_type": OWNED_READY, "enabled": "true"}, status=403)
 
     def test_standing_goal_start_clears_prior_investigation_estimate(self):
         app = self.app(portal_reader=True)

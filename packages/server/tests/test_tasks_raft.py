@@ -54,6 +54,8 @@ class RaftActionRoutesTest(unittest.TestCase):
             "raft-channel-set": ("POST", "project channel_id", ""),
             "my-next": ("GET", "", "project scope"),
             "my-goals": ("GET", "", "project"),
+            "my-wake-subscriptions": ("GET", "", "project"),
+            "set-wake-subscription": ("POST", "event_type enabled", "project"),
             "save-goal": ("POST", "kind summary", "deadline milestone tickets project"),
             "my-queue": ("GET", "", "state order project scope before limit"),
             "unassigned-tasks": ("GET", "", "state order project scope before limit"),
