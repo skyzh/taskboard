@@ -1,0 +1,9 @@
+[Unit]
+Description=Check exact-time Taskboard deferrals every 30 seconds
+
+[Timer]
+OnCalendar=*-*-* *:*:00,30 UTC
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

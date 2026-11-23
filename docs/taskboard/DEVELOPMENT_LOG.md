@@ -8,6 +8,7 @@ Update this log at each development handoff with the verified result, any open i
 
 - **Optional stalled-work wake.** The existing Ready watcher can follow up after 30 minutes of sampled Raft Idle on a runnable In progress step or a started peer ask. It takes effect when you relaunch the updated watcher with `--wake-stalled`. [Opt in, verify the running job, or restore the previous options.](READY-CHECKPOINT.md#try-the-stalled-work-wake)
 - **Timed follow-up regression check.** Portable CI now follows one exact-time deferral through the Ready watcher and a signed Start with a simulated Raft carrier. Existing schedules continue to work as configured. Once an operator verifies the deployed scheduler and a received wake, move eligible ticket follow-ups one at a time. [Verification](READY-CHECKPOINT.md#test-timed-follow-ups) · [Cutover and rollback](SHARED-BOARD.md#move-ticket-follow-ups-to-one-schedule)
+- **Optional deferral timer.** Shared SQLite boards can run a separate 30-second timer that returns exact-time ticket reminders to Ready. Operators can verify wake and pickup before moving each Raft follow-up. [Setup and rollback](SHARED-BOARD.md#run-the-sqlite-deferral-timer)
 
 ## November 22, 2026
 

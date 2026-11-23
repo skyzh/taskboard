@@ -259,6 +259,8 @@ def arguments(argv=None):
             command.add_argument("--as-of", metavar="UTC", help="Set a local fixture observation time.")
     tick = commands.add_parser("recurring-tick", help="Issue recurring tasks and release due deferrals on a local ledger.")
     tick.add_argument("--as-of", required=True, metavar="UTC")
+    tick.add_argument("--deferrals-only", action="store_true",
+                      help="Release exact-time ticket deferrals without issuing recurring work.")
 
     tag = commands.add_parser("tag", help="Add or remove a ticket tag.")
     tag.add_argument("id", type=task_id)

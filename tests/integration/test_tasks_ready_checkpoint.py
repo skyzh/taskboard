@@ -62,7 +62,7 @@ class ReadyCheckpointTest(unittest.TestCase):
         wake_references = []
 
         def tick(at):
-            return json.loads(service.cli("recurring-tick", "--as-of", at)).get("released_deferrals", [])
+            return json.loads(service.cli("recurring-tick", "--deferrals-only", "--as-of", at))["released_deferrals"]
 
         def advance(seconds):
             nonlocal clock
