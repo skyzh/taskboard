@@ -33,7 +33,7 @@ def configuration(environment):
         raise ValueError("Set the OpenID Connect issuer, client ID, client secret and private session directory.")
     if any(environment.get(name) for name in [
         "TASKS_RAFT_API_ORIGIN", "TASKS_RAFT_SERVER_ID", "TASKS_RAFT_CLIENT_ID", "TASKS_RAFT_CLIENT_SECRET",
-        "TASKS_RAFT_SESSION_DIR", "TASKS_MARKETPLACE_SESSION_DIR",
+        "TASKS_RAFT_SESSION_DIR", "TASKS_RAFT_HUMAN_SESSION_INSTALLATION_ID", "TASKS_MARKETPLACE_SESSION_DIR",
     ]):
         raise ValueError("Start OpenID Connect in an environment without Raft provider configuration.")
     return oidc_settings

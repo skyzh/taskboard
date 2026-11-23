@@ -621,6 +621,11 @@ def create_app(
         select_tenant(identity)
         with tasks_storage.changes(db()) as connection:
             profiles.retry_provider_photo(connection, identity)
+            if identity.kind == "human" and raft_config.get("human_session_installation_id"):
+                profiles.signed_in(
+                    connection, identity, picture_source=raft.profile_photo_url(identity.picture),
+                    load_picture=raft.profile_photo,
+                )
 
     raft = None
     if raft_config and identity_provider is None:
@@ -711,7 +716,7 @@ def create_app(
             if not sync_profile and kind and identity.kind != kind:
                 raise RequestError(f"This action requires a signed-in Raft {kind}.", 403)
             select_tenant(identity, initialize=sync_profile)
-            if sync_profile:
+            if sync_profile and not (raft and raft.identity_uses_saved_profile()):
                 picture = raft.profile_photo_url(identity.picture) if raft else None
                 with tasks_storage.changes(db()) as connection:
                     g.actor = profiles.signed_in(connection, identity, picture_source=picture,
@@ -2547,6 +2552,11 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
                 )
             if config and not marketplace:
                 config["session_dir"] = os.environ.get("TASKS_RAFT_SESSION_DIR")
+    human_installation = os.environ.get("TASKS_RAFT_HUMAN_SESSION_INSTALLATION_ID")
+    if human_installation is not None:
+        if config is None or marketplace:
+            raise ValueError("Configure 24-hour Raft sign-in only on a fixed-server Raft board.")
+        config["human_session_installation_id"] = human_installation
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
     with socket.socket(family) as listener:
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
