@@ -2254,6 +2254,41 @@ class TasksServiceTest(unittest.TestCase):
             self.assertEqual(response.status_code, 403)
             self.assertNotIn(b"Pi operations rule", response.data)
 
+    def test_mixed_search_keeps_one_snapshot_when_a_decision_reopens(self):
+        from tasks_queries import BoardQueries
+
+        app = self.app(portal_reader=True)
+        reader, _ = self.login(app, "Avery")
+        manager, manager_key = self.login(app, "Blake")
+        self.cli("register-project", "T", "Tasks Board", "--dri", manager_key)
+        self.action(manager, "create-task", {
+            "title": "Operations procedure", "step": "Prepare the rule.",
+            "brief": "Use sudo only for approved maintenance.",
+        })
+        self.action(manager, "task-tag", {"id": "T-1", "action": "add", "tag": "decision-record"})
+        for transition in ("start", "done"):
+            self.action(manager, "advance-task", {"id": "T-1", "transition": transition, "note": "Review complete."})
+
+        original = BoardQueries.tasks
+
+        def reopen_between_reads(board, **params):
+            tickets = original(board, **params)
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(self.action, manager, "change-ownership", {
+                    "id": "T-1", "action": "reopen", "owner": manager_key,
+                    "reason": "Review sudo after the change.",
+                }).result()
+            return tickets
+
+        query = {"q": "sudo", "limit": "1"}
+        with patch.object(BoardQueries, "tasks", reopen_between_reads):
+            during = self.action(reader, "search-with-decisions", query_string=query)["items"]
+        self.assertEqual([row["key"] for row in during], ["T-1"])
+        self.assertIn("decision", during[0])
+        after = self.action(reader, "search-with-decisions", query_string=query)["items"]
+        self.assertEqual([(row["key"], row["state"]) for row in after], [("T-1", "ready")])
+        self.assertNotIn("decision", after[0])
+
     def test_shared_activity_search_pages_literal_historical_matches_with_exact_links(self):
         app = self.app(portal_reader=True)
         seeker, _ = self.login(app, "Avery")

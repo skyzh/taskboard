@@ -3,6 +3,7 @@
 import json
 import re
 from collections import deque
+from contextlib import nullcontext
 from datetime import datetime
 from difflib import SequenceMatcher
 from heapq import nsmallest
@@ -604,23 +605,24 @@ class BoardQueries:
 
         # One extra row from each stream is sufficient to find the next cursor
         # after merging, including when a Project T decision is in both streams.
-        tickets = self.tasks(project=projects.DEFAULT, search=search, before=before, limit=limit + 1)["items"]
-        records = self.search_rows(terms, args, "events.id DESC", limit, False, matches)
-        decisions = {row["id"]: row for row in records}
-        mixed = {task["id"]: task for task in tickets}
-        mixed.update({
-            row["id"]: {"id": row["id"], "event_id": row["event_id"], "title": row["title"],
-                        "key": projects.row_reference(row), "state": row["display_state"]}
-            for row in records
-        })
-        ordered = sorted(mixed.values(), key=lambda row: row["event_id"], reverse=True)
-        return page(ordered, limit, "event_id", render)
+        with tasks_storage.read(self.db):
+            tickets = self.tasks(project=projects.DEFAULT, search=search, before=before, limit=limit + 1)["items"]
+            records = self.search_rows(terms, args, "events.id DESC", limit, False, matches)
+            decisions = {row["id"]: row for row in records}
+            mixed = {task["id"]: task for task in tickets}
+            mixed.update({
+                row["id"]: {"id": row["id"], "event_id": row["event_id"], "title": row["title"],
+                            "key": projects.row_reference(row), "state": row["display_state"]}
+                for row in records
+            })
+            ordered = sorted(mixed.values(), key=lambda row: row["event_id"], reverse=True)
+            return page(ordered, limit, "event_id", render)
 
     def decision_sources(self, task_id):
         prefix = f"{self.base}/#event-"
         sources = []
         for _, label, url, _ in watches.task_source_links(self.db, task_id):
-            if match := re.fullmatch(r"([1-9][0-9]{0,18})-log", url.removeprefix(prefix)):
+            if match := re.fullmatch(rf"{re.escape(prefix)}([1-9][0-9]{{0,18}})-log", url):
                 event_id = int(match[1])
                 if event_id <= projects.MAX_ID and self.events(event_id=event_id, limit=1)["items"]:
                     sources.append((label, url))
@@ -655,7 +657,8 @@ class BoardQueries:
         rows = []
         cursor, bindings = [], ()
         batch_size = max(100, limit + 1)
-        with tasks_storage.read(self.db):
+        snapshot = nullcontext() if self.db.in_transaction else tasks_storage.read(self.db)
+        with snapshot:
             base = ledger.current_tasks_sql(self.db)
             while len(rows) <= limit:
                 conditions = terms + cursor
