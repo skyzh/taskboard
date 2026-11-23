@@ -2,8 +2,9 @@
 
 from tools.checkout import ROOT
 
-from contextlib import closing
+from contextlib import chdir, closing, redirect_stderr, redirect_stdout
 from datetime import datetime
+from io import StringIO
 import json
 from pathlib import Path
 import re
@@ -13,6 +14,9 @@ import sqlite3
 import subprocess
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
+
+from taskboard_cli import main
 
 TASKS = (ROOT / "tasks")
 
@@ -998,6 +1002,15 @@ class TasksTest(unittest.TestCase):
         self.assertEqual(self.db.read_bytes(), before)
 
     def test_contributors_append_activity_in_every_state(self):
+        def run_in_process(*args, code=0):
+            stdout, stderr = StringIO(), StringIO()
+            with chdir(self.folder), redirect_stdout(stdout), redirect_stderr(stderr):
+                result = main(["--db", str(self.db), *args])
+            self.assertEqual(result, code, stderr.getvalue() or stdout.getvalue())
+            return stdout.getvalue()
+
+        # This fixture checks state transitions. Other tests exercise the checkout launcher.
+        self.enterContext(patch.object(self, "run_tasks", run_in_process))
         with closing(sqlite3.connect(self.db)) as db, db:
             db.executescript(
                 """
