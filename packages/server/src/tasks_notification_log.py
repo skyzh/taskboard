@@ -12,9 +12,18 @@ import tasks_storage
 
 
 RECEIPT_SCHEMA = "taskboard-notification/v1"
-KINDS = ("ready", "merge")
+WAKE_SCHEMA = "taskboard-wake/v1"
+NOTICE_KINDS = ("ready", "merge")
+KINDS = (*NOTICE_KINDS, "wake")
 TIMES = ("requested", "send_confirmed", "delivered", "read", "acknowledged", "failed")
 TIME_COLUMNS = tuple(f"{name}_at" for name in TIMES)
+WAKE_PHASES = {
+    "acceptance": ("pending", "unknown", "accepted", "rejected"),
+    "delivery": ("delivered", "suppressed"),
+    "next_result": ("offered", "different_work", "no_work"),
+}
+WAKE_COLUMNS = ("acceptance", "acceptance_at", "delivery", "delivery_at", "next_result", "next_at",
+                "receipt_ref", "start_event_id")
 SCHEMA = (
     """
     CREATE TABLE IF NOT EXISTS notification_log (
@@ -32,6 +41,21 @@ SCHEMA = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS notification_log_recipient ON notification_log (recipient, source_event_id DESC)",
+    """
+    CREATE TABLE IF NOT EXISTS wake_log (
+        source_event_id INTEGER PRIMARY KEY REFERENCES events (id),
+        recipient TEXT NOT NULL REFERENCES board_principals (ledger_key),
+        acceptance TEXT NOT NULL CHECK (acceptance IN ('pending', 'unknown', 'accepted', 'rejected')),
+        acceptance_at TEXT,
+        delivery TEXT CHECK (delivery IN ('delivered', 'suppressed')),
+        delivery_at TEXT,
+        next_result TEXT CHECK (next_result IN ('offered', 'different_work', 'no_work')),
+        next_at TEXT,
+        receipt_ref TEXT,
+        start_event_id INTEGER REFERENCES events (id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS wake_log_recipient ON wake_log (recipient, source_event_id DESC)",
 )
 STATUS = """
     CASE WHEN acknowledged_at IS NOT NULL THEN 'acknowledged'
@@ -42,7 +66,13 @@ STATUS = """
          WHEN pending = 1 THEN 'pending'
          ELSE 'unknown' END
 """
+RECIPIENTS = """
+    SELECT source_event_id, recipient FROM notification_log
+    UNION ALL
+    SELECT source_event_id, recipient FROM wake_log
+"""
 STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])")
+RECEIPT_REF = re.compile(r"[0-9a-f]{64}")
 
 
 class ReceiptConflict(ValueError):
@@ -95,7 +125,7 @@ def record(db, payload, *, sender=False):
     if not isinstance(payload, dict) or payload.keys() != fields or payload["schema"] != RECEIPT_SCHEMA:
         raise ValueError("Use the documented Taskboard notification receipt fields.")
     kind, recipient, pending, observations = (payload[name] for name in ("kind", "recipient", "pending", "observations"))
-    if (kind not in KINDS or not isinstance(recipient, str) or not 0 < len(recipient) <= 160
+    if (kind not in NOTICE_KINDS or not isinstance(recipient, str) or not 0 < len(recipient) <= 160
             or type(pending) is not bool or not isinstance(observations, dict) or observations.keys() - set(TIMES)):
         raise ValueError("Supply a known kind, agent recipient, pending flag and supported observations.")
     status_at = observed_time(payload["status_at"])
@@ -148,6 +178,98 @@ def record(db, payload, *, sender=False):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (event, kind, recipient, pending, status_at, *values),
         )
+    return event, True
+
+
+def verify_wake_start(db, start, source, recipient, result, next_at):
+    if type(start) is not int or not source < start < 2**63:
+        raise ValueError("Use a Start event after the wake source.")
+    row = db.execute(
+        """
+        SELECT started.action, started.actor, started.at,
+               started.task_id = origin.task_id AS same_task
+        FROM events AS started
+        JOIN tasks AS started_task ON started_task.id = started.task_id
+        JOIN events AS origin ON origin.id = ?
+        JOIN tasks AS origin_task ON origin_task.id = origin.task_id
+        WHERE started.id = ? AND started_task.project_prefix = origin_task.project_prefix
+        """, (source, start),
+    ).fetchone()
+    if (row is None or row["action"] != "start" or row["actor"] != recipient
+            or result not in ("offered", "different_work") or bool(row["same_task"]) != (result == "offered")
+            or observed_time(row["at"]) < next_at):
+        raise ValueError("The Start must match the observed offer, project and recipient.")
+
+
+def record_wake(db, payload):
+    """Import typed, operator-attested phases for one owned Ready transition."""
+    fields = {"schema", "source", "recipient", "observations"}
+    observations = payload.get("observations")
+    recipient = payload.get("recipient")
+    if (payload.keys() != fields or payload["schema"] != WAKE_SCHEMA or not isinstance(observations, dict)
+            or observations.keys() - {*WAKE_PHASES, "receipt_ref", "start_event_id"}
+            or not isinstance(recipient, str) or not 0 < len(recipient) <= 160):
+        raise ValueError("Use the documented Taskboard wake receipt fields.")
+    event = source_for_receipt(db, "ready", payload["source"])
+    if not db.execute(
+        "SELECT 1 FROM board_principals WHERE ledger_key = ? AND kind = 'agent'", (recipient,),
+    ).fetchone():
+        raise ValueError("Choose an agent with an established account on this board.")
+    existing = db.execute("SELECT * FROM wake_log WHERE source_event_id = ?", (event,)).fetchone()
+    if existing is not None and existing["recipient"] != recipient:
+        raise ReceiptConflict("This wake already belongs to a different recipient.")
+    values = {column: existing[column] if existing is not None else None for column in WAKE_COLUMNS}
+    values["acceptance"] = values["acceptance"] or "pending"
+    source_at = observed_time(payload["source"]["at"])
+
+    for field, allowed in WAKE_PHASES.items():
+        if field not in observations:
+            continue
+        evidence = observations[field]
+        if not isinstance(evidence, dict) or evidence.keys() != {"status", "at"} or evidence["status"] not in allowed:
+            raise ValueError("Each wake phase needs a supported status and observation timestamp.")
+        status, at = evidence["status"], observed_time(evidence["at"])
+        if at < source_at:
+            raise ValueError("Wake observations cannot predate their source event.")
+        time_field = "next_at" if field == "next_result" else f"{field}_at"
+        previous, previous_at = values[field], values[time_field]
+        if field == "acceptance" and previous in ("pending", "unknown"):
+            if status in ("pending", "unknown") and previous_at and (at < previous_at or
+                    (previous == "unknown" and status == "pending")):
+                continue
+        elif previous is not None and (previous != status or previous_at != at):
+            if field == "acceptance" and status in ("pending", "unknown"):
+                continue
+            raise ReceiptConflict("This wake phase already has different evidence.")
+        values.update({field: status, time_field: at})
+
+    receipt_ref = observations.get("receipt_ref", values["receipt_ref"])
+    if receipt_ref is not None and (
+        not isinstance(receipt_ref, str) or not RECEIPT_REF.fullmatch(receipt_ref) or values["acceptance"] != "accepted"
+    ):
+        raise ValueError("Use a SHA-256 receipt reference for an accepted wake.")
+    if values["receipt_ref"] is not None and receipt_ref != values["receipt_ref"]:
+        raise ReceiptConflict("This wake already has a different receipt reference.")
+    values["receipt_ref"] = receipt_ref
+
+    start = observations.get("start_event_id", values["start_event_id"])
+    if values["start_event_id"] is not None and start != values["start_event_id"]:
+        raise ReceiptConflict("This wake already has a different Start.")
+    if start is not None:
+        verify_wake_start(db, start, event, recipient, values["next_result"], values["next_at"])
+    values["start_event_id"] = start
+
+    if existing is not None and all(existing[column] == values[column] for column in WAKE_COLUMNS):
+        return event, False
+    columns = ", ".join(WAKE_COLUMNS)
+    placeholders = ", ".join("?" for _ in WAKE_COLUMNS)
+    assignments = ", ".join(f"{column} = excluded.{column}" for column in WAKE_COLUMNS)
+    db.execute(
+        f"""
+        INSERT INTO wake_log (source_event_id, recipient, {columns}) VALUES (?, ?, {placeholders})
+        ON CONFLICT (source_event_id) DO UPDATE SET {assignments}
+        """, (event, recipient, *(values[column] for column in WAKE_COLUMNS)),
+    )
     return event, True
 
 
@@ -208,11 +330,11 @@ def project_agents(db, project, roster):
     roster_scope = " OR principals.subject IN (" + ", ".join("?" for _ in roster) + ")" if roster else ""
     return db.execute(
         f"""
-        WITH people AS (
+        WITH receipts AS ({RECIPIENTS}), people AS (
             SELECT dri FROM projects WHERE prefix = ?
             UNION SELECT dri FROM tasks WHERE project_prefix = ?
             UNION SELECT notices.recipient
-                FROM notification_log AS notices
+                FROM receipts AS notices
                 JOIN events ON events.id = notices.source_event_id
                 JOIN tasks ON tasks.id = events.task_id
                 WHERE tasks.project_prefix = ?
@@ -231,7 +353,8 @@ def has_receipts(db, project, recipient):
     bindings = (project,) if recipient is None else (project, recipient)
     return db.execute(
         f"""
-        SELECT 1 FROM notification_log AS notices
+        WITH receipts AS ({RECIPIENTS})
+        SELECT 1 FROM receipts AS notices
         JOIN events ON events.id = notices.source_event_id
         JOIN tasks ON tasks.id = events.task_id
         WHERE tasks.project_prefix = ?{scope}
@@ -240,7 +363,7 @@ def has_receipts(db, project, recipient):
     ).fetchone() is not None
 
 
-def listing(db, project, recipient, state, kind, *, before, limit):
+def listing(db, project, recipient, state, kind, *, before, limit, before_wake=False):
     filters, bindings = ["tasks.project_prefix = ?"], [project]
     if recipient is not None:
         filters.append("notices.recipient = ?")
@@ -249,30 +372,56 @@ def listing(db, project, recipient, state, kind, *, before, limit):
         filters.append("notices.kind = ?")
         bindings.append(kind)
     if before is not None:
-        filters.append("notices.source_event_id < ?")
+        filters.append("(notices.source_event_id < ? OR (notices.source_event_id = ? AND notices.kind != 'wake'))"
+                       if before_wake else "notices.source_event_id < ?")
         bindings.append(before)
+        if before_wake:
+            bindings.append(before)
     if state != "all":
         filters.append("notices.pending = ?")
         bindings.append(int(state == "pending"))
     rows = db.execute(
         f"""
+        WITH receipts AS (
+            SELECT source_event_id, kind, recipient, pending, status_at, {STATUS} AS status,
+                   {', '.join(TIME_COLUMNS)}, {', '.join(f'NULL AS {field}' for field in WAKE_COLUMNS)}
+            FROM notification_log
+            UNION ALL
+            SELECT source_event_id, 'wake', recipient,
+                   CASE WHEN acceptance = 'pending' THEN 1 ELSE 0 END, acceptance_at, acceptance,
+                   {', '.join('NULL' for _ in TIME_COLUMNS)}, {', '.join(WAKE_COLUMNS)}
+            FROM wake_log
+        )
         SELECT notices.source_event_id, notices.kind, principals.name AS recipient_name,
-               events.at AS source_at, notices.status_at, {STATUS} AS status,
-               {', '.join(TIME_COLUMNS)}, tasks.id, tasks.project_prefix, tasks.project_number
-        FROM notification_log AS notices
+               events.at AS source_at, notices.status_at, notices.status,
+               {', '.join(TIME_COLUMNS)}, {', '.join(WAKE_COLUMNS)}, started.at AS started_at,
+               tasks.id, tasks.project_prefix, tasks.project_number
+        FROM receipts AS notices
         JOIN events ON events.id = notices.source_event_id
         JOIN tasks ON tasks.id = events.task_id
         JOIN board_principals AS principals ON principals.ledger_key = notices.recipient
+        LEFT JOIN events AS started ON started.id = notices.start_event_id
         WHERE {' AND '.join(filters)}
-        ORDER BY notices.source_event_id DESC LIMIT ?
+        ORDER BY notices.source_event_id DESC, CASE WHEN notices.kind = 'wake' THEN 0 ELSE 1 END LIMIT ?
         """, (*bindings, limit + 1),
     ).fetchall()
+    cursor = None
+    if len(rows) > limit:
+        last = rows[limit - 1]
+        cursor = last["source_event_id"]
+        if last["kind"] == "wake":
+            # A fallback Ready notice may share this source. Include it on the next page.
+            cursor = f"{cursor}:wake"
     return {
         "items": [{
             "id": row["source_event_id"], "kind": row["kind"], "recipient": row["recipient_name"],
             "task_id": row["id"], "task": projects.row_reference(row), "source_at": row["source_at"],
             "status": row["status"], "status_at": row["status_at"],
-            **{column: row[column] for column in TIME_COLUMNS},
+            **({
+                "cue": f"{projects.row_reference(row)} became Ready for this agent.",
+                "started_at": row["started_at"],
+                **{column: row[column] for column in WAKE_COLUMNS},
+            } if row["kind"] == "wake" else {column: row[column] for column in TIME_COLUMNS}),
         } for row in rows[:limit]],
-        "next_cursor": rows[limit - 1]["source_event_id"] if len(rows) > limit else None,
+        "next_cursor": cursor,
     }

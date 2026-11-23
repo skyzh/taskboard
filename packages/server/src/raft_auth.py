@@ -35,7 +35,7 @@ BOARD_FRAGMENT = re.compile(
     r"|(?:activity|event-[1-9][0-9]{0,18}-log)(?:\?(?:actor=[A-Za-z0-9_%+.*-]{1,1920}&?)?"
     r"(?:action=[a-z-]{1,30}&?)?(?:detail=all&?)?(?:hide_requests=true)?)?"
     r"|notifications(?:-needs-me|-log(?:\?project=[A-Z][A-Z0-9]{0,7}"
-    r"(?:&status=(?:pending|history))?(?:&kind=(?:ready|merge))?"
+    r"(?:&status=(?:pending|history))?(?:&kind=(?:ready|merge|wake))?"
     r"(?:&agent=[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})?)?)?"
     r"|reports(?:-all|\?project=[A-Z][A-Z0-9]{0,7})"
     r"|stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?"

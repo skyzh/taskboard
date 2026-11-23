@@ -1835,13 +1835,15 @@ def import_release_on(db, data):
 def import_notification_on(db, data):
     import tasks_notification_log as notification_log
 
+    wake = isinstance(data, dict) and data.get("schema") == notification_log.WAKE_SCHEMA
+    table = "wake_log" if wake else "notification_log"
     with tasks_storage.write(db):
-        if not watches.has_table(db, "notification_log"):
+        if not watches.has_table(db, table):
             raise ValueError("Start this Taskboard version against the selected ledger before importing notifications.")
-        event, changed = notification_log.record(db, data)
+        event, changed = (notification_log.record_wake if wake else notification_log.record)(db, data)
         if changed:
             audit.record(db, scope="operator", actor=None, operation="record-notification",
-                         record_type="notification_log", record_id=event, at=timestamp())
+                         record_type=table, record_id=event, at=timestamp())
             bump_revision(db)
         return {"source_event": event, "changed": changed}
 

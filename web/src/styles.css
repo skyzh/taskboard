@@ -1036,6 +1036,9 @@ button:disabled { opacity: .57; }
 }
 .notification-log-times dt { color: var(--muted); font-size: .875rem; }
 .notification-log-times dd { margin: 0; }
+.notification-log-cue { margin: .5rem 0 0; }
+.wake-log-times { grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.25rem), 1fr)); }
+.wake-log-times :is(time, a) { display: block; }
 
 .ticket-attention { margin-top: .65rem; }
 .attention-row { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: .4rem 1rem; }
