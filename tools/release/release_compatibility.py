@@ -9,7 +9,7 @@ import sys
 from tempfile import TemporaryDirectory
 
 from compatibility_fixture import (
-    LEGACY_TASK, MANIFEST, MOUNT, actions, cli, expect, fixture_server, read_json, seed,
+    LEGACY_TASK, MANIFEST, MOUNT, actions, cli, expect, fixture_server, io_action, read_json, seed,
     verify_cli, verify_contract, verify_queue,
 )
 from release_plan import verify_manifest
@@ -87,6 +87,30 @@ def verify_browser(candidate, predecessor, policy, scratch, tls, python):
     proof = json.loads(output)
     expect(proof["old_html"] == digest and proof["rendered"] is True, "The old browser pairing did not complete.")
     return proof
+
+
+def verify_rollback_ledger(python, predecessor, candidate):
+    with TemporaryDirectory(prefix="taskboard-rollback-") as temporary:
+        root = Path(temporary)
+        tls = certificate(root)
+        database = root / "rollback.sqlite3"
+        with fixture_server(python, predecessor, root / "prior", *tls, database=database) as mounted:
+            origin, cookie, _, _ = mounted
+            actor = seed(python, predecessor, origin, cookie, database)
+            previous_revision = read_json(origin, MOUNT + "/api/v1/revision", cookie=cookie)
+            with fixture_server(python, candidate, root / "candidate", *tls, database=database) as next_slot:
+                next_origin, next_cookie, _, _ = next_slot
+                io_action(next_origin, "advance-task", cookie=next_cookie, data={
+                    "id": "T-2", "transition": "start", "note": "Started on candidate before rollback.",
+                })
+            task = io_action(origin, "task", cookie=cookie, query={"id": "T-2"})["task"]
+            expect(
+                (task["state"], task["dri"], task["note"]) ==
+                ("in_progress", actor, "Started on candidate before rollback."),
+                "The prior release did not read the candidate's signed write on the upgraded ledger.",
+            )
+            expect(read_json(origin, MOUNT + "/api/v1/revision", cookie=cookie) != previous_revision,
+                   "The prior release did not observe the upgraded ledger revision.")
 
 
 def run_matrix(artifact, candidate_sha, predecessor, base_sha, policy, python=sys.executable):

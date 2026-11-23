@@ -2,6 +2,7 @@
 
 import argparse
 from datetime import datetime, timezone
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,10 @@ import time
 from local_queue import checked_results, drain_queue, elapsed_ms, fixture_verifier, queue_lock, write_json
 from publish_receipt import publish_outcome, release_event, signed_in_service
 from queue_provenance import GIT_COMMIT, ticket_number
-from release_plan import MountedCheckFailed, ReleaseLayout, ReleaseRejected, file_hash, run_release, verify_manifest
+from release_plan import (
+    MountedCheckFailed, ReleaseLayout, ReleaseRejected, file_hash, release_lock, run_release, verify_manifest,
+)
+from release_slots import ReleaseSlots
 from stage_transfer import extract_transfer
 
 
@@ -87,10 +91,10 @@ def mounted_verifier(layout, package, package_manifest, python, mount, avatars,
     return healthy
 
 
-def apply_app(layout, artifact, job, restart, healthy, journal=None):
+def apply_app(layout, artifact, job, restart, healthy, journal=None, *, slots=None):
     if job.get("portal"):
         raise ReleaseRejected("Use the existing coordinated app and portal release lane.", "portal_scope")
-    return run_release(layout, artifact, job, restart, healthy, journal)
+    return run_release(layout, artifact, job, restart, healthy, journal, slots=slots)
 
 
 def checked_main_receipt(config, commit):
@@ -113,7 +117,7 @@ def read_main_state(config, layout, commit):
         return {"outcome": outcome, "active": file_hash(layout.current / "SHA256SUMS")}
 
 
-def receive_checked_main(config, layout, commit, candidate, base, source, verify, restart, healthy):
+def receive_checked_main(config, layout, commit, candidate, base, source, verify, restart, healthy, *, slots=None):
     if any(re.fullmatch("[0-9a-f]{64}", digest) is None for digest in (candidate, base)):
         raise ValueError("Provide full candidate and active-base digests.")
     receipt = checked_main_receipt(config, commit)
@@ -140,7 +144,8 @@ def receive_checked_main(config, layout, commit, candidate, base, source, verify
                 job["checks"] = checked_results(job, reports)
                 job["execution"] = {"checks": reports, "started_at": started.isoformat()}
                 stage = "deployment"
-                result = run_release(layout, artifact, job, restart, healthy, journal, require_review=False)
+                result = run_release(layout, artifact, job, restart, healthy, journal,
+                                     require_review=False, slots=slots)
             except ReleaseRejected as error:
                 result = {"ticket": ticket, "candidate": candidate, "status": "rejected",
                           "reason_code": stage if error.code == "invalid_entry" else error.code,
@@ -168,11 +173,15 @@ def project_checked_main(config, layout, commit, activity_url, python, run):
 
 
 def run_config(config, record, run=subprocess.run, *, checked_main=None, candidate=None, base=None,
-               activity_url=None, read_state=False, source=None):
+               activity_url=None, read_state=False, source=None, restore_selected_slot=False):
     if type(config.get("operator_uid")) is not int or config["operator_uid"] != os.getuid():
         raise ValueError("Run under the existing authorized Taskboard service account.")
     layout = deployment_layout(config)
     python = config.get("python", sys.executable)
+    if restore_selected_slot:
+        with release_lock(layout):
+            ReleaseSlots(config["slots"], layout.database, run=run).restore_selected(layout)
+        return None
     if read_state:
         return read_main_state(config, layout, checked_main)
     if activity_url is not None:
@@ -181,9 +190,12 @@ def run_config(config, record, run=subprocess.run, *, checked_main=None, candida
     verify = fixture_verifier(package, pin, python, config["suites"])
     restart = service_restart(config["unit"], run)
     healthy = mounted_verifier(layout, package, pin, python, config["mount"], config.get("avatars", ()), run)
+    slots = ReleaseSlots(config["slots"], layout.database, run=run) if "slots" in config else None
     if checked_main is not None:
-        return receive_checked_main(config, layout, checked_main, candidate, base, source, verify, restart, healthy)
-    return drain_queue(config["queue"], layout, config["artifacts"], verify, restart, healthy, record, apply_app)
+        return receive_checked_main(config, layout, checked_main, candidate, base, source, verify, restart, healthy,
+                                    slots=slots)
+    return drain_queue(config["queue"], layout, config["artifacts"], verify, restart, healthy, record,
+                       partial(apply_app, slots=slots))
 
 
 def read_operator_config(path):
@@ -203,11 +215,14 @@ def main():
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--activity-url", help="Project the saved outcome linked to its exact Activity event.")
     action.add_argument("--read-state", action="store_true", help="Read the Pi manifest and any saved outcome.")
+    action.add_argument("--restore-selected-slot", action="store_true", help="Start the configured pinned slot at boot.")
     args = parser.parse_args()
     if args.checked_main is None and any((args.candidate, args.base, args.activity_url, args.read_state)):
         parser.error("The selected operation requires --checked-main.")
     if args.checked_main and args.record_service:
         parser.error("The checked-main build host publishes its outcome.")
+    if args.restore_selected_slot and (args.checked_main or args.record_service):
+        parser.error("Restore the selected slot as a standalone operator action.")
     if args.checked_main and not (args.activity_url or args.read_state) and not (args.candidate and args.base):
         parser.error("The checked transfer needs --candidate and --base.")
     if (args.activity_url or args.read_state) and (args.candidate or args.base):
@@ -222,10 +237,11 @@ def main():
             print(json.dumps(outcome), flush=True)
 
         outcome = run_config(config, record, checked_main=args.checked_main, candidate=args.candidate,
-                             base=args.base, activity_url=args.activity_url, read_state=args.read_state, source=sys.stdin.buffer)
+                             base=args.base, activity_url=args.activity_url, read_state=args.read_state,
+                             source=sys.stdin.buffer, restore_selected_slot=args.restore_selected_slot)
         if args.checked_main:
             print(json.dumps(outcome), flush=True)
-    except (OSError, KeyError, ValueError, subprocess.SubprocessError, tarfile.TarError) as error:
+    except (OSError, KeyError, ValueError, MountedCheckFailed, subprocess.SubprocessError, tarfile.TarError) as error:
         parser.exit(1, f"Release operator: {error}\n")
     return 0
 
