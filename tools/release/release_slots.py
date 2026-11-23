@@ -15,6 +15,14 @@ from release_plan import MountedCheckFailed, ReleaseRejected, verify_manifest
 _UNIT = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.@-]*\.service")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _ADMISSION_HEADER = "X-Portal-Upstream-Token"
+_SERVING_POLICY = (
+    "--property=Restart=on-failure",
+    "--property=RestartSec=5s",
+    "--property=StartLimitIntervalSec=2min",
+    "--property=StartLimitBurst=5",
+    "--property=StartLimitAction=none",
+    "--property=TimeoutStopSec=15s",
+)
 
 
 class ReleaseSlots:
@@ -111,6 +119,7 @@ class ReleaseSlots:
         self.run([
             "systemd-run", "--user", "--collect", f"--unit={unit}", "--property=Type=exec",
             f"--property=WorkingDirectory={release}", f"--property=EnvironmentFile={self.environment}",
+            *_SERVING_POLICY,
             self.python, "-B", release / "tasks", "--db", self.ledger, "serve",
             "--portal-reader", "--websocket-revisions", "--host", "127.0.0.1", "--port", str(port),
         ], check=True, capture_output=True, text=True, timeout=45)

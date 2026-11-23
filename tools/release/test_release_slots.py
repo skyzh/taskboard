@@ -88,6 +88,11 @@ class ReleaseSlotsTest(unittest.TestCase):
             self.assertEqual(unit, self.units[port])
             self.assertIn(f"--property=WorkingDirectory={release}", command)
             self.assertIn(f"--property=EnvironmentFile={self.settings['environment_file']}", command)
+            self.assertTrue({
+                "--property=Restart=on-failure", "--property=RestartSec=5s",
+                "--property=StartLimitIntervalSec=2min", "--property=StartLimitBurst=5",
+                "--property=StartLimitAction=none", "--property=TimeoutStopSec=15s",
+            }.issubset(command))
             launcher = command.index(release / "tasks")
             self.assertEqual(command[launcher + 1:], [
                 "--db", self.layout.database, "serve", "--portal-reader", "--websocket-revisions",
