@@ -84,11 +84,11 @@ _ACTIONS = {
     "tagged-tasks": _Action("GET", "Read tagged tickets in one project.", {
         "project": "Tasks project prefix.", "tag": "Tag to filter.",
     }, _PAGINATION),
-    "search-tasks": _Action("GET", "Find tickets by ID, title, or current summary in one project.", {
-        "q": "Ticket ID or text to match.", "project": "Tasks project prefix.",
+    "search-tasks": _Action("GET", "Find tickets by ID, title, current summary, or linked GitHub URL in one project.", {
+        "q": "Ticket ID, exact linked GitHub issue or pull request URL, or text to match.", "project": "Tasks project prefix.",
     }, _PAGINATION),
     "search-with-decisions": _Action("GET", "Find Project T tickets and maintained decisions on this board.", {
-        "q": "Ticket ID or text to match.",
+        "q": "Ticket ID, exact linked GitHub issue or pull request URL, or text to match.",
     }, _PAGINATION),
     "search-activity": _Action("GET", "Find matching Activity notes and details in one project.", {
         "q": "Literal text to match, ignoring case.", "project": "Tasks project prefix.",

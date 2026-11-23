@@ -2459,6 +2459,68 @@ class TasksServiceTest(unittest.TestCase):
         self.action(seeker, "search-tasks", query_string={**query, "limit": "101"}, status=400)
         self.action(app.test_client(), "search-tasks", query_string=query, status=401)
 
+    def test_signed_shared_search_resolves_exact_linked_github_urls(self):
+        app = self.app(portal_reader=True)
+        browser, owner = self.login(app, "Sam")
+        http = app.test_client()
+        setup = "/api/v1/personal-agents"
+        origin = {"Origin": ORIGIN}
+        verifier = "a" * 43
+        self.call(browser, setup + "/cli-authorize", method="POST", headers=origin,
+                  json={"challenge": sha256(verifier.encode()).hexdigest()})
+        token = self.call(http, setup + "/cli-exchange", method="POST", headers=origin,
+                          json={"verifier": verifier}).json["token"]
+        signed = {**origin, "Authorization": f"Bearer {token}"}
+        self.assertEqual(self.action(http, "context", headers=signed)["actor"]["id"], owner)
+
+        self.cli("register-project", "OPS", "Fixture operations", "--dri", owner)
+        issue = "https://github.com/example/board/issues/7"
+        pull = "https://github.com/example/board/pull/8"
+        long_pull = f"https://github.com/{'a' * 39}/{'b' * 100}/pull/1234567890"
+        for project, title in (
+            ("T", "Repair imports"), ("T", "Track alternate import fix"), ("T", f"Mention {issue}"),
+            ("T", "Review exports"), ("OPS", "Work in the selected project"), ("T", "Review the long URL"),
+        ):
+            self.action(http, "create-task", {"project": project, "title": title, "step": "Check the fixture."},
+                        headers=signed)
+        for ticket, url in (("T-1", issue), ("OPS-1", issue), ("T-6", long_pull)):
+            self.action(http, "link-github", {"id": ticket, "github_url": url}, headers=signed)
+        self.action(http, "link-reference", {"id": "T-2", "url": issue, "label": "Related issue"},
+                    headers=signed)
+        self.cli("link-source", "T-4", "github", "Example/Board#8", "https://github.com/Example/Board/pull/8/",
+                 "--by", owner)
+
+        def events():
+            with closing(open_sqlite(self.database)) as db:
+                return db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+
+        before = events()
+        for action in ("search-tasks", "search-with-decisions"):
+            scope = {"project": "T"} if action == "search-tasks" else {}
+
+            def search(url, **options):
+                return self.action(http, action, headers=signed, query_string={**scope, "q": url, **options})
+
+            with self.subTest(action=action):
+                self.assertEqual([item["key"] for item in search(pull)["items"]], ["T-4"])
+                self.assertEqual([item["key"] for item in search(long_pull)["items"]], ["T-6"])
+                self.assertEqual(search("https://github.com/example/board/pull/7")["items"], [])
+                variants = search("  https://github.com/EXAMPLE/Board/issues/7/  ")
+                self.assertEqual([item["key"] for item in variants["items"]], ["T-2", "T-1"])
+                first = search(issue, limit=1)
+                self.assertEqual([item["key"] for item in first["items"]], ["T-2"])
+                self.assertIsNotNone(first["next_cursor"])
+                second = search(issue, limit=1, before=first["next_cursor"])
+                self.assertEqual([item["key"] for item in second["items"]], ["T-1"])
+                self.assertIsNone(second["next_cursor"])
+                self.assertEqual([item["key"] for item in search("mention")["items"]], ["T-3"])
+                self.action(http, action, headers=signed, query_string={**scope, "q": "a" * 161}, status=400)
+                self.action(http, action, query_string={**scope, "q": issue}, status=401)
+
+        operations = self.action(http, "search-tasks", headers=signed, query_string={"project": "OPS", "q": issue})
+        self.assertEqual([item["key"] for item in operations["items"]], ["OPS-1"])
+        self.assertEqual(events(), before)
+
     def test_knowledge_directory_stages_work_and_reconciles_one_settled_correction(self):
         app = self.app(portal_reader=True)
         manager, manager_id = self.login(app, "Avery")
