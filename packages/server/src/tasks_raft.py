@@ -109,6 +109,9 @@ _ACTIONS = {
         "step": "First step for the owner.",
     }, {"brief": "Background and scope of the work.", **_PROJECT, **_EVIDENCE}),
     "knowledge-areas": _Action("GET", "List Knowledge area indexes on the signed-in board.", optional=_PROJECT),
+    "create-knowledge": _Action("POST", "Create an unassigned Knowledge entry in a project where you can publish.", {
+        "project": "Project prefix.", "title": "Knowledge entry title.", "brief": "Current note and source links.",
+    }),
     "knowledge-place": _Action("POST", "Place an owned maintained entry in its project's Knowledge area.", {
         **_TASK, "area": "Named area path, for example Storage performance/Latency.",
     }, {"index": "Set true when this entry is the index of a new area."}),

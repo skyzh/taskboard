@@ -446,6 +446,7 @@ class BoardQueries:
                 "id": row["id"],
                 "key": projects.row_reference(row),
                 "title": row["title"],
+                **({"record_kind": "knowledge"} if ledger.is_knowledge(row) else {}),
                 "dri": row["dri"],
                 "priority": row["priority"],
                 "dri_profile": owners.get(row["dri"]),
@@ -494,7 +495,7 @@ class BoardQueries:
 
     def tasks(self, *, state=None, dri=None, waiting_on=None, before=None, limit=20, now=False,
               decided_by=None, search=None, priority_order=False, review_due=None, project=None, tag=None,
-              managed_by=None, hide_requests=False, exclude_goals=False, github_url=None):
+              managed_by=None, hide_requests=False, exclude_goals=False, github_url=None, include_knowledge=False):
         terms, args = [], []
         filter_search = None
         for column, value in (
@@ -569,10 +570,11 @@ class BoardQueries:
             args.append(before)
         if filter_search is None:
             where = " WHERE " + " AND ".join(terms) if terms else ""
-            sql = ledger.current_tasks_sql(self.db) + where + f" ORDER BY {order} LIMIT ?"
+            sql = ledger.current_tasks_sql(self.db, include_knowledge=include_knowledge) + where + f" ORDER BY {order} LIMIT ?"
             rows = self.db.execute(sql, (*args, limit + 1)).fetchall()
         else:
-            rows = self.search_rows(terms, args, order, limit, priority_order, filter_search)
+            rows = self.search_rows(terms, args, order, limit, priority_order, filter_search,
+                                    include_knowledge=include_knowledge)
         include_report_fields = dri is not None and state in WORK_STATES
         result = page(rows, limit, "event_id", lambda visible: self.task_rows(
             visible, include_report_fields=include_report_fields,
@@ -585,10 +587,10 @@ class BoardQueries:
     def maintained_decision_rows(self, *, search=None, entry=None, source_ticket=None, before=None, limit,
                                  github_url=None):
         context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
-        terms = [
-            f"{ledger.display_state_sql(context)} = 'done'",
-            "tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?)",
-        ]
+        legacy = f"""({ledger.display_state_sql(context)} = 'done'
+            AND tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?))"""
+        typed = "tasks.record_kind = 'knowledge' OR " if "record_kind" in ledger.task_columns(self.db) else ""
+        terms = [f"({typed}{legacy})"]
         args = [DECISION_RECORD_TAG]
         if before is not None:
             terms.append("events.id < ?")
@@ -624,10 +626,10 @@ class BoardQueries:
                         or needle in (row["brief"] or "").casefold()
                         or row["id"] in area_matches)
 
-            return self.search_rows(terms, args, "events.id DESC", limit, False, matches)
+            return self.search_rows(terms, args, "events.id DESC", limit, False, matches, include_knowledge=True)
         where = " WHERE " + " AND ".join(terms)
         return self.db.execute(
-            ledger.current_tasks_sql(self.db) + where + " ORDER BY events.id DESC LIMIT ?",
+            ledger.current_tasks_sql(self.db, include_knowledge=True) + where + " ORDER BY events.id DESC LIMIT ?",
             (*args, limit + 1),
         ).fetchall()
 
@@ -660,6 +662,7 @@ class BoardQueries:
                 row["id"]: {
                     "id": row["id"], "event_id": row["event_id"], "key": projects.row_reference(row),
                     "title": row["title"], "state": row["display_state"],
+                    **({"record_kind": "knowledge"} if ledger.is_knowledge(row) else {}),
                 }
                 for row in records
             })
@@ -670,6 +673,8 @@ class BoardQueries:
                 result = []
                 for row in rows:
                     item = {key: row[key] for key in ("id", "key", "title", "state")}
+                    if ledger.is_knowledge(row):
+                        item["record_kind"] = "knowledge"
                     if row["id"] in decisions:
                         item["decision"] = {
                             "summary": decisions[row["id"]]["brief"],
@@ -727,13 +732,13 @@ class BoardQueries:
 
         return [row for _, _, row in nsmallest(6, matches(), key=lambda match: match[:2])]
 
-    def search_rows(self, terms, args, order, limit, priority_order, matches):
+    def search_rows(self, terms, args, order, limit, priority_order, matches, *, include_knowledge=False):
         rows = []
         cursor, bindings = [], ()
         batch_size = max(100, limit + 1)
         snapshot = nullcontext() if self.db.in_transaction else tasks_storage.read(self.db)
         with snapshot:
-            base = ledger.current_tasks_sql(self.db)
+            base = ledger.current_tasks_sql(self.db, include_knowledge=include_knowledge)
             while len(rows) <= limit:
                 conditions = terms + cursor
                 where = " WHERE " + " AND ".join(conditions) if conditions else ""
@@ -807,7 +812,7 @@ class BoardQueries:
         identities = profiles.visible_by_keys(self.db, [run["worker"] for run in runs], self.base)
         for run in runs:
             run["worker_profile"] = identities.get(run["worker"])
-        task = {**self.task_rows([row])[0], "eta": row["eta"]}
+        task = {**self.task_rows([row])[0], "record_kind": row["record_kind"], "eta": row["eta"]}
         if owner and owner == task["dri"] and (peer := task.get("peer_request")):
             peer["review_run_id"] = peer_asks.find(self.db, number)["review_run_id"]
         result = {

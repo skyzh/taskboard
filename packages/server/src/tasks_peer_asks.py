@@ -245,7 +245,7 @@ def record_wait(db, source, args, links, context):
 def create(db, args, links, *, named_wait=None):
     import tasks_core as ledger
 
-    source = ledger.get_task(db, args.id)
+    source = ledger.get_work_task(db, args.id)
     if source["dri"] != args.by:
         raise PermissionError("Only the source task owner can request peer work.")
     if source["display_state"] == "closed":

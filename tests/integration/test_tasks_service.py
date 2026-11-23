@@ -2570,6 +2570,106 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((after["index"], after["available"]), ("OPS-1", False))
         self.assertIn("Under review", self.shared_cli(reader, "knowledge-areas", "--project", "OPS")[1])
 
+    def test_first_class_knowledge_preserves_existing_identity_history_and_staged_links(self):
+        roster = {self.provider.people["Blake"]["sub"]: "Blake"}
+        app = self.app(portal_reader=True, project_roster=roster)
+        manager, manager_id = self.login(app, "Avery")
+        agent, agent_id = self.login(app, "Blake")
+        self.cli("register-project", "T", "Tasks Board", "--dri", manager_id)
+
+        def tag(ticket):
+            self.action(agent, "task-tag", {"id": ticket, "action": "add", "tag": "decision-record"})
+
+        def finish(ticket):
+            self.action(agent, "advance-task", {"id": ticket, "transition": "start", "note": "Checked."})
+            self.action(agent, "advance-task", {"id": ticket, "transition": "done", "note": "Verified."})
+
+        for title in ("Storage index", "Storage decision", "Pending source", "Closed draft", "Ordinary work", "Open draft"):
+            self.action(agent, "create-task", {
+                "title": title, "step": "Check the fixture.", "brief": "Initial guidance.",
+            })
+        for ticket in ("T-1", "T-2", "T-4", "T-6"):
+            tag(ticket)
+        for ticket in ("T-1", "T-2", "T-5"):
+            finish(ticket)
+        self.action(agent, "close-task", {"id": "T-4", "reason": "Withdrawn."})
+        for ticket, index in (("T-1", "true"), ("T-2", "false")):
+            self.action(agent, "knowledge-place", {"id": ticket, "area": "Storage", "index": index})
+        self.action(agent, "record-activity", {"id": "T-3", "note": "Evidence for the existing rule."})
+        source = self.action(agent, "task-activity", query_string={"id": "T-3"})["items"][0]
+        source_url = f"{ORIGIN}{BASE}/#event-{source['id']}-log"
+        self.action(agent, "link-reference", {"id": "T-2", "url": source_url, "label": "Evidence"})
+        self.action(agent, "knowledge-stage", {"id": "T-1", "source": "T-3"})
+
+        def snapshot():
+            with closing(open_sqlite(self.database)) as db:
+                return [list(map(tuple, db.execute(query))) for query in (
+                    "SELECT id, title, dri, brief, project_prefix, project_number FROM tasks ORDER BY id",
+                    "SELECT * FROM events ORDER BY id",
+                    "SELECT * FROM task_tags ORDER BY task_id, tag",
+                    "SELECT * FROM task_references ORDER BY task_id, url",
+                    "SELECT * FROM knowledge_areas ORDER BY project, path",
+                    "SELECT * FROM knowledge_entries ORDER BY task_id",
+                    "SELECT * FROM knowledge_stages ORDER BY entry_id, source_id",
+                )]
+
+        before = snapshot()
+        before_index = self.call(manager, "/api/v1/knowledge", query_string={"entry": "T-1"}).json
+        before_links = self.call(manager, "/api/v1/knowledge", query_string={"source": "T-3"}).json
+
+        for _ in range(2):
+            self.provider.issued.clear()
+            app = self.app(portal_reader=True, project_roster=roster)
+            manager, _ = self.login(app, "Avery")
+            agent, _ = self.login(app, "Blake")
+            self.assertEqual(snapshot(), before)
+            self.assertEqual(self.call(manager, "/api/v1/knowledge", query_string={"entry": "T-1"}).json, before_index)
+            self.assertEqual(self.call(manager, "/api/v1/knowledge", query_string={"source": "T-3"}).json, before_links)
+
+        index = self.action(manager, "task", query_string={"id": "T-1"})
+        self.assertEqual(index["task"]["record_kind"], "knowledge")
+        self.assertEqual(index["task"]["dri"], "")
+        self.assertIsNone(index["task"]["dri_profile"])
+        self.assertEqual(index["ownership_actions"], [])
+        self.assertFalse(index["can_close"])
+        self.assertTrue(index["can_edit_details"])
+        self.assertEqual(index["knowledge_stages"][0]["source"], "T-3")
+        self.assertIsNone(index["knowledge_stages"][0]["source_event_id"])
+        self.assertFalse(self.action(agent, "task", query_string={"id": "T-1"})["can_edit_details"])
+        listed = self.call(agent, "/api/v1/tasks").json["items"]
+        self.assertEqual({row["key"] for row in listed}, {"T-3", "T-4", "T-5", "T-6"})
+        stats = self.call(agent, "/api/v1/stats", query_string={"project": "T"}).json["ticket_flow"]
+        self.assertEqual((stats["new"], stats["done"], stats["closed"]), (4, 1, 1))
+        self.action(manager, "change-ownership", {"id": "T-1", "action": "reopen", "owner": agent_id,
+                                                  "reason": "Rejected work transition."}, status=409)
+        self.action(agent, "edit-task-details", {"id": "T-1", "brief": "Invalid edit.", "reason": "Denied."}, status=403)
+        self.assertEqual(snapshot(), before)
+
+        project = self.call(agent, "/api/v1/projects").json["items"][0]
+        self.assertTrue(project["can_create_knowledge"])
+        action = {"project": "T", "title": "Agent authored note", "brief": "Keep the exact source."}
+        created = self.action(agent, "create-knowledge", action)
+        self.assertEqual((created["id"], created["record_kind"]), ("T-7", "knowledge"))
+        record = self.action(agent, "task", query_string={"id": "T-7"})
+        self.assertEqual((record["task"]["record_kind"], record["task"]["dri"], record["brief"]),
+                         ("knowledge", "", action["brief"]))
+        event = self.action(agent, "task-activity", query_string={"id": "T-7"})["items"][0]
+        self.assertEqual(event["actor"], agent_id)
+        self.assertIn("T-7 · Knowledge · Agent authored note", self.shared_cli(agent, "show", "T-7")[1])
+        cli = self.shared_cli(agent, "knowledge-add", "Note added by CLI", "--project", "T", "--brief", "Rule.")
+        self.assertEqual((cli[0], cli[2]), (0, ""))
+        self.assertIn("T-8", cli[1])
+        created = self.call(manager, "/api/v1/knowledge", method="POST", json=action, status=201)
+        self.assertEqual(created.json["id"], "T-9")
+        human, _ = self.login(app, "Sam")
+        self.assertFalse(self.call(human, "/api/v1/projects").json["items"][0]["can_create_knowledge"])
+        self.call(human, "/api/v1/knowledge", method="POST", json=action, status=403)
+
+        self.action(manager, "edit-task-details", {"id": "T-1", "brief": "Revised guidance.", "reason": "Updated rule."})
+        changed = self.action(manager, "task-activity", query_string={"id": "T-1"})["items"][0]
+        self.assertEqual(changed["actor"], manager_id)
+        self.assertEqual(self.action(agent, "task", query_string={"id": "T-1"})["brief"], "Revised guidance.")
+
     def test_knowledge_directory_stages_work_and_reconciles_one_settled_correction(self):
         app = self.app(portal_reader=True)
         manager, manager_id = self.login(app, "Avery")
