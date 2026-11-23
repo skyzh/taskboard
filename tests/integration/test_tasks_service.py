@@ -26,7 +26,7 @@ from uuid import UUID
 from PIL import Image
 
 from raft_auth import Identity
-from taskboard_server.ready_wake_fixture import FixtureRecipient, launch_ready_fixture
+from taskboard_server.ready_wake import WakeRecipient, launch_ready_wake
 from tasks_github import GitHubReader
 from tasks_notification_log import WAKE_SCHEMA, observed_time, outbox_receipt
 from tasks_service import bind_owner, create_app, import_assignee, serve
@@ -64,7 +64,7 @@ class FixtureRaft:
         person = self.people[name]
         identity = Identity(person["server_id"], person["sub"], person["type"],
                             person["preferred_username"], person["name"], None)
-        return FixtureRecipient(identity, f"fixture-agent-events-{name}")
+        return WakeRecipient(identity, f"fixture-agent-events-{name}")
 
     def __call__(self, upstream):
         path = urlsplit(upstream.full_url).path
@@ -1224,8 +1224,8 @@ class TasksServiceTest(unittest.TestCase):
 
     def launch_fixture(self, source, project, recipient, transport):
         with closing(open_sqlite(self.database)) as db:
-            return launch_ready_fixture(db, project=project, task=source["task"], event_id=source["event"],
-                                        recipient=self.provider.wake_recipient(recipient), transport=transport)
+            return launch_ready_wake(db, project=project, task=source["task"], event_id=source["event"],
+                                     recipient=self.provider.wake_recipient(recipient), transport=transport)
 
     def test_ready_wake_fixture_requires_exact_opt_in_owner_project_and_current_event(self):
         app = self.app(portal_reader=True)
@@ -1289,7 +1289,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertGreaterEqual(accepted["acceptance_at"], observed_time(ready["at"]))
         for field in ("delivery", "next_result", "start_event_id", "receipt_ref"):
             self.assertIsNone(accepted[field])
-        self.assertEqual(self.launch_fixture(ready, "T", "Avery", transport), "accepted")
+        self.assertEqual(self.launch_fixture(ready, "T", "Avery", transport), "already_accepted")
         transport.assert_called_once()
         self.assertEqual(notice("wake"), accepted)
 

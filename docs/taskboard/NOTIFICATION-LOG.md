@@ -72,3 +72,54 @@ missing observations. Taskboard generates the cue from the source ticket.
 Keep private messages, raw event IDs, and carrier payloads in their original
 systems. If the same Ready event also has a fallback Ready receipt, each record
 keeps its own evidence.
+
+## Run one approved Ready wake
+
+Use this foreground command from the checkout with the operator's existing
+PostgreSQL environment and `TASKS_POSTGRES_DSN` set. Agree on one project,
+ticket, and Ready event such as an Add or Transfer before running. Confirm the
+Server, app, and agent in the approved token exchange metadata. The command
+checks the Server against the board and requires the established agent to be
+the ticket's current owner and subscribed to `owned-ready` in that project.
+
+Set `ready_token_file` to the operator-owned temporary file containing only the
+approved agent-events token. It must grant access only to its owner, for
+example with mode `0600`. Use the existing checkout environment with PostgreSQL
+support and pass the token through the command's read-only file descriptor.
+
+```sh
+./.venv/bin/python -B ./tasks_ready_wake.py \
+  --project "$ready_project" --task "$ready_ticket" --event-id "$ready_event_id" \
+  --server-id "$approved_server_id" --recipient-id "$approved_agent_id" \
+  --token-fd 3 3<"$ready_token_file"
+```
+
+The command makes at most one request and prints a status without the token,
+request payload, or provider response. `accepted` means Raft returned `202`
+with `queued` or `200` with `deduped: true` and Taskboard recorded the local
+observation time. `already_accepted`
+and `rejected` are existing receipts and require no send. `unknown` means
+acceptance or its recording is unconfirmed. `not_attempted` means the command
+stopped before sending. Acceptance alone leaves delivery, queue check, and
+Start unobserved.
+
+### Stop and clean up
+
+1. Interrupt a running command with Ctrl-C. Verify that no sender process
+   remains with `pgrep -f '[t]asks_ready_wake\.py'`.
+2. If the outcome is interrupted or unknown, check the project log and have
+   the authorized recipient check their Raft inbox for the exact ticket and
+   Ready event before deciding the outcome. Use a non-consuming inbox listing
+   if available. Reading a held event by ID consumes it. Keep any existing
+   receipt and leave unverified stages unknown.
+3. The foreground command's descriptor closes on exit. Remove its only
+   temporary token file with `rm -- "$ready_token_file"` and verify removal
+   with `test ! -e "$ready_token_file"`. Have the authorized Raft operator
+   reverse the separate event grant through the approved path and preserve
+   the app's ordinary sign-in grant. Record the issued token's expiry
+   separately. The already issued token may remain valid until expiry while
+   another grant stays active.
+4. After the pilot operator confirms the outcome and cutoff, restore exactly
+   one instance of the original fallback watcher with its prior configuration.
+   Run `raft proc list` as the recipient and verify that exactly one instance
+   is running.
