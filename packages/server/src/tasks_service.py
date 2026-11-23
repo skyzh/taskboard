@@ -1152,6 +1152,32 @@ def create_app(
             )
         return project_links.read(db(), project, project_extensions.get(project, {}), raft_link)
 
+    @app.route("/api/v1/projects/<project>/field-guidance", methods=("GET", "PUT"))
+    def project_field_guidance(project):
+        write = request.method == "PUT"
+        actor = current_actor(required=True, write=write)
+        project = project_filter({"project": project})
+        owner = actor["ledger_key"]
+        editable = projects.manages(db(), project, owner)
+        if write:
+            if not editable:
+                raise RequestError("Only this project's manager can update its writing guidance.", 403)
+            data = json_body({"field", "guidance"})
+            if "guidance" not in data:
+                raise RequestError("Provide guidance or null to restore the default.")
+            field = text(data, "field", maximum=20)
+            value = text(data, "guidance", optional=True, maximum=1000)
+            with tasks_storage.write(db()) as connection:
+                try:
+                    changed = tasks_guidance.set_writing_field(connection, project, field, value)
+                except ValueError as error:
+                    raise RequestError(str(error)) from error
+                if changed:
+                    audit.record(connection, scope="private", actor=owner, operation="set-field-guidance",
+                                 record_type="project", record_id=project, at=ledger.timestamp())
+                    ledger.bump_revision(connection)
+        return agent_guidance.writing_fields(db(), project, editable=editable)
+
     @app.route("/api/v1/projects/<project>/stamp-reviews", methods=("GET", "POST"))
     def project_stamp_reviews(project):
         retry = request.method == "POST"
@@ -2178,6 +2204,9 @@ def create_app(
             return context
         if name in {"raft-channel-show", "raft-channel-set"}:
             return project_channel(actor, project_filter(data), data if write else None)
+        if name == "field-guidance":
+            project = project_filter(data, projects.DEFAULT)
+            return agent_guidance.writing_fields(db(), project, editable=projects.manages(db(), project, key))
         if name in {"my-wake-subscriptions", "set-wake-subscription"}:
             return agent_wake_subscriptions(actor, data, write=write)
         if name == "idle-goal-offer":

@@ -4,7 +4,7 @@ from argparse import Namespace
 import json
 import re
 
-from taskboard_client.work import PEER_ASK as COMMAND, PEER_ASK_TRANSITIONS as TRANSITIONS, TASK_TITLE_LIMIT
+from taskboard_client.work import PEER_ASK as COMMAND, PEER_ASK_TRANSITIONS as TRANSITIONS
 
 import tasks_projects as projects
 import workers
@@ -46,12 +46,16 @@ def request_title(note, fallback, *, pull=None):
         title = re.sub(r"^please\s+", "", line, flags=re.IGNORECASE).rstrip(".")
     if not title:
         return fallback
-    title = title[0].upper() + title[1:]
-    if len(title) <= TASK_TITLE_LIMIT:
+    return title[0].upper() + title[1:]
+
+
+def _previous_short_title(title):
+    """Recognize generated titles from the previous 60-character policy."""
+    if len(title) <= 60:
         return title
-    preview = title[:TASK_TITLE_LIMIT - 1]
+    preview = title[:59]
     word_break = preview.rfind(" ")
-    return (preview[:word_break] if word_break >= TASK_TITLE_LIMIT // 2 else preview.rstrip()) + "…"
+    return (preview[:word_break] if word_break >= 30 else preview.rstrip()) + "…"
 
 
 def refresh_generated_titles(db, *, task_id=None):
@@ -82,7 +86,8 @@ def refresh_generated_titles(db, *, task_id=None):
         previous = _first_line(row["note"], row["fallback"])
         if len(previous) > PREVIOUS_TITLE_LIMIT:
             previous = previous[:PREVIOUS_TITLE_LIMIT - 1].rstrip() + "…"
-        generated = (row["fallback"], previous, request_title(row["note"], row["fallback"]))
+        unpinned_title = request_title(row["note"], row["fallback"])
+        generated = (row["fallback"], previous, unpinned_title, _previous_short_title(unpinned_title))
         if row["title"] not in generated and not re.fullmatch(r"Review PR #[0-9]+", row["title"]):
             continue
         pin = pending_stamp_review(db, row["id"])

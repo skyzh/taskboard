@@ -177,7 +177,7 @@ def worker_counts(row):
     }
 
 
-def request_log_item(row, people):
+def request_log_item(row, people, db):
     phase = row["state"]
     if row["kind"] == "peer":
         phase = peer_asks.phase(ask=row, task=row, has_started=row["has_started"])
@@ -188,6 +188,11 @@ def request_log_item(row, people):
         next_owner = row["source_owner"] if row["kind"] == "review" else row["requester"]
     elif phase in ("asked", "waiting", "in_progress", "start_unconfirmed"):
         next_owner = row["recipient"]
+    request_title = (row["request_title"] or "").strip() or None
+    source_title = (row["source_title"] or "").strip() or None
+    if not (request_title or source_title):
+        pin = peer_asks.pending_stamp_review(db, row["id"]) if row["kind"] == "peer" and row["is_review"] else None
+        request_title = peer_asks.request_title(row["request_note"] or "", "", pull=pin["pull"] if pin else None) or None
     item = {
         "id": f"{row['kind']}:{row['id']}",
         "at": row["at"],
@@ -201,9 +206,9 @@ def request_log_item(row, people):
         "next_owner_profile": people.get(next_owner),
         "source_id": row["source_id"],
         "source_key": row["source_key"],
-        "source_title": row["source_title"],
+        "source_title": source_title,
         "request_key": row["request_key"],
-        "request_title": row["request_title"],
+        "request_title": request_title,
     }
     if row["result_event_id"] is not None:
         item["response"] = {"id": row["result_event_id"], "at": row["response_at"]}
@@ -1196,7 +1201,7 @@ class BoardQueries:
                        response.id AS result_event_id, response.at AS response_at,
                        request.event_id AS resolution_id, request.at AS resolution_at,
                        request.project_prefix || '-' || COALESCE(request.project_number, request.id) AS request_key,
-                       request.title AS request_title,
+                       request.title AS request_title, created.note AS request_note,
                        (ask.review_run_id IS NOT NULL OR EXISTS (
                            SELECT 1 FROM events WHERE task_id = request.id AND action = 'log'
                            AND json_extract(context, '$.stamp_review') IS NOT NULL)) AS is_review
@@ -1209,7 +1214,7 @@ class BoardQueries:
                 UNION ALL
                 SELECT 'wait', tasks.event_id, tasks.at, tasks.id, {TASK_REFERENCE}, tasks.title,
                        event.actor, peer.ledger_key, tasks.dri, 'waiting', NULL, NULL, NULL, FALSE,
-                       NULL, NULL, NULL, NULL, NULL, NULL, FALSE
+                       NULL, NULL, NULL, NULL, NULL, NULL, event.note, FALSE
                 FROM current AS tasks
                 JOIN events AS event ON event.id = tasks.event_id
                 {self._PEER_WAIT_JOIN}
@@ -1225,7 +1230,8 @@ class BoardQueries:
                             WHEN worker_runs.status = 'reported' THEN 'acknowledgment'
                             WHEN worker_runs.status = 'collected' THEN 'done'
                             WHEN worker_runs.status = 'stopped' THEN 'canceled' END,
-                       NULL, NULL, NULL, FALSE, response.id, response.at, resolved.id, resolved.at, NULL, NULL, TRUE
+                       NULL, NULL, NULL, FALSE, response.id, response.at, resolved.id, resolved.at,
+                       NULL, NULL, worker_runs.brief, TRUE
                 FROM worker_runs JOIN current AS tasks ON tasks.id = worker_runs.task_id
                 LEFT JOIN events AS response ON response.id = (
                     SELECT MAX(id) FROM events WHERE task_id = tasks.id AND action = 'log'
@@ -1244,7 +1250,7 @@ class BoardQueries:
         keys = {row[person] for row in visible for person in ("requester", "recipient", "source_owner") if row[person]}
         people = profiles.visible_by_keys(self.db, keys, self.base)
         return {
-            "items": [request_log_item(row, people) for row in visible],
+            "items": [request_log_item(row, people, self.db) for row in visible],
             "next_cursor": json.dumps([visible[-1][key] for key in ("at", "kind", "id")])
             if len(rows) > limit else None,
         }

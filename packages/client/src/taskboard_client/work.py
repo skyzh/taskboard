@@ -62,7 +62,6 @@ ACTIVITY_HEADLINE_LIMIT = 180
 
 
 ACTIVITY_DETAILS_LIMIT = 4000
-TASK_TITLE_LIMIT = 60
 
 
 ACTIVITY_TECHNICAL = re.compile(r"(?:^|\s)(?:file://|/|[a-z]:\\)|\b[0-9a-f]{32,}\b|^W-\d+\s+·", re.I)
@@ -71,10 +70,7 @@ ACTIVITY_TECHNICAL = re.compile(r"(?:^|\s)(?:file://|/|[a-z]:\\)|\b[0-9a-f]{32,}
 def task_title(value):
     if not isinstance(value, str) or not value.strip():
         raise ValueError("Provide a ticket title.")
-    title = value.strip()
-    if len(title) > TASK_TITLE_LIMIT:
-        raise ValueError(f"Keep the title to {TASK_TITLE_LIMIT} characters. Move details into the brief.")
-    return title
+    return value.strip()
 
 
 def parse_eta(value):

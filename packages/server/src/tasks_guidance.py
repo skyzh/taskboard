@@ -95,15 +95,58 @@ _CLI_KEYS = frozenset({
     "raft-channel", "readiness", "readiness-empty", "reviews", "reviews-empty", "search", "search-empty",
     "tagged", "tagged-empty", "watched", "watched-empty", "workers",
 })
+_FIELDS = {
+    "title": (
+        "Name the action and its subject in a short, complete phrase. Put background in the brief.",
+        "Ticket heading, work lists and search results.",
+        "Verify the Pi rollout on phone",
+    ),
+    "brief": (
+        "Explain why the work matters, what is in scope, and how to tell when it is complete.",
+        "Ticket detail.",
+        "Check the deployed review page at 390 and 1280 px and link the result.",
+    ),
+    "next_step": (
+        "Give the owner one concrete action they can take now.",
+        "Current work under the title and the signed Inbox.",
+        "Open the deployed review page and compare its links with the approved preview.",
+    ),
+    "activity": (
+        "Lead with the change or verified result. Put supporting evidence in details and links.",
+        "Ticket Activity and the board Activity feed when all entries are shown.",
+        "The phone and desktop checks passed. The release receipt is attached.",
+    ),
+}
 
 
 class AgentGuidance:
-    def __init__(self, overrides=None, cli=None):
+    def __init__(self, overrides=None, cli=None, fields=None):
         self.overrides = overrides or {}
         self.cli = cli or {}
+        self.fields = fields or {}
 
     def __getitem__(self, key):
         return self.overrides.get(key, _DEFAULTS[key])
+
+    def writing_fields(self, db, project, *, editable):
+        prefix = f"field-guidance:{project}:"
+        project_fields = {
+            row["key"][len(prefix):]: row["value"]
+            for row in db.execute("SELECT key, value FROM board_settings WHERE key LIKE ?", (prefix + "%",))
+        }
+        return {
+            "project": project,
+            "editable": editable,
+            "fields": {
+                name: {
+                    "guidance": project_fields.get(name, self.fields.get(name, guidance)),
+                    "where": where,
+                    "example": example,
+                    "source": "project" if name in project_fields else "board" if name in self.fields else "default",
+                }
+                for name, (guidance, where, example) in _FIELDS.items()
+            },
+        }
 
     def next_step(self, name, data, result):
         if result.get("next_cursor") is not None:
@@ -158,6 +201,22 @@ def _validate(values, keys, table, *, optional_empty=()):
     return values
 
 
+def set_writing_field(db, project, field, value):
+    if field not in _FIELDS:
+        raise ValueError("Choose title, brief, next_step, or activity.")
+    key = f"field-guidance:{project}:{field}"
+    if value is None:
+        return bool(db.execute("DELETE FROM board_settings WHERE key = ? RETURNING key", (key,)).fetchone())
+    return bool(db.execute(
+        """
+        INSERT INTO board_settings (key, value) VALUES (?, ?)
+        ON CONFLICT (key) DO UPDATE SET value = excluded.value
+        WHERE board_settings.value <> excluded.value
+        RETURNING key
+        """, (key, value),
+    ).fetchone())
+
+
 def load(path):
     if not path:
         return AgentGuidance()
@@ -172,4 +231,5 @@ def load(path):
     if not isinstance(messages, dict):
         raise ValueError("[agent_guidance] must be a TOML table.")
     cli = _validate(messages.pop("cli", {}), _CLI_KEYS, "agent_guidance.cli")
-    return AgentGuidance(_validate(messages, _DEFAULTS, "agent_guidance", optional_empty={"ready-review"}), cli)
+    fields = _validate(messages.pop("fields", {}), _FIELDS, "agent_guidance.fields")
+    return AgentGuidance(_validate(messages, _DEFAULTS, "agent_guidance", optional_empty={"ready-review"}), cli, fields)
