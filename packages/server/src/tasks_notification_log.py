@@ -395,12 +395,21 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
         SELECT notices.source_event_id, notices.kind, principals.name AS recipient_name,
                events.at AS source_at, notices.status_at, notices.status,
                {', '.join(TIME_COLUMNS)}, {', '.join(WAKE_COLUMNS)}, started.at AS started_at,
-               tasks.id, tasks.project_prefix, tasks.project_number
+               tasks.id, tasks.project_prefix, tasks.project_number,
+               acknowledged.id AS request_ack_event_id, acknowledged.at AS request_ack_at
         FROM receipts AS notices
         JOIN events ON events.id = notices.source_event_id
         JOIN tasks ON tasks.id = events.task_id
         JOIN board_principals AS principals ON principals.ledger_key = notices.recipient
         LEFT JOIN events AS started ON started.id = notices.start_event_id
+        LEFT JOIN peer_asks ON notices.kind = 'wake' AND peer_asks.task_id = tasks.id
+            AND peer_asks.result_event_id = events.id AND peer_asks.requester = notices.recipient
+        -- The first terminal event distinguishes acknowledgment from a cancellation followed by reconciliation.
+        LEFT JOIN events AS acknowledged ON acknowledged.id = (
+            SELECT terminal.id FROM events AS terminal
+            WHERE terminal.task_id = peer_asks.task_id AND terminal.id > events.id AND terminal.state = 'done'
+            ORDER BY terminal.id LIMIT 1
+        ) AND acknowledged.action = 'done' AND acknowledged.actor = peer_asks.requester
         WHERE {' AND '.join(filters)}
         ORDER BY notices.source_event_id DESC, CASE WHEN notices.kind = 'wake' THEN 0 ELSE 1 END LIMIT ?
         """, (*bindings, limit + 1),
@@ -420,6 +429,8 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
             **({
                 "cue": f"{projects.row_reference(row)} became Ready for this agent.",
                 "started_at": row["started_at"],
+                **({"request_acknowledgment": {"id": row["request_ack_event_id"], "at": row["request_ack_at"]}}
+                   if row["request_ack_event_id"] is not None else {}),
                 **{column: row[column] for column in WAKE_COLUMNS},
             } if row["kind"] == "wake" else {column: row[column] for column in TIME_COLUMNS}),
         } for row in rows[:limit]],
