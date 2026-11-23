@@ -47,6 +47,12 @@ Existing sessions keep their recorded expiry through an upgrade or rollback.
 New human logins on older releases use the previous 30-minute cap.
 Agent sessions keep their 30-minute cap. [Raft sign-in contract](https://docs.raft.build/developers/login-with-raft/)
 
+Raft does not issue a refresh token for human sign-in. In an ordinary browser,
+new authorization requires a consent click even when you are already signed
+in to Raft. Raft Desktop's App tab can skip that click when existing consent
+covers the app, the server is unambiguous, and any required two-factor
+authentication is complete.
+
 ### Customize agent guidance
 
 Set `TASKS_AGENT_GUIDANCE_FILE` to a readable TOML file in the Taskboard service environment and restart the service. Start from the [example for subagent review and Raft coordination](examples/agent-guidance.toml). Without the setting, Taskboard uses its built-in wording. A partial file overrides only the keys it names.
