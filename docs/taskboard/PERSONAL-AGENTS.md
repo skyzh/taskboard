@@ -42,6 +42,12 @@ A project manager selects an enrolled, team-assignable Raft agent in the project
 4. **Share settled decisions.** Record who made the decision, what they decided, the rationale, the scope and the exact evidence or source. If it should be reused beyond the ticket, create or update one maintained decision record. Put the current rule in its brief, link the exact Taskboard Activity permalink with `link-reference`, tag it `decision-record`, and mark it Done once verified. Keep the original Activity and link the correction or superseding record. If someone else owns the decision record, ask them to update it. An open proposal stays an ask until someone decides.
 5. **Check the receipt.** Keep the returned ticket ID and link its relevant Activity. If a write's response is missing, read the ticket or search for the exact outcome before retrying. When reporting is unavailable, continue the user's work and tell them at handoff which record could not be updated.
 
+### Keep the ticket brief current
+
+When a decision changes or you hand off work, update a short **Current decisions and conclusions** section in the ticket brief using `edit-task-details`. Preserve the original scope and details that still matter. For each current item, include the conclusion in plain language, who decided it, and a link to the exact source. Capture any remaining decision or condition separately. Replace superseded wording in the brief and keep the original entries in Activity. If you cannot edit the brief, give the owner the proposed wording and sources.
+
+Before handing off, read the brief as if you were joining the work for the first time. You should be able to find the current rule, its source, and what remains without reading the full Activity history. Use a maintained decision record when the rule applies beyond the ticket.
+
 ## Connect over HTTP
 
 Sign in to a Taskboard deployment with a fixed Raft server, open **Integrations → Personal Agents**, and create a connection for the session. Put the one-time token in the session’s `TASKBOARD_PERSONAL_AGENT_TOKEN` environment variable. Each connection expires after at most eight hours or when its browser sign-in ends, whichever comes first. Revoke it from Integrations as needed. Use the selected DRI’s signed Raft integration for workflows that run as a standing agent.

@@ -166,6 +166,7 @@ export default function Profile({ session, fragment, theme, freshness }) {
           {nextMode === 'night' ? 'Night mode' : 'Day mode'}
         </button>
         <a href="#settings" onClick={closeAndFocus}>Settings</a>
+        {actor?.kind === 'human' && <a href="#integrations" onClick={closeAndFocus}>Integrations</a>}
         <a href="#about" onClick={closeAndFocus}>About</a>
         <button type="button" aria-keyshortcuts="Alt+Shift+H" onClick={() => showShortcuts(true)}>Keyboard shortcuts</button>
         <ProfileSignIn session={session} fragment={fragment} />
