@@ -43,7 +43,7 @@ export default function Knowledge({ session, verified, revision, search, entry, 
   const fragment = entry ? entryHref(entry) : search ? '#knowledge?' + new URLSearchParams({ q: search }) : '#knowledge'
   return (
     <section className="knowledge" aria-labelledby="knowledge">
-      <div className="page-heading"><h1 id="knowledge" tabIndex={-1}>Knowledge Base</h1>
+      <div className="page-heading"><h1 id="knowledge" tabIndex={-1}>Knowledge</h1>
         {entry && <a href="#knowledge">All decisions</a>}
       </div>
       {verified ? <>
@@ -75,8 +75,8 @@ export function TicketKnowledgeLinks({ ticket, revision }) {
   const page = useLoadedPages('/knowledge', { source: ticket }, revision)
   if (!page.data?.items.length && !page.error) return null
   return (
-    <section className="ticket-knowledge" aria-label="Knowledge Base entries">
-      <h2>Knowledge Base</h2>
+    <section className="ticket-knowledge" aria-label="Knowledge entries">
+      <h2>Knowledge</h2>
       <ResourceStatus resource={page} label="linked decisions" />
       <ul className="context-list" role="list">
         {page.data?.items.map(item => (

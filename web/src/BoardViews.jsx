@@ -26,7 +26,7 @@ export default function BoardViews({ current, reportsHref, isAgent, showNotifica
     ['reports', 'Reports'],
     ['board', 'Tasks'],
     ['activity', 'Activity'],
-    ...(showKnowledge ? [['knowledge', 'Knowledge Base']] : []),
+    ...(showKnowledge ? [['knowledge', 'Knowledge']] : []),
     ['stats', 'Stats'],
     ...(showNotifications ? [['notifications', 'Notifications']] : []),
     ...(isAgent ? [['my-activity', 'My activity']] : []),
