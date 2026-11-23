@@ -1119,6 +1119,8 @@ button:disabled { opacity: .57; }
 
 .integration-workflow { display: block; max-inline-size: 100%; margin-block: .4rem .55rem; }
 .integration-guide-link { margin-block-start: .65rem; }
+.cli-login-command, .cli-sign-in-code { margin-block: .45rem .65rem; overflow-wrap: anywhere; }
+.cli-sign-in-code code { font-size: 1.25rem; letter-spacing: .06em; }
 
 .knowledge { max-width: 56rem; }
 .knowledge-search {

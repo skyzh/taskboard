@@ -57,7 +57,7 @@ function useFragment() {
     if (fragment.startsWith('notifications-')) anchor = 'notifications'
     if (base === 'reports-all' || base === 'reports') anchor = 'reports'
     if (fragment.startsWith('stats?')) anchor = 'stats'
-    if (base === 'knowledge') anchor = 'knowledge'
+    if (base === 'knowledge' || base === 'integrations') anchor = base
     if (fragment === 'map' || fragment === 'workstreams-title') anchor = 'team-overview'
     const id = params.get('dri') ? section || 'assignee-title'
       : params.get('search')?.trim() ? 'search-results' : params.has('schedules') ? 'schedules' : section || anchor
@@ -208,7 +208,7 @@ export default function App() {
   else if (search) view = 'search'
   else if (!fragment || taskAnchor === 'reports' || allReports) view = 'reports'
   else if (fragment === 'settings') view = 'settings'
-  else if (fragment === 'integrations') view = 'integrations'
+  else if (taskAnchor === 'integrations') view = 'integrations'
   else if (fragment === 'personal-codex') view = 'personal-codex'
   else if (fragment === 'about') view = 'about'
   else if (taskAnchor === 'knowledge') view = 'knowledge'
@@ -351,7 +351,8 @@ export default function App() {
             project={visibleProjects?.some(item => item.prefix === project) ? project : visibleProjects?.[0]?.prefix || 'T'}
             projects={visibleProjects} revision={revision} />}
           {view === 'about' && <About revision={revision} />}
-          {view === 'integrations' && <Integrations key={session.data?.actor?.id} session={session} />}
+          {view === 'integrations' && <Integrations session={session}
+            challenge={new URLSearchParams(taskContext).get('cli')} />}
           {view === 'knowledge' && <Knowledge session={session} verified={verified} revision={revision}
             search={knowledgeFilters.get('q') || ''} entry={knowledgeFilters.get('entry')}
             onSearch={value => writeFilterFragment(value ? `knowledge?${new URLSearchParams({ q: value })}` : 'knowledge', false)} />}
