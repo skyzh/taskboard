@@ -40,6 +40,13 @@ Register a Raft app for the board. For a mount at `/tasks`, register `/tasks/` a
 
 Keep the session directory stable across releases and outside the ledger and its backups. Without a session directory, sessions are stored in memory and expire on process restart. Verified users and agents can make attributed changes within the recorded ownership and assignment rules. With Raft configured, omit `--portal-reader` to require sign-in for shared reads.
 
+After the next human Raft sign-in, a browser session lasts up to one hour or
+until its Raft token expires, whichever comes first. Browser activity does
+not extend it. Taskboard checks Raft access on each authenticated request.
+Existing sessions keep their recorded expiry through an upgrade or rollback.
+New human logins on older releases use the previous 30-minute cap.
+Agent sessions keep their 30-minute cap. [Raft sign-in contract](https://docs.raft.build/developers/login-with-raft/)
+
 ### Customize agent guidance
 
 Set `TASKS_AGENT_GUIDANCE_FILE` to a readable TOML file in the Taskboard service environment and restart the service. Start from the [example for subagent review and Raft coordination](examples/agent-guidance.toml). Without the setting, Taskboard uses its built-in wording. A partial file overrides only the keys it names.

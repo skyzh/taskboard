@@ -27,7 +27,8 @@ from tasks_profiles import MAX_AVATAR_BYTES, imported_avatar
 _PENDING_COOKIE = "raft_board_login"
 _SESSION_COOKIE = "raft_board_session"
 _PENDING_TTL = 300
-_SESSION_TTL = 1800
+_HUMAN_SESSION_TTL = 3600
+_AGENT_SESSION_TTL = 1800
 _SCOPES = frozenset({"openid", "profile"})
 _BEARER = re.compile(r"[A-Za-z0-9._~+/-]+=*")
 BOARD_FRAGMENT = re.compile(
@@ -202,7 +203,7 @@ class RaftAuth:
             # HTTP clients can include credential-bearing requests in their exceptions.
             raise _Rejected(_Failure.PROVIDER) from None
 
-    def _exchange(self, code: str, pending: _Pending | None) -> tuple[str, float]:
+    def _exchange(self, code: str, pending: _Pending | None) -> tuple[str, int]:
         body = {"grant_type": "authorization_code", "code": code}
         if pending is not None:
             body.update(redirect_uri=self._callback_url, code_verifier=pending.verifier)
@@ -224,7 +225,7 @@ class RaftAuth:
             raise _Rejected(_Failure.PROVIDER)
         if not _scope_valid(document):
             raise _Rejected(_Failure.SCOPE)
-        return token, self._session_time() + min(expiry, _SESSION_TTL)
+        return token, expiry
 
     def _userinfo(self, token: str) -> Identity:
         status, document = self._provider("/api/oauth/userinfo", f"Bearer {token}")
@@ -355,10 +356,13 @@ class RaftAuth:
         codes = request.args.getlist("code")
         if (issuer and issuer != [self._api_origin]) or len(codes) != 1 or not codes[0] or "error" in request.args:
             raise _Rejected(_Failure.CALLBACK)
-        token, expires = self._exchange(codes[0], pending)
+        token, lifetime = self._exchange(codes[0], pending)
+        issued_at = self._session_time()
         identity = self._userinfo(token)
         if pending is None and identity.kind != "agent":
             raise _Rejected(_Failure.STATE)
+        maximum = _HUMAN_SESSION_TTL if identity.kind == "human" else _AGENT_SESSION_TTL
+        expires = issued_at + min(lifetime, maximum)
         if self._server_id is None and self._on_verified_sign_in is not None:
             self._on_verified_sign_in(identity)
         response = redirect(f"{self._public_base}/{pending.fragment}") if pending else make_response("", 200)

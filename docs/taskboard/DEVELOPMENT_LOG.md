@@ -5,6 +5,7 @@ Update this log at each development handoff with the verified result, any open i
 ## Unreleased
 
 - **Ready watcher failure logs.** After restarting a managed Ready watcher from the updated checkout, a terminal read failure records its exact time and safe Raft CLI diagnostics. [Read the new record and upgrade the watcher](READY-CHECKPOINT.md#opt-in-raft-watcher)
+- **Human Raft sign-in.** A new browser login can use its existing Raft token for up to one hour. Live access checks and sign-out still apply. [Session expiry and migration](SHARED-BOARD.md#enable-verified-identities)
 
 - **Project writing guidance.** Signed users can read what each field is for, where it appears, and an example. Project managers can set wording for their project. Longer ticket titles and new ordinary peer request titles keep their complete text. [Field query, upgrade, and rollback](SHARED-BOARD.md#customize-agent-guidance)
 - **Managed Ready sender pilot.** An operator can verify one opted-in Project T recipient through Raft on the existing SQLite board. Use a fresh private baseline, keep the watcher available, and release the sender only after exact review and live delivery and restart checks. [Pilot and rollback instructions](NOTIFICATION-LOG.md#verify-one-managed-ready-sender)
