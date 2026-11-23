@@ -39,7 +39,7 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             "$playwright" install chromium
           else
-            "$playwright" install --with-deps chromium webkit
+            "$playwright" install --with-deps --only-shell chromium webkit
           fi
       - name: Verify the same fictional rows in three layouts
         run: |
