@@ -261,9 +261,11 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
           <ActivityChanges event={event} />
           <ClosureReference context={event.context} />
           {children}
-          {firstEvidence && <EvidenceLinks links={[firstEvidence]} />}
-          <OutcomeNote event={{ ...event, details, links: additionalEvidence }} disclosure="event-disclosure"
-            choiceShown={Boolean(choice)} waitShown={event.action === 'wait'} />
+          <div className="ticket-event-actions">
+            {firstEvidence && <EvidenceLinks links={[firstEvidence]} />}
+            <OutcomeNote event={{ ...event, details, links: additionalEvidence }} disclosure="event-disclosure"
+              disclosureLabel="Activity details" choiceShown={Boolean(choice)} waitShown={event.action === 'wait'} />
+          </div>
         </div>
       </li>
     )
@@ -334,7 +336,7 @@ function TicketContext({ record, id, task, state, wide, detailed, session, revis
   const [open, setOpen] = useState(false)
   const content = (
     <div className="ticket-context-content">
-      {wide && <h2>Details</h2>}
+      {wide && <h2>Ticket details</h2>}
       {wide ? <TicketIdentity task={task} state={state}>
         <TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} />
       </TicketIdentity> : <TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} />}
@@ -358,7 +360,7 @@ function TicketContext({ record, id, task, state, wide, detailed, session, revis
   return (
     <details className="ticket-context" open={wide || open}
       onToggle={wide ? undefined : event => setOpen(event.currentTarget.open)}>
-      <summary>Details</summary>
+      <summary>Ticket details</summary>
       {content}
     </details>
   )
@@ -397,11 +399,13 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   return (
     <article ref={article} id={taskHref(id).slice(1)} className={`panel task-detail${sidebar ? ' has-sidebar' : ''}`}
       aria-labelledby={`task-heading-${id}`} tabIndex={-1}>
-      <a className="back-link" href={backHref}>{fromSearch ? 'Back to Search results' : 'Back to Tasks'}</a>
-      <p className="detail-meta">
-        <span className="ticket-id">{taskLabel(id, task?.key)}</span>
-        {record?.goal && <span>{record.goal.kind === 'standing' ? 'Standing goal' : 'Milestone'}</span>}
-      </p>
+      <div className="ticket-heading-meta">
+        <a className="back-link" href={backHref}>{fromSearch ? 'Back to Search results' : 'Back to Tasks'}</a>
+        <p className="detail-meta">
+          <span className="ticket-id">{taskLabel(id, task?.key)}</span>
+          {record?.goal && <span>{record.goal.kind === 'standing' ? 'Standing goal' : 'Milestone'}</span>}
+        </p>
+      </div>
       <h1 id={`task-heading-${id}`}><MarkdownInline text={task?.title || `Task ${taskLabel(id)}`} relatedTasks={record?.related_tasks} /></h1>
       {task && !sidebar && <div className="ticket-primary-identity"><TicketIdentity task={task} state={state} /></div>}
       {deadline && (
@@ -445,7 +449,10 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
                 </li>)}
               </ul>
             )}
-            {record.brief && <Markdown text={record.brief} className="detail-brief prose" relatedTasks={record.related_tasks} />}
+            {record.brief && <section className="detail-brief" aria-labelledby={`task-description-${id}`}>
+              <h2 id={`task-description-${id}`}>Description</h2>
+              <Markdown text={record.brief} className="prose" relatedTasks={record.related_tasks} />
+            </section>}
             {(record.checklist.length > 0 || record.can_edit_details) && (
               <details className="detail-checklist" open={checklistOpen}
                 onToggle={event => setChecklistOpen(event.currentTarget.open)}>

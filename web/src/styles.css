@@ -624,10 +624,13 @@ button:disabled { opacity: .57; }
 .status.done { color: #2d6544; }
 .task-detail { max-width: 64rem; margin-inline: auto; padding: clamp(1rem, 3vw, 1.65rem); }
 .task-detail:target { background: var(--paper); }
+/* Deep links focus the article. Interactive controls retain their normal focus rings. */
+.task-detail:focus-visible { outline: none; }
 .task-detail h1 { margin: .38rem 0 .25rem; font-size: clamp(1.45rem, 3vw, 2.15rem); letter-spacing: -.035em; }
 .detail-owner { color: var(--muted); font-size: .88rem; }
 .ticket-primary-identity { display: grid; gap: .25rem; margin-block: .4rem .7rem; }
 .detail-brief { margin-top: .65rem; }
+.detail-brief > h2 { margin-bottom: .2rem; color: var(--muted); font-size: .84rem; }
 .ticket-detail-layout > *, .ticket-context-content { min-width: 0; }
 .ticket-context { margin-block: .8rem; border-top: 1px solid var(--line); }
 .ticket-context > summary { padding-block: .55rem; font-weight: var(--weight-emphasis); }
@@ -888,6 +891,15 @@ button:disabled { opacity: .57; }
 .ticket-event-row .assignee-avatar { width: 1rem; height: 1rem; }
 .ticket-event-row .event-disclosure { margin-top: .1rem; font-size: .8rem; }
 .ticket-event-row summary { width: fit-content; min-height: 1.5rem; padding-block: .15rem; }
+.ticket-event-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: .65rem;
+  font-size: .82rem;
+}
+.ticket-event-actions > * { min-width: 0; max-width: 100%; }
+.ticket-event-actions > details[open] { flex-basis: 100%; }
 .activity-mode { display: flex !important; align-items: center; gap: .4rem; }
 .back-link { display: inline-block; margin-bottom: .75rem; font-size: .85rem; }
 .assignee-page-heading { display: flex; align-items: center; gap: .7rem; overflow-wrap: anywhere; }
@@ -952,6 +964,23 @@ button:disabled { opacity: .57; }
   .task-search :is(input, button) { min-height: 2.75rem; }
   .main-content { padding-top: .95rem; }
   .panel { padding: .75rem .8rem; }
+  .ticket-heading-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    column-gap: .65rem;
+  }
+  .ticket-heading-meta .back-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2rem;
+    margin: 0;
+  }
+  .ticket-primary-identity { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .65rem; }
+  .task-detail .ticket-focus { margin-top: .65rem; padding: .6rem .7rem; }
+  .task-detail .detail-brief { font-size: .9rem; }
+  .task-detail .ticket-context { margin-block: .6rem; }
   .task-row {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: "heading progress" "context context";
