@@ -1,5 +1,6 @@
 .queue-layout { margin-block: .65rem; }
 .kanban-column-picker { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; margin-bottom: .65rem; }
+.kanban-column-picker .embedded-picker select { height: 2.75rem; }
 .kanban-columns { display: grid; gap: .6rem; min-width: 0; }
 .kanban-columns.multiple {
   grid-auto-flow: column;

@@ -265,7 +265,7 @@ export default function App() {
     saveTimeZonePreference(preference)
   }
   const projectPicker = hasProjectChoices && (
-    <label className="project-switcher">
+    <label className="project-switcher embedded-picker">
       <select aria-label="Project" value={showAllReports ? 'all' : project} onChange={event => {
         const value = event.target.value
         if (value === 'all') {

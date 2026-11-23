@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { useLoadedPages } from './data.js'
 import { LoadMore, ResourceStatus, states } from './shared.jsx'
 import { TaskRows } from './WorkRow.jsx'
@@ -52,9 +53,12 @@ export default function Kanban({ filters, project, revision, closedAvailable, ph
       {phone && !filters.state && (
         <label className="kanban-column-picker">
           Kanban column
-          <select value={phoneColumn} onChange={event => setPhoneColumn(event.target.value)}>
-            {availableColumns.map(state => <option key={state} value={state}>{states[state]}</option>)}
-          </select>
+          <span className="embedded-picker">
+            <select value={phoneColumn} onChange={event => setPhoneColumn(event.target.value)}>
+              {availableColumns.map(state => <option key={state} value={state}>{states[state]}</option>)}
+            </select>
+            <ChevronDown size={14} aria-hidden="true" focusable="false" />
+          </span>
         </label>
       )}
       <div className={chosenState ? 'kanban-columns' : 'kanban-columns multiple'}
