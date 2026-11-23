@@ -137,7 +137,15 @@ def _locked_directory(path):
         os.close(directory)
 
 
-def install(raw, config):
+def _receipt(status, snapshot):
+    try:
+        captured_at = _time(snapshot.get("captured_at")).isoformat()
+    except (ValueError, OverflowError):
+        captured_at = None
+    return {"status": status, "captured_at": captured_at}
+
+
+def install_with_receipt(raw, config):
     path, attempted_at, snapshot = _outcome(raw, config)
     with _locked_directory(path.parent) as directory:
         fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
@@ -150,11 +158,15 @@ def install(raw, config):
         if not isinstance(previous, dict):
             raise ValueError("The existing snapshot has no timestamp.")
         if attempted_at <= _time(previous.get("attempted_at", previous.get("captured_at"))):
-            return "skipped"
+            return _receipt("skipped", previous)
         if "result" not in snapshot and previous.get("captured_at"):
             snapshot["captured_at"] = _time(previous["captured_at"]).isoformat()
         _replace(path, snapshot, previous_stat)
-        return "installed" if "result" in snapshot else "unavailable"
+        return _receipt("installed" if "result" in snapshot else "unavailable", snapshot)
+
+
+def install(raw, config):
+    return install_with_receipt(raw, config)["status"]
 
 
 def main():

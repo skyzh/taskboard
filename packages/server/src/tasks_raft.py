@@ -20,6 +20,7 @@ _PAGINATION = {"before": "Cursor from the previous page.", "limit": "Maximum rec
 _EVIDENCE = {"url": "HTTP(S) evidence link.", "label": "Display label for the evidence link."}
 _NOTE = "Activity or decision to record."
 _DETAILS = "Optional handoff details. Send an empty string for a headline alone. With this field, note is a one-line headline."
+CODEX_SNAPSHOT_ACTION = "install-codex-snapshot"
 
 
 @dataclass(frozen=True)
@@ -266,11 +267,17 @@ def _public_base(public_url):
 
 
 def register_actions(app: Flask, *, public_url: str, client_id: str,
-                     dispatch: Callable[[str, dict], dict]) -> None:
+                     dispatch: Callable[[str, dict], dict], codex_snapshot_upload: bool = False) -> None:
     """Publish the action contract and delegate all authenticated work to dispatch."""
     origin, mount = _public_base(public_url)
     if not re.fullmatch(r"[a-z][a-z0-9-]{2,63}", client_id):
         raise ValueError("Invalid Raft client ID")
+    actions = _ACTIONS
+    if codex_snapshot_upload:
+        actions = {**actions, CODEX_SNAPSHOT_ACTION: _Action(
+            "POST", "Install one approved private Codex snapshot outcome.",
+            {"outcome": "One bounded JSON snapshot outcome encoded as text."},
+        )}
     public_base = f"{origin}{mount}"
     manifest = {
         "schema": "raft-agent-manifest.v0",
@@ -280,7 +287,7 @@ def register_actions(app: Flask, *, public_url: str, client_id: str,
         "app_origin": origin,
         "execution": {"mode": "http_api", "base_url": origin},
         "auth": {"type": "login_with_raft", "login_url": f"{public_base}/auth/login"},
-        "actions": [action.manifest_entry(name, mount) for name, action in _ACTIONS.items()],
+        "actions": [action.manifest_entry(name, mount) for name, action in actions.items()],
         "context_check": {"url": f"{public_base}{_ACTION_PREFIX}/context", "method": "GET"},
     }
 
@@ -288,7 +295,7 @@ def register_actions(app: Flask, *, public_url: str, client_id: str,
     def raft_manifest():
         return jsonify(manifest)
 
-    for name, action in _ACTIONS.items():
+    for name, action in actions.items():
         app.add_url_rule(f"{_ACTION_PREFIX}/{name}", f"raft_action_{name}",
                          partial(_invoke, name, action, dispatch), methods=[action.method],
                          provide_automatic_options=False)
