@@ -1,17 +1,15 @@
 import React, { useState } from 'react'
-import { useResource } from './data.js'
-import { CopyPrompt, personalCodexStatus, SessionConnections } from './PersonalCodex.jsx'
+import { request, useResource } from './data.js'
+import { CopyPrompt } from './PersonalCodex.jsx'
 import { ResourceStatus, signInHref } from './shared.jsx'
 
-const path = '/personal-agents/connections'
 const guide = 'https://github.com/skyzh/taskboard/blob/main/docs/taskboard/PERSONAL-AGENTS.md'
-const environment = 'TASKBOARD_PERSONAL_AGENT_TOKEN'
 
 const workflows = [
   {
     id: 'task-session',
     label: 'I open a session for each task',
-    access: 'Use a Personal Agents connection under your signed-in profile. Work starts with the issue, pull request, or ticket.',
+    access: 'Start with the issue, pull request, or ticket and use the access instructions on this page.',
     prompt: 'Find the existing work and read its status, evidence, and related decisions. Record checkpoints in Activity. At a decision or handoff, update the ticket brief with the current conclusions and links to their sources. Use zero Inbox calls.',
   },
   {
@@ -40,11 +38,10 @@ const workflows = [
   },
 ]
 
-function WorkflowGuide() {
+function WorkflowGuide({ board }) {
   const [selected, setSelected] = useState(workflows[0].id)
   const workflow = workflows.find(item => item.id === selected)
-  const base = new URL('./', window.location.href).href
-  const prompt = `Read ${guide} and follow it to use Taskboard at ${base} for this work. ${workflow.prompt}`
+  const prompt = `Read ${guide} and follow it to use Taskboard at ${board} for this work. ${workflow.prompt}`
 
   return (
     <>
@@ -60,34 +57,60 @@ function WorkflowGuide() {
   )
 }
 
-export default function Integrations({ session }) {
-  const actor = session.data?.actor
-  const canConnect = actor?.kind === 'human'
-  const connections = useResource(canConnect ? path : null)
-  const pilot = useResource(canConnect ? personalCodexStatus : null)
-  const signIn = (!actor || actor.kind === 'portal') &&
-    (session.data?.sign_in_available || session.error?.status === 401)
+function CliSignIn({ challenge, session }) {
+  const [pending, setPending] = useState(false)
+  const [approved, setApproved] = useState(false)
+  const [error, setError] = useState(null)
+  const human = session.data?.actor?.kind === 'human'
+  const signIn = session.data?.sign_in_available || session.error?.status === 401
 
+  async function approve() {
+    setPending(true)
+    setError(null)
+    try {
+      await request('/personal-agents/cli-authorize', { body: { challenge } })
+      setApproved(true)
+    } catch (failure) {
+      setError(failure.message)
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <section className="panel settings-panel" aria-labelledby="cli-sign-in">
+      <h2 id="cli-sign-in">Approve CLI sign-in</h2>
+      {approved ? <p role="status">Approved. Return to the terminal to finish signing in.</p> : <>
+        <p>Make sure this code matches your terminal before approving.</p>
+        <p className="cli-sign-in-code"><code>{challenge.slice(0, 8).toUpperCase()}</code></p>
+        {human ? <button type="button" disabled={pending} onClick={approve}>
+          {pending ? 'Approving…' : 'Approve sign-in'}
+        </button> : signIn ? <a href={signInHref(`#integrations?cli=${challenge}`)}>Sign in to approve</a>
+          : session.pending ? <ResourceStatus resource={session} label="your session" />
+            : <p>A signed-in person must approve this request.</p>}
+        {error && <p role="alert">{error}</p>}
+      </>}
+    </section>
+  )
+}
+
+export default function Integrations({ session, challenge = null }) {
+  const access = useResource(challenge === null ? '/personal-agents/access' : null)
+  const board = new URL('./', window.location.href).href
   return (
     <section className="settings integrations" aria-labelledby="integrations">
       <div className="page-heading"><h1 id="integrations" tabIndex={-1}>Integrations</h1></div>
-      <section className="panel settings-panel" aria-labelledby="personal-agents">
-        <h2 id="personal-agents">Personal Agents</h2>
-        <WorkflowGuide />
-      </section>
-      {canConnect ? (
-        <>
-          <ResourceStatus resource={connections} label="session connections" />
-          {connections.data && ![401, 403, 404].includes(connections.error?.status) && (
-            <SessionConnections connections={connections.data.connections} reload={connections.retry}
-              path={path} tokenVariable={environment}
-              expiration="Connections use your Taskboard permissions and expire after eight hours or when you sign out, whichever comes first." />
-          )}
-          {pilot.data && !pilot.error && <p className="integration-guide-link"><a href="#personal-codex">Open the single-ticket pilot</a></p>}
-        </>
-      ) : signIn ? <p className="integration-guide-link">
-        <a href={signInHref('#integrations')}>Sign in to create a connection</a>
-      </p> : <ResourceStatus resource={session} label="your session" />}
+      {challenge !== null ? /^[a-f0-9]{64}$/.test(challenge)
+        ? <CliSignIn key={`${challenge}:${session.data?.actor?.id || ''}`} challenge={challenge} session={session} />
+        : <p role="alert">This sign-in link is invalid. Start sign-in again from the terminal.</p>
+        : <section className="panel settings-panel" aria-labelledby="personal-agents">
+          <h2 id="personal-agents">Personal Agents</h2>
+          {access.data?.mode === 'tailnet'
+            ? <p>Use the prompt from a device on this board’s trusted tailnet.</p>
+            : <><p>To sign in, run this command and approve it in your browser.</p>
+              <p className="cli-login-command"><code>tasks --shared --url {board} login</code></p></>}
+          <WorkflowGuide board={board} />
+        </section>}
     </section>
   )
 }
