@@ -1,6 +1,6 @@
 """Artifact checks and a disposable release transaction shared by runner designs."""
 
-from contextlib import closing
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -142,19 +142,35 @@ def run_fixture_release(root, artifact, entry, restart, healthy, journal=None):
     return run_release(layout, artifact, entry, restart, healthy, journal)
 
 
-def run_release(layout, artifact, entry, restart, healthy, journal=None, *, require_review=True):
+def run_release(layout, artifact, entry, restart, healthy, journal=None, *, require_review=True, slots=None):
+    if slots is not None and journal is None:
+        raise ValueError("A two-slot release needs an activation journal.")
+    with release_lock(layout):
+        return release_locked(layout, artifact, entry, restart, healthy, journal,
+                              require_review=require_review, slots=slots)
+
+
+@contextmanager
+def release_lock(layout):
     with layout.lock.open("a+b") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
             raise ReleaseRejected("Another release is already running on the fixture.") from error
-        return release_locked(layout, artifact, entry, restart, healthy, journal, require_review=require_review)
+        yield
 
 
-def rollback(layout, previous, base, restart, healthy):
-    switch_current(layout.current, previous)
+def rollback(layout, previous, base, restart, healthy, *, slots=None, prior_port=None, recovering=False):
     try:
-        restart()
+        if slots is not None:
+            if recovering:
+                slots.ensure_running(prior_port, previous)
+            else:
+                slots.verify(prior_port, previous)
+            slots.select(prior_port)
+        switch_current(layout.current, previous)
+        if slots is None:
+            restart()
         if not healthy(base):
             raise RuntimeError("The restored release did not pass mounted health checks.")
     except Exception as error:
@@ -169,7 +185,7 @@ def restart_candidate(restart, journal, marker):
         write_json(journal, marker)
 
 
-def recover_activation(layout, entry, journal, active, restart, healthy):
+def recover_activation(layout, entry, journal, active, restart, healthy, slots):
     marker = json.loads(journal.read_text(encoding="utf-8"))
     digest, base = entry["candidate"], entry["base"]
     previous_name = marker["previous"]
@@ -187,6 +203,37 @@ def recover_activation(layout, entry, journal, active, restart, healthy):
         raise ValueError("Verify the recorded prior release before recovering the job.") from error
     result = {"ticket": entry["ticket"], "candidate": digest, "backup": marker["backup"],
               **marker["execution"]}
+    recorded_ports = marker.get("slots")
+    if recorded_ports is not None or slots is not None:
+        if slots is None or not isinstance(recorded_ports, list) or len(recorded_ports) != 2:
+            raise ValueError("Reconcile the journal with the original two-slot operator configuration.")
+        prior_port, candidate_port = recorded_ports
+        selected = slots.selected()
+        if prior_port == candidate_port or selected not in (prior_port, candidate_port):
+            raise ValueError("Reconcile the journal with the active Taskboard port selector.")
+        if active == previous and selected == prior_port:
+            slots.ensure_running(prior_port, previous)
+            if not healthy(base):
+                raise ValueError("Verify the prior release before reconciling an interrupted activation.")
+            return {**result, "status": "rejected", "active": base, "reason_code": "activation_interrupted"}
+        try:
+            if selected != candidate_port:
+                raise RuntimeError("The port selector returned to the prior release during activation.")
+            candidate = layout.releases / digest
+            verify_manifest(candidate, digest)
+            slots.verify(candidate_port, candidate)
+            if active != candidate:
+                switch_current(layout.current, candidate)
+            if not healthy(digest):
+                raise RuntimeError("The candidate did not pass health checks.")
+        except Exception as error:
+            restored, rollback_failure = rollback(
+                layout, previous, base, restart, healthy, slots=slots, prior_port=prior_port, recovering=True,
+            )
+            return {**result, "status": "rolled_back" if restored else "rollback_failed",
+                    "active": base if restored else None, "reason_code": "activation_interrupted",
+                    **failed_check(error), "rollback_failure": rollback_failure}
+        return {**result, "status": "released", "active": digest}
     if active == previous and base != digest:
         restart()
         if not healthy(base):
@@ -206,13 +253,13 @@ def recover_activation(layout, entry, journal, active, restart, healthy):
     return {**result, "status": "released", "active": digest}
 
 
-def release_locked(layout, artifact, entry, restart, healthy, journal, *, require_review=True):
+def release_locked(layout, artifact, entry, restart, healthy, journal, *, require_review=True, slots=None):
     releases = layout.releases
     current = layout.current
     if journal is not None and journal.exists():
         if not current.is_symlink():
             raise ValueError("Verify the active release pointer before recovering the job.")
-        return recover_activation(layout, entry, journal, current.resolve(strict=True), restart, healthy)
+        return recover_activation(layout, entry, journal, current.resolve(strict=True), restart, healthy, slots)
     check_receipts(entry, require_review=require_review)
     digest = entry["candidate"]
     if not current.is_symlink():
@@ -223,6 +270,7 @@ def release_locked(layout, artifact, entry, restart, healthy, journal, *, requir
     if file_hash(previous / "SHA256SUMS") != entry["base"]:
         raise ReleaseRejected("The active base advanced. Recheck the candidate on the current release.", "stale_base")
     verify_manifest(previous, entry["base"])
+    planned_ports = slots.plan(previous) if slots is not None else None
 
     directory = releases / digest
     if directory.exists():
@@ -241,15 +289,31 @@ def release_locked(layout, artifact, entry, restart, healthy, journal, *, requir
     if journal is not None:
         marker = {"candidate": digest, "base": entry["base"], "previous": previous.name,
                   "backup": backup.name, "execution": entry["execution"], "restarted": False}
+        if planned_ports is not None:
+            marker["slots"] = planned_ports
         write_json(journal, marker)
-    switch_current(current, directory)
 
+    prior_port = None
+    if planned_ports is not None:
+        prior_port, candidate_port = planned_ports
+        try:
+            slots.prepare(candidate_port, directory, previous)
+        except Exception as failure:
+            return {"ticket": entry["ticket"], "candidate": digest, "active": entry["base"],
+                    "status": "rejected", "reason_code": "candidate_slot_unavailable",
+                    **failed_check(failure), "backup": backup.name}
     try:
-        restart_candidate(restart, journal, marker)
+        if slots is not None:
+            slots.select(candidate_port)
+        switch_current(current, directory)
+        if slots is None:
+            restart_candidate(restart, journal, marker)
         if not healthy(digest):
             raise RuntimeError("The candidate did not pass health checks.")
     except Exception as failure:
-        restored, rollback_failure = rollback(layout, previous, entry["base"], restart, healthy)
+        restored, rollback_failure = rollback(
+            layout, previous, entry["base"], restart, healthy, slots=slots, prior_port=prior_port,
+        )
         return {
             "ticket": entry["ticket"],
             "candidate": digest,

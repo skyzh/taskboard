@@ -134,9 +134,9 @@ def serve_fixture(source, database, certificate, key, browser):
 
 
 @contextmanager
-def fixture_server(python, source, directory, certificate, key, *, browser=None):
+def fixture_server(python, source, directory, certificate, key, *, browser=None, database=None):
     directory.mkdir()
-    database = directory / "fixture.sqlite3"
+    database = database if database is not None else directory / "fixture.sqlite3"
     command = [python, "-B", SCRIPT, "serve", source, database, certificate, key]
     if browser:
         command.append(browser)

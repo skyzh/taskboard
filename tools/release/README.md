@@ -90,6 +90,78 @@ python -B tools/release/operator_deploy.py --config "$operator_config" \
 
 The operator processes urgent entries first and checks the active base again before switching. It backs up SQLite, restarts the existing service and verifies the mounted release. If health fails, it restores the prior code and rechecks it. The live ledger stays in use. The app and portal lane still uses the existing coordinated release process.
 
+### Opt in to two pinned Taskboard slots
+
+This mode uses the Taskboard-only HTTP and WebSocket port selector in the
+user portal. Prepare the portal change in its own reviewed window. Before
+enabling it, create the selector file with the currently serving port and
+a newline. Use the same two ports in the portal and runner configuration.
+Keep the current service in place during the one-time portal restart.
+Verify the existing HTTPS mount and WebSocket route before an app cutover.
+
+Bootstrap the selected user service with its working directory and
+launcher both pinned to the same manifest-verified release. Verify it via
+loopback admission and at the public mount. A unit following `current`
+can serve during portal setup. Migrate it to a pinned unit before enabling
+the two-slot runner. Use dedicated transient unit names for both slots.
+The runner replaces only the inactive unit. Keep the deferral timer as
+one independent service outside the slots.
+
+After reviewed disposable and attended rehearsals, add a `slots` object
+to the existing operator configuration. This example uses fictional paths.
+
+```json
+{
+  "slots": {
+    "selector": "/srv/taskboard/route-port",
+    "environment_file": "/srv/taskboard/serving.env",
+    "admission_file": "/srv/taskboard/portal-admission",
+    "python": "/srv/taskboard/runtime/bin/python",
+    "mount_path": "/tasks",
+    "units": {
+      "4397": "taskboard-slot-a.service",
+      "4398": "taskboard-slot-b.service"
+    }
+  }
+}
+```
+
+Reference the existing private serving environment and portal admission
+file. Keep their values on the serving host. Supply a Python runtime with
+the WebSocket extra. Both slots use the same SQLite ledger and durable
+session directory. Keep the prior app running after a switch so its
+established revision sockets can finish, up to their normal two-minute
+reconnect. An unfinished browser sign-in may need a fresh attempt.
+
+Install the reviewed [slot restore user unit](systemd/taskboard-slot-restore.service)
+before enabling automatic deploys. It restores only the selected pinned
+release if the Pi or user service manager restarts. Verify this path in
+the attended rehearsal and have the operator retire the legacy unit's
+automatic startup so it cannot compete for the same port. The runner
+saves an immutable release digest beside the selector for each port. Keep
+these files with the selector so recovery can follow the serving route
+even if an interruption separated the selector and `current` updates.
+
+For each release the operator verifies both manifests, backs up SQLite and
+records both ports in the activation journal. It checks that the exact
+prior app reads a signed candidate write on a disposable ledger after
+candidate startup. It starts the inactive pinned release, verifies the
+unit, and checks authenticated loopback health and a ledger read before
+replacing the selector and updating `current`. The usual mounted smoke
+still applies. If preflight fails, traffic stays on the prior slot. If
+mounted smoke fails, the runner verifies and restores the prior slot
+against the same ledger.
+
+If an invocation is interrupted, pause subsequent deploys while the
+operator examines the activation journal, both units, the selector and
+`current`. Re-enter the original checked-main operation with the same
+staged artifact, commit and digests after verifying those inputs. The
+runner can finish the pointer update for a selected, verified candidate.
+If the candidate fails, it verifies or restarts the exact prior slot
+before switching back. Recovery uses the original ledger. To return to single-service
+releases, verify an active legacy unit serving `current` and align the
+portal route in a reviewed operator window before removing `slots`.
+
 A service can take a few seconds to accept requests after its restart command returns. The operator retries temporary mount health failures up to eight times with a one-second pause. A wrong bundle, avatar, or access result fails the release immediately. Private outcome receipts record check names and reasons for both activation and rollback failures.
 
 Each completed job has an outcome JSON under the private queue's `results/` directory. It includes the candidate, resulting active manifest, check or stale-base reason, queue time and review-to-result time. Re-running the operator after a receipt delivery failure sends the saved result without a second activation. To forward a stored outcome independently, run `publish_receipt.py <outcome.json>` through the already signed-in operator integration.

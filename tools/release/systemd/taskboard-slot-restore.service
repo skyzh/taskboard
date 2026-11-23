@@ -1,0 +1,11 @@
+[Unit]
+Description=Restore the selected Taskboard serving slot
+Before=taskboard-deploy.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 -B %h/.local/share/taskboard/operator/tools/release/operator_deploy.py --config %h/.config/taskboard/deploy.json --restore-selected-slot
+
+[Install]
+WantedBy=default.target
