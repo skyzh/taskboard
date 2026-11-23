@@ -53,6 +53,10 @@ Choose **Kind → Wake** to follow the recorded wake for an owned Ready ticket.
 The log shows Raft acceptance, delivery, the first signed project queue check,
 and Start separately. A missing delivery stays **Unknown**. **No eligible work**
 requires a recorded empty queue check. A Start links to its Activity entry.
+For a wake triggered by a returned peer request, **Request acknowledgment**
+links to the recipient’s signed acknowledgment when it is recorded. The link
+uses the exact peer response event and follows the Wake log’s existing
+visibility. An acknowledgment and the original ticket’s Start are separate.
 
 The same operator command accepts `taskboard-wake/v1` with `schema`, `source`,
 `recipient`, and `observations`. Use the same exact Ready source task, event,
