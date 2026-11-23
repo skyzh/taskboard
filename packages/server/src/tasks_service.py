@@ -864,6 +864,14 @@ def create_app(
         pilot = personal_codex_pilot
         connect_path = f"{prefix}/personal-codex"
 
+        def pilot_reporting_auth():
+            # This header is set by trusted ingress. The outer portal middleware
+            # authenticates the forwarding portal before this route runs.
+            if (pilot.reporting_auth == personal_codex.TAILNET
+                    and request.headers.get("X-Portal-Auth-Method") == "tailscale"):
+                return personal_codex.TAILNET
+            return personal_codex.LOGIN_REQUIRED
+
         def pilot_human(*, write=False):
             if write and request.headers.get("Origin") != origin:
                 raise RequestError("Open the connection page on the board to make changes.", 403)
@@ -876,7 +884,7 @@ def create_app(
             sessions = personal_codex.list_connections(db(), owner, number)
             response = app.make_response(render_template_string(
                 personal_codex.CONNECT_PAGE, connect_path=connect_path, ticket=pilot.ticket,
-                sessions=sessions, **fields,
+                sessions=sessions, reporting_auth=pilot_reporting_auth(), **fields,
             ))
             response.headers["Cache-Control"] = "no-store"
             response.headers["Content-Security-Policy"] = (
@@ -884,6 +892,45 @@ def create_app(
                 "frame-ancestors 'none'; base-uri 'none'"
             )
             return response
+
+        def issue_pilot_connection(owner, number, data):
+            label = text(data, "session", maximum=80)
+            if len(label.splitlines()) != 1:
+                raise RequestError("Provide a one-line session name.")
+            try:
+                with tasks_storage.write(db()) as connection:
+                    return personal_codex.issue(connection, number, owner, label)
+            except ValueError as error:
+                raise RequestError(str(error), 409) from error
+
+        def revoke_pilot_connection(owner, grant):
+            with tasks_storage.write(db()) as connection:
+                if not personal_codex.revoke(connection, owner, task_number(pilot.ticket), grant):
+                    raise NotFound()
+
+        def pilot_json(**data):
+            response = jsonify(data)
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        @app.get("/api/v1/personal-codex/status")
+        def personal_codex_status():
+            owner = pilot_human()
+            connections = personal_codex.list_connections(db(), owner, task_number(pilot.ticket))
+            return pilot_json(ticket=pilot.ticket, reporting_auth=pilot_reporting_auth(),
+                              connections=[dict(row) for row in connections])
+
+        @app.post("/api/v1/personal-codex/connections")
+        def personal_codex_create_connection():
+            owner = pilot_human(write=True)
+            data = json_body({"session"})
+            token = issue_pilot_connection(owner, task_number(pilot.ticket), data)
+            return pilot_json(token=token)
+
+        @app.delete("/api/v1/personal-codex/connections/<uuid:grant>")
+        def personal_codex_delete_connection(grant):
+            revoke_pilot_connection(pilot_human(write=True), str(grant))
+            return "", 204
 
         @app.route("/personal-codex", methods=["GET", "POST"])
         def personal_codex_connect():
@@ -896,50 +943,61 @@ def create_app(
                     return redirect(f"{prefix}/auth/login")
                 return pilot_page(owner, task_number(pilot.ticket))
             owner = pilot_human(write=True)
-            label = text(request.form, "session", maximum=80)
-            if len(label.splitlines()) != 1:
-                raise RequestError("Provide a one-line session name.")
             number = task_number(pilot.ticket)
-            try:
-                with tasks_storage.write(db()) as connection:
-                    token = personal_codex.issue(connection, number, owner, label)
-            except ValueError as error:
-                raise RequestError(str(error), 409) from error
+            token = issue_pilot_connection(owner, number, request.form)
             return pilot_page(owner, number, token=token)
 
         @app.post("/personal-codex/revoke")
         def personal_codex_revoke():
             owner = pilot_human(write=True)
             grant = text(request.form, "connection", maximum=36)
-            with tasks_storage.write(db()) as connection:
-                if not personal_codex.revoke(connection, owner, task_number(pilot.ticket), grant):
-                    raise NotFound()
+            revoke_pilot_connection(owner, grant)
             return redirect(connect_path, code=303)
 
-        def pilot_connection(connection, ticket):
+        def pilot_access(connection, ticket):
             if ticket != pilot.ticket:
                 raise NotFound()
+            authorization = request.headers.get("Authorization", "")
+            if not authorization and pilot_reporting_auth() == personal_codex.TAILNET:
+                if request.method == "POST" and request.headers.get("Origin") != origin:
+                    raise RequestError("Send progress from the Taskboard origin.", 403)
+                try:
+                    task = personal_codex.tailnet_ticket(
+                        connection, task_number(ticket), raft_config["server_id"], pilot.subject,
+                    )
+                except LookupError as error:
+                    raise RequestError(str(error), 409) from error
+                return None, task
             try:
-                return personal_codex.authorized_connection(
-                    connection, pilot, ticket, request.headers.get("Authorization", ""),
-                )
+                return personal_codex.authorized_connection(connection, pilot, ticket, authorization)
             except PermissionError as error:
                 raise RequestError(str(error), 401) from error
 
         @app.get("/api/v1/personal-codex/tickets/<ticket>")
         def personal_codex_ticket(ticket):
             with tasks_storage.read(db()) as connection:
-                _, task = pilot_connection(connection, ticket)
-                return {
-                    "ticket": ticket, "title": task["title"], "status": task["display_state"],
-                    "brief": task["brief"], "next_step": task["note"],
-                }
+                _, task = pilot_access(connection, ticket)
+                return pilot_json(ticket=ticket, title=task["title"], status=task["display_state"],
+                                  brief=task["brief"], next_step=task["note"])
 
         @app.post("/api/v1/personal-codex/tickets/<ticket>/progress")
         def personal_codex_progress(ticket):
             with tasks_storage.write(db()) as connection:
-                grant, task = pilot_connection(connection, ticket)
-                data = json_body({"replay_key", "headline", "details"})
+                reporter, task = pilot_access(connection, ticket)
+                tailnet = reporter is None
+                fields = {"replay_key", "headline", "details"}
+                if tailnet:
+                    fields.update({"session_id", "session"})
+                data = json_body(fields)
+                if tailnet:
+                    session = text(data, "session", maximum=80)
+                    if len(session.splitlines()) != 1:
+                        raise RequestError("Provide a one-line session name.")
+                    try:
+                        session_id = str(UUID(text(data, "session_id", maximum=36)))
+                    except ValueError as error:
+                        raise RequestError("Provide a UUID as session_id.") from error
+                    reporter = {"id": session_id, "label": session, "owner": task["dri"]}
                 key = text(data, "replay_key", maximum=128)
                 if not personal_codex.REPLAY_KEY.fullmatch(key):
                     raise RequestError("Use an ASCII replay key of up to 128 characters.")
@@ -949,7 +1007,9 @@ def create_app(
                 except ValueError as error:
                     raise RequestError(str(error)) from error
                 try:
-                    event = personal_codex.append_progress(connection, grant, task, key, headline, details)
+                    event = personal_codex.append_progress(
+                        connection, reporter, task, key, headline, details, tailnet=tailnet,
+                    )
                 except ValueError as error:
                     raise RequestError(str(error), 409) from error
             return {"ticket": ticket, "event_id": event}

@@ -16,6 +16,8 @@ import tasks_projects as projects
 SESSION_DURATION = timedelta(hours=8)
 TOKEN = re.compile(r"[A-Za-z0-9_-]{43}")
 REPLAY_KEY = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+LOGIN_REQUIRED = "login_required"
+TAILNET = "tailnet"
 CONNECT_PAGE = """
 <!doctype html>
 <html lang="en">
@@ -40,6 +42,9 @@ CONNECT_PAGE = """
       <input id="connection-token" value="{{ token }}" readonly autocomplete="off" spellcheck="false">
       <p>Set <code>TASKBOARD_PERSONAL_CODEX_TOKEN</code> in the session environment.</p>
     </section>
+  {% endif %}
+  {% if reporting_auth == "tailnet" %}
+    <p>Devices on the tailnet can report progress without a connection token.</p>
   {% endif %}
   <form method="post" action="{{ connect_path }}">
     <label for="session">Session name</label>
@@ -85,6 +90,13 @@ SCHEMA = (
         PRIMARY KEY (connection_id, replay_key)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS personal_codex_tailnet_receipts (
+        checkpoint TEXT PRIMARY KEY,
+        content_hash TEXT NOT NULL,
+        event_id INTEGER NOT NULL REFERENCES events (id)
+    )
+    """,
 )
 
 
@@ -92,18 +104,22 @@ SCHEMA = (
 class Pilot:
     ticket: str
     subject: str
+    reporting_auth: str = LOGIN_REQUIRED
 
 
 def configuration(env):
     ticket = env.get("TASKS_PERSONAL_CODEX_PILOT_TICKET")
     subject = env.get("TASKS_PERSONAL_CODEX_PILOT_SUBJECT")
-    if ticket is None and subject is None:
+    reporting_auth = env.get("TASKS_PERSONAL_CODEX_REPORTING_AUTH", LOGIN_REQUIRED)
+    if reporting_auth not in (LOGIN_REQUIRED, TAILNET):
+        raise ValueError("Set TASKS_PERSONAL_CODEX_REPORTING_AUTH to login_required or tailnet.")
+    if ticket is None and subject is None and reporting_auth == LOGIN_REQUIRED:
         return None
     try:
         project, number = projects.identifier(ticket)
         if ticket != f"{project}-{number}":
             raise ValueError
-        return Pilot(ticket, str(UUID(subject)))
+        return Pilot(ticket, str(UUID(subject)), reporting_auth)
     except (AttributeError, TypeError, ValueError) as error:
         raise ValueError("Set a canonical personal Codex pilot ticket and a verified human subject UUID.") from error
 
@@ -176,31 +192,58 @@ def authorized_connection(db, pilot, ticket, authorization):
     return connection, task
 
 
-def append_progress(db, connection, task, replay_key, headline, details):
-    digest = sha256(json.dumps((headline, details), ensure_ascii=True).encode()).hexdigest()
-    receipt = db.execute(
+def tailnet_ticket(db, number, server, subject):
+    task = ledger.find_task(db, number)
+    if task is None:
+        raise LookupError("The pilot ticket does not exist.")
+    owner = db.execute(
         """
-        SELECT content_hash, event_id FROM personal_codex_receipts
-        WHERE connection_id = ? AND replay_key = ?
-        """, (connection["id"], replay_key),
+        SELECT ledger_key FROM board_principals
+        WHERE ledger_key = ? AND server_id = ? AND kind = 'human' AND subject = ?
+        """, (task["dri"], server, subject),
     ).fetchone()
+    if owner is None or ledger.task_goal_kind(db, number) or peer_asks.find(db, number):
+        raise LookupError("The operator must assign an ordinary pilot ticket to the configured human.")
+    return task
+
+
+def append_progress(db, reporter, task, replay_key, headline, details, *, tailnet=False):
+    session, label, owner = reporter["id"], reporter["label"], reporter["owner"]
+    content = (headline, details, label) if tailnet else (headline, details)
+    digest = sha256(json.dumps(content, ensure_ascii=True).encode()).hexdigest()
+    metadata = {"label": label}
+    if tailnet:
+        scope = (task["id"], owner, session, replay_key)
+        receipt_key = (sha256(json.dumps(scope).encode()).hexdigest(),)
+        receipt = db.execute(
+            "SELECT content_hash, event_id FROM personal_codex_tailnet_receipts WHERE checkpoint = ?", receipt_key,
+        ).fetchone()
+        save_receipt = "INSERT INTO personal_codex_tailnet_receipts VALUES (?, ?, ?)"
+        attribution = f"Reported from the tailnet by Codex session {label} ({session[:8]})."
+        metadata.update(reporting_auth=TAILNET, session_id=session)
+    else:
+        receipt_key = (session, replay_key)
+        receipt = db.execute(
+            """
+            SELECT content_hash, event_id FROM personal_codex_receipts
+            WHERE connection_id = ? AND replay_key = ?
+            """, receipt_key,
+        ).fetchone()
+        save_receipt = "INSERT INTO personal_codex_receipts VALUES (?, ?, ?, ?)"
+        attribution = f"Reported by Codex session {label} ({session[:8]})."
+        metadata["connection_id"] = session
     if receipt is not None:
         if receipt["content_hash"] != digest:
             raise ValueError("This replay key already identifies a different checkpoint.")
         return receipt["event_id"]
 
-    label, session = connection["label"], connection["id"]
-    attribution = f"Reported by Codex session {label} ({session[:8]})."
     event = ledger.record(
-        db, task["id"], "log", connection["owner"], task["state"], headline, None, [],
+        db, task["id"], "log", owner, task["state"], headline, None, [],
         {
             "activity_details": f"{attribution}\n\n{details}" if details else attribution,
-            "personal_codex": {"connection_id": session, "label": label},
+            "personal_codex": metadata,
         },
     )
-    db.execute(
-        "INSERT INTO personal_codex_receipts VALUES (?, ?, ?, ?)",
-        (session, replay_key, digest, event),
-    )
+    db.execute(save_receipt, (*receipt_key, digest, event))
     ledger.bump_revision(db)
     return event
