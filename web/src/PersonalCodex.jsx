@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { request } from './data.js'
+import { request, useResource } from './data.js'
 import { ReportTime } from './ReportTime.jsx'
 import { ResourceStatus, signInHref, taskHref } from './shared.jsx'
 
@@ -7,9 +7,7 @@ export const personalCodexStatus = '/personal-codex/status'
 const connectionsPath = '/personal-codex/connections'
 const guide = 'https://github.com/skyzh/taskboard/blob/main/docs/taskboard/PERSONAL-CODEX.md'
 
-function CopyPrompt({ ticket, needsConnection }) {
-  const base = new URL('./', window.location.href).href
-  const prompt = `Read ${guide} and follow it to report progress on ${ticket} using ${base}`
+export function CopyPrompt({ prompt, children }) {
   const [feedback, setFeedback] = useState('')
 
   async function copy() {
@@ -24,18 +22,14 @@ function CopyPrompt({ ticket, needsConnection }) {
   return (
     <>
       <p className="personal-codex-prompt"><code>{prompt}</code></p>
-      {needsConnection && (
-        <p className="personal-codex-preparation">
-          Before using this prompt, create a connection below and set its token in your Codex session’s environment.
-        </p>
-      )}
+      {children}
       <button type="button" onClick={copy}>Copy prompt</button>
       <p className="personal-codex-feedback" role="status">{feedback}</p>
     </>
   )
 }
 
-function Connections({ connections, reload }) {
+export function SessionConnections({ connections, reload, path, tokenVariable, expiration }) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [token, setToken] = useState('')
@@ -53,7 +47,7 @@ function Connections({ connections, reload }) {
     setBusy(true)
     setFeedback(null)
     try {
-      const grant = await request(connectionsPath, { body: { session: name.trim() } })
+      const grant = await request(path, { body: { session: name.trim() } })
       setName('')
       setToken(grant.token)
       reload()
@@ -69,7 +63,7 @@ function Connections({ connections, reload }) {
     setBusy(true)
     setFeedback(null)
     try {
-      await request(`${connectionsPath}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      await request(`${path}/${encodeURIComponent(id)}`, { method: 'DELETE' })
       if (document.activeElement === button || document.activeElement === document.body) nameInput.current?.focus()
       setFeedback({ text: 'Connection revoked.' })
       reload()
@@ -83,7 +77,7 @@ function Connections({ connections, reload }) {
   return (
     <section className="panel settings-panel" aria-labelledby="codex-connections">
       <h2 id="codex-connections">Session connections</h2>
-      <p>Each session needs its own connection. Connections expire after eight hours.</p>
+      <p>{expiration}</p>
       <form className="profile-form" onSubmit={create} data-reload-blocked={Boolean(busy || name || token)}>
         <label>Session name
           <input ref={nameInput} name="session" value={name} onChange={event => setName(event.target.value)}
@@ -97,7 +91,7 @@ function Connections({ connections, reload }) {
             <input ref={tokenInput} value={token} onFocus={event => event.target.select()} readOnly
               autoComplete="off" spellCheck={false} />
           </label>
-          <p>Set <code>TASKBOARD_PERSONAL_CODEX_TOKEN</code> in the Codex session environment.</p>
+          <p>Set <code>{tokenVariable}</code> in the session environment.</p>
           <button type="button" onClick={() => { setToken(''); nameInput.current?.focus() }}>Hide token</button>
         </div>
       )}
@@ -118,18 +112,20 @@ function Connections({ connections, reload }) {
   )
 }
 
-export default function PersonalCodex({ setup, session, reportsHref }) {
+export default function PersonalCodex({ session, reportsHref }) {
   const actor = session.data?.actor
+  const setup = useResource(actor?.kind === 'human' ? personalCodexStatus : null)
   const unavailable = [403, 404].includes(setup.error?.status)
   const signIn = setup.error?.status === 401 || ((!actor || actor.kind === 'portal') &&
     (session.data?.sign_in_available || session.error?.status === 401))
   const pendingSession = session.pending && !actor
   const pilot = signIn || unavailable ? null : setup.data
+  const prompt = pilot && `Read ${guide} and follow it to report progress on ${pilot.ticket} using ${new URL('./', window.location.href)}`
 
   return (
     <section className="settings personal-codex" aria-labelledby="personal-codex">
       <a className="back-link" href={reportsHref}>Back to Reports</a>
-      <div className="page-heading"><h1 id="personal-codex" tabIndex={-1}>Personal Codex</h1></div>
+      <div className="page-heading"><h1 id="personal-codex" tabIndex={-1}>Personal Agents pilot</h1></div>
       {signIn ? <a href={signInHref('#personal-codex')}>Sign in with Raft</a>
         : pendingSession || (actor?.kind === 'human' && !unavailable)
           ? <ResourceStatus resource={pendingSession ? session : setup} label="Personal Codex setup" />
@@ -140,10 +136,18 @@ export default function PersonalCodex({ setup, session, reportsHref }) {
             <h2 id="codex-prompt">Reporting prompt</h2>
             <p>Codex reports appear in <a href={taskHref(pilot.ticket)}>{pilot.ticket}</a> Activity.</p>
             {pilot.reporting_auth === 'tailnet' && <p>Sessions on the tailnet can report without a token.</p>}
-            <CopyPrompt ticket={pilot.ticket} needsConnection={pilot.reporting_auth === 'login_required'} />
+            <CopyPrompt prompt={prompt}>
+              {pilot.reporting_auth === 'login_required' && (
+                <p className="personal-codex-preparation">
+                  Before using this prompt, create a connection below and set its token in your session’s environment.
+                </p>
+              )}
+            </CopyPrompt>
           </section>
           {pilot.reporting_auth === 'login_required' &&
-            <Connections connections={pilot.connections || []} reload={setup.retry} />}
+            <SessionConnections connections={pilot.connections || []} reload={setup.retry}
+              path={connectionsPath} tokenVariable="TASKBOARD_PERSONAL_CODEX_TOKEN"
+              expiration="Each session needs its own connection. Connections expire after eight hours." />}
         </>
       )}
     </section>

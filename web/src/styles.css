@@ -1108,3 +1108,6 @@ button:disabled { opacity: .57; }
 .schedule-editor form { margin-top: .4rem; }
 .schedule-editor fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: .65rem; padding: 0; margin: 0 0 .6rem; border: 0; }
 .schedule-panel label { display: grid; gap: .2rem; }
+
+.integration-workflow { display: block; max-inline-size: 100%; margin-block: .4rem .55rem; }
+.integration-guide-link { margin-block-start: .65rem; }

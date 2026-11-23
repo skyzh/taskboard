@@ -172,7 +172,7 @@ export function signInHref(hash) {
   const goalActivityLink = /^#reports\?view=goal-activity&project=[A-Z][A-Z0-9]{0,7}(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})?$/.test(hash)
   const reportsLink = /^#reports(?:-all(?:\?view=(?:active|all|idle))?|\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&view=(?:active|all|idle))?|view=(?:active|all|idle)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/.test(hash)
   const returnToBoard = taskLink || statsLink || activityLink || goalActivityLink || reportsLink
-    || /^#(?:notifications(?:-needs-me)?|settings|about|personal-codex)$/.test(hash)
+    || /^#(?:notifications(?:-needs-me)?|settings|about|personal-codex|integrations)$/.test(hash)
     || (hash.startsWith('#') && notificationLogFilters(hash.slice(1)))
   return returnToBoard ? `${login}?fragment=${encodeURIComponent(taskLink ? anchor : hash)}` : login
 }

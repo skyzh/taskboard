@@ -5,11 +5,12 @@ import About from './About.jsx'
 import BoardViews from './BoardViews.jsx'
 import AssigneePage from './AssigneePage.jsx'
 import GoalActivity, { goalActivityFragment } from './GoalActivity.jsx'
+import Integrations from './Integrations.jsx'
 import Notifications from './Notifications.jsx'
 import MyActivity from './MyActivity.jsx'
 import { ReportTime } from './ReportTime.jsx'
 import { Outcomes, Overview } from './Overview.jsx'
-import PersonalCodex, { personalCodexStatus } from './PersonalCodex.jsx'
+import PersonalCodex from './PersonalCodex.jsx'
 import Profile from './Profile.jsx'
 import Reports, { ReportsHeading } from './Reports.jsx'
 import Schedules from './Schedules.jsx'
@@ -204,6 +205,7 @@ export default function App() {
   else if (search) view = 'search'
   else if (!fragment || taskAnchor === 'reports' || allReports) view = 'reports'
   else if (fragment === 'settings') view = 'settings'
+  else if (fragment === 'integrations') view = 'integrations'
   else if (fragment === 'personal-codex') view = 'personal-codex'
   else if (fragment === 'about') view = 'about'
   else if (params.has('schedules')) view = 'schedules'
@@ -245,11 +247,8 @@ export default function App() {
       : null,
     revision,
   )
-  const codexSetup = useResource(
-    session.data?.actor?.kind === 'human' && ['reports', 'personal-codex'].includes(view) ? personalCodexStatus : null,
-  )
-  const personalCodexLink = codexSetup.data && !codexSetup.error
-    ? <a href="#personal-codex">Personal Codex</a> : null
+  const personalAgentsLink = session.data?.actor?.kind === 'human'
+    ? <a href="#integrations">Personal Agents</a> : null
   const showAllReports = view === 'reports' && hasProjectChoices && allReports
   const reportsPending = Boolean((allReports || requestedReportsProject) && !visibleProjects &&
     (sessionResource.pending || (hasSession && !projectList.error)))
@@ -340,7 +339,7 @@ export default function App() {
               : <Reports revision={revision} project={project} assigneeView={assigneeView}
                 onAssigneeViewChange={value => writeFilterFragment(reportFragment(allReports ? 'all' : project, value), false)}
                 projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null}
-                headerAction={personalCodexLink} />)}
+                headerAction={personalAgentsLink} />)}
           {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject}
             projects={visibleProjects} />}
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}
@@ -348,8 +347,9 @@ export default function App() {
             project={visibleProjects?.some(item => item.prefix === project) ? project : visibleProjects?.[0]?.prefix || 'T'}
             projects={visibleProjects} revision={revision} />}
           {view === 'about' && <About revision={revision} />}
+          {view === 'integrations' && <Integrations key={session.data?.actor?.id} session={session} />}
           {view === 'personal-codex' && <PersonalCodex key={session.data?.actor?.id} session={session}
-            setup={codexSetup} reportsHref={reportsHref} />}
+            reportsHref={reportsHref} />}
           {view === 'search' && <SearchResults query={search} revision={revision} />}
           {view === 'assignee' && <AssigneePage key={`${project}:${owner}`} owner={owner} section={params.get('section')} revision={revision} project={project}
             reportsHref={reportsHref} canEditGoal={verified && session.data.actor.id === owner}
