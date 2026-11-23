@@ -275,7 +275,7 @@ function ProjectLinks({ project, revision }) {
 
 const attentionLabels = { decision: 'Decision', request: 'Request', review: 'Review' }
 
-function NeedsYou({ project, revision }) {
+export function NeedsYou({ project, revision }) {
   const page = useLoadedPages('/notifications/needs-you', project ? { project } : { scope: 'all' }, revision, { limit: 2 })
   const items = page.data?.items
   const error = page.error && page.error.status !== 404

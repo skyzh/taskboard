@@ -143,6 +143,38 @@ test('an assignee returns to the current Reports scope', () => {
   }
 })
 
+test('Needs you reads only the selected project on the signed-in human’s own report', () => {
+  const owner = 'raft:human:sample'
+  const project = 'COURSE'
+  const props = { owner, project, revision: 3 }
+  const path = queryPath('/assignee', { owner, project })
+  const attentionPath = '/notifications/needs-you'
+  fixture.resources[path] = { data: { profile: { id: owner, name: 'Sam' }, pending_reports: [], has_outcomes: false } }
+  const scopes = []
+  fixture.pages[attentionPath] = filters => {
+    scopes.push(filters)
+    return { data: { items: [{ id: 'decision:1', ticket: 'COURSE-1', title: 'Choose a date', kind: 'decision' }] } }
+  }
+  const render = viewer => renderToStaticMarkup(React.createElement(AssigneePage, { ...props, viewer }))
+
+  try {
+    const otherHuman = { id: 'raft:human:other', name: 'Sam', kind: 'human' }
+    const ownAgent = { id: owner, name: 'Sam', kind: 'agent' }
+    for (const viewer of [null, otherHuman, ownAgent]) {
+      assert.doesNotMatch(render(viewer), /Needs you|Choose a date/)
+    }
+    assert.deepEqual(scopes, [])
+
+    const ownReport = render({ id: owner, name: 'Sam', kind: 'human' })
+    assert.match(ownReport, /Needs you/)
+    assert.match(ownReport, /href="#task-COURSE-1".*Choose a date/)
+    assert.deepEqual(scopes, [{ project }])
+  } finally {
+    delete fixture.resources[path]
+    delete fixture.pages[attentionPath]
+  }
+})
+
 test('task reminders show the selected local time and reopen the exact instant in the board time zone', () => {
   const context = { defer_at: '2030-04-01T12:30:00-07:00', defer_until: '2030-04-01T19:30:00Z' }
   const task = { id: 1, title: 'Resume the export', state: 'parked', dri: 'Avery', context }

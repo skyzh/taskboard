@@ -339,7 +339,8 @@ export default function App() {
           {view === 'about' && <About revision={revision} />}
           {view === 'search' && <SearchResults query={search} revision={revision} />}
           {view === 'assignee' && <AssigneePage key={`${project}:${owner}`} owner={owner} section={params.get('section')} revision={revision} project={project}
-            reportsHref={reportsHref} canEditGoal={verified && session.data.actor.id === owner} />}
+            reportsHref={reportsHref} canEditGoal={verified && session.data.actor.id === owner}
+            viewer={verified ? session.data.actor : null} />}
           {view === 'notifications' && <Notifications session={session} verified={verified} revision={revision}
             onChanged={refresh} fragment={fragment} project={project} projects={visibleProjects} />}
           {view === 'activity' && <WorkLog requested={linkedEvent} revision={revision} ownerProfiles={overview.data?.owner_profiles}

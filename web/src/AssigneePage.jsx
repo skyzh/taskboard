@@ -1,7 +1,7 @@
 import React from 'react'
 import { queryPath, useLoadedPages, useResource } from './data.js'
 import { Outcomes } from './Overview.jsx'
-import { OwnerWorkLinks, PendingReports, ownerWorkSections } from './Reports.jsx'
+import { NeedsYou, OwnerWorkLinks, PendingReports, ownerWorkSections } from './Reports.jsx'
 import { AssigneeAvatar, DriWorkStatus, LoadMore, ResourceStatus, ownerHref, profileName } from './shared.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import DriWorkers from './DriWorkers.jsx'
@@ -22,7 +22,7 @@ function OwnerWork({ owner, state, id, title, label, revision, project }) {
   )
 }
 
-export default function AssigneePage({ owner, section, revision, project, reportsHref = '#reports', canEditGoal }) {
+export default function AssigneePage({ owner, section, revision, project, reportsHref = '#reports', canEditGoal, viewer }) {
   const resource = useResource(queryPath('/assignee', { owner, project }), revision)
   const entry = resource.data
   if (!entry) return <ResourceStatus resource={resource} label="assignee profile" />
@@ -57,6 +57,7 @@ export default function AssigneePage({ owner, section, revision, project, report
           )}
         </div>
       </header>
+      {viewer?.kind === 'human' && viewer.id === owner && <NeedsYou project={project} revision={revision} />}
       {(showStandingGoal || showMilestones || entry.goal || hasWork || entry.has_outcomes || reports.length > 0) && (
         <nav className="owner-links profile-index" aria-label={`${name}’s work sections`}>
           {showStandingGoal && <a href={ownerHref(owner, 'dri-standing-goal-title', project)}>Standing goal</a>}
