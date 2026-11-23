@@ -39,6 +39,7 @@ let Stats
 let QueuedAsks
 let MyActivity
 let Knowledge
+let RecordHistory
 before(async () => {
   const result = await build({
     stdin: {
@@ -63,6 +64,7 @@ before(async () => {
         export { default as QueuedAsks } from './QueuedAsks.jsx'
         export { default as MyActivity } from './MyActivity.jsx'
         export { default as Knowledge } from './Knowledge.jsx'
+        export { default as RecordHistory } from './RecordHistory.jsx'
       `,
       resolveDir: fileURLToPath(new URL('.', import.meta.url)),
     },
@@ -126,6 +128,7 @@ before(async () => {
     ReminderDate, PendingReports, Reports, AssigneePage, EventRow, OutcomeRow, Outcomes,
     TimeZoneContext, createTimeZoneFormatters,
     Notifications, GoalActivity, DriGoal, DriMilestones, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity, Knowledge,
+    RecordHistory,
   } = module.exports)
 })
 
@@ -146,6 +149,28 @@ test('Knowledge areas show configured project names and preserve their index lin
     assert.match(view, /href="#knowledge\?entry=SRE-17">Access<\/a>/)
   } finally {
     delete fixture.resources[path]
+  }
+})
+
+test('history anchors the previous version and offers a return to the same record', () => {
+  const props = { record: 'T-12', currentHref: '#knowledge?entry=T-12', knowledge: true }
+  const event = { id: 54, label: 'Details updated', at: '2026-11-23T19:25:00Z', actor: 'Sam' }
+  fixture.pages['/tasks/T-12/activity'] = { data: { items: [event] } }
+  fixture.resources['/tasks/T-12/history/54'] = { data: {
+    title: 'An earlier decision', brief: 'Use the earlier rule.', state: 'done', note: 'Work only', event,
+  } }
+  try {
+    const timeline = renderToStaticMarkup(React.createElement(RecordHistory, { ...props, history: 'all' }))
+    assert.match(timeline, /href="#knowledge\?entry=T-12&amp;history=54">Details updated/)
+    const version = renderToStaticMarkup(React.createElement(RecordHistory, { ...props, history: '54' }))
+    assert.match(version, /href="#knowledge\?entry=T-12">Back to current version/)
+    assert.match(version, /<h2>An earlier decision<\/h2>/)
+    assert.match(version, /Use the earlier rule/)
+    assert.match(version, /href="#event-54-log"/)
+    assert.doesNotMatch(version, /class="status|Work only|<form/)
+  } finally {
+    delete fixture.pages['/tasks/T-12/activity']
+    delete fixture.resources['/tasks/T-12/history/54']
   }
 })
 

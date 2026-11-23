@@ -634,6 +634,8 @@ button:disabled { opacity: .57; }
 }
 .ticket-heading-meta:has(.ticket-actions-toggle) .back-link { margin: 0; }
 .ticket-actions-toggle { min-height: 2.75rem; margin-inline-start: auto; }
+.history-link { display: inline-flex; min-height: 2.75rem; align-items: center; margin-inline-start: .65rem; }
+.record-history .context-list { margin-top: .65rem; }
 .task-detail h1 { margin: .38rem 0 .25rem; font-size: clamp(1.45rem, 3vw, 2.15rem); letter-spacing: -.035em; }
 .detail-owner { color: var(--muted); font-size: .88rem; }
 .ticket-primary-identity { display: grid; gap: .25rem; margin-block: .4rem .7rem; }

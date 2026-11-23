@@ -354,7 +354,7 @@ export default function App() {
           {view === 'integrations' && <Integrations session={session}
             challenge={new URLSearchParams(taskContext).get('cli')} />}
           {view === 'knowledge' && <Knowledge session={session} verified={verified} revision={revision} projects={visibleProjects}
-            search={knowledgeFilters.get('q') || ''} entry={knowledgeFilters.get('entry')}
+            search={knowledgeFilters.get('q') || ''} entry={knowledgeFilters.get('entry')} history={knowledgeFilters.get('history')}
             onSearch={value => writeFilterFragment(value ? `knowledge?${new URLSearchParams({ q: value })}` : 'knowledge', false)} />}
           {view === 'personal-codex' && <PersonalCodex key={session.data?.actor?.id} session={session}
             reportsHref={reportsHref} />}
@@ -383,7 +383,7 @@ export default function App() {
           )}
           {view === 'task' && <TaskDetail key={selected} id={selected} revision={revision} session={session}
             preferredProject={preferredProject} returnHref={fromList ? listReturn.current.board : undefined}
-            fromSearch={fromSearch} onChanged={refresh} />}
+            fromSearch={fromSearch} history={new URLSearchParams(taskContext).get('history')} onChanged={refresh} />}
           {view === 'team-overview' && (
             <>
               <div className="page-heading"><h1 id="team-overview">Team overview</h1></div>
