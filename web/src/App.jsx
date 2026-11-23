@@ -233,7 +233,7 @@ export default function App() {
   }, [project])
   const linkedOwner = view === 'board' && params.get('section') === 'queue-heading' && params.get('owner')
   const linkedQueue = linkedOwner ? fragment : null
-  const fromList = view === 'task' && listReturn.current?.ticket === `#${fragment}`
+  const fromList = view === 'task' && listReturn.current?.ticket === `#${taskAnchor}`
   // Apply a new queue link before the work list loads with the previous filters.
   if (appliedQueueLink !== linkedQueue) {
     setAppliedQueueLink(linkedQueue)
