@@ -39,6 +39,7 @@ from tasks_wake_subscriptions import OWNED_READY, has_subscription
 
 
 SERVER = str(UUID(int=17))
+INSTALLATION = str(UUID(int=18))
 ORIGIN = "https://tasks.example.test"
 BASE = "/tasks"
 CLIENT = "fixture-tasks"
@@ -92,6 +93,51 @@ class FixtureRaft:
         return 401, {"error": "invalid_token"}
 
 
+class FixtureRaftInstallation(FixtureRaft):
+    def __init__(self):
+        super().__init__()
+        self.roles = {person["sub"]: "member" for person in self.people.values() if person["type"] == "human"}
+        self.installation = INSTALLATION
+        self.serial = 0
+        self.role_checks = []
+        self.refuse_roles = False
+        self.role_unavailable = False
+        self.group_granted = True
+        self.human_token_expired = False
+
+    def __call__(self, upstream):
+        path = urlsplit(upstream.full_url).path
+        authorization = upstream.get_header("Authorization")
+        if path == "/api/oauth/userinfo" and self.human_token_expired and authorization == "Bearer fixture-Sam":
+            return 401, {"error": "invalid_token"}
+        if path in ("/api/oauth/installations/lookup", "/api/oauth/installation-token"):
+            if authorization != "Basic " + b64encode(f"{CLIENT}:synthetic-fixture-only".encode()).decode():
+                return 401, {}
+            fields = json.loads(upstream.data)
+            if path == "/api/oauth/installations/lookup":
+                if fields != {"server_id": SERVER} or self.installation is None:
+                    return 404, {"code": "installation_not_found"}
+                return 200, {"server_id": SERVER, "installation_id": self.installation}
+            if not self.group_granted or fields != {"installation_id": self.installation, "groups": ["server"]}:
+                return 400, {}
+            self.serial += 1
+            return 200, {"access_token": f"fixture-installation-{self.serial}", "expires_in": 600,
+                         "token_type": "Bearer", "server_id": SERVER, "installation_id": self.installation,
+                         "groups": ["server"]}
+        prefix, suffix = "/api/app-installation/members/", "/role"
+        if path.startswith(prefix) and path.endswith(suffix):
+            subject = path[len(prefix):-len(suffix)]
+            if self.role_unavailable:
+                return 503, {}
+            if (self.installation is None or self.refuse_roles
+                    or authorization != f"Bearer fixture-installation-{self.serial}"):
+                return 401, {}
+            role = self.roles.get(subject)
+            self.role_checks.append((subject, role))
+            return 200, {"role": role}
+        return super().__call__(upstream)
+
+
 class TasksServiceTest(unittest.TestCase):
     def setUp(self):
         folder = TemporaryDirectory()
@@ -99,7 +145,8 @@ class TasksServiceTest(unittest.TestCase):
         self.database = Path(folder.name) / "development.sqlite3"
         self.provider = FixtureRaft()
 
-    def app(self, github=None, session_dir=None, api_origin="https://raft.example.test", **kwargs):
+    def app(self, github=None, session_dir=None, api_origin="https://raft.example.test",
+            human_session_installation_id=None, **kwargs):
         return create_app(
             self.database, public_url=ORIGIN + BASE, github_reader=github,
             portal_upstream_token=PORTAL_FIXTURE,
@@ -108,6 +155,7 @@ class TasksServiceTest(unittest.TestCase):
                 "server_id": SERVER, "client_id": CLIENT,
                 "client_secret": "synthetic-fixture-only", "transport": self.provider,
                 "session_dir": session_dir,
+                "human_session_installation_id": human_session_installation_id,
             },
             **kwargs,
         )
@@ -2530,6 +2578,141 @@ class TasksServiceTest(unittest.TestCase):
         self.call(restarted_human, "/auth/logout", method="POST", headers={"Origin": ORIGIN}, status=204)
         self.assertEqual(self.call(human, "/api/v1/session").json["actor"]["kind"], "portal")
         self.assertEqual(self.action(agent, "context")["actor"]["id"], agent_id)
+
+    def test_human_day_session_rechecks_consent_and_ledger_rights_after_raft_token_expires(self):
+        self.provider = FixtureRaftInstallation()
+        options = {
+            "session_dir": self.database.parent / "private-sessions",
+            "human_session_installation_id": INSTALLATION,
+            "portal_reader": True,
+        }
+        with patch("raft_auth.time") as clock:
+            clock.return_value = 2_000_000_000
+            app = self.app(**options)
+            avery, avery_id = self.login(app, "Avery")
+            human, human_id = self.login(app, "Sam")
+            self.cli("register-project", "T", "Tasks Board", "--dri", human_id)
+            cookie = human.get_cookie("raft_board_session", domain=urlsplit(ORIGIN).hostname, path=BASE + "/")
+            self.assertEqual(cookie.max_age, 86400)
+            self.assertEqual(avery.get_cookie(
+                "raft_board_session", domain=urlsplit(ORIGIN).hostname, path=BASE + "/",
+            ).max_age, 1800)
+            self.assertEqual(self.action(avery, "context")["actor"]["id"], avery_id)
+
+            self.provider.human_token_expired = True
+            sam = self.provider.people["Sam"]["sub"]
+            clock.return_value += 3601
+            self.action(avery, "context", status=401)
+            guidance = "/api/v1/projects/T/field-guidance"
+            self.provider.roles[sam] = "owner"
+            self.call(human, guidance)
+            self.provider.roles[sam] = "guest"
+            self.call(human, guidance, method="PUT", json={"field": "title", "guidance": "Write a clear title."})
+            self.assertEqual(self.provider.role_checks[-1], (sam, "guest"))
+            outsider, _ = self.login(app, "Quinn")
+            self.provider.roles[self.provider.people["Quinn"]["sub"]] = "owner"
+            self.call(outsider, guidance, method="PUT", json={"field": "title", "guidance": "Replace it."}, status=403)
+            restarted = self.app(**options).test_client()
+            restarted.set_cookie(cookie.key, cookie.value, domain=cookie.domain, path=cookie.path)
+            self.assertEqual(self.call(restarted, "/api/v1/session").json["actor"]["id"], human_id)
+            self.assertEqual(self.call(restarted, "/api/v1/session").json["actor"]["name"], "Sam")
+            with closing(sqlite3.connect(options["session_dir"] / "raft-human-day-sessions.sqlite3")) as db:
+                self.assertEqual(db.execute("SELECT DISTINCT token FROM sessions").fetchall(), [("",)])
+
+            self.provider.role_unavailable = True
+            self.call(restarted, guidance, status=401)
+            self.provider.role_unavailable = False
+            self.call(restarted, guidance)
+            self.provider.roles[sam] = None
+            self.call(restarted, guidance, status=401)
+            self.provider.roles[sam] = "member"
+            self.call(human, guidance, method="PUT", json={"field": "title", "guidance": "Replace it."}, status=401)
+
+    def test_human_day_cookie_expires_and_logout_invalidates_replayed_cookie(self):
+        self.provider = FixtureRaftInstallation()
+        options = {
+            "session_dir": self.database.parent / "private-sessions",
+            "human_session_installation_id": INSTALLATION,
+            "portal_reader": True,
+        }
+        with patch("raft_auth.time") as clock:
+            issued = clock.return_value = 2_000_000_000
+            app = self.app(**options)
+            human, human_id = self.login(app, "Sam")
+            signed_out, _ = self.login(app, "Quinn")
+            cookie = signed_out.get_cookie("raft_board_session", domain=urlsplit(ORIGIN).hostname, path=BASE + "/")
+            self.call(signed_out, "/auth/logout", method="POST", headers={"Origin": ORIGIN}, status=204)
+            signed_out.set_cookie(cookie.key, cookie.value, domain=cookie.domain, path=cookie.path)
+            self.assertEqual(self.call(signed_out, "/api/v1/session").json["actor"]["kind"], "portal")
+            clock.return_value = issued + 86399
+            self.assertEqual(self.call(human, "/api/v1/session").json["actor"]["id"], human_id)
+            checks = len(self.provider.role_checks)
+            clock.return_value = issued + 86400
+            self.assertEqual(self.call(human, "/api/v1/session").json["actor"]["kind"], "portal")
+            self.assertEqual(len(self.provider.role_checks), checks)
+
+    def test_human_day_session_renews_installation_token_once_and_fails_closed(self):
+        self.provider = FixtureRaftInstallation()
+        app = self.app(portal_reader=True, session_dir=self.database.parent / "private-sessions",
+                       human_session_installation_id=INSTALLATION)
+        human, human_id = self.login(app, "Sam")
+        initial_serial = self.provider.serial
+        self.provider.serial += 1
+        self.assertEqual(self.call(human, "/api/v1/session").json["actor"]["id"], human_id)
+        self.assertEqual(self.provider.serial, initial_serial + 2)
+        self.provider.refuse_roles = True
+        self.assertEqual(self.call(human, "/api/v1/session").json["actor"]["kind"], "portal")
+        self.assertEqual(self.provider.serial, initial_serial + 3)
+        self.provider.refuse_roles = False
+        self.assertEqual(self.call(human, "/api/v1/session").json["actor"]["kind"], "portal")
+
+        another, _ = self.login(app, "Quinn")
+        self.provider.installation = None
+        self.assertEqual(self.call(another, "/api/v1/session").json["actor"]["kind"], "portal")
+        self.provider.installation = INSTALLATION
+        self.assertEqual(self.call(another, "/api/v1/session").json["actor"]["kind"], "portal")
+
+    def test_human_day_login_rejects_missing_grant_and_different_installation(self):
+        self.provider = FixtureRaftInstallation()
+        app = self.app(portal_reader=True, session_dir=self.database.parent / "private-sessions",
+                       human_session_installation_id=INSTALLATION)
+        for name, installation, group_granted in (("Sam", INSTALLATION, False), ("Quinn", SERVER, True)):
+            with self.subTest(name=name):
+                self.provider.installation = installation
+                self.provider.group_granted = group_granted
+                browser = app.test_client()
+                started = self.call(browser, "/auth/login", status=302)
+                state = parse_qs(urlsplit(started.location).query)["state"][0]
+                self.call(browser, "/auth/callback", query_string={"code": name, "state": state}, status=403)
+                self.assertIsNone(browser.get_cookie(
+                    "raft_board_session", domain=urlsplit(ORIGIN).hostname, path=BASE + "/",
+                ))
+        agent, actor = self.login(app, "Avery")
+        self.assertEqual(self.action(agent, "context")["actor"]["id"], actor)
+
+    def test_human_day_rollout_keeps_existing_sessions_and_pins_only_new_human_cookies(self):
+        self.provider = FixtureRaftInstallation()
+        private = self.database.parent / "private-sessions"
+        one_hour = self.app(portal_reader=True, session_dir=private)
+        previous, previous_id = self.login(one_hour, "Sam")
+        agent, agent_id = self.login(one_hour, "Avery")
+        enabled = self.app(portal_reader=True, session_dir=private, human_session_installation_id=INSTALLATION)
+        extended, extended_id = self.login(enabled, "Quinn")
+
+        def use_cookie(app, browser):
+            cookie = browser.get_cookie("raft_board_session", domain=urlsplit(ORIGIN).hostname, path=BASE + "/")
+            target = app.test_client()
+            target.set_cookie(cookie.key, cookie.value, domain=cookie.domain, path=cookie.path)
+            return target
+
+        self.assertEqual(self.call(use_cookie(enabled, previous), "/api/v1/session").json["actor"]["id"], previous_id)
+        self.assertEqual(self.action(use_cookie(enabled, agent), "context")["actor"]["id"], agent_id)
+        changed_installation = self.app(portal_reader=True, session_dir=private, human_session_installation_id=SERVER)
+        self.assertEqual(self.call(use_cookie(enabled, extended), "/api/v1/session").json["actor"]["id"], extended_id)
+        self.assertEqual(self.call(use_cookie(changed_installation, extended),
+                                   "/api/v1/session").json["actor"]["kind"], "portal")
+        self.assertEqual(self.call(use_cookie(one_hour, extended), "/api/v1/session").json["actor"]["kind"], "portal")
+        self.assertEqual(self.action(use_cookie(one_hour, agent), "context")["actor"]["id"], agent_id)
 
     def test_shared_wait_filter_accepts_verified_names_and_exact_named_dependencies(self):
         app = self.app(portal_reader=True)

@@ -28,7 +28,9 @@ _PENDING_COOKIE = "raft_board_login"
 _SESSION_COOKIE = "raft_board_session"
 _PENDING_TTL = 300
 _HUMAN_SESSION_TTL = 3600
+_HUMAN_DAY_TTL = 86400
 _AGENT_SESSION_TTL = 1800
+_RAFT_ROLES = ("owner", "admin", "member", "guest")
 _SCOPES = frozenset({"openid", "profile"})
 _BEARER = re.compile(r"[A-Za-z0-9._~+/-]+=*")
 BOARD_FRAGMENT = re.compile(
@@ -158,7 +160,8 @@ class RaftAuth:
     def __init__(self, app: Flask, *, api_origin: str, public_origin: str, server_id: str | None,
                  client_id: str, client_secret: str,
                  transport: Callable[[Request], tuple[int, object]] | None = None, session_dir=None,
-                 on_verified_sign_in: Callable[[Identity], None] | None = None, marketplace: bool = False):
+                 on_verified_sign_in: Callable[[Identity], None] | None = None, marketplace: bool = False,
+                 human_session_installation_id: str | None = None):
         self._api_origin = _base_url(api_origin)
         self._public_base = _base_url(public_origin, allow_path=True)
         provider = urlsplit(self._api_origin)
@@ -169,6 +172,11 @@ class RaftAuth:
             raise ValueError("Marketplace Raft sign-in requires server_id=None")
         if (not marketplace and not server_id) or not client_id or not client_secret:
             raise ValueError("Raft Server and app credentials are required")
+        if human_session_installation_id is not None and (
+            marketplace or not session_dir or not _canonical_uuid(server_id)
+            or not _canonical_uuid(human_session_installation_id)
+        ):
+            raise ValueError("24-hour Raft sign-in requires a fixed Server, installation ID and private session directory.")
         self._public_origin = f"{public.scheme}://{public.netloc}"
         self._callback_url = f"{self._public_base}/auth/callback"
         self._session_path = f"{public.path}/"
@@ -185,6 +193,16 @@ class RaftAuth:
         self._sessions = (
             DurableSessions(session_dir, audience, marketplace=marketplace) if session_dir else MemorySessions()
         )
+        self._human_installation_id = human_session_installation_id
+        self._human_sessions = (
+            DurableSessions(
+                session_dir, json.dumps([audience, human_session_installation_id]),
+                filename="raft-human-day-sessions.sqlite3",
+            )
+            if human_session_installation_id else None
+        )
+        self._installation_token = None
+        self._installation_lock = Lock()
         self._session_time = (lambda: time()) if session_dir else (lambda: monotonic())
         app.add_url_rule("/auth/login", "raft_login", self._login, methods=["GET"])
         app.add_url_rule("/auth/callback", "raft_callback", self._callback, methods=["GET"])
@@ -252,6 +270,64 @@ class RaftAuth:
         return Identity(server_id, subject, kind, _text(document.get("preferred_username")),
                         _text(document.get("name")), _text(document.get("picture")),
                         _text(document.get("description")))
+
+    def _installation_bearer(self, rejected: str | None = None) -> str:
+        with self._installation_lock:
+            now = monotonic()
+            if self._installation_token:
+                token, expires = self._installation_token
+                if token != rejected and expires > now:
+                    return token
+            self._installation_token = None
+            status, document = self._provider(
+                "/api/oauth/installations/lookup", self._basic_auth, {"server_id": self._server_id}
+            )
+            if status in (400, 401, 403, 404):
+                raise _Rejected(_Failure.IDENTITY)
+            if status != 200 or not isinstance(document, dict):
+                raise _Rejected(_Failure.PROVIDER)
+            if (document.get("server_id"), document.get("installation_id")) != (
+                self._server_id, self._human_installation_id
+            ):
+                raise _Rejected(_Failure.IDENTITY)
+            status, document = self._provider("/api/oauth/installation-token", self._basic_auth, {
+                "installation_id": self._human_installation_id, "groups": ["server"],
+            })
+            if status in (400, 401, 403, 404):
+                raise _Rejected(_Failure.IDENTITY)
+            if status != 200 or not isinstance(document, dict):
+                raise _Rejected(_Failure.PROVIDER)
+            if (document.get("server_id"), document.get("installation_id"), document.get("groups")) != (
+                self._server_id, self._human_installation_id, ["server"]
+            ):
+                raise _Rejected(_Failure.IDENTITY)
+            token, lifetime = document.get("access_token"), document.get("expires_in")
+            token_type = document.get("token_type")
+            if (
+                not isinstance(token, str) or not _BEARER.fullmatch(token)
+                or not isinstance(token_type, str) or token_type.lower() != "bearer"
+                or type(lifetime) is not int or lifetime <= 0
+            ):
+                raise _Rejected(_Failure.PROVIDER)
+            self._installation_token = token, now + min(lifetime, 600)
+            return token
+
+    def _require_current_human_access(self, subject: str) -> None:
+        path = f"/api/app-installation/members/{subject}/role"
+        bearer = self._installation_bearer()
+        status, document = self._provider(path, f"Bearer {bearer}")
+        if status == 401:
+            bearer = self._installation_bearer(rejected=bearer)
+            status, document = self._provider(path, f"Bearer {bearer}")
+        if status in (401, 403):
+            raise _Rejected(_Failure.IDENTITY)
+        if status != 200 or not isinstance(document, dict) or "role" not in document:
+            raise _Rejected(_Failure.PROVIDER)
+        role = document["role"]
+        if role is None:
+            raise _Rejected(_Failure.IDENTITY)
+        if role not in _RAFT_ROLES:
+            raise _Rejected(_Failure.PROVIDER)
 
     def profile_photo_url(self, picture: str | None) -> str | None:
         if not picture or any(character.isspace() or ord(character) < 32 for character in picture):
@@ -361,22 +437,32 @@ class RaftAuth:
         identity = self._userinfo(token)
         if pending is None and identity.kind != "agent":
             raise _Rejected(_Failure.STATE)
+        human_day = identity.kind == "human" and self._human_sessions is not None
         maximum = _HUMAN_SESSION_TTL if identity.kind == "human" else _AGENT_SESSION_TTL
-        expires = issued_at + min(lifetime, maximum)
-        if self._server_id is None and self._on_verified_sign_in is not None:
+        expires = issued_at + (_HUMAN_DAY_TTL if human_day else min(lifetime, maximum))
+        if human_day:
+            self._require_current_human_access(identity.subject)
+        if (self._server_id is None or human_day) and self._on_verified_sign_in is not None:
             self._on_verified_sign_in(identity)
         response = redirect(f"{self._public_base}/{pending.fragment}") if pending else make_response("", 200)
         session_key = token_urlsafe(32)
         session_server = identity.server_id if self._server_id is None else None
-        session = Session(token, expires, identity.subject, identity.kind, session_server)
+        session = Session("" if human_day else token, expires, identity.subject, identity.kind, session_server)
+        old_key = request.cookies.get(_SESSION_COOKIE)
         with self._lock:
             now = self._session_time()
             if expires <= now:
                 raise _Rejected(_Failure.CODE)
             age = ceil(expires - now)
             self._prune(monotonic())
-            self._sessions.replace(request.cookies.get(_SESSION_COOKIE), session_key, session, now)
-        if self._server_id is not None and self._on_verified_sign_in is not None:
+            if human_day:
+                self._human_sessions.replace(old_key, session_key, session, now)
+                self._sessions.discard(old_key)
+            else:
+                self._sessions.replace(old_key, session_key, session, now)
+                if self._human_sessions is not None:
+                    self._human_sessions.discard(old_key)
+        if not human_day and self._server_id is not None and self._on_verified_sign_in is not None:
             self._on_verified_sign_in(identity)
         self._cookie(response, _SESSION_COOKIE, session_key, age, self._session_path)
         return response
@@ -386,7 +472,10 @@ class RaftAuth:
         if origin is not None and origin != self._public_origin:
             return self._error(_Failure.ORIGIN)
         with self._lock:
-            self._sessions.discard(request.cookies.get(_SESSION_COOKIE))
+            key = request.cookies.get(_SESSION_COOKIE)
+            self._sessions.discard(key)
+            if self._human_sessions is not None:
+                self._human_sessions.discard(key)
             self._pending.pop(request.cookies.get(_PENDING_COOKIE), None)
         response = make_response("", 204)
         self._cookie(response, _SESSION_COOKIE, "", 0, self._session_path)
@@ -402,17 +491,29 @@ class RaftAuth:
     def identity_temporarily_unavailable(self) -> bool:
         return g.get("_raft_board_identity_temporarily_unavailable", False)
 
+    def identity_uses_saved_profile(self) -> bool:
+        return g.get("_raft_board_identity_uses_saved_profile", False)
+
     def _live_identity(self) -> Identity | None:
         key = request.cookies.get(_SESSION_COOKIE)
         if not key:
             return None
         with self._lock:
-            session = self._sessions.get(key, self._session_time())
+            now = self._session_time()
+            store = self._sessions
+            session = store.get(key, now)
+            if session is None and self._human_sessions is not None:
+                store = self._human_sessions
+                session = store.get(key, now)
             if session is None:
                 return None
         try:
-            identity = self._userinfo(session.token)
             server_id = self._server_id if self._server_id is not None else session.server_id
+            if store is self._human_sessions:
+                self._require_current_human_access(session.subject)
+                identity = Identity(server_id, session.subject, "human", None, None, None)
+            else:
+                identity = self._userinfo(session.token)
             if (identity.server_id, identity.subject, identity.kind) != (server_id, session.subject, session.kind):
                 raise _Rejected(_Failure.IDENTITY)
         except _Rejected as error:
@@ -422,9 +523,10 @@ class RaftAuth:
             # check to recover. Failed identity gates invalidate the session.
             if error.failure != _Failure.PROVIDER:
                 with self._lock:
-                    self._sessions.discard(key)
+                    store.discard(key)
             return None
         with self._lock:
-            if self._sessions.get(key, self._session_time()) == session:
+            if store.get(key, self._session_time()) == session:
+                g._raft_board_identity_uses_saved_profile = store is self._human_sessions
                 return identity
         return None

@@ -37,6 +37,7 @@ Register a Raft app for the board. For a mount at `/tasks`, register `/tasks/` a
 | `TASKS_RAFT_CLIENT_SECRET` | The app's secret from registration |
 | `TASKS_RAFT_API_ORIGIN` | Optional identity API origin. Defaults to `https://api.raft.build`. |
 | `TASKS_RAFT_SESSION_DIR` | Optional persistent session directory owned by the service account with mode `0700` |
+| `TASKS_RAFT_HUMAN_SESSION_INSTALLATION_ID` | Optional verified Raft app installation ID for 24-hour human browser sessions on a fixed-server Raft board. Requires a persistent session directory and the approved `server` permission group. |
 
 Keep the session directory stable across releases and outside the ledger and its backups. Without a session directory, sessions are stored in memory and expire on process restart. Verified users and agents can make attributed changes within the recorded ownership and assignment rules. With Raft configured, omit `--portal-reader` to require sign-in for shared reads.
 
@@ -46,6 +47,33 @@ not extend it. Taskboard checks Raft access on each authenticated request.
 Existing sessions keep their recorded expiry through an upgrade or rollback.
 New human logins on older releases use the previous 30-minute cap.
 Agent sessions keep their 30-minute cap. [Raft sign-in contract](https://docs.raft.build/developers/login-with-raft/)
+
+### Enable 24-hour human browser sessions
+
+Have a Raft Server admin save **Server** under the Taskboard app's
+**App permissions**. Before changing the board, use the existing app
+credentials to resolve the installation for `TASKS_RAFT_SERVER_ID`, issue
+an installation token scoped to `server`, and verify that the member-role
+endpoint returns a current role for the intended consenting human. Keep
+both credentials and responses on the serving host. Set
+`TASKS_RAFT_HUMAN_SESSION_INSTALLATION_ID` to the verified installation ID
+and restart the Taskboard service. This option applies to fixed-server Raft
+sign-in with durable sessions.
+
+A new human sign-in starts a fixed 24-hour Taskboard session. Each signed
+request checks live app access for the same person and installation,
+including writes and actions that check existing Taskboard permissions.
+Losing consent or Server membership ends that session. Taskboard refreshes
+the verified Raft profile at sign-in. Earlier human sessions use their
+original expiry, and agent sessions keep using Raft userinfo for up to
+30 minutes.
+
+To roll back, unset the installation ID and restart the service. The
+previous one-hour mode resumes and existing agent sessions still work.
+Before enabling the option again, move
+`raft-human-day-sessions.sqlite3` out of the session directory while the
+service is stopped so previously issued day-long cookies cannot return.
+The one-hour and agent session database is separate.
 
 Raft does not issue a refresh token for human sign-in. In an ordinary browser,
 new authorization requires a consent click even when you are already signed
