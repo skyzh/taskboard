@@ -22,6 +22,18 @@ def reply_json(text):
     return value if isinstance(value, dict) else {}
 
 
+def exact_person_id(people, value, kind):
+    name = value.removeprefix("@").casefold()
+    people = [person for person in people if person["kind"] == kind]
+    for field in ("id", "username", "name"):
+        matches = [person["id"] for person in people if person.get(field, "").casefold() == name]
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            break
+    raise ValueError(f"Choose one signed-in {kind} by exact handle or stable ID: {value}.")
+
+
 class SharedActionUnavailable(RuntimeError):
     """The registered app does not advertise this action."""
 
@@ -228,11 +240,4 @@ class SharedBoard:
             project, _ = projects.identifier(task)
             if project != projects.DEFAULT:
                 filters["project"] = project
-        people = [person for person in self.pages("assignees", filters) if person["kind"] == kind]
-        for field in ("id", "username", "name"):
-            matches = [person["id"] for person in people if person.get(field, "").casefold() == name.casefold()]
-            if len(matches) == 1:
-                return matches[0]
-            if matches:
-                break
-        raise ValueError(f"Choose one signed-in {kind} by exact handle or stable ID: {value}.")
+        return exact_person_id(self.pages("assignees", filters), value, kind)
