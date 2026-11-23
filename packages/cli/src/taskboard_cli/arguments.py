@@ -165,8 +165,11 @@ def arguments(argv=None):
                                  help="Show the parked task on this Pacific date.")
             revisit.add_argument("--until", dest="defer_until", metavar="DATETIME",
                                  help="Return the task to Ready at the given time with a UTC offset.")
-            command.add_argument("--review-on", type=nonblank, metavar="T-ID",
-                                 help="Prompt for review when this dependency changes. Requires --review-criteria.")
+            command.add_argument(
+                "--review-on", type=nonblank, metavar="T-ID",
+                help="Prompt after the dependency records completion, an accepted squash, or a feature deferral. "
+                     "Requires --review-criteria.",
+            )
             command.add_argument("--review-criteria", type=nonblank, metavar="TEXT",
                                  help="Describe when this ticket can return to Ready. Requires --review-on.")
             command.add_argument("--feature-deferred", action="store_true",
