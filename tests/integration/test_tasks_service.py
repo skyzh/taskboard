@@ -312,6 +312,116 @@ class TasksServiceTest(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 save({**pending, **override})
 
+    def test_project_wake_log_keeps_each_observation_and_scope_separate(self):
+        app = self.app(portal_reader=True)
+        avery, avery_key = self.login(app, "Avery")
+        blake, blake_key = self.login(app, "Blake")
+        manager, manager_key = self.login(app, "Sam")
+        other, other_key = self.login(app, "Quinn")
+        self.cli("register-project", "T", "Tasks Board", "--dri", manager_key)
+        self.cli("register-project", "COURSE", "Course", "--dri", other_key)
+        path = "/api/v1/notifications/log"
+        receipt_file = self.database.with_name("wake-fixture.json")
+        avery_subject = self.provider.people["Avery"]["sub"]
+        blake_subject = self.provider.people["Blake"]["sub"]
+
+        def add(reference, recipient=avery_key, project="T"):
+            self.cli("add", "Disposable wake", "--dri", recipient, "--step", "Check the evidence.", "--project", project)
+            with closing(sqlite3.connect(self.database)) as db:
+                event, at = db.execute("SELECT id, at FROM events ORDER BY id DESC LIMIT 1").fetchone()
+            return {"task": reference, "event": event, "at": at}
+
+        def receipt(source, recipient=avery_key, **observations):
+            return {"schema": "taskboard-wake/v1", "source": source, "recipient": recipient, "observations": observations}
+
+        def save(value):
+            receipt_file.write_text(json.dumps(value), encoding="utf-8")
+            return json.loads(self.cli("notification-event", str(receipt_file)))
+
+        def view(client, **filters):
+            return self.call(client, path, query_string=filters).get_json()
+
+        pending = add("T-1")
+        observed = add("T-2")
+        accepted = add("T-3")
+        suppressed = add("T-4", blake_key)
+        rejected = add("T-5", blake_key)
+        empty = add("T-6")
+        unavailable = add("T-7", blake_key)
+        cross_project = add("COURSE-1", project="COURSE")
+        receipt_ref = sha256(b"fictional Raft event").hexdigest()
+
+        def phase(source, status):
+            return {"status": status, "at": source["at"]}
+
+        for fixture in (
+            receipt(pending),
+            receipt(observed, acceptance=phase(observed, "accepted"), delivery=phase(observed, "delivered"),
+                    next_result=phase(observed, "offered"), receipt_ref=receipt_ref),
+            receipt(accepted, acceptance=phase(accepted, "accepted")),
+            receipt(suppressed, blake_key, acceptance=phase(suppressed, "accepted"),
+                    delivery=phase(suppressed, "suppressed")),
+            receipt(rejected, blake_key, acceptance=phase(rejected, "rejected")),
+            receipt(unavailable, blake_key, acceptance=phase(unavailable, "unknown")),
+            receipt(empty, acceptance=phase(empty, "accepted"), next_result=phase(empty, "no_work")),
+            receipt(cross_project),
+        ):
+            self.assertTrue(save(fixture)["changed"])
+
+        self.call(app.test_client(), path, query_string={"kind": "wake"}, status=401)
+        self.call(blake, path, query_string={"kind": "wake", "recipient": avery_subject}, status=403)
+        self.call(other, path, query_string={"project": "COURSE", "kind": "wake", "recipient": blake_subject}, status=404)
+        self.call(manager, path, query_string={"kind": "wake", "before": "wrong:wake"}, status=400)
+        visible = {item["task"]: item for item in view(manager, kind="wake")["items"]}
+        self.assertEqual(set(visible), {f"T-{number}" for number in range(1, 8)})
+        self.assertEqual(visible["T-3"]["acceptance"], "accepted")
+        for field in ("delivery", "delivery_at", "next_result", "next_at", "started_at"):
+            self.assertIsNone(visible["T-3"][field])
+        self.assertEqual(visible["T-4"]["delivery"], "suppressed")
+        self.assertEqual(visible["T-5"]["acceptance"], "rejected")
+        self.assertEqual(visible["T-6"]["next_result"], "no_work")
+        self.assertEqual(visible["T-7"]["acceptance"], "unknown")
+        self.assertEqual([row["task"] for row in view(manager, kind="wake", state="pending")["items"]], ["T-1"])
+        self.assertEqual([row["task"] for row in view(manager, kind="wake", recipient=blake_subject)["items"]],
+                         ["T-7", "T-5", "T-4"])
+        self.assertEqual([row["task"] for row in view(avery, kind="wake")["items"]], ["T-6", "T-3", "T-2", "T-1"])
+        self.assertEqual([row["task"] for row in view(other, project="COURSE", kind="wake")["items"]], ["COURSE-1"])
+        self.assertNotIn(avery_key, json.dumps(visible))
+
+        transition = {"transition": "start", "note": "Private fixture note"}
+        for client, reference in ((avery, "T-2"), (blake, "T-4"), (avery, "COURSE-1")):
+            self.action(client, "advance-task", {"id": reference, **transition})
+        with closing(sqlite3.connect(self.database)) as db:
+            starts = [row[0] for row in db.execute("SELECT id FROM events WHERE action = 'start' ORDER BY id")]
+        observed_item = next(row for row in view(avery, kind="wake")["items"] if row["task"] == "T-2")
+        self.assertIsNone(observed_item["started_at"])
+        for invalid in (
+            receipt(observed, provider_payload="private fixture content"),
+            receipt(observed, receipt_ref=str(UUID(int=140))),
+            receipt(observed, blake_key, start_event_id=starts[1]),
+            receipt(observed, start_event_id=starts[1]),  # Wrong actor.
+            receipt(observed, start_event_id=starts[2]),  # Wrong project.
+            receipt(empty, start_event_id=starts[0]),     # The queue was observed empty.
+        ):
+            with self.assertRaises(subprocess.CalledProcessError):
+                save(invalid)
+        self.assertTrue(save(receipt(observed, start_event_id=starts[0]))["changed"])
+        self.assertFalse(save(receipt(observed, start_event_id=starts[0]))["changed"])
+        row = next(row for row in view(avery, kind="wake")["items"] if row["task"] == "T-2")
+        self.assertEqual((row["start_event_id"], row["receipt_ref"]), (starts[0], receipt_ref))
+        self.assertIsNotNone(row["started_at"])
+        self.assertEqual(row["cue"], "T-2 became Ready for this agent.")
+        self.assertNotIn(transition["note"], json.dumps(row))
+
+        save({"schema": "taskboard-notification/v1", "kind": "ready", "source": observed,
+              "recipient": avery_key, "pending": False, "status_at": observed["at"], "observations": {}})
+        first = view(avery, limit=1, before=accepted["event"])
+        self.assertEqual([(row["task"], row["kind"]) for row in first["items"]], [("T-2", "wake")])
+        second = view(avery, limit=1, before=first["next_cursor"])
+        self.assertEqual([(row["task"], row["kind"]) for row in second["items"]], [("T-2", "ready")])
+        third = view(avery, limit=1, before=second["next_cursor"])
+        self.assertEqual([(row["task"], row["kind"]) for row in third["items"]], [("T-1", "wake")])
+
     def test_sender_commands_publish_scoped_pending_and_confirmed_notices(self):
         app = self.app(portal_reader=True)
         avery, avery_key = self.login(app, "Avery")
@@ -5157,7 +5267,7 @@ class TasksServiceTest(unittest.TestCase):
         app = self.app(portal_reader=True)
         for name, fragment in (
             ("Sam", "#notifications-needs-me"),
-            ("Quinn", "#notifications-log?project=COURSE&status=pending&kind=ready"
+            ("Quinn", "#notifications-log?project=COURSE&status=pending&kind=wake"
                       f"&agent={self.provider.people['Avery']['sub']}"),
         ):
             with self.subTest(fragment=fragment):

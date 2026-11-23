@@ -157,7 +157,7 @@ export function eventHref(id) {
 }
 
 export function notificationLogFilters(fragment) {
-  const match = /^notifications-log(?:\?project=([A-Z][A-Z0-9]{0,7})(?:&status=(pending|history))?(?:&kind=(ready|merge))?(?:&agent=([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}))?)?$/.exec(fragment)
+  const match = /^notifications-log(?:\?project=([A-Z][A-Z0-9]{0,7})(?:&status=(pending|history))?(?:&kind=(ready|merge|wake))?(?:&agent=([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}))?)?$/.exec(fragment)
   if (!match) return null
   const [, project, state = 'all', kind = '', agent = ''] = match
   return { project, state, kind, agent }

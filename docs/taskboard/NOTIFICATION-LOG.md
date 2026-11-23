@@ -1,6 +1,6 @@
 # Project notification log
 
-Open **Notifications → Project log** to see recorded Ready and merge notices linked to tickets in one project. Project managers can use **Agent** to select a recipient. Other signed-in users see their own entries. The project, status, notice kind, and agent selection are preserved in the URL and across pages. The empty message distinguishes a log with no recorded receipts in your scope from filters that match none.
+Open **Notifications → Project log** to see recorded Ready notices, merge notices, and wakes linked to tickets in one project. Project managers can use **Agent** to select a recipient. Other signed-in users see their own entries. The project, status, notice kind, and agent selection are preserved in the URL and across pages. The empty message distinguishes a log with no recorded receipts in your scope from filters that match none.
 
 ## Record from the sender
 
@@ -46,3 +46,29 @@ Use the command for the destination board's storage. An export contains one noti
 The receipt schema is `taskboard-notification/v1`. Its fields are `schema`, `kind` (`ready` or `merge`), `source` (the canonical `task`, integer `event`, and exact ledger timestamp `at`), `recipient` (the enrolled agent's ledger key), `pending` (Boolean), `status_at` (when the outbox or approved source was checked), and `observations`. The observation object may contain `requested`, `send_confirmed`, `delivered`, `read`, `acknowledged`, and `failed`, each with an ISO timestamp including seconds and a UTC offset. Omit phases with no evidence.
 
 Taskboard's current Raft sign-in supplies identity. The current installation has no approved feed for project delivery or read events. Private watch subscriptions, cross-project Ready-count reminders, task starts, and synthetic checks do not supply those events. Use fixture receipts only with disposable ledgers.
+
+## Record wake evidence
+
+Choose **Kind → Wake** to follow the recorded wake for an owned Ready ticket.
+The log shows Raft acceptance, delivery, the first signed project queue check,
+and Start separately. A missing delivery stays **Unknown**. **No eligible work**
+requires a recorded empty queue check. A Start links to its Activity entry.
+
+The same operator command accepts `taskboard-wake/v1` with `schema`, `source`,
+`recipient`, and `observations`. Use the same exact Ready source task, event,
+and ledger timestamp as a Ready receipt. Send only observations verified for
+that wake and recipient.
+
+| Observation | Fields |
+| --- | --- |
+| `acceptance` | `status` of `pending`, `unknown`, `accepted`, or `rejected`, and `at` |
+| `delivery` | `status` of `delivered` or `suppressed`, and `at`, when Raft attests to it |
+| `next_result` | `status` of `offered` (the source ticket), `different_work`, or `no_work`, and `at`, from the first signed project queue check |
+| `start_event_id` | The integer Activity ID of the observed Start by the same recipient in the same project after the queue check |
+| `receipt_ref` | Optional lowercase SHA-256 digest of the accepted Raft event ID |
+
+Use ISO timestamps with seconds and a UTC offset in each `at` field. Omit
+missing observations. Taskboard generates the cue from the source ticket.
+Keep private messages, raw event IDs, and carrier payloads in their original
+systems. If the same Ready event also has a fallback Ready receipt, each record
+keeps its own evidence.

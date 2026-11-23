@@ -10,6 +10,8 @@ let App
 let WorkQueue
 let TaskDetail
 let Assignee
+let notificationLogFilters
+let NotificationLogEntry
 before(async () => {
   vite = await createServer({
     root: fileURLToPath(new URL('..', import.meta.url)),
@@ -22,7 +24,8 @@ before(async () => {
   const work = await vite.ssrLoadModule('/src/Work.jsx')
   WorkQueue = work.WorkQueue
   TaskDetail = work.TaskDetail
-  ;({ Assignee } = await vite.ssrLoadModule('/src/shared.jsx'))
+  ;({ Assignee, notificationLogFilters } = await vite.ssrLoadModule('/src/shared.jsx'))
+  ;({ NotificationLogEntry } = await vite.ssrLoadModule('/src/NotificationLog.jsx'))
 })
 after(() => vite?.close())
 
@@ -148,9 +151,40 @@ test('About has its own route and loads the running release', () => {
 })
 
 test('a filtered Project log has the Notifications route', () => {
-  const projectLog = render('#notifications-log?project=T&status=pending&kind=ready&agent=00000000-0000-0000-0000-000000000028')
-  assert.match(projectLog, /id="notifications">Notifications<\/h1>/)
-  assert.doesNotMatch(projectLog, /id="queue-heading"/)
+  const agent = '00000000-0000-0000-0000-000000000028'
+  for (const kind of ['ready', 'wake']) {
+    const fragment = `notifications-log?project=T&status=pending&kind=${kind}&agent=${agent}`
+    assert.deepEqual(notificationLogFilters(fragment), { project: 'T', state: 'pending', kind, agent })
+    const projectLog = render(`#${fragment}`)
+    assert.match(projectLog, /id="notifications">Notifications<\/h1>/)
+    assert.doesNotMatch(projectLog, /id="queue-heading"/)
+  }
+})
+
+test('wake evidence shows only observed delivery and Start', () => {
+  const at = '2026-11-23T02:00:17Z'
+  const item = {
+    id: 42, task_id: 20, task: 'T-20', kind: 'wake', recipient: 'Avery',
+    cue: 'A Ready ticket was assigned to you.', acceptance: 'accepted', acceptance_at: at,
+    delivery: 'unknown', next_result: 'no_work', next_at: at,
+  }
+  const renderWake = fields => renderToStaticMarkup(React.createElement(NotificationLogEntry, { item: { ...item, ...fields } }))
+  const accepted = renderWake({})
+  assert.match(accepted, /A Ready ticket was assigned to you\./)
+  assert.match(accepted, /href="#event-42-log">Source activity<\/a>/)
+  assert.match(accepted, /Raft acceptance<\/dt><dd><span>Accepted<\/span><time [^>]*>[^<]*:00:17/)
+  assert.match(accepted, /Raft delivery<\/dt><dd><span>Unknown<\/span><\/dd>/)
+  assert.match(accepted, /First signed queue check<\/dt><dd><span>No eligible work<\/span><time /)
+  assert.match(accepted, /<dt>Start<\/dt><dd><span>Not observed<\/span><\/dd>/)
+  assert.doesNotMatch(accepted, /Start activity|Delivered/)
+
+  const started = renderWake({
+    delivery: 'delivered', delivery_at: at, next_result: 'offered', started_at: at, start_event_id: 55,
+  })
+  assert.match(started, /Raft delivery<\/dt><dd><span>Delivered<\/span><time /)
+  assert.match(started, /First signed queue check<\/dt><dd><span>This ticket offered<\/span><time /)
+  assert.match(started, /<dt>Start<\/dt><dd><span>Started<\/span><time /)
+  assert.match(started, /href="#event-55-log">Start activity<\/a>/)
 })
 
 test('a restored queue renders the selected filters and the friendly waiting label', () => {

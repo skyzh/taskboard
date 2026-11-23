@@ -1510,7 +1510,13 @@ def create_app(
         if state not in ("all", "pending", "history"):
             raise RequestError("Choose all, pending, or history for the notification log.")
         if kind is not None and kind not in notification_log.KINDS:
-            raise RequestError("Choose a Ready or merge notice.")
+            raise RequestError("Choose a Ready notice, merge notice, or wake.")
+        cursor = request.args.get("before")
+        before_wake = cursor is not None and cursor.endswith(":wake")
+        page = {
+            "before": integer(cursor.removesuffix(":wake"), "before") if cursor is not None else None,
+            "limit": integer(request.args.get("limit", 20), "limit", maximum=100),
+        }
         project = project_filter(request.args, projects.DEFAULT)
         key = actor["ledger_key"]
         with tasks_storage.read(db()) as connection:
@@ -1529,7 +1535,7 @@ def create_app(
                     if selected is None:
                         raise RequestError("Choose an available agent for this project.", 404)
                     recipient = selected["ledger_key"]
-            page = notification_log.listing(connection, project, recipient, state, kind, **page_args(request.args))
+            page = notification_log.listing(connection, project, recipient, state, kind, before_wake=before_wake, **page)
             return {
                 **page,
                 "agent_options": options,
