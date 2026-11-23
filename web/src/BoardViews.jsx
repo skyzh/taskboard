@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react'
-import { DemoControl, DemoUnavailable } from './DemoControl.jsx'
+import { DemoUnavailable } from './DemoControl.jsx'
 
 export default function BoardViews({ current, reportsHref, isAgent, showNotifications, preview = false }) {
   const nav = useRef(null)
@@ -34,8 +34,8 @@ export default function BoardViews({ current, reportsHref, isAgent, showNotifica
     <nav ref={nav} className="board-views" aria-label="Taskboard views">
       {links.map(([id, label]) => (
         preview && id !== current ? <DemoUnavailable key={id} className="offline-view">{label}</DemoUnavailable>
-          : <DemoControl as="a" key={id} href={id === 'reports' ? reportsHref : `#${id}`}
-            aria-current={current === id ? 'page' : undefined}>{label}</DemoControl>
+          : <a key={id} href={id === 'reports' ? reportsHref : `#${id}`}
+            aria-current={current === id ? 'page' : undefined}>{label}</a>
       ))}
     </nav>
   )
