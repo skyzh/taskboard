@@ -118,10 +118,18 @@ def event_lines(event, url):
 def task_details(board, url, number, *, workers_only=False, guidance=None, context_lines=()):
     ident = {"id": task_ref(number)}
     detail = board.invoke("task", ident)
-    text = task_lines(detail["task"], url)
-    text.append(task_url(url, detail["task"]))
-    if tags := detail["task"].get("tags"):
+    task = detail["task"]
+    text = task_lines(task, url)
+    text.append(task_url(url, task))
+    if tags := task.get("tags"):
         text.append(f"Tags · {', '.join(tags)}")
+    if not workers_only and (ask := task.get("peer_request")):
+        phase = {
+            "asked": "Requested", "in_progress": "In progress",
+            "acknowledgment": "Awaiting acknowledgment", "done": "Acknowledged",
+        }.get(ask["phase"], "Closed")
+        text.append(f"Peer request for {ask['source_key']} · {phase}")
+        guidance = detail.get("peer_request_next") or guidance
     if detail["brief"]:
         text.append(detail["brief"])
     if not workers_only and detail["checklist"]:
