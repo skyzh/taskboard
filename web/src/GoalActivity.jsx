@@ -24,7 +24,9 @@ function GoalActivityRow({ goal }) {
       <dl className="goal-activity-counts">
         <div><dt>Starts</dt><dd>{goal.starts}</dd></div>
         <div><dt>Completed checks</dt><dd>{goal.completed_checks}</dd></div>
-        <div><dt>Idle offers</dt><dd>{goal.idle_offers ?? 'Unmeasured'}</dd></div>
+        {goal.kind === 'standing' && (
+          <div><dt>Standing-goal offers</dt><dd>{goal.idle_offers ?? 'Unmeasured'}</dd></div>
+        )}
         <div><dt>Last completed check</dt><dd>{goal.last_completed_at
           ? <Timestamp at={goal.last_completed_at} /> : 'None recorded'}</dd></div>
       </dl>
@@ -60,7 +62,7 @@ export default function GoalActivity({ project, revision, agent, goal, onFilter 
     <section className="reports goal-activity" aria-labelledby="reports">
       <a className="back-link" href={back}>Back to Reports</a>
       <h1 id="reports">Goal activity</h1>
-      <p className="goal-activity-description">Activity records starts and completed checks. Idle offers count recorded handoffs when an agent was idle.</p>
+      <p className="goal-activity-description">Taskboard records standing-goal offers here. The watcher records reminder requests. Starts and completed checks come from the goal’s activity.</p>
       <ResourceStatus resource={resource} label="goal activity" />
       {items.length > 0 && (
         <>

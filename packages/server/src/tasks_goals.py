@@ -145,6 +145,27 @@ def parked_guidance(goal, note, standing_exploration):
     return "Review this milestone", f"{action}{deadline}."
 
 
+def review_events(events):
+    """Classify each event in a goal history as a review start, outcome, or neither."""
+    previous, open_checks = {}, set()
+    for event in events:
+        number = event["id"]
+        review = None
+        if event["action"] == "start":
+            open_checks.add(number)
+            review = "start"
+        elif number in open_checks and event["state"] in ("done", "parked"):
+            open_checks.remove(number)
+            # Older reminder edits were stored as Park with the previous note and links.
+            copied_reminder = (event["note"], event["links"]) == previous.get(number) and any(
+                key in ledger.event_context(event) for key in ("review_after", "defer_until")
+            )
+            if event["action"] == "done" or (event["action"] == "park" and not copied_reminder):
+                review = "completed"
+        previous[number] = (event["note"], event["links"])
+        yield event, review
+
+
 def goal_rows(db, owners, project=None, kind=None):
     if not owners:
         return []

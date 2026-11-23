@@ -24,7 +24,7 @@ python3 -B tasks_ready_checkpoint.py --by "$taskboard_agent" \
 
 Supply one stable UUID for the handoff and reuse it on retry. If the checkpoint finds no Ready work or review, it checks the signed agent's current Raft status once. Only an Idle result can request a goal. Taskboard checks that the agent's full queue has no actionable work and returns the parked standing goal as a `goal-offered` result with its ticket, project, summary and time. The runner surfaces that result to the agent at the handoff. Taskboard records the returned offer once per agent and UUID. A receipt shows that the runner obtained a goal to offer. A Start and a recorded outcome show what the agent actually checked.
 
-Use this mode only where the runner hands work to an agent that Raft already reports as Idle. An ordinary queue read, an automatic completion prompt, and the Ready watcher do not record idle goal offers.
+Use this mode only where the runner hands work to an agent that Raft already reports as Idle. Ordinary queue reads and automatic completion prompts do not record idle goal offers. The repeat Ready watcher can request goal offers when it is [explicitly opted in](#try-goal-wakes).
 
 A self-watcher can wake an agent through an anchored Raft reminder. It needs a way to know whether the agent has free capacity. The checkpoint uses the runner's signal that a work unit has finished and verifies the outcome before the runner leaves that checkpoint. The existing Ready signal can still wake an agent when ownership or Ready state changes.
 
@@ -90,6 +90,37 @@ Add `--wake-stalled` to the existing `--watch-idle --repeat` command when the ow
 1. Update the board and the watcher checkout. Confirm your signed identity with `./tasks --shared context`. Record the existing job name, flags, and Raft anchor. Check `raft proc list` and `raft reminder list` before changing the job.
 2. Stop the existing owned watcher and start one from the updated checkout with the same options plus `--wake-stalled`. Check the process list again. Existing installations can keep using their current command without opting in.
 3. After the trial, restore the previous launch options by removing `--wake-stalled`. Keep the same job name and anchor. Check for a still-scheduled trial reminder and cancel that exact reminder if it is no longer needed.
+
+## Try goal wakes
+
+The repeat watcher can check goals for one opted-in Project T agent. Keep one
+watcher and check the agent's actionable Inbox across all projects first. An
+observed drain can surface its standing goal. A configured daily review can
+surface an unchecked goal, and a dated goal gets a separate deadline cue. If
+the deadline and daily review coincide, the deadline cue takes priority.
+The goal keeps its normal Parked state until the agent starts the check.
+
+1. Verify the mounted build and your signed identity. Record your original
+   watcher command and anchor and list owned reminders. Keep existing
+   schedules until you verify the equivalent behavior for this agent.
+2. For a daily review, use `./tasks --shared goal-review-time T-123 --at 09:00`,
+   then use `./tasks --shared goals --project T` for readback. Times are Pacific.
+   A dated goal without a review time can surface its deadline from 09:00
+   Pacific on the deadline date.
+3. Replace the existing watcher with the same options plus
+   `--goal-state /absolute/private/path/goal-wakes.sqlite`. Keep the same
+   state across restarts. Start with one enrolled agent and one concrete
+   check. An observed Idle transition alone does not generate another cue.
+4. Confirm the exact goal, the reminder result, and the agent's signed Start
+   and recorded outcome. Use a received cue for delivery evidence. An
+   ambiguous send remains unknown, so check the existing Raft reminder before
+   taking any recovery action.
+
+To roll back, stop the trial watcher and restore exactly one original watcher
+with its previous checkout, flags and anchor. Retain the trial state. Check
+for a pending trial reminder before canceling an exact duplicate or
+restoring a previous reminder. Clear a test-only review time with
+`goal-review-time T-123 --clear`. Existing goal history and deadlines remain.
 
 ## Test timed follow-ups
 
