@@ -525,16 +525,16 @@ test('more reports disappears when the last report loads', () => {
   const props = { owner: 'Avery', name: 'Avery', initial, total: 2, cursor: 8 }
   fixture.state = []
   fixture.pages = {}
-  const compact = renderToStaticMarkup(React.createElement(PendingReports, props))
-  assert.match(compact, /aria-label="More reports for Avery"[^>]*>More<\/button>/)
-  assert.match(compact, /<button type="button" aria-pressed="true">Compact<\/button>/)
-  assert.doesNotMatch(compact, /Found an empty header|<details/)
+  const firstPage = renderToStaticMarkup(React.createElement(PendingReports, props))
+  assert.match(firstPage, /aria-label="More reports for Avery"[^>]*>More<\/button>/)
+  assert.match(firstPage, /<details class="report-details"><summary aria-label="Worker report and evidence for W-1">/)
+  assert.match(firstPage, /Found an empty header\./)
 
   fixture.pages = { '/reports/pending': {
     data: { items: [...initial, later], next_cursor: null },
   } }
-  fixture.state = [true]
   const markup = renderToStaticMarkup(React.createElement(PendingReports, props))
+  assert.match(markup, /<details class="report-details"><summary aria-label="Worker report and evidence for W-2">/)
   assert.match(markup, /Checked the corrected rows\./)
   assert.match(markup, /Found an empty header\./)
   assert.doesNotMatch(markup, /aria-label="More reports for Avery"/)
