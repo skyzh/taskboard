@@ -1501,17 +1501,19 @@ test('the Tag filter uses the current project in both task layouts', () => {
 test('the ticket shows its tags and enables editing only when allowed', () => {
   const task = { id: 7, key: 'COURSE-7', title: 'Review the sample', state: 'ready',
     summary_label: 'Next step', tags: ['reflection'] }
-  const detail = (task, editable) => {
+  const detail = (task, editable, session = {}) => {
     fixture.resources = { '/tasks/COURSE-7': { data: {
       task, tag_editable: editable, checklist: [], sources: [], workers: [],
     } } }
     fixture.pages = {}
     fixture.state = []
-    return renderToStaticMarkup(React.createElement(TaskDetail, { id: task.key, session: {} }))
+    return renderToStaticMarkup(React.createElement(TaskDetail, { id: task.key, session }))
   }
   assert.match(detail(task, false), /aria-label="Task tags".*<span>reflection<\/span>/)
   assert.doesNotMatch(detail(task, false), /Remove tag reflection|Add tag/)
-  const editable = detail(task, true)
+  assert.doesNotMatch(detail(task, true, { pending: true }), /Remove tag reflection|Add tag/)
+  const signedAgent = { data: { actor: { kind: 'agent', id: 'fixture-agent' } } }
+  const editable = detail(task, true, signedAgent)
   assert.match(editable, /aria-label="Remove tag reflection"/)
   assert.match(editable, /<label>Tag<input[^>]*maxLength="32"/)
   assert.match(editable, />Add tag<\/button>/)
