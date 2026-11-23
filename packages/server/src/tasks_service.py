@@ -1898,11 +1898,14 @@ def create_app(
             **page_args(args),
         )
 
+    def knowledge_directory(project=None):
+        with tasks_storage.read(db()) as connection:
+            return {"areas": knowledge_records.directory(connection, project=project)}
+
     @app.get("/api/v1/knowledge/areas")
     def knowledge_areas():
         current_actor(required=True)
-        with tasks_storage.read(db()) as connection:
-            return {"areas": knowledge_records.directory(connection)}
+        return knowledge_directory()
 
     @app.get("/api/v1/reports/goal-activity")
     def report_goal_activity():
@@ -2783,6 +2786,8 @@ def create_app(
             )
         if name == "search-with-decisions":
             return query().search_with_decisions(**shared_ticket_search(data), **page_args(data))
+        if name == "knowledge-areas":
+            return knowledge_directory(project_filter(data))
         if name in {"knowledge-place", "knowledge-stage", "knowledge-reconcile"}:
             try:
                 with tasks_storage.write(db()) as connection:
