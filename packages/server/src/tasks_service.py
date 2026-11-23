@@ -2309,7 +2309,22 @@ def create_app(
         if name == "my-reviews":
             return query().actionable_reviews(key, project=project_filter(data), **page_args(data))
         if name == "task":
-            return detail(task_number(data.get("id")), actor)
+            result = detail(task_number(data.get("id")), actor)
+            task = result["task"]
+            if task["dri"] == key and (ask := task.get("peer_request")) and not ask["review_run_id"]:
+                reference = task["key"]
+                if ask["phase"] == "acknowledgment" and ask["requester"] == key:
+                    result["peer_request_next"] = (
+                        f'Read the result, then run `./tasks --shared peer-ask acknowledge {reference} "<what you applied>"`.'
+                    )
+                elif (task["state"] in ("ready", "in_progress") and ask["phase"] in ("asked", "in_progress")
+                      and peer_asks.pending_stamp_review(db(), task["id"])):
+                    result["peer_request_next"] = "Record the verdict in Stamp for the pinned revision."
+                elif ask["phase"] == "in_progress" and task["state"] == "in_progress":
+                    result["peer_request_next"] = (
+                        f'When the check is complete, run `./tasks --shared peer-ask result {reference} "<verified result>"`.'
+                    )
+            return result
         if name == "confirm-blocker":
             return confirm_blocker(
                 actor, task_number(data.get("id")), integer(data.get("wait_event"), "wait_event"),

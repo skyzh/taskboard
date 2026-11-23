@@ -7055,6 +7055,10 @@ class TasksServiceTest(unittest.TestCase):
 
         result = {"id": "T-2", "transition": "result", "note": "Independent check passed."}
         ack = {"id": "T-2", "transition": "acknowledge", "note": "I applied the verified result."}
+        code, output, error = self.shared_cli(blake, "next")
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("Peer request for T-1 · Requested", output)
+        self.assertNotIn("peer-ask result T-2", output)
         self.action(blake, "peer-ask", result, status=409)
         self.action(avery, "peer-ask", ack, status=409)
         self.action(blake, "advance-task", {**advance, "id": "T-2", "note": "Checking the sample."})
@@ -7065,9 +7069,15 @@ class TasksServiceTest(unittest.TestCase):
         paused = read(2)
         self.assertEqual((paused["state"], paused["peer_request"]["phase"]), ("waiting", "in_progress"))
         self.assertEqual((paused["waiting_on"], paused["wait_kind"]), (avery_id, "person"))
+        self.assertNotIn("peer_request_next", self.action(blake, "task", query_string={"id": "T-2"}))
         self.assertEqual(self.action(avery, "my-next")["work"]["key"], "T-3")
         self.action(blake, "advance-task", {"id": "T-2", "transition": "resume", "note": "Updated sample received."})
         self.assertEqual(read(3)["display_state"], "closed")
+        code, output, error = self.shared_cli(blake, "show", "T-2")
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("Peer request for T-1 · In progress", output)
+        self.assertIn("peer-ask result T-2", output)
+        self.assertNotIn("peer_request_next", self.action(cedar, "task", query_string={"id": "T-2"}))
         self.action(cedar, "peer-ask", result, status=403)
         actions = []
         code, output, error = self.shared_cli(blake, "peer-ask", "result", "T-2", result["note"], actions=actions)
@@ -7078,6 +7088,10 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((read(2)["state"], read(2)["dri"]), ("ready", avery_id))
         self.assertEqual((read(1)["state"], read(1)["waiting_on"]), ("waiting", "T-2"))
         self.assertIn("ready for acknowledgment", read(1)["note"])
+        code, output, error = self.shared_cli(avery, "next")
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("Peer request for T-1 · Awaiting acknowledgment", output)
+        self.assertIn("peer-ask acknowledge T-2", output)
         self.action(blake, "peer-ask", ack, status=403)
         self.action(avery, "peer-ask", ack)
         self.assertEqual(read(2)["state"], "done")
@@ -7667,6 +7681,10 @@ class TasksServiceTest(unittest.TestCase):
         self.action(peer, "peer-ask", {
             "id": "T-2", "transition": "result", "note": "Ordinary result on a saved pin.",
         }, status=409)
+        status, output, error = self.shared_cli(gauge, "next")
+        self.assertEqual((status, error), (0, ""))
+        self.assertIn("Record the verdict in Stamp for the pinned revision.", output)
+        self.assertNotIn("peer-ask result T-2", output)
         self.action(gauge, "peer-ask", {"id": "T-2", "transition": "result", "note": "Chat approval."}, status=409)
         result = {
             "pull": "skyzh/taskboard#40", "reviewer": reviewer, "verdict": "approved", "head": head, "base": base,
