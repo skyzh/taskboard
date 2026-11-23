@@ -4,6 +4,7 @@ import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from '
 import About from './About.jsx'
 import BoardViews from './BoardViews.jsx'
 import AssigneePage from './AssigneePage.jsx'
+import GoalActivity, { goalActivityFragment } from './GoalActivity.jsx'
 import Notifications from './Notifications.jsx'
 import MyActivity from './MyActivity.jsx'
 import { ReportTime } from './ReportTime.jsx'
@@ -142,6 +143,9 @@ export default function App() {
   const requestedReportsProject = reportsParams?.get('project')
   const requestedAssigneeView = reportsParams?.get('view')
   const initialAssigneeView = ['all', 'idle'].includes(requestedAssigneeView) ? 'all' : 'active'
+  const showGoalActivity = requestedAssigneeView === 'goal-activity'
+  const goalAgent = reportsParams?.get('agent')
+  const goalKey = reportsParams?.get('goal')
   const allReports = fragment === 'reports-all'
   const [preferredReportsMode, rememberReportsMode] = useState(allReports ? 'reports-all' : 'reports')
   const linkedEvent = fragmentId(taskAnchor, /^event-([1-9]\d*)-log$/)
@@ -248,10 +252,10 @@ export default function App() {
     if (view === 'reports' && !reportsPending) {
       rememberReportsMode(reportsMode)
       if (requestedReportsProject && visibleProjects && requestedReportsProject !== reportsProject) {
-        window.location.replace(`#${reportsMode}`)
+        window.location.replace(`#${showGoalActivity ? goalActivityFragment(reportsProject) : reportsMode}`)
       }
     }
-  }, [view, reportsPending, reportsMode, requestedReportsProject, visibleProjects, reportsProject])
+  }, [view, reportsPending, reportsMode, requestedReportsProject, visibleProjects, reportsProject, showGoalActivity])
   const activeTab = ['assignee', 'team-overview'].includes(view) ? 'reports' : ['task', 'schedules'].includes(view) ? 'board' : view
   const refresh = useCallback(() => setRevision(value => value + 1), [])
   const updateConnection = useCallback(status => {
@@ -275,7 +279,7 @@ export default function App() {
         chooseProject(value)
         setQueueFilters({})
         setWaitingLabel('')
-        window.location.hash = view === 'reports' ? reportFragment(value)
+        window.location.hash = view === 'reports' ? showGoalActivity ? goalActivityFragment(value) : reportFragment(value)
           : view === 'team-overview' ? new URLSearchParams({ project: value, section: 'team-overview' }).toString()
           : view
       }}>
@@ -321,8 +325,11 @@ export default function App() {
               <ReportsHeading headingId="reports" />
               <p className="section-message" role="status">Loading Reports…</p>
             </section>
-            : <Reports revision={revision} project={project} initialAssigneeView={initialAssigneeView}
-              projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null} />)}
+            : showGoalActivity
+              ? <GoalActivity key={project} project={project} revision={revision} agent={goalAgent} goal={goalKey}
+                onFilter={(agent, goal) => writeFilterFragment(goalActivityFragment(project, agent, goal))} />
+              : <Reports revision={revision} project={project} initialAssigneeView={initialAssigneeView}
+                projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null} />)}
           {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject}
             projects={visibleProjects} />}
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}

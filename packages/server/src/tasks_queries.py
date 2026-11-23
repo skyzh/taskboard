@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections import deque
 from datetime import datetime
 from difflib import SequenceMatcher
 from heapq import nsmallest
@@ -9,6 +10,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 import tasks_core as ledger
+import tasks_goal_offers as goal_offers
 import tasks_goals as goals
 import tasks_maintenance as maintenance
 import tasks_profiles as profiles
@@ -35,6 +37,7 @@ TASK_REFERENCE = "tasks.project_prefix || '-' || COALESCE(tasks.project_number, 
 SUGGESTION_KEY = re.compile(r"([A-Z][A-Z0-9]{0,7})-([0-9]*)", re.ASCII)
 SEARCH_WORDS = re.compile(r"[^\W_]+")
 ACTIVITY_EXCERPT_LIMIT = 180
+GOAL_OUTCOME_LIMIT = 20
 
 
 def title_suggestion_rank(needle, words, title):
@@ -390,15 +393,22 @@ class BoardQueries:
         release_ids = [row["id"] for row in rows if projects.release_queue_enabled(projects.row_project(row))]
         release_fields = releases.ticket_fields(self.db, release_ids)
         release_results = releases.ticket_results(self.db, release_ids) if include_release_results else {}
-        goal_kinds = dict(self.db.execute(
-            f"SELECT task_id, kind FROM task_goals WHERE retired = 0 AND task_id IN ({placeholders})", ids,
-        )) if tasks_storage.table_columns(self.db, "task_goals") else {}
+        goal_rows = {}
+        if tasks_storage.table_columns(self.db, "task_goals"):
+            goal_rows = {row["task_id"]: row for row in self.db.execute(
+                f"""
+                SELECT task_id, kind, deadline, ticket_ids FROM task_goals
+                WHERE retired = 0 AND task_id IN ({placeholders})
+                """, ids,
+            )}
         results = []
         for row in rows:
             label, note = ledger.current_summary(row)
-            goal_kind = goal_kinds.get(row["id"])
-            if goal_kind == "standing" and row["state"] == "parked":
-                label, note = goals.STANDING_EXPLORATION_LABEL, self.standing_exploration
+            goal = goal_rows.get(row["id"])
+            if goal is not None and row["state"] == "parked":
+                guidance = goals.parked_guidance(goal, note, self.standing_exploration)
+                if guidance is not None:
+                    label, note = guidance
             complete, total = progress.get(row["id"], (0, 0))
             context = ledger.event_context(row)
             details = context.get("activity_details")
@@ -425,7 +435,7 @@ class BoardQueries:
                 "priority": row["priority"],
                 "dri_profile": owners.get(row["dri"]),
                 "state": row["state"],
-                **({"goal_kind": goal_kind} if goal_kind else {}),
+                **({"goal_kind": goal["kind"]} if goal is not None else {}),
                 **({"display_state": "closed"} if row["display_state"] == "closed" else {}),
                 "note": note,
                 "summary_label": label,
@@ -1397,6 +1407,68 @@ class BoardQueries:
             return results
 
         return page(rows, limit, order, render)
+
+    def goal_activity(self, project):
+        """Summarize observed goal starts, outcomes and idle offers in one project."""
+        roster = None
+        if project == projects.DEFAULT and self.project_roster is not None:
+            roster = projects.roster_owners(self.db, self.project_roster)
+            if not roster:
+                return {"items": []}
+        roster_filter = ""
+        if roster:
+            marks = ", ".join("?" for _ in roster)
+            roster_filter = f"AND tasks.dri IN ({marks})"
+        context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
+        rows = self.db.execute(
+            f"""
+            SELECT tasks.id, {TASK_REFERENCE} AS key, tasks.dri AS owner, tasks.title AS summary,
+                   goal.kind, goal.deadline, events.id AS event_id, events.action, events.state,
+                   events.at, events.note, events.links, {context} AS context
+            FROM task_goals AS goal
+            JOIN tasks ON tasks.id = goal.task_id
+            LEFT JOIN events ON events.task_id = tasks.id AND events.action NOT IN ('source-event', 'log')
+            WHERE tasks.project_prefix = ? AND goal.retired = 0 {roster_filter}
+            ORDER BY tasks.dri, CASE goal.kind WHEN 'standing' THEN 0 ELSE 1 END,
+                     goal.deadline, tasks.title, tasks.id, events.id
+            """, (project, *(roster or ())),
+        )
+        goals_by_id, previous, open_checks = {}, {}, set()
+        for event in rows:
+            number = event["id"]
+            if number not in goals_by_id:
+                goals_by_id[number] = {
+                    **{key: event[key] for key in ("id", "key", "owner", "summary", "kind", "deadline")},
+                    "project": project, "starts": 0, "completed_checks": 0,
+                    "last_completed_at": None, "outcomes": deque(maxlen=GOAL_OUTCOME_LIMIT),
+                }
+            row = goals_by_id[number]
+            if event["action"] == "start":
+                row["starts"] += 1
+                open_checks.add(number)
+            elif number in open_checks and event["state"] in ("done", "parked"):
+                open_checks.remove(number)
+                # Older reminder edits were stored as Park with the previous note and links.
+                copied_reminder = (event["note"], event["links"]) == previous.get(number) and any(
+                    key in ledger.event_context(event) for key in ("review_after", "defer_until")
+                )
+                if event["action"] == "done" or (event["action"] == "park" and not copied_reminder):
+                    row["completed_checks"] += 1
+                    row["last_completed_at"] = event["at"]
+                    row["outcomes"].append({
+                        "id": event["event_id"], "at": event["at"], "kind": event["action"], "note": event["note"],
+                        "links": self.links(json.loads(event["links"]), event_id=event["event_id"]),
+                    })
+            previous[number] = (event["note"], event["links"])
+        people = profiles.visible_by_keys(self.db, [row["owner"] for row in goals_by_id.values()], self.base)
+        offers = goal_offers.idle_offer_counts(self.db, list(goals_by_id))
+        for number, row in goals_by_id.items():
+            owner = row["owner"]
+            profile = people.get(owner)
+            if profile is None and roster and owner in roster:
+                profile = projects.roster_profile(owner, roster[owner])
+            row.update(profile=profile, idle_offers=offers.get(number), outcomes=list(reversed(row["outcomes"])))
+        return {"items": list(goals_by_id.values())}
 
     def assignee(self, owner, *, project=projects.DEFAULT):
         profile = profiles.visible_by_keys(self.db, [owner], self.base).get(owner)

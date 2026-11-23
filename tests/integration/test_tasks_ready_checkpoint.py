@@ -1,3 +1,4 @@
+from contextlib import closing
 import json
 import subprocess
 import sys
@@ -6,6 +7,8 @@ from unittest.mock import patch
 
 from taskboard_client import SharedBoard
 from taskboard_cli.ready_checkpoint import checkpoint, measured_idle, raft_idle, raft_ready_count, raft_status, raft_wake, run_handler, watch_idle, watch_ready_count, watch_two_pickups
+from tasks_goal_offers import idle_offer_counts
+from tasks_service import connect
 import test_tasks_service
 
 
@@ -39,6 +42,67 @@ class ReadyCheckpointTest(unittest.TestCase):
         blake, _ = service.login(app, "Blake")
         self.avery = FixtureBoard(service, avery)
         self.blake = FixtureBoard(service, blake)
+
+    def test_idle_goal_offer_requires_the_explicit_runner_handoff(self):
+        self.avery.invoke("save-goal", {"kind": "standing", "summary": "Check the example."}, write=True)
+        handoff = "a0000000-0000-4000-8000-000000000001"
+        with closing(connect(self.avery.service.database)) as db:
+            self.assertEqual(idle_offer_counts(db, [1]), {})
+            self.avery.invoke("my-next")
+            with patch("taskboard_cli.ready_checkpoint.raft_idle") as read_idle:
+                self.assertEqual(checkpoint(self.avery, "Avery", self.fail), {"outcome": "empty"})
+                read_idle.assert_not_called()
+                read_idle.return_value = False
+                self.assertEqual(checkpoint(self.avery, "Avery", self.fail, idle_handoff=handoff),
+                                 {"outcome": "empty"})
+                read_idle.assert_called_once_with("avery")
+            self.assertEqual(idle_offer_counts(db, [1]), {})
+
+            with patch("taskboard_cli.ready_checkpoint.raft_idle", return_value=True) as read_idle:
+                first = checkpoint(self.avery, "Avery", self.fail, idle_handoff=handoff)
+                self.assertEqual(first["outcome"], "goal-offered")
+                self.assertEqual(first["task"], "T-1")
+                self.assertEqual(first["summary"], "Check the example.")
+                self.assertEqual(checkpoint(self.avery, "Avery", self.fail, idle_handoff=handoff), first)
+                self.assertEqual(read_idle.call_count, 2)
+            self.assertEqual(idle_offer_counts(db, [1]), {1: 1})
+            self.assertEqual(self.avery.invoke("task", {"id": "T-1"})["task"]["state"], "parked")
+            new_handoff = "a0000000-0000-4000-8000-000000000004"
+            with patch("taskboard_cli.ready_checkpoint.raft_idle", return_value=True):
+                self.assertEqual(checkpoint(self.avery, "Avery", self.fail, idle_handoff=new_handoff)["task"], "T-1")
+            self.assertEqual(idle_offer_counts(db, [1]), {1: 2})
+
+    def test_idle_goal_offer_rechecks_all_projects_and_binds_each_handoff_to_one_goal(self):
+        self.avery.service.cli("register-project", "COURSE", "Fictional course", "--dri", self.avery_id)
+        self.avery.invoke("save-goal", {"kind": "standing", "summary": "Taskboard goal."}, write=True)
+        self.avery.invoke("save-goal", {
+            "kind": "standing", "project": "COURSE", "summary": "Course goal.",
+        }, write=True)
+        self.blake.invoke("save-goal", {"kind": "standing", "summary": "Blake's goal."}, write=True)
+        work = self.avery.invoke("create-task", {
+            "project": "COURSE", "title": "Active task", "step": "Check the evidence.",
+        }, write=True)["receipt"].split()[0]
+        self.avery.invoke("advance-task", {"id": work, "transition": "start", "note": "Checking it."}, write=True)
+        handoff = {"handoff_id": "a0000000-0000-4000-8000-000000000002"}
+        self.assertIsNone(self.avery.invoke("idle-goal-offer", handoff, write=True)["offer"])
+        self.avery.invoke("advance-task", {"id": work, "transition": "done", "note": "Checked it."}, write=True)
+        first = self.avery.invoke("idle-goal-offer", handoff, write=True)["offer"]
+        self.assertEqual((first["project"], first["task"]), ("COURSE", "COURSE-1"))
+        self.avery.invoke("save-goal", {"kind": "standing", "project": "COURSE", "summary": ""}, write=True)
+        self.assertEqual(self.avery.invoke("idle-goal-offer", handoff, write=True)["offer"], first)
+        next_handoff = {"handoff_id": "a0000000-0000-4000-8000-000000000003"}
+        second = self.avery.invoke("idle-goal-offer", next_handoff, write=True)["offer"]
+        self.assertEqual((second["project"], second["task"]), ("T", "T-1"))
+        another_owner = self.blake.invoke("idle-goal-offer", handoff, write=True)["offer"]
+        self.assertEqual((another_owner["project"], another_owner["summary"]), ("T", "Blake's goal."))
+        self.avery.service.action(self.avery.client, "idle-goal-offer", {"handoff_id": "bad"}, status=400)
+        app = self.avery.client.application
+        human, _ = self.avery.service.login(app, "Sam")
+        self.avery.service.action(human, "idle-goal-offer", handoff, status=403)
+        self.avery.service.action(app.test_client(), "idle-goal-offer", handoff, status=401)
+        with closing(connect(self.avery.service.database)) as db:
+            self.assertEqual(idle_offer_counts(db, [1, 2, 3, 4]), {1: 1, 2: 1, 3: 1})
+            self.assertEqual(idle_offer_counts(db, [2, 4]), {2: 1})
 
     def test_picks_preexisting_owned_work_before_named_review_and_confirms_start(self):
         self.avery.invoke("create-task", {"title": "Older owned work", "step": "Read it."}, write=True)

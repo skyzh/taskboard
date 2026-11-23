@@ -28,6 +28,7 @@ import tasks_codex_usage
 import tasks_core as ledger
 import tasks_maintenance as maintenance
 import tasks_goals as goals
+import tasks_goal_offers as goal_offers
 import tasks_guidance
 import tasks_extensions as extensions
 import tasks_integration_stats as integration_stats
@@ -325,6 +326,8 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
     db.execute(goals.SCHEMA)
     goals.ensure_extended_schema(db)
     goals.migrate_goal_tickets(db)
+    db.execute(goal_offers.SCHEMA)
+    db.execute(goal_offers.INDEX)
     db.execute(profiles.IMPORT_SCHEMA)
     db.execute(INTAKE_ERRORS)
     for statement in extensions.SCHEMA:
@@ -389,6 +392,8 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
                 oidc_members.bind_issuer(db, oidc_issuer)
             goals.ensure_extended_schema(db)
             goals.migrate_goal_tickets(db)
+            db.execute(goal_offers.SCHEMA)
+            db.execute(goal_offers.INDEX)
             for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA):
                 db.execute(statement)
             db.execute(wake_subscriptions.SCHEMA)
@@ -1462,6 +1467,13 @@ def create_app(
         )
         return {**result, "roster": True} if has_roster else result
 
+    @app.get("/api/v1/reports/goal-activity")
+    def report_goal_activity():
+        current_actor()
+        project = project_filter(request.args, projects.DEFAULT)
+        with tasks_storage.read(db()):
+            return query().goal_activity(project)
+
     @app.get("/api/v1/reports/workers")
     def report_workers():
         current_actor()
@@ -2135,6 +2147,26 @@ def create_app(
                 ledger.bump_revision(connection)
         return result
 
+    def idle_goal_offer(owner, data):
+        try:
+            handoff_id = str(UUID(text(data, "handoff_id", maximum=36)))
+        except ValueError:
+            raise RequestError("Provide the runner's stable handoff UUID.") from None
+        with tasks_storage.write(db()) as connection:
+            if offer := goal_offers.read_offer(connection, owner, handoff_id):
+                return {"offer": offer, "receipt": "Idle goal offer already recorded."}
+            now = ledger.timestamp()
+            if next(query().actionable_work(owner, today=pacific_day(now), project=None), None):
+                return {"offer": None, "receipt": "Actionable work is available."}
+            goal = next((row for row in goals.goal_rows(connection, [owner], kind="standing")
+                         if row["state"] == "parked"), None)
+            if goal is None:
+                return {"offer": None, "receipt": "No standing goal is available."}
+            goal_offers.record(connection, owner, handoff_id, goal["id"], now)
+            ledger.bump_revision(connection)
+            offer = goal_offers.read_offer(connection, owner, handoff_id)
+            return {"offer": offer, "receipt": "Idle goal offer recorded."}
+
     def dispatch_action(name, data):
         write = request.method != "GET"
         actor = current_actor("agent", write=write)
@@ -2148,6 +2180,8 @@ def create_app(
             return project_channel(actor, project_filter(data), data if write else None)
         if name in {"my-wake-subscriptions", "set-wake-subscription"}:
             return agent_wake_subscriptions(actor, data, write=write)
+        if name == "idle-goal-offer":
+            return idle_goal_offer(key, data)
         if name == "my-next":
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:

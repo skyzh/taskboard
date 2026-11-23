@@ -10,6 +10,7 @@ import { TaskRows } from './WorkRow.jsx'
 import { groupOutcomes } from './Overview.jsx'
 import { ReportTime } from './ReportTime.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
+import { goalActivityFragment } from './GoalActivity.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { useTimeZone } from './timeZone.js'
 import { briefSourceText } from './workCopy.js'
@@ -94,7 +95,12 @@ function ReportGoals({ goals, owner, project, publicPreview, target, highlighted
   return (
     <Panel className="report-owner-section report-goals-panel"
       id={target} data-tour-current={highlighted || undefined}>
-      {publicPreview ? <DemoControl as="summary">Goals</DemoControl> : <Heading>Goals</Heading>}
+      {publicPreview ? <DemoControl as="summary">Goals</DemoControl> : (
+        <div className="report-goals-heading">
+          <Heading>Goals</Heading>
+          {project && <a href={`#${goalActivityFragment(project, owner)}`}>Goal activity</a>}
+        </div>
+      )}
       <ul className="report-goals" role="list">
         {goals.map(({ kind, summary, deadline, ticket, public_url: source }) => {
           const label = ticket == null ? summary : (
@@ -314,6 +320,7 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, request
       <ReportsHeading headingId={headingId} projectTitle={projectTitle}>
         {!projectTitle && <a href={project && project !== 'T'
           ? `#${new URLSearchParams({ project, section: 'team-overview' })}` : '#team-overview'}>Team overview</a>}
+        {project && <a href={`#${goalActivityFragment(project)}`}>Goal activity</a>}
         {requestFilter}
         {(page.data || selectedView) && (
           <label>

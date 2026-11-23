@@ -9,6 +9,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from time import monotonic, sleep
+from uuid import UUID
 
 from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
 from taskboard_cli.shared import assert_actor
@@ -64,11 +65,15 @@ def agent_context(board, owner):
     return context
 
 
-def checkpoint(board, owner, handle_offer):
+def checkpoint(board, owner, handle_offer, *, idle_handoff=None):
     context = agent_context(board, owner)
     actor = context["actor"]
     offer = offer_work(board, actor["id"])
     if offer is None:
+        if idle_handoff is not None and raft_idle(actor["username"]):
+            result = board.invoke("idle-goal-offer", {"handoff_id": str(idle_handoff)}, write=True)
+            if goal := result["offer"]:
+                return {"outcome": "goal-offered", "board": context["board"], **goal}
         return {"outcome": "empty"}
 
     decision = handle_offer({**offer, "board": context["board"]})
@@ -377,6 +382,7 @@ def main():
     mode.add_argument("--repeat", action="store_true", help="Stay armed and report the count of owned Ready tickets.")
     parser.add_argument("--measure", action="store_true", help="Emit sampled status and wake receipts in repeat mode.")
     parser.add_argument("--idle-delay-seconds", type=int, default=0, help="Require this much observed idle time before a wake.")
+    parser.add_argument("--idle-handoff", type=UUID, help="Stable runner UUID for an explicit idle goal offer.")
     parser.add_argument("--channel", help="Raft conversation anchoring the watcher.")
     parser.add_argument("--message-id", help="Raft message anchoring the watcher.")
     parser.add_argument("handler", nargs=argparse.REMAINDER, help="Command for the runner's offer handler.")
@@ -385,7 +391,7 @@ def main():
     if args.measure and not (args.watch_idle and args.repeat):
         parser.error("Use --measure only with --watch-idle --repeat.")
     if args.watch_idle:
-        if command or not args.channel or not args.message_id:
+        if command or not args.channel or not args.message_id or args.idle_handoff:
             parser.error("Use --channel and --message-id for the watcher, without a handler.")
         if not 0 <= args.idle_delay_seconds < duration:
             parser.error(f"The idle delay must be between 0 and {duration - 1} seconds.")
@@ -423,7 +429,7 @@ def main():
                     duration=duration, idle_delay=args.idle_delay_seconds,
                 )
         else:
-            result = checkpoint(board, args.by, lambda offer: run_handler(command, offer))
+            result = checkpoint(board, args.by, lambda offer: run_handler(command, offer), idle_handoff=args.idle_handoff)
         print(json.dumps(result))
     except (KeyError, RuntimeError, ValueError) as error:
         print(f"ready checkpoint: {error}", file=sys.stderr)

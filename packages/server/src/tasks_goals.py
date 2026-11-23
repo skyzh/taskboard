@@ -52,6 +52,7 @@ GOAL_TICKET_SCHEMA = """
 """
 GOAL_MIGRATION = "goal_tickets_migrated"
 LEGACY_GOAL_STEP = "Start or link a concrete investigation when there is work to do on this goal."
+DATED_GOAL_STEP = "Review progress toward this milestone and record the result by its deadline."
 STANDING_EXPLORATION_LABEL = "Explore this goal"
 STANDING_EXPLORATION_START = "Start this goal ticket if this turn still allows exploration, and note what you plan to check."
 STANDING_EXPLORATION = (
@@ -122,7 +123,7 @@ def restore_legacy_goals(db):
 def create_goal_ticket(db, project, owner, kind, summary, deadline, encoded_ids):
     args = SimpleNamespace(
         project=project, dri=owner, by=owner, title=summary, brief="",
-        step=STANDING_EXPLORATION if kind == "standing" else LEGACY_GOAL_STEP,
+        step=STANDING_EXPLORATION if kind == "standing" else DATED_GOAL_STEP,
     )
     task_id = ledger.create_task_record(db, args, [], state="parked")
     db.execute(
@@ -130,6 +131,18 @@ def create_goal_ticket(db, project, owner, kind, summary, deadline, encoded_ids)
         (task_id, kind, deadline, encoded_ids),
     )
     return task_id
+
+
+def parked_guidance(goal, note, standing_exploration):
+    """Project the generated note against the current goal, leaving event history intact."""
+    if goal["kind"] == "standing":
+        return STANDING_EXPLORATION_LABEL, standing_exploration
+    if note not in (LEGACY_GOAL_STEP, DATED_GOAL_STEP):
+        return None
+    action = ("Review the linked tickets and record progress and blockers"
+              if json.loads(goal["ticket_ids"]) else "Check milestone progress and record the outcome")
+    deadline = f" by {goal['deadline']}" if goal["deadline"] else ""
+    return "Review this milestone", f"{action}{deadline}."
 
 
 def goal_rows(db, owners, project=None, kind=None):
@@ -209,8 +222,12 @@ def ticket_details(db, task):
                      (task["id"],)).fetchone()
     if row is None:
         return None
-    return {"kind": row["kind"], "deadline": row["deadline"],
-            "tickets": tickets(db, projects.row_project(task), task["dri"], json.loads(row["ticket_ids"]))}
+    result = {"kind": row["kind"], "deadline": row["deadline"],
+              "tickets": tickets(db, projects.row_project(task), task["dri"], json.loads(row["ticket_ids"]))}
+    if (row["kind"] == "standing" and task["state"] == "parked"
+            and task["note"] not in (LEGACY_GOAL_STEP, STANDING_EXPLORATION)):
+        result["parked_note"] = task["note"]
+    return result
 
 
 def tickets(db, project, owner, ids):

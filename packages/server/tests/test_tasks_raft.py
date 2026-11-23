@@ -53,6 +53,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "raft-channel-show": ("GET", "project", ""),
             "raft-channel-set": ("POST", "project channel_id", ""),
             "my-next": ("GET", "", "project scope"),
+            "idle-goal-offer": ("POST", "handoff_id", ""),
             "my-goals": ("GET", "", "project"),
             "my-wake-subscriptions": ("GET", "", "project"),
             "set-wake-subscription": ("POST", "event_type enabled", "project"),

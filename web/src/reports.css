@@ -131,6 +131,35 @@
 }
 .report-goals li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .1rem .6rem; }
 .report-goals :is(span:not(.report-goal-text), time) { color: var(--muted); font-size: .79rem; }
+.report-goals-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem; border-bottom: 1px solid var(--line); }
+.report-owner-section .report-goals-heading :is(h3, h4) { border: 0; }
+.report-goals-heading a { font-size: .79rem; }
+.goal-activity { overflow-wrap: anywhere; }
+.goal-activity > .back-link { margin-bottom: .35rem; }
+.goal-activity h1 { margin: 0; }
+.goal-activity-description { margin: .35rem 0 .8rem; color: var(--muted); }
+.goal-activity-filters { display: flex; flex-wrap: wrap; gap: 0 1.25rem; }
+.goal-activity-filters label { display: flex; align-items: center; gap: .5rem; min-width: 0; max-width: 100%; }
+.goal-activity-filters .embedded-picker { min-width: 0; }
+.goal-activity-filters select { text-overflow: ellipsis; }
+.goal-activity-list { list-style: none; padding: 0; margin: .65rem 0 0; }
+.goal-activity-row { padding: .85rem 0; border-top: 1px solid var(--line); }
+.goal-activity-row h2 { margin: 0; font-size: 1rem; }
+.goal-activity-context { display: flex; flex-wrap: wrap; gap: .15rem .6rem; margin: .25rem 0; color: var(--muted); }
+.goal-activity-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+  gap: .5rem 1rem;
+  margin: .65rem 0;
+}
+.goal-activity-counts dt { color: var(--muted); font-size: .81rem; }
+.goal-activity-counts dd { margin: 0; }
+.goal-activity-outcomes { list-style: none; padding: 0; margin: .6rem 0 0; }
+.goal-activity-outcomes li { display: flex; flex-wrap: wrap; gap: .15rem .7rem; padding-block: .25rem; }
+.goal-activity-outcomes li a { flex: none; font-size: .84rem; }
+@media (width <= 40rem) {
+  .goal-activity-filters select { min-height: 2.75rem; }
+}
 .goal-deadline { display: inline-flex; align-items: baseline; gap: .35em; }
 .goal-deadline.is-overdue :is(time, strong) { color: var(--field-error); }
 .report-outcomes { list-style: none; margin: .25rem 0 0; padding: 0; }

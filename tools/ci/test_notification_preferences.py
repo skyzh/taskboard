@@ -17,6 +17,7 @@ from tasks_service import create_app
 from tasks_storage import Postgres
 from tasks_storage_import import import_snapshot
 from tasks_wake_subscriptions import OWNED_READY, has_subscription
+from tasks_goal_offers import idle_offer_counts
 
 
 PREFERENCE = "/api/v1/notifications/preferences"
@@ -76,17 +77,25 @@ class StorageReplayTest(unittest.TestCase):
     def test_postgres(self):
         self.replay(self.postgres_app(self.postgres_fixture()))
 
-    def test_wake_subscriptions_survive_sqlite_import(self):
+    def test_wake_subscriptions_and_idle_offers_survive_sqlite_import(self):
         client, owner = self.board.login(self.board.app(portal_reader=True), "Avery")
         self.board.action(client, "set-wake-subscription", {"event_type": OWNED_READY, "enabled": "true"})
+        self.board.action(client, "save-goal", {"kind": "standing", "summary": "Check a fictional workflow."})
+        handoff = {"handoff_id": str(uuid4())}
+        original = self.board.action(client, "idle-goal-offer", handoff)["offer"]
         snapshot = self.board.database.with_name("snapshot.sqlite3")
         with closing(sqlite3.connect(self.board.database)) as source, closing(sqlite3.connect(snapshot)) as backup:
             source.backup(backup)
 
         dsn = self.postgres_fixture()
-        self.assertEqual(import_snapshot(snapshot, dsn)["wake_subscriptions"], 1)
+        imported = import_snapshot(snapshot, dsn)
+        self.assertEqual(imported["wake_subscriptions"], 1)
+        self.assertEqual(imported["goal_idle_offers"], 1)
+        client, _ = self.board.login(self.postgres_app(dsn), "Avery")
+        self.assertEqual(self.board.action(client, "idle-goal-offer", handoff)["offer"], original)
         with closing(Postgres(dsn)) as db:
             self.assertTrue(has_subscription(db, "T", owner, OWNED_READY))
+            self.assertEqual(idle_offer_counts(db, [1]), {1: 1})
 
     def test_postgres_reopens_a_populated_version_one_board(self):
         dsn = self.postgres_fixture()
@@ -101,6 +110,7 @@ class StorageReplayTest(unittest.TestCase):
             # Recreate the previous table layout in this throwaway schema without Git history.
             db.execute("DROP TABLE board_standing_goals, board_goal_milestones, notification_log, peer_asks")
             db.execute("DROP TABLE wake_subscriptions")
+            db.execute("DROP TABLE goal_idle_offers")
 
         client, _ = self.board.login(self.postgres_app(dsn), "Avery")
         profile = f"/api/v1/assignee?owner={owner}"
@@ -110,6 +120,7 @@ class StorageReplayTest(unittest.TestCase):
             "kind": "dated", "summary": "Verify the upgrade", "deadline": "2030-12-03", "tickets": '["T-1"]',
         })
         self.assertEqual(self.board.action(client, "my-wake-subscriptions")["subscriptions"], [])
+        self.assertEqual(self.board.action(client, "idle-goal-offer", {"handoff_id": str(uuid4())})["offer"], None)
         wake = {"event_type": "owned-ready", "enabled": "true"}
         self.assertEqual(self.board.action(client, "set-wake-subscription", wake)["subscriptions"], ["owned-ready"])
         receipt = {
