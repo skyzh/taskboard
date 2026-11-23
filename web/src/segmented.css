@@ -15,7 +15,8 @@
   background: transparent;
   white-space: nowrap;
 }
-.segmented-control > button[aria-pressed="true"] {
+.segmented-control > button[aria-pressed="true"],
+.segmented-control > button[aria-pressed="true"]:hover {
   color: var(--green);
   background: var(--paper);
   box-shadow: 0 0 0 1px var(--line);
