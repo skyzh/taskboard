@@ -6,7 +6,10 @@ import unittest
 from unittest.mock import patch
 
 from taskboard_client import SharedBoard
-from taskboard_cli.ready_checkpoint import checkpoint, measured_idle, raft_idle, raft_ready_count, raft_status, raft_wake, run_handler, watch_idle, watch_ready_count, watch_two_pickups
+from taskboard_cli.ready_checkpoint import (
+    checkpoint, measured_idle, raft_idle, raft_ready_count, raft_stalled_work, raft_status, raft_wake,
+    run_handler, watch_idle, watch_ready_count, watch_two_pickups,
+)
 from tasks_goal_offers import idle_offer_counts
 from tasks_service import connect
 import test_tasks_service
@@ -125,6 +128,159 @@ class ReadyCheckpointTest(unittest.TestCase):
 
         result = checkpoint(self.avery, "Avery", start)
         self.assertEqual((result["outcome"], result["task"]), ("started", "T-3"))
+
+    def run_repeat_for(self, seconds, *, idle, stalled=None, ready=None):
+        clock = 0
+        outcomes = []
+
+        def sleep_for(delay):
+            nonlocal clock
+            clock += delay
+            if clock > seconds:
+                raise StopIteration
+
+        with (
+            patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+            patch("taskboard_cli.ready_checkpoint.sleep", side_effect=sleep_for),
+            self.assertRaises(StopIteration),
+        ):
+            watch_ready_count(
+                self.avery, "Avery", lambda _: idle(clock), ready or self.fail, outcomes.append,
+                interval=60, notify_stalled=None if stalled is None else lambda offer, check: stalled(clock, offer, check),
+            )
+        return outcomes
+
+    def test_stalled_wake_is_opt_in_and_requires_thirty_continuous_idle_minutes(self):
+        offer = {"kind": "in_progress", "task": "T-1", "task_id": 1, "event_id": 2}
+        def select(_board, _actor, *, exclude_events):
+            return None if 2 in exclude_events else offer
+
+        with patch("taskboard_cli.ready_checkpoint.offer_stalled_work", side_effect=select) as lookup:
+            self.assertEqual(self.run_repeat_for(1860, idle=lambda _: True), [])
+            lookup.assert_not_called()
+
+            wakes = []
+
+            def notify(clock, event, check):
+                self.assertTrue(check())
+                wakes.append((clock, event["event_id"]))
+                return "wake-requested"
+
+            self.assertEqual(self.run_repeat_for(1799, idle=lambda _: True, stalled=notify), [])
+            lookup.assert_not_called()
+            outcomes = self.run_repeat_for(4400, idle=lambda now: now != 900, stalled=notify)
+            self.assertEqual(wakes, [(2760, 2)])
+            self.assertEqual(outcomes[0]["idle_seconds"], 1800)
+            self.assertEqual(len(outcomes), 1)
+
+    def test_stalled_wake_rechecks_work_and_idle_even_after_selecting_a_step(self):
+        offer = {"kind": "request", "task": "T-3", "task_id": 3, "event_id": 7}
+        for change in ("new-step", "no-longer-actionable", "became-working", "new-ready"):
+            with self.subTest(change=change):
+                state = {"idle": True, "offer": offer}
+                attempts = []
+
+                def notify(clock, picked, check):
+                    attempts.append((clock, picked["event_id"]))
+                    if change == "new-step":
+                        state["offer"] = {**offer, "event_id": 8}
+                    elif change == "no-longer-actionable":
+                        state["offer"] = None
+                    elif change == "became-working":
+                        state["idle"] = False
+                    else:
+                        self.avery.invoke("create-task", {"title": "New Ready work", "step": "Take the new step."}, write=True)
+                    self.assertFalse(check())
+                    return None
+
+                with patch("taskboard_cli.ready_checkpoint.offer_stalled_work", side_effect=lambda *_, **__: state["offer"]):
+                    self.assertEqual(self.run_repeat_for(1800, idle=lambda _: state["idle"], stalled=notify), [])
+                self.assertEqual(attempts, [(1800, 7)])
+
+    def test_a_changed_stalled_step_gets_a_new_idle_window(self):
+        offer = {"kind": "request", "task": "T-3", "task_id": 3, "event_id": 7}
+        wakes = []
+
+        def notify(clock, notice, check):
+            if notice["event_id"] == 7:
+                offer["event_id"] = 8
+                self.assertFalse(check())
+                return None
+            self.assertTrue(check())
+            wakes.append((clock, notice["event_id"]))
+            return "wake-requested"
+
+        with patch("taskboard_cli.ready_checkpoint.offer_stalled_work", side_effect=lambda *_, **__: dict(offer)):
+            self.run_repeat_for(3600, idle=lambda _: True, stalled=notify)
+        self.assertEqual(wakes, [(3600, 8)])
+
+    def test_an_already_reminded_step_does_not_hide_newly_runnable_work(self):
+        for ticket, title in (("T-1", "Prepare sample"), ("T-2", "Check sample")):
+            self.avery.invoke("create-task", {"title": title, "step": "Read it."}, write=True)
+            self.avery.invoke("advance-task", {"id": ticket, "transition": "start", "note": "Continue the sample."}, write=True)
+        run = self.avery.invoke("delegate", {
+            "id": "T-1", "worker": self.blake.invoke("context")["actor"]["id"], "role": "build", "brief": "Prepare it.",
+        }, write=True)["receipt"].split()[0]
+        self.avery.invoke("worker-handoff", {"run": run, "transition": "start", "handle": "fixture"}, write=True)
+        reported = False
+        attempts = []
+
+        def idle(clock):
+            nonlocal reported
+            if clock >= 1920 and not reported:
+                self.blake.invoke("worker-handoff", {
+                    "run": run, "transition": "report", "result": "completed", "note": "The sample is ready.",
+                }, write=True)
+                reported = True
+            return True
+
+        def notify(clock, notice, check):
+            attempts.append((clock, notice["task"]))
+            if notice["task"] == "T-2":
+                return "already-queued"
+            self.assertTrue(check())
+            return "wake-requested"
+
+        self.run_repeat_for(3900, idle=idle, stalled=notify)
+        self.assertEqual(attempts, [(1800, "T-2"), (3600, "T-1")])
+
+    def test_changed_ready_queue_takes_precedence_until_its_count_has_been_announced(self):
+        self.avery.invoke("create-task", {"title": "Current Ready work", "step": "Read it."}, write=True)
+        wakes = []
+
+        def ready(notice, check):
+            self.assertTrue(check())
+            wakes.append(("ready", notice["ready_count"]))
+            return "wake-requested"
+
+        def stalled(clock, notice, check):
+            self.assertTrue(check())
+            self.assertEqual(clock, 120 + 1800)
+            wakes.append(("stalled", notice["event_id"]))
+            return "wake-requested"
+
+        offer = {"kind": "in_progress", "task": "T-2", "task_id": 2, "event_id": 3}
+        with patch("taskboard_cli.ready_checkpoint.offer_stalled_work", return_value=offer):
+            outcomes = self.run_repeat_for(2000, idle=lambda _: True, stalled=stalled, ready=ready)
+        self.assertEqual(wakes, [("ready", 1), ("stalled", 3)])
+        self.assertEqual([item["idle_seconds"] for item in outcomes], [120, 1800])
+
+    def test_stalled_wake_deduplicates_scheduled_and_fired_receipts_and_links_the_ticket(self):
+        offer = {"kind": "in_progress", "task": "COURSE-3", "task_id": 6, "event_id": 19,
+                 "board": "https://example.test/tasks/"}
+        title = ("Taskboard idle follow-up for COURSE-3 (event 19). "
+                 "Open https://example.test/tasks/#task-COURSE-3 to continue or record the blocker.")
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", return_value=f'#12345678 [fired] "{title}" ref=#fixture\n') as cli:
+            self.assertEqual(raft_stalled_work(offer, "#fixture", "anchor", self.fail), "already-queued")
+            cli.assert_called_once_with("reminder", "list", "--status", "scheduled,fired")
+
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", "Reminder scheduled: #12345678 "]) as cli:
+            receipt = []
+            self.assertEqual(raft_stalled_work(offer, "#fixture", "anchor", lambda: True, record_wake=receipt.append),
+                             "wake-requested")
+            cli.assert_called_with("reminder", "schedule", "--title", title, "--delay-seconds", "1",
+                                   "--channel", "#fixture", "--message-id", "anchor")
+            self.assertEqual(receipt, ["#12345678"])
 
     def test_named_review_fallback_defer_and_empty_when_other_owner_has_ready_work(self):
         self.blake.invoke("create-task", {"title": "Owned by someone else", "step": "Read it."}, write=True)

@@ -666,8 +666,11 @@ class BoardQueries:
         identities = profiles.visible_by_keys(self.db, [run["worker"] for run in runs], self.base)
         for run in runs:
             run["worker_profile"] = identities.get(run["worker"])
+        task = {**self.task_rows([row])[0], "eta": row["eta"]}
+        if owner and owner == task["dri"] and (peer := task.get("peer_request")):
+            peer["review_run_id"] = peer_asks.find(self.db, number)["review_run_id"]
         result = {
-            "task": {**self.task_rows([row])[0], "eta": row["eta"]},
+            "task": task,
             "brief": row["brief"],
             "checklist": steps,
             "related_tasks": related,

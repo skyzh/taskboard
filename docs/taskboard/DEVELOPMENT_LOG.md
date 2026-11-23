@@ -2,6 +2,10 @@
 
 Update this log at each development handoff with the verified result, any open issue, and the next priority. Keep the queue and detailed review evidence in the work tracker. [Contributing guide](../../CONTRIBUTING.md)
 
+## Unreleased
+
+- **Optional stalled-work wake.** The existing Ready watcher can follow up after 30 minutes of sampled Raft Idle on a runnable In progress step or a started peer ask. It takes effect when you relaunch the updated watcher with `--wake-stalled`. [Opt in, verify the running job, or restore the previous options.](READY-CHECKPOINT.md#try-the-stalled-work-wake)
+
 ## November 21, 2026
 
 ### Verified changes

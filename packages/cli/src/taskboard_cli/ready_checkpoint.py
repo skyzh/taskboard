@@ -12,7 +12,7 @@ from time import monotonic, sleep
 from uuid import UUID
 
 from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
-from taskboard_cli.shared import assert_actor
+from taskboard_cli.shared import assert_actor, task_url
 
 
 def offer_work(board, actor):
@@ -25,6 +25,36 @@ def offer_work(board, actor):
     for review in board.pages("my-reviews"):
         if review["status"] == "planned":
             return {"kind": "review", "task": review["task_key"], "worker_run": f"W-{review['id']}"}
+    return None
+
+
+def offer_stalled_work(board, actor, *, exclude_events=()):
+    """Find an owned In progress event that can still use the agent's attention."""
+    for queued in board.pages("my-queue", {"scope": "all", "state": "in_progress"}):
+        if queued["dri"] != actor or queued["state"] != "in_progress":
+            raise SharedReadError("The In progress queue returned work outside the signed-in agent's scope.",
+                                  reason="queue-scope")
+
+        detail = board.invoke("task", {"id": queued["key"]})
+        task = detail["task"]
+        if task["dri"] != actor or task["state"] != "in_progress" or task["event_id"] in exclude_events:
+            continue
+        if any(run["execution_state"] == "running" for run in detail["workers"]):
+            continue
+
+        kind = "in_progress"
+        peer = task.get("peer_request")
+        if peer and peer["phase"] == "in_progress":
+            linked_review = peer.get("review_run_id")
+            legacy = "review_run_id" not in peer
+            if linked_review is not None or legacy:
+                source = board.invoke("task", {"id": peer["source_key"]})
+                if any(run["execution_state"] == "running" and run["role"] == "review" and run["worker"] == actor
+                       and (legacy or run["id"] == linked_review) for run in source["workers"]):
+                    continue
+            kind = "request"
+
+        return {"kind": kind, "task": task["key"], "task_id": task["id"], "event_id": task["event_id"]}
     return None
 
 
@@ -126,7 +156,7 @@ def watch_idle(board, owner, is_idle, notify, duration, interval=10, idle_delay=
                            notify, deadline, interval, idle_delay)
 
 
-def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_delay):
+def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_delay, *, delayed_lookup=None):
     handle = context["actor"]["username"]
     if not handle:
         raise ValueError("The signed-in Taskboard agent has no verified Raft handle.")
@@ -160,6 +190,8 @@ def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_d
     while monotonic() < deadline:
         if can_wake():
             offer = lookup()
+            if offer is None and delayed_lookup is not None:
+                offer = delayed_lookup(observed_idle)
             if offer is not None:
                 outcome = notify({**offer, "board": context["board"]}, can_wake)
                 if outcome is not None:
@@ -201,7 +233,12 @@ def watch_two_pickups(board, owner, is_idle, notify, duration, interval=10, idle
     return {"outcome": "two-pickups-confirmed", "pickups": pickups}
 
 
-def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_delay=120, *, observe_status=None):
+STALLED_IDLE_SECONDS = 30 * 60
+STALLED_READ = "stalled work"
+
+
+def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_delay=120, *, observe_status=None,
+                      notify_stalled=None):
     """Stay armed and report the size of a changed, nonempty owned Ready queue."""
     try:
         context = agent_context(board, owner)
@@ -211,6 +248,7 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     filters = {"scope": "all", "state": "ready", "limit": 100}
     noticed = frozenset()
     current = noticed
+    noticed_stalled = set()
     stage = "eligible queue"
 
     def ready_events(read_stage):
@@ -230,7 +268,10 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     def next_count():
         nonlocal current
         current = ready_events("eligible queue")
-        return {"ready_count": len(current)} if current and current != noticed else None
+        return {"ready_count": len(current)} if has_new_ready(current) else None
+
+    def has_new_ready(ready):
+        return bool(ready and ready != noticed)
 
     def notify_count(notice, can_wake):
         if observe_status is not None:
@@ -238,16 +279,55 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
         outcome = notify(notice, can_wake)
         return None if outcome == "already-queued" else outcome
 
+    def stalled_offer():
+        nonlocal stage
+        stage = STALLED_READ
+        try:
+            return offer_stalled_work(board, actor, exclude_events=noticed_stalled)
+        except SharedActionUnavailable as error:
+            raise SharedReadError(str(error), reason="action-unavailable") from error
+
+    def next_stalled(idle_seconds):
+        if has_new_ready(current) or idle_seconds < STALLED_IDLE_SECONDS:
+            return None
+        return stalled_offer()
+
+    def notify_current(notice, can_wake):
+        if "ready_count" in notice:
+            return notify_count(notice, can_wake)
+
+        changed = False
+
+        def still_current():
+            nonlocal changed
+            if has_new_ready(ready_events("eligible queue")):
+                return False
+            current_offer = stalled_offer()
+            changed = current_offer is None or notice != {**current_offer, "board": context["board"]}
+            return not changed and can_wake()
+
+        outcome = notify_stalled(notice, still_current)
+        return "stalled-step-changed" if changed else outcome
+
     if observe_status is not None:
         is_idle = measured_idle(observe_status, actor, lambda: ready_events("idle sample"), emit)
 
     while True:
         try:
-            result = check_when_idle(context, is_idle, next_count, notify_count, float("inf"), interval, idle_delay)
+            result = check_when_idle(context, is_idle, next_count, notify_current, float("inf"), interval, idle_delay,
+                                     delayed_lookup=next_stalled if notify_stalled is not None else None)
         except SharedReadError as error:
-            recover_ready_read(lambda: ready_events(stage), stage, error, emit, interval, count_ready=True)
+            if stage == STALLED_READ:
+                recover_ready_read(stalled_offer, stage, error, emit, interval)
+            else:
+                recover_ready_read(lambda: ready_events(stage), stage, error, emit, interval, count_ready=True)
             continue
-        noticed = current
+        if result["outcome"] == "stalled-step-changed":
+            continue
+        if "ready_count" in result:
+            noticed = current
+        else:
+            noticed_stalled.add(result["event_id"])
         emit(result)
 
 
@@ -356,6 +436,12 @@ def raft_ready_count(notice, channel, message_id, can_wake, *, record_wake=None)
     return wake_with_title(title, channel, message_id, can_wake, status="scheduled", record_wake=record_wake)
 
 
+def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None):
+    url = task_url(offer["board"], {"key": offer["task"], "id": offer["task_id"]})
+    title = f"Taskboard idle follow-up for {offer['task']} (event {offer['event_id']}). Open {url} to continue or record the blocker."
+    return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake)
+
+
 def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fired", *, record_wake=None):
     reminders = raft_cli("reminder", "list", "--status", status)
     if any(line.startswith("#") and f' "{title}" ref=' in line for line in reminders.splitlines()):
@@ -381,6 +467,7 @@ def main():
     mode.add_argument("--two-pickups", action="store_true", help="In watcher mode, verify up to two successive starts.")
     mode.add_argument("--repeat", action="store_true", help="Stay armed and report the count of owned Ready tickets.")
     parser.add_argument("--measure", action="store_true", help="Emit sampled status and wake receipts in repeat mode.")
+    parser.add_argument("--wake-stalled", action="store_true", help="Opt in to one wake for an eligible step after 30 idle minutes.")
     parser.add_argument("--idle-delay-seconds", type=int, default=0, help="Require this much observed idle time before a wake.")
     parser.add_argument("--idle-handoff", type=UUID, help="Stable runner UUID for an explicit idle goal offer.")
     parser.add_argument("--channel", help="Raft conversation anchoring the watcher.")
@@ -390,6 +477,8 @@ def main():
     command = args.handler[1:] if args.handler[:1] == ["--"] else args.handler
     if args.measure and not (args.watch_idle and args.repeat):
         parser.error("Use --measure only with --watch-idle --repeat.")
+    if args.wake_stalled and not (args.watch_idle and args.repeat):
+        parser.error("Use --wake-stalled only with --watch-idle --repeat.")
     if args.watch_idle:
         if command or not args.channel or not args.message_id or args.idle_handoff:
             parser.error("Use --channel and --message-id for the watcher, without a handler.")
@@ -416,10 +505,20 @@ def main():
                         record_wake=record_wake if args.measure else None,
                     )
 
+                def notify_stalled(offer, can_wake):
+                    def record_wake(reference):
+                        emit({
+                            "kind": "stalled-wake-requested", "owner": args.by, "at": observation_time(),
+                            "task": offer["task"], "source_event": offer["event_id"], "reminder": reference,
+                        })
+
+                    return raft_stalled_work(offer, args.channel, args.message_id, can_wake, record_wake=record_wake)
+
                 watch_ready_count(
                     board, args.by, raft_idle, notify_count, emit,
                     idle_delay=args.idle_delay_seconds or 120,
                     observe_status=raft_status if args.measure else None,
+                    notify_stalled=notify_stalled if args.wake_stalled else None,
                 )
             else:
                 watch = watch_two_pickups if args.two_pickups else watch_idle
