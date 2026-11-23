@@ -38,6 +38,7 @@ let AttentionRequests
 let Stats
 let QueuedAsks
 let MyActivity
+let Knowledge
 before(async () => {
   const result = await build({
     stdin: {
@@ -61,6 +62,7 @@ before(async () => {
         export { default as Stats } from './Stats.jsx'
         export { default as QueuedAsks } from './QueuedAsks.jsx'
         export { default as MyActivity } from './MyActivity.jsx'
+        export { default as Knowledge } from './Knowledge.jsx'
       `,
       resolveDir: fileURLToPath(new URL('.', import.meta.url)),
     },
@@ -123,8 +125,28 @@ before(async () => {
     WorkLog, WorkQueue, TaskDetail, DecisionForm, TaskClosure, TaskDetailsEdit, TaskOwnership, TaskTags,
     ReminderDate, PendingReports, Reports, AssigneePage, EventRow, OutcomeRow, Outcomes,
     TimeZoneContext, createTimeZoneFormatters,
-    Notifications, GoalActivity, DriGoal, DriMilestones, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity,
+    Notifications, GoalActivity, DriGoal, DriMilestones, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity, Knowledge,
   } = module.exports)
+})
+
+test('Knowledge areas show configured project names and preserve their index links', () => {
+  const path = '/knowledge/areas'
+  fixture.resources[path] = { data: { areas: [
+    { project: 'T', path: 'Knowledge workflows', index: 'T-1323', available: true },
+    { project: 'SRE', path: 'Access', index: 'SRE-17', available: true },
+  ] } }
+  try {
+    const view = renderToStaticMarkup(React.createElement(Knowledge, {
+      session: {}, verified: true, search: '',
+      projects: [{ prefix: 'T', title: 'Taskboard' }],
+    }))
+    assert.match(view, /<section aria-label="Taskboard"><h3>Taskboard<\/h3>/)
+    assert.match(view, /<section aria-label="SRE"><h3>SRE<\/h3>/)
+    assert.match(view, /href="#knowledge\?entry=T-1323">Knowledge workflows<\/a>/)
+    assert.match(view, /href="#knowledge\?entry=SRE-17">Access<\/a>/)
+  } finally {
+    delete fixture.resources[path]
+  }
 })
 
 test('an assignee returns to the current Reports scope', () => {

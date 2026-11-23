@@ -353,7 +353,7 @@ export default function App() {
           {view === 'about' && <About revision={revision} />}
           {view === 'integrations' && <Integrations session={session}
             challenge={new URLSearchParams(taskContext).get('cli')} />}
-          {view === 'knowledge' && <Knowledge session={session} verified={verified} revision={revision}
+          {view === 'knowledge' && <Knowledge session={session} verified={verified} revision={revision} projects={visibleProjects}
             search={knowledgeFilters.get('q') || ''} entry={knowledgeFilters.get('entry')}
             onSearch={value => writeFilterFragment(value ? `knowledge?${new URLSearchParams({ q: value })}` : 'knowledge', false)} />}
           {view === 'personal-codex' && <PersonalCodex key={session.data?.actor?.id} session={session}
