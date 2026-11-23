@@ -18,8 +18,8 @@ permissions:
 
 jobs:
   status-baselines:
-    name: Summary baselines in Safari and Chromium
-    runs-on: macos-26
+    name: ${{ github.event_name == 'workflow_dispatch' && 'Summary baselines in native iPhone Safari' || 'Summary baselines in Chromium and WebKit' }}
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && 'macos-26' || 'ubuntu-24.04' }}
     timeout-minutes: 14
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -30,16 +30,25 @@ jobs:
         with:
           node-version: '24.22.3'
           package-manager-cache: false
-      - name: Build and install the desktop renderer
+      - name: Build and install the browser renderers
         run: |
           npm --prefix web ci --no-audit --no-fund
           npm --prefix web run build
           npm install --prefix "$RUNNER_TEMP/taskboard-visual" --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.63.0
-          "$RUNNER_TEMP/taskboard-visual/node_modules/.bin/playwright" install chromium
-      - name: Verify the same fictional rows in both browsers
+          playwright="$RUNNER_TEMP/taskboard-visual/node_modules/.bin/playwright"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            "$playwright" install chromium
+          else
+            "$playwright" install --with-deps chromium webkit
+          fi
+      - name: Verify the same fictional rows in three layouts
         run: |
+          args=()
+          if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]]; then
+            args+=(--headless)
+          fi
           bash tools/summary-visual/capture.sh web/dist "$RUNNER_TEMP/summary-visual-evidence" \
-            "$RUNNER_TEMP/taskboard-visual/node_modules/playwright/index.mjs"
+            "$RUNNER_TEMP/taskboard-visual/node_modules/playwright/index.mjs" "${args[@]}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:

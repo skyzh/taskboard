@@ -20,7 +20,13 @@ if [[ ! -s "$evidence/url" ]]; then cat "$evidence/preview.log" >&2; exit 1; fi
 url="$(cat "$evidence/url")"
 curl -fsS --max-time 10 "${url}api/v1/reports?project=T&limit=20" -o "$evidence/fixture.json"
 grep -q 'Check the sample' "$evidence/fixture.json"
-node "$here/desktop.mjs" "$playwright" "$url" "$evidence"
+if [[ ${4:-} == '--headless' ]]; then
+  node "$here/headless.mjs" "$playwright" "$url" "$evidence" desktop compact wide
+  node "$here/verify.mjs" "$evidence" desktop compact wide
+  exit 0
+fi
+
+node "$here/headless.mjs" "$playwright" "$url" "$evidence" desktop
 node "$here/verify.mjs" "$evidence" desktop
 if [[ ${4:-} == '--desktop-only' ]]; then exit 0; fi
 
