@@ -1,4 +1,4 @@
-"""Submit a single owned Ready cue from a disposable fixture."""
+"""Submit and record a single owned Ready cue."""
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -16,22 +16,22 @@ from tasks_wake_subscriptions import OWNED_READY, has_subscription
 
 
 @dataclass(frozen=True)
-class FixtureRecipient:
-    """Identity and agent-events token whose binding the fixture attests."""
+class WakeRecipient:
+    """Identity and opaque agent-events token bound by the approved exchange."""
 
     identity: Identity
     access_token: str = field(repr=False)
 
 
-def launch_ready_fixture(
-    db, *, project: str, task: str, event_id: int, recipient: FixtureRecipient,
+def launch_ready_wake(
+    db, *, project: str, task: str, event_id: int, recipient: WakeRecipient,
     transport: Callable[[Request], tuple[int, object]],
-) -> Literal["accepted", "rejected", "unknown"]:
-    """Attempt one send, or return a previously recorded terminal acceptance.
+) -> Literal["accepted", "already_accepted", "rejected", "unknown"]:
+    """Attempt one send or report a prior acceptance or rejection.
 
     Use a named transition such as add or transfer. The ledger's current
     Ready event can also be an update that keeps a ticket Ready.
-    The fixture supplies its attested token binding and transport. An
+    The caller supplies an attested token binding and transport. An
     unconfirmed response returns unknown without adding an observation.
     """
     identity = recipient.identity
@@ -57,11 +57,13 @@ def launch_ready_fixture(
         if existing is not None:
             if existing["recipient"] != owner:
                 raise ReceiptConflict("This wake already belongs to a different recipient.")
-            if existing["acceptance"] in ("accepted", "rejected"):
-                return existing["acceptance"]
+            if existing["acceptance"] == "accepted":
+                return "already_accepted"
+            if existing["acceptance"] == "rejected":
+                return "rejected"
         board_url = ledger.live_board_url(db)
         if not board_url:
-            raise ValueError("Use a fixture board with a configured public URL.")
+            raise ValueError("Use a board with a configured public URL.")
         task_url = f"{board_url.rstrip('/')}/#task-{projects.anchor(current)}"
         source = {"task": task, "event": event_id, "at": current["at"]}
 
