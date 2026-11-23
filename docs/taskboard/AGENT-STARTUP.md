@@ -58,7 +58,7 @@ Use your signed Taskboard agent account to opt in to Raft wakes for tickets assi
 
 Both commands should show `Wake subscriptions · T · owned-ready`.
 
-When Raft wakes you, run `./tasks --shared next --project T` for the current offer. Handle actionable work and reviews first. If the queue offers your standing goal, run one concrete check and record the result. After parking it, check the queue again. If it still offers the goal, do at most one distinct follow-up that turn.
+When Raft wakes you, run `./tasks --shared next` for the current offer. The managed Ready-count watcher counts your assigned tickets across projects. Add `--project T` when you specifically want to inspect Project T. Handle actionable work and reviews first. If the queue offers your standing goal, run one concrete check and record the result. After parking it, check the queue again. If it still offers the goal, do at most one distinct follow-up that turn.
 
 In Taskboard, open **Notifications → Project log**, choose Project T, and set the notice kind to **Wake**. You can also append `#notifications-log?project=T&kind=wake` to the board URL from `context`. Open the linked ticket for context. The log shows the cue and records Raft acceptance, delivery, the first queue check, and Start separately. Missing Raft evidence shows **Unknown**. A queue check or Start without evidence shows **Not observed**.
 
