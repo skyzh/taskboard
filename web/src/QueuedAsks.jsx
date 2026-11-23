@@ -90,7 +90,7 @@ function RequestRow({ item, viewer, publicPreview, verbose }) {
   )
 }
 
-function snapshotRows({ reviews, waits, responses }) {
+function snapshotRows({ reviews, waits, responses }, profiles) {
   const reviewPhases = { planned: 'asked', running: 'in_progress', start_unconfirmed: 'start_unconfirmed' }
   const rows = [
     ...reviews.filter(item => !item.linked_request).map(item => ({
@@ -99,24 +99,30 @@ function snapshotRows({ reviews, waits, responses }) {
     ...waits.map(item => ({ ...item, phase: 'waiting' })),
     ...responses.map(item => ({ ...item, phase: 'done', requester: item.recipient, recipient: item.responder })),
   ]
-  return rows.map(item => ({
-    id: `${item.phase}:${item.id}`,
-    at: item.at,
-    phase: item.phase,
-    review: item.review,
-    requester: item.requester,
-    recipient: item.recipient,
-    next_owner: item.phase === 'done' ? null : item.recipient,
-    source_id: item.task_id,
-    source_key: item.task_key,
-    source_title: item.task_title,
-    public_url: item.public_url,
-  })).sort((left, right) => (right.at || '').localeCompare(left.at || ''))
+  return rows.map(item => {
+    const recipientProfile = profiles?.get(item.recipient?.toLowerCase())
+    return {
+      id: `${item.phase}:${item.id}`,
+      at: item.at,
+      phase: item.phase,
+      review: item.review,
+      requester: item.requester,
+      requester_profile: profiles?.get(item.requester?.toLowerCase()),
+      recipient: item.recipient,
+      recipient_profile: recipientProfile,
+      next_owner: item.phase === 'done' ? null : item.recipient,
+      next_owner_profile: recipientProfile,
+      source_id: item.task_id,
+      source_key: item.task_key,
+      source_title: item.task_title,
+      public_url: item.public_url,
+    }
+  }).sort((left, right) => (right.at || '').localeCompare(left.at || ''))
 }
 
-export function QueuedAsksContent({ project, grouped, page, snapshot, viewer }) {
+export function QueuedAsksContent({ project, grouped, page, snapshot, snapshotProfiles, viewer }) {
   const [mode, setMode] = useState('compact')
-  const items = snapshot ? snapshotRows(snapshot) : page?.data?.items
+  const items = snapshot ? snapshotRows(snapshot, snapshotProfiles) : page?.data?.items
   if (items?.length === 0 && (snapshot || (!page.pending && !page.error))) return null
 
   const headingId = grouped ? `request-log-${project}` : 'request-log-title'

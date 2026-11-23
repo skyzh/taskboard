@@ -16,3 +16,4 @@ export const entries = snapshot.entries.map(entry => ({
   public_url: profileSource,
   profile: { ...entry.profile, avatar_url: avatars[entry.owner] },
 }))
+export const profiles = new Map(entries.map(({ owner, profile }) => [owner, profile]))

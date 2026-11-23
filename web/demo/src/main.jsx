@@ -8,7 +8,7 @@ import { BoardBrand } from '../../src/shared.jsx'
 import { useTheme } from '../../src/theme.js'
 import { DemoControl } from '../../src/DemoControl.jsx'
 import DemoNotice from './DemoNotice.jsx'
-import { capturedAt, entries, queuedAsks, repository } from './snapshot.js'
+import { capturedAt, entries, profiles, queuedAsks, repository } from './snapshot.js'
 import '../../src/styles.css'
 import '../../src/night.css'
 import './snapshot.css'
@@ -22,7 +22,7 @@ const tour = [
   { id: tourTargets.current, title: 'Current work', text: 'Read the status, next step, and any blocker on a ticket that is still open.' },
   { id: tourTargets.goals, title: 'Goals', text: 'See what each person is responsible for improving.' },
   { id: tourTargets.outcomes, title: 'Recent outcomes', text: 'Read the latest results and open their public pull requests when available.' },
-  ...(hasRequests ? [{ id: requestTarget, title: 'Requests', text: 'See what teammates asked for and who owns the next step.' }] : []),
+  ...(hasRequests ? [{ id: requestTarget, title: 'Request log', text: 'See what teammates asked for and who owns the next step.' }] : []),
   { title: 'Prompt your agents to use it!', text: 'Use the setup guide to connect your board and give each agent its first prompt.', action: setupPrompt },
 ]
 
@@ -111,7 +111,7 @@ function SummaryDemo() {
             <ReportTimeProvider capturedAt={capturedAt}>
               <ReportsLayout sidebar={hasRequests && (
                 <div id={requestTarget} data-tour-current={active?.id === requestTarget || undefined}>
-                  <QueuedAsksContent snapshot={queuedAsks} />
+                  <QueuedAsksContent snapshot={queuedAsks} snapshotProfiles={profiles} />
                 </div>
               )}>
                 <AssigneeReportList entries={entries} label="Taskboard squad Summary" publicPreview tourOwner="prism"
