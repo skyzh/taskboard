@@ -6,6 +6,7 @@ import ChecklistEdit from './ChecklistEdit.jsx'
 import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
 import { useFieldGuidance } from './FieldGuidance.jsx'
 import { MergeQueue } from './MergeQueue.jsx'
+import ParkingForm from './ParkingForm.jsx'
 import ReminderDate from './ReminderDate.jsx'
 import RecurringRuns from './RecurringRuns.jsx'
 import Kanban from './Kanban.jsx'
@@ -418,11 +419,12 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
               </>}
               <ClosureReference context={task.context} />
               <ReminderWhen context={task.context} />
-              {session.data?.actor?.id === task.dri && ['ready', 'in_progress', 'parked'].includes(task.state) && (
-                <ReminderDate key={`${id}:${task.context?.defer_until || task.context?.review_after || ''}`}
-                  path={`/tasks/${id}/reminder`} saved={task.context?.review_after}
-                  savedUntil={task.context?.defer_until} exactTime onChanged={onChanged} />
-              )}
+              {session.data?.actor?.id && session.data.actor.id === task.dri &&
+                ['ready', 'in_progress', 'parked'].includes(task.state) && (record.goal ? (
+                  <ReminderDate key={`${id}:${task.context?.review_after || ''}`}
+                    path={`/tasks/${id}/reminder`} saved={task.context?.review_after}
+                    onChanged={onChanged} />
+                ) : <ParkingForm key={task.event_id} task={task} onChanged={onChanged} />)}
               {!mayAnswer(task, session) && <Options options={task.context?.choices} />}
               <EvidenceLinks links={task.links} />
               {record.can_confirm_blocker && (

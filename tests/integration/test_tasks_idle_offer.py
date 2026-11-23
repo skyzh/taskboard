@@ -111,7 +111,7 @@ class IdleOfferTest(unittest.TestCase):
         self.advance(self.avery, scheduled, "start")
         self.advance(self.avery, scheduled, "remind", defer_until="2099-11-23T09:00:00-08:00")
         parked = self.add(self.avery, "Evaluate an optional sample")
-        self.advance(self.avery, parked, "park")
+        self.advance(self.avery, parked, "park", review_on=blocker, review_criteria="Review the optional sample.")
         done = self.add(self.avery, "Check the final sample")
         self.advance(self.avery, done, "start")
         self.advance(self.avery, done, "done")

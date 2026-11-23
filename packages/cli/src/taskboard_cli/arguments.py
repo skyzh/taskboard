@@ -160,7 +160,11 @@ def arguments(argv=None):
             command.add_argument("--choice", type=nonblank, help="Exact label of the selected option.")
             command.add_argument("--request-id", type=int, help="Request ID from the recipient inbox.")
         if action == "park":
-            command.add_argument("--review-after", type=review_date, metavar="YYYY-MM-DD")
+            revisit = command.add_mutually_exclusive_group()
+            revisit.add_argument("--review-after", type=review_date, metavar="YYYY-MM-DD",
+                                 help="Show the parked task on this Pacific date.")
+            revisit.add_argument("--until", dest="defer_until", metavar="DATETIME",
+                                 help="Return the task to Ready at the given time with a UTC offset.")
             command.add_argument("--review-on", type=nonblank, metavar="T-ID",
                                  help="Prompt for review when this dependency changes. Requires --review-criteria.")
             command.add_argument("--review-criteria", type=nonblank, metavar="TEXT",

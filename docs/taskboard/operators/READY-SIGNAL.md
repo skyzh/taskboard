@@ -64,8 +64,14 @@ check. A merge batch can use its final tracking ticket as the dependency.
 
 The owner's Inbox and the `readiness` command show a prompt after the
 dependency records an accepted merge, a completion, or a deliberate
-feature deferral. Record a deliberate deferral with
-`./tasks --shared park T-17 'Defer the optional check to the next batch.' --feature-deferred`.
+feature deferral. Register a return trigger for the deferred ticket itself.
+In this example, the next batch ticket prompts the review.
+
+```sh
+./tasks --shared park T-17 'Defer the optional check to the next batch.' \
+  --feature-deferred --review-on T-18 --review-criteria 'Check the next batch results.'
+```
+
 A subsequent qualifying change updates the same prompt with the latest
 evidence. The owner uses `unpark` when the criteria are met, or repeats the
 park command with the criteria to wait for later evidence. Date and exact

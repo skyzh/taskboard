@@ -2,6 +2,16 @@ import React, { useState } from 'react'
 import { request } from './data.js'
 import { useTimeZone } from './timeZone.js'
 
+export function ReminderValue({ timed, value, onChange, timeZone, disabled }) {
+  return timed ? (
+    <label>Defer until ({timeZone})<input type="datetime-local" value={value} step="1" required
+      disabled={disabled} onChange={event => onChange(event.target.value)} /></label>
+  ) : (
+    <label>Date (Pacific time)<input type="date" value={value} required
+      disabled={disabled} onChange={event => onChange(event.target.value)} /></label>
+  )
+}
+
 export default function ReminderDate({ path, saved, savedUntil, exactTime = false, onChanged }) {
   const { timeZone, formatLocalInput } = useTimeZone()
   const savedMode = savedUntil ? 'time' : 'date'
@@ -39,13 +49,8 @@ export default function ReminderDate({ path, saved, savedUntil, exactTime = fals
           <option value="date">Date only</option>
           <option value="time">Exact time</option>
         </select></label>}
-        {timed ? (
-          <label>Defer until ({timeZone})<input type="datetime-local" value={time} step="1" required
-            onChange={event => setTime(event.target.value)} /></label>
-        ) : (
-          <label>Date (Pacific time)<input type="date" value={date} required
-            onChange={event => setDate(event.target.value)} /></label>
-        )}
+        <ReminderValue timed={timed} value={timed ? time : date}
+          onChange={timed ? setTime : setDate} timeZone={timeZone} />
         <button type="submit" disabled={pending || !(timed ? time : date) || !changed}>Save reminder</button>
         {(saved || savedUntil) && <button type="button" disabled={pending}
           onClick={() => save({ date: null })}>Clear reminder</button>}

@@ -133,7 +133,8 @@ class ReadySignalTest(unittest.TestCase):
         self.tasks("remind", "T-2", "--until", "2098-12-31T15:00:00-08:00", "--by", OWNER)
         self.tasks("remind", "T-2", "--until", "2098-12-31T16:00:00-08:00", "--by", OWNER)
         self.tasks("park", "T-3", "Revisit.", "--review-after", "2098-12-31", "--by", OWNER)
-        self.tasks("remind", "T-4", "--until", "2099-01-01T00:00Z", "--by", OWNER)
+        self.tasks("park", "T-4", "Wait for a sample.", "--until", "2099-01-01T00:00Z", "--by", OWNER,
+                   "--review-on", "T-1", "--review-criteria", "Check the sample against the backlog.")
         self.tasks("remind", "T-4", "--clear", "--by", OWNER)
         self.assertIn("Deferred until 2098-12-31 16:00:00-08:00", self.tasks("show", "T-2").stdout)
         self.assertEqual(self.read_signal("scan")["queued"], [])

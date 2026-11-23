@@ -2,6 +2,10 @@
 
 A shared server release must pass with the supported earlier clients before the operator admits it to the queue. Existing action names, methods, meanings, and defaults are part of the contract. Prefer optional additions and use action discovery for new features. A change that breaks an existing contract needs an explicit protocol version and migration plan.
 
+## Parked write protocol
+
+The signed context response reports `parking_protocol: 2` when the board requires a stored return path for ordinary Parked work. Earlier boards omit this field. The same actions and HTTP methods continue to serve their supported reminder, dependency review, and goal paths. Version 2 rejects a new Park without a return path and a request to clear the last return path. Existing unscheduled records stay readable and their owners can correct them. Earlier CLIs can use their existing `remind --until`, `park --review-after`, or `park --review-on` with criteria. Earlier browsers can use the existing reminder form to set a valid schedule. [Audit and migrate existing tickets](SHARED-BOARD.md#review-existing-parked-tickets-before-rollout)
+
 ## Release inputs
 
 Pin the candidate and active predecessor to their exact CI artifact manifests. The supported client set starts with the genuine legacy priority CLI and the preceding release's CLI. When the maintainer designates the first real release, store its verified client artifact in durable release storage and add its digest to the approved policy. Later release gates require that artifact even as the predecessor changes. A predecessor and a retained client can share a digest. Run each distinct client once and report which policy entries it covers. Use the existing manifest verifier on every artifact before running it.
