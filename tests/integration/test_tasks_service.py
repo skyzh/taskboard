@@ -701,8 +701,9 @@ class TasksServiceTest(unittest.TestCase):
                 self.assertIn(f"{flag} requires {missing}.", errors)
 
         code, output, errors = self.shared_cli(owner, "park", "COURSE-3", "Pause without a dependency.")
-        self.assertEqual((code, errors), (0, ""))
-        self.assertIn("Parked", output)
+        self.assertEqual((code, output), (1, ""))
+        self.assertIn("Choose a reminder or dependency review", errors)
+        self.assertEqual(self.action(owner, "task", query_string={"id": "COURSE-3"})["task"]["state"], "ready")
         reason = "Verify the final squash or an explicit deferral with an owner."
         code, output, errors = self.shared_cli(
             owner, "park", "COURSE-1", "Wait for the final change.", "--review-on", "T-1",
@@ -760,10 +761,15 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([item["key"] for item in self.action(owner, "my-readiness")["items"]], ["COURSE-1"])
 
         self.action(dependency_owner, "advance-task", {"id": "T-1", "transition": "park",
-                    "note": "Defer the optional fixture to another cycle.", "feature_deferred": "true"})
+                    "note": "Defer the optional fixture to another cycle.", "feature_deferred": "true"}, status=409)
+        self.action(dependency_owner, "advance-task", {"id": "T-1", "transition": "park",
+                    "note": "Defer the optional fixture to another cycle.", "feature_deferred": "true",
+                    "review_after": "2099-11-24"})
         deferred = self.action(owner, "my-readiness")["items"]
         self.assertEqual({item["event_kind"] for item in deferred}, {"deferred"})
         self.assertEqual(len(deferred), 2)
+        self.action(dependency_owner, "advance-task", {"id": "T-1", "transition": "park",
+                    "note": "Clarify the earlier deferral."})
         self.cli("remind", "COURSE-1", "--on", "2099-11-25", "--by", owner_key)
         self.assertEqual(self.action(owner, "my-readiness")["items"], deferred)
 
@@ -1056,7 +1062,7 @@ class TasksServiceTest(unittest.TestCase):
         })
         self.action(avery, "create-task", {"title": "Check the sample", "step": "Read the sample."})
         self.action(avery, "advance-task", {
-            "id": "T-3", "transition": "park", "note": "Wait for the next sample.",
+            "id": "T-3", "transition": "park", "note": "Wait for the next sample.", "review_after": "2099-11-23",
         })
         self.call(avery, "/api/v1/profile/milestone", method="PATCH", json={
             "goal": {"summary": "Ship the sample", "deadline": "2026-11-30", "tickets": ["T-3"]},
@@ -1112,7 +1118,9 @@ class TasksServiceTest(unittest.TestCase):
         app = self.app(portal_reader=True)
         avery, _ = self.login(app, "Avery")
         self.action(avery, "create-task", {"title": "Prepare sample", "step": LEGACY_GOAL_STEP})
-        self.action(avery, "advance-task", {"id": "T-1", "transition": "park", "note": LEGACY_GOAL_STEP})
+        self.action(avery, "advance-task", {
+            "id": "T-1", "transition": "park", "note": LEGACY_GOAL_STEP, "review_after": "2030-06-10",
+        })
         path = "/api/v1/profile/milestone"
         milestone = {"summary": "Publish the sample", "deadline": "2030-06-30", "tickets": ["T-1"]}
         self.call(avery, path, method="PATCH", json={"goal": milestone})
@@ -1250,8 +1258,10 @@ class TasksServiceTest(unittest.TestCase):
             self.launch_fixture(ready, "T", "Avery", transport)
 
         self.action(avery, "set-wake-subscription", {**opt_in, "project": "COURSE"})
-        for transition in ("park", "unpark"):
-            self.action(avery, "advance-task", {"id": "COURSE-1", "transition": transition, "note": "Fixture step."})
+        self.action(avery, "advance-task", {
+            "id": "COURSE-1", "transition": "park", "note": "Fixture step.", "review_after": "2099-11-23",
+        })
+        self.action(avery, "advance-task", {"id": "COURSE-1", "transition": "unpark", "note": "Fixture step."})
         with self.assertRaisesRegex(ValueError, "current Ready event"):
             self.launch_fixture(ready, "COURSE", "Avery", transport)
         self.action(avery, "set-wake-subscription", {**opt_in, "project": "COURSE", "enabled": "false"})
@@ -3538,13 +3548,93 @@ class TasksServiceTest(unittest.TestCase):
             self.call(app.test_client(), due, status=401)
             activity = self.call(avery, "/api/v1/tasks/1/activity").json["items"]
             self.assertEqual(sum(event["action"] == "park" for event in activity), 2)
-            self.call(avery, route, method="PUT", headers=headers, json={"date": None})
-            self.assertEqual(self.call(avery, due).json["items"], [])
+            rejected = self.call(avery, route, method="PUT", headers=headers, json={"date": None}, status=409)
+            self.assertIn("Choose a reminder or dependency review", rejected.json["error"])
+            self.assertEqual(self.call(avery, due).json["items"], rows)
         parked = self.call(avery, "/api/v1/tasks/1").json["task"]
         waiting = self.call(avery, "/api/v1/tasks/2").json["task"]
-        self.assertEqual((parked["state"], parked["context"]), ("parked", {}))
+        self.assertEqual((parked["state"], parked["context"]), ("parked", {"review_after": "2026-11-21"}))
         self.assertEqual((waiting["state"], waiting["waiting_on"], waiting["context"]["wait_kind"]),
                          ("waiting", "Automation", "automation"))
+
+    def test_task_parking_saves_the_note_and_return_path_together(self):
+        app = self.app(portal_reader=True)
+        avery, _ = self.login(app, "Avery")
+        blake, _ = self.login(app, "Blake")
+        self.action(avery, "create-task", {
+            "title": "Review samples", "step": "Read the results.",
+            "url": "https://example.test/results", "label": "Results",
+        })
+        self.action(blake, "create-task", {"title": "Publish samples", "step": "Collect results."})
+        route = "/api/v1/tasks/T-1"
+
+        def detail():
+            return self.call(avery, route).json["task"]
+
+        def park(client, payload, status=200):
+            return self.call(client, route + "/parking", method="POST", headers={"Origin": ORIGIN},
+                             json=payload, status=status).json
+
+        original = detail()
+        bare = park(avery, {"note": "Inspect tomorrow's samples."}, status=409)
+        self.assertIn("Use Waiting on for a blocker", bare["error"])
+        exact = {
+            "note": "Inspect tomorrow's samples.",
+            "at": "2030-04-01T12:30", "time_zone": "America/Los_Angeles",
+        }
+        park(app.test_client(), exact, status=401)
+        park(blake, exact, status=409)
+        conflict = park(avery, {**exact, "review_after": "2030-04-01"}, status=409)
+        self.assertIn("Choose a reminder date or an exact defer time", conflict["error"])
+        self.assertEqual(detail(), original)
+        park(avery, exact)
+        parked = detail()
+        self.assertEqual((parked["state"], parked["note"], parked["links"]),
+                         ("parked", exact["note"], original["links"]))
+        self.assertEqual(parked["context"], {
+            "defer_until": "2030-04-01T19:30:00Z", "defer_at": "2030-04-01T12:30:00-07:00",
+        })
+        activity = self.call(avery, route + "/activity").json["items"]
+        self.assertEqual([(event["action"], event["note"]) for event in activity],
+                         [("park", exact["note"]), ("add", original["note"])])
+        self.call(avery, route + "/reminder", method="PUT", json={"date": None}, status=409)
+        self.assertEqual(detail(), parked)
+
+        criteria = "Read the published samples."
+        park(avery, {"note": "Review when samples are published.", "review_on": "T-2", "review_criteria": criteria})
+        with_review = detail()
+        registration = with_review["context"]["readiness"]
+        self.assertEqual((registration["source_key"], registration["criteria"]), ("T-2", criteria))
+        self.assertEqual(with_review["context"]["defer_until"], parked["context"]["defer_until"])
+        park(avery, {"note": "Check the revised samples."})
+        self.assertEqual(detail()["context"], with_review["context"])
+        self.call(avery, route + "/reminder", method="PUT", json={"date": None})
+        revised = detail()
+        self.assertEqual(revised["context"], {"readiness": registration})
+        self.assertEqual(revised["note"], "Check the revised samples.")
+        self.assertEqual(revised["links"], original["links"])
+
+    def test_task_parking_repairs_a_legacy_record_without_rewriting_history(self):
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        self.action(avery, "create-task", {"title": "Read old samples", "step": "Look for a return path."})
+        with closing(open_sqlite(self.database)) as db, db:
+            legacy_event = record(db, 1, "park", owner, "parked", "The old parking note.", None, [])
+
+        route = "/api/v1/tasks/T-1"
+        legacy = self.call(avery, route).json["task"]
+        self.assertEqual((legacy["event_id"], legacy["state"], legacy["context"]), (legacy_event, "parked", {}))
+        self.call(avery, route + "/parking", method="POST", json={"note": "Still waiting."}, status=409)
+        self.assertEqual(self.call(avery, route).json["task"], legacy)
+        self.call(avery, route + "/parking", method="POST", json={
+            "note": "Review on the agreed date.", "review_after": "2030-04-01",
+        })
+        current = self.call(avery, route).json["task"]
+        self.assertEqual((current["state"], current["note"], current["context"]),
+                         ("parked", "Review on the agreed date.", {"review_after": "2030-04-01"}))
+        repaired, historic, _ = self.call(avery, route + "/activity").json["items"]
+        self.assertGreater(repaired["id"], legacy_event)
+        self.assertEqual((historic["id"], historic["note"]), (legacy_event, legacy["note"]))
 
     def test_parked_owner_can_refresh_reason_without_changing_reminder_or_readiness(self):
         app = self.app(portal_reader=True)
@@ -5895,11 +5985,11 @@ class TasksServiceTest(unittest.TestCase):
             })["receipt"].split()[0]
             if start:
                 advance(peer, request, "start", "Verify the receipt.")
-            advance(peer, request, "park", "Resume after the operator restores access.")
+            advance(peer, request, "park", "Resume after the operator restores access.", review_after="2099-11-23")
             return source, request
 
-        def advance(actor, ticket, transition, note):
-            return self.action(actor, "advance-task", {"id": ticket, "transition": transition, "note": note})
+        def advance(actor, ticket, transition, note, **fields):
+            return self.action(actor, "advance-task", {"id": ticket, "transition": transition, "note": note, **fields})
 
         def summary(viewer, *, project="T", view="active", hide=False):
             rows = self.call(viewer, "/api/v1/reports", query_string={
@@ -5925,7 +6015,7 @@ class TasksServiceTest(unittest.TestCase):
             "id": same_owner_source, "action": "reassign", "owner": peer_id, "reason": "Peer takes the source.",
         })
         ordinary = self.action(peer, "create-task", {"title": "Ordinary parked work", "step": "Check it."})
-        advance(peer, ordinary["receipt"].split()[0], "park", "Wait for the next sample.")
+        advance(peer, ordinary["receipt"].split()[0], "park", "Wait for the next sample.", review_after="2099-11-23")
         _, course_request = blocked_request("COURSE", start=False)
         self.assertEqual({task["key"] for task in summary(peer)["tasks"]},
                          {request, same_owner_source, same_owner_request})
@@ -7005,9 +7095,9 @@ class TasksServiceTest(unittest.TestCase):
                 "project": project, "title": title, "step": "Check the example.",
             })["receipt"].split()[0]
 
-        def advance(client, reference, transition):
+        def advance(client, reference, transition, **fields):
             self.action(client, "advance-task", {
-                "id": reference, "transition": transition, "note": "Run the next check.",
+                "id": reference, "transition": transition, "note": "Run the next check.", **fields,
             })
 
         def ask(source, note="Check the example."):
@@ -7030,7 +7120,7 @@ class TasksServiceTest(unittest.TestCase):
 
         initial = check_phase("asked")
         advance(blake, reference, "start")
-        advance(blake, reference, "park")
+        advance(blake, reference, "park", review_after="2099-11-23")
         self.assertEqual(check_phase("waiting")["id"], initial["id"])
         advance(blake, reference, "unpark")
         advance(blake, reference, "start")

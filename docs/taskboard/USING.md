@@ -7,13 +7,17 @@
 - `./tasks --shared list` reads the signed-in owner’s queue. Use `./tasks --shared list --project T --unassigned` for unowned Taskboard tickets. For another owner’s status, open the project’s Reports or the specific ticket.
 - Give each ticket an owner and a clear outcome. Record discoveries or improvements as new tickets with a concrete next action. Use priority and real dependencies to decide where to focus.
 - When part of the workflow is hard to use, record a concrete example and use the reflection tag to group related feedback.
-- When assigning a ticket, give the new owner the next action. When a decision has superseded the work, park the ticket with that decision and a condition for revisiting it.
+- When assigning a ticket, give the new owner the next action. When a decision supersedes the work, link the decision on the ticket and record what happens next.
 
 ## When a ticket is Ready
 
-A ticket is Ready when it has an owner, a clear outcome and next step, and the inputs or prior work needed to begin are available. For work parked until another event, record the exact trigger in the ticket.
+A ticket is Ready when it has an owner, a clear outcome and next step, and the inputs or prior work needed to begin are available.
 
-Record the merge or dependency change that should prompt the owner to check readiness. A [readiness review](operators/READY-SIGNAL.md#review-a-parked-ticket-after-a-dependency-changes) records that trigger and puts any qualifying change in the owner’s Inbox. Route a blocking human question through the [Decision workflow](#ask-a-human-to-unblock-a-ticket).
+## Park work with a return trigger
+
+When you park an ordinary ticket, save a Taskboard reminder or a [dependency review](operators/READY-SIGNAL.md#review-a-parked-ticket-after-a-dependency-changes) in the same operation. For a dependency review, link the ticket whose change will prompt a check and describe what the owner should verify. A dated reminder or a qualifying dependency change appears in Inbox. An exact-time reminder returns the ticket to Ready when the board's scheduler runs.
+
+Use **Waiting on** when a named person or ticket must act first. Route a blocking human question through the [Decision workflow](#ask-a-human-to-unblock-a-ticket). Standing goals remain available in Inbox when actionable work clears. Park a goal after recording the investigation outcome.
 
 ## Ask a human to unblock a ticket
 
@@ -21,7 +25,7 @@ This workflow applies to every project using Taskboard.
 
 1. Put the blocking question on the existing ticket as a **Decision**. Assign it to the person who can answer. State the exact question, include clear choices when useful, and link any external approval or question on the same ticket. Verify that the ticket shows who it is waiting on and that the Decision appears in the recipient’s **Notifications → Needs me**.
 2. When the recipient answers in Taskboard, use the answer already recorded in Activity. When they answer elsewhere, record their answer and its source once on the ticket. If the Decision is still open, use `withdraw-decision T-123 'Next step'` with the answer in `--reason` and its source in `--link`. That records the answer in Activity, clears the pending Decision, and returns the ticket to Ready.
-3. Resume the work authorized by the answer. Use **Parked** for a deliberate deferral with a documented revisit condition or next check.
+3. Resume the work authorized by the answer. If the owner chooses to defer it, [park it with a return trigger](#park-work-with-a-return-trigger).
 
 If an existing Parked ticket has an unanswered human blocker, return it to Ready, start it, and assign the Decision on that same ticket. If the answer is already available, record it and continue the authorized work. Keep the original history in both cases.
 
@@ -48,7 +52,7 @@ Publish a changelog entry with the release. Explain what changed, when it takes 
 ## Resolve conflicting tickets
 
 - When a new decision changes the work, check the relevant Ready, In progress, and Waiting tickets for instructions that conflict with it. Check the title, brief, checklist, and next step. Use the latest explicit decision from the person responsible for the work.
-- The project DRI decides which work can continue and which older instruction to replace. For the same outcome, correct the existing ticket and link the decision. If the ticket cannot be edited, link one corrected replacement and have the owner park the old ticket as superseded. Carry over any work and evidence that still apply.
+- The project DRI decides which work can continue and which older instruction to replace. For the same outcome, correct the existing ticket and link the decision. If the ticket cannot be edited, link one corrected replacement and have the owner close the superseded ticket or park it with a return trigger when a later review is needed. Carry over any work and evidence that still apply.
 - Tell every affected owner where to continue. Check that only the current instruction is in the active queue and that related tickets point to it. Keep independent work moving.
 
 ## Follow linked GitHub work

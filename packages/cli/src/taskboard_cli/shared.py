@@ -288,7 +288,7 @@ def shared_write(board, args):
                 if args.clear_eta:
                     data["clear_eta"] = "true"
             data.update(reason=getattr(args, "reason", None), review_after=getattr(args, "review_after", None))
-            if command == "remind":
+            if command in ("park", "remind"):
                 data["defer_until"] = args.defer_until
             if command == "park":
                 data.update(review_on=args.review_on, review_criteria=args.review_criteria)

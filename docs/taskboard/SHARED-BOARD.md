@@ -180,7 +180,19 @@ Queued asks shows pending peer reviews with their reviewers and original tickets
 
 Use `./tasks --shared wait T-1 "Review after the export is complete." --blocked-by T-2` when a separate ticket must move first. Reports, task detail, and the CLI show the blocker links and current states. The task keeps its owner, who uses `resume` when ready. Use `transfer` to hand off the same ticket.
 
-Use `./tasks --shared remind T-1 --until 2026-11-24T16:30-08:00` or choose **Exact time** on the task's reminder form. The task shows the chosen local time and its offset. The board stores the instant in UTC and releases the same task to Ready on the first operator tick at or after that instant. For an ambiguous local time when clocks go back, use the CLI with the offset for the occurrence you want. Use `--on YYYY-MM-DD` for a date-only reminder in Pacific time or `--clear` to leave the task parked without a reminder.
+### Park a ticket with a reminder or dependency review
+
+Set a return trigger when you park ordinary work. Use `park --review-after YYYY-MM-DD` for a Pacific date, `park --until <timestamp-with-offset>` for an exact time, or `park --review-on T-2 --review-criteria 'What to check'` for a dependency review. The Park action saves the next step and trigger together. Use [Waiting on or a Decision](USING.md#park-work-with-a-return-trigger) for a blocker that must act first.
+
+Use `./tasks --shared remind T-1 --until 2026-11-24T16:30-08:00` or choose **Exact time** on the task's reminder form to set a reminder. The task shows the chosen local time and its offset. The board stores the instant in UTC and releases the same task to Ready on the first operator tick at or after that instant. For an ambiguous local time when clocks go back, use the CLI with the offset for the occurrence you want. Use `--on YYYY-MM-DD` for a date-only reminder in Pacific time. Use `remind --clear` on ordinary parked work only when a registered dependency review remains.
+
+Use `./tasks --shared park T-1 "Read the latest entry in the review index."` to refresh the reason on a ticket with a saved reminder or dependency review. The existing trigger stays in place.
+
+#### Review existing parked tickets before rollout
+
+Ask owners to check older ordinary Parked tickets and identify those without a Taskboard reminder or dependency review. Keep valid settings and history on the same ticket. For each remaining ticket, confirm the original plan with its owner. Record an agreed date or dependency review, use Waiting on or a Decision for a blocker, or return the ticket to Ready if work can continue. Close work that has ended. Keep existing evidence links and avoid guessing an exact date.
+
+If an existing Raft reminder supplies the revisit, use the steps below to preserve its deadline and reference when moving it.
 
 #### Move ticket follow-ups to one schedule
 
@@ -199,11 +211,13 @@ eligible early. Set the deadline
 using `./tasks --shared remind T-123 --until <timestamp-with-offset>`.
 Confirm the ticket is parked until that instant, then cancel the old Raft
 schedule before it can fire. Allow time to verify the handoff before the
-deadline. If the new schedule cannot be verified, clear it and retain the
-old reminder. To roll back before the deadline, run
-`./tasks --shared remind T-123 --clear` and restore one Raft reminder for the
-original time. If the deadline has passed, check the ticket and delivery
-history before requesting another wake. Keep Raft reminders for work outside
+deadline. If the new schedule cannot be verified, retain the old reminder
+and check whether Taskboard saved a schedule before retrying. If the operator
+rolls back the scheduler, confirm that no scheduled tick can release the
+ticket before restoring a single Raft reminder for the original time. When
+the Raft reminder fires, verify the ticket state before returning it to
+Ready. If the deadline has passed, check the ticket and delivery history
+before requesting another wake. Keep Raft reminders for work outside
 Taskboard.
 
 ##### Run the SQLite deferral timer
@@ -253,8 +267,6 @@ one by one using the [cutover rollback steps](#move-ticket-follow-ups-to-one-sch
 Already released tickets retain
 their Ready history. Stop this timer before rolling back to a CLI that lacks
 `--deferrals-only`.
-
-Use `./tasks --shared park T-1 "Read the latest entry in the review index."` to refresh the reason on a ticket you own. The ticket stays parked with its scheduled reminder and dependency review criteria intact.
 
 Related tasks come from known ticket IDs and same-board ticket URLs in the title, brief, checklist, or public activity, including its links. The detail API returns `related_tasks` entries with `id`, `key`, `title` and the canonical `url`. Each Activity event includes the same list scoped to its own public text. The browser turns known plain references in task detail and Activity into links. Authored links and code keep their original rendering. The Related tasks panel and local and shared `show` use the same canonical links. Private attention requests and evidence keep their existing access rules. Use blocking dependencies separately.
 

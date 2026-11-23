@@ -164,6 +164,44 @@ test('task reminders show the selected local time and reopen the exact instant i
   assert.doesNotMatch(dateOnly, /Exact time|datetime-local/)
 })
 
+test('only the owner can park ordinary work, and a parked task needs a return path', () => {
+  const task = { id: 1, key: 'T-1', event_id: 1, title: 'Check the export', state: 'ready',
+    summary_label: 'Next step', dri: 'Avery', note: 'Inspect the export.', links: [] }
+  const session = { data: { actor: { id: 'Avery', kind: 'agent' } } }
+  function detail(changes, goal, viewer = session) {
+    fixture.resources = { '/tasks/1': { data: {
+      task: { ...task, ...changes }, checklist: [], workers: [], sources: [], goal,
+    } } }
+    fixture.pages = {}
+    fixture.state = []
+    return renderToStaticMarkup(React.createElement(TaskDetail, { id: 1, session: viewer }))
+  }
+
+  const ready = detail({})
+  assert.match(ready, /<summary>Park work<\/summary>/)
+  assert.match(ready, /use Waiting on/)
+  assert.match(ready, /Dependency review/)
+  assert.match(ready, /type="submit" disabled="">Park task<\/button>/)
+  assert.doesNotMatch(detail({}, null, {}), /<summary>Park work<\/summary>/)
+
+  const parked = { state: 'parked' }
+  const legacy = detail(parked)
+  assert.match(legacy, /<summary>Add a return path<\/summary>/)
+  assert.doesNotMatch(legacy, /Keep current return path|Clear reminder/)
+  const context = { review_after: '2030-04-01' }
+  const scheduled = detail({ ...parked, context })
+  assert.match(scheduled, /Keep current return path/)
+  assert.doesNotMatch(scheduled, /Clear reminder/)
+  const readiness = { source_id: 2, source_key: 'T-2', criteria: 'Check the updated export.' }
+  const redundant = detail({ ...parked, context: { ...context, readiness } })
+  assert.match(redundant, /Review after <a href="#task-2"><span class="ticket-id">T-2<\/span> <\/a> changes/)
+  assert.match(redundant, /Clear reminder/)
+
+  const goal = detail(parked, { kind: 'standing', tickets: [] })
+  assert.match(goal, /<summary>Set a reminder<\/summary>/)
+  assert.doesNotMatch(goal, /Return to Inbox|Add a return path/)
+})
+
 test('Stats keeps the agent name in the row header beside a photo or initials', () => {
   const from = '2026-11-21T05:00:00Z'
   const to = '2026-11-21T06:00:00Z'

@@ -133,7 +133,7 @@ _ACTIONS = {
         "review_on": "Dependency ticket to follow when parking.",
         "review_criteria": "What to check when the dependency records a qualifying event.",
         "feature_deferred": "Use true when parking an explicitly deferred feature.",
-        "defer_until": "For remind, the exact time to return to Ready, as an ISO datetime with a UTC offset.",
+        "defer_until": "For park or remind, the exact time to return to Ready, as an ISO datetime with a UTC offset.",
         "steps": "New checklist steps encoded as a JSON array of labels.",
         "started": "Checklist positions to start, as a JSON array of numbers.",
         "checked": "Checklist positions to mark complete when starting, updating, or finishing work, as a JSON array of numbers.",

@@ -57,11 +57,13 @@ TRANSITIONS = {
     "redirect-decision": (("human_review",), "human_review", "Decision redirected"),
     "withdraw-decision": (("human_review",), "ready", "Decision withdrawn"),
     "decide": (("human_review",), "ready", "Decision recorded"),
-    "park": (("ready", "in_progress"), "parked", "Parked"),
+    "park": (("ready", "in_progress", "parked"), "parked", "Parked"),
     "remind": (("ready", "in_progress", "parked"), "parked", "Reminder updated"),
     "unpark": (("parked",), "ready", "Returned to Ready"),
     "transfer": (("ready", "in_progress"), "ready", "Transferred"),
 }
+PARKED_REMINDER_FIELDS = ("review_after", "defer_until", "defer_at")
+PARKING_PROTOCOL_VERSION = 2
 ACTIVITY_ICONS = {
     "add": "+", "start": "▶", "update": "•", "wait": "◷", "resume": "↻",
     "done": "✓", "assign-human": "?", "decide": "◆",
@@ -706,7 +708,7 @@ def edit_checklist(db, args):
 
 
 def transition_context(args, task):
-    if args.command == "remind" and getattr(args, "defer_until", None) is not None:
+    if args.command in ("park", "remind") and getattr(args, "defer_until", None) is not None:
         if args.review_after is not None:
             raise ValueError("Choose a reminder date or an exact defer time.")
         return defer_time(args.defer_until)
@@ -790,14 +792,12 @@ def change_task(db, args, links, *, automation=None):
     review_source = getattr(args, "review_on", None)
     review_criteria = getattr(args, "review_criteria", None)
     feature_deferred = getattr(args, "feature_deferred", False)
-    if args.command == "park" and (
-        args.review_after is None or review_source is not None or review_criteria is not None or feature_deferred
-    ):
-        previous = (*previous, "parked")
-    goal_kind = task_goal_kind(db, args.id) if state == "ready" or args.command in ("start", "remind", "done") else None
+    goal_kind = task_goal_kind(db, args.id) if (
+        state == "ready" or args.command in ("start", "park", "remind", "done")
+    ) else None
     if goal_kind and args.command in ("transfer", "unpark"):
         raise ValueError("A goal stays with its owner. Start it with the concrete step you will work on.")
-    if goal_kind and args.command == "remind" and getattr(args, "defer_until", None):
+    if goal_kind and args.command in ("park", "remind") and getattr(args, "defer_until", None):
         raise ValueError("A goal can have a review date. Start it explicitly when you have an investigation.")
     if goal_kind == "standing" and args.command == "done":
         raise ValueError("Park the standing goal after recording the investigation outcome.")
@@ -850,9 +850,10 @@ def change_task(db, args, links, *, automation=None):
                                       outcome="superseded")
     if args.command == "park":
         current = event_context(task) if task["state"] == "parked" else {}
-        for field in ("review_after", "defer_until", "defer_at"):
-            if field in current and args.review_after is None:
-                context[field] = current[field]
+        if getattr(args, "keep_park_links", False):
+            links = json.loads(task["current_links"])
+        if not context:
+            context.update((field, current[field]) for field in PARKED_REMINDER_FIELDS if field in current)
         registration = readiness.register(db, task, review_source, review_criteria) or current.get("readiness")
         if registration is not None:
             context["readiness"] = registration
@@ -880,15 +881,19 @@ def change_task(db, args, links, *, automation=None):
         if not context and task["state"] != "parked":
             raise ValueError("Choose a reminder date or defer time to park this task.")
         current = event_context(task)
-        saved = {key: current[key] for key in ("review_after", "defer_until", "defer_at") if key in current}
+        saved = {key: current[key] for key in PARKED_REMINDER_FIELDS if key in current}
         if task["state"] == "parked" and context == saved:
             return f"{projects.row_reference(task)} · Reminder unchanged"
-        if "defer_until" in context and context["defer_until"] <= timestamp():
-            raise ValueError("Choose a future defer time.")
         if "readiness" in current:
             context["readiness"] = current["readiness"]
         note = task["note"]
         links = json.loads(task["current_links"])
+    if args.command in ("park", "remind"):
+        if getattr(args, "defer_until", None) is not None and context["defer_until"] <= timestamp():
+            raise ValueError("Choose a future defer time.")
+        if (not goal_kind and not context.get("review_after") and not context.get("defer_until")
+                and not readiness.registered(db, task, context.get("readiness"))):
+            raise ValueError("Choose a reminder or dependency review to park this ticket. Use Waiting on for a blocker.")
     if args.command == "redirect-decision" and not human_wait:
         note = task["note"]
         request = db.execute("SELECT links FROM events WHERE id = ?", (task["event_id"],)).fetchone()

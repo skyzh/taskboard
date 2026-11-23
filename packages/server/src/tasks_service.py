@@ -1391,6 +1391,43 @@ def create_app(
             raise RequestError("Provide a reminder date or a local defer time and time zone.")
         return mutate("remind", actor, {}, id=task_number(number), note="", review_after=day, defer_until=instant)
 
+    def parking_fields(data, command):
+        review_on = text(data, "review_on", optional=True, maximum=28)
+        review_criteria = text(data, "review_criteria", optional=True)
+        feature_deferred = str(data.get("feature_deferred", "false")).lower()
+        if feature_deferred not in ("true", "false"):
+            raise RequestError("feature_deferred must be true or false.")
+        if command != "park" and (
+            review_on is not None or review_criteria is not None or feature_deferred == "true"
+        ):
+            raise RequestError("Set dependency criteria or record a feature deferral when parking a ticket.")
+        if (review_on is None) != (review_criteria is None):
+            raise RequestError("Provide both the readiness dependency and the criteria.")
+        if review_on is not None:
+            task_number(review_on)
+        review = text(data, "review_after", optional=True, maximum=10)
+        if review:
+            try:
+                review = date.fromisoformat(review).isoformat()
+            except ValueError as error:
+                raise RequestError("Use a YYYY-MM-DD review date.") from error
+        defer_until = text(data, "defer_until", optional=True, maximum=25)
+        if defer_until is not None and command not in ("park", "remind"):
+            raise RequestError("Use Park or Remind to defer a task until an exact time.")
+        return {
+            "review_after": review, "defer_until": defer_until, "review_on": review_on,
+            "review_criteria": review_criteria, "feature_deferred": feature_deferred == "true",
+        }
+
+    @app.post("/api/v1/tasks/<number>/parking")
+    def task_parking(number):
+        actor = current_actor(write=True)
+        data = json_body({"note", "review_after", "at", "time_zone", "review_on", "review_criteria"})
+        if "at" in data or "time_zone" in data:
+            data["defer_until"] = local_defer_time(data)
+        return mutate("park", actor, {}, id=task_number(number), note=text(data, "note"),
+                      keep_park_links=True, **parking_fields(data, "park"))
+
     @app.get("/api/v1/tasks/<number>/activity")
     def task_activity(number):
         current_actor()
@@ -2098,28 +2135,7 @@ def create_app(
             human_wait = person["kind"] == "human"
             if not human_wait:
                 peer = on
-        review_on = text(data, "review_on", optional=True, maximum=28)
-        review_criteria = text(data, "review_criteria", optional=True)
-        feature_deferred = str(data.get("feature_deferred", "false")).lower()
-        if feature_deferred not in ("true", "false"):
-            raise RequestError("feature_deferred must be true or false.")
-        if command != "park" and (
-            review_on is not None or review_criteria is not None or feature_deferred == "true"
-        ):
-            raise RequestError("Set dependency criteria or record a feature deferral when parking a ticket.")
-        if (review_on is None) != (review_criteria is None):
-            raise RequestError("Provide both the readiness dependency and the criteria.")
-        if review_on is not None:
-            task_number(review_on)
-        review = text(data, "review_after", optional=True, maximum=10)
-        if review:
-            try:
-                review = date.fromisoformat(review).isoformat()
-            except ValueError as error:
-                raise RequestError("Use a YYYY-MM-DD review date.") from error
-        defer_until = text(data, "defer_until", optional=True, maximum=25)
-        if defer_until is not None and command != "remind":
-            raise RequestError("Use remind to defer a task until an exact time.")
+        parking = parking_fields(data, command)
         reason = text(data, "reason", optional=command != "withdraw-decision")
         steps = [text({"step": value}, "step", maximum=240) for value in array_arg(data, "steps")]
         started = [integer(value, "checklist position", maximum=10000) for value in array_arg(data, "started")]
@@ -2137,8 +2153,7 @@ def create_app(
         return mutate(
             command, actor, data, id=number, on=on, option=options,
             blocked_by=blocked_by, peer_recipient=peer, human_wait=human_wait,
-            reason=reason, automation=automation == "true", review_after=review,
-            review_on=review_on, review_criteria=review_criteria, feature_deferred=feature_deferred == "true", defer_until=defer_until,
+            reason=reason, automation=automation == "true", **parking,
             checklist_step=steps, start_check=started, check=checked, attention_request_id=attention_request,
             eta=eta, clear_eta=clear_eta == "true",
             **activity_text(data, command),
@@ -2199,7 +2214,10 @@ def create_app(
         actor = current_actor("agent", write=write)
         key = actor["ledger_key"]
         if name == "context":
-            context = {"actor": actor_profile(actor), "board": base + "/"}
+            context = {
+                "actor": actor_profile(actor), "board": base + "/",
+                "parking_protocol": ledger.PARKING_PROTOCOL_VERSION,
+            }
             if agent_guidance.cli:
                 context["cli_guidance"] = agent_guidance.cli
             return context

@@ -22,6 +22,19 @@ def register(db, task, dependency, criteria):
     }
 
 
+def registered(db, task, review):
+    if not isinstance(review, dict):
+        return False
+    source_id = review.get("source_id")
+    criteria = review.get("criteria")
+    after = review.get("after_event")
+    if (type(source_id) is not int or source_id == task["id"] or not isinstance(criteria, str)
+            or not criteria.strip() or type(after) is not int or after < 0):
+        return False
+    source = db.execute("SELECT * FROM tasks WHERE id = ?", (source_id,)).fetchone()
+    return source is not None and projects.row_reference(source) == review.get("source_key")
+
+
 # The board shows one pending item per parked ticket. A newer accepted event
 # replaces its evidence without generating a second item or changing its state.
 CANDIDATES = f"""

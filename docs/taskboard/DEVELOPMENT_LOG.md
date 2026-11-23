@@ -4,6 +4,7 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Return triggers for parked work.** Parking an ordinary ticket requires a Taskboard reminder or a dependency review. Existing tickets keep their history and standing goals keep their Inbox path. Before rollout, review older parked work with its owners and preserve agreed schedules and evidence. [Upgrade steps](SHARED-BOARD.md#review-existing-parked-tickets-before-rollout)
 - **Ready watcher failure logs.** After restarting a managed Ready watcher from the updated checkout, a terminal read failure records its exact time and safe Raft CLI diagnostics. [Read the new record and upgrade the watcher](READY-CHECKPOINT.md#opt-in-raft-watcher)
 - **Human Raft sign-in.** A new browser login can use its existing Raft token for up to one hour. When it expires, ordinary browsers ask for consent again. Raft Desktop's App tab can skip that click with existing consent, a known server, and completed two-factor authentication. [Session expiry and migration](SHARED-BOARD.md#enable-verified-identities)
 
