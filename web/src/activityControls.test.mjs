@@ -519,6 +519,39 @@ test('Inbox handles dated goals as its only content and accepts older work respo
   assert.match(render({ standing_goals: [] }), /Your inbox is empty/)
 })
 
+test('Inbox shows empty only after its required reads settle successfully', () => {
+  const empty = { data: { items: [] } }
+  const failed = { error: Object.assign(Error('Try again later.'), { status: 503 }) }
+  const missing = { error: Object.assign(Error('Not found.'), { status: 404 }) }
+  const session = { data: { actor: { id: 'Avery', kind: 'agent' } } }
+  function render(updates, work) {
+    fixture.state = []
+    fixture.pages = { '/notifications/inbox': updates }
+    fixture.resources = {
+      '/notifications/preferences': { data: { task_creations: true } },
+      '/notifications/work?scope=all': work,
+    }
+    return renderToStaticMarkup(React.createElement(Notifications, { session, verified: true }))
+  }
+
+  assert.match(render(empty, empty), /Your inbox is empty/)
+  const legacy = render(empty, missing)
+  assert.match(legacy, /Your inbox is empty/)
+  assert.doesNotMatch(legacy, /Unable to load/)
+
+  assert.doesNotMatch(render(empty, { pending: true }), /Your inbox is empty/)
+  assert.doesNotMatch(render({ ...empty, pending: true }, empty), /Your inbox is empty/)
+
+  const workFailure = render(empty, failed)
+  assert.match(workFailure, /Unable to load next actionable work\. Try again later\./)
+  assert.match(workFailure, />Retry<\/button>/)
+  assert.doesNotMatch(workFailure, /Your inbox is empty/)
+
+  const updateFailure = render({ ...empty, ...failed }, empty)
+  assert.match(updateFailure, /Unable to load your inbox\. Try again later\./)
+  assert.doesNotMatch(updateFailure, /Your inbox is empty/)
+})
+
 test('profile renders two dated milestones and keeps the standing edit date-free', () => {
   const milestones = [
     { summary: 'Review the cutover', deadline: '2026-11-28', tickets: [{ id: 42, key: 'T-42', title: 'Cutover' }] },

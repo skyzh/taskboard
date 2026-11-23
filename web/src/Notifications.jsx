@@ -122,14 +122,17 @@ function InboxEntries({ revision, owner }) {
   const datedGoals = work.data?.dated_goals || []
   const standingGoals = work.data?.standing_goals || []
   const actionable = (work.data?.items || []).filter(item => Object.hasOwn(workLabels, item.kind))
+  const legacyWorkEndpoint = work.error?.status === 404
+  const showEmpty = page.data && !page.pending && !page.error
+    && !work.pending && (work.data || legacyWorkEndpoint)
+    && items.length === 0 && actionable.length === 0 && datedGoals.length === 0 && standingGoals.length === 0
 
   return (
     <>
       <ResourceStatus resource={page} label="your inbox" />
-      {work.error && work.error.status !== 404 && <ResourceStatus resource={work} label="next actionable work" />}
+      {work.error && !legacyWorkEndpoint && <ResourceStatus resource={work} label="next actionable work" />}
       <InboxWork items={actionable} />
-      {page.data && !work.pending && items.length === 0 && actionable.length === 0
-        && datedGoals.length === 0 && standingGoals.length === 0 && <p className="section-message">Your inbox is empty.</p>}
+      {showEmpty && <p className="section-message">Your inbox is empty.</p>}
       {items.length > 0 && (
         <ol className="event-list" aria-label="Inbox" role="list">
           {items.map(({ kind, id, item }) => {
