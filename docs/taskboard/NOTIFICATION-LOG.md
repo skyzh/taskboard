@@ -75,17 +75,31 @@ keeps its own evidence.
 
 ## Run one approved Ready wake
 
-Use this foreground command from the checkout with the operator's existing
-PostgreSQL environment and `TASKS_POSTGRES_DSN` set. Agree on one project,
-ticket, and Ready event such as an Add or Transfer before running. Confirm the
-Server, app, and agent in the approved token exchange metadata. The command
-checks the Server against the board and requires the established agent to be
-the ticket's current owner and subscribed to `owned-ready` in that project.
+Use this foreground command from the checkout against the same initialized
+ledger the Taskboard service uses. Agree on one project, ticket, and Ready event
+such as an Add or Transfer before running. Confirm the Server, app, and agent in
+the approved token exchange metadata. The command checks the Server against the
+board and requires the established agent to be the ticket's current owner and
+subscribed to `owned-ready` in that project.
 
 Set `ready_token_file` to the operator-owned temporary file containing only the
 approved agent-events token. It must grant access only to its owner, for
-example with mode `0600`. Use the existing checkout environment with PostgreSQL
-support and pass the token through the command's read-only file descriptor.
+example with mode `0600`. Pass the token through the command's read-only file
+descriptor.
+
+For SQLite, leave `TASKS_POSTGRES_DSN` unset and set `ready_ledger` to the
+existing file named by the service's `--db` argument. The operator needs write
+access to record acceptance.
+
+```sh
+./.venv/bin/python -B ./tasks_ready_wake.py --db "$ready_ledger" \
+  --project "$ready_project" --task "$ready_ticket" --event-id "$ready_event_id" \
+  --server-id "$approved_server_id" --recipient-id "$approved_agent_id" \
+  --token-fd 3 3<"$ready_token_file"
+```
+
+For PostgreSQL, use the existing checkout environment with PostgreSQL support
+and `TASKS_POSTGRES_DSN` set to the same ledger the service uses.
 
 ```sh
 ./.venv/bin/python -B ./tasks_ready_wake.py \
@@ -94,11 +108,11 @@ support and pass the token through the command's read-only file descriptor.
   --token-fd 3 3<"$ready_token_file"
 ```
 
-The command makes at most one request and prints a status without the token,
-request payload, or provider response. `accepted` means Raft returned `202`
-with `queued` or `200` with `deduped: true` and Taskboard recorded the local
-observation time. `already_accepted`
-and `rejected` are existing receipts and require no send. `unknown` means
+Select exactly one ledger. The command makes at most one request and prints a
+status without the token, request payload, or provider response. `accepted`
+means Raft returned `202` with `queued` or `200` with `deduped: true` and
+Taskboard recorded the local observation time. `already_accepted` and
+`rejected` are existing receipts and require no send. `unknown` means
 acceptance or its recording is unconfirmed. `not_attempted` means the command
 stopped before sending. Acceptance alone leaves delivery, queue check, and
 Start unobserved.
