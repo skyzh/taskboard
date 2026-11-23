@@ -1778,6 +1778,19 @@ def create_app(
         )
         return {**result, "roster": True} if has_roster else result
 
+    @app.get("/api/v1/knowledge")
+    def knowledge():
+        current_actor(required=True)
+        args = request.args
+        entry = text(args, "entry", optional=True, maximum=28)
+        source = text(args, "source", optional=True, maximum=28)
+        return query().maintained_decisions(
+            search=text(args, "q", optional=True, maximum=160),
+            entry=task_number(entry) if entry else None,
+            source_ticket=task_number(source) if source else None,
+            **page_args(args),
+        )
+
     @app.get("/api/v1/reports/goal-activity")
     def report_goal_activity():
         current_actor()
