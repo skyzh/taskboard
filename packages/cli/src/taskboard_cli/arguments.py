@@ -45,6 +45,11 @@ def worker_run_id(value):
     raise argparse.ArgumentTypeError("use a worker run ID such as W-1")
 
 
+def search_query(value):
+    nonblank(value)
+    return value
+
+
 def review_date(value):
     try:
         return date.fromisoformat(value).isoformat()
@@ -261,8 +266,9 @@ def arguments(argv=None):
     tagged.add_argument("project", type=nonblank)
     tagged.add_argument("tag", type=nonblank)
 
-    search = commands.add_parser("search", help="Find related tickets on the signed-in shared board.")
-    search.add_argument("query", type=nonblank, metavar="QUERY", help="Ticket ID, title, or current summary text.")
+    search = commands.add_parser("search", help="Find tickets or Activity on the signed-in shared board.")
+    search.add_argument("query", type=search_query, metavar="QUERY", help="Ticket ID, title, summary, or Activity text.")
+    search.add_argument("--activity", action="store_true", help="Search Activity notes and details for literal text.")
     search.add_argument("--project", default=projects.DEFAULT, type=nonblank, help="Search one project (default T).")
     search.add_argument("--limit", type=int, default=20, help="Maximum results on this page (1–100).")
     search.add_argument("--before", type=int, help="Cursor from the previous result page.")

@@ -1699,6 +1699,138 @@ class TasksServiceTest(unittest.TestCase):
         self.action(seeker, "search-tasks", query_string={**query, "limit": "101"}, status=400)
         self.action(app.test_client(), "search-tasks", query_string=query, status=401)
 
+    def test_shared_activity_search_pages_literal_historical_matches_with_exact_links(self):
+        app = self.app(portal_reader=True)
+        seeker, _ = self.login(app, "Avery")
+        owner, owner_key = self.login(app, "Blake")
+        self.cli("register-project", "COURSE", "Synthetic course", "--dri", owner_key)
+        for project in ("T", "COURSE"):
+            self.action(owner, "create-task", {
+                "project": project, "title": "Check pattern handling", "step": "Prepare a fixture.",
+            })
+
+        older_details = ("Setup steps. " * 25 + "Saw Straße %_ flag in the fixture.\n" + "Other results. " * 25).strip()
+        self.action(owner, "advance-task", {
+            "id": "T-1", "transition": "start", "note": "Inspect the original pattern.",
+        })
+        self.action(owner, "record-activity", {
+            "id": "T-1", "note": "Tested the original pattern.",
+            "details": older_details,
+        })
+        older, = self.action(owner, "task-activity", query_string={"id": "T-1", "limit": "1"})["items"]
+        self.action(owner, "advance-task", {
+            "id": "T-1", "transition": "update", "note": "Prepare the updated fixture.",
+        })
+        with closing(sqlite3.connect(self.database)) as db, db:
+            record(db, 1, "log", owner_key, "in_progress", "Saw Straße xy flag in the fixture.", None, [])
+            for _ in range(105):
+                record(db, 2, "log", owner_key, "ready", "Repeat a different course exercise.", None, [])
+        self.action(owner, "record-activity", {"id": "T-1", "note": "Kept STRASSE %_ FLAG literal."})
+        newest, = self.action(owner, "task-activity", query_string={"id": "T-1", "limit": "1"})["items"]
+        self.action(owner, "record-activity", {"id": "COURSE-1", "note": "Repeated the Straße %_ flag lesson."})
+
+        query = {"q": "STRASSE %_ FLAG", "project": "T", "limit": "1"}
+        first = self.action(seeker, "search-activity", query_string=query)
+        self.assertEqual(first["next_cursor"], newest["id"])
+        self.assertEqual(first["items"], [{
+            "id": newest["id"], "task_key": "T-1", "excerpt": newest["note"],
+            "url": f"{ORIGIN}{BASE}/#event-{newest['id']}-log",
+        }])
+        second = self.action(seeker, "search-activity", query_string={**query, "before": first["next_cursor"]})
+        self.assertIsNone(second["next_cursor"])
+        match, = second["items"]
+        self.assertEqual((match["id"], match["task_key"]), (older["id"], "T-1"))
+        self.assertIn("Straße %_ flag", match["excerpt"])
+        self.assertTrue(match["excerpt"].startswith("…") and match["excerpt"].endswith("…"))
+        self.assertLessEqual(len(match["excerpt"]), 180)
+        self.assertNotIn("\n", match["excerpt"])
+        self.assertEqual(match["url"], f"{ORIGIN}{BASE}/#event-{older['id']}-log")
+        self.assertEqual(self.call(seeker, f"/api/v1/activity/{older['id']}").json["details"], older_details)
+        course = self.action(seeker, "search-activity", query_string={**query, "project": "COURSE"})
+        self.assertEqual([item["task_key"] for item in course["items"]], ["COURSE-1"])
+        self.assertEqual(self.action(seeker, "search-tasks", query_string=query)["items"], [])
+
+        arguments = ("search", "--activity", "--project", "T", query["q"], "--limit", "1")
+        status, output, errors = self.shared_cli(seeker, *arguments)
+        self.assertEqual((status, errors), (0, ""))
+        self.assertIn(f"More results: repeat with --before {newest['id']}.", output)
+        status, output, errors = self.shared_cli(seeker, *arguments, "--before", str(newest["id"]))
+        self.assertEqual((status, errors), (0, ""))
+        self.assertIn(f"T-1 · {match['excerpt']}\n  {match['url']}", output)
+        self.assertNotIn("More results", output)
+        actions = []
+        status, output, errors = self.shared_cli(seeker, *arguments, unavailable=("search-activity",), actions=actions)
+        self.assertEqual((status, output, actions), (1, "", ["context", "search-activity"]))
+        self.assertIn("does not offer this action", errors)
+        self.action(owner, "record-activity", {"id": "T-1", "note": "The fixture can concatenate terms."})
+        self.action(owner, "record-activity", {"id": "T-1", "note": "The fixture printed cat in a sentence."})
+        literal = self.action(seeker, "search-activity", query_string={**query, "q": " cat ", "limit": 20})
+        self.assertEqual([item["excerpt"] for item in literal["items"]], ["The fixture printed cat in a sentence."])
+        status, output, errors = self.shared_cli(seeker, "search", "--activity", " cat ")
+        self.assertEqual((status, errors), (0, ""))
+        self.assertIn("printed cat", output)
+        self.assertNotIn("concatenate", output)
+        self.assertIn("T-1", self.shared_cli(seeker, "search", " T-1 ")[1])
+        self.action(seeker, "search-activity", query_string={**query, "q": " "}, status=400)
+        self.action(seeker, "search-activity", query_string={**query, "limit": "101"}, status=400)
+        self.action(seeker, "search-activity", query_string={"q": query["q"]}, status=400)
+        self.action(seeker, "search-activity", query_string={**query, "project": "MISSING"}, status=404)
+        self.action(app.test_client(), "search-activity", query_string=query, status=401)
+
+    def test_shared_activity_search_uses_public_activity_text_and_excludes_private_records(self):
+        app = self.app(portal_reader=True)
+        seeker, _ = self.login(app, "Avery")
+        owner, owner_key = self.login(app, "Blake")
+        sam, sam_id = self.login(app, "Sam")
+        self.action(owner, "create-task", {"title": "Review the options", "step": "Prepare the choice."})
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Present the choice."})
+        request = {
+            "id": "T-1", "transition": "assign-human", "on": sam_id,
+            "note": "Which option should go forward?", "options": '["Fixture teal", "Fixture orange"]',
+        }
+        self.action(owner, "advance-task", request)
+        self.action(owner, "advance-task", {
+            "id": "T-1", "transition": "withdraw-decision", "note": "Prepare another review.",
+            "reason": "The source provided a corrected baseline.",
+        })
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Compare the new options."})
+        self.action(owner, "advance-task", request)
+        decision_request, = self.call(sam, "/api/v1/notifications/decisions").json["items"]
+        self.call(sam, "/api/v1/tasks/T-1/decision", method="POST", json={
+            "request_id": decision_request["event_id"], "choice": "Fixture teal", "note": "Use the revised fixture.",
+            "details": "This format retains the checksums.",
+        })
+        self.action(owner, "raise-attention", {
+            "id": "T-1", "recipient": sam_id, "reason": "Private reminder fixture marker.",
+            "label": "Private evidence marker", "url": "https://example.test/private-evidence-fixture",
+        })
+        self.action(owner, "record-activity", {
+            "id": "T-1", "note": "Captured a source link.", "label": "Separate source link marker",
+            "url": "https://example.test/separate-source-link-marker",
+        })
+        with closing(sqlite3.connect(self.database)) as db, db:
+            legacy = record(db, 1, "log", owner_key, "ready", "Updated the path for TaskNote · old-path-marker.",
+                            None, [("Previous location", "file:///old-path-marker"),
+                                   ("Current TaskNote", "file:///new-path-marker")])
+
+        def search(q):
+            return self.action(seeker, "search-activity", query_string={"q": q, "project": "T"})["items"]
+
+        decision, = search("FIXTURE TEAL")
+        self.assertEqual(decision["excerpt"], "Fixture teal")
+        self.assertEqual(self.call(seeker, f"/api/v1/activity/{decision['id']}").json["action"], "decide")
+        self.assertEqual(search("revised fixture")[0]["id"], decision["id"])
+        self.assertEqual(search("retains the checksums")[0]["id"], decision["id"])
+        withdrawn, = search("corrected baseline")
+        self.assertEqual(withdrawn["excerpt"], "The source provided a corrected baseline.")
+        self.assertEqual(self.call(seeker, f"/api/v1/activity/{withdrawn['id']}").json["action"], "withdraw-decision")
+        projected, = search("Local file path updated")
+        self.assertEqual((projected["id"], projected["excerpt"]), (legacy, "Local file path updated."))
+        for marker in ("Private reminder fixture marker", "private-evidence-fixture",
+                       "Separate source link marker", "old-path-marker", "new-path-marker"):
+            self.assertEqual(search(marker), [], marker)
+        self.action(sam, "search-activity", query_string={"q": "Fixture teal", "project": "T"}, status=403)
+
     def test_task_suggestions_rank_exact_keys_prefixes_and_title_typos(self):
         app = self.app(portal_reader=True)
         owner_client, owner = self.login(app, "Avery")
@@ -2839,6 +2971,7 @@ class TasksServiceTest(unittest.TestCase):
             'standing-exploration = "Explore a sample and tag each new finding."\n'
             'standing-start = "Use the goal ticket to record your plan."\n'
             'advance-park = "Check the example queue before revisiting this ticket."\n'
+            'lesson-capture = "Record the sample and why you would retry it."\n'
             'peer-create = "Send one ticket link in the example coordination channel."\n'
             'completion = "Find the next sample in {project}."\n'
             '[agent_guidance.cli]\n'
@@ -2862,7 +2995,9 @@ class TasksServiceTest(unittest.TestCase):
         history = self.action(avery, "task-activity", query_string={"id": "T-1"})["items"]
         original_step = next(event["note"] for event in history if event["action"] == "add")
         self.assertEqual(original_step, STANDING_EXPLORATION)
-        self.assertEqual(self.shared_cli(avery, "start", "T-1", "Check the sample.")[0], 0)
+        started = self.shared_cli(avery, "start", "T-1", "Check the sample.")
+        self.assertEqual((started[0], started[2]), (0, ""))
+        self.assertIn("Record the sample and why you would retry it.", started[1])
         self.assertIn("Next: Check the example queue before revisiting this ticket.",
                       self.shared_cli(avery, "park", "T-1", "Checked the sample.")[1])
 
@@ -2886,6 +3021,9 @@ class TasksServiceTest(unittest.TestCase):
         self.assertNotIn("cli_guidance", self.action(avery, "context"))
         self.action(avery, "create-task", {"title": "Check the follow-up", "step": "Read the new sample."})
         self.assertEqual(self.action(avery, "my-next")["next_step"], "Open the selected ticket and check its current step.")
+        started = self.shared_cli(avery, "start", "T-5", "Read the new sample.")
+        self.assertEqual((started[0], started[2]), (0, ""))
+        self.assertIn("what worked or failed, and why you chose the next step", started[1])
 
     def test_agent_guidance_rejects_invalid_files_and_accepts_published_example(self):
         from tasks_guidance import load

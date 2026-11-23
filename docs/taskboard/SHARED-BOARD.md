@@ -50,7 +50,7 @@ Each value is a string. Use an empty string for `ready-review` to omit the extra
 | --- | --- | --- |
 | `agent_guidance` | Queue pickup and standing goals | `ready-review`, `next-selected`, `next-shared-ready`, `next-in-progress`, `next-review`, `next-report`, `next-empty`, `standing-exploration`, `standing-start`, `goals-existing`, `goals-missing` |
 | `agent_guidance` | Task and queue reads | `inbox`, `pagination`, `queue-ready`, `queue-listed`, `queue-empty`, `eligible-item`, `task-current`, `task-blocked`, `task-finished` |
-| `agent_guidance` | Starting, advancing, and handing off work | `advance-checklist`, `advance-update`, `advance-resume`, `advance-unpark`, `advance-wait`, `advance-assign-human`, `advance-redirect-decision`, `advance-park`, `advance-remind`, `completion`, `peer-create`, `peer-result` |
+| `agent_guidance` | Starting, advancing, and handing off work | `advance-checklist`, `lesson-capture`, `advance-update`, `advance-resume`, `advance-unpark`, `advance-wait`, `advance-assign-human`, `advance-redirect-decision`, `advance-park`, `advance-remind`, `completion`, `peer-create`, `peer-result` |
 | `agent_guidance` | Other signed action responses | Prefix the action with `action-`. Supported actions include `context`, `create-task`, `delegate`, `save-goal`, and `worker-handoff`. See the [full list](../../packages/server/src/tasks_guidance.py). |
 | `agent_guidance.cli` | Guidance printed by the shared CLI for selected commands | `context`, `raft-channel`, `goals-existing`, `goals-missing`, `workers`, `completion`, `list`, `list-empty`, `list-unassigned-empty`, `readiness`, `readiness-empty`, `reviews`, `reviews-empty`, `search`, `search-empty`, `tagged`, `tagged-empty`, `watched`, `watched-empty` |
 

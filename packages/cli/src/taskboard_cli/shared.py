@@ -477,23 +477,32 @@ def shared_command(args):
         ))
     if command == "search":
         project = projects.prefix(args.project)
-        params = {"project": project, "q": args.query, "limit": args.limit}
+        params = {"project": project, "q": args.query if args.activity else args.query.strip(), "limit": args.limit}
         if args.before is not None:
             params["before"] = args.before
-        result = board.invoke("search-tasks", params)
-        lines = [
-            f"{task['key']} · {ledger.STATES[task['state']]} · {task['title']}\n  {task_url(url, task)}"
-            for task in result["items"]
-        ]
-        if not lines:
-            return with_guidance(f"No matching tickets in {project}.", prompts.get(
-                "search-empty", "Try a shorter phrase or a ticket ID.",
-            ))
+        if args.activity:
+            result = board.invoke("search-activity", params)
+            lines = [
+                f"{event['task_key']} · {event['excerpt']}\n  {event['url']}"
+                for event in result["items"]
+            ]
+            if not lines:
+                return with_guidance(f"No matching Activity in {project}.", "Try a shorter phrase.")
+            guidance = result.get("next_step", "Open a result link to read the Activity entry.")
+        else:
+            result = board.invoke("search-tasks", params)
+            lines = [
+                f"{task['key']} · {ledger.STATES[task['state']]} · {task['title']}\n  {task_url(url, task)}"
+                for task in result["items"]
+            ]
+            if not lines:
+                return with_guidance(f"No matching tickets in {project}.", prompts.get(
+                    "search-empty", "Try a shorter phrase or a ticket ID.",
+                ))
+            guidance = prompts.get("search", "Open a matching ticket with `./tasks --shared show T-123`.")
         if cursor := result["next_cursor"]:
             lines.append(f"More results: repeat with --before {cursor}.")
-        return with_guidance("\n".join(lines), prompts.get(
-            "search", "Open a matching ticket with `./tasks --shared show T-123`.",
-        ))
+        return with_guidance("\n".join(lines), guidance)
     if command == ledger.READ:
         result = board.invoke(command, {"project": args.project})
         result.setdefault("next_step", "Check the next scheduled maintenance review.")
