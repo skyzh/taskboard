@@ -85,6 +85,7 @@ export default function NotificationLog({ project, state, kind, agent, projects 
   const page = useLoadedPages('/notifications/log', { project, state, kind, recipient: agent }, revision)
   const items = page.data?.items ?? []
   const agentOptions = page.data?.agent_options
+  const showEmpty = page.data && !page.pending && !page.error && items.length === 0
   const emptyMessage = page.data?.has_receipts
     ? 'No recorded notifications match these filters.'
     : agentOptions ? 'No notification receipts have been recorded for this project.'
@@ -137,7 +138,7 @@ export default function NotificationLog({ project, state, kind, agent, projects 
       {agent && [403, 404].includes(page.error?.status) && (
         <button type="button" onClick={() => chooseFilters({ agent: '' })}>Clear agent filter</button>
       )}
-      {page.data && items.length === 0 && <p className="section-message">{emptyMessage}</p>}
+      {showEmpty && <p className="section-message">{emptyMessage}</p>}
       {items.length > 0 && (
         <ol className="event-list" aria-label="Project notifications" role="list">
           {items.map(item => <NotificationLogEntry key={`${item.kind}:${item.id}`} item={item} />)}

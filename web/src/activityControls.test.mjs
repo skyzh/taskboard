@@ -552,6 +552,35 @@ test('Inbox shows empty only after its required reads settle successfully', () =
   assert.doesNotMatch(updateFailure, /Your inbox is empty/)
 })
 
+test('Project log shows empty only after the current read succeeds', () => {
+  const empty = { data: { items: [], agent_options: [], has_receipts: false } }
+  const failed = { error: Object.assign(Error('Try again later.'), { status: 503 }) }
+  const session = { data: { actor: { id: 'Sam', kind: 'human' } } }
+  const message = /No notification receipts have been recorded for this project/
+  function render(page) {
+    fixture.state = []
+    fixture.pages = { '/notifications/log': page }
+    fixture.resources = {}
+    return renderToStaticMarkup(React.createElement(Notifications, {
+      session, verified: true, fragment: 'notifications-log?project=T',
+    }))
+  }
+
+  assert.match(render(empty), message)
+  assert.doesNotMatch(render({ ...empty, pending: true }), message)
+  for (const page of [failed, { ...empty, ...failed }]) {
+    const failure = render(page)
+    assert.match(failure, /Unable to load project notifications\. Try again later\./)
+    assert.match(failure, />Retry<\/button>/)
+    assert.doesNotMatch(failure, message)
+  }
+
+  const items = [{ id: 17, kind: 'ready', recipient: 'Avery', task_id: 5, task: 'T-5', status: 'unknown' }]
+  const cachedRows = render({ data: { items }, ...failed })
+  assert.match(cachedRows, /Ready notice for Avery/)
+  assert.match(cachedRows, />Retry<\/button>/)
+})
+
 test('profile renders two dated milestones and keeps the standing edit date-free', () => {
   const milestones = [
     { summary: 'Review the cutover', deadline: '2026-11-28', tickets: [{ id: 42, key: 'T-42', title: 'Cutover' }] },
