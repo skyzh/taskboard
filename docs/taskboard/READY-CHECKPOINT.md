@@ -73,3 +73,11 @@ Set `TASKS_WATCHER_MEASUREMENT_TICKET` in the shared board's serving environment
 Check the job after a Computer restart or move. Verify the intended checkout, shared board and signed-in identity before starting a watcher on the destination. The job logs the delay and number of status checks leading to each notice. Status checks are sampled about every ten seconds.
 
 Run `raft proc stop taskboard-ready-pilot` to prevent an unscheduled wake. If a reminder has already been scheduled, use `raft reminder list` and cancel that exact reminder separately if it is no longer needed. The disposable tests prove a busy owner and a change to busy suppress delivery, then a later idle owner gets one offer and commits a start. Wiring a recurring checkpoint into a shared runner belongs to that runner's operator.
+
+## Try the stalled-work wake
+
+Add `--wake-stalled` to the existing `--watch-idle --repeat` command when the owner opts in. After 30 minutes of sampled Raft Idle, the watcher can send one linked follow-up for a runnable In progress step or a peer ask the agent has already started. New Ready work has priority and uses its existing wake path. Scheduled checks and blocked, parked, or finished work keep their existing triggers. The watcher rereads the selected step and rechecks Idle before scheduling. The ticket event ID identifies the step in the reminder. Scheduled and retained fired reminders deduplicate after restart.
+
+1. Update the board and the watcher checkout. Confirm your signed identity with `./tasks --shared context`. Record the existing job name, flags, and Raft anchor. Check `raft proc list` and `raft reminder list` before changing the job.
+2. Stop the existing owned watcher and start one from the updated checkout with the same options plus `--wake-stalled`. Check the process list again. Existing installations can keep using their current command without opting in.
+3. After the trial, restore the previous launch options by removing `--wake-stalled`. Keep the same job name and anchor. Check for a still-scheduled trial reminder and cancel that exact reminder if it is no longer needed.
