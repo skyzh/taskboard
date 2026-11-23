@@ -1909,12 +1909,15 @@ def save_task(db, path, args, links):
             output = tasks_recurring.edit(db, args, timestamp())
         elif args.command == "recurring-tick":
             as_of = tasks_recurring.utc_text(tasks_recurring.utc(args.as_of))
-            result = tasks_recurring.tick(
-                db, as_of, lambda definition, due: issue_recurring_task(db, definition, due, as_of),
-                recorded_at=timestamp(),
-            )
-            if released := release_due_deferrals(db, as_of):
-                result["released_deferrals"] = released
+            if args.deferrals_only:
+                result = {"as_of": as_of, "released_deferrals": release_due_deferrals(db, as_of)}
+            else:
+                result = tasks_recurring.tick(
+                    db, as_of, lambda definition, due: issue_recurring_task(db, definition, due, as_of),
+                    recorded_at=timestamp(),
+                )
+                if released := release_due_deferrals(db, as_of):
+                    result["released_deferrals"] = released
             output = json.dumps(result)
         elif args.command == peer_asks.COMMAND:
             output = peer_asks.change(db, args, links)

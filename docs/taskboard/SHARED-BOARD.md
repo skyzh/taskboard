@@ -180,7 +180,9 @@ transition to Ready.
 After verification, move one follow-up at a time. Choose a parked ticket
 that should become Ready at its deadline and has no existing Taskboard
 reminder. Record its original deadline with its UTC offset and its Raft
-reminder reference. Set the same deadline
+reminder reference. Taskboard stores whole seconds. If the old deadline has
+a fractional second, round forward to keep the replacement from becoming
+eligible early. Set the deadline
 using `./tasks --shared remind T-123 --until <timestamp-with-offset>`.
 Confirm the ticket is parked until that instant, then cancel the old Raft
 schedule before it can fire. Allow time to verify the handoff before the
@@ -190,6 +192,54 @@ old reminder. To roll back before the deadline, run
 original time. If the deadline has passed, check the ticket and delivery
 history before requesting another wake. Keep Raft reminders for work outside
 Taskboard.
+
+##### Run the SQLite deferral timer
+
+For a shared SQLite deployment using a systemd user manager, the operator can
+install the [deferral service](../../tools/release/systemd/taskboard-deferral-tick.service)
+and [timer](../../tools/release/systemd/taskboard-deferral-tick.timer). It checks
+twice per minute and releases due exact-time ticket reminders. The existing
+Ready watcher or subscription still delivers the wake. This timer does not
+issue recurring tasks. The ordinary tick without `--deferrals-only` retains
+its existing behavior.
+
+Use the service account that already owns the running board and SQLite
+ledger. Put the two units in `~/.config/systemd/user/`. Create
+`~/.config/taskboard/deferral-tick.env` with the existing Python interpreter,
+the mounted Taskboard CLI, and the mounted SQLite database. Use stable
+absolute paths and an existing ledger.
+
+```ini
+TASKBOARD_PYTHON=/path/to/taskboard/venv/bin/python
+TASKBOARD_COMMAND=/path/to/taskboard/current/tasks
+TASKBOARD_DATABASE=/path/to/taskboard/runtime/tasks.sqlite3
+```
+
+Check that the mounted CLI accepts `recurring-tick --deferrals-only`. Confirm
+the configured user manager stays active under the existing deployment setup
+and check whether another scheduled service already releases deferrals. Use
+its cadence if it covers this board. Keep any existing recurring issuance
+schedule in place. Verify the two unit files before enabling the timer.
+
+```sh
+systemd-analyze --user verify ~/.config/systemd/user/taskboard-deferral-tick.{service,timer}
+systemctl --user daemon-reload
+systemctl --user enable --now taskboard-deferral-tick.timer
+systemctl --user list-timers taskboard-deferral-tick.timer
+```
+
+Use a disposable exact-time ticket to verify a single Ready event, signed
+Inbox, received wake and Start. Check the service's exit state and recorded
+tick before migrating an existing reminder. A timer receipt shows a tick
+ran. The Raft delivery and signed pickup require their own receipts.
+
+To roll back, disable the timer with
+`systemctl --user disable --now taskboard-deferral-tick.timer`. Let any active
+tick finish and confirm the service is inactive. Restore moved reminders
+one by one using the [cutover rollback steps](#move-ticket-follow-ups-to-one-schedule).
+Already released tickets retain
+their Ready history. Stop this timer before rolling back to a CLI that lacks
+`--deferrals-only`.
 
 Use `./tasks --shared park T-1 "Read the latest entry in the review index."` to refresh the reason on a ticket you own. The ticket stays parked with its scheduled reminder and dependency review criteria intact.
 

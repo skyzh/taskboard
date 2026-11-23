@@ -134,6 +134,22 @@ class RecurringFixtureTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("requires an explicit local --db", result.stderr)
 
+    def test_deferral_only_tick_leaves_due_recurring_definitions_untouched(self):
+        self.define()
+        self.command("add", "Check the scheduled sample", "--dri", "Avery", "--step", "Verify the result.")
+        self.command("remind", "T-1", "--until", FOUR, "--by", "Avery")
+
+        def deferrals(when):
+            return json.loads(self.command("recurring-tick", "--deferrals-only", "--as-of", when))["released_deferrals"]
+
+        before = self.report(FOUR)
+        self.assertEqual(deferrals(ZERO), [])
+        self.assertEqual(deferrals(FOUR), ["T-1"])
+        self.assertEqual(deferrals(FOUR), [])
+        self.assertEqual(self.report(FOUR), before)
+        self.assertIn("T-1 · Ready", self.command("next", "--dri", "Avery"))
+        self.assertEqual(self.tick(FOUR)["issued"], 1)
+
     def test_project_setup_retry_and_schedule_edits_preserve_occurrence_ids(self):
         self.command("add", "Existing backlog", "--dri", "Avery", "--step", "Check the backlog.")
         self.command("register-project", "T", "Tasks Board", "--dri", "Avery")
