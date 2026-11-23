@@ -31,7 +31,13 @@ function Person({ name, profile }) {
 
 function RequestRow({ item, viewer, publicPreview, verbose }) {
   const [status, Icon, terminal] = phases[item.phase] || ['Status unavailable', MessageSquare]
-  const summary = item.request_title || item.source_title || 'Request'
+  const summary = item.request_title || item.source_title
+  const showReference = item.request_key && (verbose || !summary)
+  const label = <>
+    {showReference && <span className="ticket-id">{item.request_key}</span>}
+    {showReference && summary && ' '}
+    {summary || (!showReference && 'Request')}
+  </>
   const requestHref = publicPreview ? item.public_url
     : taskHref(item.request_key ?? item.source_id, item.request_key ?? item.source_key)
   const responseHref = item.response ? eventHref(item.response.id) : null
@@ -43,9 +49,9 @@ function RequestRow({ item, viewer, publicPreview, verbose }) {
     <li className={terminal ? 'request-row request-terminal' : 'request-row'}>
       <div className="request-summary">
         <Icon size={14} aria-hidden="true" />
-        {!verbose && requestHref
-          ? <DemoControl as="a" className="request-summary-text" href={requestHref} title={summary}>{summary}</DemoControl>
-          : <span className="request-summary-text">{summary}</span>}
+        {requestHref && (!verbose || showReference)
+          ? <DemoControl as="a" className="request-summary-text" href={requestHref} title={summary}>{label}</DemoControl>
+          : <span className="request-summary-text">{label}</span>}
         {!verbose && <span className="relative-time-accessible">{status}</span>}
         {!verbose && owner && <span className="request-summary-avatar" title={ownerName}>
           <AssigneeAvatar name={ownerName} url={ownerProfile?.avatar_url} />
@@ -74,7 +80,6 @@ function RequestRow({ item, viewer, publicPreview, verbose }) {
             <span className="request-owner">Next for {profileName(item.next_owner, item.next_owner_profile)}</span>
           )}
           <div className="request-row-line">
-            {item.request_key && <TaskLink reference={item.request_key} title="Request" />}
             <TaskLink id={item.source_id} reference={item.source_key} title={item.source_title}
               publicHref={publicPreview ? item.public_url || null : undefined} />
           </div>
