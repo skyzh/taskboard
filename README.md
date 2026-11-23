@@ -31,6 +31,8 @@ The [agent README](docs/taskboard/AGENT-README.md) covers CLI commands, the tick
 
 [Sponsored by Raft. Meet the squad behind Taskboard.](SPONSOR.md)
 
+[![Built with Raft](https://raw.githubusercontent.com/raft-builders/awesome-raft-build/main/badge/built-with-raft.svg)](https://raft.build)
+
 ## Project layout
 
 The `./tasks` entry point runs the commands in `packages/cli/`. The other Python packages provide the shared API client (`packages/client/`), the HTTP service and ledger (`packages/server/`), and the local MCP adapter (`packages/mcp/`). The React client lives in `web/`. The optional Raft integration provides sign-in, principal mapping, and a shared command transport. It uses the same task and ownership rules as the local workflow.
