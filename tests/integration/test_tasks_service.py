@@ -2439,6 +2439,18 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(keys, ["T-6", "T-5", "SRE-2"])
         self.assertIsNone(cursor)
 
+        browse = self.call(reader, "/api/v1/knowledge").json["items"]
+        self.assertEqual([item["key"] for item in browse], ["T-6", "SRE-2"])
+        entry = self.call(reader, "/api/v1/knowledge", query_string={"entry": "SRE-2"}).json["items"][0]
+        self.assertEqual(entry, browse[1])
+        self.assertEqual({source["event_id"] for source in entry["sources"]}, set(evidence))
+        self.assertTrue(all(source["task_key"] == "SRE-1" and source["at"] for source in entry["sources"]))
+        backlinks = self.call(reader, "/api/v1/knowledge", query_string={"source": "SRE-1"}).json["items"]
+        self.assertEqual(backlinks, [entry])
+        found = self.action(reader, "search-with-decisions", query_string={"q": "Pi operations"})["items"]
+        self.assertEqual(found[0]["decision"], {"summary": entry["summary"], "sources": entry["sources"]})
+        self.call(app.test_client(), "/api/v1/knowledge", status=401)
+
         actions = []
         scoped = self.shared_cli(reader, "search", "sudo", "--project", "T", actions=actions)[1]
         self.assertEqual(actions, ["context", "search-tasks"])
@@ -6945,7 +6957,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(callback.location, ORIGIN + BASE + "/" + fragment)
         self.call(app.test_client(), "/auth/login", query_string={"fragment": "#activity?next=//other.example"}, status=400)
 
-    def test_reports_and_about_return_after_sign_in(self):
+    def test_board_views_return_after_sign_in(self):
         app = self.app(portal_reader=True)
         self.provider.people["Casey"] = {
             **self.provider.people["Sam"], "sub": str(UUID(int=65)),
@@ -6954,7 +6966,8 @@ class TasksServiceTest(unittest.TestCase):
         for name, fragment in (
             ("Sam", "#reports-all"), ("Sam", "#reports-all?view=all"), ("Sam", "#reports?view=active"),
             ("Quinn", "#about"), ("Casey", "#reports?project=COURSE"),
-            ("Casey", "#reports?project=COURSE&view=all"),
+            ("Casey", "#reports?project=COURSE&view=all"), ("Sam", "#knowledge"),
+            ("Sam", "#knowledge?entry=SRE-2"), ("Quinn", "#knowledge?q=sample+rule"),
         ):
             with self.subTest(fragment=fragment):
                 self.provider.issued.discard(name)
@@ -6964,7 +6977,10 @@ class TasksServiceTest(unittest.TestCase):
                 result = self.call(client, "/auth/callback", query_string={"code": name, "state": state}, status=302)
                 self.assertEqual(result.location, ORIGIN + BASE + "/" + fragment)
 
-        for fragment in ("#reports?project=//other.example", "#reports?project=COURSE&project=T"):
+        for fragment in (
+            "#reports?project=//other.example", "#reports?project=COURSE&project=T",
+            "#knowledge?entry=SRE-2&next=//other.example", "#knowledge?q=sample&q=rule",
+        ):
             self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
 
     def test_reports_can_pin_the_signed_human_outside_the_project_roster(self):

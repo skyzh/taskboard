@@ -571,9 +571,7 @@ class BoardQueries:
             result["next_cursor"] = f"{last['priority']}:{last['event_id']}"
         return result
 
-    def search_with_decisions(self, search, *, before, limit):
-        """Search ordinary T tickets and maintained decisions on the verified board."""
-        needle = search.casefold()
+    def maintained_decision_rows(self, *, search=None, entry=None, source_ticket=None, before=None, limit):
         context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
         terms = [
             f"{ledger.display_state_sql(context)} = 'done'",
@@ -583,39 +581,80 @@ class BoardQueries:
         if before is not None:
             terms.append("events.id < ?")
             args.append(before)
+        if entry is not None:
+            terms.append("tasks.id = ?")
+            args.append(entry)
+        if source_ticket is not None:
+            if not watches.has_table(self.db, "task_references"):
+                return []
+            terms.append("""
+                EXISTS (
+                    SELECT 1 FROM task_references AS reference
+                    JOIN events AS source_event ON reference.url = ? || source_event.id || '-log'
+                    WHERE reference.task_id = tasks.id AND source_event.task_id = ?
+                )
+            """)
+            args.extend((f"{self.base}/#event-", source_ticket))
+        if search:
+            needle = search.casefold()
 
-        def matches(row):
-            return (needle == projects.row_reference(row).casefold()
-                    or needle in row["title"].casefold()
-                    or needle in (row["brief"] or "").casefold())
+            def matches(row):
+                return (needle == projects.row_reference(row).casefold()
+                        or needle in row["title"].casefold()
+                        or needle in (row["brief"] or "").casefold())
 
+            return self.search_rows(terms, args, "events.id DESC", limit, False, matches)
+        where = " WHERE " + " AND ".join(terms)
+        return self.db.execute(
+            ledger.current_tasks_sql(self.db) + where + " ORDER BY events.id DESC LIMIT ?",
+            (*args, limit + 1),
+        ).fetchall()
+
+    def maintained_decisions(self, *, search=None, entry=None, source_ticket=None, before=None, limit):
         def render(rows):
-            items = []
-            for row in rows:
-                item = {"id": row["id"], "key": row["key"], "title": row["title"],
-                        "state": row.get("display_state", row["state"])}
-                if row["id"] in decisions:
-                    decision = decisions[row["id"]]
-                    item["decision"] = {
-                        "summary": decision["brief"],
-                        "sources": self.decision_sources(row["id"]),
-                    }
-                items.append(item)
-            return items
+            return [{
+                "id": row["id"], "key": projects.row_reference(row), "title": row["title"],
+                "summary": row["brief"], "sources": self.decision_sources(row["id"]),
+            } for row in rows]
 
-        # One extra row from each stream is sufficient to find the next cursor
-        # after merging, including when a Project T decision is in both streams.
+        with tasks_storage.read(self.db):
+            rows = self.maintained_decision_rows(
+                search=search, entry=entry, source_ticket=source_ticket, before=before, limit=limit,
+            )
+            return page(rows, limit, "event_id", render)
+
+    def search_with_decisions(self, search, *, before, limit):
+        """Search ordinary T tickets and maintained decisions on the verified board."""
         with tasks_storage.read(self.db):
             tickets = self.tasks(project=projects.DEFAULT, search=search, before=before, limit=limit + 1)["items"]
-            records = self.search_rows(terms, args, "events.id DESC", limit, False, matches)
-            decisions = {row["id"]: row for row in records}
-            mixed = {task["id"]: task for task in tickets}
+            records = self.maintained_decision_rows(search=search, before=before, limit=limit)
+            mixed = {task["id"]: {
+                "id": task["id"], "event_id": task["event_id"], "key": task["key"], "title": task["title"],
+                "state": task.get("display_state", task["state"]),
+            } for task in tickets}
+            # Preserve the extra candidate row when an ordinary T ticket is also a decision.
             mixed.update({
-                row["id"]: {"id": row["id"], "event_id": row["event_id"], "title": row["title"],
-                            "key": projects.row_reference(row), "state": row["display_state"]}
+                row["id"]: {
+                    "id": row["id"], "event_id": row["event_id"], "key": projects.row_reference(row),
+                    "title": row["title"], "state": row["display_state"],
+                }
                 for row in records
             })
             ordered = sorted(mixed.values(), key=lambda row: row["event_id"], reverse=True)
+            decisions = {row["id"]: row for row in records}
+
+            def render(rows):
+                result = []
+                for row in rows:
+                    item = {key: row[key] for key in ("id", "key", "title", "state")}
+                    if row["id"] in decisions:
+                        item["decision"] = {
+                            "summary": decisions[row["id"]]["brief"],
+                            "sources": self.decision_sources(row["id"]),
+                        }
+                    result.append(item)
+                return result
+
             return page(ordered, limit, "event_id", render)
 
     def decision_sources(self, task_id):
@@ -624,9 +663,20 @@ class BoardQueries:
         for _, label, url, _ in watches.task_source_links(self.db, task_id):
             if match := re.fullmatch(rf"{re.escape(prefix)}([1-9][0-9]{{0,18}})-log", url):
                 event_id = int(match[1])
-                if event_id <= projects.MAX_ID and self.events(event_id=event_id, limit=1)["items"]:
-                    sources.append((label, url))
-        return self.links(sources)
+                if event_id > projects.MAX_ID:
+                    continue
+                event = self.db.execute(
+                    "SELECT events.id, events.at, events.task_id, tasks.title AS task_title, "
+                    + TASK_REFERENCE + " AS task_key FROM events JOIN tasks ON tasks.id = events.task_id "
+                    "WHERE events.id = ?", (event_id,),
+                ).fetchone()
+                if event is not None:
+                    sources.append({
+                        "label": label, "url": url, "unavailable": False,
+                        "event_id": event["id"], "at": event["at"], "task_id": event["task_id"],
+                        "task_key": event["task_key"], "task_title": event["task_title"],
+                    })
+        return sources
 
     def task_suggestions(self, search, *, project):
         needle = search.casefold()

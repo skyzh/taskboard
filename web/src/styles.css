@@ -1119,3 +1119,23 @@ button:disabled { opacity: .57; }
 
 .integration-workflow { display: block; max-inline-size: 100%; margin-block: .4rem .55rem; }
 .integration-guide-link { margin-block-start: .65rem; }
+
+.knowledge { max-width: 56rem; }
+.knowledge-search {
+  display: grid;
+  grid-template-columns: minmax(0, 20rem) max-content;
+  justify-content: start;
+  align-items: end;
+  gap: .45rem;
+  margin-bottom: .75rem;
+}
+.knowledge-search label { display: grid; gap: .2rem; min-width: 0; }
+.knowledge-search input { width: 100%; min-width: 0; }
+@media (max-width: 40rem) {
+  .knowledge-search :is(input, button) { min-height: 2.75rem; }
+}
+.knowledge-list { display: grid; gap: .65rem; list-style: none; padding: 0; }
+.knowledge-list .markdown { margin-block: .45rem; }
+.knowledge-sources { display: grid; gap: .2rem; list-style: none; padding: 0; font-size: .84rem; }
+.knowledge-sources li { display: flex; flex-wrap: wrap; gap: .2rem .7rem; }
+.ticket-knowledge { margin-block: .75rem; }

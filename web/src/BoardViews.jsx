@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import { DemoUnavailable } from './DemoControl.jsx'
 
-export default function BoardViews({ current, reportsHref, isAgent, showNotifications, preview = false }) {
+export default function BoardViews({ current, reportsHref, isAgent, showNotifications, showKnowledge, preview = false }) {
   const nav = useRef(null)
   useEffect(() => {
     const strip = nav.current
@@ -20,12 +20,13 @@ export default function BoardViews({ current, reportsHref, isAgent, showNotifica
     revealActive()
     window.addEventListener('resize', revealActive)
     return () => window.removeEventListener('resize', revealActive)
-  }, [current, isAgent, showNotifications])
+  }, [current, isAgent, showNotifications, showKnowledge])
 
   const links = [
     ['reports', 'Reports'],
     ['board', 'Tasks'],
     ['activity', 'Activity'],
+    ...(showKnowledge ? [['knowledge', 'Knowledge Base']] : []),
     ['stats', 'Stats'],
     ...(showNotifications ? [['notifications', 'Notifications']] : []),
     ...(isAgent ? [['my-activity', 'My activity']] : []),

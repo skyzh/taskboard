@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { ActivityDate } from './Overview.jsx'
+import { TicketKnowledgeLinks } from './Knowledge.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import ChecklistEdit from './ChecklistEdit.jsx'
 import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
@@ -463,6 +464,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
               <h2 id={`task-description-${id}`}>Description</h2>
               <Markdown text={record.brief} className="prose" relatedTasks={record.related_tasks} />
             </section>}
+            {signedIn && <TicketKnowledgeLinks ticket={task.key || id} revision={revision} />}
             {(record.checklist.length > 0 || record.can_edit_details) && (
               <details className="detail-checklist" open={checklistOpen}
                 hidden={!record.checklist.length && !showActions}

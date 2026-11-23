@@ -6,6 +6,7 @@ import BoardViews from './BoardViews.jsx'
 import AssigneePage from './AssigneePage.jsx'
 import GoalActivity, { goalActivityFragment } from './GoalActivity.jsx'
 import Integrations from './Integrations.jsx'
+import Knowledge from './Knowledge.jsx'
 import Notifications from './Notifications.jsx'
 import MyActivity from './MyActivity.jsx'
 import { ReportTime } from './ReportTime.jsx'
@@ -56,6 +57,7 @@ function useFragment() {
     if (fragment.startsWith('notifications-')) anchor = 'notifications'
     if (base === 'reports-all' || base === 'reports') anchor = 'reports'
     if (fragment.startsWith('stats?')) anchor = 'stats'
+    if (base === 'knowledge') anchor = 'knowledge'
     if (fragment === 'map' || fragment === 'workstreams-title') anchor = 'team-overview'
     const id = params.get('dri') ? section || 'assignee-title'
       : params.get('search')?.trim() ? 'search-results' : params.has('schedules') ? 'schedules' : section || anchor
@@ -193,6 +195,7 @@ export default function App() {
   const projectList = useResource(hasSession ? '/projects' : null, revision)
   const visibleProjects = projectList.data?.items
   const hasProjectChoices = visibleProjects?.length > 1
+  const knowledgeFilters = taskAnchor === 'knowledge' ? new URLSearchParams(taskContext) : null
   const statsFilters = taskAnchor === 'stats' ? new URLSearchParams(taskContext) : null
   const requestedStatsPeriod = statsFilters?.get('period')
   const statsPeriod = ['hour', 'week'].includes(requestedStatsPeriod) ? requestedStatsPeriod : 'day'
@@ -208,6 +211,7 @@ export default function App() {
   else if (fragment === 'integrations') view = 'integrations'
   else if (fragment === 'personal-codex') view = 'personal-codex'
   else if (fragment === 'about') view = 'about'
+  else if (taskAnchor === 'knowledge') view = 'knowledge'
   else if (params.has('schedules')) view = 'schedules'
   else if (taskAnchor === 'stats') view = 'stats'
   else if (logFilters || ['notifications', 'notifications-needs-me'].includes(fragment)) view = 'notifications'
@@ -313,7 +317,7 @@ export default function App() {
         <div className="masthead">
           <BoardBrand href={reportsHref} />
           <BoardViews current={activeTab} reportsHref={reportsHref} isAgent={isAgent}
-            showNotifications={verified || session.data?.sign_in_available} />
+            showNotifications={verified || session.data?.sign_in_available} showKnowledge={verified} />
           <TaskSearch query={search} fragment={fragment} />
           <div className="account">
             <Profile session={session} fragment={`#${fragment}`} theme={theme}
@@ -348,6 +352,9 @@ export default function App() {
             projects={visibleProjects} revision={revision} />}
           {view === 'about' && <About revision={revision} />}
           {view === 'integrations' && <Integrations key={session.data?.actor?.id} session={session} />}
+          {view === 'knowledge' && <Knowledge session={session} verified={verified} revision={revision}
+            search={knowledgeFilters.get('q') || ''} entry={knowledgeFilters.get('entry')}
+            onSearch={value => writeFilterFragment(value ? `knowledge?${new URLSearchParams({ q: value })}` : 'knowledge', false)} />}
           {view === 'personal-codex' && <PersonalCodex key={session.data?.actor?.id} session={session}
             reportsHref={reportsHref} />}
           {view === 'search' && <SearchResults query={search} revision={revision} />}

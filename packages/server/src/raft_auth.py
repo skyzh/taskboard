@@ -44,6 +44,7 @@ BOARD_FRAGMENT = re.compile(
     r"|\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&view=(?:active|all|idle))?|view=(?:active|all|idle)(?:&project=[A-Z][A-Z0-9]{0,7})?"
     r"|view=goal-activity&project=[A-Z][A-Z0-9]{0,7}(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?"
     r"(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9][0-9]{0,18})?))?"
+    r"|knowledge(?:\?(?:entry=[A-Z][A-Z0-9]{0,7}-[1-9][0-9]{0,18}|q=[A-Za-z0-9_%+.*~-]{1,1920}))?"
     r"|stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?"
     r"|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?|settings|about|personal-codex|integrations)"
 )
