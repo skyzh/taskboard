@@ -3599,7 +3599,10 @@ class TasksServiceTest(unittest.TestCase):
             )
             self.assertEqual((code, error), (0, ""))
             self.assertTrue(output.startswith(f"Committed · {ticket}"))
-            self.assertEqual(actions[-1], "advance-task" if title == "Completed fixture" else "my-next")
+            if command == "transfer":
+                self.assertEqual(actions[-1], "handoff")
+            else:
+                self.assertEqual(actions[-1], "advance-task" if title == "Completed fixture" else "my-next")
             if unavailable or "my-next" in carrier_results:
                 self.assertIn("The next item could not be loaded.", output)
                 self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "done")
@@ -7411,7 +7414,7 @@ class TasksServiceTest(unittest.TestCase):
         code, output, error = self.shared_cli(blake, "peer-ask", "result", "T-2", result["note"], actions=actions)
         self.assertEqual((code, error), (0, ""))
         self.assertTrue(output.startswith("Committed · T-2"))
-        self.assertEqual(actions, ["context", "peer-ask", "my-next"])
+        self.assertEqual(actions, ["context", "peer-ask"])
         self.assertIn("Peer result already recorded", self.action(blake, "peer-ask", result)["receipt"])
         self.assertEqual((read(2)["state"], read(2)["dri"]), ("ready", avery_id))
         self.assertEqual((read(1)["state"], read(1)["waiting_on"]), ("waiting", "T-2"))
@@ -7434,6 +7437,72 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "peer-ask", canceled)
         self.assertEqual(read(1)["state"], "ready")
         self.assertEqual(read(4)["display_state"], "closed")
+
+    def test_handoff_receipts_use_the_senders_queue_and_preserve_peer_acknowledgment(self):
+        app = self.app(portal_reader=True)
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        self.cli("register-project", "COURSE", "Example course", "--dri", avery_id)
+        self.action(avery, "create-task", {"title": "Different project work", "step": "Read the sample."})
+
+        def add(client, title):
+            return self.action(client, "create-task", {
+                "title": title, "step": "Read the sample.", "project": "COURSE",
+            })["receipt"].split()[0]
+
+        transferred = add(avery, "Transfer this ticket")
+        avery_next = add(avery, "Next work for Avery")
+        add(blake, "Next work for Blake")
+        handoff = self.action(avery, "handoff", {"id": transferred, "owner": blake_id, "note": "Take this task."})
+        self.assertEqual(handoff["receipt"], f"{transferred} · Transferred")
+        self.assertEqual(handoff["next_action"]["project"], "COURSE")
+        self.assertEqual(handoff["next_action"]["work"], self.action(avery, "my-next", query_string={
+            "project": "COURSE",
+        })["work"])
+        self.assertEqual(handoff["next_action"]["work"]["key"], avery_next)
+
+        old_transfer = add(avery, "Transfer on the preceding server")
+        actions = []
+        code, output, error = self.shared_cli(
+            avery, "transfer", old_transfer, "Take this task.", "--dri", blake_id, actions=actions,
+            carrier_results={"handoff": {"receipt": f"{old_transfer} · Transferred"}},
+        )
+        self.assertEqual((code, error, actions), (0, "", ["context", "handoff", "my-next"]))
+        self.assertIn(avery_next, output)
+
+        source = add(avery, "Request a result from Blake")
+        self.action(avery, "advance-task", {"id": source, "transition": "start", "note": "Prepare the sample."})
+        requested = self.action(avery, "peer-ask", {
+            "id": source, "transition": "create", "recipient": blake_id, "note": "Test the sample.",
+        })
+        self.assertNotIn("next_action", requested)
+        request_ticket = requested["receipt"].split()[0]
+        self.action(blake, "advance-task", {"id": request_ticket, "transition": "start", "note": "Test the sample."})
+        payload = {"id": request_ticket, "transition": "result", "note": "Sample passed."}
+        result = self.action(blake, "peer-ask", payload)
+        self.assertEqual(result["receipt"], f"{request_ticket} · Ready for acknowledgment")
+        self.assertEqual(result["next_action"]["project"], "COURSE")
+        self.assertEqual(result["next_action"]["work"], self.action(blake, "my-next", query_string={
+            "project": "COURSE",
+        })["work"])
+        self.assertNotEqual(result["next_action"]["work"]["key"], request_ticket)
+        self.assertNotEqual(result["next_action"]["work"]["key"], avery_next)
+        self.assertEqual(self.action(avery, "task", query_string={"id": source})["task"]["state"], "waiting")
+
+        actions.clear()
+        code, output, error = self.shared_cli(
+            blake, "peer-ask", "result", request_ticket, payload["note"], actions=actions,
+            carrier_results={"peer-ask": {"receipt": f"{request_ticket} · Peer result already recorded"}},
+        )
+        self.assertEqual((code, error, actions), (0, "", ["context", "peer-ask", "my-next"]))
+        self.assertIn(result["next_action"]["work"]["key"], output)
+        events = self.action(avery, "task-activity", query_string={"id": request_ticket})["items"]
+        self.assertEqual([event["actor"] for event in events if event["action"] == "transfer"], [blake_id])
+        acknowledgment = self.action(avery, "peer-ask", {
+            "id": request_ticket, "transition": "acknowledge", "note": "Read the result.",
+        })
+        self.assertNotIn("next_action", acknowledgment)
+        self.assertEqual(self.action(avery, "task", query_string={"id": source})["task"]["state"], "ready")
 
     def test_linked_worker_review_drives_the_same_ticket_and_keeps_legacy_receipts(self):
         app = self.app(portal_reader=True)

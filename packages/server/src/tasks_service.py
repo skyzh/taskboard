@@ -2323,7 +2323,7 @@ def create_app(
     def first_actionable_work(owner, project):
         return next(query().actionable_work(owner, today=pacific_day(ledger.timestamp()), project=project), None)
 
-    def completion_next_action(owner, project):
+    def next_action_after_write(owner, project):
         try:
             with tasks_storage.read(db()) as connection:
                 if work := first_actionable_work(owner, project):
@@ -2335,7 +2335,7 @@ def create_app(
                     }
         except Exception:
             # This advisory read runs after the write commits and must preserve its receipt.
-            app.logger.exception("Could not read next work after task completion.")
+            app.logger.exception("Could not read next work after a successful task write.")
             return {"project": project, "kind": "unavailable"}
         return {"project": project, "kind": "empty"}
 
@@ -2580,11 +2580,7 @@ def create_app(
         if name == "set-priority":
             return mutate("priority", actor, data, id=number, priority=text(data, "priority", maximum=10).lower())
         if name == "advance-task":
-            result = advance(actor, data, number)
-            if data["transition"].strip() == "done":
-                project, _ = projects.identifier(data["id"])
-                result["next_action"] = completion_next_action(key, project)
-            return result
+            return advance(actor, data, number)
         if name == "handoff":
             return mutate(
                 "transfer", actor, data, id=number, note=text(data, "note"),
@@ -2635,6 +2631,10 @@ def create_app(
             result = dispatch_action(name, data)
             if "next_step" not in result:
                 result["next_step"] = agent_guidance.next_step(name, data, result)
+            receipt_transition = {"advance-task": "done", peer_asks.COMMAND: "result"}.get(name)
+            if name == "handoff" or (receipt_transition is not None and data["transition"].strip() == receipt_transition):
+                project, _ = projects.identifier(data["id"])
+                result["next_action"] = next_action_after_write(current_actor("agent")["ledger_key"], project)
             return result
 
         register_actions(app, public_url=base, client_id=raft_config["client_id"], dispatch=dispatch,
