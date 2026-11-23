@@ -54,7 +54,7 @@ from tasks_queries import BoardQueries, PACIFIC, pacific_day, task_creation
 
 
 from taskboard_server.paths import CHECKOUT, DIST, PACKAGE
-from taskboard_server import project_links, raft_channels
+from taskboard_server import personal_codex, project_links, raft_channels
 FRONTEND_BUILD_META = re.compile(rb'<meta name="tasks-frontend-build" content="([0-9a-f]{64})">')
 # Some Linux systems expose the host's localtime file alongside IANA zones.
 TIME_ZONE_NAMES = available_timezones() - {"localtime"}
@@ -500,6 +500,7 @@ def create_app(
     codex_usage=None,
     codex_snapshot_uploader=None,
     codex_snapshot_upload_sources=None,
+    personal_codex_pilot=None,
     agent_guidance=None,
 ):
     """Configure the board; injected identity providers are used by isolated tests."""
@@ -511,6 +512,8 @@ def create_app(
         except ValueError as error:
             raise ValueError("Set TASKS_NEW_TASKS_DEFAULT_SUBJECT to a verified human subject UUID.") from error
     marketplace = marketplace_root is not None
+    if personal_codex_pilot and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
+        raise ValueError("Personal Codex reporting requires a fixed-server shared board with Raft sign-in.")
     public_raft_links = {} if marketplace or local_readonly else project_links.public_raft_links(public_raft_channel_urls)
     if codex_usage and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
         raise ValueError("Codex usage requires a private shared board with server-bound Raft sign-in.")
@@ -653,6 +656,11 @@ def create_app(
                 prepare_postgres(connection, base + "/", server, oidc_issuer=issuer)
         else:
             prepare(path, base + "/", server, oidc_issuer=issuer)
+        if personal_codex_pilot:
+            pilot_db = tasks_storage.Postgres(postgres_dsn) if postgres_dsn else connect(path)
+            with closing(pilot_db), tasks_storage.write(pilot_db):
+                for statement in personal_codex.SCHEMA:
+                    pilot_db.execute(statement)
 
     @app.errorhandler(RequestError)
     def invalid(error):
@@ -850,6 +858,100 @@ def create_app(
             raise RequestError(str(error)) from error
         except LookupError as error:
             raise RequestError(str(error), 404) from error
+
+    if personal_codex_pilot:
+        pilot = personal_codex_pilot
+        connect_path = f"{prefix}/personal-codex"
+
+        def pilot_human(*, write=False):
+            if write and request.headers.get("Origin") != origin:
+                raise RequestError("Open the connection page on the board to make changes.", 403)
+            actor = current_actor("human", write=write, sync_profile=False)
+            if actor["subject"] != pilot.subject:
+                raise NotFound()
+            return actor["ledger_key"]
+
+        def pilot_page(owner, number, **fields):
+            sessions = personal_codex.list_connections(db(), owner, number)
+            response = app.make_response(render_template_string(
+                personal_codex.CONNECT_PAGE, connect_path=connect_path, ticket=pilot.ticket,
+                sessions=sessions, **fields,
+            ))
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+                "frame-ancestors 'none'; base-uri 'none'"
+            )
+            return response
+
+        @app.route("/personal-codex", methods=["GET", "POST"])
+        def personal_codex_connect():
+            if request.method == "GET":
+                try:
+                    owner = pilot_human()
+                except RequestError as error:
+                    if error.status != 401:
+                        raise
+                    return redirect(f"{prefix}/auth/login")
+                return pilot_page(owner, task_number(pilot.ticket))
+            owner = pilot_human(write=True)
+            label = text(request.form, "session", maximum=80)
+            if len(label.splitlines()) != 1:
+                raise RequestError("Provide a one-line session name.")
+            number = task_number(pilot.ticket)
+            try:
+                with tasks_storage.write(db()) as connection:
+                    token = personal_codex.issue(connection, number, owner, label)
+            except ValueError as error:
+                raise RequestError(str(error), 409) from error
+            return pilot_page(owner, number, token=token)
+
+        @app.post("/personal-codex/revoke")
+        def personal_codex_revoke():
+            owner = pilot_human(write=True)
+            grant = text(request.form, "connection", maximum=36)
+            with tasks_storage.write(db()) as connection:
+                if not personal_codex.revoke(connection, owner, task_number(pilot.ticket), grant):
+                    raise NotFound()
+            return redirect(connect_path, code=303)
+
+        def pilot_connection(connection, ticket):
+            if ticket != pilot.ticket:
+                raise NotFound()
+            try:
+                return personal_codex.authorized_connection(
+                    connection, pilot, ticket, request.headers.get("Authorization", ""),
+                )
+            except PermissionError as error:
+                raise RequestError(str(error), 401) from error
+
+        @app.get("/api/v1/personal-codex/tickets/<ticket>")
+        def personal_codex_ticket(ticket):
+            with tasks_storage.read(db()) as connection:
+                _, task = pilot_connection(connection, ticket)
+                return {
+                    "ticket": ticket, "title": task["title"], "status": task["display_state"],
+                    "brief": task["brief"], "next_step": task["note"],
+                }
+
+        @app.post("/api/v1/personal-codex/tickets/<ticket>/progress")
+        def personal_codex_progress(ticket):
+            with tasks_storage.write(db()) as connection:
+                grant, task = pilot_connection(connection, ticket)
+                data = json_body({"replay_key", "headline", "details"})
+                key = text(data, "replay_key", maximum=128)
+                if not personal_codex.REPLAY_KEY.fullmatch(key):
+                    raise RequestError("Use an ASCII replay key of up to 128 characters.")
+                headline = text(data, "headline")
+                try:
+                    details = ledger.activity_details(headline, data.get("details", ""))
+                except ValueError as error:
+                    raise RequestError(str(error)) from error
+                try:
+                    event = personal_codex.append_progress(connection, grant, task, key, headline, details)
+                except ValueError as error:
+                    raise RequestError(str(error), 409) from error
+            return {"ticket": ticket, "event_id": event}
 
     def detail(number, actor):
         key = actor["ledger_key"] if actor is not None else None
@@ -2612,6 +2714,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             codex_usage=tasks_codex_usage.configuration(os.environ),
             codex_snapshot_uploader=os.environ.get("TASKS_CODEX_SNAPSHOT_UPLOADER_SUBJECT") or None,
             codex_snapshot_upload_sources=os.environ.get("TASKS_CODEX_SNAPSHOT_UPLOAD_SOURCES"),
+            personal_codex_pilot=personal_codex.configuration(os.environ),
             agent_guidance=agent_guidance,
             project_extensions=project_extensions,
             public_raft_channel_urls=os.environ.get("TASKS_PUBLIC_RAFT_CHANNEL_URLS"),

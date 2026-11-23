@@ -11,6 +11,7 @@ from io import BytesIO, StringIO
 import json
 import os
 from pathlib import Path
+import re
 import runpy
 import socket
 import sqlite3
@@ -26,6 +27,7 @@ from uuid import UUID
 from PIL import Image
 
 from raft_auth import Identity
+from taskboard_server import personal_codex
 from taskboard_server.ready_wake import WakeRecipient, launch_ready_wake
 from tasks_github import GitHubReader
 from tasks_notification_log import WAKE_SCHEMA, observed_time, outbox_receipt
@@ -159,6 +161,96 @@ class TasksServiceTest(unittest.TestCase):
             },
             **kwargs,
         )
+
+    def test_personal_codex_connections_are_ticket_scoped_revocable_and_append_only(self):
+        subject = self.provider.people["Sam"]["sub"]
+        app = self.app(portal_reader=True, personal_codex_pilot=personal_codex.Pilot("T-1", subject))
+        owner, owner_id = self.login(app, "Sam")
+        other_human, _ = self.login(app, "Quinn")
+        agent, agent_id = self.login(app, "Avery")
+        anonymous = app.test_client()
+        create = {"title": "Prepare the sample", "brief": "Report two checkpoints.", "step": "Read the sample."}
+        self.action(agent, "create-task", create)
+        self.action(agent, "create-task", {**create, "title": "Another ticket"})
+        with closing(open_sqlite(self.database)) as db, db:
+            db.execute("UPDATE tasks SET dri = '' WHERE id = 1")
+        setup = "/personal-codex"
+        connection_endpoint = "/api/v1/personal-codex/tickets/T-1"
+        progress = connection_endpoint + "/progress"
+        browser = {"Origin": ORIGIN}
+        self.call(anonymous, setup, status=302)
+        self.call(other_human, setup, status=404)
+        self.call(agent, setup, status=403)
+        self.call(owner, setup, method="POST", status=403, headers={"Origin": "https://wrong.example"},
+                  data={"session": "Terminal A"})
+        self.call(owner, connection_endpoint, status=401)
+
+        def issue(label):
+            response = self.call(owner, setup, method="POST", headers=browser, data={"session": label})
+            self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+            self.assertIn("frame-ancestors 'none'", response.headers.get("Content-Security-Policy", ""))
+            return re.search(r'id="connection-token" value="([A-Za-z0-9_-]+)"', response.get_data(as_text=True))[1]
+
+        first, second = issue("Terminal A"), issue("Terminal B")
+        self.assertNotEqual(first, second)
+        page = self.call(owner, setup).get_data(as_text=True)
+        self.assertNotIn(first, page)
+        self.assertNotIn(second, page)
+        self.assertIn("Terminal A", page)
+        self.assertIn("Terminal B", page)
+        first_headers = {"Authorization": f"Bearer {first}"}
+        second_headers = {"Authorization": f"Bearer {second}"}
+        self.assertEqual(self.call(anonymous, connection_endpoint, headers=first_headers).json, {
+            "ticket": "T-1", "title": create["title"], "status": "ready",
+            "brief": create["brief"], "next_step": create["step"],
+        })
+        self.call(anonymous, connection_endpoint.replace("T-1", "T-2"), headers=first_headers, status=404)
+        self.call(anonymous, "/api/v1/tasks/T-1/activity", method="POST", headers=first_headers,
+                  json={"note": "Use another endpoint."}, status=401)
+        checkpoint = {"replay_key": "checkpoint:1", "headline": "Checked the sample.", "details": "Fixture only."}
+
+        def report(headers):
+            return self.call(app.test_client(), progress, method="POST", headers=headers, json=checkpoint).json
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first_receipt, retry_receipt = pool.map(report, (first_headers, first_headers))
+        self.assertEqual(first_receipt, retry_receipt)
+        second_receipt = report(second_headers)
+        self.assertNotEqual(first_receipt, second_receipt)
+        self.call(anonymous, progress, method="POST", headers=first_headers, status=409,
+                  json={**checkpoint, "details": "Different evidence."})
+        self.call(anonymous, progress, method="POST", headers=first_headers, status=400,
+                  json={**checkpoint, "status": "done"})
+        self.assertEqual(self.call(anonymous, connection_endpoint, headers=first_headers).json["status"], "ready")
+
+        with closing(open_sqlite(self.database)) as db, db:
+            first_id = db.execute(
+                "SELECT id FROM personal_codex_connections WHERE token_hash = ?", (sha256(first.encode()).hexdigest(),)
+            ).fetchone()["id"]
+            logs = db.execute("SELECT actor, context FROM events WHERE note = ? ORDER BY id",
+                              (checkpoint["headline"],)).fetchall()
+            self.assertEqual([event["actor"] for event in logs], [owner_id, owner_id])
+            contexts = [json.loads(event["context"]) for event in logs]
+            self.assertEqual([event["personal_codex"]["label"] for event in contexts], ["Terminal A", "Terminal B"])
+            self.assertEqual(contexts[0]["personal_codex"]["connection_id"], first_id)
+            self.assertIn("Reported by Codex session Terminal A", contexts[0]["activity_details"])
+            self.assertNotIn(first, json.dumps(contexts))
+
+        self.call(other_human, setup + "/revoke", method="POST", status=404, headers=browser,
+                  data={"connection": first_id})
+        self.call(owner, setup + "/revoke", method="POST", status=303, headers=browser,
+                  data={"connection": first_id})
+        self.call(anonymous, connection_endpoint, headers=first_headers, status=401)
+        self.call(anonymous, progress, method="POST", headers=first_headers, json=checkpoint, status=401)
+        self.call(anonymous, connection_endpoint, headers=second_headers)
+        with patch.object(personal_codex, "utc_now", return_value=personal_codex.utc_now() + personal_codex.SESSION_DURATION):
+            self.call(anonymous, connection_endpoint, headers=second_headers, status=401)
+        with closing(open_sqlite(self.database)) as db, db:
+            db.execute("UPDATE tasks SET dri = ? WHERE id = 1", (agent_id,))
+        self.call(anonymous, connection_endpoint, headers=second_headers, status=401)
+        self.call(owner, setup, method="POST", status=409, headers=browser, data={"session": "Denied"})
+        disabled = self.app(portal_reader=True)
+        self.call(disabled.test_client(), connection_endpoint, headers=second_headers, status=404)
 
     def call(self, client, path, *, method="GET", status=200, **options):
         headers = {PORTAL_HEADER: PORTAL_FIXTURE, **options.pop("headers", {})}
