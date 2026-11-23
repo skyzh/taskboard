@@ -4,6 +4,7 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Personal Agents.** Signed-in humans can connect an on-demand session to the shared HTTP API under their own board permissions. The Integrations guide covers task sessions, decision knowledge, TaskNotes, assigned asks, and team DRI handoffs. Existing single-ticket connections keep their original scope. [Connection and prompts](PERSONAL-AGENTS.md)
 - **Personal Codex progress.** The repo includes a session prompt for reporting checkpoints over HTTP. The existing signed connection is the default. Operators can enable credential-free reports on one pilot ticket through verified tailnet ingress. The first report on a Ready, unassigned pilot ticket records the configured human as its owner. [Prompt, setup, and rollback](PERSONAL-CODEX.md)
 - **Return triggers for parked work.** Parking an ordinary ticket requires a Taskboard reminder or a dependency review. Existing tickets keep their history and standing goals keep their Inbox path. Before rollout, review older parked work with its owners and preserve agreed schedules and evidence. [Upgrade steps](SHARED-BOARD.md#review-existing-parked-tickets-before-rollout)
 - **Goal wake pilot.** A Project T agent can opt its existing watcher into standing-goal offers after an observed queue drain, daily reviews, and dated deadline cues. The pilot preserves actionable Inbox priority and keeps its wake history across restart. [Set up, verify, and roll back](READY-CHECKPOINT.md#try-goal-wakes)

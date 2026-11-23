@@ -20,7 +20,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import UUID
 
 from flask import Flask, Response, g, jsonify, make_response, redirect, request
-from raft_sessions import DurableSessions, MemorySessions, Session
+from raft_sessions import DurableSessions, MemorySessions, Session, session_digest
 from tasks_profiles import MAX_AVATAR_BYTES, imported_avatar
 
 
@@ -485,7 +485,8 @@ class RaftAuth:
     def identity(self) -> Identity | None:
         """Resolve the current request's cookie against Raft's live identity gate."""
         if "_raft_board_identity" not in g:
-            g._raft_board_identity = self._live_identity()
+            key = request.cookies.get(_SESSION_COOKIE)
+            g._raft_board_identity = self.identity_for_session(session_digest(key)) if key else None
         return g._raft_board_identity
 
     def identity_temporarily_unavailable(self) -> bool:
@@ -494,17 +495,29 @@ class RaftAuth:
     def identity_uses_saved_profile(self) -> bool:
         return g.get("_raft_board_identity_uses_saved_profile", False)
 
-    def _live_identity(self) -> Identity | None:
+    def browser_session_binding(self):
+        """Return a reference to the verified browser session without exposing its cookie."""
         key = request.cookies.get(_SESSION_COOKIE)
-        if not key:
+        if not key or g.get("_raft_board_identity") is None:
             return None
+        digest = session_digest(key)
         with self._lock:
             now = self._session_time()
-            store = self._sessions
-            session = store.get(key, now)
-            if session is None and self._human_sessions is not None:
-                store = self._human_sessions
-                session = store.get(key, now)
+            _, session = self._find_session(digest, now)
+        if session is not None and session.kind == "human":
+            return digest, session.expires - now
+        return None
+
+    def _find_session(self, digest, now):
+        session = self._sessions.get_digest(digest, now)
+        if session is not None or self._human_sessions is None:
+            return self._sessions, session
+        return self._human_sessions, self._human_sessions.get_digest(digest, now)
+
+    def identity_for_session(self, digest) -> Identity | None:
+        """Check a browser session against the live gate using its stored digest."""
+        with self._lock:
+            store, session = self._find_session(digest, self._session_time())
             if session is None:
                 return None
         try:
@@ -523,10 +536,10 @@ class RaftAuth:
             # check to recover. Failed identity gates invalidate the session.
             if error.failure != _Failure.PROVIDER:
                 with self._lock:
-                    store.discard(key)
+                    store.discard_digest(digest)
             return None
         with self._lock:
-            if store.get(key, self._session_time()) == session:
+            if store.get_digest(digest, self._session_time()) == session:
                 g._raft_board_identity_uses_saved_profile = store is self._human_sessions
                 return identity
         return None

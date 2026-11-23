@@ -27,7 +27,7 @@ from uuid import UUID
 from PIL import Image
 
 from raft_auth import Identity
-from taskboard_server import personal_codex
+from taskboard_server import personal_agents, personal_codex
 from taskboard_server.ready_wake import WakeRecipient, launch_ready_wake
 from tasks_github import GitHubReader
 from tasks_notification_log import WAKE_SCHEMA, observed_time, outbox_receipt
@@ -161,6 +161,100 @@ class TasksServiceTest(unittest.TestCase):
             },
             **kwargs,
         )
+
+    def test_personal_agent_connection_uses_human_permissions_and_shared_decision_workflow(self):
+        session_dir = self.database.parent / "sessions"
+        app = self.app(portal_reader=True, session_dir=session_dir)
+        sam, sam_key = self.login(app, "Sam")
+        quinn, quinn_key = self.login(app, "Quinn")
+        agent, agent_key = self.login(app, "Blake")
+        self.cli("register-project", "OPS", "Fixture operations", "--dri", quinn_key)
+        api = "/api/v1/personal-agents/connections"
+        origin = {"Origin": ORIGIN}
+        unsigned = app.test_client()
+        self.call(unsigned, api, status=401)
+        self.call(agent, api, status=403)
+        self.call(sam, api, method="POST", status=403, json={"session": "Denied"})
+        self.call(sam, api, method="POST", status=403, headers={"Origin": "https://other.example"},
+                  json={"session": "Denied"})
+
+        def connect(browser, label):
+            response = self.call(browser, api, method="POST", headers=origin, json={"session": label})
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
+            self.assertRegex(response.json["token"], personal_agents.API_TOKEN)
+            return {**origin, "Authorization": "Bearer " + response.json["token"]}
+
+        sam_api, quinn_api = connect(sam, "Personal session"), connect(quinn, "Manager session")
+        self.assertEqual([item["label"] for item in self.call(sam, api).json["connections"]], ["Personal session"])
+        sam_connection = self.call(sam, api).json["connections"][0]["id"]
+        self.call(quinn, api + "/" + sam_connection, method="DELETE", headers=origin, status=404)
+        self.call(unsigned, api, method="POST", headers=sam_api, json={"session": "Denied"}, status=403)
+        self.call(unsigned, "/api/v1/session", headers=sam_api)
+
+        def shared(headers, name, data=None, **options):
+            return self.action(unsigned, name, data, headers=headers, **options)
+
+        source = {"project": "OPS", "title": "Review fixture imports", "step": "Verify the fixture imports."}
+        shared(sam_api, "create-task", source)
+        shared(sam_api, "record-activity", {"id": "OPS-1", "note": "Quinn chose dry runs for imports.",
+                                           "details": "A dry run exposes malformed rows before applying changes."})
+        evidence = shared(sam_api, "task-activity", query_string={"id": "OPS-1"})["items"][0]
+        self.assertEqual(evidence["actor"], sam_key)
+        url = f"{ORIGIN}{BASE}/#event-{evidence['id']}-log"
+        shared(sam_api, "create-task", {**source, "title": "Fixture import decision",
+                                       "brief": "Use dry runs before applying fixture imports."})
+        shared(sam_api, "link-reference", {"id": "OPS-2", "label": "Decision source", "url": url})
+        shared(sam_api, "task-tag", {"id": "OPS-2", "action": "add", "tag": "decision-record"})
+        shared(sam_api, "advance-task", {"id": "OPS-2", "transition": "start", "note": "Review the wording."})
+        shared(sam_api, "advance-task", {"id": "OPS-2", "transition": "done", "note": "Published."})
+        matched = shared(quinn_api, "search-with-decisions", query_string={"q": "dry runs"})["items"][0]
+        self.assertEqual(matched["key"], "OPS-2")
+        self.assertEqual(matched["decision"]["sources"][0]["url"], url)
+        self.call(unsigned, f"/api/v1/activity/{evidence['id']}", headers=quinn_api)
+        self.call(unsigned, "/api/v1/reports", headers=sam_api, query_string={"project": "OPS"})
+
+        tasknote_url = "https://evidence.example.test/tasknotes/import-result"
+        shared(sam_api, "link-reference", {"id": "OPS-1", "label": "Import TaskNote", "url": tasknote_url})
+        shared(sam_api, "peer-ask", {"id": "OPS-1", "transition": "create", "recipient": agent_key,
+                                     "note": "Verify the TaskNote result against the exact fixture."})
+        queued = self.action(agent, "my-next", query_string={"project": "OPS"})["work"]
+        self.assertEqual(queued["id"], 3)
+        handoff = self.action(agent, "task", query_string={"id": "OPS-1"})
+        self.assertIn(tasknote_url, json.dumps(handoff))
+        self.action(agent, "advance-task", {"id": "OPS-3", "transition": "start", "note": "Check the TaskNote."})
+        self.action(agent, "set-wake-subscription", {
+            "project": "OPS", "event_type": OWNED_READY, "enabled": "true",
+        })
+        shared(sam_api, "set-wake-subscription", {
+            "project": "OPS", "event_type": OWNED_READY, "enabled": "true",
+        }, status=403)
+        self.action(agent, "peer-ask", {"id": "OPS-3", "transition": "result", "note": "The fixture matches."})
+        shared(sam_api, "peer-ask", {"id": "OPS-3", "transition": "acknowledge", "note": "Accepted the result."})
+
+        shared(sam_api, "raise-attention", {"id": "OPS-1", "recipient": quinn_key,
+                                            "reason": "Review the importer result."})
+        change = {"id": "OPS-1", "action": "reassign", "reason": "Hand off the verified fixture.", "owner": agent_key}
+        shared(sam_api, "change-ownership", change, status=403)
+        shared(quinn_api, "change-ownership", change)
+        self.assertEqual(shared(quinn_api, "task", query_string={"id": "OPS-1"})["task"]["dri"], agent_key)
+        self.action(sam, "create-task", source, status=403)
+        with patch.object(personal_agents, "utc_now", return_value=personal_agents.utc_now()
+                          + personal_agents.MAX_DURATION):
+            shared(sam_api, "context", status=401)
+
+        restarted = self.app(portal_reader=True, session_dir=session_dir)
+        self.call(restarted.test_client(), "/api/v1/session", headers=sam_api)
+        self.call(sam, api + "/" + sam_connection, method="DELETE", headers=origin, status=204)
+        shared(sam_api, "context", status=401)
+        self.call(quinn, "/auth/logout", method="POST", headers=origin, status=204)
+        shared(quinn_api, "context", status=401)
+        self.call(sam, "/auth/logout", method="POST", headers=origin, status=204)
+        self.action(agent, "advance-task", {"id": "OPS-1", "transition": "start", "note": "Complete the handoff."})
+        self.action(agent, "advance-task", {"id": "OPS-1", "transition": "done", "note": "Fixture accepted.",
+                                            "url": tasknote_url, "label": "Verified TaskNote"})
+        result = self.action(agent, "task-activity", query_string={"id": "OPS-1"})["items"][0]
+        self.assertEqual(result["actor"], agent_key)
+        self.assertIn(tasknote_url, json.dumps(result))
 
     def test_personal_codex_connections_are_ticket_scoped_revocable_and_append_only(self):
         subject = self.provider.people["Sam"]["sub"]
