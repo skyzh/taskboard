@@ -23,6 +23,24 @@ class WakeRecipient:
     access_token: str = field(repr=False)
 
 
+class ReadyWakeOwnerChanged(PermissionError):
+    """The selected recipient no longer owns the ticket."""
+
+
+class ReadyWakeEventChanged(ValueError):
+    """The selected event is no longer the ticket's current Ready event."""
+
+
+def ready_wake_owner(db, identity):
+    if identity.kind != "agent":
+        raise PermissionError("The Ready wake requires a signed-in Raft agent.")
+    server = db.execute("SELECT value FROM board_settings WHERE key = 'raft_server_id'").fetchone()
+    principal = profiles.for_identity(db, identity)
+    if server is None or server["value"] != identity.server_id or principal is None:
+        raise PermissionError("The Ready wake requires an established agent on this Raft board.")
+    return principal["ledger_key"]
+
+
 def launch_ready_wake(
     db, *, project: str, task: str, event_id: int, recipient: WakeRecipient,
     transport: Callable[[Request], tuple[int, object]],
@@ -34,23 +52,16 @@ def launch_ready_wake(
     The caller supplies an attested token binding and transport. An
     unconfirmed response returns unknown without adding an observation.
     """
-    identity = recipient.identity
-    if identity.kind != "agent":
-        raise PermissionError("The Ready wake requires a signed-in Raft agent.")
     with tasks_storage.read(db):
-        server = db.execute("SELECT value FROM board_settings WHERE key = 'raft_server_id'").fetchone()
-        principal = profiles.for_identity(db, identity)
-        if server is None or server["value"] != identity.server_id or principal is None:
-            raise PermissionError("The Ready wake requires an established agent on this Raft board.")
-        owner = principal["ledger_key"]
+        owner = ready_wake_owner(db, recipient.identity)
         project = projects.require(db, project)
         current = ledger.get_task(db, projects.resolve(db, task))
         if projects.row_reference(current) != task or projects.row_project(current) != project:
             raise ValueError("Choose the exact ticket reference in the selected project.")
         if current["dri"] != owner:
-            raise PermissionError("The Ready wake recipient must own the ticket.")
+            raise ReadyWakeOwnerChanged("The Ready wake recipient must own the ticket.")
         if type(event_id) is not int or current["event_id"] != event_id or current["state"] != "ready":
-            raise ValueError("Choose the ticket's current Ready event.")
+            raise ReadyWakeEventChanged("Choose the ticket's current Ready event.")
         if not has_subscription(db, project, owner, OWNED_READY):
             raise PermissionError("The recipient must subscribe to owned Ready events in this project.")
         existing = db.execute("SELECT recipient, acceptance FROM wake_log WHERE source_event_id = ?", (event_id,)).fetchone()
