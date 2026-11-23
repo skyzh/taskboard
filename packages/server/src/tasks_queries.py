@@ -762,7 +762,8 @@ class BoardQueries:
             " WHERE tasks.project_prefix = ?) GROUP BY display_state", (project,),
         ))
         owners = [row[0] for row in self.db.execute(
-            "SELECT DISTINCT dri FROM tasks WHERE project_prefix = ? AND dri <> '' ORDER BY dri LIMIT 256", (project,)
+            f"SELECT DISTINCT dri FROM tasks WHERE project_prefix = ? AND dri <> '' "
+            f"AND {ledger.work_records_sql(self.db)} ORDER BY dri LIMIT 256", (project,)
         )]
         return {
             "counts": counts,
@@ -831,11 +832,13 @@ class BoardQueries:
 
     def last_activity(self, *, owner=None, task_id=None, project=None):
         column, value = ("tasks.dri", owner) if owner is not None else ("events.task_id", task_id)
+        scope = ledger.work_records_sql(self.db) if owner is not None else "TRUE"
         event = self.db.execute(
             f"""
             SELECT events.id, events.at
             FROM tasks JOIN events ON events.task_id = tasks.id
-            WHERE {column} = ? AND (? IS NULL OR tasks.project_prefix = ?) ORDER BY events.id DESC LIMIT 1
+            WHERE {column} = ? AND (? IS NULL OR tasks.project_prefix = ?) AND {scope}
+            ORDER BY events.id DESC LIMIT 1
             """, (value, project, project),
         ).fetchone()
         return dict(event) if event else None
@@ -951,8 +954,10 @@ class BoardQueries:
 
     def events(self, *, number=None, event_id=None, actor=None, action=None, before=None,
                limit=20, outcomes=False, watcher=None, owner_or_watcher=None,
-               dri=None, feed=None, day=None, project=None, time_zone=PACIFIC, hide_requests=False):
+               dri=None, feed=None, day=None, project=None, time_zone=PACIFIC, hide_requests=False, work_only=False):
         joins, terms, args = "", [], []
+        if work_only or dri is not None:
+            terms.append(ledger.work_records_sql(self.db))
         if self.hide_peer_requests(hide_requests):
             terms.append("NOT EXISTS (SELECT 1 FROM peer_asks WHERE peer_asks.task_id = tasks.id)")
         if watcher is not None:
@@ -1400,7 +1405,8 @@ class BoardQueries:
         # Read each action in event ID order before combining the small results.
         recent_ids = f"""
             SELECT events.id FROM events JOIN tasks ON tasks.id = events.task_id
-            WHERE events.action = ? AND tasks.dri = ? AND tasks.project_prefix = ? {exclude_requests}
+            WHERE events.action = ? AND tasks.dri = ? AND tasks.project_prefix = ?
+                AND {ledger.work_records_sql(self.db)} {exclude_requests}
             ORDER BY events.id DESC LIMIT 3
         """
         rows = self.db.execute(
@@ -1466,7 +1472,9 @@ class BoardQueries:
         rows = self.db.execute(
             f"""
             WITH current AS ({current}),
-                 project_tasks AS (SELECT id, dri FROM tasks WHERE project_prefix = ?),
+                 project_tasks AS (
+                     SELECT id, dri FROM tasks WHERE project_prefix = ? AND {ledger.work_records_sql(self.db)}
+                 ),
                  legacy_waits AS (
                      SELECT peer.ledger_key AS recipient, MAX(tasks.at) AS updated
                      FROM current AS tasks {self._PEER_WAIT_JOIN}
@@ -1631,7 +1639,9 @@ class BoardQueries:
             name = projects.roster_owners(self.db, self.project_roster).get(owner)
             if name:
                 profile = projects.roster_profile(owner, name)
-        if profile is None and not self.db.execute("SELECT 1 FROM tasks WHERE dri = ? LIMIT 1", (owner,)).fetchone():
+        if profile is None and not self.db.execute(
+            f"SELECT 1 FROM tasks WHERE dri = ? AND {ledger.work_records_sql(self.db)} LIMIT 1", (owner,),
+        ).fetchone():
             return None
         current = ledger.current_tasks_sql(self.db)
         count = self.db.execute(
@@ -1657,7 +1667,8 @@ class BoardQueries:
         ).fetchone())
         has_outcomes = self.db.execute(
             "SELECT 1 FROM events JOIN tasks ON tasks.id = events.task_id "
-            f"WHERE tasks.dri = ? AND tasks.project_prefix = ? AND {OUTCOME_ACTIONS} LIMIT 1", (owner, project),
+            f"WHERE tasks.dri = ? AND tasks.project_prefix = ? AND {OUTCOME_ACTIONS}"
+            f" AND {ledger.work_records_sql(self.db)} LIMIT 1", (owner, project),
         ).fetchone() is not None
         return {
             "profile": profile, "report_count": count,
@@ -1741,8 +1752,9 @@ class BoardQueries:
             visible_tasks AS (SELECT id FROM tasks WHERE ? IS NULL OR project_prefix = ?),
             {readiness.CANDIDATES},
             candidates AS (
-                SELECT at, 'event' AS source, events.id, 'creation' AS kind
+                SELECT events.at, 'event' AS source, events.id, 'creation' AS kind
                 FROM events JOIN visible_tasks ON visible_tasks.id = events.task_id
+                JOIN current_tasks ON current_tasks.id = events.task_id
                 WHERE action = 'add' AND ?
                 UNION ALL
                 SELECT events.at, 'event', events.id, 'watched'
