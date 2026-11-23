@@ -2640,6 +2640,9 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual({row["key"] for row in listed}, {"T-3", "T-4", "T-5", "T-6"})
         stats = self.call(agent, "/api/v1/stats", query_string={"project": "T"}).json["ticket_flow"]
         self.assertEqual((stats["new"], stats["done"], stats["closed"]), (4, 1, 1))
+        reports = self.call(agent, "/api/v1/reports", query_string={"view": "all", "project": "T"}).json["items"]
+        agent_report = next(report for report in reports if report["owner"] == agent_id)
+        self.assertEqual([event["task_key"] for event in agent_report["recent_outcomes"]], ["T-5"])
         self.action(manager, "change-ownership", {"id": "T-1", "action": "reopen", "owner": agent_id,
                                                   "reason": "Rejected work transition."}, status=409)
         self.action(agent, "edit-task-details", {"id": "T-1", "brief": "Invalid edit.", "reason": "Denied."}, status=403)
@@ -2664,6 +2667,11 @@ class TasksServiceTest(unittest.TestCase):
         human, _ = self.login(app, "Sam")
         self.assertFalse(self.call(human, "/api/v1/projects").json["items"][0]["can_create_knowledge"])
         self.call(human, "/api/v1/knowledge", method="POST", json=action, status=403)
+        self.call(human, "/api/v1/notifications/preferences", method="POST", json={"task_creations": True})
+        creations = self.call(human, "/api/v1/notifications/created").json["items"]
+        self.assertEqual({row["task_id"] for row in creations}, {3, 4, 5, 6})
+        inbox = self.call(human, "/api/v1/notifications/inbox").json["items"]
+        self.assertEqual({row["item"]["task_id"] for row in inbox if row["kind"] == "creation"}, {3, 4, 5, 6})
 
         self.action(manager, "edit-task-details", {"id": "T-1", "brief": "Revised guidance.", "reason": "Updated rule."})
         changed = self.action(manager, "task-activity", query_string={"id": "T-1"})["items"][0]

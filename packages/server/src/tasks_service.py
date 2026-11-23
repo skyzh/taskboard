@@ -2069,7 +2069,9 @@ def create_app(
     @app.get("/api/v1/notifications/created")
     def created_notifications():
         current_actor(required=True)
-        recent = query().events(action="add", feed="all", project=project_scope(request.args), **page_args(request.args))
+        recent = query().events(
+            action="add", feed="all", work_only=True, project=project_scope(request.args), **page_args(request.args),
+        )
         return {**recent, "items": [task_creation(event) for event in recent["items"]]}
 
     def creation_subscription(actor):

@@ -273,6 +273,10 @@ def task_columns(db):
     return tasks_storage.table_columns(db, "tasks")
 
 
+def work_records_sql(db):
+    return "tasks.record_kind = 'work'" if "record_kind" in task_columns(db) else "TRUE"
+
+
 def display_state_sql(context):
     return f"CASE WHEN events.state = 'done' AND json_type({context}, '$.closure') = 'object' THEN 'closed' ELSE events.state END"
 
