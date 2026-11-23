@@ -1,6 +1,7 @@
 """Replay signed-in preferences and verify a version-1 PostgreSQL upgrade."""
 
 from contextlib import closing
+from hashlib import sha256
 import os
 import sqlite3
 import unittest
@@ -90,6 +91,9 @@ class StorageReplayTest(unittest.TestCase):
             human, "/api/v1/personal-agents/connections", method="POST",
             headers={"Origin": fixture.ORIGIN}, json={"session": "Source connection"},
         ).json["token"]
+        verifier = "a" * 43
+        self.board.call(human, "/api/v1/personal-agents/cli-authorize", method="POST",
+                        headers={"Origin": fixture.ORIGIN}, json={"challenge": sha256(verifier.encode()).hexdigest()})
         snapshot = self.board.database.with_name("snapshot.sqlite3")
         with closing(sqlite3.connect(self.board.database)) as source, closing(sqlite3.connect(snapshot)) as backup:
             source.backup(backup)
@@ -100,9 +104,12 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual(imported["goal_idle_offers"], 1)
         self.assertEqual(imported["goal_review_times"], 1)
         self.assertNotIn("personal_agent_connections", imported)
+        self.assertNotIn("personal_agent_cli_approvals", imported)
         destination_app = self.postgres_app(dsn)
         self.board.action(destination_app.test_client(), "context",
                           headers={"Authorization": f"Bearer {token}"}, status=401)
+        self.board.call(destination_app.test_client(), "/api/v1/personal-agents/cli-exchange", method="POST",
+                        headers={"Origin": fixture.ORIGIN}, json={"verifier": verifier}, status=202)
         client, _ = self.board.login(destination_app, "Avery")
         self.assertEqual(self.board.action(client, "idle-goal-offer", handoff)["offer"], original)
         self.assertEqual(self.board.action(client, "my-goals")["review_times"], {"T-1": "09:15"})

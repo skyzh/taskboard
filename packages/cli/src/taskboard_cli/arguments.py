@@ -81,6 +81,7 @@ def add_details_flag(command):
 def arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, help="Use a specific offline task database.")
+    parser.add_argument("--url", dest="board_url", help="Use the shared Taskboard HTTPS URL directly.")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--shared", dest="mode", action="store_const", const="shared",
                       help="Use the shared board through your verified Raft session.")
@@ -391,6 +392,12 @@ def arguments(argv=None):
     worker_list = commands.add_parser("workers", help="Read the reports and disposition of a task's worker runs.")
     worker_list.add_argument("id", type=task_id)
     commands.add_parser("context", help="Show your verified actor and shared board.")
+    commands.add_parser("login", help="Approve a shared Taskboard CLI sign-in in your browser.")
+    commands.add_parser("logout", help="Revoke the saved sign-in for this Taskboard URL.")
+    api = commands.add_parser("api", help="Call a signed shared board API path directly.")
+    api.add_argument("path", help="Path beginning /api/v1/, with an optional encoded query.")
+    api.add_argument("--method", choices=("GET", "POST", "PUT", "PATCH", "DELETE"), default="GET")
+    api.add_argument("--data-file", help="Read a JSON object from this file, or use - for stdin.")
     readiness_check = commands.add_parser("readiness", help="Read your parked-ticket readiness prompts.")
     readiness_check.add_argument("--project", type=nonblank)
     readiness_check.add_argument("--by", type=nonblank)
@@ -478,6 +485,17 @@ def arguments(argv=None):
     delivery.add_argument("note", type=nonblank)
     add_link_flag(delivery, OFFLINE_EVIDENCE_HELP)
     args = parser.parse_args(argv)
+    if args.board_url is not None and (args.mode not in (None, "shared") or args.db is not None):
+        parser.error("--url selects the shared board.")
+    if args.board_url is not None:
+        args.mode = "shared"
+    if args.command in ("login", "logout", "api"):
+        if args.mode not in (None, "shared") or args.db is not None:
+            parser.error(f"{args.command} requires the shared board.")
+        args.board_url = args.board_url or os.environ.get("TASKBOARD_URL")
+        if not args.board_url:
+            parser.error(f"{args.command} requires --url or TASKBOARD_URL.")
+        args.mode = "shared"
     if args.command == "serve" and args.marketplace_root is not None:
         if args.db is not None or args.websocket_revisions:
             parser.error("Marketplace mode uses its own ledgers and authenticated polling.")

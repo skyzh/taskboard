@@ -24,7 +24,7 @@ TABLES = (
     "wake_subscriptions", "wake_log", "goal_idle_offers",
 )
 # Connections depend on the source deployment's live browser sessions.
-NON_PORTABLE_TABLES = {"personal_agent_connections"}
+NON_PORTABLE_TABLES = {"personal_agent_connections", "personal_agent_cli_approvals"}
 IDENTITIES = {
     "tasks": "id", "events": "id", "sources": "id", "worker_runs": "id",
     "recurring_definitions": "id", "release_batches": "id", "board_principals": "principal_order",

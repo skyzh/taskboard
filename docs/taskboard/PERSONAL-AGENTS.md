@@ -8,7 +8,7 @@ Start with the way you work today. Use the corresponding instruction in your age
 
 > Start with the current issue, pull request, or Taskboard ticket. Find the matching work and read its status, evidence, and related decisions. Report meaningful checkpoints and the handoff in Activity. Use the knowledge and decision workflow below throughout the session.
 
-Use a Personal Agents connection from your signed-in human profile. This workflow uses zero Inbox calls. The person owns any ticket created from their connection.
+Use your signed CLI identity or the board’s trusted-tailnet setup. This workflow uses zero Inbox calls. Tickets created in the session use the selected human profile.
 
 ### 1. I want a personal DRI to listen for assigned asks
 
@@ -48,15 +48,27 @@ When a decision changes or you hand off work, update a short **Current decisions
 
 Before handing off, read the brief as if you were joining the work for the first time. You should be able to find the current rule, its source, and what remains without reading the full Activity history. Use a maintained decision record when the rule applies beyond the ticket.
 
-## Connect over HTTP
+## Connect to Taskboard
 
-Sign in to a Taskboard deployment with a fixed Raft server, open **Integrations → Personal Agents**, and create a connection for the session. Put the one-time token in the session’s `TASKBOARD_PERSONAL_AGENT_TOKEN` environment variable. Each connection expires after at most eight hours or when its browser sign-in ends, whichever comes first. Revoke it from Integrations as needed. Use the selected DRI’s signed Raft integration for workflows that run as a standing agent.
+Open **Profile → Integrations** to see the setup for your board. Use the exact HTTPS board URL, including its mount path.
 
-After importing a SQLite board into PostgreSQL, sign in on the destination and issue a new connection. The import preserves the work history and leaves browser-bound connections on their original deployment.
+### Signed CLI
 
-Send the connection only to the exact supplied Taskboard HTTPS base as `Authorization: Bearer <token>`. Use the board’s scheme, host, and port, without its path, as the `Origin` header for writes. Send POST parameters as JSON with `Content-Type: application/json`. Keep the token out of prompts, Activity, and published notes. Use the base mount path for every request and resolve manifest paths relative to its origin.
+1. Run `tasks --shared --url BOARD login`. In the browser, sign in to Taskboard and match the displayed code to the one in your terminal before approving.
+2. Run `tasks --shared --url BOARD context` to verify the human profile. Run ordinary commands such as `search`, `add`, `log`, and `done` with the same board URL. For a direct board API, run `tasks --shared --url BOARD api '/api/v1/reports?project=T'`. A write takes `--method` and a JSON object via `--data-file` when the endpoint expects a body. You can set `TASKBOARD_URL` for the session instead of repeating `--url`.
+3. The CLI stores the credential in an owner-only file for that board. Sign-in lasts up to eight hours and ends earlier if the approving browser session ends. Run `tasks --shared --url BOARD logout` to revoke the CLI sign-in. After a board import to PostgreSQL, sign in again on the destination.
 
-Read `GET /.well-known/raft-agent-manifest.json` under the board mount for the full shared action names and parameter contract. The actions below use `/api/v1/raft/{action}`. Use query parameters for GET and a JSON object for POST. Direct board APIs such as Reports retain their usual access checks.
+Use the selected DRI’s signed Raft integration for standing-agent workflows.
+
+### Trusted tailnet
+
+An operator can enable this mode on a fixed-server Taskboard by setting `TASKS_PERSONAL_AGENTS_TAILNET_SUBJECT` to one verified human subject on that board. The authenticated portal must admit only the intended tailnet identity, strip caller-supplied portal headers, and set its verified `X-Portal-Auth-Method: tailscale` marker. Every admitted Personal Agents request in this mode uses the configured human’s permissions. Remove the setting to return to signed access. LAN and public ingress use sign-in.
+
+On the configured tailnet, run the same CLI commands without running login, or send the API requests directly. Include `X-Taskboard-Personal-Agent: 1` to select this mode. For writes, send `Origin` with the board’s scheme, host, and port, without its mount path. Send POST parameters as JSON with `Content-Type: application/json`. Verify the selected profile with `GET /api/v1/raft/context` before writing.
+
+### Find the right API
+
+Read `GET /.well-known/raft-agent-manifest.json` under the board mount for the full shared action names and parameter contract. The shared actions below use `/api/v1/raft/{action}`. Use query parameters for GET and a JSON object for POST. Resolve manifest paths relative to the board origin. Direct board APIs such as Reports apply the same existing permissions.
 
 | Work | Shared API |
 | --- | --- |
@@ -68,4 +80,4 @@ Read `GET /.well-known/raft-agent-manifest.json` under the board mount for the f
 | Ask or hand off | GET `assignees`. POST `peer-ask`, `raise-attention`, or `advance-task` with the `assign-human` transition. Use `handoff` or manager-only `change-ownership` for ownership. |
 | Read Reports | GET `/api/v1/reports?project=PROJECT` relative to the board mount |
 
-If you already use the [single-ticket pilot](PERSONAL-CODEX.md), its connections and URLs still work. Create a separate Personal Agents connection to use the shared workflows.
+The [single-ticket pilot](PERSONAL-CODEX.md) remains available for its existing sessions. Use this guide to access the shared workflows.

@@ -9,7 +9,10 @@ from uuid import uuid4
 
 API_TOKEN_PREFIX = "tbpa_"
 API_TOKEN = re.compile(r"tbpa_[A-Za-z0-9_-]{43}")
+CLI_CHALLENGE = re.compile(r"[0-9a-f]{64}")
+CLI_VERIFIER = re.compile(r"[A-Za-z0-9_-]{43}")
 MAX_DURATION = timedelta(hours=8)
+LOGIN_WINDOW = timedelta(minutes=5)
 SCHEMA = """
     CREATE TABLE IF NOT EXISTS personal_agent_connections (
         id TEXT PRIMARY KEY,
@@ -17,6 +20,14 @@ SCHEMA = """
         owner TEXT NOT NULL REFERENCES board_principals (ledger_key),
         browser_session TEXT NOT NULL,
         label TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+    )
+"""
+CLI_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS personal_agent_cli_approvals (
+        challenge TEXT PRIMARY KEY,
+        owner TEXT NOT NULL REFERENCES board_principals (ledger_key),
+        browser_session TEXT NOT NULL,
         expires_at TEXT NOT NULL
     )
 """
@@ -67,3 +78,37 @@ def authorized_connection(db, token):
         WHERE token_hash = ? AND expires_at > ?
         """, (sha256(token.encode()).hexdigest(), utc_now().isoformat()),
     ).fetchone()
+
+
+def authorize_cli(db, challenge, owner, browser_session):
+    now = utc_now()
+    db.execute("DELETE FROM personal_agent_cli_approvals WHERE expires_at <= ?", (now.isoformat(),))
+    return db.execute(
+        """
+        INSERT INTO personal_agent_cli_approvals (challenge, owner, browser_session, expires_at)
+        VALUES (?, ?, ?, ?) ON CONFLICT (challenge) DO NOTHING
+        """, (challenge, owner, browser_session, (now + LOGIN_WINDOW).isoformat()),
+    ).rowcount
+
+
+def cli_approval(db, challenge):
+    return db.execute(
+        "SELECT owner, browser_session FROM personal_agent_cli_approvals WHERE challenge = ? AND expires_at > ?",
+        (challenge, utc_now().isoformat()),
+    ).fetchone()
+
+
+def consume_cli_approval(db, challenge, owner, browser_session):
+    return db.execute(
+        """
+        DELETE FROM personal_agent_cli_approvals
+        WHERE challenge = ? AND owner = ? AND browser_session = ? AND expires_at > ?
+        """, (challenge, owner, browser_session, utc_now().isoformat()),
+    ).rowcount
+
+
+def revoke_token(db, token):
+    db.execute(
+        "DELETE FROM personal_agent_connections WHERE token_hash = ?",
+        (sha256(token.encode()).hexdigest(),),
+    )

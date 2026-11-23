@@ -2,9 +2,12 @@
 
 import json
 import os
+from pathlib import Path
+import sys
 from urllib.parse import urlsplit
 
 from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
+from taskboard_client.direct import DirectBoard
 
 from taskboard_client import references as projects
 from taskboard_client import work as ledger
@@ -409,6 +412,25 @@ def shared_next(board, url, filters, actor):
 
 def shared_command(args):
     command = args.command
+    direct_url = getattr(args, "board_url", None) or os.environ.get("TASKBOARD_URL")
+    if command in ("login", "logout", "api"):
+        board = DirectBoard(direct_url)
+        if command == "login":
+            return board.login()
+        if command == "logout":
+            return board.logout()
+        body = None
+        if args.data_file is not None:
+            if args.method == "GET":
+                raise ValueError("Send GET filters in the query string.")
+            encoded = sys.stdin.read() if args.data_file == "-" else Path(args.data_file).read_text(encoding="utf-8")
+            try:
+                body = json.loads(encoded)
+            except ValueError as error:
+                raise ValueError("Provide a JSON object for the API request.") from error
+            if not isinstance(body, dict):
+                raise ValueError("Provide a JSON object for the API request.")
+        return json.dumps(board.api(args.path, args.method, body), ensure_ascii=False)
     if command == "capabilities":
         return "\n".join((
             "Taskboard commands for signed-in shared agents",
@@ -429,16 +451,18 @@ def shared_command(args):
     if command == "log":
         merge_details(args.details)
     service = os.environ.get("TASKS_RAFT_SERVICE", "tasks-board")
-    board = SharedBoard(service)
+    board = DirectBoard(direct_url) if direct_url else SharedBoard(service)
     context = board.invoke("context")
     actor, url = context["actor"], context["board"]
-    if actor["kind"] != "agent":
+    if actor["kind"] != "agent" and not (direct_url and actor["kind"] == "human"):
         raise ValueError("The shared CLI requires a verified Raft agent.")
     assert_actor(getattr(args, "by", None), actor)
     if command in ("add", "list", "next", "recurring-add"):
         assert_actor(args.dri, actor)
     prompts = context.get("cli_guidance", {})
     if command == "context":
+        if actor["kind"] == "human":
+            return f"Shared board · {actor['name']} · {url}"
         return with_guidance(
             f"Shared board · {actor['name']} · {url}",
             prompts.get("context", "Check your Inbox with `./tasks --shared next`. "
