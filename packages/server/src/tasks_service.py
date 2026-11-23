@@ -43,6 +43,7 @@ import tasks_recurring
 import tasks_releases as releases
 import tasks_stamp
 import tasks_stats
+import tasks_wake_subscriptions as wake_subscriptions
 import watches
 import tasks_storage
 from raft_auth import RaftAuth
@@ -335,6 +336,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
     if "unblocks_task_id" not in attention_columns:
         db.execute("ALTER TABLE attention_requests ADD COLUMN unblocks_task_id INTEGER REFERENCES tasks (id)")
     db.execute(NOTIFICATION_PREFERENCES)
+    db.execute(wake_subscriptions.SCHEMA)
     for statement in notification_log.SCHEMA:
         db.execute(statement)
     db.execute(ATTENTION_WAIT_SCHEMA)
@@ -389,6 +391,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
             goals.migrate_goal_tickets(db)
             for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA):
                 db.execute(statement)
+            db.execute(wake_subscriptions.SCHEMA)
             peer_asks.refresh_generated_titles(db)
 
 
@@ -743,6 +746,27 @@ def create_app(
             raise RequestError(str(error)) from error
         except LookupError as error:
             raise RequestError(str(error), 404) from error
+
+    def agent_wake_subscriptions(actor, data, *, write):
+        project = project_filter(data, projects.DEFAULT)
+        owner = actor["ledger_key"]
+        if project == projects.DEFAULT and project_roster is not None and actor["subject"] not in project_roster:
+            raise RequestError("This action requires an agent from the project roster.", 403)
+        if not write:
+            return {"project": project, "subscriptions": wake_subscriptions.subscriptions(db(), project, owner)}
+        event_type = data["event_type"]
+        if event_type != wake_subscriptions.OWNED_READY:
+            raise RequestError("Choose owned-ready as the wake event type.")
+        enabled = data["enabled"]
+        if enabled not in ("true", "false"):
+            raise RequestError("enabled must be true or false.")
+        with tasks_storage.write(db()) as connection:
+            if wake_subscriptions.set_subscription(connection, project, owner, event_type, enabled == "true"):
+                ledger.bump_revision(connection)
+                audit.record(connection, scope="private", actor=owner, operation="set-wake-subscription",
+                             record_type="wake_subscription", record_id=f"{project}/{event_type}", at=ledger.timestamp())
+            saved = wake_subscriptions.subscriptions(connection, project, owner)
+        return {"project": project, "subscriptions": saved, "receipt": f"{project} · Wake subscriptions updated"}
 
     def project_channel(actor, project, data=None):
         if not projects.manages(db(), project, actor["ledger_key"]):
@@ -2065,6 +2089,8 @@ def create_app(
             return context
         if name in {"raft-channel-show", "raft-channel-set"}:
             return project_channel(actor, project_filter(data), data if write else None)
+        if name in {"my-wake-subscriptions", "set-wake-subscription"}:
+            return agent_wake_subscriptions(actor, data, write=write)
         if name == "my-next":
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:

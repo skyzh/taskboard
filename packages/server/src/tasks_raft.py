@@ -51,6 +51,11 @@ _ACTIONS = {
                                  "channel_id": "Stable Raft channel ID. Send an empty string to clear it."}),
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE),
     "my-goals": _Action("GET", "Read your standing and dated goals for one project.", optional=_PROJECT),
+    "my-wake-subscriptions": _Action("GET", "Read your wake subscriptions for one project.", optional=_PROJECT),
+    "set-wake-subscription": _Action("POST", "Update your subscription to a project wake event.", {
+        "event_type": "Wake event type. Choose owned-ready.",
+        "enabled": "Send true to subscribe or false to unsubscribe.",
+    }, _PROJECT),
     "save-goal": _Action("POST", "Save or clear one of your project goals.", {
         "kind": "Choose standing, dated, or legacy for the original dated record.",
         "summary": "One-line goal summary or milestone name. Send an empty string to clear it.",

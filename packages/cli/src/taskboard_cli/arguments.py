@@ -322,6 +322,15 @@ def arguments(argv=None):
     goal_save.add_argument("--deadline", help="YYYY-MM-DD deadline for a dated goal.")
     goal_save.add_argument("--ticket", type=nonblank, action="append", help="Link an owned project ticket. Repeat to add more.")
     goal_save.add_argument("--milestone", type=nonblank, help="Existing dated milestone name when editing or clearing it.")
+    for action, description in (
+        ("wake-subscriptions", "Read your saved wake subscriptions in shared mode."),
+        ("wake-subscribe", "Subscribe to a project wake event in shared mode."),
+        ("wake-unsubscribe", "Remove a project wake subscription in shared mode."),
+    ):
+        subscription = commands.add_parser(action, help=description)
+        subscription.add_argument("--project", type=nonblank, help="Project prefix. Defaults to T.")
+        if action != "wake-subscriptions":
+            subscription.add_argument("event_type", choices=("owned-ready",), help="Wake when a task you own becomes Ready.")
     reviews = commands.add_parser("reviews", help="List your actionable review assignments across projects.")
     reviews.add_argument("--project", type=nonblank, help="Limit to one project prefix.")
     channel_show = commands.add_parser("raft-channel-show", help="Show your project's Raft coordination channel.")
@@ -472,7 +481,9 @@ def arguments(argv=None):
             parser.error("Use --stamp-review when creating or refreshing a peer request.")
     if args.command == "capabilities" and args.mode != "shared":
         parser.error("Use --shared capabilities for shared agent commands.")
-    if args.command in {"raft-channel-show", "raft-channel-set"} and args.mode != "shared":
+    if args.command in {
+        "raft-channel-show", "raft-channel-set", "wake-subscriptions", "wake-subscribe", "wake-unsubscribe",
+    } and args.mode != "shared":
         parser.error(f"{args.command} requires --shared.")
 
     if args.command == "oidc-member":
