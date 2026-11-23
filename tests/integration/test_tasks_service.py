@@ -2521,6 +2521,55 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([item["key"] for item in operations["items"]], ["OPS-1"])
         self.assertEqual(events(), before)
 
+    def test_signed_agent_can_browse_knowledge_areas_and_open_an_index(self):
+        app = self.app(portal_reader=True)
+        manager, manager_id = self.login(app, "Avery")
+        reader, _ = self.login(app, "Blake")
+        human, _ = self.login(app, "Sam")
+        self.cli("register-project", "OPS", "Fixture operations", "--dri", manager_id)
+        self.cli("register-project", "EMPTY", "Fixture without Knowledge", "--dri", manager_id)
+
+        for project, ticket, title, area in (
+            ("T", "T-1", "Team decisions", "Workflow"),
+            ("OPS", "OPS-1", "Storage index", "Storage performance"),
+        ):
+            self.action(manager, "create-task", {
+                "project": project, "title": title, "step": "Review the index.", "brief": "Read the current rule.",
+            })
+            self.action(manager, "task-tag", {"id": ticket, "action": "add", "tag": "decision-record"})
+            self.action(manager, "advance-task", {"id": ticket, "transition": "start", "note": "Reviewed."})
+            self.action(manager, "advance-task", {"id": ticket, "transition": "done", "note": "Published."})
+            self.action(manager, "knowledge-place", {"id": ticket, "area": area, "index": "true"})
+
+        browser = self.call(human, "/api/v1/knowledge/areas").json["areas"]
+        self.assertEqual(self.action(reader, "knowledge-areas")["areas"], browser)
+        scope = {"project": "ops"}
+        self.assertEqual(self.action(reader, "knowledge-areas", query_string=scope)["areas"], [{
+            "project": "OPS", "path": "Storage performance", "index": "OPS-1",
+            "title": "Storage index", "available": True,
+        }])
+        self.assertEqual(self.action(reader, "knowledge-areas", query_string={"project": "EMPTY"})["areas"], [])
+        self.action(reader, "knowledge-areas", query_string={"project": "UNKNOWN"}, status=404)
+        self.action(app.test_client(), "knowledge-areas", status=401)
+        self.action(human, "knowledge-areas", status=403)
+
+        actions = []
+        code, output, error = self.shared_cli(reader, "knowledge-areas", "--project", "ops", actions=actions)
+        self.assertEqual((code, error), (0, ""))
+        self.assertEqual(actions, ["context", "knowledge-areas"])
+        self.assertIn("OPS · Storage performance · OPS-1 · Storage index · Available", output)
+        self.assertIn(f"{ORIGIN}{BASE}/#knowledge?entry=OPS-1", output)
+        self.assertNotIn("Team decisions", output)
+        found = self.action(reader, "knowledge-areas", query_string=scope)["areas"][0]["index"]
+        opened = self.shared_cli(reader, "show", found)
+        self.assertEqual((opened[0], opened[2]), (0, ""))
+        self.assertIn("Read the current rule.", opened[1])
+
+        self.action(manager, "task-tag", {"id": "OPS-1", "action": "remove", "tag": "decision-record"})
+        after = self.action(reader, "knowledge-areas", query_string=scope)["areas"][0]
+        self.assertEqual((after["index"], after["available"]), ("OPS-1", False))
+        self.assertIn("Under review", self.shared_cli(reader, "knowledge-areas", "--project", "OPS")[1])
+
     def test_knowledge_directory_stages_work_and_reconciles_one_settled_correction(self):
         app = self.app(portal_reader=True)
         manager, manager_id = self.login(app, "Avery")

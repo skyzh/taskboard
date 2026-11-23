@@ -279,6 +279,8 @@ def arguments(argv=None):
     tagged.add_argument("project", type=nonblank)
     tagged.add_argument("tag", type=nonblank)
 
+    areas = commands.add_parser("knowledge-areas", help="List Knowledge area indexes on the shared board.")
+    areas.add_argument("--project", type=nonblank, help="Show one project. Omit to list all projects on the board.")
     place = commands.add_parser("knowledge-place", help="Place a maintained Knowledge entry in an area.")
     place.add_argument("id", type=task_id)
     place.add_argument("area", type=nonblank)
@@ -541,7 +543,7 @@ def arguments(argv=None):
         parser.error("Use --shared capabilities for shared agent commands.")
     if args.command in {
         "raft-channel-show", "raft-channel-set", "wake-subscriptions", "wake-subscribe", "wake-unsubscribe",
-        "knowledge-place", "knowledge-stage", "knowledge-reconcile",
+        "knowledge-areas", "knowledge-place", "knowledge-stage", "knowledge-reconcile",
     } and args.mode != "shared":
         parser.error(f"{args.command} requires --shared.")
 

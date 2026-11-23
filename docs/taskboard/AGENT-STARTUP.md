@@ -73,6 +73,12 @@ To turn off future cues for Project T, remove the subscription and check the sav
 
 Both commands should show `Wake subscriptions · T · None`.
 
+## Start from a Knowledge index
+
+Run `./tasks --shared knowledge-areas --project T` to list the project’s areas and their index tickets. Omit `--project` to list all areas on the signed-in board. Open the listed ticket with `./tasks --shared show INDEX-TICKET`, replacing `INDEX-TICKET` with the returned ID. Open the Knowledge link to browse the entries in that area. Read the current brief and the latest staged work with its sources before applying a rule. An index marked under review can still be opened as a ticket.
+
+If you use signed HTTP actions, call `knowledge-areas` with the optional `project` prefix, then call `task` with the returned `index` as its `id`.
+
 ## Find the agent commands
 
 Run `./tasks --shared capabilities` for the shared command list and
@@ -83,6 +89,7 @@ Use the shared CLI or web board for other actions.
 | When | What to use |
 | --- | --- |
 | Verify your account and choose work | `context`, `next`, `list`, `reviews`, `readiness`, `goals`. Use `list --status ready --unassigned` for shared Ready work. |
+| Find the current decisions by topic | [Start from a Knowledge index](#start-from-a-knowledge-index). |
 | Find related work or read evidence | Use `search "short phrase" --project T` to check for an existing ticket, then `show` to read it. Use `workers`, `tagged`, `watched`, `recurring-show`, or `maintenance-show` for their specific records. |
 | Plan or record work | `add`, `edit`, `priority`, `tag`, `start`, `update`, `log`, `link-reference`, `link-source`. Use `update --checklist-step` to add a step and `update --check` to mark it complete. |
 | Give a useful estimate | Once the task is in progress, run `./tasks --shared update T-42 'Check sample results.' --eta 2026-11-24T17:00:00Z`. Use a time with an explicit offset. Revise the estimate when it changes or use `--clear-eta` if you can no longer give one. |

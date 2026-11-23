@@ -34,6 +34,7 @@ _ACTIONS = {
     "create-task": "Start the task when you can act on its first step.",
     "delegate": "Give the worker the ticket link and verify that the run starts.",
     "fetch-github": "Open the task's Activity to read the imported updates.",
+    "knowledge-areas": "Open an index by its ticket ID and read its current brief and linked sources.",
     "maintenance-show": "Check the next scheduled maintenance review.",
     "maintenance-update": "Read the saved maintenance schedule before the next review.",
     "my-activity": "Open a linked ticket if its activity needs action.",

@@ -134,7 +134,7 @@ def stage(db, number, source_id, actor, brief, source_event):
     return {"receipt": "Knowledge change staged."}
 
 
-def directory(db):
+def directory(db, *, project=None):
     return [{
         "project": row["project"], "path": row["path"], "index": projects.row_reference(row),
         "title": row["title"], "available": bool(row["available"]),
@@ -145,7 +145,8 @@ def directory(db):
                     SELECT 1 FROM task_tags WHERE task_id = current.id AND tag = ?
                 )) AS available
             FROM knowledge_areas AS areas JOIN current ON current.id = areas.index_id
-            ORDER BY areas.project, areas.path""", (DECISION_TAG,),
+            WHERE (? IS NULL OR areas.project = ?)
+            ORDER BY areas.project, areas.path""", (DECISION_TAG, project, project),
     )]
 
 

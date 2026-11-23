@@ -20,7 +20,7 @@ ADVANCES = {
     "assign-human", "redirect-decision", "withdraw-decision",
 }
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
-         "search", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance", ledger.READ}
+         "search", "knowledge-areas", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance", ledger.READ}
 WRITES = ADVANCES | {
     "confirm-blocker",
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
@@ -546,6 +546,17 @@ def shared_command(args):
             guidance = f'Save your role goal with `./tasks --shared save-goal standing "<summary>"{flag}`.'
         key = "goals-existing" if standing else "goals-missing"
         return with_guidance("\n".join(lines) or "No goals set.", prompts.get(key, guidance))
+    if command == "knowledge-areas":
+        result = board.invoke(command, {"project": projects.prefix(args.project)} if args.project else {})
+        lines = []
+        for area in result["areas"]:
+            availability = "Available" if area["available"] else "Under review"
+            lines.append(f"{area['project']} · {area['path']} · {area['index']} · {area['title']} · {availability}")
+            if area["available"]:
+                lines.append(f"  {url}#knowledge?entry={area['index']}")
+        if not lines:
+            return "No Knowledge areas found."
+        return with_guidance("\n".join(lines), "Open a listed index with `./tasks --shared show INDEX-TICKET`.")
     if command == "knowledge-reconcile":
         return json.dumps(board.invoke(command, {"project": args.project}, write=True), ensure_ascii=False)
     if command in WRITES:

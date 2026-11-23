@@ -108,6 +108,7 @@ _ACTIONS = {
         "title": "Short, actionable task title. Read field-guidance for the project’s wording and example.",
         "step": "First step for the owner.",
     }, {"brief": "Background and scope of the work.", **_PROJECT, **_EVIDENCE}),
+    "knowledge-areas": _Action("GET", "List Knowledge area indexes on the signed-in board.", optional=_PROJECT),
     "knowledge-place": _Action("POST", "Place an owned maintained entry in its project's Knowledge area.", {
         **_TASK, "area": "Named area path, for example Storage performance/Latency.",
     }, {"index": "Set true when this entry is the index of a new area."}),
