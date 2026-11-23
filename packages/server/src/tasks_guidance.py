@@ -31,6 +31,7 @@ _ACTIONS = {
     "assignees": "Use the chosen assignee's stable ID when assigning work.",
     "context": "Check your owned queue or review assignments for actionable work.",
     "confirm-blocker": "Pick up the unblocked ticket from its owner's Inbox.",
+    "create-knowledge": "Open the Knowledge entry by its ticket ID.",
     "create-task": "Start the task when you can act on its first step.",
     "delegate": "Give the worker the ticket link and verify that the run starts.",
     "fetch-github": "Open the task's Activity to read the imported updates.",

@@ -446,6 +446,7 @@ class BoardQueries:
                 "id": row["id"],
                 "key": projects.row_reference(row),
                 "title": row["title"],
+                **({"record_kind": "knowledge"} if ledger.is_knowledge(row) else {}),
                 "dri": row["dri"],
                 "priority": row["priority"],
                 "dri_profile": owners.get(row["dri"]),
@@ -494,7 +495,7 @@ class BoardQueries:
 
     def tasks(self, *, state=None, dri=None, waiting_on=None, before=None, limit=20, now=False,
               decided_by=None, search=None, priority_order=False, review_due=None, project=None, tag=None,
-              managed_by=None, hide_requests=False, exclude_goals=False, github_url=None):
+              managed_by=None, hide_requests=False, exclude_goals=False, github_url=None, include_knowledge=False):
         terms, args = [], []
         filter_search = None
         for column, value in (
@@ -569,10 +570,11 @@ class BoardQueries:
             args.append(before)
         if filter_search is None:
             where = " WHERE " + " AND ".join(terms) if terms else ""
-            sql = ledger.current_tasks_sql(self.db) + where + f" ORDER BY {order} LIMIT ?"
+            sql = ledger.current_tasks_sql(self.db, include_knowledge=include_knowledge) + where + f" ORDER BY {order} LIMIT ?"
             rows = self.db.execute(sql, (*args, limit + 1)).fetchall()
         else:
-            rows = self.search_rows(terms, args, order, limit, priority_order, filter_search)
+            rows = self.search_rows(terms, args, order, limit, priority_order, filter_search,
+                                    include_knowledge=include_knowledge)
         include_report_fields = dri is not None and state in WORK_STATES
         result = page(rows, limit, "event_id", lambda visible: self.task_rows(
             visible, include_report_fields=include_report_fields,
@@ -585,10 +587,10 @@ class BoardQueries:
     def maintained_decision_rows(self, *, search=None, entry=None, source_ticket=None, before=None, limit,
                                  github_url=None):
         context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
-        terms = [
-            f"{ledger.display_state_sql(context)} = 'done'",
-            "tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?)",
-        ]
+        legacy = f"""({ledger.display_state_sql(context)} = 'done'
+            AND tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?))"""
+        typed = "tasks.record_kind = 'knowledge' OR " if "record_kind" in ledger.task_columns(self.db) else ""
+        terms = [f"({typed}{legacy})"]
         args = [DECISION_RECORD_TAG]
         if before is not None:
             terms.append("events.id < ?")
@@ -624,10 +626,10 @@ class BoardQueries:
                         or needle in (row["brief"] or "").casefold()
                         or row["id"] in area_matches)
 
-            return self.search_rows(terms, args, "events.id DESC", limit, False, matches)
+            return self.search_rows(terms, args, "events.id DESC", limit, False, matches, include_knowledge=True)
         where = " WHERE " + " AND ".join(terms)
         return self.db.execute(
-            ledger.current_tasks_sql(self.db) + where + " ORDER BY events.id DESC LIMIT ?",
+            ledger.current_tasks_sql(self.db, include_knowledge=True) + where + " ORDER BY events.id DESC LIMIT ?",
             (*args, limit + 1),
         ).fetchall()
 
@@ -660,6 +662,7 @@ class BoardQueries:
                 row["id"]: {
                     "id": row["id"], "event_id": row["event_id"], "key": projects.row_reference(row),
                     "title": row["title"], "state": row["display_state"],
+                    **({"record_kind": "knowledge"} if ledger.is_knowledge(row) else {}),
                 }
                 for row in records
             })
@@ -670,6 +673,8 @@ class BoardQueries:
                 result = []
                 for row in rows:
                     item = {key: row[key] for key in ("id", "key", "title", "state")}
+                    if ledger.is_knowledge(row):
+                        item["record_kind"] = "knowledge"
                     if row["id"] in decisions:
                         item["decision"] = {
                             "summary": decisions[row["id"]]["brief"],
@@ -727,13 +732,13 @@ class BoardQueries:
 
         return [row for _, _, row in nsmallest(6, matches(), key=lambda match: match[:2])]
 
-    def search_rows(self, terms, args, order, limit, priority_order, matches):
+    def search_rows(self, terms, args, order, limit, priority_order, matches, *, include_knowledge=False):
         rows = []
         cursor, bindings = [], ()
         batch_size = max(100, limit + 1)
         snapshot = nullcontext() if self.db.in_transaction else tasks_storage.read(self.db)
         with snapshot:
-            base = ledger.current_tasks_sql(self.db)
+            base = ledger.current_tasks_sql(self.db, include_knowledge=include_knowledge)
             while len(rows) <= limit:
                 conditions = terms + cursor
                 where = " WHERE " + " AND ".join(conditions) if conditions else ""
@@ -757,7 +762,8 @@ class BoardQueries:
             " WHERE tasks.project_prefix = ?) GROUP BY display_state", (project,),
         ))
         owners = [row[0] for row in self.db.execute(
-            "SELECT DISTINCT dri FROM tasks WHERE project_prefix = ? AND dri <> '' ORDER BY dri LIMIT 256", (project,)
+            f"SELECT DISTINCT dri FROM tasks WHERE project_prefix = ? AND dri <> '' "
+            f"AND {ledger.work_records_sql(self.db)} ORDER BY dri LIMIT 256", (project,)
         )]
         return {
             "counts": counts,
@@ -807,7 +813,7 @@ class BoardQueries:
         identities = profiles.visible_by_keys(self.db, [run["worker"] for run in runs], self.base)
         for run in runs:
             run["worker_profile"] = identities.get(run["worker"])
-        task = {**self.task_rows([row])[0], "eta": row["eta"]}
+        task = {**self.task_rows([row])[0], "record_kind": row["record_kind"], "eta": row["eta"]}
         if owner and owner == task["dri"] and (peer := task.get("peer_request")):
             peer["review_run_id"] = peer_asks.find(self.db, number)["review_run_id"]
         result = {
@@ -826,11 +832,13 @@ class BoardQueries:
 
     def last_activity(self, *, owner=None, task_id=None, project=None):
         column, value = ("tasks.dri", owner) if owner is not None else ("events.task_id", task_id)
+        scope = ledger.work_records_sql(self.db) if owner is not None else "TRUE"
         event = self.db.execute(
             f"""
             SELECT events.id, events.at
             FROM tasks JOIN events ON events.task_id = tasks.id
-            WHERE {column} = ? AND (? IS NULL OR tasks.project_prefix = ?) ORDER BY events.id DESC LIMIT 1
+            WHERE {column} = ? AND (? IS NULL OR tasks.project_prefix = ?) AND {scope}
+            ORDER BY events.id DESC LIMIT 1
             """, (value, project, project),
         ).fetchone()
         return dict(event) if event else None
@@ -946,8 +954,10 @@ class BoardQueries:
 
     def events(self, *, number=None, event_id=None, actor=None, action=None, before=None,
                limit=20, outcomes=False, watcher=None, owner_or_watcher=None,
-               dri=None, feed=None, day=None, project=None, time_zone=PACIFIC, hide_requests=False):
+               dri=None, feed=None, day=None, project=None, time_zone=PACIFIC, hide_requests=False, work_only=False):
         joins, terms, args = "", [], []
+        if work_only or dri is not None:
+            terms.append(ledger.work_records_sql(self.db))
         if self.hide_peer_requests(hide_requests):
             terms.append("NOT EXISTS (SELECT 1 FROM peer_asks WHERE peer_asks.task_id = tasks.id)")
         if watcher is not None:
@@ -956,7 +966,7 @@ class BoardQueries:
             args.append(watcher)
         if owner_or_watcher is not None:
             terms.append(
-                """(tasks.dri = ? OR EXISTS (
+                f"""((tasks.dri = ? AND {ledger.work_records_sql(self.db)}) OR EXISTS (
                     SELECT 1 FROM task_watches
                     WHERE task_watches.task_id = tasks.id AND task_watches.watcher = ?
                       AND events.id > task_watches.after_event
@@ -1059,7 +1069,7 @@ class BoardQueries:
         day_sql = self.outcome_day_sql(time_zone)
         terms, args = [OUTCOME_ACTIONS], []
         if dri is not None:
-            terms.append("tasks.dri = ?")
+            terms.extend(("tasks.dri = ?", ledger.work_records_sql(self.db)))
             args.append(dri)
         if project is not None:
             terms.append("tasks.project_prefix = ?")
@@ -1080,18 +1090,18 @@ class BoardQueries:
     def related_activity(self, person, *, before, limit, project=None):
         result = self.events(before=before, limit=limit, owner_or_watcher=person, project=project)
         failures = self.db.execute(
-            """
+            f"""
             SELECT sources.source_key, intake_errors.error, intake_errors.at
             FROM intake_errors JOIN sources ON sources.id = intake_errors.source_id
             WHERE EXISTS (
                 SELECT 1 FROM task_sources
                 JOIN tasks ON tasks.id = task_sources.task_id
                 LEFT JOIN task_watches ON task_watches.task_id = tasks.id AND task_watches.watcher = ?
-                WHERE task_sources.source_id = sources.id AND (tasks.dri = ? OR task_watches.watcher IS NOT NULL)
-                    AND (? IS NULL OR tasks.project_prefix = ?)
+                WHERE task_sources.source_id = sources.id AND (? IS NULL OR tasks.project_prefix = ?)
+                    AND (task_watches.watcher IS NOT NULL OR (tasks.dri = ? AND {ledger.work_records_sql(self.db)}))
             )
             ORDER BY intake_errors.at DESC, sources.source_key LIMIT 20
-            """, (person, person, project, project),
+            """, (person, project, project, person),
         )
         return {**result, "source_errors": [dict(error) for error in failures]}
 
@@ -1116,7 +1126,8 @@ class BoardQueries:
                             worker_runs.started_at, worker_runs.assigned_at) AS updated_at,
                    tasks.id AS task_id, tasks.title AS task_title, {TASK_REFERENCE} AS task_key
             FROM worker_runs JOIN tasks ON tasks.id = worker_runs.task_id
-            WHERE tasks.dri = ? AND (? IS NULL OR tasks.project_prefix = ?){where}
+            WHERE tasks.dri = ? AND (? IS NULL OR tasks.project_prefix = ?)
+                AND {ledger.work_records_sql(self.db)}{where}
             ORDER BY {order} LIMIT ?
             """, (owner, project, project, *parameters, limit + 1),
         ).fetchall()
@@ -1395,7 +1406,8 @@ class BoardQueries:
         # Read each action in event ID order before combining the small results.
         recent_ids = f"""
             SELECT events.id FROM events JOIN tasks ON tasks.id = events.task_id
-            WHERE events.action = ? AND tasks.dri = ? AND tasks.project_prefix = ? {exclude_requests}
+            WHERE events.action = ? AND tasks.dri = ? AND tasks.project_prefix = ?
+                AND {ledger.work_records_sql(self.db)} {exclude_requests}
             ORDER BY events.id DESC LIMIT 3
         """
         rows = self.db.execute(
@@ -1461,7 +1473,9 @@ class BoardQueries:
         rows = self.db.execute(
             f"""
             WITH current AS ({current}),
-                 project_tasks AS (SELECT id, dri FROM tasks WHERE project_prefix = ?),
+                 project_tasks AS (
+                     SELECT id, dri FROM tasks WHERE project_prefix = ? AND {ledger.work_records_sql(self.db)}
+                 ),
                  legacy_waits AS (
                      SELECT peer.ledger_key AS recipient, MAX(tasks.at) AS updated
                      FROM current AS tasks {self._PEER_WAIT_JOIN}
@@ -1626,7 +1640,9 @@ class BoardQueries:
             name = projects.roster_owners(self.db, self.project_roster).get(owner)
             if name:
                 profile = projects.roster_profile(owner, name)
-        if profile is None and not self.db.execute("SELECT 1 FROM tasks WHERE dri = ? LIMIT 1", (owner,)).fetchone():
+        if profile is None and not self.db.execute(
+            f"SELECT 1 FROM tasks WHERE dri = ? AND {ledger.work_records_sql(self.db)} LIMIT 1", (owner,),
+        ).fetchone():
             return None
         current = ledger.current_tasks_sql(self.db)
         count = self.db.execute(
@@ -1652,7 +1668,8 @@ class BoardQueries:
         ).fetchone())
         has_outcomes = self.db.execute(
             "SELECT 1 FROM events JOIN tasks ON tasks.id = events.task_id "
-            f"WHERE tasks.dri = ? AND tasks.project_prefix = ? AND {OUTCOME_ACTIONS} LIMIT 1", (owner, project),
+            f"WHERE tasks.dri = ? AND tasks.project_prefix = ? AND {OUTCOME_ACTIONS}"
+            f" AND {ledger.work_records_sql(self.db)} LIMIT 1", (owner, project),
         ).fetchone() is not None
         return {
             "profile": profile, "report_count": count,
@@ -1736,8 +1753,9 @@ class BoardQueries:
             visible_tasks AS (SELECT id FROM tasks WHERE ? IS NULL OR project_prefix = ?),
             {readiness.CANDIDATES},
             candidates AS (
-                SELECT at, 'event' AS source, events.id, 'creation' AS kind
+                SELECT events.at, 'event' AS source, events.id, 'creation' AS kind
                 FROM events JOIN visible_tasks ON visible_tasks.id = events.task_id
+                JOIN current_tasks ON current_tasks.id = events.task_id
                 WHERE action = 'add' AND ?
                 UNION ALL
                 SELECT events.at, 'event', events.id, 'watched'

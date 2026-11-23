@@ -39,7 +39,11 @@ def task_scope(db, project):
     prefix = "project_prefix" if "project_prefix" in columns else "'T'"
     number = "project_number" if "project_number" in columns else "NULL"
     query = f"SELECT id, title, {prefix} AS project_prefix, {number} AS project_number FROM tasks"
-    return (query, ()) if project is None else (f"{query} WHERE {prefix} = ?", (project,))
+    terms = ["record_kind = 'work'"] if "record_kind" in columns else []
+    if project is not None:
+        terms.append(f"{prefix} = ?")
+    where = " WHERE " + " AND ".join(terms) if terms else ""
+    return query + where, (project,) if project is not None else ()
 
 
 def activity_counts(db, bounds, base, scope):

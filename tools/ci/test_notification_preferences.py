@@ -122,6 +122,8 @@ class StorageReplayTest(unittest.TestCase):
     def test_knowledge_stages_survive_sqlite_import_and_reconcile_on_postgres(self):
         source_app = self.board.app(portal_reader=True)
         author, _ = self.board.login(source_app, "Avery")
+        _, manager = self.board.login(source_app, "Blake")
+        self.board.cli("register-project", "T", "Tasks Board", "--dri", manager)
         for number, title, brief in ((1, "Storage index", "Use ten samples."),
                                      (2, "Validate a larger sample", "Compare both baselines.")):
             ticket = f"T-{number}"
@@ -142,9 +144,13 @@ class StorageReplayTest(unittest.TestCase):
         imported = import_snapshot(snapshot, dsn)
         for table in ("knowledge_areas", "knowledge_entries", "knowledge_stages"):
             self.assertEqual(imported[table], 1)
-        signed, _ = self.board.login(self.postgres_app(dsn), "Avery")
+        destination = self.postgres_app(dsn)
+        former_author, _ = self.board.login(destination, "Avery")
+        signed, _ = self.board.login(destination, "Blake")
         directory = self.board.call(signed, "/api/v1/knowledge/areas").json["areas"]
         self.assertEqual(directory[0]["index"], "T-1")
+        self.assertEqual(self.board.action(signed, "task", query_string={"id": "T-1"})["task"]["record_kind"], "knowledge")
+        self.assertEqual(self.board.action(former_author, "knowledge-reconcile", {"project": "T"})["applied"], [])
         applied = self.board.action(signed, "knowledge-reconcile", {"project": "T"})["applied"]
         self.assertEqual(applied[0]["source_event_id"], event["id"])
         note = self.board.call(signed, "/api/v1/knowledge", query_string={"source": "T-2"}).json["items"][0]

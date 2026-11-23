@@ -42,8 +42,39 @@ SCHEMA = (
 )
 
 
+def migrate_records(db):
+    """Recognize published legacy notes without rewriting their history or links."""
+    current = ledger.current_tasks_sql(db, include_knowledge=True)
+    db.execute(
+        f"""
+        WITH current AS ({current})
+        UPDATE tasks SET record_kind = 'knowledge'
+        WHERE id IN (
+            SELECT current.id FROM current JOIN task_tags ON task_tags.task_id = current.id
+            WHERE current.record_kind = 'work' AND current.display_state = 'done' AND task_tags.tag = ?
+        )
+        """, (DECISION_TAG,),
+    )
+
+
+def create(db, actor, project, title, brief):
+    args = Namespace(
+        project=project, title=ledger.task_title(title), brief=brief, by=actor, dri="",
+        step="Knowledge entry created.",
+    )
+    # Keep the legacy completed-tagged representation readable after rollback.
+    number = ledger.create_task_record(db, args, [], state="done", context={"record_kind": "knowledge"})
+    db.execute("UPDATE tasks SET record_kind = 'knowledge' WHERE id = ?", (number,))
+    db.execute("INSERT INTO task_tags (task_id, tag) VALUES (?, ?)", (number, DECISION_TAG))
+    ledger.bump_revision(db)
+    ticket = projects.for_task(db, number)
+    return {"id": ticket, "record_kind": "knowledge", "receipt": f"{ticket} · Knowledge entry created."}
+
+
 def is_maintained(db, task):
-    return task["display_state"] == "done" and DECISION_TAG in ledger.task_tags(db, task["id"])
+    return ledger.is_knowledge(task) or (
+        task["display_state"] == "done" and DECISION_TAG in ledger.task_tags(db, task["id"])
+    )
 
 
 def maintained(db, number):
@@ -100,7 +131,7 @@ def stage(db, number, source_id, actor, brief, source_event):
     note = maintained(db, number)
     if number == source_id:
         raise ValueError("Link the separate work ticket that could change the Knowledge entry.")
-    source = ledger.get_task(db, source_id)
+    source = ledger.get_work_task(db, source_id)
     if not ledger.may_tag(db, source, actor):
         raise PermissionError("Only the source ticket owner or project manager can stage its work.")
     if (brief is None) != (source_event is None):
@@ -139,11 +170,11 @@ def directory(db, *, project=None):
         "project": row["project"], "path": row["path"], "index": projects.row_reference(row),
         "title": row["title"], "available": bool(row["available"]),
     } for row in db.execute(
-        f"""WITH current AS ({ledger.current_tasks_sql(db)})
+        f"""WITH current AS ({ledger.current_tasks_sql(db, include_knowledge=True)})
             SELECT areas.project, areas.path, current.*,
-                (current.display_state = 'done' AND EXISTS (
+                (current.record_kind = 'knowledge' OR (current.display_state = 'done' AND EXISTS (
                     SELECT 1 FROM task_tags WHERE task_id = current.id AND tag = ?
-                )) AS available
+                ))) AS available
             FROM knowledge_areas AS areas JOIN current ON current.id = areas.index_id
             WHERE (? IS NULL OR areas.project = ?)
             ORDER BY areas.project, areas.path""", (DECISION_TAG, project, project),
@@ -181,12 +212,14 @@ def metadata(db, number):
         result["area_entries"] = [
             {"key": projects.row_reference(row), "title": row["title"]}
             for row in db.execute(
-                ledger.current_tasks_sql(db) + """
+                ledger.current_tasks_sql(db, include_knowledge=True) + """
                 WHERE tasks.id IN (SELECT task_id FROM knowledge_entries WHERE project = ? AND path = ?)
-                  AND tasks.id <> ? AND tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?)
+                  AND tasks.id <> ? AND (
+                      tasks.record_kind = 'knowledge' OR tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?)
+                  )
                 ORDER BY tasks.title, tasks.id
                 """, (area["project"], area["path"], number, DECISION_TAG),
-            ) if row["display_state"] == "done"
+            ) if ledger.is_knowledge(row) or row["display_state"] == "done"
         ]
     if staged := links(db, number):
         result["staged_work"] = staged
@@ -217,6 +250,7 @@ def reconcile(db, project, actor, base):
         if not ledger.may_tag(db, note, actor):
             continue
         entry = projects.row_reference(note)
+        contact = actor if ledger.is_knowledge(note) else note["dri"]
         settled = {row["source_id"]: row for row in changes if row["proposed_brief"] is not None
                    and ledger.get_task(db, row["source_id"])["display_state"] == "done"}
         current = note["brief"]
@@ -224,7 +258,7 @@ def reconcile(db, project, actor, base):
                       if not row["source_reopened"] and row["base_brief"] == current}
         keep_entry = is_maintained(db, note)
         for row in changes:
-            item = {"entry": entry, "source": projects.row_reference(row), "owner": note["dri"]}
+            item = {"entry": entry, "source": projects.row_reference(row), "owner": contact}
             if row["source_id"] not in settled:
                 unresolved.append({**item, "reason": "Awaiting a settled source and proposed brief."})
                 continue

@@ -440,13 +440,16 @@ actions. It does not install a recurring operator job or send notifications.
 
 ## Organize and maintain Knowledge
 
-Use completed tickets tagged `decision-record` as maintained Knowledge entries. Create and complete the area index first. Use the same ticket's brief to maintain the index. A nested area has its own index under its parent. If an index is reopened or its decision tag is removed, the area links to its ticket until it is maintained again or the project manager sets a replacement.
+Knowledge entries are project records with a ticket ID, brief, links, and Activity. Create an entry directly and use its brief to record the current guidance. A signed project agent or project manager can create an entry. The project manager edits the entry and organizes it in an area. Use linked work tickets for proposed changes, assignments, and reviews.
 
 ```sh
+./tasks --shared knowledge-add 'Storage performance index' --project OPS --brief 'Link the current findings here.'
 ./tasks --shared knowledge-place OPS-1 'Storage performance' --index
 ./tasks --shared knowledge-place OPS-2 'Storage performance'
 ./tasks --shared knowledge-stage OPS-2 OPS-3
 ```
+
+Create the area’s index before placing other entries there. A nested area has its own index. Existing completed tickets tagged `decision-record` are recognized as Knowledge when the shared ledger opens. Their ticket IDs, Knowledge URLs, Activity, area placement, and staged links carry over. Open and closed tagged tickets continue as work tickets. Each project needs a registered project manager to edit migrated entries and apply staged changes.
 
 The **Knowledge** tab links each directory to its index and the index to its entries. Open the source ticket or use signed search to see the stage alongside the current brief. Read the newest linked work and the exact decision or correction before applying an older rule.
 

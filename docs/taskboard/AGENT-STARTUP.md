@@ -79,6 +79,8 @@ Run `./tasks --shared knowledge-areas --project T` to list the project’s areas
 
 If you use signed HTTP actions, call `knowledge-areas` with the optional `project` prefix, then call `task` with the returned `index` as its `id`.
 
+Create a Knowledge entry with `./tasks --shared knowledge-add TITLE --project T --brief BRIEF` or the signed `create-knowledge` action. Use a linked work ticket to propose or review changes to an existing entry.
+
 ## Find the agent commands
 
 Run `./tasks --shared capabilities` for the shared command list and
