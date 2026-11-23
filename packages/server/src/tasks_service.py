@@ -53,6 +53,7 @@ from tasks_evidence_preview import read_image
 from tasks_queries import BoardQueries, PACIFIC, pacific_day, task_creation
 
 
+from taskboard_client.connection import exact_person_id
 from taskboard_server.paths import CHECKOUT, DIST, PACKAGE
 from taskboard_server import personal_codex, project_links, raft_channels
 FRONTEND_BUILD_META = re.compile(rb'<meta name="tasks-frontend-build" content="([0-9a-f]{64})">')
@@ -2207,6 +2208,15 @@ def create_app(
         current_actor()
         return assignees(request.args)
 
+    def decision_candidates(name):
+        filters = {"query": name.removeprefix("@")}
+        while True:
+            page = assignees(filters)
+            yield from page["items"]
+            if page["next_cursor"] is None:
+                return
+            filters["before"] = page["next_cursor"]
+
     def advance(actor, data, number):
         command = text(data, "transition", maximum=30)
         if command not in ADVANCES:
@@ -2225,6 +2235,14 @@ def create_app(
         on = text(data, "on", optional=True, maximum=160)
         if on and command not in ("wait", "assign-human", "redirect-decision"):
             raise RequestError("This transition does not take a dependency or recipient.")
+        if "on_name" in data:
+            if on is not None or command not in ("assign-human", "redirect-decision"):
+                raise RequestError("Use either a name or an exact ID when assigning or redirecting a human decision.")
+            name = text(data, "on_name", maximum=101)
+            try:
+                on = exact_person_id(decision_candidates(name), name, "human")
+            except ValueError as error:
+                raise RequestError(str(error)) from error
         if command in ("assign-human", "redirect-decision"):
             on = require_person(on, "human")
         blocked_by = data.get("blocked_by")
@@ -2363,6 +2381,7 @@ def create_app(
             context = {
                 "actor": actor_profile(actor), "board": base + "/",
                 "parking_protocol": ledger.PARKING_PROTOCOL_VERSION,
+                "decision_recipient_lookup": True,
             }
             if agent_guidance.cli:
                 context["cli_guidance"] = agent_guidance.cli

@@ -174,7 +174,7 @@ def with_guidance(output, guidance):
     return f"{output}\nNext: {guidance}"
 
 
-def shared_write(board, args):
+def shared_write(board, args, *, decision_recipient_lookup=False):
     command = args.command
     data = evidence(args)
     if command == "save-goal":
@@ -281,7 +281,10 @@ def shared_write(board, args):
             action = "advance-task"
             data["transition"] = command
             if command in ("assign-human", "redirect-decision"):
-                data["on"] = board.person(args.on, "human")
+                if decision_recipient_lookup and not args.on.startswith("raft:human:"):
+                    data["on_name"] = args.on
+                else:
+                    data["on"] = board.person(args.on, "human")
             elif command == "wait":
                 data.update(on=args.on, automation=args.automation, attention_request_id=args.attention_request_id)
                 if args.blocked_by is not None:
@@ -497,7 +500,7 @@ def shared_command(args):
         key = "goals-existing" if standing else "goals-missing"
         return with_guidance("\n".join(lines) or "No goals set.", prompts.get(key, guidance))
     if command in WRITES:
-        result = shared_write(board, args)
+        result = shared_write(board, args, decision_recipient_lookup=context.get("decision_recipient_lookup") is True)
         output = "Committed · " + result["receipt"]
         guidance = result.get("next_step")
         if command in {"done", "transfer"} or (command == PEER_ASK and args.change == "result"):

@@ -3022,6 +3022,55 @@ class TasksServiceTest(unittest.TestCase):
             "Next: Check your Inbox or adjust the filters.",
         ])
 
+    def test_signed_decision_recipient_lookup_saves_a_read_and_preserves_legacy_resolution(self):
+        app = self.app(portal_reader=True)
+        avery, _ = self.login(app, "Avery")
+        sam, sam_id = self.login(app, "Sam")
+        quinn, quinn_id = self.login(app, "Quinn")
+        self.provider.people["Sam"]["name"] = "Sample Reviewer"
+        self.provider.people["Quinn"]["name"] = "sam"
+        self.call(sam, "/api/v1/session")
+        self.call(quinn, "/api/v1/session")
+        self.action(avery, "create-task", {"title": "Choose a format", "step": "List choices."})
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "List choices."})
+
+        def run(action, selector, *, context=None):
+            actions = []
+            status, output, errors = self.shared_cli(
+                avery, action, "T-1", "Choose a format.", "--on", selector,
+                actions=actions, carrier_results={"context": context} if context else None,
+            )
+            self.assertEqual((status, errors), (0, ""))
+            self.assertIn("Committed · T-1", output)
+            return actions
+
+        def recipient():
+            return self.call(avery, "/api/v1/tasks/T-1").json["task"]["waiting_on"]
+
+        self.assertEqual(run("assign-human", "@SAM"), ["context", "advance-task"])
+        self.assertEqual(recipient(), sam_id)
+        context = self.action(avery, "context")
+        self.assertIs(context.pop("decision_recipient_lookup"), True)
+        self.assertEqual(run("redirect-decision", "@quinn", context=context), ["context", "assignees", "advance-task"])
+        self.assertEqual(recipient(), quinn_id)
+        self.assertEqual(run("redirect-decision", "Sample Reviewer"), ["context", "advance-task"])
+        self.assertEqual(recipient(), sam_id)
+
+        for person in ("Sam", "Quinn"):
+            self.provider.people[person]["name"] = "Shared reviewer"
+        self.call(sam, "/api/v1/session")
+        self.call(quinn, "/api/v1/session")
+        task = self.call(avery, "/api/v1/tasks/T-1").json["task"]
+        change = {"id": "T-1", "transition": "redirect-decision", "note": "Choose a format."}
+        for fields in ({"on_name": "Shared reviewer"}, {"on_name": "Missing"}, {"on_name": "@avery"},
+                       {"on_name": "@quinn", "on": sam_id}):
+            self.action(avery, "advance-task", {**change, **fields}, status=400)
+        self.action(avery, "advance-task", {**change, "transition": "wait", "on_name": "@quinn"}, status=400)
+        self.assertEqual(self.call(avery, "/api/v1/tasks/T-1").json["task"]["event_id"], task["event_id"])
+
+        self.assertEqual(run("redirect-decision", quinn_id), ["context", "advance-task"])
+        self.assertEqual(recipient(), quinn_id)
+
     def test_shared_priority_order_and_cursor_survive_a_handoff(self):
         app = self.app(portal_reader=True)
         viewer = app.test_client()
