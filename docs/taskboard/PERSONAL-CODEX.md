@@ -1,5 +1,7 @@
 # Report progress from personal Codex
 
+For the shared Taskboard API and prompts for any agent, use the [Personal Agents guide](PERSONAL-AGENTS.md). This guide covers existing single-ticket pilot connections.
+
 ## Instructions for the session
 
 Keep working on the user's task. Report meaningful checkpoints while working and at handoff through Taskboard's HTTP API. Use the Taskboard HTTPS base URL (including its mount path) and exact ticket key supplied by the user or setup page. If either is missing, ask for it once. Use the supplied URL for requests without following redirects. Read the ticket before reporting.

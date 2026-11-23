@@ -25,22 +25,29 @@ class MemorySessions:
         self.sessions = {}
 
     def get(self, key, now):
-        session = self.sessions.get(key)
+        return self.get_digest(session_digest(key), now)
+
+    def get_digest(self, digest, now):
+        session = self.sessions.get(digest)
         if session is not None and session.expires <= now:
-            self.discard(key)
+            self.discard_digest(digest)
             return None
         return session
 
     def discard(self, key):
-        self.sessions.pop(key, None)
+        if key:
+            self.discard_digest(session_digest(key))
+
+    def discard_digest(self, digest):
+        self.sessions.pop(digest, None)
 
     def replace(self, old_key, key, session, now):
         self.sessions = {item: value for item, value in self.sessions.items() if value.expires > now}
         self.discard(old_key)
-        self.sessions[key] = session
+        self.sessions[session_digest(key)] = session
 
 
-def _cookie_digest(key):
+def session_digest(key):
     return sha256(key.encode()).hexdigest()
 
 
@@ -96,34 +103,40 @@ class DurableSessions:
         db.execute("DELETE FROM sessions WHERE audience = ? AND expires <= ?", (self.audience, now))
 
     def get(self, key, now):
+        return self.get_digest(session_digest(key), now)
+
+    def get_digest(self, digest, now):
         server_column = ", server_id" if self._marketplace else ""
         with self._connect() as db:
             row = db.execute(
                 f"""
                 SELECT token, expires, subject, kind{server_column} FROM sessions
                 WHERE audience = ? AND cookie_digest = ? AND expires > ?
-                """, (self.audience, _cookie_digest(key), now),
+                """, (self.audience, digest, now),
             ).fetchone()
         return Session(*row) if row else None
 
     def discard(self, key):
         if key:
-            with self._connect() as db:
-                self._discard(db, key)
+            self.discard_digest(session_digest(key))
 
-    def _discard(self, db, key):
+    def discard_digest(self, digest):
+        with self._connect() as db:
+            self._discard(db, digest)
+
+    def _discard(self, db, digest):
         db.execute(
             "DELETE FROM sessions WHERE audience = ? AND cookie_digest = ?",
-            (self.audience, _cookie_digest(key)),
+            (self.audience, digest),
         )
 
     def replace(self, old_key, key, session, now):
-        values = (self.audience, _cookie_digest(key), session.token, session.expires, session.subject, session.kind)
+        values = (self.audience, session_digest(key), session.token, session.expires, session.subject, session.kind)
         if self._marketplace:
             values += (session.server_id,)
         placeholders = ", ".join("?" for _ in values)
         with self._connect() as db:
             self._prune(db, now)
             if old_key:
-                self._discard(db, old_key)
+                self._discard(db, session_digest(old_key))
             db.execute(f"INSERT INTO sessions VALUES ({placeholders})", values)

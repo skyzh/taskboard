@@ -55,7 +55,7 @@ from tasks_queries import BoardQueries, PACIFIC, pacific_day, task_creation
 
 from taskboard_client.connection import exact_person_id
 from taskboard_server.paths import CHECKOUT, DIST, PACKAGE
-from taskboard_server import personal_codex, project_links, raft_channels
+from taskboard_server import personal_agents, personal_codex, project_links, raft_channels
 FRONTEND_BUILD_META = re.compile(rb'<meta name="tasks-frontend-build" content="([0-9a-f]{64})">')
 # Some Linux systems expose the host's localtime file alongside IANA zones.
 TIME_ZONE_NAMES = available_timezones() - {"localtime"}
@@ -513,6 +513,9 @@ def create_app(
         except ValueError as error:
             raise ValueError("Set TASKS_NEW_TASKS_DEFAULT_SUBJECT to a verified human subject UUID.") from error
     marketplace = marketplace_root is not None
+    personal_api_enabled = bool(
+        not marketplace and not local_readonly and oidc_config is None and (raft_config or {}).get("server_id")
+    )
     if personal_codex_pilot and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
         raise ValueError("Personal Codex reporting requires a fixed-server shared board with Raft sign-in.")
     public_raft_links = {} if marketplace or local_readonly else project_links.public_raft_links(public_raft_channel_urls)
@@ -657,11 +660,14 @@ def create_app(
                 prepare_postgres(connection, base + "/", server, oidc_issuer=issuer)
         else:
             prepare(path, base + "/", server, oidc_issuer=issuer)
-        if personal_codex_pilot:
+        if personal_codex_pilot or personal_api_enabled:
             pilot_db = tasks_storage.Postgres(postgres_dsn) if postgres_dsn else connect(path)
             with closing(pilot_db), tasks_storage.write(pilot_db):
-                for statement in personal_codex.SCHEMA:
-                    pilot_db.execute(statement)
+                if personal_codex_pilot:
+                    for statement in personal_codex.SCHEMA:
+                        pilot_db.execute(statement)
+                if personal_api_enabled:
+                    pilot_db.execute(personal_agents.SCHEMA)
 
     @app.errorhandler(RequestError)
     def invalid(error):
@@ -698,6 +704,26 @@ def create_app(
             g.database = connection
         return g.database
 
+    def personal_agent_actor():
+        if not personal_api_enabled or not request.path.startswith("/api/v1/"):
+            return None
+        scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not token.startswith(personal_agents.API_TOKEN_PREFIX):
+            return None
+        if request.path.startswith(("/api/v1/personal-agents/", "/api/v1/personal-codex/")):
+            raise RequestError("Use the signed-in browser to manage connections.", 403)
+        connection = personal_agents.authorized_connection(db(), token)
+        identity = raft.identity_for_session(connection["browser_session"]) if connection is not None else None
+        if identity is None and raft.identity_temporarily_unavailable():
+            raise RequestError("Raft sign-in verification is temporarily unavailable.", 503)
+        if identity is None or identity.kind != "human":
+            raise RequestError("A valid Personal Agents connection is required.", 401)
+        actor = profiles.for_identity(db(), identity)
+        if actor is None or actor["ledger_key"] != connection["owner"]:
+            raise RequestError("A valid Personal Agents connection is required.", 401)
+        g.personal_agent_api = True
+        return actor
+
     def current_actor(kind=None, *, write=False, required=False, sync_profile=True):
         if write and (request.headers.get("Origin") not in (None, origin)):
             raise RequestError("Send changes from the board origin.", 403)
@@ -713,6 +739,8 @@ def create_app(
             if kind and g.actor["kind"] != kind:
                 raise RequestError(f"This action requires a signed-in {kind}.", 403)
             return g.actor
+        if "actor" not in g and (actor := personal_agent_actor()) is not None:
+            g.actor = actor
         if "actor" not in g:
             identity = identity_provider() if identity_provider is not None else None
             if identity is None:
@@ -859,6 +887,40 @@ def create_app(
             raise RequestError(str(error)) from error
         except LookupError as error:
             raise RequestError(str(error), 404) from error
+
+    if personal_api_enabled:
+        def personal_api_browser(*, write=False):
+            if write and request.headers.get("Origin") != origin:
+                raise RequestError("Open Personal Agents on the board to manage connections.", 403)
+            return current_actor("human", write=write, sync_profile=False)["ledger_key"]
+
+        @app.route("/api/v1/personal-agents/connections", methods=["GET", "POST"])
+        def personal_agent_connections():
+            write = request.method == "POST"
+            owner = personal_api_browser(write=write)
+            if write:
+                data = json_body({"session"})
+                label = text(data, "session", maximum=80)
+                if len(label.splitlines()) != 1:
+                    raise RequestError("Provide a one-line session name.")
+                binding = raft.browser_session_binding()
+                if binding is None:
+                    raise RequestError("Sign in again before creating a connection.", 401)
+                with tasks_storage.write(db()) as connection:
+                    result = personal_agents.issue(connection, owner, *binding, label)
+            else:
+                result = {"connections": [dict(row) for row in personal_agents.list_connections(db(), owner)]}
+            response = jsonify(result)
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        @app.delete("/api/v1/personal-agents/connections/<uuid:identifier>")
+        def personal_agent_connection_delete(identifier):
+            owner = personal_api_browser(write=True)
+            with tasks_storage.write(db()) as connection:
+                if not personal_agents.revoke(connection, owner, str(identifier)):
+                    raise NotFound()
+            return "", 204
 
     if personal_codex_pilot:
         pilot = personal_codex_pilot
@@ -2437,7 +2499,11 @@ def create_app(
 
     def dispatch_action(name, data):
         write = request.method != "GET"
-        actor = current_actor("agent", write=write)
+        actor = current_actor(write=write, required=True)
+        if actor["kind"] != "agent" and not g.get("personal_agent_api"):
+            raise RequestError("This action requires a signed-in agent or Personal Agents connection.", 403)
+        if g.get("personal_agent_api") and name in {"my-wake-subscriptions", "set-wake-subscription", "idle-goal-offer"}:
+            raise RequestError("This action requires a standing Raft agent.", 403)
         key = actor["ledger_key"]
         if name == "context":
             context = {
@@ -2739,7 +2805,7 @@ def create_app(
             receipt_transition = {"advance-task": "done", peer_asks.COMMAND: "result"}.get(name)
             if name == "handoff" or (receipt_transition is not None and data["transition"].strip() == receipt_transition):
                 project, _ = projects.identifier(data["id"])
-                result["next_action"] = next_action_after_write(current_actor("agent")["ledger_key"], project)
+                result["next_action"] = next_action_after_write(current_actor(required=True)["ledger_key"], project)
             return result
 
         register_actions(app, public_url=base, client_id=raft_config["client_id"], dispatch=dispatch,
