@@ -491,6 +491,7 @@ def create_app(
     stamp_reader=None,
     codex_usage=None,
     codex_snapshot_uploader=None,
+    codex_snapshot_upload_sources=None,
     agent_guidance=None,
 ):
     """Configure the board; injected identity providers are used by isolated tests."""
@@ -512,6 +513,12 @@ def create_app(
             codex_snapshot_uploader = str(UUID(codex_snapshot_uploader))
         except ValueError as error:
             raise ValueError("Set TASKS_CODEX_SNAPSHOT_UPLOADER_SUBJECT to a verified Raft agent subject UUID.") from error
+        if not codex_snapshot_upload_sources:
+            raise ValueError("Set TASKS_CODEX_SNAPSHOT_UPLOAD_SOURCES to two disposable snapshot destinations.")
+        upload_sources = tasks_codex_usage.labeled_sources(codex_snapshot_upload_sources)
+        viewer_paths = {path.resolve() for _, path in codex_usage.sources}
+        if viewer_paths.intersection(path.resolve() for _, path in upload_sources):
+            raise ValueError("Keep the upload destinations separate from the viewer's snapshot files.")
     project_extensions = project_extensions or {}
     stamp_repositories = {project: settings[extensions.STAMP_REVIEWS]
                           for project, settings in project_extensions.items() if extensions.STAMP_REVIEWS in settings}
@@ -1056,7 +1063,7 @@ def create_app(
         from taskboard_server.codex_snapshot import install_with_receipt
 
         try:
-            return install_with_receipt(outcome.encode("utf-8"), codex_usage)
+            return install_with_receipt(outcome.encode("utf-8"), upload_sources)
         except OSError:
             raise RequestError("The private snapshot installer is unavailable.", 503) from None
         except (ValueError, OverflowError, RecursionError):
@@ -2469,6 +2476,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             portal_upstream_token=portal_upstream_token, github_reader=github, websocket_revisions=websocket_revisions,
             codex_usage=tasks_codex_usage.configuration(os.environ),
             codex_snapshot_uploader=os.environ.get("TASKS_CODEX_SNAPSHOT_UPLOADER_SUBJECT") or None,
+            codex_snapshot_upload_sources=os.environ.get("TASKS_CODEX_SNAPSHOT_UPLOAD_SOURCES"),
             agent_guidance=agent_guidance,
             project_extensions=project_extensions,
             public_raft_channel_urls=os.environ.get("TASKS_PUBLIC_RAFT_CHANNEL_URLS"),

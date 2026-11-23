@@ -36,20 +36,29 @@ class SnapshotUploadTest(unittest.TestCase):
         self.service.setUp()
         self.addCleanup(self.service.doCleanups)
         self.uploader = self.service.provider.people["Avery"]["sub"]
-        folder = self.service.database.with_name("snapshots")
-        folder.mkdir(mode=0o700)
-        self.paths = {label: folder / f"{label}.json" for label in ("Fixture A", "Fixture B")}
-        for path in self.paths.values():
-            path.write_text(json.dumps({"captured_at": INITIAL, "result": outcome()["result"]}))
-            path.chmod(0o400)
+        self.viewer_paths = self.snapshots("viewer")
+        self.upload_paths = self.snapshots("disposable-uploads")
+        self.upload_sources = json.dumps({label: str(path) for label, path in self.upload_paths.items()})
         self.usage = configuration({
             "TASKS_CODEX_USAGE_VIEWER_SUBJECT": self.service.provider.people["Sam"]["sub"],
-            "TASKS_CODEX_USAGE_SOURCES": json.dumps({label: str(path) for label, path in self.paths.items()}),
+            "TASKS_CODEX_USAGE_SOURCES": json.dumps({label: str(path) for label, path in self.viewer_paths.items()}),
         })
+
+    def snapshots(self, name):
+        folder = self.service.database.with_name(name)
+        folder.mkdir(mode=0o700)
+        paths = {label: folder / f"{label}.json" for label in ("Fixture A", "Fixture B")}
+        for path in paths.values():
+            path.write_text(json.dumps({
+                "captured_at": INITIAL, "result": {"rateLimits": {"primary": {"usedPercent": 1}}},
+            }))
+            path.chmod(0o400)
+        return paths
 
     def app(self, enabled=True):
         return self.service.app(portal_reader=True, codex_usage=self.usage,
-                                codex_snapshot_uploader=self.uploader if enabled else None)
+                                codex_snapshot_uploader=self.uploader if enabled else None,
+                                codex_snapshot_upload_sources=self.upload_sources)
 
     def upload(self, client, packet, *, status=200):
         raw = packet if isinstance(packet, str) else json.dumps(packet)
@@ -69,10 +78,23 @@ class SnapshotUploadTest(unittest.TestCase):
             self.service.app(codex_snapshot_uploader=self.uploader)
         with self.assertRaisesRegex(ValueError, "subject UUID"):
             self.service.app(codex_usage=self.usage, codex_snapshot_uploader="Avery")
+        with self.assertRaisesRegex(ValueError, "UPLOAD_SOURCES"):
+            self.service.app(codex_usage=self.usage, codex_snapshot_uploader=self.uploader)
         with self.assertRaisesRegex(ValueError, "server-bound Raft"):
             fixtures.create_app(self.service.database, public_url=fixtures.ORIGIN + fixtures.BASE,
                                 codex_usage=self.usage, codex_snapshot_uploader=self.uploader,
                                 marketplace_root=self.service.database.parent)
+
+    def test_refuses_write_destinations_that_resolve_to_the_viewer_map(self):
+        viewer_file = self.viewer_paths["Fixture A"]
+        alias = viewer_file.parent.with_name("viewer-alias")
+        alias.symlink_to(viewer_file.parent, target_is_directory=True)
+        for unsafe_path in (viewer_file, alias / viewer_file.name):
+            with self.subTest(path=unsafe_path), self.assertRaisesRegex(ValueError, "separate from the viewer"):
+                self.service.app(codex_usage=self.usage, codex_snapshot_uploader=self.uploader,
+                                 codex_snapshot_upload_sources=json.dumps({
+                                     "Fixture A": str(unsafe_path), "Fixture B": str(self.upload_paths["Fixture B"]),
+                                 }))
 
     def test_denies_other_principals_before_installing(self):
         app = self.app()
@@ -92,6 +114,9 @@ class SnapshotUploadTest(unittest.TestCase):
         app = self.app()
         uploader, _ = self.service.login(app, "Avery")
         viewer, _ = self.service.login(app, "Sam")
+        viewer_before = self.service.call(viewer, VIEW_PATH).json
+        viewer_files = {path: (path.read_bytes(), path.stat().st_ino) for path in self.viewer_paths.values()}
+        self.assertEqual([entry["usage"]["captured_at"] for entry in viewer_before["sources"]], [INITIAL, INITIAL])
         manifest = self.service.call(uploader, MANIFEST).json
         action = next(entry for entry in manifest["actions"] if entry["name"] == CODEX_SNAPSHOT_ACTION)
         self.assertEqual(action["endpoint"], {"method": "POST", "path": fixtures.BASE + ACTION_PATH})
@@ -99,21 +124,22 @@ class SnapshotUploadTest(unittest.TestCase):
         self.assertEqual(self.upload(uploader, outcome()), {"status": "installed", "captured_at": FIRST})
         self.assertEqual(self.upload(uploader, outcome("Fixture B", SECOND)),
                          {"status": "installed", "captured_at": SECOND})
-        healthy = self.paths["Fixture B"].read_bytes()
+        healthy = self.upload_paths["Fixture B"].read_bytes()
         failure = {"source": "Fixture A", "attempted_at": SECOND, "status": "failure", "failure": "timeout"}
         self.assertEqual(self.upload(uploader, failure), {"status": "unavailable", "captured_at": FIRST})
         self.assertEqual(self.upload(uploader, outcome(at=INITIAL)), {"status": "skipped", "captured_at": FIRST})
-        self.assertEqual(self.paths["Fixture B"].read_bytes(), healthy)
-        self.assertEqual([S_IMODE(path.stat().st_mode) for path in self.paths.values()], [0o400, 0o400])
+        self.assertEqual(json.loads(self.upload_paths["Fixture A"].read_bytes())["status"], "unavailable")
+        self.assertEqual(self.upload_paths["Fixture B"].read_bytes(), healthy)
+        self.assertEqual([S_IMODE(path.stat().st_mode) for path in self.upload_paths.values()], [0o400, 0o400])
         self.service.call(uploader, VIEW_PATH, status=404)
-        sources = self.service.call(viewer, VIEW_PATH).json["sources"]
-        self.assertIsNone(sources[0]["usage"])
-        self.assertEqual(sources[1]["usage"]["captured_at"], SECOND)
+        self.assertEqual(self.service.call(viewer, VIEW_PATH).json, viewer_before)
+        self.assertEqual({path: (path.read_bytes(), path.stat().st_ino) for path in self.viewer_paths.values()},
+                         viewer_files)
 
     def test_rejection_and_storage_error_preserve_both_files(self):
         app = self.app()
         uploader, _ = self.service.login(app, "Avery")
-        before = {label: path.read_bytes() for label, path in self.paths.items()}
+        before = {path: path.read_bytes() for path in (*self.viewer_paths.values(), *self.upload_paths.values())}
         for rejected in (
             outcome("Unknown"), {**outcome(), "path": MARKER}, MARKER * 7000,
         ):
@@ -122,4 +148,4 @@ class SnapshotUploadTest(unittest.TestCase):
         with patch("taskboard_server.codex_snapshot.os.replace", side_effect=OSError(MARKER)):
             self.assertEqual(self.upload(uploader, outcome(), status=503),
                              {"error": "The private snapshot installer is unavailable."})
-        self.assertEqual({label: path.read_bytes() for label, path in self.paths.items()}, before)
+        self.assertEqual({path: path.read_bytes() for path in before}, before)

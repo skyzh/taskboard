@@ -76,12 +76,12 @@ def _decode(raw):
     return json.loads(raw, object_pairs_hook=_object)
 
 
-def _outcome(raw, config):
+def _outcome(raw, sources):
     envelope = _decode(raw)
     if not isinstance(envelope, dict) or not isinstance(envelope.get("source"), str):
         raise ValueError("A configured source is required.")
     source = envelope["source"]
-    paths = dict(config.sources) if config and len(config.sources) == 2 else {}
+    paths = dict(sources) if len(sources) == 2 else {}
     if source not in paths:
         raise ValueError("A configured source is required.")
     if len({os.path.realpath(path) for path in paths.values()}) != 2:
@@ -145,8 +145,8 @@ def _receipt(status, snapshot):
     return {"status": status, "captured_at": captured_at}
 
 
-def install_with_receipt(raw, config):
-    path, attempted_at, snapshot = _outcome(raw, config)
+def install_with_receipt(raw, sources):
+    path, attempted_at, snapshot = _outcome(raw, sources)
     with _locked_directory(path.parent) as directory:
         fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
         with os.fdopen(fd, "rb") as handle:
@@ -166,7 +166,7 @@ def install_with_receipt(raw, config):
 
 
 def install(raw, config):
-    return install_with_receipt(raw, config)["status"]
+    return install_with_receipt(raw, config.sources if config else ())["status"]
 
 
 def main():
