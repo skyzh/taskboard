@@ -333,7 +333,9 @@ export default function App() {
           {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject}
             projects={visibleProjects} />}
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}
-            chooseTimeZone={chooseTimeZone} onProfileSaved={actor => { setSavedActor(actor); refresh() }} />}
+            chooseTimeZone={chooseTimeZone} onProfileSaved={actor => { setSavedActor(actor); refresh() }}
+            project={visibleProjects?.some(item => item.prefix === project) ? project : visibleProjects?.[0]?.prefix || 'T'}
+            projects={visibleProjects} revision={revision} />}
           {view === 'about' && <About revision={revision} />}
           {view === 'search' && <SearchResults query={search} revision={revision} />}
           {view === 'assignee' && <AssigneePage key={`${project}:${owner}`} owner={owner} section={params.get('section')} revision={revision} project={project}
