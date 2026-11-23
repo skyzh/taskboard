@@ -32,6 +32,7 @@
   display: grid;
   place-items: center;
   flex: 0 0 1.25rem;
+  inline-size: 1.25rem;
   height: 1.25rem;
   border-radius: .25rem;
   background: var(--green);
