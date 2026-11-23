@@ -70,6 +70,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "search-tasks": ("GET", "q project", "before limit"),
             "search-with-decisions": ("GET", "q", "before limit"),
             "knowledge-areas": ("GET", "", "project"),
+            "create-knowledge": ("POST", "brief project title", ""),
             "knowledge-place": ("POST", "area id", "index"),
             "knowledge-stage": ("POST", "id source", "brief source_event"),
             "knowledge-reconcile": ("POST", "project", ""),

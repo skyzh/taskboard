@@ -108,7 +108,8 @@ SCHEMA = (
         dri TEXT NOT NULL,
         brief TEXT NOT NULL,
         priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('high', 'normal', 'low')),
-        eta TEXT
+        eta TEXT,
+        record_kind TEXT NOT NULL DEFAULT 'work' CHECK (record_kind IN ('work', 'knowledge'))
     )
     """,
     """
@@ -158,7 +159,8 @@ SCHEMA = (
     TASKNOTE_SCHEMA,
 ) + watches.SCHEMA + workers.SCHEMA + tasks_recurring.SCHEMA + peer_asks.SCHEMA
 CURRENT_TASKS = """
-    SELECT tasks.id, tasks.title, tasks.dri, tasks.brief, {priority} AS priority, {eta} AS eta,
+    SELECT tasks.id, tasks.title, {dri} AS dri, tasks.brief, {priority} AS priority, {eta} AS eta,
+           {record_kind} AS record_kind,
            {project_prefix} AS project_prefix, {project_number} AS project_number,
            events.id AS event_id, events.action AS current_action,
            events.state, events.at, events.note, events.waiting_on, events.links AS current_links,
@@ -167,7 +169,7 @@ CURRENT_TASKS = """
     FROM tasks
     JOIN events ON events.id = (
         SELECT MAX(id) FROM events WHERE task_id = tasks.id AND action NOT IN ('source-event', 'log')
-    )
+    ){record_scope}
 """
 
 
@@ -275,7 +277,7 @@ def display_state_sql(context):
     return f"CASE WHEN events.state = 'done' AND json_type({context}, '$.closure') = 'object' THEN 'closed' ELSE events.state END"
 
 
-def current_tasks_sql(db):
+def current_tasks_sql(db, *, include_knowledge=False):
     # Read pre-migration databases without touching them.
     context = "events.context" if has_event_context(db) else "'{}'"
     columns = task_columns(db)
@@ -283,9 +285,12 @@ def current_tasks_sql(db):
     eta = "tasks.eta" if "eta" in columns else "NULL"
     project_prefix = "tasks.project_prefix" if "project_prefix" in columns else "'T'"
     project_number = "tasks.project_number" if "project_number" in columns else "NULL"
+    record_kind = "tasks.record_kind" if "record_kind" in columns else "'work'"
     return CURRENT_TASKS.format(
         context=context, display_state=display_state_sql(context), priority=priority, eta=eta,
-        project_prefix=project_prefix, project_number=project_number,
+        project_prefix=project_prefix, project_number=project_number, record_kind=record_kind,
+        dri=f"CASE WHEN {record_kind} = 'knowledge' THEN '' ELSE tasks.dri END",
+        record_scope="" if include_knowledge else f" AND {record_kind} = 'work'",
     )
 
 
@@ -380,13 +385,24 @@ def add_task(db, args, links):
 
 
 def find_task(db, number):
-    return db.execute(current_tasks_sql(db) + " WHERE tasks.id = ?", (number,)).fetchone()
+    return db.execute(current_tasks_sql(db, include_knowledge=True) + " WHERE tasks.id = ?", (number,)).fetchone()
 
 
 def get_task(db, number):
     task = find_task(db, number)
     if task is None:
         raise ValueError(f"T-{number} does not exist.")
+    return task
+
+
+def is_knowledge(task):
+    return "record_kind" in task.keys() and task["record_kind"] == "knowledge"
+
+
+def get_work_task(db, number):
+    task = get_task(db, number)
+    if is_knowledge(task):
+        raise ValueError("Use a linked work ticket for this action on a Knowledge entry.")
     return task
 
 
@@ -405,7 +421,7 @@ def ownership_actions(task):
 
 def edit_task_details(db, args, links):
     task = get_task(db, args.id)
-    if args.by != task["dri"] and not projects.manages(db, projects.row_project(task), args.by):
+    if not may_tag(db, task, args.by):
         raise PermissionError("Only the ticket owner or project manager can edit its details.")
     if args.title is None and args.brief is None:
         raise ValueError("Provide a title or brief to change.")
@@ -449,7 +465,7 @@ def edit_task_details(db, args, links):
 
 
 def close_task(db, args, links):
-    task = get_task(db, args.id)
+    task = get_work_task(db, args.id)
     if ask := peer_asks.find(db, task["id"]):
         args.change = "cancel"
         return peer_asks.cancel(db, args, links, ask, task)
@@ -477,7 +493,7 @@ def close_task(db, args, links):
 
 
 def change_ownership(db, args, links):
-    task = get_task(db, args.id)
+    task = get_work_task(db, args.id)
     action, reference = args.command, projects.row_reference(task)
     if peer_asks.find(db, task["id"]):
         raise ValueError("Use the peer-request actions to change who acts next.")
@@ -506,7 +522,7 @@ def change_ownership(db, args, links):
 
 def may_tag(db, task, actor):
     return actor is not None and (
-        task["dri"] == actor or projects.manages(db, projects.row_project(task), actor)
+        (not is_knowledge(task) and task["dri"] == actor) or projects.manages(db, projects.row_project(task), actor)
     )
 
 
@@ -522,6 +538,8 @@ def change_tag(db, args):
     if not may_tag(db, task, args.by):
         raise PermissionError("Only the ticket owner or project manager can change its tags.")
     tag = tag_name(args.tag)
+    if is_knowledge(task) and tag == "decision-record" and args.tag_action == "remove":
+        raise ValueError("Knowledge entries retain the decision-record tag for compatibility.")
     if args.tag_action == "add":
         changed = db.execute(
             "INSERT INTO task_tags VALUES (?, ?) ON CONFLICT (task_id, tag) DO NOTHING", (task["id"], tag),
@@ -539,7 +557,7 @@ def change_tag(db, args):
 
 
 def change_priority(db, args):
-    task = get_task(db, args.id)
+    task = get_work_task(db, args.id)
     if task["dri"] != args.by:
         raise ValueError(f"{projects.row_reference(task)} is owned by {task['dri']}.")
     previous, priority = task["priority"], args.priority
@@ -662,7 +680,7 @@ def change_checklist(db, number, additions, starts, checks, *, actor, state):
 
 
 def edit_checklist(db, args):
-    task = get_task(db, args.id)
+    task = get_work_task(db, args.id)
     if args.by != task["dri"] and not projects.manages(db, projects.row_project(task), args.by):
         raise PermissionError("Only the ticket owner or project manager can edit its checklist.")
     action, position, label = args.change, args.position, args.label
@@ -774,7 +792,7 @@ def link_attention_wait(db, args, event_id, request_id, previous_event_id):
 
 
 def change_task(db, args, links, *, automation=None):
-    task = get_task(db, args.id)
+    task = get_work_task(db, args.id)
     human_wait = getattr(args, "human_wait", False)
     replacing_human_wait = task["state"] == "human_review" and event_context(task).get("human_wait")
     if human_wait:
@@ -924,7 +942,7 @@ def complete_from_extension(db, task, actor, note, links, context):
 
 
 def save_milestone(db, args):
-    task = get_task(db, args.id)
+    task = get_work_task(db, args.id)
     if task["dri"] != args.by:
         raise ValueError(f"{projects.row_reference(task)} is owned by {task['dri']}.")
     prerequisites = list(dict.fromkeys(args.after))
@@ -966,7 +984,10 @@ def change_subscription(db, args, links):
 
     if args.command in ("link-source", "link-reference"):
         task = get_task(db, args.id)
-        if task["dri"] != args.by:
+        if is_knowledge(task):
+            if not may_tag(db, task, args.by):
+                raise PermissionError("Only the project manager can link a Knowledge entry.")
+        elif task["dri"] != args.by:
             raise ValueError(f"{projects.row_reference(task)} is owned by {task['dri']}.")
         if args.command == "link-reference":
             return link_reference(db, task, args.label, args.url, args.by)
@@ -1007,13 +1028,13 @@ def change_subscription(db, args, links):
 def change_worker_run(db, args, links):
     operation = args.command.removeprefix("worker-")
     if operation == "delegate":
-        task = get_task(db, args.id)
+        task = get_work_task(db, args.id)
         if task["display_state"] == "closed":
             raise ValueError("Reopen the ticket before assigning a worker.")
         run = workers.assign_worker(db, task, args.worker, args.role, args.brief, args.effort, args.by)
     else:
         previous = workers.get_run(db, args.run)
-        task = get_task(db, previous["task_id"])
+        task = get_work_task(db, previous["task_id"])
         if operation == "start" and task["display_state"] == "closed":
             raise ValueError("Reopen the ticket before starting a worker.")
         run = workers.transition_worker(
@@ -1769,12 +1790,21 @@ def ensure_schema(db):
         )
     if "eta" not in columns:
         db.execute("ALTER TABLE tasks ADD COLUMN eta TEXT")
+    ensure_record_kind(db, columns)
     ensure_checklist_schema(db)
     projects.ensure_schema(db)
     db.execute(maintenance.SCHEMA)
     releases.ensure_schema(db)
     for sql in merges.SCHEMA:
         db.execute(sql)
+
+
+def ensure_record_kind(db, columns=None):
+    if "record_kind" not in (task_columns(db) if columns is None else columns):
+        db.execute(
+            "ALTER TABLE tasks ADD COLUMN record_kind TEXT NOT NULL DEFAULT 'work' "
+            "CHECK (record_kind IN ('work', 'knowledge'))"
+        )
 
 
 def ensure_checklist_schema(db):
@@ -1942,6 +1972,8 @@ def save_task(db, path, args, links):
             output = change_ownership(db, args, links)
         elif args.command == "log":
             task = get_task(db, args.id)
+            if is_knowledge(task) and not may_tag(db, task, args.by):
+                raise PermissionError("Only the project manager can update Knowledge Activity.")
             details = getattr(args, "details", None)
             context = {"activity_details": details} if details is not None else {}
             if (measurements := getattr(args, "watcher_measurements", None)) is not None:
@@ -1949,7 +1981,8 @@ def save_task(db, path, args, links):
                     raise PermissionError("Only the task owner can record watcher measurements.")
                 context["watcher_measurements"] = measurements
             event_id = record(db, args.id, "log", args.by, task["state"], args.note, None, links, context)
-            merges.apply_activity(db, task, args.by, event_id, details)
+            if not is_knowledge(task):
+                merges.apply_activity(db, task, args.by, event_id, details)
             output = f"{projects.row_reference(task)} · {event_label('log')}"
         elif args.command == "milestone":
             output = save_milestone(db, args)

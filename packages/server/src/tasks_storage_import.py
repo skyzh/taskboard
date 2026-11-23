@@ -4,6 +4,7 @@ from contextlib import closing
 import sqlite3
 
 from tasks_goals import migrate_goal_tickets
+from tasks_knowledge import migrate_records
 from tasks_oidc_members import bind_issuer
 from tasks_service import prepare_postgres
 from tasks_storage import Postgres, write
@@ -88,6 +89,7 @@ def import_snapshot(path, dsn):
             for table, column in IDENTITIES.items():
                 reset_identity(destination, table, column)
             migrate_goal_tickets(destination)
+            migrate_records(destination)
             return counts
 
 

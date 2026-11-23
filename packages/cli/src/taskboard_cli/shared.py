@@ -25,7 +25,7 @@ WRITES = ADVANCES | {
     "confirm-blocker",
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
     "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "raft-channel-set",
-    "wake-subscribe", "wake-unsubscribe", "knowledge-place", "knowledge-stage", "knowledge-reconcile",
+    "wake-subscribe", "wake-unsubscribe", "knowledge-add", "knowledge-place", "knowledge-stage", "knowledge-reconcile",
     ledger.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
 def assert_actor(value, actor):
@@ -72,6 +72,8 @@ def task_url(url, task):
 
 
 def task_lines(task, board_url):
+    if task.get("record_kind") == "knowledge":
+        return [f"{task['key']} · Knowledge · {task['title']}"]
     owner = (task["dri_profile"] or {}).get("name") or task["dri"] or "Unassigned"
     reference = task.get("key") or task_ref(task["id"])
     state = task.get("display_state", task["state"])
@@ -232,6 +234,9 @@ def shared_write(board, args, *, context):
         data.update(id=reference, action=command, reason=args.note)
         if command != "unassign":
             data["owner"] = board.person(args.dri, "agent", reference)
+    elif command == "knowledge-add":
+        action = "create-knowledge"
+        data.update(project=projects.prefix(args.project), title=ledger.task_title(args.title), brief=args.brief)
     elif command == "knowledge-place":
         action = command
         data.update(id=task_ref(args.id), area=args.area, index=str(args.index).lower())
@@ -621,7 +626,8 @@ def shared_command(args):
                         if any(not row["applied_event_id"] for row in stages):
                             lines.append("  Check the latest staged work and its source before applying this decision.")
                 else:
-                    lines.append(f"{task['key']} · {ledger.STATES[task['state']]} · {task['title']}\n  {task_url(url, task)}")
+                    label = "Knowledge" if task.get("record_kind") == "knowledge" else ledger.STATES[task["state"]]
+                    lines.append(f"{task['key']} · {label} · {task['title']}\n  {task_url(url, task)}")
             if not lines:
                 return with_guidance(f"No matching tickets in {project}.", prompts.get(
                     "search-empty", "Try a shorter phrase or a ticket ID.",

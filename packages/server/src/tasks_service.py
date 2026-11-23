@@ -350,6 +350,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
         db.execute(statement)
     for statement in knowledge_records.SCHEMA:
         db.execute(statement)
+    knowledge_records.migrate_records(db)
     db.execute(ATTENTION_SCHEMA)
     attention_columns = tasks_storage.table_columns(db, "attention_requests")
     if "remind_on" not in attention_columns:
@@ -395,6 +396,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
             db.execute("CREATE UNIQUE INDEX board_principal_order ON board_principals (principal_order)")
             db.execute("UPDATE taskboard_writer SET schema_version = 1 WHERE id = 1")
         else:
+            ledger.ensure_record_kind(db)
             ledger.ensure_checklist_schema(db)
             pinned = db.execute("SELECT value FROM board_settings WHERE key = 'raft_server_id'").fetchone()
             if server_id and pinned and pinned["value"] != server_id:
@@ -415,6 +417,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
             db.execute(goal_offers.INDEX)
             for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA, *knowledge_records.SCHEMA):
                 db.execute(statement)
+            knowledge_records.migrate_records(db)
             db.execute(wake_subscriptions.SCHEMA)
             peer_asks.refresh_generated_titles(db)
 
@@ -1200,8 +1203,9 @@ def create_app(
             result["active_release"] = releases.active_release(db())
         project, _ = projects.identifier(task["key"])
         allowed = key is not None and projects.manages(db(), project, key)
-        editable = key is not None and (task["dri"] == key or allowed)
-        may_close = editable
+        is_note = ledger.is_knowledge(task)
+        editable = allowed or (not is_note and key is not None and task["dri"] == key)
+        may_close = editable and not is_note
         if ask := task.get("peer_request"):
             may_close = key is not None and (key == ask["requester"] or allowed)
         labels = ledger.task_tags(db(), task["id"])
@@ -1210,15 +1214,16 @@ def create_app(
         if actor is not None and (staged := knowledge_records.links(db(), number, include_source=True)):
             result["knowledge_stages"] = staged
         return {
-            **result, "ownership_actions": ledger.ownership_actions(task) if allowed and not (ask or result["goal"]) else [],
+            **result, "ownership_actions": ledger.ownership_actions(task)
+            if allowed and not (is_note or ask or result["goal"]) else [],
             "tag_editable": editable,
-            "can_close": may_close and task["state"] != "done",
+            "can_close": not is_note and may_close and task["state"] != "done",
             "can_edit_details": editable,
             "can_edit_parking": (
-                key is not None and key == task["dri"] and not result["goal"]
+                not is_note and key is not None and key == task["dri"] and not result["goal"]
                 and task["state"] in ledger.TRANSITIONS["park"][0]
             ),
-            "can_confirm_blocker": editable and has_verifiable_blocker(task["state"], task["context"]),
+            "can_confirm_blocker": not is_note and editable and has_verifiable_blocker(task["state"], task["context"]),
         }
 
     def has_verifiable_blocker(state, context):
@@ -1462,12 +1467,19 @@ def create_app(
 
         register_revision_socket(app, origin, current_actor, lambda: json.dumps({"revision": read_revision()}))
 
+    def can_create_knowledge(actor, project, manager):
+        return actor is not None and (actor["ledger_key"] == manager or (
+            actor["kind"] == "agent"
+            and (project != projects.DEFAULT or project_roster is None or actor["subject"] in project_roster)
+        ))
+
     @app.get("/api/v1/projects")
     def project_index():
-        current_actor()
-        return {"items": [{**dict(row), **projects.project_features(row["prefix"])} for row in db().execute(
-            "SELECT prefix, title, dri FROM projects ORDER BY prefix <> 'T', prefix"
-        )]}
+        actor = current_actor()
+        return {"items": [{
+            **dict(row), **projects.project_features(row["prefix"]),
+            "can_create_knowledge": can_create_knowledge(actor, row["prefix"], row["dri"]),
+        } for row in db().execute("SELECT prefix, title, dri FROM projects ORDER BY prefix <> 'T', prefix")]}
 
     @app.route("/api/v1/projects/<project>/raft-channel", methods=("GET", "PUT"))
     def project_raft_channel(project):
@@ -1917,6 +1929,27 @@ def create_app(
             **page_args(args),
         )
 
+    def create_knowledge(actor, data):
+        text(data, "project", maximum=8)
+        project = project_filter(data)
+        title = text(data, "title")
+        brief = text(data, "brief")
+        try:
+            with tasks_storage.write(db()) as connection:
+                manager = connection.execute("SELECT dri FROM projects WHERE prefix = ?", (project,)).fetchone()["dri"]
+                if not can_create_knowledge(actor, project, manager):
+                    raise PermissionError("Only a signed project agent or project manager can create Knowledge entries.")
+                return knowledge_records.create(connection, actor["ledger_key"], project, title, brief)
+        except PermissionError as error:
+            raise RequestError(str(error), 403) from error
+        except ValueError as error:
+            raise RequestError(str(error), 400) from error
+
+    @app.post("/api/v1/knowledge")
+    def knowledge_create():
+        actor = current_actor(write=True, required=True)
+        return create_knowledge(actor, json_body({"project", "title", "brief"})), 201
+
     def knowledge_directory(project=None):
         with tasks_storage.read(db()) as connection:
             return {"areas": knowledge_records.directory(connection, project=project)}
@@ -2268,9 +2301,11 @@ def create_app(
         links = one_link(data)
         unblocks = task_number(data["unblocks"]) if "unblocks" in data else None
         with tasks_storage.write(db()) as connection:
-            task = connection.execute("SELECT dri FROM tasks WHERE id = ?", (number,)).fetchone()
+            task = ledger.find_task(connection, number)
             if task is None:
                 raise NotFound()
+            if ledger.is_knowledge(task):
+                raise RequestError("Raise attention from a linked work ticket.", 409)
             if task["dri"] != sender:
                 raise RequestError("Only the task owner can raise an attention request.", 403)
             if unblocks is not None and connection.execute(
@@ -2783,17 +2818,20 @@ def create_app(
                 return query().readiness(key, project=project, **page_args(data))
         if name == "tagged-tasks":
             text(data, "project", maximum=8)
+            tag = tag_filter(data, optional=False)
             return query().tasks(
-                project=project_filter(data), tag=tag_filter(data, optional=False), **page_args(data),
+                project=project_filter(data), tag=tag, include_knowledge=tag == knowledge_records.DECISION_TAG,
+                **page_args(data),
             )
         if name == "search-tasks":
             project = project_filter(data)
-            result = query().tasks(project=project, **shared_ticket_search(data), **page_args(data))
+            result = query().tasks(project=project, include_knowledge=True, **shared_ticket_search(data), **page_args(data))
             return {
                 "items": [
                     {
                         "id": task["id"], "key": task["key"], "title": task["title"],
                         "state": task.get("display_state", task["state"]),
+                        **({"record_kind": "knowledge"} if ledger.is_knowledge(task) else {}),
                     }
                     for task in result["items"]
                 ],
@@ -2807,6 +2845,8 @@ def create_app(
             return query().search_with_decisions(**shared_ticket_search(data), **page_args(data))
         if name == "knowledge-areas":
             return knowledge_directory(project_filter(data))
+        if name == "create-knowledge":
+            return create_knowledge(actor, data)
         if name in {"knowledge-place", "knowledge-stage", "knowledge-reconcile"}:
             try:
                 with tasks_storage.write(db()) as connection:
