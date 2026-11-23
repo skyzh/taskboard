@@ -1622,6 +1622,26 @@ def create_app(
                 "standing_goals": goals.standing(connection, owner, project, include_ticket=True),
             }
 
+    @app.get("/api/v1/notifications/needs-you")
+    def needs_you():
+        actor = current_actor(required=True)
+        project = project_scope(request.args)
+        before = None
+        if cursor := text(request.args, "before", optional=True, maximum=160):
+            try:
+                decision, attention, review = json.loads(cursor)
+                if any(value is not None and type(value) is not int for value in (decision, attention)):
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise RequestError("Provide a cursor returned by Needs you.") from None
+            before = (
+                integer(decision, "decision cursor") if decision is not None else None,
+                integer(attention, "request cursor") if attention is not None else None,
+                ordered_feed_cursor({"before": review}, ("peer", "review"), "Needs you"),
+            )
+        with tasks_storage.read(db()):
+            return query().needs_you(actor, today=pacific_day(ledger.timestamp()), project=project, before=before, limit=2)
+
     @app.get("/api/v1/notifications/decisions")
     def decision_notifications():
         actor = current_actor(required=True)

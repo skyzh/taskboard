@@ -192,6 +192,86 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((task["state"], task["dri"]), ("ready", owner_id))
         self.assertTrue(task["links"][0]["url"].endswith("/#task-2"))
 
+    def test_summary_needs_you_shows_only_actionable_work_for_the_signed_recipient(self):
+        app = self.app(portal_reader=True, project_extensions={"T": {"stamp-reviews": "example/board"}})
+        avery, avery_key = self.login(app, "Avery")
+        blake, blake_key = self.login(app, "Blake")
+        sam, sam_key = self.login(app, "Sam")
+        quinn, quinn_key = self.login(app, "Quinn")
+        self.cli("register-project", "COURSE", "Sample course", "--dri", avery_key)
+        path = "/api/v1/notifications/needs-you"
+
+        def add(title, project="T"):
+            return self.action(avery, "create-task", {
+                "title": title, "step": "Open the sample.", "project": project,
+            })["receipt"].split()[0]
+
+        def ask(ticket, recipient):
+            return self.action(avery, "raise-attention", {
+                "id": ticket, "recipient": recipient, "reason": "Check the draft.",
+            })["id"]
+
+        def view(client, **filters):
+            payload = self.call(client, path, query_string=filters).json
+            return [(row["kind"], row["ticket"], row["requester_profile"]["name"]) for row in payload["items"]]
+
+        self.call(app.test_client(), path, status=401)
+        self.assertEqual(view(sam), [])
+        decision = add("Decide the export format")
+        self.action(avery, "advance-task", {"id": decision, "transition": "start", "note": "Prepare the choices."})
+        self.action(avery, "advance-task", {
+            "id": decision, "transition": "assign-human", "on": sam_key, "note": "Choose the format.",
+        })
+        request = add("Check the first draft")
+        ask(request, sam_key)
+        ask(add("Another recipient"), quinn_key)
+        deferred = ask(add("Deferred request"), sam_key)
+        self.call(sam, f"/api/v1/notifications/requests/{deferred}/reminder",
+                  method="PUT", json={"date": "2099-01-01"})
+        handled = ask(add("Handled request"), sam_key)
+        self.call(sam, f"/api/v1/notifications/requests/{handled}/handled", method="POST")
+        course = add("Check the course draft", "COURSE")
+        ask(course, sam_key)
+
+        worker_source = add("Review the test results")
+        self.action(avery, "delegate", {
+            "id": worker_source, "worker": blake_key, "role": "review", "brief": "Review the fixture.",
+        })
+        stamp_source = add("Review the proposed patch")
+        pull = "https://github.com/example/board/pull/14"
+        self.action(avery, "link-reference", {"id": stamp_source, "label": "Pull request", "url": pull})
+        stamp = self.action(avery, "peer-ask", {
+            "id": stamp_source, "transition": "create", "recipient": blake_key, "note": "Review the patch.",
+            "review_pr": pull, "review_head": "a" * 40, "review_base": "b" * 40,
+        })["receipt"].split()[0]
+        self.action(avery, "peer-ask", {
+            "id": worker_source, "transition": "create", "recipient": blake_key, "note": "Provide the sample.",
+        })
+        self.assertEqual(view(sam, project="T"), [("decision", decision, "Avery"), ("request", request, "Avery")])
+        self.assertEqual(view(sam, project="COURSE"), [("request", course, "Avery")])
+        self.assertCountEqual(view(sam, scope="all"), [
+            ("decision", decision, "Avery"), ("request", course, "Avery"), ("request", request, "Avery"),
+        ])
+        self.assertEqual(view(avery), [])
+        self.assertEqual(view(blake, project="COURSE"), [])
+        self.assertCountEqual(view(blake, project="T"), [
+            ("review", worker_source, "Avery"), ("review", stamp, "Avery"),
+        ])
+        extra = add("Review the onboarding example")
+        extra_run = self.action(avery, "delegate", {
+            "id": extra, "worker": blake_key, "role": "review", "brief": "Check the example.",
+        })["receipt"].split()[0]
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("UPDATE worker_runs SET assigned_at = ? WHERE id = ?",
+                       ("2025-11-21T18:00:00Z", int(extra_run.removeprefix("W-"))))
+        first_page = self.call(blake, path).json
+        self.assertTrue(first_page["next_cursor"])
+        next_page = self.call(blake, path, query_string={"before": first_page["next_cursor"]}).json
+        self.assertEqual([item["ticket"] for item in next_page["items"]], [extra])
+        self.assertIsNone(next_page["next_cursor"])
+        self.action(avery, "peer-ask", {"id": stamp, "transition": "cancel", "note": "The patch was withdrawn."})
+        self.assertEqual(view(blake), [("review", worker_source, "Avery"), ("review", extra, "Avery")])
+
     def test_project_notification_log_uses_only_scoped_receipts(self):
         app = self.app(portal_reader=True)
         avery, avery_key = self.login(app, "Avery")

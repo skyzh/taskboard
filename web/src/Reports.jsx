@@ -267,6 +267,40 @@ function ProjectLinks({ project, revision }) {
   )
 }
 
+const attentionLabels = { decision: 'Decision', request: 'Request', review: 'Review' }
+
+function NeedsYou({ project, revision }) {
+  const page = useLoadedPages('/notifications/needs-you', project ? { project } : { scope: 'all' }, revision, { limit: 2 })
+  const items = page.data?.items
+  const error = page.error && page.error.status !== 404
+  if (!items?.length && !error) return null
+
+  return (
+    <section className="reports-needs-you" aria-labelledby="reports-needs-you-title">
+      <h2 id="reports-needs-you-title">Needs you</h2>
+      {error && <ResourceStatus resource={page} label="work that needs you" />}
+      {items?.length > 0 && (
+        <ul role="list">
+          {items.map(item => {
+            const requester = profileName(item.requester, item.requester_profile)
+            return (
+              <li key={item.id}>
+                <a href={taskHref(item.ticket)}>
+                  <span className="needs-you-task">
+                    <span className="ticket-id">{item.ticket}</span> <MarkdownInline text={item.title} links={false} />
+                  </span>
+                  <span className="needs-you-action">{attentionLabels[item.kind]}{requester && <> from {requester}</>}</span>
+                </a>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <LoadMore page={page} label="items that need you" />
+    </section>
+  )
+}
+
 function ProjectReports({ revision, project, projectTitle, hideRequests, requestFilter, viewer, initialAssigneeView = 'active' }) {
   const [selection, setSelection] = useState(null)
   const selectedView = selection && selection.project === project ? selection.view : null
@@ -291,6 +325,7 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, request
           </label>
         )}
       </ReportsHeading>
+      {!projectTitle && viewer && <NeedsYou key={viewer.id} project={project} revision={revision} />}
       {!projectTitle && <StampIntegration key={project} project={project} revision={revision} />}
       <ReportsLayout sidebar={<QueuedAsks revision={revision} project={project} grouped={Boolean(projectTitle)} viewer={viewer} />}>
         <ResourceStatus resource={page} label="reports" />
@@ -314,6 +349,7 @@ export default function Reports({ project, projects, ...props }) {
   return (
     <section className="reports" aria-labelledby="reports">
       <ReportsHeading headingId="reports">{requestFilter}</ReportsHeading>
+      {props.viewer && <NeedsYou key={props.viewer.id} revision={props.revision} />}
       {projects.map(({ prefix, title }) => (
         <ProjectReports key={prefix} {...props} project={prefix} projectTitle={title} hideRequests={hideRequests} />
       ))}
