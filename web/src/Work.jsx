@@ -338,7 +338,7 @@ function TicketContext({ record, id, task, state, wide, detailed, session, revis
       </TicketIdentity> : <TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} />}
       <RecordedActivity activity={record.last_activity} />
       {record.sources.length > 0 && (
-        <details open><summary>Sources · {record.sources.length}</summary><EvidenceLinks links={record.sources} label="Sources" /></details>
+        <details open><summary>Sources · {record.sources.length}</summary><EvidenceLinks links={record.sources} label="Sources" ticketSources /></details>
       )}
       {!!record.related_tasks?.length && (
         <section aria-label="Related tasks">

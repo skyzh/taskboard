@@ -401,16 +401,32 @@ function GitHubSourceStatus({ id, snapshot }) {
   return <span id={id} className="github-source-status">{text}</span>
 }
 
-export function EvidenceLinks({ links, label = 'Evidence' }) {
+const ticketSourceKinds = new Map([
+  ['github.com', ['github', 'GitHub source']],
+  ['app.raft.build', ['raft', 'Raft source']],
+  ['raft.build', ['raft', 'Raft source']],
+  ['stamp.build', ['stamp', 'Stamp source']],
+])
+
+function TicketSourceMark({ url, local }) {
+  const site = (url?.protocol === 'https:' || url?.protocol === 'http:') && ticketSourceKinds.get(url.hostname)
+  if (site) return <span className="ticket-source-mark report-project-mark" data-kind={site[0]} role="img" aria-label={site[1]} />
+  const Icon = local ? FileText : Link2
+  return <span className="ticket-source-mark" role="img" aria-label={local ? 'Local file source' : 'Link source'}>
+    <Icon size={16} aria-hidden="true" />
+  </span>
+}
+
+export function EvidenceLinks({ links, label = 'Evidence', ticketSources = false }) {
   const listId = useId()
   if (!links?.length) return null
   return (
-    <ul className="evidence-links" aria-label={label} role="list">
+    <ul className={ticketSources ? 'evidence-links ticket-source-list' : 'evidence-links'} aria-label={label} role="list">
       {links.map((link, index) => {
         const { label, url } = link
         const statusId = link.github ? `${listId}-github-${index}` : undefined
         if (link.unavailable || !url) return (
-          <li key={index}>{label} <span className="evidence-unavailable">(local file)</span></li>
+          <li key={index}>{ticketSources && <TicketSourceMark local />}{label} <span className="evidence-unavailable">(local file)</span></li>
         )
         const parsed = URL.canParse(url) ? new URL(url) : null
         const protocol = parsed?.protocol
@@ -420,6 +436,7 @@ export function EvidenceLinks({ links, label = 'Evidence' }) {
           : null
         return (
           <li key={index}>
+            {ticketSources && <TicketSourceMark url={parsed} local={protocol === 'file:'} />}
             {supported ? <a href={url} aria-describedby={statusId}>{link.generated ? sourceLinkLabel(url, label) : label}</a> : <span>{label} {url}</span>}
             <GitHubSourceStatus id={statusId} snapshot={link.github} />
             {protocol === 'file:' && (
