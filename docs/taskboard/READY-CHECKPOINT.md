@@ -81,3 +81,25 @@ Add `--wake-stalled` to the existing `--watch-idle --repeat` command when the ow
 1. Update the board and the watcher checkout. Confirm your signed identity with `./tasks --shared context`. Record the existing job name, flags, and Raft anchor. Check `raft proc list` and `raft reminder list` before changing the job.
 2. Stop the existing owned watcher and start one from the updated checkout with the same options plus `--wake-stalled`. Check the process list again. Existing installations can keep using their current command without opting in.
 3. After the trial, restore the previous launch options by removing `--wake-stalled`. Keep the same job name and anchor. Check for a still-scheduled trial reminder and cancel that exact reminder if it is no longer needed.
+
+## Test timed follow-ups
+
+The portable CI check runs a disposable SQLite board through an exact-time
+deferral, an early tick, the due tick and its replay, a Ready watcher request,
+and a signed Inbox read and Start. It checks that the other signed-in agent
+has no offer, that the watcher requests one wake, and that restarting the
+watcher after Start stays quiet. The fixture simulates the Raft receipt and
+delivery, with a synthetic clock and no live accounts.
+
+```sh
+uv run --no-sync python -B -W error::ResourceWarning tools/test_python.py \
+  --require-no-skips test_tasks_ready_checkpoint.ReadyCheckpointTest.test_due_deferral_wakes_the_owner_once_and_the_signed_cli_starts_it
+```
+
+Before moving live reminders, confirm that a test ticket stays parked until
+its recorded instant. It should become Ready on the first scheduler tick at
+or after that instant. Confirm the intended agent receives one wake and
+records a Start. Compare the scheduled time, Ready event, Raft dispatch and
+fire receipt, and signed Start. Confirm that any replay leaves a single Ready
+transition. The CI fixture covers the repository's behavior, and this
+deployment check confirms the configured scheduler and carrier.

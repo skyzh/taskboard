@@ -46,6 +46,69 @@ class ReadyCheckpointTest(unittest.TestCase):
         self.avery = FixtureBoard(service, avery)
         self.blake = FixtureBoard(service, blake)
 
+    def test_due_deferral_wakes_the_owner_once_and_the_signed_cli_starts_it(self):
+        self.avery.invoke("create-task", {
+            "title": "Check the scheduled sample", "step": "Read the sample.",
+        }, write=True)
+        service, client = self.avery.service, self.avery.client
+        due = "2030-04-01T19:30:00Z"
+        status, _, error = service.shared_cli(client, "remind", "T-1", "--until", due)
+        self.assertEqual(status, 0, error)
+        self.assertIsNone(self.avery.invoke("my-next")["work"])
+
+        clock = 0
+        stop_at = 190
+        outcomes = []
+        wake_references = []
+
+        def tick(at):
+            return json.loads(service.cli("recurring-tick", "--as-of", at)).get("released_deferrals", [])
+
+        def advance(seconds):
+            nonlocal clock
+            clock += seconds
+            if clock == 120:
+                self.assertEqual(tick("2030-04-01T19:29:59Z"), [])
+            if clock == 130:
+                self.assertEqual(wake_references, [])
+                self.assertEqual(tick(due), ["T-1"])
+            if clock == 140:
+                self.assertEqual(tick(due), [])
+            if clock == 160:
+                self.assertEqual(wake_references, ["#12345678"])
+                status, output, error = service.shared_cli(client, "next")
+                self.assertEqual(status, 0, error)
+                self.assertIn("T-1 · Ready", output)
+                self.assertIsNone(self.blake.invoke("my-next")["work"])
+                status, _, error = service.shared_cli(client, "start", "T-1", "Read the scheduled sample.")
+                self.assertEqual(status, 0, error)
+            if clock == stop_at:
+                raise KeyboardInterrupt
+
+        def notify(notice, can_wake):
+            return raft_ready_count(notice, "#fixture", "anchor", can_wake, record_wake=wake_references.append)
+
+        # The live Raft CLI is replaced with a receipt. At the next simulated
+        # delivery, the receiving agent reads and starts work over the signed API.
+        with patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock), \
+             patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance), \
+             patch("taskboard_cli.ready_checkpoint.raft_cli",
+                   side_effect=["", "Reminder scheduled: #12345678 "]) as raft:
+            for stop_at in (190, 340):
+                with self.assertRaises(KeyboardInterrupt):
+                    watch_ready_count(self.avery, "Avery", self.fail, notify, outcomes.append,
+                                      observe_status=lambda _: "idle")
+
+        self.assertEqual([args[:2] for args, _ in raft.call_args_list],
+                         [("reminder", "list"), ("reminder", "schedule")])
+        self.assertEqual([row["ready_count"] for row in outcomes if row.get("kind") == "status"], [0, 0])
+        self.assertEqual([(row["outcome"], row["ready_count"]) for row in outcomes if "outcome" in row],
+                         [("wake-requested", 1)])
+        events = list(self.avery.pages("task-activity", {"id": "T-1"}))
+        self.assertEqual([(row["actor"], row["at"]) for row in events if row["action"] == "unpark"],
+                         [("Taskboard", due)])
+        self.assertEqual([row["actor"] for row in events if row["action"] == "start"], [self.avery_id])
+
     def test_idle_goal_offer_requires_the_explicit_runner_handoff(self):
         self.avery.invoke("save-goal", {"kind": "standing", "summary": "Check the example."}, write=True)
         handoff = "a0000000-0000-4000-8000-000000000001"
