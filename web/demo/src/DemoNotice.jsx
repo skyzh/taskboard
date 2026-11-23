@@ -66,7 +66,7 @@ export default function DemoNotice({ children }) {
       <div onFocus={event => {
         const element = control(event.target)
         if (element) showTooltip(element)
-        else setTooltip(null)
+        else setTooltip(current => current?.touch ? current : null)
       }}
       onBlur={event => {
         if (control(event.target)) setTooltip(null)
