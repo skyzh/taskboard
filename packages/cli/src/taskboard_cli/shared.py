@@ -504,7 +504,8 @@ def shared_command(args):
         output = "Committed · " + result["receipt"]
         guidance = result.get("next_step")
         if command in {"done", "transfer"} or (command == PEER_ASK and args.change == "result"):
-            guidance = completion_guidance(board, args.id, prompts.get("completion"), cue=result.get("next_action"))
+            fallback = prompts.get("completion") or guidance
+            guidance = completion_guidance(board, args.id, fallback, cue=result.get("next_action"))
         return with_guidance(output, guidance or "Check the updated record or your Inbox.")
     if command == "readiness":
         filters = {"project": args.project} if args.project else {"scope": "all"}

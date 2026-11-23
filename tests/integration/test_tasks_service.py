@@ -3721,6 +3721,40 @@ class TasksServiceTest(unittest.TestCase):
             finishes = [event for event in events if event["action"] == "done"]
             self.assertEqual([event["actor"] for event in finishes], [owner_id])
 
+    def test_empty_completion_queue_uses_receipt_guidance_with_legacy_fallback(self):
+        from tasks_guidance import AgentGuidance
+
+        app = self.app(portal_reader=True, agent_guidance=AgentGuidance(
+            overrides={"completion": "Review open work in {project}."},
+        ))
+        owner, _ = self.login(app, "Avery")
+        _, recipient = self.login(app, "Blake")
+        context = self.action(owner, "context")
+        command = "`./tasks --shared next --project T`"
+        for number, transition, simulated, expected, calls in (
+            (1, "done", {}, "Review open work in T.", ["context", "advance-task"]),
+            (2, "transfer", {}, "Review open work in T.", ["context", "handoff"]),
+            (3, "done", {"context": {**context, "cli_guidance": {"completion": "Use the CLI override."}}},
+             "Use the CLI override.", ["context", "advance-task"]),
+            (4, "done", {"advance-task": {"receipt": "T-4 · Completed", "next_step": "Read the earlier receipt."}},
+             "Read the earlier receipt.", ["context", "advance-task", "my-next"]),
+            (5, "done", {"advance-task": {"receipt": "T-5 · Completed"}}, f"Check your Inbox with {command}.",
+             ["context", "advance-task", "my-next"]),
+        ):
+            with self.subTest(transition=transition, ticket=number):
+                ticket = f"T-{number}"
+                self.action(owner, "create-task", {"title": "Inspect a sample", "step": "Open the fixture."})
+                if transition == "done":
+                    self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Check the fixture."})
+                actions = []
+                args = ("--dri", recipient) if transition == "transfer" else ()
+                code, output, error = self.shared_cli(
+                    owner, transition, ticket, "Checked.", *args, actions=actions, carrier_results=simulated,
+                )
+                self.assertEqual((code, error, actions), (0, "", calls))
+                self.assertTrue(output.startswith(f"Committed · {ticket}"))
+                self.assertEqual(output.splitlines()[-1], f"Next: {expected}")
+
     def test_shared_cli_read_guidance_preserves_plain_and_json_results(self):
         app = self.app(portal_reader=True)
         owner, owner_key = self.login(app, "Avery")
@@ -7517,6 +7551,7 @@ class TasksServiceTest(unittest.TestCase):
         code, output, error = self.shared_cli(blake, "peer-ask", "result", "T-2", result["note"], actions=actions)
         self.assertEqual((code, error), (0, ""))
         self.assertTrue(output.startswith("Committed · T-2"))
+        self.assertIn("Next: The original requester can acknowledge the result after handling it.", output)
         self.assertEqual(actions, ["context", "peer-ask"])
         self.assertIn("Peer result already recorded", self.action(blake, "peer-ask", result)["receipt"])
         self.assertEqual((read(2)["state"], read(2)["dri"]), ("ready", avery_id))
