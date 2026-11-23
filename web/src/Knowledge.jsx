@@ -53,25 +53,29 @@ function AreaBranches({ areas, parent = '' }) {
   )
 }
 
-function KnowledgeDirectory({ directory }) {
-  const projects = new Map()
+function KnowledgeDirectory({ directory, projects }) {
+  const projectTitles = new Map(projects?.map(({ prefix, title }) => [prefix, title]))
+  const projectAreas = new Map()
   for (const area of directory.data?.areas || []) {
-    const areas = projects.get(area.project) || []
+    const areas = projectAreas.get(area.project) || []
     areas.push(area)
-    projects.set(area.project, areas)
+    projectAreas.set(area.project, areas)
   }
   return (
     <>
       <ResourceStatus resource={directory} label="areas" />
-      {projects.size > 0 && (
+      {projectAreas.size > 0 && (
         <nav className="panel knowledge-directory" aria-label="Knowledge areas">
           <h2>Areas</h2>
-          {[...projects].map(([project, areas]) => (
-            <section key={project} aria-label={project}>
-              <h3>{project}</h3>
-              <AreaBranches areas={areas} />
-            </section>
-          ))}
+          {[...projectAreas].map(([project, areas]) => {
+            const title = projectTitles.get(project) || project
+            return (
+              <section key={project} aria-label={title}>
+                <h3>{title}</h3>
+                <AreaBranches areas={areas} />
+              </section>
+            )
+          })}
         </nav>
       )}
     </>
@@ -98,7 +102,7 @@ function StagedWork({ changes }) {
   )
 }
 
-export default function Knowledge({ session, verified, revision, search, entry, onSearch }) {
+export default function Knowledge({ session, verified, revision, projects, search, entry, onSearch }) {
   const page = useLoadedPages(verified ? '/knowledge' : null, { q: entry ? undefined : search, entry }, revision)
   const directory = useResource(verified && !entry && !search ? '/knowledge/areas' : null, revision)
   const signIn = session.data?.sign_in_available || session.error?.status === 401
@@ -110,7 +114,7 @@ export default function Knowledge({ session, verified, revision, search, entry, 
       </div>
       {verified ? <>
         <KnowledgeSearch key={search} search={search} onSearch={onSearch} />
-        {!entry && !search && <KnowledgeDirectory directory={directory} />}
+        {!entry && !search && <KnowledgeDirectory directory={directory} projects={projects} />}
         <ResourceStatus resource={page} label="decisions" />
         {page.data?.items.length === 0 && <p className="section-message">
           {search || entry ? 'No matching decisions.' : 'No maintained decisions yet.'}
