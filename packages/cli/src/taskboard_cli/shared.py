@@ -316,11 +316,32 @@ NEXT_LABELS = {
 }
 
 
-def completion_guidance(board, reference, fallback=None):
+def completion_queue(cue, project):
+    if not isinstance(cue, dict) or cue.get("project") != project:
+        return None
+    match cue:
+        case {"kind": "work", "work": {"kind": str(), "key": str(), "title": str()} as work}:
+            return {"work": work, "standing_goals": []}
+        case {"kind": "standing_goal", "goal": {"ticket": str(), "summary": str()} as goal,
+              "instruction": str(instruction)}:
+            return {"work": None, "standing_goals": [goal], "next_step": instruction}
+        case {"kind": "empty"}:
+            return {"work": None, "standing_goals": []}
+        case {"kind": "unavailable"}:
+            return {"unavailable": True}
+    return None
+
+
+def completion_guidance(board, reference, fallback=None, *, cue=None):
     project, _ = projects.identifier(reference)
     inbox = f"`./tasks --shared next --project {project}`"
+    unavailable = f"Check your Inbox with {inbox}. The next item could not be loaded."
     try:
-        result = board.invoke("my-next", {"project": project})
+        result = completion_queue(cue, project)
+        if result is None:
+            result = board.invoke("my-next", {"project": project})
+        if result.get("unavailable"):
+            return unavailable
         if work := result["work"]:
             label = NEXT_LABELS.get(work["kind"], "Start Ready work")
             return f"{label} on {work['key']} · {work['title']}. Read it with {inbox}."
@@ -334,7 +355,7 @@ def completion_guidance(board, reference, fallback=None):
                 )
     except (SharedActionUnavailable, SharedReadError, KeyError, TypeError):
         # A failed or incomplete read cannot invalidate the earlier write receipt.
-        return f"Check your Inbox with {inbox}. The next item could not be loaded."
+        return unavailable
     return fallback or f"Check your Inbox with {inbox}."
 
 
@@ -480,7 +501,7 @@ def shared_command(args):
         output = "Committed · " + result["receipt"]
         guidance = result.get("next_step")
         if command in {"done", "transfer"} or (command == PEER_ASK and args.change == "result"):
-            guidance = completion_guidance(board, args.id, prompts.get("completion"))
+            guidance = completion_guidance(board, args.id, prompts.get("completion"), cue=result.get("next_action"))
         return with_guidance(output, guidance or "Check the updated record or your Inbox.")
     if command == "readiness":
         filters = {"project": args.project} if args.project else {"scope": "all"}

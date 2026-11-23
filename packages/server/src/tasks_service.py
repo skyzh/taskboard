@@ -2320,6 +2320,25 @@ def create_app(
             offer = goal_offers.read_offer(connection, owner, handoff_id)
             return {"offer": offer, "receipt": "Idle goal offer recorded."}
 
+    def first_actionable_work(owner, project):
+        return next(query().actionable_work(owner, today=pacific_day(ledger.timestamp()), project=project), None)
+
+    def completion_next_action(owner, project):
+        try:
+            with tasks_storage.read(db()) as connection:
+                if work := first_actionable_work(owner, project):
+                    return {"project": project, "kind": "work", "work": work}
+                if standing := goals.standing(connection, owner, project, include_ticket=True):
+                    return {
+                        "project": project, "kind": "standing_goal", "goal": standing[0],
+                        "instruction": agent_guidance["standing-exploration"],
+                    }
+        except Exception:
+            # This advisory read runs after the write commits and must preserve its receipt.
+            app.logger.exception("Could not read next work after task completion.")
+            return {"project": project, "kind": "unavailable"}
+        return {"project": project, "kind": "empty"}
+
     def dispatch_action(name, data):
         write = request.method != "GET"
         actor = current_actor("agent", write=write)
@@ -2344,7 +2363,7 @@ def create_app(
         if name == "my-next":
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:
-                work = next(query().actionable_work(key, today=pacific_day(ledger.timestamp()), project=project), None)
+                work = first_actionable_work(key, project)
                 result = {"work": work, **goals.queue_context(connection, key, project)}
                 cue = agent_guidance["ready-review"]
                 if cue and work and work["kind"] in ("ready", "shared_ready") and not peer_asks.find(connection, work["id"]):
@@ -2561,7 +2580,11 @@ def create_app(
         if name == "set-priority":
             return mutate("priority", actor, data, id=number, priority=text(data, "priority", maximum=10).lower())
         if name == "advance-task":
-            return advance(actor, data, number)
+            result = advance(actor, data, number)
+            if data["transition"].strip() == "done":
+                project, _ = projects.identifier(data["id"])
+                result["next_action"] = completion_next_action(key, project)
+            return result
         if name == "handoff":
             return mutate(
                 "transfer", actor, data, id=number, note=text(data, "note"),
