@@ -1,8 +1,10 @@
 import React, { useState } from 'react'
 import { request } from './data.js'
-import { TASK_TITLE_LIMIT } from './workCopy.js'
+import { FieldHelp } from './FieldGuidance.jsx'
 
-export default function TaskDetailsEdit({ task, brief, onChanged }) {
+export default function TaskDetailsEdit({ task, brief, onChanged, fields }) {
+  const titleHelpId = `ticket-title-guidance-${task.id}`
+  const briefHelpId = `ticket-brief-guidance-${task.id}`
   const [draft, setDraft] = useState({})
   const [reason, setReason] = useState('')
   const [saving, setSaving] = useState(false)
@@ -13,9 +15,7 @@ export default function TaskDetailsEdit({ task, brief, onChanged }) {
     ...(draft.title != null && title.trim() !== task.title && { title: title.trim() }),
     ...(draft.brief != null && instructions.trim() !== (brief ?? '') && { brief: instructions.trim() }),
   }
-  const overLimit = changed.title != null && Array.from(changed.title).length > TASK_TITLE_LIMIT
-  const titleErrorId = `task-title-limit-${task.id}`
-  const canSave = Object.keys(changed).length > 0 && title.trim() && reason.trim() && !overLimit && !saving
+  const canSave = Object.keys(changed).length > 0 && title.trim() && reason.trim() && !saving
 
   async function submit(event) {
     event.preventDefault()
@@ -45,15 +45,17 @@ export default function TaskDetailsEdit({ task, brief, onChanged }) {
         <label>
           Title
           <input value={title} onChange={event => setDraft({ ...draft, title: event.target.value })}
-            aria-invalid={overLimit || undefined} aria-describedby={overLimit ? titleErrorId : undefined}
+            aria-describedby={fields?.title ? titleHelpId : undefined}
             disabled={saving} required />
         </label>
-        {overLimit && <p id={titleErrorId} role="alert">Keep the title to {TASK_TITLE_LIMIT} characters. Move details into the brief.</p>}
+        <FieldHelp field={fields?.title} id={titleHelpId} />
         <label>
           Brief
           <textarea value={instructions} onChange={event => setDraft({ ...draft, brief: event.target.value })}
+            aria-describedby={fields?.brief ? briefHelpId : undefined}
             rows={4} maxLength={4000} disabled={saving} />
         </label>
+        <FieldHelp field={fields?.brief} id={briefHelpId} />
         <label>
           Reason for change
           <textarea value={reason} onChange={event => setReason(event.target.value)}
