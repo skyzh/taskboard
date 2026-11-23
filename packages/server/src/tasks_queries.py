@@ -38,6 +38,7 @@ SUGGESTION_KEY = re.compile(r"([A-Z][A-Z0-9]{0,7})-([0-9]*)", re.ASCII)
 SEARCH_WORDS = re.compile(r"[^\W_]+")
 ACTIVITY_EXCERPT_LIMIT = 180
 GOAL_OUTCOME_LIMIT = 20
+DECISION_RECORD_TAG = "decision-record"
 
 
 def title_suggestion_rank(needle, words, title):
@@ -568,6 +569,62 @@ class BoardQueries:
             last = rows[limit - 1]
             result["next_cursor"] = f"{last['priority']}:{last['event_id']}"
         return result
+
+    def search_with_decisions(self, search, *, before, limit):
+        """Search ordinary T tickets and maintained decisions on the verified board."""
+        needle = search.casefold()
+        context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
+        terms = [
+            f"{ledger.display_state_sql(context)} = 'done'",
+            "tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?)",
+        ]
+        args = [DECISION_RECORD_TAG]
+        if before is not None:
+            terms.append("events.id < ?")
+            args.append(before)
+
+        def matches(row):
+            return (needle == projects.row_reference(row).casefold()
+                    or needle in row["title"].casefold()
+                    or needle in (row["brief"] or "").casefold())
+
+        def render(rows):
+            items = []
+            for row in rows:
+                item = {"id": row["id"], "key": row["key"], "title": row["title"],
+                        "state": row.get("display_state", row["state"])}
+                if row["id"] in decisions:
+                    decision = decisions[row["id"]]
+                    item["decision"] = {
+                        "summary": decision["brief"],
+                        "sources": self.decision_sources(row["id"]),
+                    }
+                items.append(item)
+            return items
+
+        # One extra row from each stream is sufficient to find the next cursor
+        # after merging, including when a Project T decision is in both streams.
+        tickets = self.tasks(project=projects.DEFAULT, search=search, before=before, limit=limit + 1)["items"]
+        records = self.search_rows(terms, args, "events.id DESC", limit, False, matches)
+        decisions = {row["id"]: row for row in records}
+        mixed = {task["id"]: task for task in tickets}
+        mixed.update({
+            row["id"]: {"id": row["id"], "event_id": row["event_id"], "title": row["title"],
+                        "key": projects.row_reference(row), "state": row["display_state"]}
+            for row in records
+        })
+        ordered = sorted(mixed.values(), key=lambda row: row["event_id"], reverse=True)
+        return page(ordered, limit, "event_id", render)
+
+    def decision_sources(self, task_id):
+        prefix = f"{self.base}/#event-"
+        sources = []
+        for _, label, url, _ in watches.task_source_links(self.db, task_id):
+            if match := re.fullmatch(r"([1-9][0-9]{0,18})-log", url.removeprefix(prefix)):
+                event_id = int(match[1])
+                if event_id <= projects.MAX_ID and self.events(event_id=event_id, limit=1)["items"]:
+                    sources.append((label, url))
+        return self.links(sources)
 
     def task_suggestions(self, search, *, project):
         needle = search.casefold()

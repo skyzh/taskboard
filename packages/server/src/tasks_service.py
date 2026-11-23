@@ -2467,6 +2467,8 @@ def create_app(
             return query().search_activity(
                 text(data, "q", maximum=160, strip=False), project=project_filter(data), **page_args(data),
             )
+        if name == "search-with-decisions":
+            return query().search_with_decisions(text(data, "q", maximum=160), **page_args(data))
         if name == "task-tag":
             return change_tag(actor, task_number(data.get("id")), data)
         if name == "assignees":

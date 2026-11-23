@@ -110,6 +110,10 @@ When an investigation changes what someone should do next, record one Activity n
 
 Open the matching Activity entry before retrying a similar approach. For a lesson that applies across the project, link the original entry from the project reflection ticket.
 
+For a maintained decision, record the current wording in a ticket's brief, link the authoritative Activity entries with `link-reference`, and tag the completed ticket `decision-record`. Keep the original entries and link any correction from the maintained record. The existing area reflection can check it when new evidence changes the decision.
+
+On a verified shared board, `./tasks --shared search sudo` includes maintained decisions across the board alongside ordinary Project T tickets. `--project` limits ticket search, and `--activity` searches historical text in one project. Search and its Activity links use the board's existing read permissions. An older Raft app without the new search action falls back to ordinary Project T ticket search. Register the updated app manifest before checking cross-project retrieval on a rollout.
+
 ## Run independent work in parallel
 
 As the DRI, split substantial work by dependency. Launch subagents early for
