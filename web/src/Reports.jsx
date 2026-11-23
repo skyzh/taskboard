@@ -16,7 +16,7 @@ import { useTimeZone } from './timeZone.js'
 import { briefSourceText } from './workCopy.js'
 import QueuedAsks from './QueuedAsks.jsx'
 import StampIntegration from './StampIntegration.jsx'
-import { DemoControl, DemoUnavailable } from './DemoControl.jsx'
+import { DemoUnavailable } from './DemoControl.jsx'
 
 export const ownerWorkSections = [
   { state: 'human_review', id: 'human_review-title', title: 'Needs a decision', label: 'tasks needing a decision' },
@@ -95,7 +95,7 @@ function ReportGoals({ goals, owner, project, publicPreview, target, highlighted
   return (
     <Panel className="report-owner-section report-goals-panel"
       id={target} data-tour-current={highlighted || undefined}>
-      {publicPreview ? <DemoControl as="summary">Goals</DemoControl> : (
+      {publicPreview ? <summary>Goals</summary> : (
         <div className="report-goals-heading">
           <Heading>Goals</Heading>
           {project && <a href={`#${goalActivityFragment(project, owner)}`}>Goal activity</a>}
@@ -109,7 +109,7 @@ function ReportGoals({ goals, owner, project, publicPreview, target, highlighted
           return (
             <li key={ticket || kind + ':' + summary}>
               {publicPreview && !source ? <DemoUnavailable className="report-goal-text">{label}</DemoUnavailable>
-                : <DemoControl as="a" href={publicPreview ? source : ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{label}</DemoControl>}
+                : <a href={publicPreview ? source : ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{label}</a>}
               {kind === 'standing' && <span>Standing goal</span>}
               {deadline && <GoalDeadline deadline={deadline} />}
             </li>
@@ -164,7 +164,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         <div>
           <div className="dri-name-line">
             <OwnerHeading>
-              <DemoControl as="a" href={publicPreview ? entry.public_url : ownerHref(owner, undefined, project)}>{name}</DemoControl>
+              <a href={publicPreview ? entry.public_url : ownerHref(owner, undefined, project)}>{name}</a>
               <DriWorkStatus inProgress={inProgress} compact />
             </OwnerHeading>
             {projectTitle && <span className="report-project-label">{projectTitle}</span>}

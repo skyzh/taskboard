@@ -61,20 +61,6 @@ button[data-demo-unavailable] {
   align-items: baseline;
 }
 .snapshot .task-row-heading > .static-task-title { min-width: 0; }
-.demo-tooltip {
-  position: fixed;
-  z-index: 5;
-  width: min(18rem, calc(100vw - 1rem));
-  left: clamp(.5rem, var(--demo-notice-left), max(.5rem, 100vw - 18.5rem));
-  padding: .45rem .6rem;
-  border: 1px solid var(--line);
-  border-radius: .35rem;
-  background: var(--paper);
-  color: var(--ink);
-  box-shadow: 0 .2rem .75rem rgb(0 0 0 / .2);
-  font-size: .82rem;
-}
-.demo-tooltip[data-touch] { pointer-events: none; }
 .demo-dialog {
   width: min(22rem, calc(100% - 2rem));
   padding: 1rem;
@@ -84,5 +70,4 @@ button[data-demo-unavailable] {
   color: var(--ink);
 }
 .demo-dialog::backdrop { background: #0006; }
-.demo-dialog-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin-top: .9rem; }
-.demo-dialog-actions > :is(a, button) { display: inline-flex; align-items: center; min-height: 2.75rem; }
+.demo-dialog-close { margin-top: .9rem; min-height: 2.75rem; }

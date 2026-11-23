@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { ArrowRight, Check, CircleX, Clock, GitPullRequest, MessageSquare, Play, Reply } from 'lucide-react'
 import { useLoadedPages } from './data.js'
-import { DemoControl } from './DemoControl.jsx'
 import { AssigneeAvatar, eventHref, LoadMore, peerRequestLabels, profileName, ResourceStatus, taskHref, TaskLink } from './shared.jsx'
 import { ReportTime } from './ReportTime.jsx'
 import SegmentedControl from './SegmentedControl.jsx'
@@ -50,7 +49,7 @@ function RequestRow({ item, viewer, publicPreview, verbose }) {
       <div className="request-summary">
         <Icon size={14} aria-hidden="true" />
         {requestHref && (!verbose || showReference)
-          ? <DemoControl as="a" className="request-summary-text" href={requestHref} title={summary}>{label}</DemoControl>
+          ? <a className="request-summary-text" href={requestHref} title={summary}>{label}</a>
           : <span className="request-summary-text">{label}</span>}
         {!verbose && <span className="relative-time-accessible">{status}</span>}
         {!verbose && owner && <span className="request-summary-avatar" title={ownerName}>

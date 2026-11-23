@@ -9,7 +9,7 @@ import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { sourceLinkLabel } from './sourceLinks.js'
 import { useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
-import { DemoControl, DemoUnavailable } from './DemoControl.jsx'
+import { DemoUnavailable } from './DemoControl.jsx'
 
 export const states = {
   human_review: 'Assigned to human',
@@ -272,7 +272,7 @@ export function DriWorkStatus({ inProgress, compact = false }) {
 }
 
 export function BoardBrand({ href }) {
-  return <DemoControl as="a" className="brand" href={href}><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>Taskboard</DemoControl>
+  return <a className="brand" href={href}><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>Taskboard</a>
 }
 
 export function TaskLink({ id, title, current, reference, searchQuery, publicHref }) {
@@ -281,7 +281,7 @@ export function TaskLink({ id, title, current, reference, searchQuery, publicHre
     ? searchQuery ? `${anchor}?${new URLSearchParams({ 'from-search': searchQuery })}` : anchor
     : publicHref
   const label = <><span className="ticket-id">{taskLabel(id, reference)}</span> <MarkdownInline text={title} links={false} /></>
-  return href ? <DemoControl as="a" href={href} aria-current={current ? 'true' : undefined}>{label}</DemoControl>
+  return href ? <a href={href} aria-current={current ? 'true' : undefined}>{label}</a>
     : <DemoUnavailable className="static-task-title">{label}</DemoUnavailable>
 }
 
