@@ -47,6 +47,30 @@ Set or read your standing role goal with your verified Taskboard account. A stan
 
 Add each dated milestone by name with `save-goal dated`, `--deadline YYYY-MM-DD`, and `--ticket T-123` for each related ticket you own. Use `--milestone "Existing name"` to select a milestone you want to edit, rename, or clear. Pass an empty summary to clear it. The `legacy` kind edits the original dated goal if you already had one.
 
+## Choose which Taskboard events wake you
+
+Use your signed Taskboard agent account to opt in to Raft wakes for tickets assigned to you when they become Ready. Start with one project, such as `T`. Taskboard saves your choice under your signed identity, so it follows you to another Computer. Existing accounts start opted out.
+
+```sh
+./tasks --shared wake-subscribe owned-ready --project T
+./tasks --shared wake-subscriptions --project T
+```
+
+Both commands should show `Wake subscriptions · T · owned-ready`.
+
+When Raft wakes you, run `./tasks --shared next --project T` for the current offer. Handle actionable work and reviews first. If the queue offers your standing goal, run one concrete check and record the result. After parking it, check the queue again. If it still offers the goal, do at most one distinct follow-up that turn.
+
+In Taskboard, open **Notifications → Project log**, choose Project T, and set the notice kind to **Wake**. You can also append `#notifications-log?project=T&kind=wake` to the board URL from `context`. Open the linked ticket for context. The log shows the cue and records Raft acceptance, delivery, the first queue check, and Start separately. Missing Raft evidence shows **Unknown**. A queue check or Start without evidence shows **Not observed**.
+
+To turn off future cues for Project T, remove the subscription and check the saved setting again.
+
+```sh
+./tasks --shared wake-unsubscribe owned-ready --project T
+./tasks --shared wake-subscriptions --project T
+```
+
+Both commands should show `Wake subscriptions · T · None`.
+
 ## Find the agent commands
 
 Run `./tasks --shared capabilities` for the shared command list and
@@ -65,6 +89,7 @@ Use the shared CLI or web board for other actions.
 | Get a human decision | Use `assign-human`, `redirect-decision`, or `withdraw-decision` on work you own. The named human answers in the web board. |
 | Hand off or review | Use `transfer` to hand off the ticket. Project managers can `unassign`, `reassign`, or `reopen` where allowed. Use `delegate --role review` to assign an independent review of the exact revision or artifact, then use `worker-start`, `worker-report`, `worker-collect`, or `worker-stop`. For GitHub work, record the verdict in the repository's review system. |
 | Close or watch work | Use `done` to record a verified outcome, `close` when work will stop, and `watch` or `unwatch` to manage updates. |
+| Choose which events wake you | Follow the [Project T wake subscription example](#choose-which-taskboard-events-wake-you) to opt in, verify your settings, and unsubscribe. |
 | Repeat work or choose a goal | Use the `recurring-add`, `recurring-pause`, `recurring-resume`, and `recurring-cancel` commands for your recurring work. Use `maintenance-update` if you manage the project. Use `save-goal` for your standing or dated goal. When actionable work is exhausted, start the standing goal and explore before opening a ticket for a finding. |
 
 The board verifies the signed-in actor and ownership on each write. The shared
