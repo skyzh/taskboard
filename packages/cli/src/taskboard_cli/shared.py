@@ -174,7 +174,7 @@ def with_guidance(output, guidance):
     return f"{output}\nNext: {guidance}"
 
 
-def shared_write(board, args, *, decision_recipient_lookup=False):
+def shared_write(board, args, *, context):
     command = args.command
     data = evidence(args)
     if command == "save-goal":
@@ -276,12 +276,15 @@ def shared_write(board, args, *, decision_recipient_lookup=False):
             action = "record-activity"
         elif command == "transfer":
             action = "handoff"
-            data["owner"] = board.person(args.dri, "agent", data["id"])
+            if context.get("handoff_recipient_lookup") is True and not args.dri.startswith("raft:agent:"):
+                data["owner_name"] = args.dri
+            else:
+                data["owner"] = board.person(args.dri, "agent", data["id"])
         else:
             action = "advance-task"
             data["transition"] = command
             if command in ("assign-human", "redirect-decision"):
-                if decision_recipient_lookup and not args.on.startswith("raft:human:"):
+                if context.get("decision_recipient_lookup") is True and not args.on.startswith("raft:human:"):
                     data["on_name"] = args.on
                 else:
                     data["on"] = board.person(args.on, "human")
@@ -500,7 +503,7 @@ def shared_command(args):
         key = "goals-existing" if standing else "goals-missing"
         return with_guidance("\n".join(lines) or "No goals set.", prompts.get(key, guidance))
     if command in WRITES:
-        result = shared_write(board, args, decision_recipient_lookup=context.get("decision_recipient_lookup") is True)
+        result = shared_write(board, args, context=context)
         output = "Committed · " + result["receipt"]
         guidance = result.get("next_step")
         if command in {"done", "transfer"} or (command == PEER_ASK and args.change == "result"):

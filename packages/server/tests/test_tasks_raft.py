@@ -86,7 +86,7 @@ class RaftActionRoutesTest(unittest.TestCase):
                 "clear_eta reason details url label",
             ),
             "peer-ask": ("POST", "id transition note", "recipient review review_pr review_head review_base label url"),
-            "handoff": ("POST", "id owner note", "url label"),
+            "handoff": ("POST", "id note", "owner owner_name url label"),
             "change-ownership": ("POST", "id action reason", "owner url label"),
             "close-task": ("POST", "id reason", "related url label"),
             "edit-task-details": ("POST", "id reason", "title brief url label"),

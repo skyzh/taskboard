@@ -3071,6 +3071,57 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(run("redirect-decision", quinn_id), ["context", "advance-task"])
         self.assertEqual(recipient(), quinn_id)
 
+    def test_signed_named_handoff_preserves_stable_ids_and_never_retries_a_lost_receipt(self):
+        app = self.app(portal_reader=True)
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        _, sam_id = self.login(app, "Sam")
+        self.provider.people["Blake"]["name"] = "Shared name"
+        self.provider.people["Avery"]["name"] = "Shared name"
+        self.call(blake, "/api/v1/session")
+        self.call(avery, "/api/v1/session")
+
+        def task():
+            return self.call(avery, "/api/v1/tasks/T-1").json["task"]
+
+        self.action(avery, "create-task", {"title": "Transfer the sample", "step": "Review the sample."})
+        original = task()["event_id"]
+        handoff = {"id": "T-1", "note": "Take the sample."}
+        for fields in ({}, {"owner_name": "Shared name"}, {"owner_name": "@sam"},
+                       {"owner_name": "@blake", "owner": sam_id}):
+            self.action(avery, "handoff", {**handoff, **fields}, status=400)
+        self.action(blake, "handoff", {**handoff, "owner_name": "@blake"}, status=409)
+        self.assertEqual(task()["event_id"], original)
+
+        actions = []
+        code, output, error = self.shared_cli(
+            avery, "transfer", "T-1", "Review the sample.", "--dri", "@BLAKE",
+            actions=actions, lose_receipt=True,
+        )
+        self.assertEqual((code, output, actions), (1, "", ["context", "handoff"]))
+        self.assertIn("Shared write outcome unknown", error)
+        self.assertEqual(task()["dri"], blake_id)
+        history = self.action(avery, "task-activity", query_string={"id": "T-1"})["items"]
+        self.assertEqual([event["actor"] for event in history if event["action"] == "transfer"], [avery_id])
+
+        context = self.action(blake, "context")
+        self.assertIs(context.pop("handoff_recipient_lookup"), True)
+        actions.clear()
+        code, output, error = self.shared_cli(
+            blake, "transfer", "T-1", "Review the sample.", "--dri", "@avery", actions=actions,
+            carrier_results={"context": context},
+        )
+        self.assertEqual((code, error, actions), (0, "", ["context", "assignees", "handoff"]))
+        self.assertIn("Committed · T-1 · Transferred", output)
+        self.assertEqual(task()["dri"], avery_id)
+
+        actions.clear()
+        code, _, error = self.shared_cli(
+            avery, "transfer", "T-1", "Review the sample.", "--dri", blake_id, actions=actions,
+        )
+        self.assertEqual((code, error, actions), (0, "", ["context", "handoff"]))
+        self.assertEqual(task()["dri"], blake_id)
+
     def test_shared_priority_order_and_cursor_survive_a_handoff(self):
         app = self.app(portal_reader=True)
         viewer = app.test_client()
@@ -6896,6 +6947,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual({person["id"] for person in directory["items"]}, {cedar_key, birch_key, sam_key})
         self.assertEqual(self.action(cedar, "assignees", query_string={"query": "Blake"})["items"], [])
         self.action(cedar, "handoff", {"id": "3", "owner": blake_key, "note": "Hand it off."}, status=400)
+        self.action(cedar, "handoff", {"id": "3", "owner_name": "Blake", "note": "Hand it off."}, status=400)
         self.action(cedar, "delegate", {
             "id": "3", "worker": blake_key, "role": "review", "brief": "Check the new export.",
         }, status=400)
@@ -6928,8 +6980,11 @@ class TasksServiceTest(unittest.TestCase):
         status, output, errors = self.shared_cli(cedar, "delegate", "COURSE-1", "Blake", "Check the rubric.", "--role", "review")
         self.assertEqual((status, errors), (0, ""))
         self.assertIn("Committed", output)
-        status, output, errors = self.shared_cli(cedar, "transfer", "COURSE-1", "Make the final changes.", "--dri", "Blake")
-        self.assertEqual((status, errors), (0, ""))
+        actions = []
+        status, output, errors = self.shared_cli(
+            cedar, "transfer", "COURSE-1", "Make the final changes.", "--dri", "Blake", actions=actions,
+        )
+        self.assertEqual((status, errors, actions), (0, "", ["context", "handoff"]))
         self.assertEqual(self.call(reader, "/api/v1/tasks/COURSE-1").json["task"]["dri"], blake_key)
 
     def test_worker_counts_and_details_distinguish_launches_from_assignments(self):

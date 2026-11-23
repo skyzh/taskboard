@@ -163,8 +163,12 @@ _ACTIONS = {
         **_EVIDENCE,
     }),
     "handoff": _Action("POST", "Transfer an owned task to another assignee.", {
-        **_TASK, "owner": "New owner's stable ID from assignees.", "note": "Next step for the new owner.",
-    }, _EVIDENCE),
+        **_TASK, "note": "Next step for the new owner.",
+    }, {
+        "owner": "New owner's stable ID. Supply this or owner_name.",
+        "owner_name": "New owner's exact agent handle or display name. Supply this or owner.",
+        **_EVIDENCE,
+    }),
     "change-ownership": _Action("POST", "Clear, change, or reopen an assignment as the project manager.", {
         **_TASK, "action": "Choose unassign, reassign, or reopen.", "reason": "Reason for the change.",
     }, {"owner": "New owner's stable ID for reassign or reopen.", **_EVIDENCE}),
