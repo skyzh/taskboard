@@ -447,7 +447,7 @@ test('ticket attention hides stale requests while refreshing and preserves the h
   assert.doesNotMatch(after, /Mark handled|Check the rollout\./)
 })
 
-test('Inbox keeps standing goals after actionable work and every loaded page', () => {
+test('Inbox keeps dated and standing goals after actionable work and every loaded page', () => {
   fixture.resources = {
     '/notifications/preferences': { data: { task_creations: true } },
     '/notifications/work?scope=all': { data: {
@@ -456,7 +456,11 @@ test('Inbox keeps standing goals after actionable work and every loaded page', (
         { kind: 'review', id: 2, key: 'T-2', title: 'Independent check' },
         { kind: 'shared_ready', id: 3, key: 'T-3', title: 'Shared task' },
       ],
-      standing_goals: [{ project: 'T', summary: 'Improve handoffs when the queue drains' }],
+      dated_goals: [
+        { project: 'T', summary: 'Review the cutover', deadline: '2030-11-28', ticket: 'T-42' },
+        { project: 'T', summary: 'Verify the import', deadline: '2030-12-03', ticket: 'T-43' },
+      ],
+      standing_goals: [{ project: 'COURSE', summary: 'Improve handoffs when the queue drains', ticket: 'COURSE-7' }],
     } },
   }
   const creation = (id, name) => ({ kind: 'creation', id, item: {
@@ -474,15 +478,45 @@ test('Inbox keeps standing goals after actionable work and every loaded page', (
   }
   for (const [items, cursor] of [[[first], 'cursor'], [[first, second], null]]) {
     const markup = render(items, cursor)
-    const goal = markup.indexOf('Improve handoffs when the queue drains')
-    assert.ok(goal > 0)
-    for (const preceding of ['Owned task', 'Independent check', 'Shared task', ...items.map(row => row.item.task_title)]) {
-      assert.ok(markup.indexOf(preceding) >= 0 && markup.indexOf(preceding) < goal, preceding)
+    const ordered = ['Owned task', 'Independent check', 'Shared task', ...items.map(row => row.item.task_title),
+      ...(cursor ? ['More inbox items'] : []), 'Review the cutover', 'Verify the import', 'Improve handoffs when the queue drains']
+    let previous = -1
+    for (const title of ordered) {
+      const position = markup.indexOf(title)
+      assert.ok(position > previous, title)
+      previous = position
     }
-    assert.match(markup, /#dri=Avery&amp;section=dri-standing-goal-title&amp;project=T/)
-    assert.doesNotMatch(markup, /<time[^>]*>[^<]*Improve handoffs/)
-    if (cursor) assert.ok(markup.indexOf('More inbox items') < goal)
+    assert.match(markup, /aria-label="Dated goals".*href="#task-T-42".*Review the cutover.*<time dateTime="2030-11-28">2030-11-28<\/time>/)
+    assert.match(markup, /href="#task-T-43".*Verify the import.*<time dateTime="2030-12-03">2030-12-03<\/time>/)
+    const standing = markup.slice(markup.indexOf('aria-label="Standing goals"'))
+    assert.match(standing, /aria-label="Standing goals".*href="#task-COURSE-7">Standing goal<\/a>/)
+    assert.doesNotMatch(standing, /<time/)
   }
+})
+
+test('Inbox handles dated goals as its only content and accepts older work responses', () => {
+  fixture.state = []
+  fixture.pages = { '/notifications/inbox': { data: { items: [] } } }
+  const session = { data: { actor: { id: 'Avery', kind: 'agent' } } }
+  function render(work) {
+    fixture.resources = {
+      '/notifications/preferences': { data: { task_creations: true } },
+      '/notifications/work?scope=all': { data: { items: [], ...work } },
+    }
+    return renderToStaticMarkup(React.createElement(Notifications, { session, verified: true }))
+  }
+
+  const datedOnly = render({
+    dated_goals: [{ project: 'COURSE', summary: 'Review the draft', deadline: '2030-11-28', ticket: 'COURSE-7' }],
+    standing_goals: [],
+  })
+  assert.match(datedOnly, /href="#task-COURSE-7".*Review the draft/)
+  assert.doesNotMatch(datedOnly, /Your inbox is empty|aria-label="Next actionable work"/)
+
+  const older = render({ standing_goals: [{ project: 'T', summary: 'Improve handoffs' }] })
+  assert.match(older, /#dri=Avery&amp;section=dri-standing-goal-title&amp;project=T.*Improve handoffs/)
+  assert.doesNotMatch(older, /Your inbox is empty|aria-label="Dated goals"/)
+  assert.match(render({ standing_goals: [] }), /Your inbox is empty/)
 })
 
 test('profile renders two dated milestones and keeps the standing edit date-free', () => {
