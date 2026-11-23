@@ -1,10 +1,61 @@
 import React, { useState } from 'react'
-import { useLoadedPages, useResource } from './data.js'
+import { request, useLoadedPages, useResource } from './data.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { LoadMore, ResourceStatus, eventHref, signInHref, taskHref } from './shared.jsx'
 
-function entryHref(key) {
+export function entryHref(key) {
   return '#knowledge?' + new URLSearchParams({ entry: key })
+}
+
+function KnowledgeCreate({ projects, onCreated }) {
+  const [title, setTitle] = useState('')
+  const [brief, setBrief] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState(null)
+
+  async function submit(event) {
+    event.preventDefault()
+    if (pending || !title.trim() || !brief.trim()) return
+    const project = new FormData(event.currentTarget).get('project')
+    setError(null)
+    setPending(true)
+    try {
+      const { id } = await request('/knowledge', {
+        body: { project, title: title.trim(), brief: brief.trim() },
+      })
+      onCreated()
+      window.location.hash = entryHref(id)
+    } catch (failure) {
+      setError(failure.message)
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <details className="panel knowledge-create">
+      <summary>New Knowledge entry</summary>
+      <form className="ownership-form" onSubmit={submit}
+        data-reload-blocked={Boolean(pending || title || brief)}>
+        <label>Project
+          <select name="project" disabled={pending}>
+            {projects.map(project => <option key={project.prefix} value={project.prefix}>{project.title}</option>)}
+          </select>
+        </label>
+        <label>Title
+          <input value={title} onChange={event => setTitle(event.target.value)} maxLength={4000} required disabled={pending} />
+        </label>
+        <label>Brief
+          <textarea value={brief} onChange={event => setBrief(event.target.value)}
+            rows={5} maxLength={4000} required disabled={pending} />
+        </label>
+        {error && <p role="alert">{error}</p>}
+        <button type="submit" disabled={pending || !title.trim() || !brief.trim()}>
+          {pending ? 'Creating…' : 'Create entry'}
+        </button>
+      </form>
+    </details>
+  )
 }
 
 function KnowledgeSearch({ search, onSearch }) {
@@ -15,7 +66,7 @@ function KnowledgeSearch({ search, onSearch }) {
       onSearch(draft.trim())
     }}>
       <label>
-        Search decisions
+        Search Knowledge
         <input type="search" value={draft} maxLength={160} onChange={event => setDraft(event.target.value)} />
       </label>
       <button type="submit">Search</button>
@@ -82,7 +133,7 @@ function KnowledgeDirectory({ directory, projects }) {
   )
 }
 
-function StagedWork({ changes }) {
+export function StagedWork({ changes }) {
   return changes?.length > 0 && (
     <section className="knowledge-stages" aria-label="Staged work">
       <h3>Staged work</h3>
@@ -102,25 +153,28 @@ function StagedWork({ changes }) {
   )
 }
 
-export default function Knowledge({ session, verified, revision, projects, search, entry, onSearch }) {
+export default function Knowledge({ session, verified, revision, projects, search, entry, onSearch, onChanged, RecordTools }) {
   const page = useLoadedPages(verified ? '/knowledge' : null, { q: entry ? undefined : search, entry }, revision)
   const directory = useResource(verified && !entry && !search ? '/knowledge/areas' : null, revision)
   const signIn = session.data?.sign_in_available || session.error?.status === 401
   const fragment = entry ? entryHref(entry) : search ? '#knowledge?' + new URLSearchParams({ q: search }) : '#knowledge'
+  const writableProjects = projects?.filter(project => project.can_create_knowledge === true) || []
   return (
     <section className="knowledge" aria-labelledby="knowledge">
       <div className="page-heading"><h1 id="knowledge" tabIndex={-1}>Knowledge</h1>
-        {entry && <a href="#knowledge">All decisions</a>}
+        {entry && <a href="#knowledge">All entries</a>}
       </div>
       {verified ? <>
+        {!entry && writableProjects.length > 0 &&
+          <KnowledgeCreate key={session.data?.actor?.id} projects={writableProjects} onCreated={onChanged} />}
         <KnowledgeSearch key={search} search={search} onSearch={onSearch} />
         {!entry && !search && <KnowledgeDirectory directory={directory} projects={projects} />}
-        <ResourceStatus resource={page} label="decisions" />
+        <ResourceStatus resource={page} label="Knowledge entries" />
         {page.data?.items.length === 0 && <p className="section-message">
-          {search || entry ? 'No matching decisions.' : 'No maintained decisions yet.'}
+          {search || entry ? 'No matching entries.' : 'No Knowledge entries yet.'}
         </p>}
         {page.data?.items.length > 0 && (
-          <ol className="knowledge-list" aria-label="Maintained decisions" role="list">
+          <ol className="knowledge-list" aria-label="Knowledge entries" role="list">
             {page.data.items.map(item => (
               <li className="panel" key={item.id}>
                 <h2><a href={entryHref(item.key)}><MarkdownInline text={item.title} links={false} /></a></h2>
@@ -130,20 +184,24 @@ export default function Knowledge({ session, verified, revision, projects, searc
                 <DecisionSources sources={item.sources} />
                 <StagedWork changes={item.staged_work} />
                 {entry && item.area_entries?.length > 0 && (
-                  <ul className="context-list" aria-label="Entries in this area" role="list">
-                    {item.area_entries.map(note => (
-                      <li key={note.key}><a href={entryHref(note.key)}>
-                        <MarkdownInline text={note.title} links={false} />
-                      </a></li>
-                    ))}
-                  </ul>
+                  <section className="knowledge-area-entries">
+                    <h3 id={`knowledge-area-entries-${item.id}`}>Entries in this area</h3>
+                    <ul className="context-list" aria-labelledby={`knowledge-area-entries-${item.id}`} role="list">
+                      {item.area_entries.map(note => (
+                        <li key={note.key}><a href={entryHref(note.key)}>
+                          <MarkdownInline text={note.title} links={false} />
+                        </a></li>
+                      ))}
+                    </ul>
+                  </section>
                 )}
+                {entry && RecordTools && <RecordTools id={item.key} revision={revision} onChanged={onChanged} />}
               </li>
             ))}
           </ol>
         )}
-        <LoadMore page={page} label="decisions" />
-      </> : signIn ? <a href={signInHref(fragment)}>Sign in to view decisions</a>
+        <LoadMore page={page} label="Knowledge entries" />
+      </> : signIn ? <a href={signInHref(fragment)}>Sign in to view Knowledge</a>
         : <ResourceStatus resource={session} label="your session" />}
     </section>
   )

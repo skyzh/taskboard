@@ -1129,9 +1129,14 @@ button:disabled { opacity: .57; }
 .knowledge-directory ul { padding-inline-start: 1.15rem; }
 .knowledge-area-label, .knowledge-stage-state { color: var(--muted); }
 .knowledge-stage-state { margin-inline: .5rem; }
-.knowledge-stages { margin-block-start: .75rem; }
+.knowledge-stages, .knowledge-area-entries { margin-block-start: .75rem; }
 
 .knowledge { max-width: 56rem; }
+.knowledge-create { margin-block-end: .75rem; }
+.knowledge-create > summary { padding-block: .55rem; font-weight: var(--weight-emphasis); }
+.knowledge-create form { display: grid; gap: .6rem; padding-block: .3rem .55rem; }
+.knowledge-create button { justify-self: start; }
+.knowledge-record-content .ticket-activity, .knowledge-list .ticket-activity { margin-block-start: 1rem; }
 .knowledge-search {
   display: grid;
   grid-template-columns: minmax(0, 20rem) max-content;
@@ -1144,6 +1149,7 @@ button:disabled { opacity: .57; }
 .knowledge-search input { width: 100%; min-width: 0; }
 @media (max-width: 40rem) {
   .knowledge-search :is(input, button) { min-height: 2.75rem; }
+  .knowledge-create :is(summary, input, select, button) { min-height: 2.75rem; }
 }
 .knowledge-list { display: grid; gap: .65rem; list-style: none; padding: 0; }
 .knowledge-list .markdown { margin-block: .45rem; }
