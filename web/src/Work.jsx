@@ -407,6 +407,10 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
               {(task.waiting_on || task.blockers) && <p><Dependency task={task} /></p>}
               {task.peer_request && <PeerRequestContext task={task} />}
               <Markdown text={task.note} relatedTasks={record.related_tasks} />
+              {record.goal?.parked_note && <>
+                <h3>Owner’s note</h3>
+                <Markdown text={record.goal.parked_note} relatedTasks={record.related_tasks} />
+              </>}
               <ClosureReference context={task.context} />
               <ReminderWhen context={task.context} />
               {session.data?.actor?.id === task.dri && ['ready', 'in_progress', 'parked'].includes(task.state) && (

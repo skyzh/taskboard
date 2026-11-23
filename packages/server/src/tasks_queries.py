@@ -393,15 +393,22 @@ class BoardQueries:
         release_ids = [row["id"] for row in rows if projects.release_queue_enabled(projects.row_project(row))]
         release_fields = releases.ticket_fields(self.db, release_ids)
         release_results = releases.ticket_results(self.db, release_ids) if include_release_results else {}
-        goal_kinds = dict(self.db.execute(
-            f"SELECT task_id, kind FROM task_goals WHERE retired = 0 AND task_id IN ({placeholders})", ids,
-        )) if tasks_storage.table_columns(self.db, "task_goals") else {}
+        goal_rows = {}
+        if tasks_storage.table_columns(self.db, "task_goals"):
+            goal_rows = {row["task_id"]: row for row in self.db.execute(
+                f"""
+                SELECT task_id, kind, deadline, ticket_ids FROM task_goals
+                WHERE retired = 0 AND task_id IN ({placeholders})
+                """, ids,
+            )}
         results = []
         for row in rows:
             label, note = ledger.current_summary(row)
-            goal_kind = goal_kinds.get(row["id"])
-            if goal_kind == "standing" and row["state"] == "parked":
-                label, note = goals.STANDING_EXPLORATION_LABEL, self.standing_exploration
+            goal = goal_rows.get(row["id"])
+            if goal is not None and row["state"] == "parked":
+                guidance = goals.parked_guidance(goal, note, self.standing_exploration)
+                if guidance is not None:
+                    label, note = guidance
             complete, total = progress.get(row["id"], (0, 0))
             context = ledger.event_context(row)
             details = context.get("activity_details")
@@ -428,7 +435,7 @@ class BoardQueries:
                 "priority": row["priority"],
                 "dri_profile": owners.get(row["dri"]),
                 "state": row["state"],
-                **({"goal_kind": goal_kind} if goal_kind else {}),
+                **({"goal_kind": goal["kind"]} if goal is not None else {}),
                 **({"display_state": "closed"} if row["display_state"] == "closed" else {}),
                 "note": note,
                 "summary_label": label,
