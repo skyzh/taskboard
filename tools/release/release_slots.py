@@ -94,6 +94,9 @@ class ReleaseSlots:
         if not _DIGEST.fullmatch(digest) or release.parent != layout.releases or release.resolve() != release:
             raise ReleaseRejected("Select a pinned release in the Taskboard release directory.", "slot_selector")
         verify_manifest(release, digest)
+        self.ensure_running(port, release)
+
+    def ensure_running(self, port, release):
         state = self._systemctl("show", self.units[port], "--property=ActiveState", "--value").stdout.strip()
         if state == "active":
             self.verify(port, release)

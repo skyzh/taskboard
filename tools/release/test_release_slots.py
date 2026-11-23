@@ -83,17 +83,19 @@ class ReleaseSlotsTest(unittest.TestCase):
     def systemd(self, command, **_options):
         if command[0] == "systemd-run":
             unit = next(argument.split("=", 1)[1] for argument in command if str(argument).startswith("--unit="))
-            self.assertEqual(unit, self.units[CANDIDATE_PORT])
-            self.assertIn(f"--property=WorkingDirectory={self.candidate}", command)
+            port = int(command[-1])
+            release = self.candidate if port == CANDIDATE_PORT else self.previous
+            self.assertEqual(unit, self.units[port])
+            self.assertIn(f"--property=WorkingDirectory={release}", command)
             self.assertIn(f"--property=EnvironmentFile={self.settings['environment_file']}", command)
-            launcher = command.index(self.candidate / "tasks")
+            launcher = command.index(release / "tasks")
             self.assertEqual(command[launcher + 1:], [
                 "--db", self.layout.database, "serve", "--portal-reader", "--websocket-revisions",
-                "--host", "127.0.0.1", "--port", str(CANDIDATE_PORT),
+                "--host", "127.0.0.1", "--port", str(port),
             ])
             self.assertEqual(json.loads(self.journal.read_text())["slots"], [PRIOR_PORT, CANDIDATE_PORT])
-            self.events.append(("start", CANDIDATE_PORT, self.slots.selected(), self.layout.current.resolve()))
-            self.processes[unit] = self.candidate
+            self.events.append(("start", port, self.slots.selected(), self.layout.current.resolve()))
+            self.processes[unit] = release
             return CompletedProcess(command, 0, stdout="")
         self.assertEqual(command[:3], ["systemctl", "--user", "show"])
         directory = self.processes.get(command[3])
@@ -102,8 +104,7 @@ class ReleaseSlotsTest(unittest.TestCase):
         elif "--property=ActiveState" in command and "--value" in command:
             output = "active\n" if directory else "inactive\n"
         else:
-            self.assertIsNotNone(directory)
-            output = f"WorkingDirectory={directory}\nMainPID=123\nActiveState=active\n"
+            output = f"WorkingDirectory={directory}\nMainPID=123\nActiveState=active\n" if directory else ""
         return CompletedProcess(command, 0, stdout=output)
 
     def direct_check(self, port, credential):
@@ -214,6 +215,31 @@ class ReleaseSlotsTest(unittest.TestCase):
         self.assertEqual(self.events, [
             ("start", CANDIDATE_PORT, CANDIDATE_PORT, self.previous),
             ("direct", CANDIDATE_PORT, CANDIDATE_PORT, self.previous),
+        ])
+        result = self.release()
+        self.assertEqual((result["status"], result["active"]), ("released", self.digest))
+        self.assertEqual(self.layout.current.resolve(), self.candidate)
+        self.assertEqual(self.events[-2:], [
+            ("direct", CANDIDATE_PORT, CANDIDATE_PORT, self.previous),
+            ("mounted", self.digest, CANDIDATE_PORT, self.candidate),
+        ])
+        self.pair_check.assert_not_called()
+
+    def test_failed_candidate_recovery_after_boot_relaunches_prior_slot_before_selecting_it(self):
+        self.release()
+        self.processes.clear()
+        self.slots.restore_selected(self.layout)
+        self.events.clear()
+        self.pair_check.reset_mock()
+
+        result = self.release(lambda digest: self.smoke(digest) and digest == self.base)
+
+        self.assertEqual((result["status"], result["active"]), ("rolled_back", self.base))
+        self.assertEqual((self.slots.selected(), self.layout.current.resolve()), (PRIOR_PORT, self.previous))
+        self.assertEqual(self.events[-3:], [
+            ("start", PRIOR_PORT, CANDIDATE_PORT, self.candidate),
+            ("direct", PRIOR_PORT, CANDIDATE_PORT, self.candidate),
+            ("mounted", self.base, PRIOR_PORT, self.previous),
         ])
         self.pair_check.assert_not_called()
 

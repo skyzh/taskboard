@@ -156,9 +156,9 @@ If an invocation is interrupted, pause subsequent deploys while the
 operator examines the activation journal, both units, the selector and
 `current`. Re-enter the original checked-main operation with the same
 staged artifact, commit and digests after verifying those inputs. The
-runner confirms a fully switched healthy candidate or restores the
-verified prior slot if the two pointers disagree. Recovery uses the
-running units and the original ledger. To return to single-service
+runner can finish the pointer update for a selected, verified candidate.
+If the candidate fails, it verifies or restarts the exact prior slot
+before switching back. Recovery uses the original ledger. To return to single-service
 releases, verify an active legacy unit serving `current` and align the
 portal route in a reviewed operator window before removing `slots`.
 

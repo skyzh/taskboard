@@ -160,10 +160,13 @@ def release_lock(layout):
         yield
 
 
-def rollback(layout, previous, base, restart, healthy, *, slots=None, prior_port=None):
+def rollback(layout, previous, base, restart, healthy, *, slots=None, prior_port=None, recovering=False):
     try:
         if slots is not None:
-            slots.verify(prior_port, previous)
+            if recovering:
+                slots.ensure_running(prior_port, previous)
+            else:
+                slots.verify(prior_port, previous)
             slots.select(prior_port)
         switch_current(layout.current, previous)
         if slots is None:
@@ -209,20 +212,23 @@ def recover_activation(layout, entry, journal, active, restart, healthy, slots):
         if prior_port == candidate_port or selected not in (prior_port, candidate_port):
             raise ValueError("Reconcile the journal with the active Taskboard port selector.")
         if active == previous and selected == prior_port:
-            slots.verify(prior_port, previous)
+            slots.ensure_running(prior_port, previous)
             if not healthy(base):
                 raise ValueError("Verify the prior release before reconciling an interrupted activation.")
             return {**result, "status": "rejected", "active": base, "reason_code": "activation_interrupted"}
         try:
-            if active != layout.releases / digest or selected != candidate_port:
-                raise RuntimeError("The recorded release and port selector were interrupted during the switch.")
-            verify_manifest(active, digest)
-            slots.verify(candidate_port, active)
+            if selected != candidate_port:
+                raise RuntimeError("The port selector returned to the prior release during activation.")
+            candidate = layout.releases / digest
+            verify_manifest(candidate, digest)
+            slots.verify(candidate_port, candidate)
+            if active != candidate:
+                switch_current(layout.current, candidate)
             if not healthy(digest):
                 raise RuntimeError("The candidate did not pass health checks.")
         except Exception as error:
             restored, rollback_failure = rollback(
-                layout, previous, base, restart, healthy, slots=slots, prior_port=prior_port,
+                layout, previous, base, restart, healthy, slots=slots, prior_port=prior_port, recovering=True,
             )
             return {**result, "status": "rolled_back" if restored else "rollback_failed",
                     "active": base if restored else None, "reason_code": "activation_interrupted",
