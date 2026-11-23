@@ -1760,17 +1760,21 @@ def create_app(
 
     @app.get("/api/v1/reports")
     def report_overview():
-        current_actor()
+        actor = current_actor()
         args = request.args
         project = project_filter(args, projects.DEFAULT)
         has_roster = project == projects.DEFAULT and project_roster is not None
         view = args.get("view", "all" if has_roster else "active")
         if view not in ("all", "active", "idle"):
             raise RequestError("Choose all assignees, open work, or other assignees.")
-        before = text(args, "before", optional=True, maximum=162 if view == "all" else 160)
+        personal_owner = (actor["ledger_key"]
+                          if actor and actor["kind"] == "human" and args.get("include_self") == "true"
+                          else None)
+        before = text(args, "before", optional=True, maximum=162 if view == "all" or personal_owner else 160)
         result = query().reports(
             view=view, before=before, limit=integer(args.get("limit", 10), "limit", maximum=20), project=project,
             hide_requests=args.get("hide_requests") == "true",
+            personal_owner=personal_owner,
         )
         return {**result, "roster": True} if has_roster else result
 

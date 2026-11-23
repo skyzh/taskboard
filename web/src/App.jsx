@@ -25,10 +25,11 @@ import {
 } from './timeZone.js'
 
 function reportFragment(project, assigneeView) {
+  const route = project === 'all' ? 'reports-all' : 'reports'
   const params = new URLSearchParams()
-  if (project !== 'T') params.set('project', project)
-  if (assigneeView === 'all') params.set('view', 'all')
-  return params.size ? `reports?${params}` : 'reports'
+  if (project !== 'T' && project !== 'all') params.set('project', project)
+  if (assigneeView) params.set('view', assigneeView)
+  return params.size ? `${route}?${params}` : route
 }
 
 function fragmentId(fragment, pattern) {
@@ -52,7 +53,7 @@ function useFragment() {
     const base = fragment.split('?', 1)[0]
     let anchor = /^(?:task-|event-|activity$)/.test(base) ? base : fragment
     if (fragment.startsWith('notifications-')) anchor = 'notifications'
-    if (fragment === 'reports-all' || fragment.startsWith('reports?')) anchor = 'reports'
+    if (base === 'reports-all' || base === 'reports') anchor = 'reports'
     if (fragment.startsWith('stats?')) anchor = 'stats'
     if (fragment === 'map' || fragment === 'workstreams-title') anchor = 'team-overview'
     const id = params.get('dri') ? section || 'assignee-title'
@@ -140,14 +141,14 @@ export default function App() {
   const selected = namedTask || fragmentId(taskAnchor, /^task-([1-9]\d*)$/)
   const fromSearch = selected ? new URLSearchParams(taskContext).get('from-search')?.trim() : ''
   const [preferredProject, chooseProject] = useState('T')
-  const reportsParams = taskAnchor === 'reports' ? new URLSearchParams(taskContext) : null
+  const reportsParams = ['reports', 'reports-all'].includes(taskAnchor) ? new URLSearchParams(taskContext) : null
   const requestedReportsProject = reportsParams?.get('project')
   const requestedAssigneeView = reportsParams?.get('view')
-  const initialAssigneeView = ['all', 'idle'].includes(requestedAssigneeView) ? 'all' : 'active'
+  const assigneeView = ['all', 'idle'].includes(requestedAssigneeView) ? 'all' : 'active'
   const showGoalActivity = requestedAssigneeView === 'goal-activity'
   const goalAgent = reportsParams?.get('agent')
   const goalKey = reportsParams?.get('goal')
-  const allReports = fragment === 'reports-all'
+  const allReports = taskAnchor === 'reports-all'
   const [preferredReportsMode, rememberReportsMode] = useState(allReports ? 'reports-all' : 'reports')
   const linkedEvent = fragmentId(taskAnchor, /^event-([1-9]\d*)-log$/)
   const [queueFilters, setQueueFilters] = useState({})
@@ -252,8 +253,9 @@ export default function App() {
   const showAllReports = view === 'reports' && hasProjectChoices && allReports
   const reportsPending = Boolean((allReports || requestedReportsProject) && !visibleProjects &&
     (sessionResource.pending || (hasSession && !projectList.error)))
-  const reportsMode = allReports ? 'reports-all'
-    : reportsPending ? fragment : reportFragment(reportsProject, initialAssigneeView)
+  const reportsMode = reportsPending ? fragment
+    : reportFragment(allReports ? 'all' : reportsProject,
+      ['active', 'all', 'idle'].includes(requestedAssigneeView) ? assigneeView : undefined)
   const reportsHref = `#${view === 'reports' ? reportsMode : preferredReportsMode}`
   useEffect(() => {
     if (view === 'reports' && !reportsPending) {
@@ -280,13 +282,13 @@ export default function App() {
       <select aria-label="Project" value={showAllReports ? 'all' : project} onChange={event => {
         const value = event.target.value
         if (value === 'all') {
-          window.location.hash = 'reports-all'
+          window.location.hash = reportFragment('all', assigneeView)
           return
         }
         chooseProject(value)
         setQueueFilters({})
         setWaitingLabel('')
-        window.location.hash = view === 'reports' ? showGoalActivity ? goalActivityFragment(value) : reportFragment(value)
+        window.location.hash = view === 'reports' ? showGoalActivity ? goalActivityFragment(value) : reportFragment(value, assigneeView)
           : view === 'team-overview' ? new URLSearchParams({ project: value, section: 'team-overview' }).toString()
           : view
       }}>
@@ -335,7 +337,8 @@ export default function App() {
             : showGoalActivity
               ? <GoalActivity key={project} project={project} revision={revision} agent={goalAgent} goal={goalKey}
                 onFilter={(agent, goal) => writeFilterFragment(goalActivityFragment(project, agent, goal))} />
-              : <Reports revision={revision} project={project} initialAssigneeView={initialAssigneeView}
+              : <Reports revision={revision} project={project} assigneeView={assigneeView}
+                onAssigneeViewChange={value => writeFilterFragment(reportFragment(allReports ? 'all' : project, value), false)}
                 projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null}
                 headerAction={personalCodexLink} />)}
           {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject}

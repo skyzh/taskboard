@@ -6952,9 +6952,12 @@ class TasksServiceTest(unittest.TestCase):
             "name": "Casey", "preferred_username": "casey",
         }
         for name, fragment in (
-            ("Sam", "#reports-all"), ("Quinn", "#about"), ("Casey", "#reports?project=COURSE"),
+            ("Sam", "#reports-all"), ("Sam", "#reports-all?view=all"), ("Sam", "#reports?view=active"),
+            ("Quinn", "#about"), ("Casey", "#reports?project=COURSE"),
+            ("Casey", "#reports?project=COURSE&view=all"),
         ):
             with self.subTest(fragment=fragment):
+                self.provider.issued.discard(name)
                 client = app.test_client()
                 login = self.call(client, "/auth/login", query_string={"fragment": fragment}, status=302)
                 state = parse_qs(urlsplit(login.location).query)["state"][0]
@@ -6963,6 +6966,27 @@ class TasksServiceTest(unittest.TestCase):
 
         for fragment in ("#reports?project=//other.example", "#reports?project=COURSE&project=T"):
             self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
+
+    def test_reports_can_pin_the_signed_human_outside_the_project_roster(self):
+        roster = {self.provider.people["Avery"]["sub"]: "Avery"}
+        app = self.app(portal_reader=True, project_roster=roster)
+        avery, agent = self.login(app, "Avery")
+        sam, human = self.login(app, "Sam")
+        self.action(avery, "create-task", {"title": "Review a sample", "step": "Read the fixture."})
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Review the fixture."})
+        endpoint = "/api/v1/reports"
+        for view in ("active", "all"):
+            with self.subTest(view=view):
+                filters = {"view": view, "include_self": "true"}
+                first = self.call(sam, endpoint, query_string={**filters, "limit": 1}).json
+                self.assertEqual(first["items"][0]["owner"], human)
+                self.assertEqual(first["items"][0]["profile"]["name"], "Sam")
+                self.assertEqual(first["items"][0]["tasks"], [])
+                next_page = self.call(sam, endpoint, query_string={**filters, "before": first["next_cursor"]}).json
+                self.assertEqual([row["owner"] for row in next_page["items"]], [agent])
+                for client in (app.test_client(), avery):
+                    other = self.call(client, endpoint, query_string=filters).json
+                    self.assertEqual([row["owner"] for row in other["items"]], [agent])
 
     def test_stats_period_returns_after_sign_in(self):
         app = self.app(portal_reader=True)

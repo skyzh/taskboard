@@ -1334,7 +1334,7 @@ class BoardQueries:
         ).fetchall()
         return self.event_rows(rows)
 
-    def reports(self, *, view, before, limit, project=projects.DEFAULT, hide_requests=False):
+    def reports(self, *, view, before, limit, project=projects.DEFAULT, hide_requests=False, personal_owner=None):
         current = ledger.current_tasks_sql(self.db) + " WHERE tasks.project_prefix = ?"
         peer_work = watches.has_table(self.db, "peer_asks")
         exclude_requests = ""
@@ -1358,19 +1358,32 @@ class BoardQueries:
         work_columns = ", ".join(f"COALESCE(work.{state}, 0) AS {state}" for state in WORK_STATES)
         roster = project == projects.DEFAULT and self.project_roster is not None
         names = projects.roster_owners(self.db, self.project_roster) if roster else {}
-        if roster and not names:
-            return {"items": [], "next_cursor": None}
         owner_source = """SELECT dri FROM project_tasks WHERE dri <> ''
                           UNION SELECT ledger_key FROM board_principals WHERE kind = 'agent' AND ? = 'T'
                           UNION SELECT dri FROM projects WHERE prefix = ? AND dri IS NOT NULL
                           UNION SELECT recipient FROM legacy_waits"""
         owner_args = (project, project)
         if roster:
-            owner_source = "VALUES " + ", ".join("(?)" for _ in names)
             owner_args = tuple(names)
-        order = "cursor" if view == "all" else "dri"
+            if personal_owner and personal_owner not in names:
+                owner_args += (personal_owner,)
+            if not owner_args:
+                return {"items": [], "next_cursor": None}
+            owner_source = "VALUES " + ", ".join("(?)" for _ in owner_args)
+        elif personal_owner:
+            owner_source += " UNION SELECT ?"
+            owner_args += (personal_owner,)
+        order = "cursor" if view == "all" or personal_owner else "dri"
         filter_args = () if view == "all" else (view == "active",)
         view_filter = "" if view == "all" else " AND is_active = ?"
+        rank = "CASE WHEN is_active THEN '0:' ELSE '1:' END"
+        rank_args = ()
+        if personal_owner:
+            rank = "CASE WHEN dri = ? THEN '0:' WHEN is_active THEN '1:' ELSE '2:' END"
+            rank_args = (personal_owner,)
+            if view != "all":
+                view_filter = " AND (is_active = ? OR dri = ?)"
+                filter_args += (personal_owner,)
         rows = self.db.execute(
             f"""
             WITH current AS ({current}),
@@ -1424,12 +1437,12 @@ class BoardQueries:
                      LEFT JOIN legacy_waits ON legacy_waits.recipient = owners.dri
                  ),
                  ordered AS (
-                     SELECT summary.*, (CASE WHEN is_active THEN '0:' ELSE '1:' END) || dri AS cursor
+                     SELECT summary.*, ({rank}) || dri AS cursor
                      FROM summary
                  )
             SELECT * FROM ordered WHERE {order} > ?{view_filter}
             ORDER BY {order} LIMIT ?
-            """, (project, project, *owner_args, before or "", *filter_args, limit + 1),
+            """, (project, project, *owner_args, *rank_args, before or "", *filter_args, limit + 1),
         ).fetchall()
 
         def render(visible):

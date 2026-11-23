@@ -307,12 +307,11 @@ export function NeedsYou({ project, revision }) {
   )
 }
 
-function ProjectReports({ revision, project, projectTitle, hideRequests, requestFilter, viewer, headerAction,
-  initialAssigneeView = 'active' }) {
-  const [selection, setSelection] = useState(null)
-  const selectedView = selection && selection.project === project ? selection.view : null
-  const view = selectedView ?? initialAssigneeView
-  const page = useLoadedPages('/reports', { view, project, ...(hideRequests && { hide_requests: true }) }, revision)
+function ProjectReports({ revision, project, projectTitle, hideRequests, reportControls, viewer, view }) {
+  const page = useLoadedPages('/reports', {
+    view, project, ...(hideRequests && { hide_requests: true }),
+    ...(viewer?.kind === 'human' && { include_self: true }),
+  }, revision)
   const label = view === 'all' ? 'Assignees' : 'Assignees with open work'
   const empty = view === 'all' ? 'No assignees.' : 'No open work to report.'
   const headingId = projectTitle ? `reports-${project}` : 'reports'
@@ -322,17 +321,7 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, request
         {!projectTitle && <a href={project && project !== 'T'
           ? `#${new URLSearchParams({ project, section: 'team-overview' })}` : '#team-overview'}>Team overview</a>}
         {project && <a href={`#${goalActivityFragment(project)}`}>Goal activity</a>}
-        {!projectTitle && headerAction}
-        {requestFilter}
-        {(page.data || selectedView) && (
-          <label>
-            Assignees
-            <select value={view} onChange={event => setSelection({ project, view: event.target.value })}>
-              <option value="active">Active</option>
-              <option value="all">All</option>
-            </select>
-          </label>
-        )}
+        {reportControls}
       </ReportsHeading>
       {!projectTitle && viewer && <NeedsYou key={viewer.id} project={project} revision={revision} />}
       {!projectTitle && <StampIntegration key={project} project={project} revision={revision} />}
@@ -347,20 +336,30 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, request
   )
 }
 
-export default function Reports({ project, projects, ...props }) {
+export default function Reports({ project, projects, assigneeView = 'active', onAssigneeViewChange, headerAction, ...props }) {
   const [hideRequests, setHideRequests] = useState(false)
-  const requestFilter = <label className="activity-mode">
-    <input type="checkbox" checked={hideRequests} onChange={event => setHideRequests(event.target.checked)} />
-    Hide peer requests
-  </label>
-  if (!projects) return <ProjectReports key={props.initialAssigneeView} {...props} project={project}
-    hideRequests={hideRequests} requestFilter={requestFilter} />
+  const reportControls = <>
+    {headerAction}
+    <label className="activity-mode">
+      <input type="checkbox" checked={hideRequests} onChange={event => setHideRequests(event.target.checked)} />
+      Hide peer requests
+    </label>
+    <label>
+      Assignees
+      <select aria-label="Assignees" value={assigneeView} onChange={event => onAssigneeViewChange(event.target.value)}>
+        <option value="active">Active</option>
+        <option value="all">All</option>
+      </select>
+    </label>
+  </>
+  if (!projects) return <ProjectReports {...props} project={project} view={assigneeView}
+    hideRequests={hideRequests} reportControls={reportControls} />
   return (
     <section className="reports" aria-labelledby="reports">
-      <ReportsHeading headingId="reports">{props.headerAction}{requestFilter}</ReportsHeading>
+      <ReportsHeading headingId="reports">{reportControls}</ReportsHeading>
       {props.viewer && <NeedsYou key={props.viewer.id} revision={props.revision} />}
       {projects.map(({ prefix, title }) => (
-        <ProjectReports key={prefix} {...props} project={prefix} projectTitle={title} hideRequests={hideRequests} />
+        <ProjectReports key={prefix} {...props} project={prefix} projectTitle={title} view={assigneeView} hideRequests={hideRequests} />
       ))}
     </section>
   )
