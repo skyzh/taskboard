@@ -64,7 +64,7 @@ manager's setting takes precedence over the TOML value, followed by the
 built-in wording. Clearing a project override restores its inherited text
 and keeps the field's location and example.
 
-Existing tickets keep their stored title and history. If an older title was
+This change adds no bulk rewrite of existing titles or history. If an older title was
 shortened, use `tasks --shared edit` with a reason to restore the intended
 wording. New ordinary peer requests keep the full first line as their title.
 Put details on subsequent lines. Exact PR reviews keep their short review title.

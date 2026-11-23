@@ -6955,6 +6955,8 @@ class TasksServiceTest(unittest.TestCase):
         with closing(sqlite3.connect(self.database)) as db, db:
             db.executemany("UPDATE tasks SET title = ' ' WHERE id = ?",
                            [(int(key.split("-")[1]),) for key in (source, reference, legacy, review)])
+        portal = {row["source_key"]: row for row in self.call(reader, route).json["items"]}
+        self.assertEqual([portal[key]["request_title"] for key in (source, legacy, review)], [None, None, None])
         recovered = {row["source_key"]: row for row in self.call(avery, route).json["items"]}
         self.assertEqual(recovered[source]["request_title"], ask_title)
         self.assertEqual(recovered[legacy]["request_title"], "Check the example")

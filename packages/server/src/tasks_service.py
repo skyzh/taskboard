@@ -1547,12 +1547,13 @@ def create_app(
 
     @app.get("/api/v1/reports/request-log")
     def report_request_log():
-        current_actor()
+        actor = current_actor()
         args = request.args
         return query().request_log(
             project=project_filter(args, projects.DEFAULT),
             before=ordered_feed_cursor(args, ("peer", "review", "wait"), "the request log"),
             limit=integer(args.get("limit", 20), "limit", maximum=100),
+            recover_title=actor is not None,
         )
 
     @app.get("/api/v1/reports/pending")

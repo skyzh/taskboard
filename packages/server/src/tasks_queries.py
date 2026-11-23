@@ -177,7 +177,7 @@ def worker_counts(row):
     }
 
 
-def request_log_item(row, people, db):
+def request_log_item(row, people, db, *, recover_title):
     phase = row["state"]
     if row["kind"] == "peer":
         phase = peer_asks.phase(ask=row, task=row, has_started=row["has_started"])
@@ -190,7 +190,7 @@ def request_log_item(row, people, db):
         next_owner = row["recipient"]
     request_title = (row["request_title"] or "").strip() or None
     source_title = (row["source_title"] or "").strip() or None
-    if not (request_title or source_title):
+    if recover_title and not (request_title or source_title):
         pin = peer_asks.pending_stamp_review(db, row["id"]) if row["kind"] == "peer" and row["is_review"] else None
         request_title = peer_asks.request_title(row["request_note"] or "", "", pull=pin["pull"] if pin else None) or None
     item = {
@@ -1173,7 +1173,7 @@ class BoardQueries:
 
         return page(rows, limit, "id", render)
 
-    def request_log(self, *, project, before=None, limit=20, actionable_reviewer=None):
+    def request_log(self, *, project, before=None, limit=20, actionable_reviewer=None, recover_title=False):
         project_filter = "WHERE tasks.project_prefix = ?" if project is not None else ""
         filters, args = [], [project] if project is not None else []
         if actionable_reviewer is not None:
@@ -1250,7 +1250,7 @@ class BoardQueries:
         keys = {row[person] for row in visible for person in ("requester", "recipient", "source_owner") if row[person]}
         people = profiles.visible_by_keys(self.db, keys, self.base)
         return {
-            "items": [request_log_item(row, people, self.db) for row in visible],
+            "items": [request_log_item(row, people, self.db, recover_title=recover_title) for row in visible],
             "next_cursor": json.dumps([visible[-1][key] for key in ("at", "kind", "id")])
             if len(rows) > limit else None,
         }
@@ -1702,7 +1702,8 @@ class BoardQueries:
             requests = self.attention(owner, state="open", today=today, before=request_before,
                                       limit=limit, project=project)
         if before is None or review_before is not None:
-            reviews = self.request_log(project=project, before=review_before, limit=limit, actionable_reviewer=owner)
+            reviews = self.request_log(project=project, before=review_before, limit=limit,
+                                       actionable_reviewer=owner, recover_title=True)
 
         decision_rows = decisions["items"]
         actors = {}
