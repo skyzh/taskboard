@@ -8,6 +8,7 @@ import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
 import { useFieldGuidance } from './FieldGuidance.jsx'
 import { MergeQueue } from './MergeQueue.jsx'
 import ParkingForm from './ParkingForm.jsx'
+import RecordHistory, { historyHref } from './RecordHistory.jsx'
 import ReminderDate from './ReminderDate.jsx'
 import RecurringRuns from './RecurringRuns.jsx'
 import Kanban from './Kanban.jsx'
@@ -368,7 +369,7 @@ function TicketContext({ record, id, task, state, wide, detailed, session, revis
   )
 }
 
-export function TaskDetail({ id, revision, session, onChanged, preferredProject = 'T', returnHref, fromSearch }) {
+export function TaskDetail({ id, revision, session, onChanged, preferredProject = 'T', returnHref, fromSearch, history }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
   const [actionsOpen, setActionsOpen] = useState(false)
   const article = useRef(null)
@@ -379,7 +380,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
     return () => observer.disconnect()
   }, [])
   const detail = useResource(`/tasks/${id}`, revision)
-  const activity = useLoadedPages(`/tasks/${id}/activity`, {}, revision)
+  const activity = useLoadedPages(history ? null : `/tasks/${id}/activity`, {}, revision)
   const record = detail.data
   const task = record?.task
   const state = task && taskState(task)
@@ -402,8 +403,18 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
     || record.related_tasks?.length || record.goal?.tickets.length || state === 'human_review'))
   const sidebar = wide && detailed
   const deadline = record?.goal?.deadline
+  const anchor = taskHref(id)
+  const currentHref = fromSearch ? `${anchor}?${new URLSearchParams({ 'from-search': fromSearch })}` : anchor
+  if (history && task) {
+    return (
+      <article ref={article} id={anchor.slice(1)} className="panel task-detail" aria-label="History" tabIndex={-1}>
+        <RecordHistory record={taskLabel(id, task.key)} currentHref={currentHref} history={history} revision={revision}
+          knowledge={task.record_kind === 'knowledge'} />
+      </article>
+    )
+  }
   return (
-    <article ref={article} id={taskHref(id).slice(1)} className={`panel task-detail${sidebar ? ' has-sidebar' : ''}`}
+    <article ref={article} id={anchor.slice(1)} className={`panel task-detail${sidebar ? ' has-sidebar' : ''}`}
       aria-labelledby={`task-heading-${id}`} tabIndex={-1}>
       <div className="ticket-heading-meta">
         <a className="back-link" href={backHref}>{fromSearch ? 'Back to Search results' : 'Back to Tasks'}</a>
@@ -411,6 +422,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
           <span className="ticket-id">{taskLabel(id, task?.key)}</span>
           {record?.goal && <span>{record.goal.kind === 'standing' ? 'Standing goal' : 'Milestone'}</span>}
         </p>
+        {task && <a className="history-link" href={historyHref(currentHref)}>History</a>}
         {signedHuman && task && <button className="ticket-actions-toggle" type="button"
           aria-expanded={actionsOpen} onClick={() => setActionsOpen(open => !open)}>Ticket actions</button>}
       </div>

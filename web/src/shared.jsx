@@ -165,18 +165,21 @@ export function notificationLogFilters(fragment) {
 
 export function signInHref(hash) {
   const login = './auth/login'
-  const [anchor] = hash.split('?', 1)
+  const [anchor, query] = hash.split('?', 2)
   const taskLink = /^#task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9]\d{0,18}$/.test(anchor)
+  const history = new URLSearchParams(query).get('history')
+  const taskReturn = taskLink && /^(?:all|[1-9]\d{0,18})$/.test(history || '')
+    ? `${anchor}?history=${history}` : anchor
   const statsLink = /^#stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/.test(hash)
   const activityLink = /^#(?:activity|event-[1-9]\d{0,18}-log)(?:\?(?:actor=[A-Za-z0-9_%+.*-]{1,1920}&?)?(?:action=[a-z-]{1,30}&?)?(?:detail=all&?)?(?:hide_requests=true)?)?$/.test(hash)
   const goalActivityLink = /^#reports\?view=goal-activity&project=[A-Z][A-Z0-9]{0,7}(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})?$/.test(hash)
-  const knowledgeLink = /^#knowledge(?:\?(?:entry=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18}|q=[A-Za-z0-9_%+.*~-]{1,1920}))?$/.test(hash)
+  const knowledgeLink = /^#knowledge(?:\?(?:entry=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18}(?:&history=(?:all|[1-9]\d{0,18}))?|q=[A-Za-z0-9_%+.*~-]{1,1920}))?$/.test(hash)
   const reportsLink = /^#reports(?:-all(?:\?view=(?:active|all|idle))?|\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&view=(?:active|all|idle))?|view=(?:active|all|idle)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/.test(hash)
   const integrationsLink = /^#integrations(?:\?cli=[a-f0-9]{64})?$/.test(hash)
   const returnToBoard = taskLink || statsLink || activityLink || goalActivityLink || reportsLink || knowledgeLink || integrationsLink
     || /^#(?:notifications(?:-needs-me)?|settings|about|personal-codex)$/.test(hash)
     || (hash.startsWith('#') && notificationLogFilters(hash.slice(1)))
-  return returnToBoard ? `${login}?fragment=${encodeURIComponent(taskLink ? anchor : hash)}` : login
+  return returnToBoard ? `${login}?fragment=${encodeURIComponent(taskLink ? taskReturn : hash)}` : login
 }
 
 export function Timestamp({ at, showDate = true, compact = false }) {

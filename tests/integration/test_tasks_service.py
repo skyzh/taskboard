@@ -3939,6 +3939,42 @@ class TasksServiceTest(unittest.TestCase):
         latest = self.call(owner, route + "/activity").json["items"][0]
         self.assertEqual((latest["actor"], latest["details"]), (manager_id, "Clear the obsolete brief."))
 
+    def test_record_history_replays_old_and_current_edits_at_their_activity_events(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        portal = app.test_client()
+        route = "/api/v1/tasks/T-1"
+
+        def latest_event(path):
+            return self.call(owner, path + "/activity").json["items"][0]["id"]
+
+        self.action(owner, "create-task", {"title": "Original", "brief": "First draft.", "step": "Collect evidence."})
+        created = latest_event(route)
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Review the evidence."})
+        self.call(owner, route + "/details", method="POST",
+                  json={"title": "Corrected", "brief": "Second draft.", "reason": "A confirmed change."})
+        edited = latest_event(route)
+        self.call(owner, route + "/details", method="POST", json={"brief": "", "reason": "Clear the draft."})
+        cleared = latest_event(route)
+        self.action(owner, "create-task", {"title": "Another record", "step": "Read it."})
+        foreign_event = latest_event("/api/v1/tasks/T-2")
+
+        original = self.call(portal, f"{route}/history/{created}").json
+        self.assertEqual([original[key] for key in ("title", "brief", "state", "note")],
+                         ["Original", "First draft.", "ready", "Collect evidence."])
+        corrected = self.call(owner, f"{route}/history/{edited}").json
+        self.assertEqual([corrected[key] for key in ("title", "brief", "state", "note")],
+                         ["Corrected", "Second draft.", "in_progress", "Review the evidence."])
+        self.assertEqual((corrected["event"]["id"], corrected["event"]["actor"]), (edited, owner_id))
+        self.assertEqual(self.call(owner, f"{route}/history/{cleared}").json["brief"], "")
+        self.call(owner, f"{route}/history/{foreign_event}", status=404)
+
+        self.action(owner, "task-tag", {"id": "T-1", "action": "add", "tag": "decision-record"})
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "done", "note": "Publish Knowledge."})
+        self.call(portal, f"{route}/history/{created}", status=401)
+        self.assertEqual(self.call(owner, f"{route}/history/{created}").json["brief"], "First draft.")
+        self.assertEqual(self.call(owner, route).json["brief"], "")
+
     def test_shared_cli_confirmed_session_rejection_shows_manual_sign_in(self):
         service = "alternate-tasks-board"
         rejected = subprocess.CompletedProcess([], 1, json.dumps({"ok": False, "error": {

@@ -33,6 +33,7 @@ import tasks_goals as goals
 import tasks_goal_offers as goal_offers
 import tasks_guidance
 import tasks_extensions as extensions
+import tasks_history as history
 import tasks_integration_stats as integration_stats
 import tasks_knowledge as knowledge_records
 import tasks_merges as merges
@@ -1783,6 +1784,24 @@ def create_app(
     def task_activity(number):
         current_actor()
         return query().events(number=task_number(number), **page_args(request.args))
+
+    @app.get("/api/v1/tasks/<number>/history/<event>")
+    def task_history(number, event):
+        actor = current_actor()
+        task_id = task_number(number)
+        event_id = integer(event, "event ID")
+        with tasks_storage.read(db()) as connection:
+            task = ledger.find_task(connection, task_id)
+            if task is None:
+                raise RequestError("Ticket not found.", 404)
+            if actor is None and knowledge_records.is_maintained(connection, task):
+                current_actor(required=True)
+            result = history.version(connection, task, event_id)
+            if result is None:
+                raise RequestError("Activity event not found on this ticket.", 404)
+            entry = result["event"]
+            entry["actor_profile"] = profiles.visible_by_keys(connection, [entry["actor"]], base).get(entry["actor"])
+        return result
 
     def record_activity(actor, number, data):
         from tasks_ready_measurement import activity_measurements

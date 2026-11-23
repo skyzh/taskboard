@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useLoadedPages, useResource } from './data.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
+import RecordHistory, { historyHref } from './RecordHistory.jsx'
 import { LoadMore, ResourceStatus, eventHref, signInHref, taskHref } from './shared.jsx'
 
 function entryHref(key) {
@@ -102,11 +103,18 @@ function StagedWork({ changes }) {
   )
 }
 
-export default function Knowledge({ session, verified, revision, projects, search, entry, onSearch }) {
+export default function Knowledge({ session, verified, revision, projects, search, entry, history, onSearch }) {
   const page = useLoadedPages(verified ? '/knowledge' : null, { q: entry ? undefined : search, entry }, revision)
   const directory = useResource(verified && !entry && !search ? '/knowledge/areas' : null, revision)
   const signIn = session.data?.sign_in_available || session.error?.status === 401
   const fragment = entry ? entryHref(entry) : search ? '#knowledge?' + new URLSearchParams({ q: search }) : '#knowledge'
+  if (history && entry && verified && page.data?.items.length > 0) {
+    return (
+      <article className="panel task-detail" id="knowledge" tabIndex={-1} aria-label="Knowledge history">
+        <RecordHistory record={entry} currentHref={fragment} history={history} revision={revision} knowledge />
+      </article>
+    )
+  }
   return (
     <section className="knowledge" aria-labelledby="knowledge">
       <div className="page-heading"><h1 id="knowledge" tabIndex={-1}>Knowledge</h1>
@@ -125,6 +133,7 @@ export default function Knowledge({ session, verified, revision, projects, searc
               <li className="panel" key={item.id}>
                 <h2><a href={entryHref(item.key)}><MarkdownInline text={item.title} links={false} /></a></h2>
                 <a className="ticket-id" href={taskHref(item.key)}>{item.key}</a>
+                {entry && <a className="history-link" href={historyHref(entryHref(item.key))}>History</a>}
                 {item.area && <p className="knowledge-area-label">{item.area}</p>}
                 {item.summary && <Markdown text={item.summary} />}
                 <DecisionSources sources={item.sources} />
@@ -143,7 +152,7 @@ export default function Knowledge({ session, verified, revision, projects, searc
           </ol>
         )}
         <LoadMore page={page} label="decisions" />
-      </> : signIn ? <a href={signInHref(fragment)}>Sign in to view decisions</a>
+      </> : signIn ? <a href={signInHref(history && entry ? historyHref(fragment, history) : fragment)}>Sign in to view decisions</a>
         : <ResourceStatus resource={session} label="your session" />}
     </section>
   )

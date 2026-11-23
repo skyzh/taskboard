@@ -34,7 +34,7 @@ _RAFT_ROLES = ("owner", "admin", "member", "guest")
 _SCOPES = frozenset({"openid", "profile"})
 _BEARER = re.compile(r"[A-Za-z0-9._~+/-]+=*")
 BOARD_FRAGMENT = re.compile(
-    r"#(?:task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9][0-9]{0,18}"
+    r"#(?:task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9][0-9]{0,18}(?:\?history=(?:all|[1-9][0-9]{0,18}))?"
     r"|(?:activity|event-[1-9][0-9]{0,18}-log)(?:\?(?:actor=[A-Za-z0-9_%+.*-]{1,1920}&?)?"
     r"(?:action=[a-z-]{1,30}&?)?(?:detail=all&?)?(?:hide_requests=true)?)?"
     r"|notifications(?:-needs-me|-log(?:\?project=[A-Z][A-Z0-9]{0,7}"
@@ -44,7 +44,8 @@ BOARD_FRAGMENT = re.compile(
     r"|\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&view=(?:active|all|idle))?|view=(?:active|all|idle)(?:&project=[A-Z][A-Z0-9]{0,7})?"
     r"|view=goal-activity&project=[A-Z][A-Z0-9]{0,7}(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?"
     r"(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9][0-9]{0,18})?))?"
-    r"|knowledge(?:\?(?:entry=[A-Z][A-Z0-9]{0,7}-[1-9][0-9]{0,18}|q=[A-Za-z0-9_%+.*~-]{1,1920}))?"
+    r"|knowledge(?:\?(?:entry=[A-Z][A-Z0-9]{0,7}-[1-9][0-9]{0,18}"
+    r"(?:&history=(?:all|[1-9][0-9]{0,18}))?|q=[A-Za-z0-9_%+.*~-]{1,1920}))?"
     r"|stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?"
     r"|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?|settings|about|personal-codex"
     r"|integrations(?:\?cli=[0-9a-f]{64})?)"
