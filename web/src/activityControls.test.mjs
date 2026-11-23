@@ -1141,21 +1141,21 @@ test('ticket worker assignment keeps effort and original brief in the disclosure
   assert.equal(markup.split('Assigned effort').length, 2)
 })
 
-test('compact ticket history keeps only additional legacy prose in Details', () => {
+test('compact ticket history keeps only additional legacy prose in Activity details', () => {
   const render = fields => renderToStaticMarkup(React.createElement(EventRow, {
     ticketActivity: true, event: { ...selected, headline: undefined, links: [], ...fields },
   }))
   const wait = render({ action: 'wait', waiting_on: 'Fixture reviewer', note: 'Send the revised CSV.' })
   assert.match(wait, /Wait note Fixture reviewer · Send the revised CSV\./)
   assert.equal(wait.split('Send the revised CSV.').length, 2)
-  assert.doesNotMatch(wait, /<summary>Details/)
+  assert.doesNotMatch(wait, /<summary>Activity details/)
   const legacy = render({ task_title: 'Review export', action: 'done',
     note: 'Review export. I completed the work. The header now matches. Three rows were checked.' })
   assert.equal(legacy.split('The header now matches.').length, 2)
-  assert.match(legacy, /<summary>Details<\/summary>/)
+  assert.match(legacy, /<summary>Activity details<\/summary>/)
   assert.match(legacy, /Three rows were checked\./)
   const choice = render({ action: 'decide', note: 'CSV.', context: { choice: 'CSV' } })
-  assert.doesNotMatch(choice, /CSV · CSV|<summary>Details/)
+  assert.doesNotMatch(choice, /CSV · CSV|<summary>Activity details/)
   const hold = render({ action: 'log', note: 'Two cases passed. Hold the upload. The third is missing.' })
   assert.equal(hold.split('Hold the upload.').length, 2)
   assert.match(hold, /Two cases passed\. The third is missing\./)
@@ -1205,16 +1205,16 @@ test('ticket history shows the first evidence link and keeps additional detail t
   fixture.state = []
   const ticket = renderToStaticMarkup(React.createElement(TaskDetail, { id: 1, session: {} }))
   const [, evidenceOnly, additional, answer, fallback] = ticket.split('<li class="event-row ticket-event-row">')
-  assert.doesNotMatch(evidenceOnly, /<summary>Details<\/summary>/)
+  assert.doesNotMatch(evidenceOnly, /<summary>Activity details<\/summary>/)
   assert.match(evidenceOnly, /href="https:\/\/example\.test\/receipt">Receipt<\/a>/)
-  assert.match(additional, /href="https:\/\/example\.test\/receipt">Receipt<\/a>.*<summary>Details<\/summary>.*href="https:\/\/example\.test\/sample">Sample<\/a>/s)
+  assert.match(additional, /href="https:\/\/example\.test\/receipt">Receipt<\/a>.*<summary>Activity details<\/summary>.*href="https:\/\/example\.test\/sample">Sample<\/a>/s)
   assert.equal(additional.split(selected.headline).length, 2)
   assert.match(additional, /The fixture included 20 sample rows\./)
   assert.match(answer, /class="activity-result">CSV<\/p>/)
   assert.match(answer, /href="#event-8-log">Decision request<\/a>/)
   assert.doesNotMatch(answer, /Selected CSV|<strong>CSV<\/strong>/)
   assert.match(fallback, /class="activity-result">Completed<\/p>/)
-  assert.doesNotMatch(fallback, /<summary>Details<\/summary>/)
+  assert.doesNotMatch(fallback, /<summary>Activity details<\/summary>/)
 
   const feed = renderToStaticMarkup(React.createElement(EventRow, { event: short }))
   assert.doesNotMatch(feed, /ticket-event-row/)

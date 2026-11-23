@@ -530,7 +530,7 @@ export function ReminderWhen({ context, className }) {
 }
 
 export function OutcomeNote({ event, headline, withEvidence = true, choiceShown = false,
-  waitShown = false, disclosure }) {
+  waitShown = false, disclosure, disclosureLabel = 'Details' }) {
   const context = event.context || {}
   const text = headline == null ? event.details ?? event.note : activityExtraText(event, headline)
   const dependency = (event.waiting_on || event.blockers) && !waitShown
@@ -553,7 +553,7 @@ export function OutcomeNote({ event, headline, withEvidence = true, choiceShown 
       {evidence && <EvidenceLinks links={event.links} />}
     </div>
   )
-  return disclosure ? <details className={disclosure}><summary>Details</summary>{body}</details> : body
+  return disclosure ? <details className={disclosure}><summary>{disclosureLabel}</summary>{body}</details> : body
 }
 
 export function ResourceStatus({ resource, label }) {
