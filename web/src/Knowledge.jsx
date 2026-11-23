@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useLoadedPages } from './data.js'
+import { useLoadedPages, useResource } from './data.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { LoadMore, ResourceStatus, eventHref, signInHref, taskHref } from './shared.jsx'
 
@@ -37,8 +37,70 @@ function DecisionSources({ sources }) {
   )
 }
 
+function AreaBranches({ areas, parent = '' }) {
+  const children = areas.filter(area => area.path.split('/').slice(0, -1).join('/') === parent)
+  if (!children.length) return null
+  return (
+    <ul>
+      {children.map(area => (
+        <li key={area.path}>
+          <a href={area.available ? entryHref(area.index) : taskHref(area.index)}>{area.path.split('/').at(-1)}</a>
+          {!area.available && <span className="knowledge-stage-state">Index under review</span>}
+          <AreaBranches areas={areas} parent={area.path} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function KnowledgeDirectory({ directory }) {
+  const projects = new Map()
+  for (const area of directory.data?.areas || []) {
+    const areas = projects.get(area.project) || []
+    areas.push(area)
+    projects.set(area.project, areas)
+  }
+  return (
+    <>
+      <ResourceStatus resource={directory} label="areas" />
+      {projects.size > 0 && (
+        <nav className="panel knowledge-directory" aria-label="Knowledge areas">
+          <h2>Areas</h2>
+          {[...projects].map(([project, areas]) => (
+            <section key={project} aria-label={project}>
+              <h3>{project}</h3>
+              <AreaBranches areas={areas} />
+            </section>
+          ))}
+        </nav>
+      )}
+    </>
+  )
+}
+
+function StagedWork({ changes }) {
+  return changes?.length > 0 && (
+    <section className="knowledge-stages" aria-label="Staged work">
+      <h3>Staged work</h3>
+      <ul className="context-list" role="list">
+        {changes.map(change => (
+          <li key={change.source} data-staged-at={change.staged_at} data-source-at={change.source_at}>
+            <a href={taskHref(change.source)}>{change.source}</a> <MarkdownInline text={change.source_title} links={false} />
+            <span className="knowledge-stage-state">
+              {change.applied_event_id ? <a href={eventHref(change.applied_event_id)}>Applied</a>
+                : change.conflict ? change.conflict : 'Staged'}
+            </span>
+            {change.source_event_id && <a href={eventHref(change.source_event_id)}>Source event</a>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 export default function Knowledge({ session, verified, revision, search, entry, onSearch }) {
   const page = useLoadedPages(verified ? '/knowledge' : null, { q: entry ? undefined : search, entry }, revision)
+  const directory = useResource(verified && !entry && !search ? '/knowledge/areas' : null, revision)
   const signIn = session.data?.sign_in_available || session.error?.status === 401
   const fragment = entry ? entryHref(entry) : search ? '#knowledge?' + new URLSearchParams({ q: search }) : '#knowledge'
   return (
@@ -48,6 +110,7 @@ export default function Knowledge({ session, verified, revision, search, entry, 
       </div>
       {verified ? <>
         <KnowledgeSearch key={search} search={search} onSearch={onSearch} />
+        {!entry && !search && <KnowledgeDirectory directory={directory} />}
         <ResourceStatus resource={page} label="decisions" />
         {page.data?.items.length === 0 && <p className="section-message">
           {search || entry ? 'No matching decisions.' : 'No maintained decisions yet.'}
@@ -58,8 +121,19 @@ export default function Knowledge({ session, verified, revision, search, entry, 
               <li className="panel" key={item.id}>
                 <h2><a href={entryHref(item.key)}><MarkdownInline text={item.title} links={false} /></a></h2>
                 <a className="ticket-id" href={taskHref(item.key)}>{item.key}</a>
+                {item.area && <p className="knowledge-area-label">{item.area}</p>}
                 {item.summary && <Markdown text={item.summary} />}
                 <DecisionSources sources={item.sources} />
+                <StagedWork changes={item.staged_work} />
+                {entry && item.area_entries?.length > 0 && (
+                  <ul className="context-list" aria-label="Entries in this area" role="list">
+                    {item.area_entries.map(note => (
+                      <li key={note.key}><a href={entryHref(note.key)}>
+                        <MarkdownInline text={note.title} links={false} />
+                      </a></li>
+                    ))}
+                  </ul>
+                )}
               </li>
             ))}
           </ol>
@@ -79,9 +153,17 @@ export function TicketKnowledgeLinks({ ticket, revision }) {
       <h2>Knowledge</h2>
       <ResourceStatus resource={page} label="linked decisions" />
       <ul className="context-list" role="list">
-        {page.data?.items.map(item => (
-          <li key={item.id}><a href={entryHref(item.key)}><MarkdownInline text={item.title} links={false} /></a></li>
-        ))}
+        {page.data?.items.map(item => {
+          const stage = item.staged_work?.find(change => change.source === ticket)
+          return (
+            <li key={item.id}>
+              <a href={entryHref(item.key)}><MarkdownInline text={item.title} links={false} /></a>
+              {stage && <span className="knowledge-stage-state">
+                {stage.applied_event_id ? 'Applied' : stage.conflict ? 'Needs review' : 'Staged work'}
+              </span>}
+            </li>
+          )
+        })}
       </ul>
       <LoadMore page={page} label="linked decisions" />
     </section>

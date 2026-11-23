@@ -25,7 +25,7 @@ WRITES = ADVANCES | {
     "confirm-blocker",
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
     "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "raft-channel-set",
-    "wake-subscribe", "wake-unsubscribe",
+    "wake-subscribe", "wake-unsubscribe", "knowledge-place", "knowledge-stage", "knowledge-reconcile",
     ledger.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
 def assert_actor(value, actor):
@@ -103,6 +103,16 @@ def task_lines(task, board_url):
     return lines
 
 
+def knowledge_stage_lines(stages, url):
+    for stage in stages:
+        state = "Applied" if stage["applied_event_id"] else "Needs review" if stage["conflict"] else "Staged"
+        yield f"  {state} · {stage['source']} → {stage['entry']} · {url}#task-{stage['source']}"
+        if stage["source_event_id"]:
+            yield f"    Source · {url}#event-{stage['source_event_id']}-log"
+        if stage["conflict"]:
+            yield f"    {stage['conflict']}"
+
+
 def event_lines(event, url):
     actor = (event["actor_profile"] or {}).get("name") or event["actor"]
     reference = event.get("task_key") or task_ref(event["task_id"])
@@ -135,6 +145,8 @@ def task_details(board, url, number, *, workers_only=False, guidance=None, conte
         guidance = detail.get("peer_request_next") or guidance
     if detail["brief"]:
         text.append(detail["brief"])
+    if not workers_only and (stages := detail.get("knowledge_stages")):
+        text.extend(("", "Knowledge stages", *knowledge_stage_lines(stages, url)))
     if not workers_only and detail["checklist"]:
         text.extend(("", "Checklist"))
         text.extend(
@@ -220,6 +232,14 @@ def shared_write(board, args, *, context):
         data.update(id=reference, action=command, reason=args.note)
         if command != "unassign":
             data["owner"] = board.person(args.dri, "agent", reference)
+    elif command == "knowledge-place":
+        action = command
+        data.update(id=task_ref(args.id), area=args.area, index=str(args.index).lower())
+    elif command == "knowledge-stage":
+        action = command
+        if (args.brief is None) != (args.source_event is None):
+            raise ValueError("Provide both --brief and --source-event.")
+        data.update(id=task_ref(args.id), source=task_ref(args.source), brief=args.brief, source_event=args.source_event)
     elif command == "tag":
         action = "task-tag"
         data.update(id=task_ref(args.id), tag=args.tag, action=args.tag_action)
@@ -526,6 +546,8 @@ def shared_command(args):
             guidance = f'Save your role goal with `./tasks --shared save-goal standing "<summary>"{flag}`.'
         key = "goals-existing" if standing else "goals-missing"
         return with_guidance("\n".join(lines) or "No goals set.", prompts.get(key, guidance))
+    if command == "knowledge-reconcile":
+        return json.dumps(board.invoke(command, {"project": args.project}, write=True), ensure_ascii=False)
     if command in WRITES:
         result = shared_write(board, args, context=context)
         output = "Committed · " + result["receipt"]
@@ -580,7 +602,13 @@ def shared_command(args):
                     lines.append(f"{task['key']} · Decision · {task['title']}\n  {task_url(url, task)}")
                     if decision["summary"]:
                         lines.append(f"  {decision['summary']}")
+                    if area := decision.get("area"):
+                        lines.append(f"  Knowledge area · {area}")
                     lines.extend(f"  {source['label']} · {source['url']}" for source in decision["sources"] if source["url"])
+                    if stages := decision.get("staged_work"):
+                        lines.extend(knowledge_stage_lines(stages, url))
+                        if any(not row["applied_event_id"] for row in stages):
+                            lines.append("  Check the latest staged work and its source before applying this decision.")
                 else:
                     lines.append(f"{task['key']} · {ledger.STATES[task['state']]} · {task['title']}\n  {task_url(url, task)}")
             if not lines:

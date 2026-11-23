@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 import tasks_core as ledger
 import tasks_goal_offers as goal_offers
 import tasks_goals as goals
+import tasks_knowledge as knowledge
 import tasks_maintenance as maintenance
 import tasks_profiles as profiles
 import tasks_projects as projects
@@ -39,7 +40,7 @@ SUGGESTION_KEY = re.compile(r"([A-Z][A-Z0-9]{0,7})-([0-9]*)", re.ASCII)
 SEARCH_WORDS = re.compile(r"[^\W_]+")
 ACTIVITY_EXCERPT_LIMIT = 180
 GOAL_OUTCOME_LIMIT = 20
-DECISION_RECORD_TAG = "decision-record"
+DECISION_RECORD_TAG = knowledge.DECISION_TAG
 
 
 def title_suggestion_rank(needle, words, title):
@@ -588,20 +589,26 @@ class BoardQueries:
             if not watches.has_table(self.db, "task_references"):
                 return []
             terms.append("""
-                EXISTS (
+                (EXISTS (
                     SELECT 1 FROM task_references AS reference
                     JOIN events AS source_event ON reference.url = ? || source_event.id || '-log'
                     WHERE reference.task_id = tasks.id AND source_event.task_id = ?
-                )
+                ) OR EXISTS (
+                    SELECT 1 FROM knowledge_stages AS stage
+                    WHERE stage.entry_id = tasks.id AND stage.source_id = ?
+                ))
             """)
-            args.extend((f"{self.base}/#event-", source_ticket))
+            args.extend((f"{self.base}/#event-", source_ticket, source_ticket))
         if search:
             needle = search.casefold()
+            area_matches = {row["task_id"] for row in self.db.execute("SELECT task_id, path FROM knowledge_entries")
+                            if needle in row["path"].casefold()}
 
             def matches(row):
                 return (needle == projects.row_reference(row).casefold()
                         or needle in row["title"].casefold()
-                        or needle in (row["brief"] or "").casefold())
+                        or needle in (row["brief"] or "").casefold()
+                        or row["id"] in area_matches)
 
             return self.search_rows(terms, args, "events.id DESC", limit, False, matches)
         where = " WHERE " + " AND ".join(terms)
@@ -615,6 +622,7 @@ class BoardQueries:
             return [{
                 "id": row["id"], "key": projects.row_reference(row), "title": row["title"],
                 "summary": row["brief"], "sources": self.decision_sources(row["id"]),
+                **knowledge.metadata(self.db, row["id"]),
             } for row in rows]
 
         with tasks_storage.read(self.db):
@@ -651,6 +659,7 @@ class BoardQueries:
                         item["decision"] = {
                             "summary": decisions[row["id"]]["brief"],
                             "sources": self.decision_sources(row["id"]),
+                            **knowledge.metadata(self.db, row["id"]),
                         }
                     result.append(item)
                 return result

@@ -2459,6 +2459,126 @@ class TasksServiceTest(unittest.TestCase):
         self.action(seeker, "search-tasks", query_string={**query, "limit": "101"}, status=400)
         self.action(app.test_client(), "search-tasks", query_string=query, status=401)
 
+    def test_knowledge_directory_stages_work_and_reconciles_one_settled_correction(self):
+        app = self.app(portal_reader=True)
+        manager, manager_id = self.login(app, "Avery")
+        contributor, contributor_id = self.login(app, "Blake")
+        self.cli("register-project", "OPS", "Example operations", "--dri", manager_id)
+
+        def add(actor, title, brief="Disposable storage fixture."):
+            self.action(actor, "create-task", {
+                "project": "OPS", "title": title, "step": "Check the evidence.", "brief": brief,
+            })
+
+        def finish(actor, ticket, note):
+            self.action(actor, "advance-task", {"id": ticket, "transition": "start", "note": "Checking."})
+            self.action(actor, "advance-task", {"id": ticket, "transition": "done", "note": note})
+            return self.action(actor, "task-activity", query_string={"id": ticket})["items"][0]["id"]
+
+        def decision(ticket):
+            self.action(manager, "task-tag", {"id": ticket, "action": "add", "tag": "decision-record"})
+            finish(manager, ticket, "Published the initial note.")
+
+        add(manager, "Storage index", "Current storage checks.")
+        decision("OPS-1")
+        add(manager, "Batch latency result", "Use the previous baseline and collect ten samples.")
+        decision("OPS-2")
+        add(contributor, "Repeat the storage comparison")
+        self.action(contributor, "knowledge-place", {"id": "OPS-2", "area": "Storage performance"}, status=403)
+        code, output, error = self.shared_cli(manager, "knowledge-place", "OPS-1", "Storage performance", "--index")
+        self.assertEqual((code, output.splitlines()[0], error), (0, "Committed · Knowledge area saved.", ""))
+        self.action(manager, "knowledge-place", {"id": "OPS-2", "area": "Storage performance"})
+        self.action(manager, "knowledge-place", {
+            "id": "OPS-2", "area": "Storage performance", "index": "true",
+        }, status=409)
+        self.call(app.test_client(), "/api/v1/knowledge/areas", status=401)
+        areas = self.call(contributor, "/api/v1/knowledge/areas").json["areas"]
+        self.assertEqual(areas, [{
+            "project": "OPS", "path": "Storage performance", "index": "OPS-1", "title": "Storage index", "available": True,
+        }])
+        index = self.call(contributor, "/api/v1/knowledge", query_string={"entry": "OPS-1"}).json["items"][0]
+        self.assertEqual(index["area_entries"], [{"key": "OPS-2", "title": "Batch latency result"}])
+
+        stage = {"id": "OPS-2", "source": "OPS-3"}
+        self.action(contributor, "knowledge-stage", {**stage, "brief": "Missing evidence."}, status=409)
+        wrong_event = self.action(manager, "task-activity", query_string={"id": "OPS-2"})["items"][0]["id"]
+        self.action(contributor, "knowledge-stage", {
+            **stage, "brief": "Another ticket’s event.", "source_event": wrong_event,
+        }, status=409)
+        code, output, error = self.shared_cli(contributor, "knowledge-stage", "OPS-2", "OPS-3")
+        self.assertEqual((code, output.splitlines()[0], error), (0, "Committed · Knowledge change staged.", ""))
+        before = self.action(contributor, "search-with-decisions", query_string={"q": "Batch latency"})["items"][0]
+        self.assertIn("previous baseline", before["decision"]["summary"])
+        self.assertEqual([item["source"] for item in before["decision"]["staged_work"]], ["OPS-3"])
+        backlinks = self.call(contributor, "/api/v1/knowledge", query_string={"source": "OPS-3"}).json["items"]
+        self.assertEqual([item["key"] for item in backlinks], ["OPS-2"])
+        code, output, error = self.shared_cli(contributor, "search", "Batch latency")
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("Check the latest staged work", output)
+
+        open_pass = self.action(manager, "knowledge-reconcile", {"project": "OPS"})
+        self.assertEqual(open_pass["applied"], [])
+        self.assertEqual(open_pass["unresolved"][0]["owner"], manager_id)
+        self.assertEqual(open_pass["unresolved"][0]["source"], "OPS-3")
+        source_event = finish(contributor, "OPS-3", "Decided to collect twenty samples after comparing the runs.")
+        proposal = "Use the revised baseline and collect twenty samples."
+        self.action(contributor, "knowledge-stage", {**stage, "brief": proposal, "source_event": source_event})
+        code, output, error = self.shared_cli(manager, "knowledge-reconcile", "--project", "OPS")
+        self.assertEqual((code, error), (0, ""))
+        pass_result = json.loads(output)
+        self.assertEqual(len(pass_result["applied"]), 1)
+        applied_event = pass_result["applied"][0]["event_id"]
+        latest = self.call(contributor, "/api/v1/knowledge", query_string={"entry": "OPS-2"}).json["items"][0]
+        self.assertEqual(latest["summary"], proposal)
+        self.assertEqual(latest["sources"][0]["event_id"], source_event)
+        self.assertEqual(latest["staged_work"][0]["applied_event_id"], applied_event)
+        self.assertEqual(latest["sources"][0]["at"], latest["staged_work"][0]["source_at"])
+        self.assertEqual(self.action(manager, "knowledge-reconcile", {"project": "OPS"})["applied"], [])
+        history = self.action(manager, "task-activity", query_string={"id": "OPS-2"})["items"]
+        self.assertEqual(sum(event["note"] == "Settled Knowledge change applied." for event in history), 1)
+
+        add(contributor, "Recheck an older baseline")
+        obsolete = finish(contributor, "OPS-4", "Use five samples.")
+        self.action(contributor, "knowledge-stage", {
+            "id": "OPS-2", "source": "OPS-4", "brief": "Use five samples.", "source_event": obsolete,
+        })
+        self.action(manager, "change-ownership", {
+            "id": "OPS-4", "action": "reopen", "owner": contributor_id,
+            "reason": "New samples require a recheck.",
+        })
+        replacement = finish(contributor, "OPS-4", "Use twenty samples.")
+        stale = self.action(manager, "knowledge-reconcile", {"project": "OPS"})
+        self.assertEqual(stale["applied"], [])
+        self.assertIn("source reopened", stale["unresolved"][0]["reason"])
+        self.action(contributor, "knowledge-stage", {
+            "id": "OPS-2", "source": "OPS-4", "brief": proposal, "source_event": replacement,
+        })
+        recovered = self.action(manager, "knowledge-reconcile", {"project": "OPS"})
+        self.assertEqual(recovered["applied"][0]["source_event_id"], replacement)
+
+        for number, brief in ((5, "Use thirty samples."), (6, "Use forty samples.")):
+            add(contributor, f"Validate alternative {number}")
+            source = f"OPS-{number}"
+            event = finish(contributor, source, brief)
+            self.action(contributor, "knowledge-stage", {
+                "id": "OPS-2", "source": source, "brief": brief, "source_event": event,
+            })
+        conflicts = self.action(manager, "knowledge-reconcile", {"project": "OPS"})
+        self.assertEqual(conflicts["applied"], [])
+        self.assertEqual(len(conflicts["unresolved"]), 2)
+        self.assertTrue(all("different replacements" in item["reason"] for item in conflicts["unresolved"]))
+        current = self.call(contributor, "/api/v1/knowledge", query_string={"entry": "OPS-2"}).json["items"][0]
+        self.assertEqual(current["summary"], proposal)
+
+        self.action(manager, "task-tag", {"id": "OPS-1", "action": "remove", "tag": "decision-record"})
+        unavailable = self.call(contributor, "/api/v1/knowledge/areas").json["areas"][0]
+        self.assertFalse(unavailable["available"])
+        self.action(manager, "knowledge-place", {
+            "id": "OPS-2", "area": "Storage performance", "index": "true",
+        })
+        replaced = self.call(contributor, "/api/v1/knowledge/areas").json["areas"][0]
+        self.assertEqual((replaced["index"], replaced["available"]), ("OPS-2", True))
+
     def test_bare_shared_search_adds_maintained_board_decisions_to_project_t_results(self):
         app = self.app(portal_reader=True)
         reader, _ = self.login(app, "Avery")

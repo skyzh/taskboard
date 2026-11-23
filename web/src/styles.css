@@ -1122,6 +1122,12 @@ button:disabled { opacity: .57; }
 .cli-login-command, .cli-sign-in-code { margin-block: .45rem .65rem; overflow-wrap: anywhere; }
 .cli-sign-in-code code { font-size: 1.25rem; letter-spacing: .06em; }
 
+.knowledge-directory { margin-block: .75rem; }
+.knowledge-directory ul { padding-inline-start: 1.15rem; }
+.knowledge-area-label, .knowledge-stage-state { color: var(--muted); }
+.knowledge-stage-state { margin-inline: .5rem; }
+.knowledge-stages { margin-block-start: .75rem; }
+
 .knowledge { max-width: 56rem; }
 .knowledge-search {
   display: grid;
