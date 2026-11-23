@@ -2208,14 +2208,20 @@ def create_app(
         current_actor()
         return assignees(request.args)
 
-    def decision_candidates(name):
-        filters = {"query": name.removeprefix("@")}
+    def assignee_candidates(name, project):
+        filters = {"query": name.removeprefix("@"), "project": project}
         while True:
             page = assignees(filters)
             yield from page["items"]
             if page["next_cursor"] is None:
                 return
             filters["before"] = page["next_cursor"]
+
+    def resolve_assignee(name, kind, project=projects.DEFAULT):
+        try:
+            return exact_person_id(assignee_candidates(name, project), name, kind)
+        except ValueError as error:
+            raise RequestError(str(error)) from error
 
     def advance(actor, data, number):
         command = text(data, "transition", maximum=30)
@@ -2238,11 +2244,7 @@ def create_app(
         if "on_name" in data:
             if on is not None or command not in ("assign-human", "redirect-decision"):
                 raise RequestError("Use either a name or an exact ID when assigning or redirecting a human decision.")
-            name = text(data, "on_name", maximum=101)
-            try:
-                on = exact_person_id(decision_candidates(name), name, "human")
-            except ValueError as error:
-                raise RequestError(str(error)) from error
+            on = resolve_assignee(text(data, "on_name", maximum=101), "human")
         if command in ("assign-human", "redirect-decision"):
             on = require_person(on, "human")
         blocked_by = data.get("blocked_by")
@@ -2382,6 +2384,7 @@ def create_app(
                 "actor": actor_profile(actor), "board": base + "/",
                 "parking_protocol": ledger.PARKING_PROTOCOL_VERSION,
                 "decision_recipient_lookup": True,
+                "handoff_recipient_lookup": True,
             }
             if agent_guidance.cli:
                 context["cli_guidance"] = agent_guidance.cli
@@ -2617,9 +2620,16 @@ def create_app(
         if name == "advance-task":
             return advance(actor, data, number)
         if name == "handoff":
+            if "owner_name" in data:
+                if "owner" in data:
+                    raise RequestError("Use either a name or an exact ID for the new owner.")
+                project, _ = projects.identifier(data["id"])
+                owner = resolve_assignee(text(data, "owner_name", maximum=101), "agent", project)
+            else:
+                owner = text(data, "owner", maximum=160)
             return mutate(
                 "transfer", actor, data, id=number, note=text(data, "note"),
-                dri=require_person(text(data, "owner", maximum=160), "agent", task_id=number),
+                dri=require_person(owner, "agent", task_id=number),
             )
         if name == "record-activity":
             return record_activity(actor, number, data)
