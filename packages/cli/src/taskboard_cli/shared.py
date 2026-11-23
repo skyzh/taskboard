@@ -21,7 +21,8 @@ READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watc
 WRITES = ADVANCES | {
     "confirm-blocker",
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
-    "tag", "close", "edit", "checklist", "save-goal", "raft-channel-set", "wake-subscribe", "wake-unsubscribe",
+    "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "raft-channel-set",
+    "wake-subscribe", "wake-unsubscribe",
     ledger.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
 def assert_actor(value, actor):
@@ -172,6 +173,9 @@ def shared_write(board, args):
         action = command
         data.update(kind=args.kind, summary=args.summary, deadline=args.deadline, project=args.project, milestone=args.milestone,
                     tickets=json.dumps(args.ticket) if args.ticket else None)
+    elif command == "goal-review-time":
+        action = "set-goal-review-time"
+        data.update(id=task_ref(args.id), time="" if args.clear else args.at)
     elif command == PEER_ASK:
         action = PEER_ASK
         reference = task_ref(args.id)
@@ -455,6 +459,8 @@ def shared_command(args):
             links = ", ".join(ticket["key"] for ticket in milestone["tickets"])
             if links:
                 lines.append(f"  Related tasks: {links}")
+        for ticket, at in sorted(saved.get("review_times", {}).items()):
+            lines.append(f"{ticket} · Daily review at {at} Pacific time.")
         guidance = "Use the standing goal when your actionable work is exhausted."
         if not standing:
             flag = f" --project {projects.prefix(args.project)}" if args.project else ""

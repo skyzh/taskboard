@@ -8,10 +8,12 @@ import re
 import subprocess
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from time import monotonic, sleep
 from uuid import UUID
 
 from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
+from taskboard_cli.goal_wake import GoalWake, GoalWakeState, reminder_title
 from taskboard_cli.shared import assert_actor, task_url
 
 
@@ -235,16 +237,18 @@ def watch_two_pickups(board, owner, is_idle, notify, duration, interval=10, idle
 
 STALLED_IDLE_SECONDS = 30 * 60
 STALLED_READ = "stalled work"
+GOAL_READ = "goal cues"
 
 
 def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_delay=120, *, observe_status=None,
-                      notify_stalled=None):
+                      notify_stalled=None, goal_state=None, notify_goal=None):
     """Stay armed and report the size of a changed, nonempty owned Ready queue."""
     try:
         context = agent_context(board, owner)
     except SharedReadError as error:
         context = recover_ready_read(lambda: agent_context(board, owner), "startup context", error, emit, interval)
     actor = context["actor"]["id"]
+    goal_wake = GoalWake(board, GoalWakeState(goal_state, context["board"], actor)) if goal_state else None
     filters = {"scope": "all", "state": "ready", "limit": 100}
     noticed = frozenset()
     current = noticed
@@ -268,6 +272,8 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     def next_count():
         nonlocal current
         current = ready_events("eligible queue")
+        if current and goal_wake is not None:
+            goal_wake.state.observe_busy()
         return {"ready_count": len(current)} if has_new_ready(current) else None
 
     def has_new_ready(ready):
@@ -292,9 +298,20 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
             return None
         return stalled_offer()
 
+    def next_follow_up(idle_seconds):
+        nonlocal stage
+        if notify_stalled is not None and (stalled := next_stalled(idle_seconds)) is not None:
+            return stalled
+        if goal_wake is not None and not current:
+            stage = GOAL_READ
+            return goal_wake.lookup()
+        return None
+
     def notify_current(notice, can_wake):
         if "ready_count" in notice:
             return notify_count(notice, can_wake)
+        if "goal_key" in notice:
+            return goal_wake.notify(notice, can_wake, notify_goal)
 
         changed = False
 
@@ -315,9 +332,15 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     while True:
         try:
             result = check_when_idle(context, is_idle, next_count, notify_current, float("inf"), interval, idle_delay,
-                                     delayed_lookup=next_stalled if notify_stalled is not None else None)
+                                     delayed_lookup=next_follow_up if notify_stalled is not None or goal_wake else None)
         except SharedReadError as error:
-            if stage == STALLED_READ:
+            if stage == GOAL_READ:
+                if error.reason == "action-unavailable":
+                    emit({"kind": "goal-check-unavailable", "at": observation_time(), "reason": error.reason})
+                    goal_wake = None
+                else:
+                    recover_ready_read(goal_wake.lookup, stage, error, emit, interval)
+            elif stage == STALLED_READ:
                 recover_ready_read(stalled_offer, stage, error, emit, interval)
             else:
                 recover_ready_read(lambda: ready_events(stage), stage, error, emit, interval, count_ready=True)
@@ -326,6 +349,8 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
             continue
         if "ready_count" in result:
             noticed = current
+        elif "goal_key" in result:
+            result.update(at=observation_time(), owner=actor, reminder=goal_wake.state.reminder(result))
         else:
             noticed_stalled.add(result["event_id"])
         emit(result)
@@ -473,6 +498,7 @@ def main():
     mode.add_argument("--repeat", action="store_true", help="Stay armed and report the count of owned Ready tickets.")
     parser.add_argument("--measure", action="store_true", help="Emit sampled status and wake receipts in repeat mode.")
     parser.add_argument("--wake-stalled", action="store_true", help="Opt in to one wake for an eligible step after 30 idle minutes.")
+    parser.add_argument("--goal-state", type=Path, help="Opt in to Project T goal cues using this private state file.")
     parser.add_argument("--idle-delay-seconds", type=int, default=0, help="Require this much observed idle time before a wake.")
     parser.add_argument("--idle-handoff", type=UUID, help="Stable runner UUID for an explicit idle goal offer.")
     parser.add_argument("--channel", help="Raft conversation anchoring the watcher.")
@@ -484,6 +510,8 @@ def main():
         parser.error("Use --measure only with --watch-idle --repeat.")
     if args.wake_stalled and not (args.watch_idle and args.repeat):
         parser.error("Use --wake-stalled only with --watch-idle --repeat.")
+    if args.goal_state and not (args.watch_idle and args.repeat):
+        parser.error("Use --goal-state only with --watch-idle --repeat.")
     if args.watch_idle:
         if command or not args.channel or not args.message_id or args.idle_handoff:
             parser.error("Use --channel and --message-id for the watcher, without a handler.")
@@ -519,11 +547,16 @@ def main():
 
                     return raft_stalled_work(offer, args.channel, args.message_id, can_wake, record_wake=record_wake)
 
+                def notify_goal(offer, can_wake, record_wake):
+                    return wake_with_title(reminder_title(offer), args.channel, args.message_id, can_wake,
+                                           record_wake=record_wake)
+
                 watch_ready_count(
                     board, args.by, raft_idle, notify_count, emit,
                     idle_delay=args.idle_delay_seconds or 120,
                     observe_status=raft_status if args.measure else None,
                     notify_stalled=notify_stalled if args.wake_stalled else None,
+                    goal_state=args.goal_state, notify_goal=notify_goal,
                 )
             else:
                 watch = watch_two_pickups if args.two_pickups else watch_idle

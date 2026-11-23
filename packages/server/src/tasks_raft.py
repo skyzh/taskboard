@@ -52,8 +52,13 @@ _ACTIONS = {
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE),
     "idle-goal-offer": _Action("POST", "Return a standing goal at a verified idle runner handoff.", {
         "handoff_id": "Stable runner handoff UUID. Use only after observing Idle and reuse the same ID on retry.",
-    }),
+    }, _PROJECT),
     "my-goals": _Action("GET", "Read your standing and dated goals for one project.", optional=_PROJECT),
+    "my-goal-cues": _Action("GET", "Read your eligible goal review cues after checking actionable work across projects.",
+                            optional=_PROJECT),
+    "set-goal-review-time": _Action("POST", "Set or clear the daily review time for an owned goal.", {
+        **_TASK, "time": "Pacific 24-hour review time as HH:MM. Send an empty string to clear it.",
+    }),
     "my-wake-subscriptions": _Action("GET", "Read your wake subscriptions for one project.", optional=_PROJECT),
     "set-wake-subscription": _Action("POST", "Update your subscription to a project wake event.", {
         "event_type": "Wake event type. Choose owned-ready.",

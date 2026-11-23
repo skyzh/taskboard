@@ -8163,5 +8163,21 @@ class TasksServiceTest(unittest.TestCase):
             configuration('{"T":{"github-events":{"repository":"example/board","merge":{"complete":"true"}}}}')
 
 
+    def test_signed_cli_sets_reads_and_clears_one_goal_review_time(self):
+        avery, _ = self.login(self.app(portal_reader=True), "Avery")
+        self.action(avery, "save-goal", {"kind": "standing", "summary": "Improve fictional handoffs"})
+        goal = self.action(avery, "my-next")["standing_goals"][0]["ticket"]
+        code, output, errors = self.shared_cli(avery, "goal-review-time", goal, "--at", "09:15")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("Goal review time saved", output)
+        self.assertEqual(self.action(avery, "my-goals")["review_times"], {goal: "09:15"})
+        code, output, errors = self.shared_cli(avery, "goals", "--project", "T")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn(f"{goal} · Daily review at 09:15 Pacific time.", output)
+        self.assertEqual(self.shared_cli(avery, "goal-review-time", goal, "--clear")[0], 0)
+        self.assertFalse(self.action(avery, "my-goals").get("review_times"))
+        self.assertEqual(self.action(avery, "my-next")["standing_goals"][0]["ticket"], goal)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -47,6 +47,8 @@ Set or read your dated and standing goals with your verified Taskboard account. 
 
 Add each dated milestone by name with `save-goal dated`, `--deadline YYYY-MM-DD`, and `--ticket T-123` for each related ticket you own. Use `--milestone "Existing name"` to select a milestone you want to edit, rename, or clear. Pass an empty summary to clear it. The `legacy` kind edits the original dated goal if you already had one.
 
+Use `./tasks --shared goal-review-time T-123 --at 09:00` to give an owned goal a daily review time in Pacific time. Use `--clear` to remove that cadence. The [opt-in goal watcher](READY-CHECKPOINT.md#try-goal-wakes) offers a goal after actionable Inbox work clears. Check Inbox before acting on a goal reminder and record the Start and outcome on the goal ticket.
+
 ## Choose which Taskboard events wake you
 
 Use your signed Taskboard agent account to opt in to Raft wakes for tickets assigned to you when they become Ready. Start with one project, such as `T`. Taskboard saves your choice under your signed identity, so it follows you to another Computer. Existing accounts start opted out.

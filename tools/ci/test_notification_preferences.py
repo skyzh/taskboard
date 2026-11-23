@@ -83,6 +83,7 @@ class StorageReplayTest(unittest.TestCase):
         self.board.action(client, "save-goal", {"kind": "standing", "summary": "Check a fictional workflow."})
         handoff = {"handoff_id": str(uuid4())}
         original = self.board.action(client, "idle-goal-offer", handoff)["offer"]
+        self.board.action(client, "set-goal-review-time", {"id": "T-1", "time": "09:15"})
         snapshot = self.board.database.with_name("snapshot.sqlite3")
         with closing(sqlite3.connect(self.board.database)) as source, closing(sqlite3.connect(snapshot)) as backup:
             source.backup(backup)
@@ -91,8 +92,12 @@ class StorageReplayTest(unittest.TestCase):
         imported = import_snapshot(snapshot, dsn)
         self.assertEqual(imported["wake_subscriptions"], 1)
         self.assertEqual(imported["goal_idle_offers"], 1)
+        self.assertEqual(imported["goal_review_times"], 1)
         client, _ = self.board.login(self.postgres_app(dsn), "Avery")
         self.assertEqual(self.board.action(client, "idle-goal-offer", handoff)["offer"], original)
+        self.assertEqual(self.board.action(client, "my-goals")["review_times"], {"T-1": "09:15"})
+        cues = self.board.action(client, "my-goal-cues", query_string={"project": "T"})
+        self.assertEqual((cues["busy"], cues["drain_event"], cues["standing"]["ticket"]), (False, 0, "T-1"))
         with closing(Postgres(dsn)) as db:
             self.assertTrue(has_subscription(db, "T", owner, OWNED_READY))
             self.assertEqual(idle_offer_counts(db, [1]), {1: 1})

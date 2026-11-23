@@ -484,7 +484,7 @@ class BoardQueries:
 
     def tasks(self, *, state=None, dri=None, waiting_on=None, before=None, limit=20, now=False,
               decided_by=None, search=None, priority_order=False, review_due=None, project=None, tag=None,
-              managed_by=None, hide_requests=False):
+              managed_by=None, hide_requests=False, exclude_goals=False):
         terms, args = [], []
         filter_search = None
         for column, value in (
@@ -497,6 +497,8 @@ class BoardQueries:
                 args.append(value)
         if self.hide_peer_requests(hide_requests):
             terms.append("NOT EXISTS (SELECT 1 FROM peer_asks WHERE peer_asks.task_id = tasks.id)")
+        if exclude_goals:
+            terms.append("NOT EXISTS (SELECT 1 FROM task_goals WHERE task_goals.task_id = tasks.id AND retired = 0)")
         if managed_by is not None:
             terms.append("tasks.project_prefix IN (SELECT prefix FROM projects WHERE dri = ?)")
             args.append(managed_by)
@@ -1442,8 +1444,8 @@ class BoardQueries:
                      goal.deadline, tasks.title, tasks.id, events.id
             """, (project, *(roster or ())),
         )
-        goals_by_id, previous, open_checks = {}, {}, set()
-        for event in rows:
+        goals_by_id = {}
+        for event, review in goals.review_events(rows):
             number = event["id"]
             if number not in goals_by_id:
                 goals_by_id[number] = {
@@ -1452,23 +1454,15 @@ class BoardQueries:
                     "last_completed_at": None, "outcomes": deque(maxlen=GOAL_OUTCOME_LIMIT),
                 }
             row = goals_by_id[number]
-            if event["action"] == "start":
+            if review == "start":
                 row["starts"] += 1
-                open_checks.add(number)
-            elif number in open_checks and event["state"] in ("done", "parked"):
-                open_checks.remove(number)
-                # Older reminder edits were stored as Park with the previous note and links.
-                copied_reminder = (event["note"], event["links"]) == previous.get(number) and any(
-                    key in ledger.event_context(event) for key in ("review_after", "defer_until")
-                )
-                if event["action"] == "done" or (event["action"] == "park" and not copied_reminder):
-                    row["completed_checks"] += 1
-                    row["last_completed_at"] = event["at"]
-                    row["outcomes"].append({
-                        "id": event["event_id"], "at": event["at"], "kind": event["action"], "note": event["note"],
-                        "links": self.links(json.loads(event["links"]), event_id=event["event_id"]),
-                    })
-            previous[number] = (event["note"], event["links"])
+            elif review == "completed":
+                row["completed_checks"] += 1
+                row["last_completed_at"] = event["at"]
+                row["outcomes"].append({
+                    "id": event["event_id"], "at": event["at"], "kind": event["action"], "note": event["note"],
+                    "links": self.links(json.loads(event["links"]), event_id=event["event_id"]),
+                })
         people = profiles.visible_by_keys(self.db, [row["owner"] for row in goals_by_id.values()], self.base)
         offers = goal_offers.idle_offer_counts(self.db, list(goals_by_id))
         for number, row in goals_by_id.items():
@@ -1668,7 +1662,7 @@ class BoardQueries:
             if len(rows) > limit else None,
         }
 
-    def actionable_work(self, owner, *, today, project):
+    def actionable_work(self, owner, *, today, project, ordinary_only=False):
         """Yield the first actionable item in each queue in pickup order."""
         scope = {"project": project, "limit": 1}
         queues = (
@@ -1683,6 +1677,8 @@ class BoardQueries:
             ("shared_ready", self.tasks, {"dri": "", "state": "ready", "priority_order": True, "managed_by": owner}),
         )
         for kind, query, filters in queues:
+            if ordinary_only and kind in ("reminder", "in_progress"):
+                filters["exclude_goals"] = True
             for item in query(**scope, **filters)["items"]:
                 yield {
                     "kind": kind,

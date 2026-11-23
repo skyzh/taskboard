@@ -597,7 +597,7 @@ test('Inbox shows empty only after its required reads settle successfully', () =
   assert.doesNotMatch(updateFailure, /Your inbox is empty/)
 })
 
-test('Goal activity filters owners and goals, and labels unavailable idle counts separately', () => {
+test('Goal activity filters owners and goals, and reports offers only for standing goals', () => {
   const lastCheck = '2026-11-22T14:30:00Z'
   const standing = {
     key: 'T-42', owner: 'Avery', kind: 'standing', summary: 'Improve handoffs',
@@ -612,8 +612,9 @@ test('Goal activity filters owners and goals, and labels unavailable idle counts
   fixture.resources = { '/reports/goal-activity?project=T': { data: { items: [standing, dated] } } }
   const render = (agent, goal) => renderToStaticMarkup(React.createElement(GoalActivity, { project: 'T', agent, goal }))
   const all = render()
-  assert.match(all, /Idle offers<\/dt><dd>Unmeasured/)
-  assert.match(all, /Idle offers<\/dt><dd>0/)
+  assert.match(all, /Standing-goal offers<\/dt><dd>Unmeasured/)
+  assert.match(all, /The watcher records reminder requests/)
+  assert.doesNotMatch(render(null, 'T-43'), /Standing-goal offers<\/dt>/)
   assert.match(all, /Completed checks<\/dt><dd>1/)
   assert.match(all, /href="#event-28-log"><time dateTime="2026-11-22T14:30:00Z"/)
   assert.match(all, /No issue found/)
@@ -621,6 +622,8 @@ test('Goal activity filters owners and goals, and labels unavailable idle counts
   assert.doesNotMatch(all, /Overdue/)
   assert.doesNotMatch(render('Avery'), /href="#task-T-43"/)
   assert.doesNotMatch(render(null, 'T-43'), /href="#task-T-42"|href="#event-28-log"/)
+  fixture.resources['/reports/goal-activity?project=T'].data.items[0] = { ...standing, idle_offers: 0 }
+  assert.match(render(null, 'T-42'), /Standing-goal offers<\/dt><dd>0/)
 })
 
 test('Project log shows empty only after the current read succeeds', () => {

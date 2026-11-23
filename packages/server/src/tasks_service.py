@@ -27,6 +27,7 @@ import tasks_audit as audit
 import tasks_codex_usage
 import tasks_core as ledger
 import tasks_maintenance as maintenance
+import tasks_goal_cadence as goal_cadence
 import tasks_goals as goals
 import tasks_goal_offers as goal_offers
 import tasks_guidance
@@ -326,6 +327,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
     db.execute(goals.SCHEMA)
     goals.ensure_extended_schema(db)
     goals.migrate_goal_tickets(db)
+    db.execute(goal_cadence.SCHEMA)
     db.execute(goal_offers.SCHEMA)
     db.execute(goal_offers.INDEX)
     db.execute(profiles.IMPORT_SCHEMA)
@@ -392,6 +394,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
                 oidc_members.bind_issuer(db, oidc_issuer)
             goals.ensure_extended_schema(db)
             goals.migrate_goal_tickets(db)
+            db.execute(goal_cadence.SCHEMA)
             db.execute(goal_offers.SCHEMA)
             db.execute(goal_offers.INDEX)
             for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA):
@@ -2199,13 +2202,14 @@ def create_app(
             handoff_id = str(UUID(text(data, "handoff_id", maximum=36)))
         except ValueError:
             raise RequestError("Provide the runner's stable handoff UUID.") from None
+        project = project_filter(data)
         with tasks_storage.write(db()) as connection:
             if offer := goal_offers.read_offer(connection, owner, handoff_id):
                 return {"offer": offer, "receipt": "Idle goal offer already recorded."}
             now = ledger.timestamp()
             if next(query().actionable_work(owner, today=pacific_day(now), project=None), None):
                 return {"offer": None, "receipt": "Actionable work is available."}
-            goal = next((row for row in goals.goal_rows(connection, [owner], kind="standing")
+            goal = next((row for row in goals.goal_rows(connection, [owner], project, kind="standing")
                          if row["state"] == "parked"), None)
             if goal is None:
                 return {"offer": None, "receipt": "No standing goal is available."}
@@ -2247,9 +2251,33 @@ def create_app(
         if name == "my-goals":
             project = project_filter(data, projects.DEFAULT)
             with tasks_storage.read(db()) as connection:
-                return {"goal": goals.get(connection, project, key),
-                        "milestones": goals.milestones(connection, project, key),
-                        "standing_goal": next(iter(goals.standing(connection, key, project)), None)}
+                result = {"goal": goals.get(connection, project, key),
+                          "milestones": goals.milestones(connection, project, key),
+                          "standing_goal": next(iter(goals.standing(connection, key, project)), None)}
+                if times := goal_cadence.review_times(connection, key, project):
+                    result["review_times"] = times
+                return result
+        if name == "my-goal-cues":
+            project = project_filter(data, projects.DEFAULT)
+            now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
+            with tasks_storage.read(db()) as connection:
+                board = query()
+                scope = {"today": now.date().isoformat(), "project": None}
+                work = next(board.actionable_work(key, **scope), None)
+                ordinary = work is not None
+                if work and work["kind"] in ("in_progress", "reminder") and ledger.task_goal_kind(connection, work["id"]):
+                    ordinary = next(board.actionable_work(key, ordinary_only=True, **scope), None) is not None
+                return goal_cadence.candidates(connection, key, project, now, busy=work is not None, ordinary_busy=ordinary)
+        if name == "set-goal-review-time":
+            number = task_number(data.get("id"))
+            try:
+                with tasks_storage.write(db()) as connection:
+                    saved = goal_cadence.save_review_time(connection, key, number, data.get("time"))
+            except ValueError as error:
+                raise RequestError(str(error)) from error
+            except PermissionError as error:
+                raise RequestError(str(error), 403) from error
+            return {**saved, "receipt": f"{saved['ticket']} · Goal review time {'saved' if saved['review_time'] else 'cleared'}"}
         if name == "save-goal":
             project = project_filter(data, projects.DEFAULT)
             kind = text(data, "kind", maximum=10)

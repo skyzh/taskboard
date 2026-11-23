@@ -337,6 +337,11 @@ def arguments(argv=None):
     goal_save.add_argument("--deadline", help="YYYY-MM-DD deadline for a dated goal.")
     goal_save.add_argument("--ticket", type=nonblank, action="append", help="Link an owned project ticket. Repeat to add more.")
     goal_save.add_argument("--milestone", type=nonblank, help="Existing dated milestone name when editing or clearing it.")
+    goal_review = commands.add_parser("goal-review-time", help="Set or clear an owned goal’s daily review in shared mode.")
+    goal_review.add_argument("id", type=task_id, metavar="GOAL")
+    review_time = goal_review.add_mutually_exclusive_group(required=True)
+    review_time.add_argument("--at", type=nonblank, metavar="HH:MM", help="Daily review time in Pacific time.")
+    review_time.add_argument("--clear", action="store_true", help="Remove the daily review time.")
     for action, description in (
         ("wake-subscriptions", "Read your saved wake subscriptions in shared mode."),
         ("wake-subscribe", "Subscribe to a project wake event in shared mode."),

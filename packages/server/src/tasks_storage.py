@@ -7,7 +7,8 @@ import sqlite3
 
 _SQL_TOKENS = re.compile(r"""'(?:''|[^'])*'|"(?:""|[^"])*"|\?|(?<!:):([a-zA-Z_]\w*)""")
 _JSON = re.compile(r"json_(extract|type)\(((?:\w+\.)?\w+|'\{\}'), '\$\.([a-z_.]+)'\)")
-_JSON_INT = {"readiness.source_id", "readiness.after_event", "request_event_id", "worker_report_id"}
+_JSON_INT = {"readiness.source_id", "readiness.after_event", "request_event_id",
+             "worker_report_id", "worker_disposition_id"}
 
 
 def postgres_ddl(statement):
