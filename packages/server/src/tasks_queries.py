@@ -41,6 +41,13 @@ SEARCH_WORDS = re.compile(r"[^\W_]+")
 ACTIVITY_EXCERPT_LIMIT = 180
 GOAL_OUTCOME_LIMIT = 20
 DECISION_RECORD_TAG = knowledge.DECISION_TAG
+GITHUB_SOURCE_MATCH = """
+    tasks.id IN (
+        SELECT task_sources.task_id FROM sources
+        JOIN task_sources ON task_sources.source_id = sources.id
+        WHERE sources.kind = 'github' AND LOWER(sources.target) IN (?, ?)
+    )
+"""
 
 
 def title_suggestion_rank(needle, words, title):
@@ -487,7 +494,7 @@ class BoardQueries:
 
     def tasks(self, *, state=None, dri=None, waiting_on=None, before=None, limit=20, now=False,
               decided_by=None, search=None, priority_order=False, review_due=None, project=None, tag=None,
-              managed_by=None, hide_requests=False, exclude_goals=False):
+              managed_by=None, hide_requests=False, exclude_goals=False, github_url=None):
         terms, args = [], []
         filter_search = None
         for column, value in (
@@ -520,6 +527,9 @@ class BoardQueries:
         if review_due is not None:
             terms.append("json_extract(events.context, '$.review_after') <= ?")
             args.append(review_due)
+        if github_url is not None:
+            terms.append(GITHUB_SOURCE_MATCH)
+            args.extend((github_url, github_url + "/"))
         if search is not None:
             needle = search.casefold()
             try:
@@ -572,7 +582,8 @@ class BoardQueries:
             result["next_cursor"] = f"{last['priority']}:{last['event_id']}"
         return result
 
-    def maintained_decision_rows(self, *, search=None, entry=None, source_ticket=None, before=None, limit):
+    def maintained_decision_rows(self, *, search=None, entry=None, source_ticket=None, before=None, limit,
+                                 github_url=None):
         context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
         terms = [
             f"{ledger.display_state_sql(context)} = 'done'",
@@ -599,6 +610,9 @@ class BoardQueries:
                 ))
             """)
             args.extend((f"{self.base}/#event-", source_ticket, source_ticket))
+        if github_url is not None:
+            terms.append(GITHUB_SOURCE_MATCH)
+            args.extend((github_url, github_url + "/"))
         if search:
             needle = search.casefold()
             area_matches = {row["task_id"] for row in self.db.execute("SELECT task_id, path FROM knowledge_entries")
@@ -631,11 +645,12 @@ class BoardQueries:
             )
             return page(rows, limit, "event_id", render)
 
-    def search_with_decisions(self, search, *, before, limit):
+    def search_with_decisions(self, *, before, limit, search=None, github_url=None):
         """Search ordinary T tickets and maintained decisions on the verified board."""
+        filters = {"search": search, "github_url": github_url, "before": before}
         with tasks_storage.read(self.db):
-            tickets = self.tasks(project=projects.DEFAULT, search=search, before=before, limit=limit + 1)["items"]
-            records = self.maintained_decision_rows(search=search, before=before, limit=limit)
+            tickets = self.tasks(project=projects.DEFAULT, limit=limit + 1, **filters)["items"]
+            records = self.maintained_decision_rows(limit=limit, **filters)
             mixed = {task["id"]: {
                 "id": task["id"], "event_id": task["event_id"], "key": task["key"], "title": task["title"],
                 "state": task.get("display_state", task["state"]),

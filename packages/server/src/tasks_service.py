@@ -52,6 +52,7 @@ import watches
 import tasks_storage
 from raft_auth import RaftAuth
 from tasks_evidence_preview import read_image
+from tasks_github import linked_source
 from tasks_queries import BoardQueries, PACIFIC, pacific_day, task_creation
 
 
@@ -238,6 +239,15 @@ def text(data, field, *, optional=False, maximum=4000, strip=True):
     if not isinstance(value, str) or not value.strip() or len(value) > maximum:
         raise RequestError(f"Provide {field} as text up to {maximum} characters.")
     return value.strip() if strip else value
+
+
+def shared_ticket_search(data):
+    search = text(data, "q", maximum=400)
+    try:
+        _, canonical_url = linked_source(search)
+    except ValueError:
+        return {"search": text(data, "q", maximum=160)}
+    return {"github_url": canonical_url}
 
 
 def activity_text(data, command):
@@ -2756,8 +2766,7 @@ def create_app(
             )
         if name == "search-tasks":
             project = project_filter(data)
-            search = text(data, "q", maximum=160)
-            result = query().tasks(project=project, search=search, **page_args(data))
+            result = query().tasks(project=project, **shared_ticket_search(data), **page_args(data))
             return {
                 "items": [
                     {
@@ -2773,7 +2782,7 @@ def create_app(
                 text(data, "q", maximum=160, strip=False), project=project_filter(data), **page_args(data),
             )
         if name == "search-with-decisions":
-            return query().search_with_decisions(text(data, "q", maximum=160), **page_args(data))
+            return query().search_with_decisions(**shared_ticket_search(data), **page_args(data))
         if name in {"knowledge-place", "knowledge-stage", "knowledge-reconcile"}:
             try:
                 with tasks_storage.write(db()) as connection:
@@ -2918,8 +2927,6 @@ def create_app(
                 raise RequestError("watch must be true or false.")
             return mutate("watch" if watch == "true" else "unwatch", actor, data, id=number)
         if name == "link-github":
-            from tasks_github import linked_source
-
             try:
                 source_key, target = linked_source(text(data, "github_url", maximum=400))
             except ValueError as error:

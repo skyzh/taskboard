@@ -291,7 +291,8 @@ def arguments(argv=None):
     reconcile = commands.add_parser("knowledge-reconcile", help="Apply settled Knowledge stages you own or manage.")
     reconcile.add_argument("--project", type=nonblank, required=True)
     search = commands.add_parser("search", help="Find tickets or Activity on the signed-in shared board.")
-    search.add_argument("query", type=search_query, metavar="QUERY", help="Ticket ID, title, summary, or Activity text.")
+    search.add_argument("query", type=search_query, metavar="QUERY",
+                        help="Ticket ID, linked GitHub URL, title, summary, or Activity text.")
     search.add_argument("--activity", action="store_true", help="Search Activity notes and details for literal text.")
     search.add_argument("--project", type=nonblank,
                         help="Search one project. By default, search T tickets and maintained board decisions.")
