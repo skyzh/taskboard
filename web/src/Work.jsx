@@ -387,7 +387,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   const taskProject = task?.key?.split('-')[0] || project
   const signedIn = ['agent', 'human'].includes(session.data?.actor?.kind)
   const signedHuman = session.data?.actor?.kind === 'human'
-  const showActions = !signedHuman || actionsOpen
+  const showActions = signedIn && (!signedHuman || actionsOpen)
   const canAnswer = task && mayAnswer(task, session)
   const ownsReturnPath = task && session.data?.actor?.id && session.data.actor.id === task.dri
     && ['ready', 'in_progress', 'parked'].includes(task.state)
