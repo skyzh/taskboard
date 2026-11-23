@@ -226,13 +226,13 @@ def local_defer_time(data):
     return next(iter(candidates.values())).isoformat(timespec="seconds")
 
 
-def text(data, field, *, optional=False, maximum=4000):
+def text(data, field, *, optional=False, maximum=4000, strip=True):
     value = data.get(field)
     if value is None and optional:
         return None
     if not isinstance(value, str) or not value.strip() or len(value) > maximum:
         raise RequestError(f"Provide {field} as text up to {maximum} characters.")
-    return value.strip()
+    return value.strip() if strip else value
 
 
 def activity_text(data, command):
@@ -2200,6 +2200,10 @@ def create_app(
                 ],
                 "next_cursor": result["next_cursor"],
             }
+        if name == "search-activity":
+            return query().search_activity(
+                text(data, "q", maximum=160, strip=False), project=project_filter(data), **page_args(data),
+            )
         if name == "task-tag":
             return change_tag(actor, task_number(data.get("id")), data)
         if name == "assignees":

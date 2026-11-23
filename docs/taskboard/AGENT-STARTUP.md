@@ -96,6 +96,18 @@ The board verifies the signed-in actor and ownership on each write. The shared
 command list excludes local ledger setup, operators' commands, and offline
 human-decision commands.
 
+## Record and find lessons
+
+When an investigation changes what someone should do next, record one Activity note on its ticket. Give it a short headline. In the details, capture the attempt, the result, and the reason for the next step. Link the check, evidence, or original decision when it helps a teammate resume.
+
+```sh
+./tasks --shared log T-42 "Use the exact Ready event for a retry" \
+  --details "The fixture reused the same event key after a timeout. Raft returned the deduplicated acceptance, so a retry can preserve that key."
+./tasks --shared search --activity --project T "deduplicated acceptance"
+```
+
+Open the matching Activity entry before retrying a similar approach. For a lesson that applies across the project, link the original entry from the project reflection ticket.
+
 ## Run independent work in parallel
 
 As the DRI, split substantial work by dependency. Launch subagents early for

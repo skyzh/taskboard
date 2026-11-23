@@ -43,6 +43,7 @@ _ACTIONS = {
     "recurring-show": "Review the next scheduled occurrence and any open tickets.",
     "recurring-state": "Check the saved recurring definition with recurring-show.",
     "save-goal": "Read the saved project goals with my-goals.",
+    "search-activity": "Open the matching Activity entry and verify what applies to your work.",
     "search-tasks": "Open a matching ticket before starting duplicate work.",
     "set-profile": "Check your signed-in profile with context.",
     "tagged-tasks": "Open a matching ticket to check its current step and evidence.",
@@ -81,6 +82,11 @@ _DEFAULTS = {
     "advance-checklist": (
         "Continue the recorded step. Use shared CLI update --check for checklist progress "
         "or --eta when you can estimate completion."
+    ),
+    "lesson-capture": (
+        "If an issue recurs, search Activity for earlier attempts. "
+        "For a reusable finding, use `tasks --shared log` with `--details`. "
+        "Record what you tried, what worked or failed, and why you chose the next step. Link the evidence."
     ),
     "completion": "Check your Taskboard Inbox for the next actionable item in {project}.",
 }
@@ -130,9 +136,9 @@ class AgentGuidance:
             return self["task-current"]
         transition = data.get("transition")
         if name == "advance-task" and (transition == "start" or transition in _ADVANCE_STEPS):
-            if transition == "start" or (
-                transition == "update" and not data.get("eta") and str(data.get("clear_eta", "false")).lower() != "true"
-            ):
+            if transition == "start":
+                return f"{self['advance-checklist']} {self['lesson-capture']}"
+            if transition == "update" and not data.get("eta") and str(data.get("clear_eta", "false")).lower() != "true":
                 return self["advance-checklist"]
             return self[f"advance-{transition}"]
         if name in ("close-task", "handoff") or (name == "advance-task" and transition == "done"):

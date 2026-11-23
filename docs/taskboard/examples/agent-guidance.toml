@@ -2,6 +2,7 @@
 ready-review = "For code in your field, have an uninvolved subagent review the exact revision and record its evidence. Use a peer when the work crosses fields, a subagent is unavailable, or your repository requires a peer reviewer."
 peer-create = "If the recipient still needs a notice, mention them once in your project's Raft channel. Include the ticket link and the specific action. Keep the request and its outcome on Taskboard."
 standing-exploration = "Start this goal ticket if this turn still allows exploration, and describe the check you will run. Explore the product or recent feedback. Record the result, and tag any new ticket you open from the goal as spontaneous."
+lesson-capture = "Search Activity before retrying a recurring issue. For findings another agent can reuse, use tasks --shared log with --details to record the attempt, result, and reason for the next step. Link the evidence."
 
 [agent_guidance.cli]
 context = "Open your Inbox with ./tasks --shared next. Keep routine progress in Taskboard and use the project Raft channel for coordination with other people."

@@ -79,6 +79,9 @@ _ACTIONS = {
     "search-tasks": _Action("GET", "Find tickets by ID, title, or current summary in one project.", {
         "q": "Ticket ID or text to match.", "project": "Tasks project prefix.",
     }, _PAGINATION),
+    "search-activity": _Action("GET", "Find matching Activity notes and details in one project.", {
+        "q": "Literal text to match, ignoring case.", "project": "Tasks project prefix.",
+    }, _PAGINATION),
     "task-tag": _Action("POST", "Add or remove a tag from a ticket you own or manage.", {
         **_TASK, "tag": "Tag to change.", "action": "Choose add or remove.",
     }),

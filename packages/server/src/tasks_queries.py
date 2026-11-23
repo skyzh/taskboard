@@ -34,6 +34,7 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 TASK_REFERENCE = "tasks.project_prefix || '-' || COALESCE(tasks.project_number, tasks.id)"
 SUGGESTION_KEY = re.compile(r"([A-Z][A-Z0-9]{0,7})-([0-9]*)", re.ASCII)
 SEARCH_WORDS = re.compile(r"[^\W_]+")
+ACTIVITY_EXCERPT_LIMIT = 180
 
 
 def title_suggestion_rank(needle, words, title):
@@ -112,6 +113,42 @@ def page(rows, limit, cursor, render):
         "items": render(visible),
         "next_cursor": visible[-1][cursor] if len(rows) > limit else None,
     }
+
+
+def matching_excerpt(text, needle):
+    folded = text.casefold()
+    start = folded.find(needle)
+    if start < 0:
+        return None
+    if len(text) <= ACTIVITY_EXCERPT_LIMIT:
+        return " ".join(text.split())
+
+    end = start + len(needle)
+    # A folded character such as ß can take more than one position in the match.
+    if len(folded) != len(text):
+        offsets = [index for index, character in enumerate(text) for _ in character.casefold()]
+        start, end = offsets[start], offsets[end - 1] + 1
+    width = ACTIVITY_EXCERPT_LIMIT - 2
+    padding = max(0, width - (end - start)) // 2
+    left = max(0, min(start - padding, len(text) - width))
+    right = left + width
+    excerpt = " ".join(text[left:right].split())
+    return ("…" if left else "") + excerpt + ("…" if right < len(text) else "")
+
+
+def activity_excerpt(row, needle):
+    """Search the projected note and authored Details displayed in Activity."""
+    event = watches.display_event(row)
+    context = ledger.event_context(event)
+    fields = [event["note"], context.get("activity_details")]
+    if event["action"] == "decide":
+        fields.append(context.get("choice"))
+    if event["action"] in ("redirect-decision", "withdraw-decision"):
+        fields.append(context.get("decision_reason"))
+    for field in fields:
+        if isinstance(field, str) and (excerpt := matching_excerpt(field, needle)) is not None:
+            return excerpt
+    return None
 
 
 def task_creation(event):
@@ -826,6 +863,43 @@ class BoardQueries:
         sql = ACTIVITY_SELECT + joins + where + " ORDER BY events.id DESC LIMIT ?"
         rows = self.db.execute(sql, (*args, limit + 1)).fetchall()
         return page(rows, limit, "id", self.event_rows)
+
+    def search_activity(self, search, *, project, before, limit):
+        needle = search.casefold()
+        # Page by the event primary key before joining so sparse matches do not
+        # make the database sort an entire project's history for every batch.
+        sql = f"""
+            WITH batch AS (
+                SELECT id, task_id FROM events WHERE id <= ? ORDER BY id DESC LIMIT ?
+            )
+            SELECT batch.id AS scan_id, events.id, events.actor, events.action, events.note,
+                   events.links, events.context, {TASK_REFERENCE} AS task_key
+            FROM batch
+            LEFT JOIN tasks ON tasks.id = batch.task_id AND tasks.project_prefix = ?
+            LEFT JOIN events ON events.id = batch.id AND tasks.id IS NOT NULL
+            ORDER BY batch.id DESC
+        """
+        cursor = projects.MAX_ID if before is None else before - 1
+        matches = []
+        batch_size = 100
+        with tasks_storage.read(self.db):
+            while len(matches) <= limit:
+                rows = self.db.execute(sql, (cursor, batch_size, project)).fetchall()
+                for row in rows:
+                    if row["id"] is None:
+                        continue
+                    excerpt = activity_excerpt(row, needle)
+                    if excerpt is not None:
+                        matches.append({
+                            "id": row["id"], "task_key": row["task_key"], "excerpt": excerpt,
+                            "url": f"{self.base}/#event-{row['id']}-log",
+                        })
+                        if len(matches) > limit:
+                            break
+                if len(rows) < batch_size:
+                    break
+                cursor = rows[-1]["scan_id"] - 1
+        return page(matches, limit, "id", list)
 
     def outcome_days(self, *, dri, before, limit, project=None, time_zone=PACIFIC):
         day_sql = self.outcome_day_sql(time_zone)
