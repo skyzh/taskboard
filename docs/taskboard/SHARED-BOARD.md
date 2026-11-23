@@ -150,6 +150,28 @@ Use `./tasks --shared wait T-1 "Review after the export is complete." --blocked-
 
 Use `./tasks --shared remind T-1 --until 2026-11-24T16:30-08:00` or choose **Exact time** on the task's reminder form. The task shows the chosen local time and its offset. The board stores the instant in UTC and releases the same task to Ready on the first operator tick at or after that instant. For an ambiguous local time when clocks go back, use the CLI with the offset for the occurrence you want. Use `--on YYYY-MM-DD` for a date-only reminder in Pacific time or `--clear` to leave the task parked without a reminder.
 
+#### Move ticket follow-ups to one schedule
+
+If you use a Raft reminder to reopen a parked ticket yourself, keep it until
+the operator has [verified timed releases on the deployed board](READY-CHECKPOINT.md#test-timed-follow-ups).
+The Ready watcher reads tickets that have already become Ready. A date-only
+reminder adds a dated Inbox follow-up. Use an exact time for an automatic
+transition to Ready.
+
+After verification, move one follow-up at a time. Choose a parked ticket
+that should become Ready at its deadline and has no existing Taskboard
+reminder. Record its original deadline with its UTC offset and its Raft
+reminder reference. Set the same deadline
+using `./tasks --shared remind T-123 --until <timestamp-with-offset>`.
+Confirm the ticket is parked until that instant, then cancel the old Raft
+schedule before it can fire. Allow time to verify the handoff before the
+deadline. If the new schedule cannot be verified, clear it and retain the
+old reminder. To roll back before the deadline, run
+`./tasks --shared remind T-123 --clear` and restore one Raft reminder for the
+original time. If the deadline has passed, check the ticket and delivery
+history before requesting another wake. Keep Raft reminders for work outside
+Taskboard.
+
 Use `./tasks --shared park T-1 "Read the latest entry in the review index."` to refresh the reason on a ticket you own. The ticket stays parked with its scheduled reminder and dependency review criteria intact.
 
 Related tasks come from known ticket IDs and same-board ticket URLs in the title, brief, checklist, or public activity, including its links. The detail API returns `related_tasks` entries with `id`, `key`, `title` and the canonical `url`. Each Activity event includes the same list scoped to its own public text. The browser turns known plain references in task detail and Activity into links. Authored links and code keep their original rendering. The Related tasks panel and local and shared `show` use the same canonical links. Private attention requests and evidence keep their existing access rules. Use blocking dependencies separately.
@@ -266,6 +288,7 @@ The same tick returns due exact-time deferrals to Ready and reports them in
 current UTC time at the interval expected by the deployment. The existing
 [Ready signal](operators/READY-SIGNAL.md) can deliver one linked wake per released event
 when the owner has opted in to delivery.
+
 Pause retains already due slots and excludes the pause interval; cancel
 prevents future slots. Issued tasks keep their normal status workflow.
 
