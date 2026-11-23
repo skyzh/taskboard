@@ -98,17 +98,26 @@ def verify_rollback_ledger(python, predecessor, candidate):
             origin, cookie, _, _ = mounted
             actor = seed(python, predecessor, origin, cookie, database)
             previous_revision = read_json(origin, MOUNT + "/api/v1/revision", cookie=cookie)
-            with fixture_server(python, candidate, root / "candidate", *tls, database=database) as next_slot:
-                next_origin, next_cookie, _, _ = next_slot
+        with fixture_server(python, candidate, root / "candidate", *tls, database=database) as next_slot:
+            next_origin, next_cookie, _, _ = next_slot
+            for transition, note in (
+                ("start", "Started on candidate before rollback."),
+                ("done", "Completed on candidate before rollback."),
+            ):
                 io_action(next_origin, "advance-task", cookie=next_cookie, data={
-                    "id": "T-2", "transition": "start", "note": "Started on candidate before rollback.",
+                    "id": "T-2", "transition": transition, "note": note,
                 })
+        with fixture_server(python, predecessor, root / "restored", *tls, database=database) as restored:
+            origin, cookie, _, _ = restored
             task = io_action(origin, "task", cookie=cookie, query={"id": "T-2"})["task"]
             expect(
                 (task["state"], task["dri"], task["note"]) ==
-                ("in_progress", actor, "Started on candidate before rollback."),
+                ("done", actor, "Completed on candidate before rollback."),
                 "The prior release did not read the candidate's signed write on the upgraded ledger.",
             )
+            events = io_action(origin, "task-activity", cookie=cookie, query={"id": "T-2", "limit": 3})["items"]
+            expect([event["actor"] for event in events if event["action"] == "done"] == [actor],
+                   "The prior release did not read exactly one attributed candidate completion.")
             expect(read_json(origin, MOUNT + "/api/v1/revision", cookie=cookie) != previous_revision,
                    "The prior release did not observe the upgraded ledger revision.")
 

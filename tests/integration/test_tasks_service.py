@@ -3514,7 +3514,7 @@ class TasksServiceTest(unittest.TestCase):
             "Next: Review unassigned Ready work on COURSE-2 · Shared work. "
             "Read it with `./tasks --shared next --project COURSE`.",
         ])
-        self.assertEqual(actions, ["context", "advance-task", "my-next"])
+        self.assertEqual(actions, ["context", "advance-task"])
         finished = self.action(owner, "my-queue", query_string={"project": "COURSE", "state": "done"})
         self.assertEqual([row["key"] for row in finished["items"]], ["COURSE-1"])
         self.assertEqual(finished["next_step"], "Review these tickets, or check your Inbox for actionable work.")
@@ -3573,8 +3573,11 @@ class TasksServiceTest(unittest.TestCase):
         self.action(owner, "save-goal", {"kind": "standing", "summary": "Improve handoffs."})
         goal = self.action(owner, "my-next")["standing_goals"][0]["ticket"]
 
-        for title, command in (("Completed fixture", "done"), ("Handed-off fixture", "transfer"),
-                               ("Next unavailable", "done"), ("Next malformed", "done")):
+        cases = (
+            ("Completed fixture", "done"), ("Handed-off fixture", "transfer"), ("Previous server", "done"),
+            ("Unrecognized cue", "done"), ("Next unavailable", "done"), ("Next malformed", "done"),
+        )
+        for title, command in cases:
             self.action(owner, "create-task", {"title": title, "step": "Check the live path."})
             ticket = self.action(owner, "my-next")["work"]["key"]
             self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Start the fixture."})
@@ -3584,14 +3587,20 @@ class TasksServiceTest(unittest.TestCase):
                 args = (command, ticket, "Completed the check.")
             actions = []
             unavailable = ("my-next",) if title == "Next unavailable" else ()
-            carrier_results = {"my-next": {}} if title == "Next malformed" else None
+            carrier_results = {}
+            if command == "done" and title != "Completed fixture":
+                carrier_results["advance-task"] = {"receipt": f"{ticket} · Completed"}
+            if title == "Unrecognized cue":
+                carrier_results["advance-task"]["next_action"] = {"project": "T", "kind": "other"}
+            if title == "Next malformed":
+                carrier_results["my-next"] = {}
             code, output, error = self.shared_cli(
                 owner, *args, actions=actions, unavailable=unavailable, carrier_results=carrier_results,
             )
             self.assertEqual((code, error), (0, ""))
             self.assertTrue(output.startswith(f"Committed · {ticket}"))
-            self.assertEqual(actions[-1], "my-next")
-            if unavailable or carrier_results:
+            self.assertEqual(actions[-1], "advance-task" if title == "Completed fixture" else "my-next")
+            if unavailable or "my-next" in carrier_results:
                 self.assertIn("The next item could not be loaded.", output)
                 self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "done")
             else:
@@ -3610,6 +3619,55 @@ class TasksServiceTest(unittest.TestCase):
         parked = self.shared_cli(owner, "show", goal)[1]
         self.assertIn("Checked the handoff.", parked)
         self.assertIn("add the spontaneous tag.", parked)
+
+    def test_completion_receipt_survives_an_unavailable_queue_cue(self):
+        from tasks_queries import BoardQueries
+
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        other, _ = self.login(app, "Blake")
+        self.cli("register-project", "COURSE", "Example course", "--dri", owner_id)
+        self.action(owner, "create-task", {"title": "Other project work", "step": "Read it."})
+
+        def start(number):
+            self.action(owner, "create-task", {
+                "title": f"Completion sample {number}", "step": "Reproduce the result.", "project": "COURSE",
+            })
+            ticket = f"COURSE-{number}"
+            result = self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Try the check."})
+            self.assertNotIn("next_action", result)
+            return ticket
+
+        ticket = start(1)
+        completion = {"id": ticket, "transition": "done", "note": "The check passed."}
+        self.action(other, "advance-task", completion, status=409)
+        result = self.action(owner, "advance-task", completion)
+        self.assertEqual(result, {
+            "receipt": f"{ticket} · Completed",
+            "next_step": "Check your Taskboard Inbox for the next actionable item in COURSE.",
+            "next_action": {"project": "COURSE", "kind": "empty"},
+        })
+
+        ticket = start(2)
+        calls = []
+        with patch.object(BoardQueries, "actionable_work", side_effect=sqlite3.OperationalError("fixture read error")):
+            with self.assertLogs(app.logger, level="ERROR"):
+                code, output, errors = self.shared_cli(owner, "done", ticket, "Reproduced.", actions=calls)
+        self.assertEqual((code, errors, calls), (0, "", ["context", "advance-task"]))
+        self.assertIn(f"Committed · {ticket} · Completed", output)
+        self.assertIn("The next item could not be loaded.", output)
+
+        lost_ticket = start(3)
+        lost_calls = []
+        code, output, errors = self.shared_cli(
+            owner, "done", lost_ticket, "Reproduced.", actions=lost_calls, lose_receipt=True,
+        )
+        self.assertEqual((code, output, lost_calls), (1, "", ["context", "advance-task"]))
+        self.assertIn("Shared write outcome unknown.", errors)
+        for completed in (ticket, lost_ticket):
+            events = self.action(owner, "task-activity", query_string={"id": completed})["items"]
+            finishes = [event for event in events if event["action"] == "done"]
+            self.assertEqual([event["actor"] for event in finishes], [owner_id])
 
     def test_shared_cli_read_guidance_preserves_plain_and_json_results(self):
         app = self.app(portal_reader=True)

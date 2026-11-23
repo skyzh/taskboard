@@ -228,6 +228,13 @@ def verify_cli(python, client, env, origin, cookie, actor, *, legacy=False):
     expect(detail["state"] == "in_progress" and detail["dri"] == actor, "The ledger did not retain the resumed task.")
     expect([(event["action"], event["actor"]) for event in events] == [(verb, actor) for verb in ("resume", "wait", "start")],
            "The ledger did not retain the exact attributed workflow.")
+    expect("Committed" in run("done", "T-2", "Compatibility fixture completed."),
+           "The pinned client lost the completion receipt.")
+    detail = io_action(origin, "task", cookie=cookie, query={"id": "T-2"})["task"]
+    events = io_action(origin, "task-activity", cookie=cookie, query={"id": "T-2", "limit": 6})["items"]
+    expect((detail["state"], detail["dri"]) == ("done", actor), "The ledger did not retain the completed task.")
+    expect([event["actor"] for event in events if event["action"] == "done"] == [actor],
+           "The ledger did not retain exactly one attributed completion.")
 
 
 if __name__ == "__main__":
