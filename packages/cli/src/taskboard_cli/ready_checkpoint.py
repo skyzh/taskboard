@@ -349,6 +349,11 @@ def recover_ready_read(read, stage, error, emit, interval, *, count_ready=False)
                 event["ready_count"] = len(result)
             emit(event)
             return result
+    stopped = {"kind": "ready-read-stopped", "at": observation_time(), "stage": stage,
+               "reason": error.reason, "retryable": error.retryable}
+    if error.carrier is not None:
+        stopped["carrier"] = error.carrier
+    emit(stopped)
     guidance = (
         "Sign in to the registered Tasks app and verify your session with `./tasks --shared context` before restarting."
         if error.reason == "http-401" else "Verify the registered app, shared session, and queue access before restarting."

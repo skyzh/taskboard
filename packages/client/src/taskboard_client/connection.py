@@ -29,10 +29,11 @@ class SharedActionUnavailable(RuntimeError):
 class SharedReadError(RuntimeError):
     """A failed shared read with a safe reason for watcher diagnostics."""
 
-    def __init__(self, message, *, reason="unclassified", retryable=False):
+    def __init__(self, message, *, reason="unclassified", retryable=False, carrier=None):
         super().__init__(message)
         self.reason = reason
         self.retryable = retryable
+        self.carrier = carrier
 
 
 def action_transport_timed_out(reply):
@@ -49,18 +50,43 @@ def action_transport_timed_out(reply):
     )
 
 
-def invocation_failure(result, reply, service, action):
+def carrier_error(result, reply):
     failure = reply.get("error", {})
     if not isinstance(failure, dict):
         failure = {}
+    code = failure.get("code")
+    if not isinstance(code, str) or not code:
+        match = re.search(r"^Code: ([A-Z_]+)$", result.stderr, re.MULTILINE)
+        code = match[1] if match else None
+    return failure, code
+
+
+def carrier_diagnostic(result, reply, failure, code):
+    if isinstance(reply.get("error"), dict):
+        output = "error-envelope"
+    elif reply:
+        output = "unexpected-envelope"
+    elif code:
+        output = "legacy-error"
+    elif result.stdout.strip() or result.stderr.strip():
+        output = "unstructured"
+    else:
+        output = "empty"
+    diagnostic = {"exit_code": result.returncode, "output": output}
+    if code:
+        known = code in BEFORE_DISPATCH or code == "INTEGRATION_INVOKE_FAILED"
+        diagnostic["error_code"] = code if known else "other"
+    domain = failure.get("fault_domain")
+    if domain in ("integration_action", "integration_action_transport"):
+        diagnostic["fault_domain"] = domain
+    return diagnostic
+
+
+def invocation_failure(result, reply, failure, code, service, action):
     message = failure.get("message", "")
     details = failure.get("details", {})
     if not isinstance(details, dict):
         details = {}
-    code = failure.get("code")
-    if not code:
-        code_match = re.search(r"^Code: ([A-Z_]+)$", result.stderr, re.MULTILINE)
-        code = code_match[1] if code_match else None
     if code == "INTEGRATION_NOT_FOUND":
         return ("The Tasks app is missing from your Raft integration inventory. Check `raft integration list`.",
                 None, "raft-integration-missing")
@@ -154,21 +180,29 @@ class SharedBoard:
             if failure.get("ok") is False:
                 reply = failure
         if result.returncode != 0 or reply.get("ok") is not True:
+            failure, code = carrier_error(result, reply)
             if not write and action_transport_timed_out(reply):
-                raise SharedReadError(unknown, reason="timeout", retryable=True)
-            reason, status, category = invocation_failure(result, reply, self.service, action)
+                raise SharedReadError(
+                    unknown, reason="timeout", retryable=True,
+                    carrier=carrier_diagnostic(result, reply, failure, code),
+                )
+            reason, status, category = invocation_failure(result, reply, failure, code, self.service, action)
             if write:
                 raise RuntimeError(f"Shared write rejected. {reason}" if reason else unknown)
             raise SharedReadError(
                 f"Shared read failed. {reason}" if reason else unknown,
                 reason=f"http-{status}" if status is not None else category,
                 retryable=status in TEMPORARY_READ_STATUS,
+                carrier=carrier_diagnostic(result, reply, failure, code),
             )
         envelope = reply.get("data")
         response = envelope.get("result") if isinstance(envelope, dict) else None
         if not isinstance(response, dict):
             if not write:
-                raise SharedReadError(unknown, reason="invalid-reply")
+                raise SharedReadError(
+                    unknown, reason="invalid-reply",
+                    carrier=carrier_diagnostic(result, reply, {}, None),
+                )
             raise RuntimeError(unknown)
         if write:
             receipt = response.get("receipt")

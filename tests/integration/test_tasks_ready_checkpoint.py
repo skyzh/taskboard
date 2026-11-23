@@ -537,6 +537,8 @@ class ReadyCheckpointTest(unittest.TestCase):
                 status = queue_failure(len(reads), bool(wakes))
             if status == "missing":
                 raise FileNotFoundError()
+            if isinstance(status, subprocess.CompletedProcess):
+                return status
             if status:
                 error = {"code": "INTEGRATION_INVOKE_FAILED"}
                 if status == "timeout":
@@ -673,6 +675,32 @@ class ReadyCheckpointTest(unittest.TestCase):
                 self.assertEqual(wakes, [])
                 self.assertEqual(len([row for row in observations if row.get("kind") == "ready-read-retry"]),
                                  len(reads_at) - 1)
+                stopped, = (row for row in observations if row.get("kind") == "ready-read-stopped")
+                self.assertEqual((stopped["stage"], stopped["reason"], stopped["retryable"]),
+                                 ("idle sample", reason, status == 502))
+
+    def test_count_watcher_records_redacted_carrier_evidence_for_an_unclassified_stop(self):
+        error = {"code": "PRIVATE_FIXTURE_CODE", "fault_domain": "private-fixture-domain",
+                 "message": "private fixture output", "details": {"request_id": "private-fixture-request"}}
+        envelope = json.dumps({"ok": False, "error": error})
+        cases = (
+            (subprocess.CompletedProcess([], 12, "", envelope), "unclassified",
+             {"exit_code": 12, "output": "error-envelope", "error_code": "other"}),
+            (subprocess.CompletedProcess([], 3, "", "private fixture output"), "carrier-no-reply",
+             {"exit_code": 3, "output": "unstructured"}),
+        )
+        for carrier, reason, diagnostic in cases:
+            with self.subTest(reason=reason), patch("taskboard_cli.ready_checkpoint.observation_time",
+                                                    return_value="2026-11-23T00:00:00.000Z"):
+                outcome, observations, wakes, reads = self.watch_through_carrier(lambda *_: carrier, 10)
+                self.assertIn(reason, str(outcome))
+                self.assertEqual(reads, [0])
+                self.assertEqual(wakes, [])
+                self.assertEqual(observations[-1], {
+                    "kind": "ready-read-stopped", "at": "2026-11-23T00:00:00.000Z", "stage": "idle sample",
+                    "reason": reason, "retryable": False, "carrier": diagnostic,
+                })
+                self.assertNotRegex(repr(observations) + str(outcome), r"(?i)private[_ -]fixture")
 
     def test_count_wake_uses_only_the_owned_queue_size(self):
         title = f"You have 2 Ready tickets. {COUNT_WAKE_GUIDANCE}"

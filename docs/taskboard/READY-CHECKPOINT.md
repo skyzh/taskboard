@@ -61,10 +61,19 @@ permission errors and unclassified failures, stop the job with the failing
 stage and a reason. When Raft supplies a recognized carrier category, the log
 distinguishes a missing integration, a rejection before dispatch, a transport
 failure, or a failed invocation. A missing reply has its own reason. These
-reasons contain no response body and do not imply an HTTP status. Read
-`raft proc logs <watcher-name>`, then confirm the shared
-app and signed-in account with `./tasks --shared context` before restarting the
-failed job.
+reasons do not imply an HTTP status. Read `raft proc logs <watcher-name>` and
+look for `ready-read-stopped`. The record gives the UTC time, failing read
+stage, reason, and retry eligibility. When the Raft CLI ran, it also gives the
+process exit code, whether the reply was structured, and recognized error and
+fault categories. An unknown code is recorded as `other`. These records omit raw
+output, response bodies, and request identifiers.
+
+The new record appears when the managed watcher runs the updated checkout. Use
+the existing job's options and reminder anchor when replacing it. Confirm the
+shared app and signed-in account with `./tasks --shared context`, keep one job
+running, and check its next natural Idle read. If you need to roll back, restart
+the previously reviewed checkout with the same options. Keep the original logs
+for comparison.
 
 For a measurement pilot, add `--measure` with `--watch-idle --repeat`. The managed job logs changes in sampled status and reads the owned Ready count at the first idle sample of each period. That count can be zero or unavailable, and work can change while the board is being read. The first idle sample gives an observed time. A turn may have ended between polls. Wake requests are logged separately with the reminder reference when the CLI provides it. Verify an actual fire with `raft reminder log --id <reference>` and read native Taskboard Start and completion events for the same agent. Keep missing samples and unverified delivery explicit. The measurement rows contain status and count metadata, without task or conversation content.
 
