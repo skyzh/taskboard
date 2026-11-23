@@ -46,7 +46,8 @@ BOARD_FRAGMENT = re.compile(
     r"(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9][0-9]{0,18})?))?"
     r"|knowledge(?:\?(?:entry=[A-Z][A-Z0-9]{0,7}-[1-9][0-9]{0,18}|q=[A-Za-z0-9_%+.*~-]{1,1920}))?"
     r"|stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?"
-    r"|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?|settings|about|personal-codex|integrations)"
+    r"|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?|settings|about|personal-codex"
+    r"|integrations(?:\?cli=[0-9a-f]{64})?)"
 )
 _MAX_PROVIDER_RESPONSE = 64 * 1024
 _RAFT_API_ORIGIN = "https://api.raft.build"
@@ -503,11 +504,15 @@ class RaftAuth:
         if not key or g.get("_raft_board_identity") is None:
             return None
         digest = session_digest(key)
+        remaining = self.human_session_remaining(digest)
+        return (digest, remaining) if remaining is not None else None
+
+    def human_session_remaining(self, digest):
         with self._lock:
             now = self._session_time()
             _, session = self._find_session(digest, now)
         if session is not None and session.kind == "human":
-            return digest, session.expires - now
+            return session.expires - now
         return None
 
     def _find_session(self, digest, now):

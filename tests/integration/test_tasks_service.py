@@ -35,6 +35,7 @@ from tasks_service import bind_owner, create_app, import_assignee, serve
 from taskboard_cli import main as tasks_main
 from taskboard_cli.ready_checkpoint import watch_ready_count
 from taskboard_client import SharedBoard
+from taskboard_client.direct import DirectBoard
 from tasks_core import SCHEMA, import_notification_on, import_release_event, record, timestamp
 from tasks_storage import open_sqlite
 from tasks_wake_subscriptions import OWNED_READY, has_subscription
@@ -161,6 +162,94 @@ class TasksServiceTest(unittest.TestCase):
             },
             **kwargs,
         )
+
+    def test_cli_login_saves_a_verified_connection_and_logs_out(self):
+        app = self.app(portal_reader=True)
+        browser, owner = self.login(app, "Sam")
+        unsigned = app.test_client()
+        origin = {"Origin": ORIGIN}
+        settings = "/api/v1/personal-agents"
+        request = {"verifier": "a" * 43}
+        self.call(unsigned, settings + "/cli-exchange", method="POST", headers=origin, json=request, status=202)
+        self.call(unsigned, settings + "/cli-authorize", method="POST", headers=origin,
+                  json={"challenge": "a" * 64}, status=401)
+        self.call(browser, settings + "/cli-authorize", method="POST", headers={"Origin": "https://other.example"},
+                  json={"challenge": "a" * 64}, status=403)
+
+        def open_http(req, *, timeout):
+            parts = urlsplit(req.full_url)
+            self.assertEqual(f"{parts.scheme}://{parts.netloc}", ORIGIN)
+            headers = {PORTAL_HEADER: PORTAL_FIXTURE, **dict(req.header_items())}
+            response = unsigned.open(parts.path, method=req.get_method(), base_url=ORIGIN,
+                                     query_string=parts.query, data=req.data, headers=headers)
+            output = BytesIO(response.data)
+            if response.status_code >= 400:
+                raise HTTPError(req.full_url, response.status_code, "Fixture", response.headers, output)
+            output.status = response.status_code
+            return output
+
+        def approve(url):
+            fragment = urlsplit(url).fragment
+            self.assertTrue(fragment.startswith("integrations?cli="))
+            challenge = fragment.split("=", 1)[1]
+            reply = self.call(browser, settings + "/cli-authorize", method="POST",
+                              headers=origin, json={"challenge": challenge})
+            self.assertEqual(reply.json, {"authorized": True})
+            self.call(browser, settings + "/cli-authorize", method="POST",
+                      headers=origin, json={"challenge": challenge}, status=409)
+
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.database.parent / "client")}), \
+                patch("taskboard_client.direct.webbrowser.open", side_effect=approve), redirect_stdout(StringIO()) as out:
+            transport = Mock(open=open_http)
+            board = DirectBoard(ORIGIN + BASE, opener=transport)
+            self.assertEqual(board.login(), f"Signed in to {ORIGIN}{BASE}/")
+            self.assertIn("code ", out.getvalue())
+            self.assertNotIn("tbpa_", out.getvalue())
+            self.assertEqual(board.credentials.path.stat().st_mode & 0o777, 0o600)
+            saved = DirectBoard(ORIGIN + BASE + "/", opener=transport)
+            self.assertEqual(saved.invoke("context")["actor"]["id"], owner)
+            saved.invoke("create-task", {"title": "CLI test", "step": "Verify the result."}, write=True)
+            saved.invoke("advance-task", {"id": "T-1", "transition": "start", "note": "Started."}, write=True)
+            saved.invoke("advance-task", {"id": "T-1", "transition": "done", "note": "Verified."}, write=True)
+            self.assertEqual(saved.api("/api/v1/tasks/T-1", "GET")["task"]["state"], "done")
+            with patch("taskboard_cli.shared.DirectBoard", return_value=saved):
+                self.assertEqual(tasks_main(["--shared", "--url", ORIGIN + BASE, "context"]), 0)
+            self.assertIn("Shared board · Sam", out.getvalue())
+            token = saved.credentials.read()
+            self.assertEqual(saved.logout(), f"Signed out of {ORIGIN}{BASE}/")
+            self.assertIsNone(saved.credentials.read())
+            self.call(unsigned, "/api/v1/raft/context", headers={"Authorization": f"Bearer {token}"}, status=401)
+
+    def test_personal_agents_tailnet_requires_portal_marker_and_explicit_opt_in(self):
+        subject = self.provider.people["Sam"]["sub"]
+        app = self.app(portal_reader=True, personal_agent_tailnet_subject=subject)
+        user, owner = self.login(app, "Sam")
+        anonymous = app.test_client()
+        context = "/api/v1/raft/context"
+        settings = "/api/v1/personal-agents"
+        select = {"X-Taskboard-Personal-Agent": "1"}
+        marker = {"X-Portal-Auth-Method": "tailscale"}
+        trusted = {**select, **marker}
+        origin = {"Origin": ORIGIN}
+        self.assertEqual(self.call(anonymous, settings + "/access").json, {"mode": "login_required"})
+        self.assertEqual(self.call(anonymous, settings + "/access", headers=marker).json, {"mode": "tailnet"})
+        self.call(anonymous, context, headers=select, status=401)
+        self.call(anonymous, context, headers=marker, status=401)
+        self.assertEqual(anonymous.get(BASE + context, base_url=ORIGIN, headers=trusted).status_code, 403)
+        self.call(user, context, status=403)
+        signed = self.call(anonymous, context, headers=trusted).json
+        self.assertEqual((signed["actor"]["id"], signed["personal_agent_access"]), (owner, "tailnet"))
+        self.call(anonymous, settings + "/connections", headers=trusted, status=403)
+        ticket = {"title": "Tailnet trial", "step": "Verify the result."}
+        self.action(anonymous, "create-task", ticket, headers=trusted, status=403)
+        self.action(anonymous, "create-task", ticket, headers={**trusted, **origin})
+        self.action(anonymous, "advance-task", {"id": "T-1", "transition": "start", "note": "Started."},
+                    headers={**trusted, **origin})
+        self.action(anonymous, "advance-task", {"id": "T-1", "transition": "done", "note": "Verified."},
+                    headers={**trusted, **origin})
+        self.assertEqual(self.call(anonymous, "/api/v1/tasks/T-1", headers=trusted).json["task"]["dri"], owner)
+        without_opt_in = self.app(portal_reader=True)
+        self.call(without_opt_in.test_client(), context, headers=trusted, status=401)
 
     def test_personal_agent_connection_uses_human_permissions_and_shared_decision_workflow(self):
         session_dir = self.database.parent / "sessions"
@@ -6968,6 +7057,7 @@ class TasksServiceTest(unittest.TestCase):
             ("Quinn", "#about"), ("Casey", "#reports?project=COURSE"),
             ("Casey", "#reports?project=COURSE&view=all"), ("Sam", "#knowledge"),
             ("Sam", "#knowledge?entry=SRE-2"), ("Quinn", "#knowledge?q=sample+rule"),
+            ("Sam", "#integrations?cli=" + "a" * 64),
         ):
             with self.subTest(fragment=fragment):
                 self.provider.issued.discard(name)
@@ -6980,6 +7070,7 @@ class TasksServiceTest(unittest.TestCase):
         for fragment in (
             "#reports?project=//other.example", "#reports?project=COURSE&project=T",
             "#knowledge?entry=SRE-2&next=//other.example", "#knowledge?q=sample&q=rule",
+            "#integrations?cli=0&next=//other.example",
         ):
             self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
 

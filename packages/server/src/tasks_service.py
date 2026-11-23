@@ -5,6 +5,7 @@ from base64 import b64decode
 from binascii import Error as Base64Error
 from contextlib import closing
 from datetime import date, datetime, timezone
+from hashlib import sha256
 from hmac import compare_digest
 from io import BytesIO
 import json
@@ -502,6 +503,7 @@ def create_app(
     codex_snapshot_uploader=None,
     codex_snapshot_upload_sources=None,
     personal_codex_pilot=None,
+    personal_agent_tailnet_subject=None,
     agent_guidance=None,
 ):
     """Configure the board; injected identity providers are used by isolated tests."""
@@ -516,6 +518,13 @@ def create_app(
     personal_api_enabled = bool(
         not marketplace and not local_readonly and oidc_config is None and (raft_config or {}).get("server_id")
     )
+    if personal_agent_tailnet_subject is not None:
+        if not personal_api_enabled:
+            raise ValueError("Personal Agents tailnet access requires a fixed-server shared board with Raft sign-in.")
+        try:
+            personal_agent_tailnet_subject = str(UUID(personal_agent_tailnet_subject))
+        except ValueError as error:
+            raise ValueError("Set TASKS_PERSONAL_AGENTS_TAILNET_SUBJECT to a verified human subject UUID.") from error
     if personal_codex_pilot and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
         raise ValueError("Personal Codex reporting requires a fixed-server shared board with Raft sign-in.")
     public_raft_links = {} if marketplace or local_readonly else project_links.public_raft_links(public_raft_channel_urls)
@@ -668,6 +677,7 @@ def create_app(
                         pilot_db.execute(statement)
                 if personal_api_enabled:
                     pilot_db.execute(personal_agents.SCHEMA)
+                    pilot_db.execute(personal_agents.CLI_SCHEMA)
 
     @app.errorhandler(RequestError)
     def invalid(error):
@@ -704,14 +714,36 @@ def create_app(
             g.database = connection
         return g.database
 
+    def personal_agent_tailnet():
+        # The portal middleware authenticates the forwarding portal before Flask.
+        return personal_agent_tailnet_subject and request.headers.get("X-Portal-Auth-Method") == "tailscale"
+
     def personal_agent_actor():
         if not personal_api_enabled or not request.path.startswith("/api/v1/"):
             return None
-        scheme, _, token = request.headers.get("Authorization", "").partition(" ")
-        if scheme.lower() != "bearer" or not token.startswith(personal_agents.API_TOKEN_PREFIX):
+        authorization = request.headers.get("Authorization", "")
+        scheme, _, token = authorization.partition(" ")
+        bearer = scheme.lower() == "bearer" and token.startswith(personal_agents.API_TOKEN_PREFIX)
+        tailnet_requested = not authorization and request.headers.get("X-Taskboard-Personal-Agent") == "1"
+        if not (bearer or tailnet_requested):
             return None
         if request.path.startswith(("/api/v1/personal-agents/", "/api/v1/personal-codex/")):
-            raise RequestError("Use the signed-in browser to manage connections.", 403)
+            raise RequestError("Use the signed-in browser for setup.", 403)
+        if tailnet_requested:
+            if not personal_agent_tailnet():
+                raise RequestError("Sign in to continue on this network.", 401)
+            if request.path.startswith("/api/v1/account/"):
+                raise RequestError("Sign in to open private account data.", 403)
+            if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get("Origin") != origin:
+                raise RequestError("Send changes from the board origin.", 403)
+            actor = db().execute(
+                f"SELECT {profiles.FIELDS} FROM board_principals WHERE server_id = ? AND subject = ? AND kind = 'human'",
+                (raft_config["server_id"], personal_agent_tailnet_subject),
+            ).fetchone()
+            if actor is None:
+                raise RequestError("The configured Personal Agents profile is unavailable.", 401)
+            g.personal_agent_api = "tailnet"
+            return actor
         connection = personal_agents.authorized_connection(db(), token)
         identity = raft.identity_for_session(connection["browser_session"]) if connection is not None else None
         if identity is None and raft.identity_temporarily_unavailable():
@@ -721,7 +753,7 @@ def create_app(
         actor = profiles.for_identity(db(), identity)
         if actor is None or actor["ledger_key"] != connection["owner"]:
             raise RequestError("A valid Personal Agents connection is required.", 401)
-        g.personal_agent_api = True
+        g.personal_agent_api = "login_required"
         return actor
 
     def current_actor(kind=None, *, write=False, required=False, sync_profile=True):
@@ -889,10 +921,72 @@ def create_app(
             raise RequestError(str(error), 404) from error
 
     if personal_api_enabled:
+        def personal_api_response(result, status=200):
+            response = jsonify(result)
+            response.status_code = status
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        def require_personal_api_origin():
+            if request.headers.get("Origin") != origin:
+                raise RequestError("Send setup requests from the board origin.", 403)
+
         def personal_api_browser(*, write=False):
-            if write and request.headers.get("Origin") != origin:
-                raise RequestError("Open Personal Agents on the board to manage connections.", 403)
+            if write:
+                require_personal_api_origin()
             return current_actor("human", write=write, sync_profile=False)["ledger_key"]
+
+        @app.get("/api/v1/personal-agents/access")
+        def personal_agent_access():
+            return personal_api_response({"mode": "tailnet" if personal_agent_tailnet() else "login_required"})
+
+        @app.post("/api/v1/personal-agents/cli-authorize")
+        def personal_agent_cli_authorize():
+            owner = personal_api_browser(write=True)
+            challenge = json_body({"challenge"}).get("challenge")
+            if not isinstance(challenge, str) or not personal_agents.CLI_CHALLENGE.fullmatch(challenge):
+                raise RequestError("Open the sign-in link printed by the Taskboard CLI.")
+            binding = raft.browser_session_binding()
+            if binding is None:
+                raise RequestError("Sign in again to approve the Taskboard CLI.", 401)
+            with tasks_storage.write(db()) as connection:
+                if not personal_agents.authorize_cli(connection, challenge, owner, binding[0]):
+                    raise RequestError("This sign-in request already has an approval.", 409)
+            return personal_api_response({"authorized": True})
+
+        @app.post("/api/v1/personal-agents/cli-exchange")
+        def personal_agent_cli_exchange():
+            require_personal_api_origin()
+            verifier = json_body({"verifier"}).get("verifier")
+            if not isinstance(verifier, str) or not personal_agents.CLI_VERIFIER.fullmatch(verifier):
+                raise RequestError("Use the Taskboard CLI to complete sign-in.")
+            challenge = sha256(verifier.encode()).hexdigest()
+            approval = personal_agents.cli_approval(db(), challenge)
+            if approval is None:
+                return personal_api_response({"authorized": False}, 202)
+            digest = approval["browser_session"]
+            identity = raft.identity_for_session(digest)
+            if identity is None and raft.identity_temporarily_unavailable():
+                raise RequestError("Raft sign-in verification is temporarily unavailable.", 503)
+            remaining = raft.human_session_remaining(digest)
+            actor = profiles.for_identity(db(), identity) if identity and identity.kind == "human" else None
+            if actor is None or actor["ledger_key"] != approval["owner"] or remaining is None:
+                raise RequestError("Sign in again to complete the Taskboard CLI login.", 401)
+            with tasks_storage.write(db()) as connection:
+                if not personal_agents.consume_cli_approval(connection, challenge, approval["owner"], digest):
+                    return personal_api_response({"authorized": False}, 202)
+                result = personal_agents.issue(connection, approval["owner"], digest, remaining, "Taskboard CLI")
+            return personal_api_response(result)
+
+        @app.post("/api/v1/personal-agents/cli-logout")
+        def personal_agent_cli_logout():
+            require_personal_api_origin()
+            scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+            if scheme.lower() != "bearer" or not personal_agents.API_TOKEN.fullmatch(token):
+                raise RequestError("Use the Taskboard CLI to sign out.", 401)
+            with tasks_storage.write(db()) as connection:
+                personal_agents.revoke_token(connection, token)
+            return "", 204
 
         @app.route("/api/v1/personal-agents/connections", methods=["GET", "POST"])
         def personal_agent_connections():
@@ -910,9 +1004,7 @@ def create_app(
                     result = personal_agents.issue(connection, owner, *binding, label)
             else:
                 result = {"connections": [dict(row) for row in personal_agents.list_connections(db(), owner)]}
-            response = jsonify(result)
-            response.headers["Cache-Control"] = "no-store"
-            return response
+            return personal_api_response(result)
 
         @app.delete("/api/v1/personal-agents/connections/<uuid:identifier>")
         def personal_agent_connection_delete(identifier):
@@ -2531,6 +2623,8 @@ def create_app(
             }
             if agent_guidance.cli:
                 context["cli_guidance"] = agent_guidance.cli
+            if g.get("personal_agent_api"):
+                context["personal_agent_access"] = g.personal_agent_api
             return context
         if name in {"raft-channel-show", "raft-channel-set"}:
             return project_channel(actor, project_filter(data), data if write else None)
@@ -2928,6 +3022,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             codex_snapshot_uploader=os.environ.get("TASKS_CODEX_SNAPSHOT_UPLOADER_SUBJECT") or None,
             codex_snapshot_upload_sources=os.environ.get("TASKS_CODEX_SNAPSHOT_UPLOAD_SOURCES"),
             personal_codex_pilot=personal_codex.configuration(os.environ),
+            personal_agent_tailnet_subject=os.environ.get("TASKS_PERSONAL_AGENTS_TAILNET_SUBJECT"),
             agent_guidance=agent_guidance,
             project_extensions=project_extensions,
             public_raft_channel_urls=os.environ.get("TASKS_PUBLIC_RAFT_CHANNEL_URLS"),
