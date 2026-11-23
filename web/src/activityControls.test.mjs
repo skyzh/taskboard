@@ -870,6 +870,8 @@ test('Reports shows linked and unlinked asks in one request log without recipien
       id: 'peer:3', source_id: 8, source_key: 'COURSE-5', source_title: 'Check the sample',
       request_key: 'COURSE-6', requester: 'Morgan', recipient: 'Avery', phase: 'done',
       resolution: { id: 12 },
+    }, {
+      id: 'peer:4', source_id: 9, request_key: 'COURSE-7', recipient: 'Avery', phase: 'asked',
     }]),
     '/notifications/decisions': feed('decisions', [{
       id: 4, key: 'COURSE-1', title: 'Choose sample', note: 'Recipient-only decision.',
@@ -879,7 +881,10 @@ test('Reports shows linked and unlinked asks in one request log without recipien
     }]),
   }
 
-  const render = viewer => renderToStaticMarkup(React.createElement(QueuedAsks, { project: 'COURSE', viewer }))
+  const render = (viewer, mode = 'compact') => {
+    fixture.state = [mode]
+    return renderToStaticMarkup(React.createElement(QueuedAsks, { project: 'COURSE', viewer }))
+  }
   const reader = render(null)
   assert.deepEqual(calls, ['request log'])
   assert.equal((reader.match(/aria-label="Requests"/g) || []).length, 1)
@@ -902,6 +907,12 @@ test('Reports shows linked and unlinked asks in one request log without recipien
   const requester = render({ id: 'Morgan' })
   assert.equal((requester.match(/class="request-action"/g) || []).length, 1)
   assert.match(requester, /class="request-action" href="#event-11-log">Review response<\/a>/)
+  const verbose = render({ id: 'Morgan' }, 'verbose')
+  assert.match(verbose, /href="#task-COURSE-4"[^>]*><span class="ticket-id">COURSE-4<\/span> Verify the export on a phone<\/a>/)
+  assert.equal((verbose.match(/href="#task-COURSE-4"/g) || []).length, 1)
+  assert.match(verbose, /href="#task-COURSE-3"><span class="ticket-id">COURSE-3<\/span> Review the changes<\/a>/)
+  assert.match(verbose, /href="#event-11-log">Response<\/a>/)
+  assert.match(verbose, /href="#task-COURSE-7"[^>]*><span class="ticket-id">COURSE-7<\/span><\/a>/)
 })
 
 test('a legacy hold, decision context, and evidence remain accessible', () => {
