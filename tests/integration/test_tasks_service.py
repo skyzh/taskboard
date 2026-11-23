@@ -2683,6 +2683,11 @@ class TasksServiceTest(unittest.TestCase):
         changed = self.action(manager, "task-activity", query_string={"id": "T-1"})["items"][0]
         self.assertEqual(changed["actor"], manager_id)
         self.assertEqual(self.action(agent, "task", query_string={"id": "T-1"})["brief"], "Revised guidance.")
+        history = "/api/v1/tasks/T-1/history/"
+        before_edit = history + str(index["task"]["event_id"])
+        self.assertEqual(self.call(agent, before_edit).json["brief"], "Initial guidance.")
+        self.assertEqual(self.call(agent, history + str(changed["id"])).json["brief"], "Revised guidance.")
+        self.call(app.test_client(), before_edit, status=401)
 
     def test_knowledge_directory_stages_work_and_reconciles_one_settled_correction(self):
         app = self.app(portal_reader=True)
