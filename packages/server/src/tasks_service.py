@@ -34,6 +34,7 @@ import tasks_goal_offers as goal_offers
 import tasks_guidance
 import tasks_extensions as extensions
 import tasks_integration_stats as integration_stats
+import tasks_knowledge as knowledge_records
 import tasks_merges as merges
 import tasks_notification_log as notification_log
 import tasks_oidc as oidc_auth
@@ -336,6 +337,8 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
     db.execute(INTAKE_ERRORS)
     for statement in extensions.SCHEMA:
         db.execute(statement)
+    for statement in knowledge_records.SCHEMA:
+        db.execute(statement)
     db.execute(ATTENTION_SCHEMA)
     attention_columns = tasks_storage.table_columns(db, "attention_requests")
     if "remind_on" not in attention_columns:
@@ -399,7 +402,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
             db.execute(goal_cadence.SCHEMA)
             db.execute(goal_offers.SCHEMA)
             db.execute(goal_offers.INDEX)
-            for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA):
+            for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA, *knowledge_records.SCHEMA):
                 db.execute(statement)
             db.execute(wake_subscriptions.SCHEMA)
             peer_asks.refresh_generated_titles(db)
@@ -1193,6 +1196,8 @@ def create_app(
         labels = ledger.task_tags(db(), task["id"])
         if labels:
             task["tags"] = labels
+        if actor is not None and (staged := knowledge_records.links(db(), number, include_source=True)):
+            result["knowledge_stages"] = staged
         return {
             **result, "ownership_actions": ledger.ownership_actions(task) if allowed and not (ask or result["goal"]) else [],
             "tag_editable": editable,
@@ -1882,6 +1887,12 @@ def create_app(
             source_ticket=task_number(source) if source else None,
             **page_args(args),
         )
+
+    @app.get("/api/v1/knowledge/areas")
+    def knowledge_areas():
+        current_actor(required=True)
+        with tasks_storage.read(db()) as connection:
+            return {"areas": knowledge_records.directory(connection)}
 
     @app.get("/api/v1/reports/goal-activity")
     def report_goal_activity():
@@ -2763,6 +2774,29 @@ def create_app(
             )
         if name == "search-with-decisions":
             return query().search_with_decisions(text(data, "q", maximum=160), **page_args(data))
+        if name in {"knowledge-place", "knowledge-stage", "knowledge-reconcile"}:
+            try:
+                with tasks_storage.write(db()) as connection:
+                    if name == "knowledge-place":
+                        index = text(data, "index", optional=True, maximum=5)
+                        if index not in (None, "true", "false"):
+                            raise ValueError("Use true or false for index.")
+                        return knowledge_records.place(
+                            connection, task_number(data.get("id")), key, text(data, "area", maximum=240),
+                            index=index == "true",
+                        )
+                    if name == "knowledge-stage":
+                        return knowledge_records.stage(
+                            connection, task_number(data.get("id")), task_number(data.get("source")), key,
+                            text(data, "brief", optional=True),
+                            integer(data["source_event"], "source_event") if "source_event" in data else None,
+                        )
+                    text(data, "project", maximum=8)
+                    return knowledge_records.reconcile(connection, project_filter(data), key, base)
+            except PermissionError as error:
+                raise RequestError(str(error), 403) from error
+            except ValueError as error:
+                raise RequestError(str(error), 409) from error
         if name == "task-tag":
             return change_tag(actor, task_number(data.get("id")), data)
         if name == "assignees":

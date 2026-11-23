@@ -437,3 +437,30 @@ uv run --frozen python -B -m unittest -v test_tasks_recurring
 
 This slice provides explicit local execution and verified shared management
 actions. It does not install a recurring operator job or send notifications.
+
+## Organize and maintain Knowledge
+
+Use completed tickets tagged `decision-record` as maintained Knowledge entries. Create and complete the area index first. Use the same ticket's brief to maintain the index. A nested area has its own index under its parent. If an index is reopened or its decision tag is removed, the area links to its ticket until it is maintained again or the project manager sets a replacement.
+
+```sh
+./tasks --shared knowledge-place OPS-1 'Storage performance' --index
+./tasks --shared knowledge-place OPS-2 'Storage performance'
+./tasks --shared knowledge-stage OPS-2 OPS-3
+```
+
+The **Knowledge** tab links each directory to its index and the index to its entries. Open the source ticket or use signed search to see the stage alongside the current brief. Read the newest linked work and the exact decision or correction before applying an older rule.
+
+After recording the settled conclusion in the work ticket's Activity, supply its event ID and the complete proposed brief. The pass considers only completed source tickets with both fields supplied.
+
+```sh
+./tasks --shared knowledge-stage OPS-2 OPS-3 \
+  --brief 'Use the revised baseline and collect twenty samples.' --source-event 17
+```
+
+In the existing nightly reflection, run the signed reconciliation for each project whose entries you own or manage.
+
+```sh
+./tasks --shared knowledge-reconcile --project OPS
+```
+
+Use the returned unresolved sources and owners for follow-up. Open work stays staged. If a source reopens, stage its current conclusion before applying it. Conflicting settled proposals leave the current brief readable and need the owner's judgment. An applied change keeps the prior brief in Activity and links the exact source. Repeating a pass leaves already applied stages alone.

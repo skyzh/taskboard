@@ -108,6 +108,15 @@ _ACTIONS = {
         "title": "Short, actionable task title. Read field-guidance for the project’s wording and example.",
         "step": "First step for the owner.",
     }, {"brief": "Background and scope of the work.", **_PROJECT, **_EVIDENCE}),
+    "knowledge-place": _Action("POST", "Place an owned maintained entry in its project's Knowledge area.", {
+        **_TASK, "area": "Named area path, for example Storage performance/Latency.",
+    }, {"index": "Set true when this entry is the index of a new area."}),
+    "knowledge-stage": _Action("POST", "Link work that may change a maintained Knowledge entry.", {
+        **_TASK, "source": "Work ticket key.",
+    }, {"brief": "Proposed replacement brief.", "source_event": "Exact decision or correction Activity event on the work ticket."}),
+    "knowledge-reconcile": _Action("POST", "Apply settled stages to Knowledge entries you own or manage.", {
+        "project": "Project whose Knowledge entries to reconcile.",
+    }),
     "recurring-add": _Action("POST", "Define recurring work you own.", {
         "key": "Stable key for retrying this definition.",
         "title": "Short, actionable title for each occurrence.",

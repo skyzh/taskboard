@@ -22,6 +22,7 @@ TABLES = (
     "github_source_status", "extension_deliveries", "extension_notifications", "stamp_review_health",
     "intake_errors", "attention_requests", "attention_wait_links", "notification_preferences", "notification_log",
     "wake_subscriptions", "wake_log", "goal_idle_offers",
+    "knowledge_areas", "knowledge_entries", "knowledge_stages",
 )
 # Connections depend on the source deployment's live browser sessions.
 NON_PORTABLE_TABLES = {"personal_agent_connections", "personal_agent_cli_approvals"}

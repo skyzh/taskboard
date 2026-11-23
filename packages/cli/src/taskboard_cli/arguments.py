@@ -279,6 +279,17 @@ def arguments(argv=None):
     tagged.add_argument("project", type=nonblank)
     tagged.add_argument("tag", type=nonblank)
 
+    place = commands.add_parser("knowledge-place", help="Place a maintained Knowledge entry in an area.")
+    place.add_argument("id", type=task_id)
+    place.add_argument("area", type=nonblank)
+    place.add_argument("--index", action="store_true", help="Make this ticket the index of a new area.")
+    stage = commands.add_parser("knowledge-stage", help="Link work that may change a maintained Knowledge entry.")
+    stage.add_argument("id", type=task_id)
+    stage.add_argument("source", type=task_id)
+    stage.add_argument("--brief", type=nonblank, help="Proposed replacement brief.")
+    stage.add_argument("--source-event", type=int, help="Exact accepted decision or correction Activity event.")
+    reconcile = commands.add_parser("knowledge-reconcile", help="Apply settled Knowledge stages you own or manage.")
+    reconcile.add_argument("--project", type=nonblank, required=True)
     search = commands.add_parser("search", help="Find tickets or Activity on the signed-in shared board.")
     search.add_argument("query", type=search_query, metavar="QUERY", help="Ticket ID, title, summary, or Activity text.")
     search.add_argument("--activity", action="store_true", help="Search Activity notes and details for literal text.")
@@ -529,6 +540,7 @@ def arguments(argv=None):
         parser.error("Use --shared capabilities for shared agent commands.")
     if args.command in {
         "raft-channel-show", "raft-channel-set", "wake-subscriptions", "wake-subscribe", "wake-unsubscribe",
+        "knowledge-place", "knowledge-stage", "knowledge-reconcile",
     } and args.mode != "shared":
         parser.error(f"{args.command} requires --shared.")
 

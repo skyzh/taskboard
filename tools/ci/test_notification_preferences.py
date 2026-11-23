@@ -119,6 +119,40 @@ class StorageReplayTest(unittest.TestCase):
             self.assertTrue(has_subscription(db, "T", owner, OWNED_READY))
             self.assertEqual(idle_offer_counts(db, [1]), {1: 1})
 
+    def test_knowledge_stages_survive_sqlite_import_and_reconcile_on_postgres(self):
+        source_app = self.board.app(portal_reader=True)
+        author, _ = self.board.login(source_app, "Avery")
+        for number, title, brief in ((1, "Storage index", "Use ten samples."),
+                                     (2, "Validate a larger sample", "Compare both baselines.")):
+            ticket = f"T-{number}"
+            self.board.action(author, "create-task", {"title": title, "step": "Check the evidence.", "brief": brief})
+            self.board.action(author, "advance-task", {"id": ticket, "transition": "start", "note": "Check samples."})
+            self.board.action(author, "advance-task", {"id": ticket, "transition": "done", "note": "Use twenty samples."})
+        self.board.action(author, "task-tag", {"id": "T-1", "action": "add", "tag": "decision-record"})
+        self.board.action(author, "knowledge-place", {"id": "T-1", "area": "Storage performance", "index": "true"})
+        event = self.board.action(author, "task-activity", query_string={"id": "T-2"})["items"][0]
+        self.board.action(author, "knowledge-stage", {
+            "id": "T-1", "source": "T-2", "brief": "Use twenty samples.", "source_event": event["id"],
+        })
+        snapshot = self.board.database.with_name("snapshot.sqlite3")
+        with closing(sqlite3.connect(self.board.database)) as source, closing(sqlite3.connect(snapshot)) as backup:
+            source.backup(backup)
+
+        dsn = self.postgres_fixture()
+        imported = import_snapshot(snapshot, dsn)
+        for table in ("knowledge_areas", "knowledge_entries", "knowledge_stages"):
+            self.assertEqual(imported[table], 1)
+        signed, _ = self.board.login(self.postgres_app(dsn), "Avery")
+        directory = self.board.call(signed, "/api/v1/knowledge/areas").json["areas"]
+        self.assertEqual(directory[0]["index"], "T-1")
+        applied = self.board.action(signed, "knowledge-reconcile", {"project": "T"})["applied"]
+        self.assertEqual(applied[0]["source_event_id"], event["id"])
+        note = self.board.call(signed, "/api/v1/knowledge", query_string={"source": "T-2"}).json["items"][0]
+        self.assertEqual(note["summary"], "Use twenty samples.")
+        self.assertEqual(note["staged_work"][0]["source"], "T-2")
+        self.assertEqual(note["staged_work"][0]["source_at"], event["at"])
+        self.assertEqual(self.board.action(signed, "knowledge-reconcile", {"project": "T"})["applied"], [])
+
     def test_postgres_reopens_a_populated_version_one_board(self):
         dsn = self.postgres_fixture()
         client, owner = self.board.login(self.postgres_app(dsn), "Avery")
