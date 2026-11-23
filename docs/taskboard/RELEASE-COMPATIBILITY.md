@@ -6,6 +6,8 @@ Successful signed `advance-task` calls with `transition=done`, `handoff`, and `p
 
 ## Parked write protocol
 
+Task detail may include the optional `can_edit_parking` boolean for the ordinary parking editor. New browsers use that response when present and retain the owner and state check on an earlier server. Goal reminders and the existing parking write checks keep their own behavior.
+
 The signed context response reports `parking_protocol: 2` when the board requires a stored return path for ordinary Parked work. Earlier boards omit this field. The same actions and HTTP methods continue to serve their supported reminder, dependency review, and goal paths. Version 2 rejects a new Park without a return path and a request to clear the last return path. Existing unscheduled records stay readable and their owners can correct them. Earlier CLIs can use their existing `remind --until`, `park --review-after`, or `park --review-on` with criteria. Earlier browsers can use the existing reminder form to set a valid schedule. [Audit and migrate existing tickets](SHARED-BOARD.md#review-existing-parked-tickets-before-rollout)
 
 ## Release inputs

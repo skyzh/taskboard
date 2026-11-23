@@ -200,9 +200,9 @@ test('only the owner can park ordinary work, and a parked task needs a return pa
   const task = { id: 1, key: 'T-1', event_id: 1, title: 'Check the export', state: 'ready',
     summary_label: 'Next step', dri: 'Avery', note: 'Inspect the export.', links: [] }
   const session = { data: { actor: { id: 'Avery', kind: 'agent' } } }
-  function detail(changes, goal, viewer = session) {
+  function detail(changes, goal, viewer = session, availability) {
     fixture.resources = { '/tasks/1': { data: {
-      task: { ...task, ...changes }, checklist: [], workers: [], sources: [], goal,
+      task: { ...task, ...changes }, checklist: [], workers: [], sources: [], goal, can_edit_parking: availability,
     } } }
     fixture.pages = {}
     fixture.state = []
@@ -215,6 +215,9 @@ test('only the owner can park ordinary work, and a parked task needs a return pa
   assert.match(ready, /Dependency review/)
   assert.match(ready, /type="submit" disabled="">Park task<\/button>/)
   assert.doesNotMatch(detail({}, null, {}), /<summary>Park work<\/summary>/)
+  assert.doesNotMatch(detail({}, null, session, false), /<summary>Park work<\/summary>/)
+  assert.match(detail({ state: 'waiting' }, null, session, true), /<summary>Park work<\/summary>/)
+  assert.doesNotMatch(detail({}, null, {}, true), /<summary>Park work<\/summary>/)
 
   const parked = { state: 'parked' }
   const legacy = detail(parked)
@@ -229,7 +232,7 @@ test('only the owner can park ordinary work, and a parked task needs a return pa
   assert.match(redundant, /Review after <a href="#task-2"><span class="ticket-id">T-2<\/span> <\/a> changes/)
   assert.match(redundant, /Clear reminder/)
 
-  const goal = detail(parked, { kind: 'standing', tickets: [] })
+  const goal = detail(parked, { kind: 'standing', tickets: [] }, session, false)
   assert.match(goal, /<summary>Set a reminder<\/summary>/)
   assert.doesNotMatch(goal, /Return to Inbox|Add a return path/)
 })
