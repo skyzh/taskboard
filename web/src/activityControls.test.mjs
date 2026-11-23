@@ -1652,19 +1652,23 @@ test('Needs me shares the decision form with the exact recipient and keeps the r
   assert.match(open, /<button type="submit" disabled="">Record decision<\/button>/)
   assert.doesNotMatch(render({ kind: 'human', id: 'other' }), /Record decision/)
   assert.doesNotMatch(render({ kind: 'agent', id: 'sam' }), /Record decision/)
+  const issued = { ...task, decision_request_id: task.event_id }
+  assert.match(render(sam, [issued]), /Record decision/)
+  assert.doesNotMatch(render(sam, [{ ...issued, decision_request_id: null }]), /Record decision/)
+  assert.doesNotMatch(render({ kind: 'agent', id: 'sam' }, [issued]), /Record decision/)
   assert.doesNotMatch(render(null, [task], [], null, false), /Which format should we use\?|Record decision|Mark handled/)
   const saved = { status: 'saved', recipient: 'sam', request: { id: task.event_id } }
-  const retained = render(sam, [], [task], saved)
+  const retained = render(sam, [], [issued], saved)
   assert.match(retained, /Decision recorded\./)
   assert.doesNotMatch(retained, /No open decision requests|Record decision/)
 })
 
 test('a lost decision response checks the same request and unlocks a retry only while open', async () => {
   const task = { id: 7, key: 'COURSE-7', event_id: 41, state: 'human_review',
-    waiting_on: 'sam', context: { choices: ['CSV', 'JSON'] } }
+    waiting_on: 'sam', context: { choices: ['CSV', 'JSON'] }, decision_request_id: 41 }
   const session = { data: { actor: { kind: 'human', id: 'sam' } } }
-  const changedTask = { ...task, event_id: 43, state: 'ready', waiting_on: null }
-  const newRequest = { ...task, event_id: 44 }
+  const changedTask = { ...task, event_id: 43, state: 'ready', waiting_on: null, decision_request_id: null }
+  const newRequest = { ...task, event_id: 44, decision_request_id: 44 }
   const event = { preventDefault() {} }
   const form = tree => React.Children.toArray(tree.props.children).find(child => child.type === 'form')
 

@@ -5418,9 +5418,15 @@ class TasksServiceTest(unittest.TestCase):
         def advance(transition, note, **fields):
             self.action(owner, "advance-task", {"id": "T-1", "transition": transition, "note": note, **fields})
 
+        def available_request(client):
+            return self.call(client, "/api/v1/tasks/T-1").json["task"]["decision_request_id"]
+
         def current_request(client):
             item, = self.call(client, "/api/v1/notifications/decisions").json["items"]
-            return item["event_id"]
+            request_id = item["event_id"]
+            self.assertEqual(item["decision_request_id"], request_id)
+            self.assertEqual(available_request(client), request_id)
+            return request_id
 
         def receipt(client, request_id, *, ticket="T-1", status=200):
             response = self.call(client, f"/api/v1/tasks/{ticket}/decision/{request_id}", status=status)
@@ -5430,6 +5436,8 @@ class TasksServiceTest(unittest.TestCase):
         advance("start", "Check the export.")
         advance("assign-human", "Which format?", on=sam_id, options='["CSV", "JSON"]')
         first = current_request(sam)
+        for other in (quinn, owner, app.test_client()):
+            self.assertIsNone(available_request(other))
         self.assertEqual(receipt(sam, first), {"status": "open", "answer": None})
         self.assertEqual(receipt(quinn, first, status=404), receipt(sam, first, ticket="T-2", status=404))
         self.assertEqual(receipt(sam, 1, status=404), receipt(sam, 9999, status=404))
@@ -5440,6 +5448,7 @@ class TasksServiceTest(unittest.TestCase):
             self.call(sam, "/api/v1/tasks/T-1/decision", method="POST", json={
                 "request_id": first, "choice": "CSV", "note": "Use the simple format.",
             })
+        self.assertIsNone(available_request(sam))
         posted, = self.call(sam, "/api/v1/notifications/decisions?state=answered").json["items"]
         answer = {"status": "answered", "answer": {
             "event_id": posted["event_id"], "at": "2026-11-21T12:00:00Z", "note": "Use the simple format.", "choice": "CSV",
@@ -5458,11 +5467,13 @@ class TasksServiceTest(unittest.TestCase):
 
         advance("redirect-decision", "Ask Quinn instead.", on=quinn_id)
         redirected = current_request(quinn)
+        self.assertIsNone(available_request(sam))
         self.assertEqual(receipt(sam, second), {"status": "closed", "answer": None})
         receipt(quinn, second, status=404)
         receipt(sam, redirected, status=404)
         self.assertEqual(receipt(quinn, redirected), {"status": "open", "answer": None})
         advance("withdraw-decision", "Rerun the export.", reason="Need a fresh sample.")
+        self.assertIsNone(available_request(quinn))
         self.assertEqual(receipt(quinn, redirected), {"status": "closed", "answer": None})
         advance("start", "Read the new sample.")
         advance("assign-human", "Any changes to the format?", on=quinn_id)
