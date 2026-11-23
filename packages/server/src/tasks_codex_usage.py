@@ -83,6 +83,19 @@ class CodexUsage:
             return None
 
 
+def labeled_sources(encoded):
+    try:
+        labels = _object(json.loads(encoded))
+    except json.JSONDecodeError:
+        labels = {}
+    if (len(labels) == 2 and all(_BUCKET.fullmatch(label) and isinstance(path, str)
+                                 and Path(path).is_absolute() for label, path in labels.items())):
+        sources = tuple((label, Path(path)) for label, path in labels.items())
+        if sources[0][1] != sources[1][1]:
+            return sources
+    raise ValueError("Configure two Codex usage labels with distinct absolute snapshot paths.")
+
+
 def configuration(environment):
     subject = environment.get("TASKS_CODEX_USAGE_VIEWER_SUBJECT")
     file = environment.get("TASKS_CODEX_USAGE_SNAPSHOT")
@@ -94,16 +107,7 @@ def configuration(environment):
     except ValueError:
         raise ValueError("Use the verified Raft human subject UUID for the Codex usage viewer.") from None
     if sources and not file:
-        try:
-            labeled = _object(json.loads(sources))
-        except json.JSONDecodeError:
-            labeled = {}
-        if (len(labeled) == 2 and all(_BUCKET.fullmatch(label) and isinstance(path, str)
-                                      and Path(path).is_absolute() for label, path in labeled.items())):
-            paths = tuple((label, Path(path)) for label, path in labeled.items())
-            if paths[0][1] != paths[1][1]:
-                return CodexUsage(viewer, paths)
-        raise ValueError("Configure two Codex usage labels with distinct absolute snapshot paths.")
+        return CodexUsage(viewer, labeled_sources(sources))
     if file and not sources and Path(file).is_absolute():
         return CodexUsage(viewer, ((None, Path(file)),))
     raise ValueError("Configure either a Codex usage snapshot path or two labeled sources.")

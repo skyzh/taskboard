@@ -490,6 +490,8 @@ def create_app(
     project_extensions=None,
     stamp_reader=None,
     codex_usage=None,
+    codex_snapshot_uploader=None,
+    codex_snapshot_upload_sources=None,
     agent_guidance=None,
 ):
     """Configure the board; injected identity providers are used by isolated tests."""
@@ -504,6 +506,19 @@ def create_app(
     public_raft_links = {} if marketplace or local_readonly else project_links.public_raft_links(public_raft_channel_urls)
     if codex_usage and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
         raise ValueError("Codex usage requires a private shared board with server-bound Raft sign-in.")
+    if codex_snapshot_uploader is not None:
+        if not codex_usage or len(codex_usage.sources) != 2 or identity_provider is not None:
+            raise ValueError("Codex snapshot upload requires two configured sources and Raft sign-in.")
+        try:
+            codex_snapshot_uploader = str(UUID(codex_snapshot_uploader))
+        except ValueError as error:
+            raise ValueError("Set TASKS_CODEX_SNAPSHOT_UPLOADER_SUBJECT to a verified Raft agent subject UUID.") from error
+        if not codex_snapshot_upload_sources:
+            raise ValueError("Set TASKS_CODEX_SNAPSHOT_UPLOAD_SOURCES to two disposable snapshot destinations.")
+        upload_sources = tasks_codex_usage.labeled_sources(codex_snapshot_upload_sources)
+        viewer_paths = {path.resolve() for _, path in codex_usage.sources}
+        if viewer_paths.intersection(path.resolve() for _, path in upload_sources):
+            raise ValueError("Keep the upload destinations separate from the viewer's snapshot files.")
     project_extensions = project_extensions or {}
     stamp_repositories = {project: settings[extensions.STAMP_REVIEWS]
                           for project, settings in project_extensions.items() if extensions.STAMP_REVIEWS in settings}
@@ -1037,6 +1052,22 @@ def create_app(
         if actor["kind"] != "human" or actor["subject"] != codex_usage.viewer_subject:
             raise NotFound()
         return codex_usage.read()
+
+    def upload_codex_snapshot(data):
+        actor = current_actor("agent", write=True, sync_profile=False)
+        if actor["subject"] != codex_snapshot_uploader or actor["server_id"] != raft_config["server_id"]:
+            raise NotFound()
+        outcome = data["outcome"]
+        if not isinstance(outcome, str):
+            raise RequestError("Supply one private snapshot outcome as JSON text.")
+        from taskboard_server.codex_snapshot import install_with_receipt
+
+        try:
+            return install_with_receipt(outcome.encode("utf-8"), upload_sources)
+        except OSError:
+            raise RequestError("The private snapshot installer is unavailable.", 503) from None
+        except (ValueError, OverflowError, RecursionError):
+            raise RequestError("The private snapshot outcome was rejected.") from None
 
     @app.get("/api/v1/frontend-build")
     def frontend_build():
@@ -2339,15 +2370,18 @@ def create_app(
         raise RequestError("Unknown Tasks action.", 404)
 
     if raft_config:
-        from tasks_raft import register_actions
+        from tasks_raft import CODEX_SNAPSHOT_ACTION, register_actions
 
         def dispatch(name, data):
+            if name == CODEX_SNAPSHOT_ACTION:
+                return upload_codex_snapshot(data)
             result = dispatch_action(name, data)
             if "next_step" not in result:
                 result["next_step"] = agent_guidance.next_step(name, data, result)
             return result
 
-        register_actions(app, public_url=base, client_id=raft_config["client_id"], dispatch=dispatch)
+        register_actions(app, public_url=base, client_id=raft_config["client_id"], dispatch=dispatch,
+                         codex_snapshot_upload=codex_snapshot_uploader is not None)
 
     if prefix:
         mounted = DispatcherMiddleware(NotFound(), {prefix: app.wsgi_app})
@@ -2441,6 +2475,8 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             local_readonly=local_readonly, portal_reader=portal_reader,
             portal_upstream_token=portal_upstream_token, github_reader=github, websocket_revisions=websocket_revisions,
             codex_usage=tasks_codex_usage.configuration(os.environ),
+            codex_snapshot_uploader=os.environ.get("TASKS_CODEX_SNAPSHOT_UPLOADER_SUBJECT") or None,
+            codex_snapshot_upload_sources=os.environ.get("TASKS_CODEX_SNAPSHOT_UPLOAD_SOURCES"),
             agent_guidance=agent_guidance,
             project_extensions=project_extensions,
             public_raft_channel_urls=os.environ.get("TASKS_PUBLIC_RAFT_CHANNEL_URLS"),

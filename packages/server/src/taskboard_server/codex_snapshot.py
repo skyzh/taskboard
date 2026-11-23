@@ -76,12 +76,12 @@ def _decode(raw):
     return json.loads(raw, object_pairs_hook=_object)
 
 
-def _outcome(raw, config):
+def _outcome(raw, sources):
     envelope = _decode(raw)
     if not isinstance(envelope, dict) or not isinstance(envelope.get("source"), str):
         raise ValueError("A configured source is required.")
     source = envelope["source"]
-    paths = dict(config.sources) if config and len(config.sources) == 2 else {}
+    paths = dict(sources) if len(sources) == 2 else {}
     if source not in paths:
         raise ValueError("A configured source is required.")
     if len({os.path.realpath(path) for path in paths.values()}) != 2:
@@ -137,8 +137,16 @@ def _locked_directory(path):
         os.close(directory)
 
 
-def install(raw, config):
-    path, attempted_at, snapshot = _outcome(raw, config)
+def _receipt(status, snapshot):
+    try:
+        captured_at = _time(snapshot.get("captured_at")).isoformat()
+    except (ValueError, OverflowError):
+        captured_at = None
+    return {"status": status, "captured_at": captured_at}
+
+
+def install_with_receipt(raw, sources):
+    path, attempted_at, snapshot = _outcome(raw, sources)
     with _locked_directory(path.parent) as directory:
         fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
         with os.fdopen(fd, "rb") as handle:
@@ -150,11 +158,15 @@ def install(raw, config):
         if not isinstance(previous, dict):
             raise ValueError("The existing snapshot has no timestamp.")
         if attempted_at <= _time(previous.get("attempted_at", previous.get("captured_at"))):
-            return "skipped"
+            return _receipt("skipped", previous)
         if "result" not in snapshot and previous.get("captured_at"):
             snapshot["captured_at"] = _time(previous["captured_at"]).isoformat()
         _replace(path, snapshot, previous_stat)
-        return "installed" if "result" in snapshot else "unavailable"
+        return _receipt("installed" if "result" in snapshot else "unavailable", snapshot)
+
+
+def install(raw, config):
+    return install_with_receipt(raw, config.sources if config else ())["status"]
 
 
 def main():
