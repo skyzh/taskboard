@@ -962,29 +962,29 @@ def create_app(
                 if request.method == "POST" and request.headers.get("Origin") != origin:
                     raise RequestError("Send progress from the Taskboard origin.", 403)
                 try:
-                    task = personal_codex.tailnet_ticket(
+                    task, owner = personal_codex.tailnet_ticket(
                         connection, task_number(ticket), raft_config["server_id"], pilot.subject,
                     )
-                except LookupError as error:
+                except ValueError as error:
                     raise RequestError(str(error), 409) from error
-                return None, task
+                return {"owner": owner}, task, True
             try:
-                return personal_codex.authorized_connection(connection, pilot, ticket, authorization)
+                reporter, task = personal_codex.authorized_connection(connection, pilot, ticket, authorization)
+                return reporter, task, False
             except PermissionError as error:
                 raise RequestError(str(error), 401) from error
 
         @app.get("/api/v1/personal-codex/tickets/<ticket>")
         def personal_codex_ticket(ticket):
             with tasks_storage.read(db()) as connection:
-                _, task = pilot_access(connection, ticket)
+                _, task, _ = pilot_access(connection, ticket)
                 return pilot_json(ticket=ticket, title=task["title"], status=task["display_state"],
                                   brief=task["brief"], next_step=task["note"])
 
         @app.post("/api/v1/personal-codex/tickets/<ticket>/progress")
         def personal_codex_progress(ticket):
             with tasks_storage.write(db()) as connection:
-                reporter, task = pilot_access(connection, ticket)
-                tailnet = reporter is None
+                reporter, task, tailnet = pilot_access(connection, ticket)
                 fields = {"replay_key", "headline", "details"}
                 if tailnet:
                     fields.update({"session_id", "session"})
@@ -997,7 +997,7 @@ def create_app(
                         session_id = str(UUID(text(data, "session_id", maximum=36)))
                     except ValueError as error:
                         raise RequestError("Provide a UUID as session_id.") from error
-                    reporter = {"id": session_id, "label": session, "owner": task["dri"]}
+                    reporter.update(id=session_id, label=session)
                 key = text(data, "replay_key", maximum=128)
                 if not personal_codex.REPLAY_KEY.fullmatch(key):
                     raise RequestError("Use an ASCII replay key of up to 128 characters.")
@@ -1007,6 +1007,11 @@ def create_app(
                 except ValueError as error:
                     raise RequestError(str(error)) from error
                 try:
+                    if tailnet:
+                        personal_codex.claim_ticket(
+                            connection, task, reporter["owner"],
+                            "The first tailnet report assigned the pilot ticket to its configured human owner.",
+                        )
                     event = personal_codex.append_progress(
                         connection, reporter, task, key, headline, details, tailnet=tailnet,
                     )
