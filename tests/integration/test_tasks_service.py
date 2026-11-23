@@ -175,6 +175,7 @@ class TasksServiceTest(unittest.TestCase):
         with closing(open_sqlite(self.database)) as db, db:
             db.execute("UPDATE tasks SET dri = '' WHERE id = 1")
         setup = "/personal-codex"
+        status = "/api/v1/personal-codex/status"
         connection_endpoint = "/api/v1/personal-codex/tickets/T-1"
         progress = connection_endpoint + "/progress"
         browser = {"Origin": ORIGIN}
@@ -184,6 +185,14 @@ class TasksServiceTest(unittest.TestCase):
         self.call(owner, setup, method="POST", status=403, headers={"Origin": "https://wrong.example"},
                   data={"session": "Terminal A"})
         self.call(owner, connection_endpoint, status=401)
+        self.call(anonymous, connection_endpoint, status=401,
+                  headers={"X-Portal-Auth-Method": "tailscale"})
+        self.call(anonymous, status, status=401)
+        self.call(other_human, status, status=404)
+        self.assertEqual(
+            self.call(owner, status, headers={"X-Portal-Auth-Method": "tailscale"}).json,
+            {"ticket": "T-1", "reporting_auth": "login_required", "connections": []},
+        )
 
         def issue(label):
             response = self.call(owner, setup, method="POST", headers=browser, data={"session": label})
@@ -251,6 +260,88 @@ class TasksServiceTest(unittest.TestCase):
         self.call(owner, setup, method="POST", status=409, headers=browser, data={"session": "Denied"})
         disabled = self.app(portal_reader=True)
         self.call(disabled.test_client(), connection_endpoint, headers=second_headers, status=404)
+
+    def test_personal_codex_tailnet_reporting_uses_verified_ingress_and_existing_owner(self):
+        subject = self.provider.people["Sam"]["sub"]
+        env = {"TASKS_PERSONAL_CODEX_PILOT_TICKET": "T-1", "TASKS_PERSONAL_CODEX_PILOT_SUBJECT": subject}
+        self.assertEqual(personal_codex.configuration(env).reporting_auth, "login_required")
+        with self.assertRaisesRegex(ValueError, "TASKS_PERSONAL_CODEX_REPORTING_AUTH"):
+            personal_codex.configuration({**env, "TASKS_PERSONAL_CODEX_REPORTING_AUTH": "public"})
+        mode = {"TASKS_PERSONAL_CODEX_REPORTING_AUTH": "tailnet"}
+        with self.assertRaisesRegex(ValueError, "canonical"):
+            personal_codex.configuration(mode)
+        app = self.app(portal_reader=True, personal_codex_pilot=personal_codex.configuration({**env, **mode}))
+        owner, owner_id = self.login(app, "Sam")
+        agent, agent_id = self.login(app, "Avery")
+        anonymous = app.test_client()
+        self.action(agent, "create-task", {"title": "Pilot", "brief": "Sample.", "step": "Report progress."})
+        endpoint = "/api/v1/personal-codex/tickets/T-1"
+        progress = endpoint + "/progress"
+        setup = "/api/v1/personal-codex"
+        tailnet = {"X-Portal-Auth-Method": "tailscale"}
+        checkpoint = {
+            "session_id": str(UUID(int=60)), "session": "Terminal A", "replay_key": "checkpoint:1",
+            "headline": "Checked the sample.",
+        }
+        report_headers = {**tailnet, "Origin": ORIGIN}
+        self.assertEqual(anonymous.get(BASE + endpoint, base_url=ORIGIN, headers=tailnet).status_code, 403)
+        self.call(anonymous, endpoint, status=401, headers={"X-Portal-Auth-Method": "passkey"})
+        self.call(anonymous, progress, method="POST", status=401, headers={"Origin": ORIGIN}, json=checkpoint)
+        self.call(anonymous, endpoint, status=409, headers=tailnet)
+        self.call(anonymous, progress, method="POST", status=409, headers=report_headers, json=checkpoint)
+        self.call(anonymous, setup + "/status", status=401, headers=tailnet)
+        self.call(anonymous, setup + "/connections", method="POST", status=401,
+                  headers=report_headers, json={"session": "Denied"})
+        self.assertEqual(self.call(owner, setup + "/status", headers=tailnet).json["reporting_auth"], "tailnet")
+        self.assertEqual(self.call(owner, setup + "/status").json["reporting_auth"], "login_required")
+
+        with closing(open_sqlite(self.database)) as db, db:
+            db.execute("UPDATE tasks SET dri = ? WHERE id = 1", (owner_id,))
+        self.assertEqual(self.call(anonymous, endpoint, headers=tailnet).json["status"], "ready")
+        self.call(anonymous, endpoint.replace("T-1", "T-2"), status=404, headers=tailnet)
+        self.call(anonymous, endpoint, status=401, headers={**tailnet, "Authorization": "Bearer invalid"})
+        self.call(anonymous, progress, method="POST", status=403, headers=tailnet, json=checkpoint)
+        self.call(anonymous, progress, method="POST", status=403,
+                  headers={**tailnet, "Origin": "https://other.example"}, json=checkpoint)
+        self.call(anonymous, "/api/v1/tasks/T-1/activity", method="POST", status=401,
+                  headers=report_headers, json={"note": "Requires normal board sign-in."})
+        self.call(anonymous, progress, method="POST", status=400, headers=report_headers,
+                  json={**checkpoint, "session_id": "invalid"})
+        self.call(anonymous, progress, method="POST", status=400, headers=report_headers,
+                  json={**checkpoint, "status": "done"})
+
+        def report(_attempt):
+            return self.call(app.test_client(), progress, method="POST", headers=report_headers, json=checkpoint).json
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first, retry = pool.map(report, (1, 2))
+        self.assertEqual(first, retry)
+        self.call(anonymous, progress, method="POST", status=409, headers=report_headers,
+                  json={**checkpoint, "headline": "Changed checkpoint."})
+        second = self.call(anonymous, progress, method="POST", headers=report_headers,
+                           json={**checkpoint, "session_id": str(UUID(int=61))}).json
+        self.assertNotEqual(first, second)
+
+        signed = self.call(owner, setup + "/connections", method="POST", headers={"Origin": ORIGIN},
+                           json={"session": "Signed connection"})
+        self.assertEqual(signed.headers["Cache-Control"], "no-store")
+        bearer = {"Authorization": f"Bearer {signed.json['token']}"}
+        self.call(anonymous, endpoint, headers=bearer)
+        grants = self.call(owner, setup + "/status").json["connections"]
+        self.assertEqual([grant["label"] for grant in grants], ["Signed connection"])
+        self.call(owner, setup + "/connections/" + grants[0]["id"], method="DELETE", status=204,
+                  headers={"Origin": ORIGIN})
+        self.call(anonymous, endpoint, status=401, headers=bearer)
+
+        with closing(open_sqlite(self.database)) as db, db:
+            reports = db.execute("SELECT actor, context FROM events WHERE note = ? ORDER BY id",
+                                 (checkpoint["headline"],)).fetchall()
+            self.assertEqual([row["actor"] for row in reports], [owner_id, owner_id])
+            metadata = json.loads(reports[0]["context"])["personal_codex"]
+            self.assertEqual(metadata, {"reporting_auth": "tailnet", "session_id": checkpoint["session_id"],
+                                        "label": checkpoint["session"]})
+            db.execute("UPDATE tasks SET dri = ? WHERE id = 1", (agent_id,))
+        self.call(anonymous, endpoint, status=409, headers=tailnet)
 
     def call(self, client, path, *, method="GET", status=200, **options):
         headers = {PORTAL_HEADER: PORTAL_FIXTURE, **options.pop("headers", {})}
