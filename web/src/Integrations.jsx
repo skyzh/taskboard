@@ -69,7 +69,7 @@ export default function Integrations({ session }) {
     (session.data?.sign_in_available || session.error?.status === 401)
 
   return (
-    <section className="settings" aria-labelledby="integrations">
+    <section className="settings integrations" aria-labelledby="integrations">
       <div className="page-heading"><h1 id="integrations" tabIndex={-1}>Integrations</h1></div>
       <section className="panel settings-panel" aria-labelledby="personal-agents">
         <h2 id="personal-agents">Personal Agents</h2>

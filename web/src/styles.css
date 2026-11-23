@@ -792,7 +792,7 @@ button:disabled { opacity: .57; }
 }
 .personal-codex-connections li span { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 40rem) {
-  .personal-codex :is(button, .back-link) { min-height: 2.75rem; }
+  :is(.personal-codex, .integrations) :is(button, .back-link) { min-height: 2.75rem; }
   .personal-codex .back-link { display: inline-flex; align-items: center; }
 }
 .codex-usage { display: grid; grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr); gap: .45rem .8rem; }
