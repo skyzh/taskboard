@@ -16,7 +16,9 @@ _ADVANCE_STEPS = {
     "wait": "Check other Inbox work until the named dependency clears.",
     "assign-human": "Check other work while the decision is with the recipient.",
     "redirect-decision": "Check other work while the decision is with the recipient.",
-    "park": "Check other Inbox work while the ticket is parked.",
+    "park": (
+        "Check your Inbox for actionable work. If you already took this turn's exploration follow-up, stop exploring."
+    ),
     "remind": "Check other Inbox work until the ticket returns.",
 }
 _WORK_STEPS = {

@@ -314,7 +314,8 @@ def completion_guidance(board, reference, fallback=None):
             if ticket := goal["ticket"]:
                 return (
                     f"Standing goal {ticket} · {goal['summary']}\n"
-                    f'{result["next_step"]}\nRun `./tasks --shared start {ticket} "<what you will check>"`.'
+                    f'{result["next_step"]}\nIf this turn still allows exploration, run '
+                    f'`./tasks --shared start {ticket} "<what you will check>"`.'
                 )
     except (SharedActionUnavailable, SharedReadError, KeyError, TypeError):
         # A failed or incomplete read cannot invalidate the earlier write receipt.

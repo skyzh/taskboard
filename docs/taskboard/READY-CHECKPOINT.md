@@ -35,7 +35,9 @@ Add `--idle-delay-seconds 120` to wait two minutes from the first idle sample. A
 
 For a two-pickup pilot, add `--two-pickups` to the watcher command. The process waits for Taskboard to record the first Start, then begins a new idle check for the next Ready ticket. It returns `two-pickups-confirmed` only after verifying both starts. A concrete deferral on that exact Ready event ends the pilot with `deferred`. The same five-minute limit covers both turns, and an unconfirmed offer ends without sending another.
 
-For the opt-in Ready-count watcher, add `--repeat` in place of `--two-pickups`. Check `raft proc list` first and keep one managed watcher per agent. The default delay is two minutes of sampled idle. When the owned Ready queue is nonempty and has changed since the last notice in this process, it sends one reminder such as “You have 2 Ready tickets.” The agent rereads its queue and chooses as much work as it can move. The process continues across turns and stays quiet for an empty or unchanged queue.
+For the opt-in Ready-count watcher, add `--repeat` in place of `--two-pickups`. Check `raft proc list` first and keep one managed watcher per agent. The default delay is two minutes of sampled idle. When the owned Ready queue is nonempty and has changed since the last notice in this process, it sends one reminder such as “You have 2 Ready tickets.” The agent takes actionable Inbox work first. After recording and parking a standing-goal check, it rechecks the Inbox. If the Inbox is clear and there is a distinct, concrete follow-up, the reminder asks it to take at most one such follow-up in the same turn. After that, it stops exploring for the turn. The process stays armed across turns and stays quiet for an empty or unchanged Ready queue.
+
+The follow-up limit is guidance in the reminder. On a board with [custom standing-goal or Park guidance](SHARED-BOARD.md#customize-agent-guidance), keep those messages consistent with the turn's exploration limit.
 
 The repeat watcher retries queue read timeouts and HTTP 502, 503, or 504 up to
 three times, with increasing delays. It logs the recovered count separately

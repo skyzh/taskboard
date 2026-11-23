@@ -9,6 +9,12 @@ from taskboard_cli.ready_checkpoint import checkpoint, measured_idle, raft_idle,
 import test_tasks_service
 
 
+COUNT_WAKE_GUIDANCE = (
+    "Take Taskboard Inbox work first. After parking a standing-goal check, recheck Inbox. "
+    "If clear, do at most one distinct, concrete follow-up this turn."
+)
+
+
 class FixtureBoard:
     def __init__(self, service, client):
         self.service = service
@@ -386,7 +392,7 @@ class ReadyCheckpointTest(unittest.TestCase):
                                  len(reads_at) - 1)
 
     def test_count_wake_uses_only_the_owned_queue_size(self):
-        title = "You have 2 Ready tickets. Read your Taskboard queue and take what you can move."
+        title = f"You have 2 Ready tickets. {COUNT_WAKE_GUIDANCE}"
         with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", "Scheduled"]) as invoke:
             self.assertEqual(raft_ready_count({"ready_count": 2}, "#example", "12345678", lambda: True),
                              "wake-requested")
@@ -394,6 +400,56 @@ class ReadyCheckpointTest(unittest.TestCase):
             "reminder", "schedule", "--title", title, "--delay-seconds", "1",
             "--channel", "#example", "--message-id", "12345678",
         ))
+
+    def test_count_wake_guidance_carries_through_inbox_and_two_parks(self):
+        self.avery.invoke("save-goal", {"kind": "standing", "summary": "Improve the queue."}, write=True)
+        self.avery.invoke("create-task", {"title": "Work ready at wake", "step": "Read the sample."}, write=True)
+
+        def stop_after_wake(event):
+            self.assertEqual((event["outcome"], event["ready_count"]), ("wake-requested", 1))
+            raise KeyboardInterrupt
+
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", "Scheduled"]) as invoke, \
+                self.assertRaises(KeyboardInterrupt):
+            watch_ready_count(
+                self.avery, "Avery", lambda _: True,
+                lambda notice, can_wake: raft_ready_count(notice, "#example", "12345678", can_wake),
+                stop_after_wake, idle_delay=0,
+            )
+        self.assertEqual(invoke.call_count, 2)
+        self.assertEqual(invoke.call_args.args[2:4], ("--title", f"You have 1 Ready ticket. {COUNT_WAKE_GUIDANCE}"))
+
+        def shared(*arguments):
+            status, output, error = self.avery.service.shared_cli(self.avery.client, *arguments)
+            self.assertEqual((status, error), (0, ""))
+            return output
+
+        self.assertIn("Work ready at wake", shared("next"))
+        shared("start", "T-2", "Read the queued sample.")
+        completed = shared("done", "T-2", "Read the sample.")
+        self.assertIn('If this turn still allows exploration, run `./tasks --shared start T-1 ', completed)
+        self.assertIn("Start this goal ticket if this turn still allows exploration", shared("next"))
+
+        shared("start", "T-1", "Check handoff details on the sample.")
+        first_park = shared("park", "T-1", "Recorded the handoff check.")
+        self.avery.invoke("create-task", {"title": "New Inbox work", "step": "Verify the receipt."}, write=True)
+        next_item = shared("next")
+        self.assertIn("New Inbox work", next_item)
+        self.assertNotIn("Standing goal", next_item)
+        shared("start", "T-3", "Verify the new receipt.")
+        shared("done", "T-3", "Verified the receipt.")
+        self.assertIn("Start this goal ticket if this turn still allows exploration", shared("next"))
+
+        shared("start", "T-1", "Check whether the queue displays the handoff timestamp.")
+        second_park = shared("park", "T-1", "Recorded the timestamp check.")
+        guidance = (
+            "Next: Check your Inbox for actionable work. "
+            "If you already took this turn's exploration follow-up, stop exploring."
+        )
+        self.assertIn(guidance, first_park)
+        self.assertIn(guidance, second_park)
+        self.assertEqual(self.avery.invoke("task", {"id": "T-1"})["task"]["state"], "parked")
+        self.assertIn("Start this goal ticket if this turn still allows exploration", shared("next"))
 
     def test_measurement_records_first_idle_and_empty_without_changing_wake_timing(self):
         clock = 0
@@ -461,7 +517,7 @@ class ReadyCheckpointTest(unittest.TestCase):
         clock = 0
         sends = []
         results = []
-        title = "You have 1 Ready ticket. Read your Taskboard queue and take what you can move."
+        title = f"You have 1 Ready ticket. {COUNT_WAKE_GUIDANCE}"
 
         def advance_clock(seconds):
             nonlocal clock
