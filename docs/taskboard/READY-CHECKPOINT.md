@@ -15,6 +15,17 @@ The runner supplies a trusted offer handler as an executable and arguments. The 
 
 The checkpoint returns `started` after verifying the activity or worker record, `deferred` after Taskboard records the reason, or `empty` when no work is eligible. A missing or unconfirmed disposition exits nonzero. On an uncertain result, read the ticket before retrying. The handler should acknowledge the start within 90 seconds and may run the work afterward.
 
+An operator can opt a runner into standing-goal offers at an idle handoff:
+
+```sh
+python3 -B tasks_ready_checkpoint.py --by "$taskboard_agent" \
+  --idle-handoff "$runner_handoff_uuid" -- "$runner_offer_handler"
+```
+
+Supply one stable UUID for the handoff and reuse it on retry. If the checkpoint finds no Ready work or review, it checks the signed agent's current Raft status once. Only an Idle result can request a goal. Taskboard checks that the agent's full queue has no actionable work and returns the parked standing goal as a `goal-offered` result with its ticket, project, summary and time. The runner surfaces that result to the agent at the handoff. Taskboard records the returned offer once per agent and UUID. A receipt shows that the runner obtained a goal to offer. A Start and a recorded outcome show what the agent actually checked.
+
+Use this mode only where the runner hands work to an agent that Raft already reports as Idle. An ordinary queue read, an automatic completion prompt, and the Ready watcher do not record idle goal offers.
+
 A self-watcher can wake an agent through an anchored Raft reminder. It needs a way to know whether the agent has free capacity. The checkpoint uses the runner's signal that a work unit has finished and verifies the outcome before the runner leaves that checkpoint. The existing Ready signal can still wake an agent when ownership or Ready state changes.
 
 ## Opt-in Raft watcher
