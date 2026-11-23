@@ -1,0 +1,86 @@
+"""Submit a qualified Ready signal using Raft's Agent Events contract."""
+
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from hashlib import sha256
+import json
+import re
+from typing import Literal
+from urllib.parse import urlsplit
+from urllib.request import Request
+
+from taskboard_client.references import DEFAULT, MAX_ID, identifier
+
+
+_ENDPOINT = "https://api.raft.build/api/oauth/agent-events"
+_BEARER = re.compile(r"[A-Za-z0-9._~+/-]+=*")
+_MAX_SUMMARY = 2000
+
+
+@dataclass(frozen=True)
+class ReadyEventAcceptance:
+    external_event_id: str
+    status: Literal["queued", "deduped"]
+
+
+class ReadyEventSendError(RuntimeError):
+    """Raft acceptance could not be confirmed."""
+
+
+def _event_document(signal: Mapping[str, object]) -> dict[str, str]:
+    event_id = signal.get("event_id")
+    task_id = signal.get("task_id")
+    task_url = signal.get("task_url")
+    if type(event_id) is not int or not 0 < event_id <= MAX_ID or not isinstance(task_url, str):
+        raise ValueError("Supply a qualified Ready signal with its source event and ticket link.")
+    project, number = identifier(task_id)
+    anchor = str(number) if project == DEFAULT else task_id
+    board_url, _, fragment = task_url.rpartition("/#")
+    try:
+        board = urlsplit(board_url)
+        hostname, port = board.hostname, board.port
+    except ValueError:
+        raise ValueError("Supply a credential-free HTTPS link to the Ready ticket.") from None
+    if (task_id != f"{project}-{number}" or fragment != f"task-{anchor}" or board.scheme != "https"
+            or not hostname or port == 0 or board.username is not None or board_url.endswith("/")
+            or "?" in board_url or "#" in board_url
+            or any(character.isspace() or not character.isprintable() for character in task_url)):
+        raise ValueError("Supply a credential-free HTTPS link to the Ready ticket.")
+
+    board_key = sha256(board_url.encode()).hexdigest()
+    event_key = f"taskboard-ready-{board_key}-{event_id}"
+    summary = f"Taskboard ticket {task_id} is Ready in your owned queue. Ready event {event_id}. {task_url}"
+    if len(summary.encode("utf-16-le")) // 2 > _MAX_SUMMARY:
+        raise ValueError("The Ready ticket link exceeds Raft's summary limit.")
+    return {"kind": "event", "summary": summary, "externalEventId": event_key}
+
+
+def send_ready_event(
+    signal: Mapping[str, object], *, access_token: str, transport: Callable[[Request], tuple[int, object]],
+) -> ReadyEventAcceptance:
+    """Send one current owned Ready signal with the selected agent's authorized token.
+
+    The transport returns an HTTP status and decoded JSON. Network and parsing
+    failures may raise OSError or ValueError.
+    """
+    document = _event_document(signal)
+    if not isinstance(access_token, str) or _BEARER.fullmatch(access_token) is None:
+        raise ValueError("Supply a resource-bound Raft bearer token.")
+    upstream = Request(
+        _ENDPOINT, method="POST", data=json.dumps(document).encode(),
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+    )
+    upstream.add_unredirected_header("Authorization", f"Bearer {access_token}")
+    try:
+        status, response = transport(upstream)
+    except (OSError, ValueError):
+        # The transport exception may include the credential-bearing request.
+        status, response = None, None
+    if isinstance(response, dict):
+        if status == 202 and response.get("status") == "queued":
+            return ReadyEventAcceptance(document["externalEventId"], "queued")
+        if status == 200 and response.get("deduped") is True:
+            return ReadyEventAcceptance(document["externalEventId"], "deduped")
+    if isinstance(status, int):
+        raise ReadyEventSendError(f"Raft did not confirm Ready event acceptance (HTTP {status:d}).")
+    raise ReadyEventSendError("Raft acceptance could not be confirmed.")
