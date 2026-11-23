@@ -18,19 +18,23 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 from PIL import Image
 
+from raft_auth import Identity
+from taskboard_server.ready_wake import WakeRecipient, launch_ready_wake
 from tasks_github import GitHubReader
+from tasks_notification_log import WAKE_SCHEMA, observed_time, outbox_receipt
 from tasks_service import bind_owner, create_app, import_assignee, serve
 from taskboard_cli import main as tasks_main
 from taskboard_cli.ready_checkpoint import watch_ready_count
 from taskboard_client import SharedBoard
-from tasks_core import SCHEMA, import_release_event, record
+from tasks_core import SCHEMA, import_notification_on, import_release_event, record, timestamp
+from tasks_storage import open_sqlite
 from tasks_wake_subscriptions import OWNED_READY, has_subscription
 
 
@@ -55,6 +59,12 @@ class FixtureRaft:
                 "client_id": CLIENT, "server_id": SERVER,
                 "preferred_username": name.lower(), "name": name, "picture": None,
             }
+
+    def wake_recipient(self, name):
+        person = self.people[name]
+        identity = Identity(person["server_id"], person["sub"], person["type"],
+                            person["preferred_username"], person["name"], None)
+        return WakeRecipient(identity, f"fixture-agent-events-{name}")
 
     def __call__(self, upstream):
         path = urlsplit(upstream.full_url).path
@@ -1207,6 +1217,122 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.action(avery, "my-wake-subscriptions")["subscriptions"], [])
         self.action(blake, "my-wake-subscriptions", status=403)
         self.action(blake, "set-wake-subscription", {"event_type": OWNED_READY, "enabled": "true"}, status=403)
+
+    def task_event(self, client, task):
+        current = self.action(client, "task", query_string={"id": task})["task"]
+        return {"task": task, "event": current["event_id"], "at": current["at"]}
+
+    def launch_fixture(self, source, project, recipient, transport):
+        with closing(open_sqlite(self.database)) as db:
+            return launch_ready_wake(db, project=project, task=source["task"], event_id=source["event"],
+                                     recipient=self.provider.wake_recipient(recipient), transport=transport)
+
+    def test_ready_wake_fixture_requires_exact_opt_in_owner_project_and_current_event(self):
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        blake, _ = self.login(app, "Blake")
+        self.login(app, "Sam")
+        self.cli("register-project", "COURSE", "Sample course", "--dri", owner)
+        self.action(avery, "create-task", {"project": "COURSE", "title": "Fixture", "step": "Check the evidence."})
+        ready = self.task_event(avery, "COURSE-1")
+        opt_in = {"event_type": OWNED_READY, "enabled": "true"}
+        self.action(avery, "set-wake-subscription", opt_in)
+        self.action(blake, "set-wake-subscription", {**opt_in, "project": "COURSE"})
+        transport = Mock()
+
+        with self.assertRaisesRegex(PermissionError, "subscribe"):
+            self.launch_fixture(ready, "COURSE", "Avery", transport)
+        with self.assertRaisesRegex(PermissionError, "own the ticket"):
+            self.launch_fixture(ready, "COURSE", "Blake", transport)
+        with self.assertRaisesRegex(PermissionError, "signed-in Raft agent"):
+            self.launch_fixture(ready, "COURSE", "Sam", transport)
+        with self.assertRaisesRegex(ValueError, "selected project"):
+            self.launch_fixture(ready, "T", "Avery", transport)
+
+        self.action(avery, "set-wake-subscription", {**opt_in, "project": "COURSE"})
+        for transition in ("park", "unpark"):
+            self.action(avery, "advance-task", {"id": "COURSE-1", "transition": transition, "note": "Fixture step."})
+        with self.assertRaisesRegex(ValueError, "current Ready event"):
+            self.launch_fixture(ready, "COURSE", "Avery", transport)
+        self.action(avery, "set-wake-subscription", {**opt_in, "project": "COURSE", "enabled": "false"})
+        with self.assertRaisesRegex(PermissionError, "subscribe"):
+            self.launch_fixture(self.task_event(avery, "COURSE-1"), "COURSE", "Avery", transport)
+        transport.assert_not_called()
+        with closing(open_sqlite(self.database)) as db:
+            self.assertIsNone(db.execute("SELECT 1 FROM wake_log").fetchone())
+
+    def test_ready_wake_fixture_keeps_acceptance_recipient_phases_and_fallback_separate(self):
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        self.action(avery, "create-task", {"title": "Fixture", "step": "Check the evidence."})
+        self.action(avery, "set-wake-subscription", {"event_type": OWNED_READY, "enabled": "true"})
+        ready = self.task_event(avery, "T-1")
+        self.action(avery, "record-activity", {"id": "T-1", "note": "Activity keeps the Ready event current."})
+        with closing(open_sqlite(self.database)) as db:
+            import_notification_on(db, outbox_receipt("ready", ready["event"], "T-1", ready["at"], owner, True))
+
+        log_path = "/api/v1/notifications/log"
+
+        def notice(kind):
+            items = self.call(avery, log_path, query_string={"kind": kind}).json["items"]
+            self.assertEqual(len(items), 1)
+            return items[0]
+
+        fallback = notice("ready")
+        transport = Mock(return_value=(202, {"status": "queued"}))
+        self.assertEqual(self.launch_fixture(ready, "T", "Avery", transport), "accepted")
+        request = transport.call_args.args[0]
+        self.assertEqual(request.get_header("Authorization"), "Bearer fixture-agent-events-Avery")
+        self.assertIn(f"{ORIGIN}{BASE}/#task-1", json.loads(request.data)["summary"])
+        accepted = notice("wake")
+        self.assertEqual(accepted["acceptance"], "accepted")
+        self.assertGreaterEqual(accepted["acceptance_at"], observed_time(ready["at"]))
+        for field in ("delivery", "next_result", "start_event_id", "receipt_ref"):
+            self.assertIsNone(accepted[field])
+        self.assertEqual(self.launch_fixture(ready, "T", "Avery", transport), "already_accepted")
+        transport.assert_called_once()
+        self.assertEqual(notice("wake"), accepted)
+
+        def observe(**observations):
+            with closing(open_sqlite(self.database)) as db:
+                import_notification_on(db, {"schema": WAKE_SCHEMA, "source": ready, "recipient": owner,
+                                            "observations": observations})
+            return notice("wake")
+
+        delivered = observe(delivery={"status": "delivered", "at": timestamp()})
+        self.assertEqual(delivered["delivery"], "delivered")
+        self.assertIsNone(delivered["next_result"])
+        self.assertEqual(self.action(avery, "my-next")["work"]["key"], "T-1")
+        offered = observe(next_result={"status": "offered", "at": timestamp()})
+        self.assertEqual(offered["next_result"], "offered")
+        self.assertIsNone(offered["start_event_id"])
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Check the evidence."})
+        start_id = self.task_event(avery, "T-1")["event"]
+        started = observe(start_event_id=start_id)
+        self.assertEqual(started["start_event_id"], start_id)
+        self.assertEqual(started["acceptance_at"], accepted["acceptance_at"])
+        self.assertEqual(notice("ready"), fallback)
+
+    def test_ready_wake_fixture_retries_unknown_with_same_id_after_reopening_ledger(self):
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        self.cli("register-project", "COURSE", "Sample course", "--dri", owner)
+        self.action(avery, "create-task", {"title": "Other project", "step": "Check the evidence."})
+        self.action(avery, "create-task", {"project": "COURSE", "title": "Fixture", "step": "Check the evidence."})
+        self.action(avery, "set-wake-subscription", {"project": "COURSE", "event_type": OWNED_READY, "enabled": "true"})
+        ready = self.task_event(avery, "COURSE-1")
+        transport = Mock(side_effect=[TimeoutError("Unobserved fixture response"), (200, {"deduped": True})])
+
+        self.assertEqual(self.launch_fixture(ready, "COURSE", "Avery", transport), "unknown")
+        with closing(open_sqlite(self.database)) as db:
+            self.assertIsNone(db.execute("SELECT 1 FROM wake_log").fetchone())
+
+        self.assertEqual(self.launch_fixture(ready, "COURSE", "Avery", transport), "accepted")
+        first, second = (json.loads(call.args[0].data) for call in transport.call_args_list)
+        self.assertEqual(first, second)
+        self.assertIn(f"{ORIGIN}{BASE}/#task-COURSE-1", second["summary"])
+        items = self.call(avery, "/api/v1/notifications/log", query_string={"project": "COURSE", "kind": "wake"}).json["items"]
+        self.assertEqual([(item["id"], item["acceptance"]) for item in items], [(ready["event"], "accepted")])
 
     def test_standing_goal_start_clears_prior_investigation_estimate(self):
         app = self.app(portal_reader=True)

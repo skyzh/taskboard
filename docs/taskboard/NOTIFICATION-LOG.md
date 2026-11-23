@@ -72,3 +72,129 @@ missing observations. Taskboard generates the cue from the source ticket.
 Keep private messages, raw event IDs, and carrier payloads in their original
 systems. If the same Ready event also has a fallback Ready receipt, each record
 keeps its own evidence.
+
+## Run one approved Ready wake
+
+Use this foreground command from the checkout against the same initialized
+ledger the Taskboard service uses. Agree on one project, ticket, and Ready event
+such as an Add or Transfer before running. Confirm the Server, app, and agent in
+the approved token exchange metadata. The command checks the Server against the
+board and requires the established agent to be the ticket's current owner and
+subscribed to `owned-ready` in that project.
+
+Set `ready_token_file` to the operator-owned temporary file containing only the
+approved agent-events token. It must grant access only to its owner, for
+example with mode `0600`. Pass the token through the command's read-only file
+descriptor.
+
+For SQLite, leave `TASKS_POSTGRES_DSN` unset and set `ready_ledger` to the
+existing file named by the service's `--db` argument. The operator needs write
+access to record acceptance.
+
+```sh
+./.venv/bin/python -B ./tasks_ready_wake.py --db "$ready_ledger" \
+  --project "$ready_project" --task "$ready_ticket" --event-id "$ready_event_id" \
+  --server-id "$approved_server_id" --recipient-id "$approved_agent_id" \
+  --token-fd 3 3<"$ready_token_file"
+```
+
+For PostgreSQL, use the existing checkout environment with PostgreSQL support
+and `TASKS_POSTGRES_DSN` set to the same ledger the service uses.
+
+```sh
+./.venv/bin/python -B ./tasks_ready_wake.py \
+  --project "$ready_project" --task "$ready_ticket" --event-id "$ready_event_id" \
+  --server-id "$approved_server_id" --recipient-id "$approved_agent_id" \
+  --token-fd 3 3<"$ready_token_file"
+```
+
+Select exactly one ledger. The command makes at most one request and prints a
+status without the token, request payload, or provider response. `accepted`
+means Raft returned `202` with `queued` or `200` with `deduped: true` and
+Taskboard recorded the local observation time. `already_accepted` and
+`rejected` are existing receipts and require no send. `unknown` means
+acceptance or its recording is unconfirmed. `not_attempted` means the command
+stopped before sending. Acceptance alone leaves delivery, queue check, and
+Start unobserved.
+
+### Stop and clean up
+
+1. Interrupt a running command with Ctrl-C. Verify that no sender process
+   remains with `pgrep -f '[t]asks_ready_wake\.py'`.
+2. If the outcome is interrupted or unknown, check the project log and have
+   the authorized recipient check their Raft inbox for the exact ticket and
+   Ready event before deciding the outcome. Use a non-consuming inbox listing
+   if available. Reading a held event by ID consumes it. Keep any existing
+   receipt and leave unverified stages unknown.
+3. The foreground command's descriptor closes on exit. Remove its only
+   temporary token file with `rm -- "$ready_token_file"` and verify removal
+   with `test ! -e "$ready_token_file"`. Have the authorized Raft operator
+   reverse the separate event grant through the approved path and preserve
+   the app's ordinary sign-in grant. Record the issued token's expiry
+   separately. The already issued token may remain valid until expiry while
+   another grant stays active.
+4. After the pilot operator confirms the outcome and cutoff, restore exactly
+   one instance of the original fallback watcher with its prior configuration.
+   Run `raft proc list` as the recipient and verify that exactly one instance
+   is running.
+
+## Verify one managed Ready sender
+
+The managed sender starts only when an authorized operator runs it. Use the
+reviewed checkout, one approved Raft app and agent, and the existing writable
+Project T SQLite board. This pilot covers new owned Ready events after its
+baseline. The regular watcher remains available for existing Ready work and
+rollback.
+
+1. Verify the recipient's signed Project T `owned-ready` subscription and
+   Raft event grant. Confirm the app ID, Server slug and UUID, and recipient
+   UUID. Keep the OAuth app secret in the operator's private credential
+   store. Pass it through an owner-only readable file descriptor.
+2. In an operator-owned private directory, choose a new path for
+   `managed_state`. Initialize it once. Initialization records the current
+   event boundary and signed subscription revision and makes no Raft
+   request.
+
+   ```sh
+   ./.venv/bin/python -B ./tasks_managed_ready.py --db "$ready_ledger" \
+     --state "$managed_state" --server-id "$approved_server_id" \
+     --recipient-id "$approved_agent_id" --client-id "$ready_app_id" init
+   ```
+
+3. Run one foreground process in a bounded observation window agreed with the
+   recipient. Keep the original watcher installed and coordinate any temporary
+   pause for the exact test cue. After a normal restart, reuse the same state.
+
+   ```sh
+   ./.venv/bin/python -B ./tasks_managed_ready.py --db "$ready_ledger" \
+     --state "$managed_state" --server-id "$approved_server_id" \
+     --recipient-id "$approved_agent_id" --client-id "$ready_app_id" \
+     run --server-slug "$approved_server_slug" --secret-fd 3 3<"$ready_app_secret_file"
+   ```
+
+4. Observe an exact Ready event, Raft acceptance, the recipient's observation,
+   the first signed queue check and Start. Repeat the recovery check with the
+   same sender state across a restart. Verify a cue held during a managed
+   Raft Stop and Start with an eligible, unexpired event. The Wake log records
+   acceptance first. Add the later observations only as they are verified.
+
+The sender repeats a request with the same external event ID after a transient
+failure. It attempts a cue up to four times within five minutes of its first
+attempt and skips Ready events older than 24 hours. A cue outside these limits
+remains available through normal Taskboard and watcher workflows. The sender
+keeps its bearer in memory, renews ahead of expiry, and permits one forced
+renewal after HTTP 401 for a cue. It honors Raft's rate-limit backoff across
+restart using private state. A signed opt-out or a pending or denied Raft grant
+clears the bearer and stops the sender. A deliberate re-enable starts from
+fresh approval, a fresh signed opt-in, and a new baseline.
+
+### Roll back the managed sender
+
+Stop the foreground process with Ctrl-C or send SIGTERM, then wait for it to
+exit. Confirm that no managed sender remains before restoring the original
+watcher. Keep the private state and Wake log receipts for the trial. Restore
+exactly one original watcher if it was paused, and verify it with
+`raft proc list`. The recipient can turn off `owned-ready`. An authorized
+Raft operator can separately revoke the event grant while keeping ordinary
+sign-in. Treat a previously issued token as valid through its stated expiry
+and leave unverified delivery stages unknown.
