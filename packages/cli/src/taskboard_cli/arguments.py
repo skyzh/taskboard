@@ -58,6 +58,7 @@ def review_date(value):
 
 
 OFFLINE_EVIDENCE_HELP = "Offline: repeat for each local path or HTTP(S) URL."
+FIELD_GUIDANCE_HELP = "Run ./tasks --shared field-guidance --project T for field wording, locations and examples."
 
 
 SHARED_EVIDENCE_HELP = "Shared: one HTTP(S) URL per record."
@@ -89,7 +90,7 @@ def arguments(argv=None):
                       help="Use the configured PostgreSQL board for service and operator commands.")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    add = commands.add_parser("add", help="Create a ready task with one named owner.")
+    add = commands.add_parser("add", help="Create a ready task with one named owner.", epilog=FIELD_GUIDANCE_HELP)
     add.add_argument("title", type=nonblank)
     add.add_argument("--project", type=nonblank, help="Project prefix. Defaults to T.")
     add.add_argument("--dri", type=nonblank, help="Accountable owner. Shared tasks are created under your own identity.")
@@ -126,7 +127,7 @@ def arguments(argv=None):
     }
     note_labels = {"close": "REASON", "redirect-decision": "REASON", "withdraw-decision": "NEXT_STEP"}
     for action, help_text in actions.items():
-        command = commands.add_parser(action, help=help_text, description=help_text)
+        command = commands.add_parser(action, help=help_text, description=help_text, epilog=FIELD_GUIDANCE_HELP)
         command.add_argument("id", type=task_id)
         command.add_argument("note", type=nonblank, metavar=note_labels.get(action, "note"))
         command.add_argument("--by", type=nonblank)
@@ -205,7 +206,8 @@ def arguments(argv=None):
             command.add_argument("--dri", required=True, type=nonblank, help="New accountable owner.")
         add_link_flag(command)
 
-    log = commands.add_parser("log", help="Record contributor activity and keep the current step and status.")
+    log = commands.add_parser("log", help="Record contributor activity and keep the current step and status.",
+                              epilog=FIELD_GUIDANCE_HELP)
     log.add_argument("id", type=task_id)
     log.add_argument("note", type=nonblank)
     log.add_argument("--by", type=nonblank, help="Actor in offline mode or an identity check in shared mode.")
@@ -218,7 +220,8 @@ def arguments(argv=None):
     confirm.add_argument("note", type=nonblank, help="The verified outcome.")
     add_link_flag(confirm)
 
-    edit = commands.add_parser("edit", help="Correct an owned or managed ticket’s title or brief.")
+    edit = commands.add_parser("edit", help="Correct an owned or managed ticket’s title or brief.",
+                               epilog=FIELD_GUIDANCE_HELP)
     edit.add_argument("id", type=task_id)
     edit.add_argument("note", type=nonblank, metavar="REASON")
     edit.add_argument("--title")
@@ -346,6 +349,10 @@ def arguments(argv=None):
     channel_value = channel_set.add_mutually_exclusive_group(required=True)
     channel_value.add_argument("--channel-id", type=nonblank, help="Stable Raft channel ID.")
     channel_value.add_argument("--clear", action="store_true", help="Clear the project's saved Raft channel.")
+    guidance = commands.add_parser("field-guidance", help="Read effective writing guidance for a project.")
+    guidance.add_argument("field", nargs="?", choices=("title", "brief", "next_step", "activity"),
+                          help="Omit to see every field.")
+    guidance.add_argument("--project", type=nonblank, help="Project prefix. Defaults to T.")
     register_project = commands.add_parser("register-project", help="Register a project in an operator's local ledger.")
     register_project.add_argument("prefix", type=nonblank)
     register_project.add_argument("title", type=nonblank)

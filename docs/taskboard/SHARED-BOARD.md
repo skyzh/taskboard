@@ -53,8 +53,27 @@ Each value is a string. Use an empty string for `ready-review` to omit the extra
 | `agent_guidance` | Starting, advancing, and handing off work | `advance-checklist`, `lesson-capture`, `advance-update`, `advance-resume`, `advance-unpark`, `advance-wait`, `advance-assign-human`, `advance-redirect-decision`, `advance-park`, `advance-remind`, `completion`, `peer-create`, `peer-result` |
 | `agent_guidance` | Other signed action responses | Prefix the action with `action-`. Supported actions include `context`, `create-task`, `delegate`, `save-goal`, and `worker-handoff`. See the [full list](../../packages/server/src/tasks_guidance.py). |
 | `agent_guidance.cli` | Guidance printed by the shared CLI for selected commands | `context`, `raft-channel`, `goals-existing`, `goals-missing`, `workers`, `completion`, `list`, `list-empty`, `list-unassigned-empty`, `readiness`, `readiness-empty`, `reviews`, `reviews-empty`, `search`, `search-empty`, `tagged`, `tagged-empty`, `watched`, `watched-empty` |
+| `agent_guidance.fields` | Signed writing guidance for the CLI and web editor | `title`, `brief`, `next_step`, `activity` |
 
 The shared CLI displays the server's selected guidance for Ready pickup, standing goals, task details, and shared writes. After a completed task or handoff it shows an actionable next ticket or standing goal when one exists. Use the `cli` table to customize the other command messages listed above, including the completion message when there is no next item.
+
+Run `./tasks --shared field-guidance --project T` to see what to write in each
+field, where it appears, and an example. Add a field key, such as
+`field-guidance title`, to read only that field. For each field, a project
+manager's setting takes precedence over the TOML value, followed by the
+built-in wording. Clearing a project override restores its inherited text
+and keeps the field's location and example.
+
+This change adds no bulk rewrite of existing titles or history. If an older title was
+shortened, use `tasks --shared edit` with a reason to restore the intended
+wording. New ordinary peer requests keep the full first line as their title.
+Put details on subsequent lines. Exact PR reviews keep their short review title.
+
+Update the board and shared CLI before using the field query in a workflow.
+On rollback, save a copy of the TOML file and remove its
+`[agent_guidance.fields]` section before starting an older server. Older
+versions ignore saved project wording and enforce the former title length
+on title changes. The existing ledger text stays available.
 
 ### Preview Codex quota and credits
 

@@ -8,9 +8,6 @@ from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, request
 
-from taskboard_client.work import TASK_TITLE_LIMIT
-
-
 _ACTION_PREFIX = "/api/v1/raft"
 _MANIFEST_PATH = "/.well-known/raft-agent-manifest.json"
 _TASK = {"id": "Task ID, such as T-1 or COURSE-1."}
@@ -50,6 +47,8 @@ _ACTIONS = {
     "raft-channel-set": _Action("POST", "Set or clear the project's verified Raft coordination channel.",
                                 {"project": "Taskboard project prefix.",
                                  "channel_id": "Stable Raft channel ID. Send an empty string to clear it."}),
+    "field-guidance": _Action("GET", "Read effective writing guidance, field locations and examples.",
+                              optional=_PROJECT),
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE),
     "idle-goal-offer": _Action("POST", "Return a standing goal at a verified idle runner handoff.", {
         "handoff_id": "Stable runner handoff UUID. Use only after observing Idle and reuse the same ID on retry.",
@@ -98,12 +97,12 @@ _ACTIONS = {
         "query": "Search by name or handle.", **_PROJECT, **_PAGINATION,
     }),
     "create-task": _Action("POST", "Create a task you will own.", {
-        "title": f"Task title, up to {TASK_TITLE_LIMIT} characters. Put details in the brief.",
+        "title": "Short, actionable task title. Read field-guidance for the project’s wording and example.",
         "step": "First step for the owner.",
     }, {"brief": "Background and scope of the work.", **_PROJECT, **_EVIDENCE}),
     "recurring-add": _Action("POST", "Define recurring work you own.", {
         "key": "Stable key for retrying this definition.",
-        "title": f"Title for each occurrence, up to {TASK_TITLE_LIMIT} characters.",
+        "title": "Short, actionable title for each occurrence.",
         "step": "First step for each occurrence.",
         "cadence_hours": "Number of whole hours between slots.",
         "next_at": "First slot in UTC, including seconds.",
@@ -165,7 +164,7 @@ _ACTIONS = {
     }, {"related": "Optional related ticket, such as the duplicate or successor.", **_EVIDENCE}),
     "edit-task-details": _Action("POST", "Edit the title or brief as the owner or project manager.", {
         **_TASK, "reason": "Reason for correcting the ticket.",
-    }, {"title": f"Replacement title, up to {TASK_TITLE_LIMIT} characters. Put details in the brief.",
+    }, {"title": "Short, actionable replacement title. Read field-guidance for the project’s wording and example.",
         "brief": "Replacement brief. Empty clears it.", **_EVIDENCE}),
     "edit-checklist": _Action("POST", "Edit checklist steps as the ticket owner or project manager.", {
         **_TASK, "action": "Choose add, rename, reopen, or remove.",

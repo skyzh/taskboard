@@ -78,9 +78,10 @@ before(async () => {
         }))
         plugin.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({
           contents: path === 'react' ? `
-            import { useEffect as reactEffect, useRef as reactRef } from ${JSON.stringify(require.resolve('react'))}
-            export { default, createContext, useContext, useId, useLayoutEffect, useMemo } from ${JSON.stringify(require.resolve('react'))}
+            import { useEffect as reactEffect, useId as reactId, useRef as reactRef } from ${JSON.stringify(require.resolve('react'))}
+            export { default, createContext, useContext, useLayoutEffect, useMemo } from ${JSON.stringify(require.resolve('react'))}
             export function useCallback(callback) { return callback }
+            export function useId() { return ${fixtureLookup}.directIds?.shift() ?? reactId() }
             export function useEffect(effect, deps) {
               const capture = ${fixtureLookup}.captureEffect
               if (capture) capture(effect)
@@ -95,7 +96,11 @@ before(async () => {
               return [fixture.state.length ? fixture.state.shift() : initial, value => fixture.onSetState?.(value)]
             }
           ` : `
-            export const useResource = path => ${fixtureLookup}.resources[path] || {}
+            export function useResource(path) {
+              const fixture = ${fixtureLookup}
+              fixture.resourceReads?.push(path)
+              return fixture.resources[path] || {}
+            }
             export function useLoadedPages(path, filters, _revision, options) {
               const page = ${fixtureLookup}.pages[path]
               return typeof page === 'function' ? page(filters, options) : page || { data: options?.firstPage }
@@ -627,6 +632,34 @@ test('profile renders two dated milestones and keeps the standing edit date-free
   assert.doesNotMatch(standing, /type="date"|Related task IDs/)
 })
 
+test('goal editors show the project title guidance and submit longer names intact', async () => {
+  const project = 'COURSE'
+  const title = 'Make the release evidence easy to find in every supported project view'
+  const props = { goal: { summary: 'Improve evidence' }, standing: true, project, editable: true, onChanged() {} }
+  fixture.resources = { '/projects/COURSE/field-guidance': { data: { fields: {
+    title: { guidance: 'Describe the outcome.', where: 'Ticket headings and queue rows.', example: 'Verify the phone view.' },
+  } } } }
+  fixture.state = [true, title]
+  const markup = renderToStaticMarkup(React.createElement(DriGoal, props))
+  assert.match(markup, /<label>Standing goal<input[^>]+aria-describedby="([^"]+)"[^>]*\/><\/label>.*Describe the outcome\..*Ticket headings and queue rows\..*Verify the phone view\./)
+  assert.match(markup, /<button>Save goal<\/button>/)
+
+  const sent = []
+  fixture.request = async (path, options) => sent.push({ path, ...options })
+  try {
+    fixture.state = [true]
+    const editor = React.Children.toArray(DriGoal(props).props.children).find(child => child.props?.mode === 'standing-goal')
+    fixture.state = [title, '', '', false, null]
+    fixture.directIds = ['goal-links', 'goal-title-guidance']
+    const form = editor.type(editor.props)
+    form.props.onSubmit({ preventDefault() {} })
+    assert.deepEqual(sent, [{ path: '/profile/standing-goal?project=COURSE', method: 'PATCH', body: { summary: title } }])
+  } finally {
+    delete fixture.directIds
+    delete fixture.request
+  }
+})
+
 test('an event already in the activity list has one anchor and is marked current', () => {
   const markup = renderLog([selected], null)
   assert.equal((markup.match(/id="event-18-log"/g) || []).length, 1)
@@ -948,6 +981,46 @@ test('ticket detail uses the current record and keeps sources and evidence', () 
   assert.match(markup, /href="https:\/\/example\.test\/runbook">Runbook<\/a>/)
   assert.doesNotMatch(markup, /Edited TaskNote|\/old-note|Current status below/)
   assert.doesNotMatch(markup, /class="detail-checklist"/)
+})
+
+test('ticket editors share the signed guidance read for the ticket project', () => {
+  const path = '/projects/COURSE/field-guidance'
+  fixture.resources = {
+    '/tasks/7': { data: {
+      task: { id: 7, key: 'COURSE-7', title: 'Review the sample', state: 'in_progress', summary_label: 'Current step' },
+      brief: 'Original instructions.', checklist: [], sources: [], workers: [], can_edit_details: true,
+    } },
+    [path]: { data: { fields: {
+      title: { guidance: 'Start with the action.', where: 'List rows.', example: 'Review the sample.' },
+      brief: { guidance: 'Describe the outcome.', where: 'Ticket details.', example: 'Check two viewports.' },
+      activity: { guidance: 'Report what changed.', where: 'Activity feed.', example: 'All checks passed.' },
+    } } },
+  }
+  fixture.pages = {}
+  const render = kind => {
+    fixture.state = []
+    return renderToStaticMarkup(React.createElement(TaskDetail, { id: 7, session: { data: { actor: { kind, id: 'Avery' } } } }))
+  }
+  try {
+    fixture.resourceReads = []
+    const signed = render('agent')
+    assert.deepEqual(fixture.resourceReads.filter(path => path?.endsWith('/field-guidance')), [path])
+    assert.match(signed, /aria-describedby="ticket-title-guidance-7".*id="ticket-title-guidance-7".*Start with the action\..*List rows\..*Review the sample\./)
+    assert.match(signed, /aria-describedby="ticket-brief-guidance-7".*id="ticket-brief-guidance-7".*Describe the outcome\..*Ticket details\..*Check two viewports\./)
+    const activityHelpId = signed.match(/<label>Update<textarea[^>]+aria-describedby="([^"]+)"/)[1]
+    assert.ok(signed.includes(`id="${activityHelpId}"><p>Report what changed.</p><p>Activity feed.</p><p><strong>Example</strong> All checks passed.</p>`))
+
+    fixture.resourceReads = []
+    assert.doesNotMatch(render('portal'), /field-guidance-help/)
+    assert.equal(fixture.resourceReads.filter(path => path?.endsWith('/field-guidance')).length, 0)
+
+    fixture.resources[path] = { error: { status: 404, message: 'Not found' } }
+    const olderServer = render('agent')
+    assert.match(olderServer, /Save details.*Post update/)
+    assert.doesNotMatch(olderServer, /field-guidance-help|Not found/)
+  } finally {
+    delete fixture.resourceReads
+  }
 })
 
 test('ticket detail opens its checklist with a progress count and readable step states', () => {
@@ -1291,8 +1364,9 @@ test('editing task details sends only changed fields and keeps the draft if the 
   }
 })
 
-test('title edits explain the 60-character limit and preserve unchanged older titles', async () => {
+test('title edits submit longer titles intact and preserve unchanged older titles', async () => {
   const original = 'x'.repeat(85)
+  const longer = 'Verify the mounted review page on phone and desktop after the rollout'
   const props = { task: { id: 8, key: 'T-8', title: original }, brief: 'Old brief', onChanged() {} }
   const sent = []
   fixture.request = async (_, options) => sent.push(options.body)
@@ -1306,15 +1380,13 @@ test('title edits explain the 60-character limit and preserve unchanged older ti
     return markup
   }
   try {
-    const rejected = await edit({ title: 'é'.repeat(61) })
-    assert.match(rejected, /aria-invalid="true"/)
-    assert.match(rejected, /Keep the title to 60 characters. Move details into the brief./)
-    assert.equal(sent.length, 0)
     assert.match(await edit({ brief: 'New brief' }), new RegExp(original))
-    await edit({ title: 'é'.repeat(60) })
+    const edited = await edit({ title: longer })
+    assert.match(edited, /<button type="submit">Save details<\/button>/)
+    assert.doesNotMatch(edited, /aria-invalid="true"|Keep the title to 60 characters/)
     assert.deepEqual(sent, [
       { brief: 'New brief', reason: 'Clarify the scope.' },
-      { title: 'é'.repeat(60), reason: 'Clarify the scope.' },
+      { title: longer, reason: 'Clarify the scope.' },
     ])
   } finally {
     delete fixture.request

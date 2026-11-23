@@ -1,7 +1,9 @@
-import React, { useState } from 'react'
+import React, { useId, useState } from 'react'
 import { request } from './data.js'
+import { FieldHelp } from './FieldGuidance.jsx'
 
-export default function TaskActivityUpdate({ task, onChanged, confirmBlocker = false }) {
+export default function TaskActivityUpdate({ task, onChanged, field, confirmBlocker = false }) {
+  const activityHelpId = useId()
   const [note, setNote] = useState('')
   const [evidence, setEvidence] = useState('')
   const [saving, setSaving] = useState(false)
@@ -41,8 +43,9 @@ export default function TaskActivityUpdate({ task, onChanged, confirmBlocker = f
         <label>
           {confirmBlocker ? 'Verified outcome' : 'Update'}
           <textarea value={note} onChange={event => { setNote(event.target.value); setResult(null) }}
-            rows={3} maxLength={4000} required disabled={saving} />
+            aria-describedby={field ? activityHelpId : undefined} rows={3} maxLength={4000} required disabled={saving} />
         </label>
+        <FieldHelp field={field} id={activityHelpId} />
         <label>
           {evidenceRequired ? 'Evidence link' : 'Evidence link (optional)'}
           <input type="url" value={evidence} onChange={event => { setEvidence(event.target.value); setResult(null) }}

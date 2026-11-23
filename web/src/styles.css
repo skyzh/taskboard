@@ -571,6 +571,11 @@ select option:disabled { color: GrayText; }
   pointer-events: none;
 }
 form [role="alert"] { color: var(--field-error); }
+.field-guidance-help { color: var(--muted); font-size: .83rem; overflow-wrap: anywhere; }
+.field-guidance-help p { margin: .25rem 0; white-space: pre-wrap; }
+.field-guidance-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.field-guidance-selector { display: flex; align-items: center; flex-wrap: wrap; gap: 0 .5rem; }
+.field-guidance-selector select { min-height: 2.75rem; }
 button:enabled { cursor: pointer; }
 button:enabled:hover { background: var(--wash); }
 button:disabled { opacity: .57; }

@@ -17,7 +17,7 @@ ADVANCES = {
     "assign-human", "redirect-decision", "withdraw-decision",
 }
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
-         "search", "readiness", "raft-channel-show", "wake-subscriptions", ledger.READ}
+         "search", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance", ledger.READ}
 WRITES = ADVANCES | {
     "confirm-blocker",
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
@@ -418,6 +418,16 @@ def shared_command(args):
         return with_guidance(summary, prompts.get(
             "raft-channel", "Use Raft for shared coordination when a verified channel is configured.",
         ))
+    if command == "field-guidance":
+        query = {"project": projects.prefix(args.project)} if args.project else {}
+        result = board.invoke(command, query)
+        fields = result["fields"]
+        lines = [f"{result['project']} · Writing guidance"]
+        for field in (args.field,) if args.field else ("title", "brief", "next_step", "activity"):
+            item = fields[field]
+            lines.extend(("", field.replace("_", " ").capitalize(), item["guidance"],
+                          f"Appears in {item['where']}", f"Example · {item['example']}"))
+        return "\n".join(lines)
     if command in {"wake-subscriptions", "wake-subscribe", "wake-unsubscribe"}:
         data = {"project": projects.prefix(args.project)} if args.project else {}
         write = command != "wake-subscriptions"

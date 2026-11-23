@@ -52,6 +52,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "context": ("GET", "", ""),
             "raft-channel-show": ("GET", "project", ""),
             "raft-channel-set": ("POST", "project channel_id", ""),
+            "field-guidance": ("GET", "", "project"),
             "my-next": ("GET", "", "project scope"),
             "idle-goal-offer": ("POST", "handoff_id", ""),
             "my-goals": ("GET", "", "project"),

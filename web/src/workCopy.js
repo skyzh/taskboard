@@ -1,5 +1,3 @@
-export const TASK_TITLE_LIMIT = 60
-
 export function withoutRepeatedTitle(note, title) {
   const text = note.trim()
   const heading = title.trim()

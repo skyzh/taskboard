@@ -1,5 +1,6 @@
 import React, { useId } from 'react'
 import CodexUsage from './CodexUsage.jsx'
+import FieldGuidanceSettings from './FieldGuidanceSettings.jsx'
 import { ProfileForm, ProfileSignIn } from './Profile.jsx'
 import { ResourceStatus } from './shared.jsx'
 import { browserTimeZone, timeZones } from './timeZone.js'
@@ -10,7 +11,7 @@ const themeChoices = [
   { value: '', label: 'Auto' },
 ]
 
-export default function Settings({ session, theme, timeZonePreference, chooseTimeZone, onProfileSaved }) {
+export default function Settings({ session, theme, timeZonePreference, chooseTimeZone, onProfileSaved, project, projects, revision }) {
   const browserZoneId = useId()
   const usesBrowserZone = !timeZonePreference
   const actor = session.data?.actor
@@ -53,6 +54,7 @@ export default function Settings({ session, theme, timeZonePreference, chooseTim
           )}
         </section>
       )}
+      {canEdit && <FieldGuidanceSettings project={project} projects={projects} revision={revision} />}
       {actor?.kind === 'human' && <CodexUsage key={actor.id} />}
     </section>
   )

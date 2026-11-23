@@ -4,6 +4,7 @@ import { ActivityDate } from './Overview.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import ChecklistEdit from './ChecklistEdit.jsx'
 import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
+import { useFieldGuidance } from './FieldGuidance.jsx'
 import { MergeQueue } from './MergeQueue.jsx'
 import ReminderDate from './ReminderDate.jsx'
 import RecurringRuns from './RecurringRuns.jsx'
@@ -378,6 +379,10 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   const state = task && taskState(task)
   const summary = state === 'closed' ? 'Closure reason' : task?.summary_label
   const project = typeof id === 'string' ? id.split('-')[0] : 'T'
+  const taskProject = task?.key?.split('-')[0] || project
+  const signedIn = ['agent', 'human'].includes(session.data?.actor?.kind)
+  const { data: fieldGuidance } = useFieldGuidance(signedIn && task ? taskProject : null, revision)
+  const fields = fieldGuidance?.fields
   const queueHref = returnHref || (project === 'T' && preferredProject === 'T' ? '#board' : `#project=${project}`)
   const backHref = fromSearch ? `#${new URLSearchParams({ search: fromSearch })}` : queueHref
   const detailed = Boolean(record && (record.brief || record.checklist.length || record.sources.length
@@ -421,7 +426,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
               {!mayAnswer(task, session) && <Options options={task.context?.choices} />}
               <EvidenceLinks links={task.links} />
               {record.can_confirm_blocker && (
-                <TaskActivityUpdate key={task.event_id} task={task} onChanged={onChanged} confirmBlocker />
+                <TaskActivityUpdate key={task.event_id} task={task} onChanged={onChanged} field={fields?.activity} confirmBlocker />
               )}
             </>}
             <DecisionForm key={`${id}:${session.data?.actor?.id ?? session.data?.actor?.name ?? ''}`}
@@ -449,10 +454,10 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
                 {record.can_edit_details && <ChecklistEdit task={task} onChanged={onChanged} />}
               </details>
             )}
-            <TaskOwnership task={task} actions={record.ownership_actions} project={task.key?.split('-')[0] || project}
+            <TaskOwnership task={task} actions={record.ownership_actions} project={taskProject}
               revision={revision} onChanged={onChanged} />
             {record.can_edit_details && <TaskDetailsEdit key={`details-${task.id}`} task={task} brief={record.brief}
-              onChanged={onChanged} />}
+              onChanged={onChanged} fields={fields} />}
             {record.can_close && state !== 'closed' && state !== 'done' && (
               <TaskClosure key={`close-${task.id}`} task={task} onChanged={onChanged} />
             )}
@@ -491,7 +496,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
             )}
             <section className="ticket-activity" aria-labelledby={`ticket-activity-${id}`}>
               <h3 id={`ticket-activity-${id}`}>Activity</h3>
-              {['agent', 'human'].includes(session.data?.actor?.kind) && <TaskActivityUpdate task={task} onChanged={onChanged} />}
+              {signedIn && <TaskActivityUpdate task={task} onChanged={onChanged} field={fields?.activity} />}
               <ResourceStatus resource={activity} label="task activity" />
               {activity.data?.items.length === 0 && <p className="section-message">No activity yet.</p>}
               <ol className="event-list" role="list">

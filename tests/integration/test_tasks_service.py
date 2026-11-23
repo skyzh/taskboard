@@ -3177,11 +3177,52 @@ class TasksServiceTest(unittest.TestCase):
             ("[agent_guidance]\nready-review = 42", "must be a nonempty string"),
             ("[agent_guidance]\nstanding-start = ''", "must be a nonempty string"),
             ("[agent_guidance.cli]\nreview = 'Review.'", "Unknown guidance key"),
+            ("[agent_guidance.fields]\nnext = 'Check it.'", "Unknown guidance key"),
         ):
             with self.subTest(content=content):
                 configuration.write_text(content, encoding="utf-8")
                 with self.assertRaisesRegex(ValueError, error):
                     load(configuration)
+
+    def test_signed_field_guidance_uses_project_overrides_and_shared_fallbacks(self):
+        from tasks_guidance import load
+
+        configuration = self.database.with_name("agent-guidance.toml")
+        configuration.write_text(
+            '[agent_guidance.fields]\ntitle = "Name the specific result."\n', encoding="utf-8",
+        )
+        app = self.app(portal_reader=True, agent_guidance=load(configuration))
+        manager, manager_id = self.login(app, "Sam")
+        agent, _ = self.login(app, "Avery")
+        self.cli("register-project", "T", "Tasks Board", "--dri", manager_id)
+        self.cli("register-project", "COURSE", "Sample course", "--dri", manager_id)
+        path = "/api/v1/projects/T/field-guidance"
+        self.call(app.test_client(), path, status=401)
+        baseline = self.call(agent, path).json
+        self.assertFalse(baseline["editable"])
+        action = self.action(agent, "field-guidance")
+        self.assertEqual(baseline, {key: action[key] for key in baseline})
+        self.assertEqual(set(baseline["fields"]), {"title", "brief", "next_step", "activity"})
+        self.assertEqual(baseline["fields"]["title"]["source"], "board")
+        self.assertEqual(baseline["fields"]["brief"]["source"], "default")
+        override = {"field": "title", "guidance": "State the verification in an active phrase."}
+        self.call(agent, path, method="PUT", json=override, status=403)
+        self.call(manager, path, method="PUT", json={"field": "unknown", "guidance": "Example."}, status=400)
+        saved = self.call(manager, path, method="PUT", json=override).json
+        self.assertTrue(saved["editable"])
+        field = saved["fields"]["title"]
+        self.assertEqual((field["guidance"], field["source"]), (override["guidance"], "project"))
+        code, output, error = self.shared_cli(agent, "field-guidance", "title", "--project", "T")
+        self.assertEqual((code, error), (0, ""))
+        for part in ("T · Writing guidance", field["guidance"], field["where"], field["example"]):
+            self.assertIn(part, output)
+        another = self.action(agent, "field-guidance", query_string={"project": "COURSE"})
+        self.assertEqual(another["fields"], baseline["fields"])
+        revision = self.call(agent, "/api/v1/revision").json
+        self.assertEqual(self.call(manager, path, method="PUT", json=override).json, saved)
+        self.assertEqual(self.call(agent, "/api/v1/revision").json, revision)
+        self.call(manager, path, method="PUT", json={**override, "guidance": None})
+        self.assertEqual(self.call(agent, path).json, baseline)
 
     def test_next_guides_an_assigned_review_even_on_a_completed_ticket(self):
         app = self.app()
@@ -6463,58 +6504,39 @@ class TasksServiceTest(unittest.TestCase):
             with self.subTest(url=url), self.assertRaisesRegex(ValueError, "Invalid TASKS_PUBLIC_RAFT_CHANNEL_URLS"):
                 public_raft_links(json.dumps({"T": url}))
 
-    def test_ticket_title_limit_applies_to_creates_and_title_edits(self):
+    def test_long_ticket_titles_are_preserved_through_creates_and_edits(self):
         app = self.app(portal_reader=True)
         owner, _ = self.login(app, "Avery")
-        limit = "é" * 60
-        long = limit + "x"
-        message = "Keep the title to 60 characters. Move details into the brief."
+        title = "Verify the résumé export against the signed report before sending it to finance"
+        edited = title + " in the approved workspace"
         fields = {"step": "Verify the receipt.", "brief": "Retain the details here."}
-        rejected = self.action(owner, "create-task", {**fields, "title": long}, status=409)
-        self.assertEqual(rejected["error"], message)
-        code, _, error = self.shared_cli(owner, "add", long, "--step", fields["step"])
-        self.assertEqual(code, 1)
-        self.assertIn(message, error)
-        code, output, error = self.shared_cli(owner, "add", limit, "--step", fields["step"])
+        self.action(owner, "create-task", {**fields, "title": title})
+        code, output, error = self.shared_cli(owner, "add", title, "--step", fields["step"])
         self.assertEqual((code, error), (0, ""))
-        self.assertIn("T-1 created", output)
-        edit = {"id": "T-1", "reason": "Clarify the scope."}
-        rejected = self.action(owner, "edit-task-details", {**edit, "title": long}, status=409)
-        self.assertEqual(rejected["error"], message)
-        code, _, error = self.shared_cli(owner, "edit", "T-1", edit["reason"], "--title", long)
-        self.assertEqual(code, 1)
-        self.assertIn(message, error)
-        self.action(owner, "edit-task-details", {**edit, "title": "x" * 60})
-        with closing(sqlite3.connect(self.database)) as db, db:
-            db.execute("UPDATE tasks SET title = ? WHERE id = 1", (long,))
-        self.action(owner, "edit-task-details", {**edit, "title": long, "brief": fields["brief"]})
-        saved = self.call(owner, "/api/v1/tasks/T-1").json
-        self.assertEqual((saved["task"]["title"], saved["brief"]), (long, fields["brief"]))
+        self.assertIn("T-2 created", output)
+        for key in ("T-1", "T-2"):
+            self.assertEqual(self.call(owner, f"/api/v1/tasks/{key}").json["task"]["title"], title)
+        code, _, error = self.shared_cli(owner, "edit", "T-1", "Clarify the scope.", "--title", edited)
+        self.assertEqual((code, error), (0, ""))
+        self.call(owner, "/api/v1/tasks/T-2/details", method="POST",
+                  json={"title": edited, "reason": "Clarify the scope."})
+        self.action(owner, "edit-task-details", {"id": "T-2", "reason": "Add context.", "brief": fields["brief"]})
+        for key in ("T-1", "T-2"):
+            self.assertEqual(self.call(owner, f"/api/v1/tasks/{key}").json["task"]["title"], edited)
 
-    def test_goal_titles_share_ticket_limit_and_preserve_legacy_names(self):
+    def test_goal_titles_preserve_supported_long_names(self):
         app = self.app(portal_reader=True)
         owner, _ = self.login(app, "Avery")
-        limit = "🚀" * 60
-        long = limit + "x"
-        message = "Keep the title to 60 characters. Move details into the brief."
+        long = "Verify that agents see actionable work and dated goals through each signed Inbox handoff"
         standing = "/api/v1/profile/standing-goal"
-        save = self.call(owner, standing, method="PATCH", json={"summary": limit})
-        self.assertEqual(save.json["standing_goal"]["summary"], limit)
-        rejected = self.call(owner, standing, status=400, method="PATCH", json={"summary": long})
-        self.assertEqual(rejected.json["error"], message)
+        save = self.call(owner, standing, method="PATCH", json={"summary": long})
+        self.assertEqual(save.json["standing_goal"]["summary"], long)
 
         goal = {"summary": long, "deadline": "2030-12-10"}
         for endpoint in ("goal", "milestone"):
             path = f"/api/v1/profile/{endpoint}"
-            rejected = self.call(owner, path, status=400, method="PATCH", json={"goal": goal})
-            self.assertEqual(rejected.json["error"], message)
-            saved = self.call(owner, path, method="PATCH", json={"goal": {**goal, "summary": limit}})
-            self.assertEqual(saved.json[endpoint]["summary"], limit)
-
-        with closing(sqlite3.connect(self.database)) as db, db:
-            db.execute("UPDATE tasks SET title = ? WHERE id IN (SELECT task_id FROM task_goals)", (long,))
-        standing_saved = self.call(owner, standing, method="PATCH", json={"summary": long})
-        self.assertEqual(standing_saved.json["standing_goal"]["summary"], long)
+            saved = self.call(owner, path, method="PATCH", json={"goal": goal})
+            self.assertEqual(saved.json[endpoint]["summary"], long)
         milestone_saved = self.call(owner, "/api/v1/profile/milestone", method="PATCH",
                                     json={"goal": {**goal, "deadline": "2030-12-11"}, "previous": long})
         self.assertEqual((milestone_saved.json["milestone"]["summary"], milestone_saved.json["milestone"]["deadline"]),
@@ -6543,7 +6565,7 @@ class TasksServiceTest(unittest.TestCase):
         request = task("COURSE-2")
         self.assertEqual((request["title"], request["note"], request["peer_request"]["source_key"]),
                          ("Verify the export on a phone", note, "COURSE-1"))
-        self.assertEqual(task(long_key)["title"], long_note[:59] + "…")
+        self.assertEqual(task(long_key)["title"], long_note.splitlines()[0])
         self.assertEqual(task(long_key)["note"], long_note)
         self.action(recipient, "edit-task-details", {"id": long_key, "title": "Check the export header", "reason": "Clarify the scope."})
         self.action(recipient, "advance-task", {"id": "COURSE-2", "transition": "start", "note": "Starting the mobile check."})
@@ -6862,14 +6884,15 @@ class TasksServiceTest(unittest.TestCase):
                 "id": reference, "transition": transition, "note": "Run the next check.",
             })
 
-        def ask(source):
+        def ask(source, note="Check the example."):
             return self.action(avery, "peer-ask", {
-                "id": source, "transition": "create", "recipient": blake_id, "note": "Check the example.",
+                "id": source, "transition": "create", "recipient": blake_id, "note": note,
             })["receipt"].split()[0]
 
         source = create("Check the sample")
         advance(avery, source, "start")
-        reference = ask(source)
+        ask_title = "Compare the January invoice totals against the signed export before sending the result to finance"
+        reference = ask(source, ask_title + "\nPrivate detail marker.")
 
         def check_phase(expected):
             first, = self.call(reader, route).json["items"]
@@ -6929,6 +6952,23 @@ class TasksServiceTest(unittest.TestCase):
             [row["request_key"] for row in self.call(reader, route, query_string={"project": "COURSE"}).json["items"]],
             [course_request],
         )
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.executemany("UPDATE tasks SET title = ' ' WHERE id = ?",
+                           [(int(key.split("-")[1]),) for key in (source, reference, legacy, review)])
+        portal = {row["source_key"]: row for row in self.call(reader, route).json["items"]}
+        self.assertEqual([portal[key]["request_title"] for key in (source, legacy, review)], [None, None, None])
+        recovered = {row["source_key"]: row for row in self.call(avery, route).json["items"]}
+        self.assertEqual(recovered[source]["request_title"], ask_title)
+        self.assertEqual(recovered[legacy]["request_title"], "Check the example")
+        self.assertEqual(recovered[review]["request_title"], "Check the example")
+        self.assertEqual(recovered[source]["id"], initial["id"])
+        self.assertNotIn("Private detail marker.", json.dumps(recovered))
+        with closing(sqlite3.connect(self.database)) as db, db:
+            other_id = db.execute("SELECT id FROM tasks WHERE project_prefix = 'COURSE' AND project_number = 1").fetchone()[0]
+            db.execute("UPDATE peer_asks SET source_task_id = ? WHERE task_id = ?",
+                       (other_id, int(reference.split("-")[1])))
+        scoped = self.call(avery, route).json["items"]
+        self.assertNotIn(reference, [row["request_key"] for row in scoped])
 
     def test_queued_peer_waits_show_named_agents_without_duplicating_reviews(self):
         app = self.app(portal_reader=True)
