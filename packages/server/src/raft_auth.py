@@ -44,7 +44,7 @@ BOARD_FRAGMENT = re.compile(
     r"|\?view=goal-activity&project=[A-Z][A-Z0-9]{0,7}(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?"
     r"(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9][0-9]{0,18})?)"
     r"|stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?"
-    r"|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?|settings|about)"
+    r"|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?|settings|about|personal-codex)"
 )
 _MAX_PROVIDER_RESPONSE = 64 * 1024
 _RAFT_API_ORIGIN = "https://api.raft.build"

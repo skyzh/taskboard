@@ -179,7 +179,7 @@ class TasksServiceTest(unittest.TestCase):
         connection_endpoint = "/api/v1/personal-codex/tickets/T-1"
         progress = connection_endpoint + "/progress"
         browser = {"Origin": ORIGIN}
-        self.call(anonymous, setup, status=302)
+        self.assertEqual(self.call(anonymous, setup, status=302).location, BASE + "/auth/login?fragment=%23personal-codex")
         self.call(other_human, setup, status=404)
         self.call(agent, setup, status=403)
         self.call(owner, setup, method="POST", status=403, headers={"Origin": "https://wrong.example"},
@@ -202,11 +202,7 @@ class TasksServiceTest(unittest.TestCase):
 
         first, second = issue("Terminal A"), issue("Terminal B")
         self.assertNotEqual(first, second)
-        page = self.call(owner, setup).get_data(as_text=True)
-        self.assertNotIn(first, page)
-        self.assertNotIn(second, page)
-        self.assertIn("Terminal A", page)
-        self.assertIn("Terminal B", page)
+        self.assertEqual(self.call(owner, setup, status=302).location, BASE + "/#personal-codex")
         first_headers = {"Authorization": f"Bearer {first}"}
         second_headers = {"Authorization": f"Bearer {second}"}
         self.assertEqual(self.call(anonymous, connection_endpoint, headers=first_headers).json, {

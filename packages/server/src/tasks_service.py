@@ -936,12 +936,12 @@ def create_app(
         def personal_codex_connect():
             if request.method == "GET":
                 try:
-                    owner = pilot_human()
+                    pilot_human()
                 except RequestError as error:
                     if error.status != 401:
                         raise
-                    return redirect(f"{prefix}/auth/login")
-                return pilot_page(owner, task_number(pilot.ticket))
+                    return redirect(f"{prefix}/auth/login?fragment=%23personal-codex")
+                return redirect(f"{prefix}/#personal-codex")
             owner = pilot_human(write=True)
             number = task_number(pilot.ticket)
             token = issue_pilot_connection(owner, number, request.form)
