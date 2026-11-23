@@ -953,6 +953,12 @@ def create_app(
                     raise RequestError(str(error), 409) from error
             return {"ticket": ticket, "event_id": event}
 
+    def decision_request_id(task, actor):
+        if (actor is not None and actor["kind"] == "human" and task["waiting_on"] == actor["ledger_key"]
+                and task["state"] in ledger.TRANSITIONS["decide"][0]):
+            return task["event_id"]
+        return None
+
     def detail(number, actor):
         key = actor["ledger_key"] if actor is not None else None
         try:
@@ -960,6 +966,7 @@ def create_app(
         except ValueError as error:
             raise RequestError(str(error), 404) from error
         task = result["task"]
+        task["decision_request_id"] = decision_request_id(task, actor)
         if not marketplace and task["key"] == release_queue_ticket:
             result["active_release"] = releases.active_release(db())
         project, _ = projects.identifier(task["key"])
@@ -1872,7 +1879,12 @@ def create_app(
             return query().tasks(decided_by=actor["ledger_key"], project=project, **page_args(request.args))
         if state != "open":
             raise RequestError("Choose open or answered decisions.")
-        return query().tasks(state="human_review", waiting_on=actor["ledger_key"], project=project, **page_args(request.args))
+        result = query().tasks(
+            state="human_review", waiting_on=actor["ledger_key"], project=project, **page_args(request.args),
+        )
+        for task in result["items"]:
+            task["decision_request_id"] = decision_request_id(task, actor)
+        return result
 
     @app.get("/api/v1/notifications/requests")
     def attention_notifications():

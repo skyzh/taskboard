@@ -10,9 +10,14 @@ function recipient(session) {
   return actor?.kind === 'human' ? actor.id ?? actor.name : null
 }
 
+function actionableRequestId(task, viewer) {
+  if (!viewer) return null
+  if (Object.hasOwn(task, 'decision_request_id')) return task.decision_request_id
+  return task.state === 'human_review' && task.waiting_on === viewer ? task.event_id : null
+}
+
 export function mayAnswer(task, session) {
-  const person = recipient(session)
-  return Boolean(person && person === task.waiting_on)
+  return actionableRequestId(task, recipient(session)) != null
 }
 
 function DecisionResult({ attempt, draft }) {
@@ -52,7 +57,7 @@ export default function DecisionForm({ task, session, onChanged, onAnswerStarted
   const viewer = recipient(session)
   const ownAttempt = viewer && attempt?.recipient === viewer ? attempt : null
   const awaiting = task?.state === 'human_review'
-  const currentRequestId = task ? (awaiting && mayAnswer(task, session) ? task.event_id : null) : undefined
+  const currentRequestId = task ? actionableRequestId(task, viewer) : undefined
   const lastKnownRequest = useRef(currentRequestId)
   const observedRequest = task ? currentRequestId : lastKnownRequest.current
   const staleOpen = ownAttempt?.status === 'open' && observedRequest !== undefined && observedRequest !== ownAttempt.request.id
@@ -88,8 +93,8 @@ export default function DecisionForm({ task, session, onChanged, onAnswerStarted
   }
 
   const request = ['saving', 'checking', 'open'].includes(ownAttempt?.status) ? ownAttempt.request
-    : awaiting && mayAnswer(task, session) ? {
-      id: task.event_id,
+    : currentRequestId != null ? {
+      id: currentRequestId,
       path: `/tasks/${encodeURIComponent(task.key || task.id)}/decision`,
       choices: task.context?.choices || [],
     } : null
