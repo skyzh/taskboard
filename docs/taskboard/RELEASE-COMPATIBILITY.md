@@ -2,7 +2,7 @@
 
 A shared server release must pass with the supported earlier clients before the operator admits it to the queue. Existing action names, methods, meanings, and defaults are part of the contract. Prefer optional additions and use action discovery for new features. A change that breaks an existing contract needs an explicit protocol version and migration plan.
 
-Successful signed `advance-task` calls with `transition=done` may include a `next_action` alongside the existing receipt and next step. It applies to the completed ticket’s project and reports work, a standing goal, an empty queue, or an unavailable cue. The completion remains committed when the cue cannot load. An earlier server can omit the field, and the CLI can still read `my-next` separately.
+Successful signed `advance-task` calls with `transition=done`, `handoff`, and `peer-ask` calls with `transition=result` may include a `next_action` alongside the existing receipt and next step. It reports work, a standing goal, an empty queue, or an unavailable cue for the authenticated caller in the ticket’s project. This remains the sender’s queue after a handoff. The write remains committed when the cue cannot load. An earlier server can omit the field, and the CLI can still read `my-next` separately.
 
 ## Parked write protocol
 
