@@ -281,7 +281,8 @@ def arguments(argv=None):
     search = commands.add_parser("search", help="Find tickets or Activity on the signed-in shared board.")
     search.add_argument("query", type=search_query, metavar="QUERY", help="Ticket ID, title, summary, or Activity text.")
     search.add_argument("--activity", action="store_true", help="Search Activity notes and details for literal text.")
-    search.add_argument("--project", default=projects.DEFAULT, type=nonblank, help="Search one project (default T).")
+    search.add_argument("--project", type=nonblank,
+                        help="Search one project. By default, search T tickets and maintained board decisions.")
     search.add_argument("--limit", type=int, default=20, help="Maximum results on this page (1–100).")
     search.add_argument("--before", type=int, help="Cursor from the previous result page.")
 

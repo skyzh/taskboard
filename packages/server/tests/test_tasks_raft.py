@@ -68,6 +68,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "task": ("GET", "id", ""),
             "tagged-tasks": ("GET", "project tag", "before limit"),
             "search-tasks": ("GET", "q project", "before limit"),
+            "search-with-decisions": ("GET", "q", "before limit"),
             "search-activity": ("GET", "q project", "before limit"),
             "task-tag": ("POST", "id tag action", ""),
             "task-activity": ("GET", "id", "before limit"),

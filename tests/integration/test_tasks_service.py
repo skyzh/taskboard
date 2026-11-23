@@ -2165,6 +2165,130 @@ class TasksServiceTest(unittest.TestCase):
         self.action(seeker, "search-tasks", query_string={**query, "limit": "101"}, status=400)
         self.action(app.test_client(), "search-tasks", query_string=query, status=401)
 
+    def test_bare_shared_search_adds_maintained_board_decisions_to_project_t_results(self):
+        app = self.app(portal_reader=True)
+        reader, _ = self.login(app, "Avery")
+        owner, owner_key = self.login(app, "Blake")
+        self.cli("register-project", "SRE", "Fixture operations", "--dri", owner_key)
+
+        def add(project, title, **fields):
+            self.action(owner, "create-task", {
+                "project": project, "title": title, "step": "Check the fixture.", **fields,
+            })
+
+        def publish(key, *, close=False):
+            self.action(owner, "task-tag", {"id": key, "action": "add", "tag": "decision-record"})
+            if close:
+                self.action(owner, "close-task", {"id": key, "reason": "Superseded."})
+            else:
+                self.action(owner, "advance-task", {"id": key, "transition": "start", "note": "Review the rule."})
+                self.action(owner, "advance-task", {"id": key, "transition": "done", "note": "Reviewed."})
+
+        add("SRE", "Operations history")
+        evidence = []
+        for note in ("Use the unprivileged path first.", "Corrected the earlier label."):
+            self.action(owner, "record-activity", {"id": "SRE-1", "note": note})
+            result = self.action(owner, "task-activity", query_string={"id": "SRE-1", "limit": "1"})
+            evidence.append(result["items"][0]["id"])
+        add("SRE", "Pi operations rule", brief="Try the supported operation before requesting sudo.")
+        for event, label in zip(evidence, ("Decision source", "Correction source")):
+            self.action(owner, "link-reference", {
+                "id": "SRE-2", "label": label, "url": f"{ORIGIN}{BASE}/#event-{event}-log",
+            })
+        for label, url in (
+            ("Other board", "https://other.example/tasks/#event-1-log"),
+            ("Missing evidence", f"{ORIGIN}{BASE}/#event-90000-log"),
+        ):
+            self.action(owner, "link-reference", {"id": "SRE-2", "label": label, "url": url})
+        publish("SRE-2")
+        add("SRE", "Ordinary sudo ticket")
+        add("SRE", "Obsolete sudo decision", brief="Superseded.")
+        publish("SRE-4", close=True)
+        add("T", "Current sudo checklist")
+        add("T", "Local sudo rule", brief="A second fixture decision.")
+        publish("T-6")
+
+        code, output, errors = self.shared_cli(reader, "search", "sudo")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("SRE-2 · Decision · Pi operations rule", output)
+        self.assertIn("Try the supported operation before requesting sudo.", output)
+        for event in evidence:
+            self.assertIn(f"{ORIGIN}{BASE}/#event-{event}-log", output)
+            self.call(reader, f"/api/v1/activity/{event}")
+        for hidden in ("Other board", "Missing evidence", "Ordinary sudo ticket", "Obsolete sudo decision"):
+            self.assertNotIn(hidden, output)
+        self.assertIn("T-5 · Ready · Current sudo checklist", output)
+        self.assertEqual(output.count("T-6 · Decision"), 1)
+
+        cursor = None
+        keys = []
+        while len(keys) < 3:
+            params = {"q": "sudo", "limit": "1"}
+            if cursor is not None:
+                params["before"] = str(cursor)
+            result = self.action(reader, "search-with-decisions", query_string=params)
+            keys.extend(item["key"] for item in result["items"])
+            cursor = result["next_cursor"]
+            if cursor is None:
+                break
+        self.assertEqual(keys, ["T-6", "T-5", "SRE-2"])
+        self.assertIsNone(cursor)
+
+        actions = []
+        scoped = self.shared_cli(reader, "search", "sudo", "--project", "T", actions=actions)[1]
+        self.assertEqual(actions, ["context", "search-tasks"])
+        self.assertNotIn("SRE-2", scoped)
+        self.assertIn("T-6 · Done · Local sudo rule", scoped)
+        actions.clear()
+        fallback = self.shared_cli(reader, "search", "sudo", actions=actions,
+                                   unavailable=("search-with-decisions",))[1]
+        self.assertEqual(actions, ["context", "search-with-decisions", "search-tasks"])
+        self.assertEqual(fallback, scoped)
+
+        outsider = app.test_client()
+        unauthorized = self.action(outsider, "search-with-decisions", query_string={"q": "sudo"}, status=401)
+        self.assertEqual(set(unauthorized), {"error"})
+        for path in ("/api/v1/raft/search-with-decisions", "/api/v1/tasks/SRE-2",
+                     *(f"/api/v1/activity/{event}" for event in evidence)):
+            response = outsider.get(BASE + path, base_url=ORIGIN, query_string={"q": "sudo"})
+            self.assertEqual(response.status_code, 403)
+            self.assertNotIn(b"Pi operations rule", response.data)
+
+    def test_mixed_search_keeps_one_snapshot_when_a_decision_reopens(self):
+        from tasks_queries import BoardQueries
+
+        app = self.app(portal_reader=True)
+        reader, _ = self.login(app, "Avery")
+        manager, manager_key = self.login(app, "Blake")
+        self.cli("register-project", "T", "Tasks Board", "--dri", manager_key)
+        self.action(manager, "create-task", {
+            "title": "Operations procedure", "step": "Prepare the rule.",
+            "brief": "Use sudo only for approved maintenance.",
+        })
+        self.action(manager, "task-tag", {"id": "T-1", "action": "add", "tag": "decision-record"})
+        for transition in ("start", "done"):
+            self.action(manager, "advance-task", {"id": "T-1", "transition": transition, "note": "Review complete."})
+
+        original = BoardQueries.tasks
+
+        def reopen_between_reads(board, **params):
+            tickets = original(board, **params)
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(self.action, manager, "change-ownership", {
+                    "id": "T-1", "action": "reopen", "owner": manager_key,
+                    "reason": "Review sudo after the change.",
+                }).result()
+            return tickets
+
+        query = {"q": "sudo", "limit": "1"}
+        with patch.object(BoardQueries, "tasks", reopen_between_reads):
+            during = self.action(reader, "search-with-decisions", query_string=query)["items"]
+        self.assertEqual([row["key"] for row in during], ["T-1"])
+        self.assertIn("decision", during[0])
+        after = self.action(reader, "search-with-decisions", query_string=query)["items"]
+        self.assertEqual([(row["key"], row["state"]) for row in after], [("T-1", "ready")])
+        self.assertNotIn("decision", after[0])
+
     def test_shared_activity_search_pages_literal_historical_matches_with_exact_links(self):
         app = self.app(portal_reader=True)
         seeker, _ = self.login(app, "Avery")

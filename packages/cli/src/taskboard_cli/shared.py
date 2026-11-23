@@ -500,7 +500,7 @@ def shared_command(args):
             "tagged-empty", "Check the tag or project before searching again.",
         ))
     if command == "search":
-        project = projects.prefix(args.project)
+        project = projects.prefix(args.project or projects.DEFAULT)
         params = {"project": project, "q": args.query if args.activity else args.query.strip(), "limit": args.limit}
         if args.before is not None:
             params["before"] = args.before
@@ -514,11 +514,23 @@ def shared_command(args):
                 return with_guidance(f"No matching Activity in {project}.", "Try a shorter phrase.")
             guidance = result.get("next_step", "Open a result link to read the Activity entry.")
         else:
-            result = board.invoke("search-tasks", params)
-            lines = [
-                f"{task['key']} · {ledger.STATES[task['state']]} · {task['title']}\n  {task_url(url, task)}"
-                for task in result["items"]
-            ]
+            if args.project is None:
+                try:
+                    query = {key: value for key, value in params.items() if key != "project"}
+                    result = board.invoke("search-with-decisions", query)
+                except SharedActionUnavailable:
+                    result = board.invoke("search-tasks", params)
+            else:
+                result = board.invoke("search-tasks", params)
+            lines = []
+            for task in result["items"]:
+                if decision := task.get("decision"):
+                    lines.append(f"{task['key']} · Decision · {task['title']}\n  {task_url(url, task)}")
+                    if decision["summary"]:
+                        lines.append(f"  {decision['summary']}")
+                    lines.extend(f"  {source['label']} · {source['url']}" for source in decision["sources"] if source["url"])
+                else:
+                    lines.append(f"{task['key']} · {ledger.STATES[task['state']]} · {task['title']}\n  {task_url(url, task)}")
             if not lines:
                 return with_guidance(f"No matching tickets in {project}.", prompts.get(
                     "search-empty", "Try a shorter phrase or a ticket ID.",
