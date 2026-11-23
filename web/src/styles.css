@@ -773,6 +773,25 @@ button:disabled { opacity: .57; }
 .ownership-form :is(input, select, textarea) { max-width: 100%; }
 .settings { max-width: 34rem; }
 .settings-panel + .settings-panel { margin-top: .75rem; }
+.personal-codex-prompt { margin-block: .65rem; font-size: .85rem; }
+.personal-codex-preparation { margin-block-end: .65rem; font-size: .88rem; color: var(--muted); }
+.personal-codex-token { background: var(--wash); border-radius: .35rem; padding: .6rem; }
+.personal-codex-token input { font-family: var(--mono); }
+.personal-codex-feedback:not(:empty), .personal-codex-active { margin-top: .65rem; }
+.personal-codex-connections { list-style: none; padding: 0; margin-top: .35rem; }
+.personal-codex-connections li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .55rem;
+  border-top: 1px solid var(--line);
+  padding-block: .45rem;
+}
+.personal-codex-connections li span { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 40rem) {
+  .personal-codex :is(button, .back-link) { min-height: 2.75rem; }
+  .personal-codex .back-link { display: inline-flex; align-items: center; }
+}
 .codex-usage { display: grid; grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr); gap: .45rem .8rem; }
 .codex-usage dt { font-weight: var(--weight-emphasis); overflow-wrap: anywhere; }
 .codex-usage dd { margin: 0; }

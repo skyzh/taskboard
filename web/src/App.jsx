@@ -9,6 +9,7 @@ import Notifications from './Notifications.jsx'
 import MyActivity from './MyActivity.jsx'
 import { ReportTime } from './ReportTime.jsx'
 import { Outcomes, Overview } from './Overview.jsx'
+import PersonalCodex, { personalCodexStatus } from './PersonalCodex.jsx'
 import Profile from './Profile.jsx'
 import Reports, { ReportsHeading } from './Reports.jsx'
 import Schedules from './Schedules.jsx'
@@ -202,6 +203,7 @@ export default function App() {
   else if (search) view = 'search'
   else if (!fragment || taskAnchor === 'reports' || allReports) view = 'reports'
   else if (fragment === 'settings') view = 'settings'
+  else if (fragment === 'personal-codex') view = 'personal-codex'
   else if (fragment === 'about') view = 'about'
   else if (params.has('schedules')) view = 'schedules'
   else if (taskAnchor === 'stats') view = 'stats'
@@ -242,6 +244,11 @@ export default function App() {
       : null,
     revision,
   )
+  const codexSetup = useResource(
+    session.data?.actor?.kind === 'human' && ['reports', 'personal-codex'].includes(view) ? personalCodexStatus : null,
+  )
+  const personalCodexLink = codexSetup.data && !codexSetup.error
+    ? <a href="#personal-codex">Personal Codex</a> : null
   const showAllReports = view === 'reports' && hasProjectChoices && allReports
   const reportsPending = Boolean((allReports || requestedReportsProject) && !visibleProjects &&
     (sessionResource.pending || (hasSession && !projectList.error)))
@@ -329,7 +336,8 @@ export default function App() {
               ? <GoalActivity key={project} project={project} revision={revision} agent={goalAgent} goal={goalKey}
                 onFilter={(agent, goal) => writeFilterFragment(goalActivityFragment(project, agent, goal))} />
               : <Reports revision={revision} project={project} initialAssigneeView={initialAssigneeView}
-                projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null} />)}
+                projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null}
+                headerAction={personalCodexLink} />)}
           {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject}
             projects={visibleProjects} />}
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}
@@ -337,6 +345,8 @@ export default function App() {
             project={visibleProjects?.some(item => item.prefix === project) ? project : visibleProjects?.[0]?.prefix || 'T'}
             projects={visibleProjects} revision={revision} />}
           {view === 'about' && <About revision={revision} />}
+          {view === 'personal-codex' && <PersonalCodex key={session.data?.actor?.id} session={session}
+            setup={codexSetup} reportsHref={reportsHref} />}
           {view === 'search' && <SearchResults query={search} revision={revision} />}
           {view === 'assignee' && <AssigneePage key={`${project}:${owner}`} owner={owner} section={params.get('section')} revision={revision} project={project}
             reportsHref={reportsHref} canEditGoal={verified && session.data.actor.id === owner}

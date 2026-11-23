@@ -307,7 +307,8 @@ export function NeedsYou({ project, revision }) {
   )
 }
 
-function ProjectReports({ revision, project, projectTitle, hideRequests, requestFilter, viewer, initialAssigneeView = 'active' }) {
+function ProjectReports({ revision, project, projectTitle, hideRequests, requestFilter, viewer, headerAction,
+  initialAssigneeView = 'active' }) {
   const [selection, setSelection] = useState(null)
   const selectedView = selection && selection.project === project ? selection.view : null
   const view = selectedView ?? initialAssigneeView
@@ -321,6 +322,7 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, request
         {!projectTitle && <a href={project && project !== 'T'
           ? `#${new URLSearchParams({ project, section: 'team-overview' })}` : '#team-overview'}>Team overview</a>}
         {project && <a href={`#${goalActivityFragment(project)}`}>Goal activity</a>}
+        {!projectTitle && headerAction}
         {requestFilter}
         {(page.data || selectedView) && (
           <label>
@@ -355,7 +357,7 @@ export default function Reports({ project, projects, ...props }) {
     hideRequests={hideRequests} requestFilter={requestFilter} />
   return (
     <section className="reports" aria-labelledby="reports">
-      <ReportsHeading headingId="reports">{requestFilter}</ReportsHeading>
+      <ReportsHeading headingId="reports">{props.headerAction}{requestFilter}</ReportsHeading>
       {props.viewer && <NeedsYou key={props.viewer.id} revision={props.revision} />}
       {projects.map(({ prefix, title }) => (
         <ProjectReports key={prefix} {...props} project={prefix} projectTitle={title} hideRequests={hideRequests} />
