@@ -169,8 +169,24 @@
 .report-outcome > a { white-space: nowrap; }
 .report-outcome time { font-size: .79rem; }
 .report-owner .report-task .task-row-note { color: var(--ink); }
+/* Keep every line of a Summary title in the same column beside its status. */
+.report-task-summary .task-row-heading:has(> .report-status) {
+  display: grid;
+  grid-template-columns: max-content minmax(0, max-content) max-content;
+  align-items: first baseline;
+}
+.report-task-summary .task-row-heading:has(> .report-status) > :is(.report-peer-request, .task-row-meta) {
+  grid-column: 1 / -1;
+}
+.report-task-summary .task-row-heading > .report-status + :is(a, .static-task-title) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .report-status { margin-inline-end: .45rem; }
 @media (width > 40rem) {
+  .task-row.report-task-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(4.8rem, .2fr);
+  }
   /* Align the label's text with the task title on their shared line. */
   .report-task-summary .task-row-heading > .report-status { display: inline-block; white-space: nowrap; }
   .report-task-summary .task-row-heading > .report-status::before {
@@ -233,7 +249,12 @@
   .owner-links a { display: inline-flex; align-items: center; gap: .28rem; min-height: 2rem; }
   .report-details > summary { padding-block: .18rem; }
   .report-goals-panel > summary { min-height: 2rem; align-content: center; }
-  .report-status { vertical-align: .12em; }
+  .report-task-summary .task-row-heading > .report-status {
+    align-self: start;
+    font-size: inherit;
+    line-height: inherit;
+    height: 1lh;
+  }
   .status.report-status::before { width: .5rem; height: .5rem; }
   .report-status > span {
     position: absolute;

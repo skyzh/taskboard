@@ -56,11 +56,6 @@ button[data-demo-unavailable] {
 .board-views button.offline-view { justify-content: center; padding-inline: .22rem; border-radius: 0; }
 .board-views button.offline-view:focus-visible { outline-offset: -3px; }
 .snapshot button.static-task-title { overflow-wrap: anywhere; }
-.snapshot .task-row-heading:has(> .report-status + button.static-task-title) {
-  display: flex;
-  align-items: baseline;
-}
-.snapshot .task-row-heading > .static-task-title { min-width: 0; }
 .demo-dialog {
   width: min(22rem, calc(100% - 2rem));
   padding: 1rem;

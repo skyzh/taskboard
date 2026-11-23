@@ -22,6 +22,7 @@ for (const layout of layouts) {
     assert.equal(row.label, 'In progress')
     assert.equal(row.visuallyHidden, compact)
     assert.ok(row.titleBaseline.unchanged)
+    assert.ok(close(row.titleIndentDifference, 0), `${layout}: wrapped title ${row.key} changed indentation`)
     if (compact) {
       assert.equal(row.dot.width, '8px')
       assert.equal(row.dot.height, '8px')

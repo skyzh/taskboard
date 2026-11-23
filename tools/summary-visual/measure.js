@@ -41,10 +41,21 @@ function sampleRows() {
     const titleBaseline = baseline(id)
     const statusBaseline = visuallyHidden ? null : baseline(label)
     const statusBox = status.getBoundingClientRect()
+    const titleText = document.createRange()
+    titleText.selectNodeContents(title)
+    const titleLineHeight = parseFloat(getComputedStyle(title).lineHeight)
+    const titleTop = title.getBoundingClientRect().top
+    const lineStarts = new Map()
+    for (const rect of titleText.getClientRects()) {
+      const line = Math.round((rect.top - titleTop) / titleLineHeight)
+      lineStarts.set(line, Math.min(lineStarts.get(line) ?? rect.left, rect.left))
+    }
+    const startPositions = [...lineStarts.values()]
     return {
       key: id.textContent, label: label.textContent, visuallyHidden,
       statusBaseline, titleBaseline, gap: statusBaseline && round(statusBaseline.value - titleBaseline.value),
-      titleLines: title.getClientRects().length,
+      titleLines: lineStarts.size,
+      titleIndentDifference: round(Math.max(...startPositions) - Math.min(...startPositions)),
       dot: {width: dot.width, height: dot.height, color: dot.backgroundColor},
       compactDotCenter: visuallyHidden ? round(statusBox.y + statusBox.height / 2 - titleBaseline.value) : null,
       priority: heading.querySelector('.task-priority')?.textContent || null,
