@@ -390,6 +390,59 @@ class RaftAuthTest(unittest.TestCase):
                 clock.return_value = 100 + session_ttl
                 self.assertEqual(self.action().status_code, 401)
 
+    def test_human_session_survives_thirty_minutes_and_restart_until_the_hour_cap(self):
+        issued = time()
+        with TemporaryDirectory() as temp, patch("raft_auth.time", return_value=issued) as clock:
+            folder = Path(temp) / "sessions"
+            browser = self.make_app(prefix="/tasks", session_dir=folder).test_client()
+            self.provider.issue("browser", "human", expiry=7200)
+            login = browser.get("/tasks/auth/login", base_url=BOARD, query_string={"fragment": "#task-42"})
+            state = parse_qs(urlsplit(login.location).query)["state"][0]
+            response = self.callback("browser", client=browser, prefix="/tasks", state=state)
+            self.assertEqual(response.location, BOARD + "/tasks/#task-42")
+            cookie = browser.get_cookie(SESSION_COOKIE, domain="board.test", path="/tasks/")
+            self.assertEqual(cookie.max_age, 3600)
+            with closing(sqlite3.connect(folder / "raft-sessions.sqlite3")) as db:
+                self.assertEqual(db.execute("SELECT expires FROM sessions").fetchone()[0], issued + 3600)
+            clock.return_value = issued + 1800
+            self.assertEqual(self.action(client=browser, prefix="/tasks").json["subject"], HUMAN)
+
+            restarted = self.make_app(prefix="/tasks", session_dir=folder).test_client()
+            restarted.set_cookie(SESSION_COOKIE, cookie.value, domain="board.test", path="/tasks/")
+            clock.return_value = issued + 3540
+            self.assertEqual(self.action(client=restarted, prefix="/tasks").json["subject"], HUMAN)
+            clock.return_value = issued + 3600
+            self.assertEqual(self.action(client=restarted, prefix="/tasks").status_code, 401)
+
+    def test_human_session_respects_shorter_tokens_live_revocation_and_sign_out(self):
+        with patch("raft_auth.monotonic", return_value=100) as clock:
+            self.provider.issue("short", "human", expiry=900)
+            _, authorization = self.begin()
+            self.callback("short", state=authorization["state"][0])
+            self.assertEqual(self.client.get_cookie(SESSION_COOKIE, domain="board.test").max_age, 900)
+            clock.return_value = 1000
+            self.assertEqual(self.action().status_code, 401)
+
+            self.provider.issue("revoked", "human")
+            _, authorization = self.begin()
+            self.callback("revoked", state=authorization["state"][0])
+            clock.return_value += 3540
+            self.provider.userinfo_failure = (401, {})
+            self.assertEqual(self.action().status_code, 401)
+            self.provider.userinfo_failure = None
+            self.assertEqual(self.action().status_code, 401)
+
+            self.provider.issue("sign-out", "human")
+            _, authorization = self.begin()
+            self.callback("sign-out", state=authorization["state"][0])
+            clock.return_value += 3540
+            self.assertEqual(self.action().json["subject"], HUMAN)
+            cookie = self.client.get_cookie(SESSION_COOKIE, domain="board.test").value
+            self.assertEqual(self.client.post("/auth/logout", base_url=BOARD).status_code, 204)
+            self.assertIsNone(self.client.get_cookie(SESSION_COOKIE, domain="board.test"))
+            self.client.set_cookie(SESSION_COOKIE, cookie, domain="board.test")
+            self.assertEqual(self.action().status_code, 401)
+
     def test_durable_session_expires_and_is_bound_to_original_mount(self):
         with TemporaryDirectory() as temp:
             folder = Path(temp) / "sessions"
