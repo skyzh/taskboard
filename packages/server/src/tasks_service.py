@@ -1462,6 +1462,13 @@ def create_app(
         )
         return {**result, "roster": True} if has_roster else result
 
+    @app.get("/api/v1/reports/goal-activity")
+    def report_goal_activity():
+        current_actor()
+        project = project_filter(request.args, projects.DEFAULT)
+        with tasks_storage.read(db()):
+            return query().goal_activity(project)
+
     @app.get("/api/v1/reports/workers")
     def report_workers():
         current_actor()

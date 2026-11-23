@@ -1366,6 +1366,80 @@ class TasksServiceTest(unittest.TestCase):
             activity = self.call(avery, f"/api/v1/tasks/{reference}/activity").json["items"]
             self.assertIn("Goal reached.", [event["note"] for event in activity])
 
+    def test_goal_activity_counts_recorded_checks_and_keeps_dated_outcomes(self):
+        import tasks_goal_offers
+
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        blake, other_owner = self.login(app, "Blake")
+        self.cli("register-project", "COURSE", "Example course", "--dri", owner)
+        self.action(avery, "save-goal", {"kind": "standing", "summary": "Improve queue handoffs"})
+        self.action(avery, "save-goal", {"kind": "standing", "project": "COURSE", "summary": "Review course examples"})
+        self.action(blake, "save-goal", {"kind": "standing", "summary": "Watch usage signals"})
+        self.call(avery, "/api/v1/profile/milestone", method="PATCH", json={
+            "goal": {"summary": "Complete the fixture rollout", "deadline": "2026-11-24"},
+        })
+
+        def advance(client, ticket, transition, note, at, **fields):
+            with patch("tasks_core.timestamp", return_value=at):
+                self.action(client, "advance-task", {
+                    "id": ticket, "transition": transition, "note": note, **fields,
+                })
+
+        advance(avery, "T-1", "start", "Look for blocked queues.", "2026-11-22T00:00:00Z")
+        advance(avery, "T-1", "remind", "Set a date.", "2026-11-22T00:01:00Z", review_after="2026-11-23")
+        advance(avery, "T-1", "park", "Update the parked reason.", "2026-11-22T00:02:00Z")
+        advance(avery, "T-1", "start", "Run the readback.", "2026-11-22T00:03:00Z")
+        first = "2026-11-22T00:04:00Z"
+        advance(avery, "T-1", "park", "All queues spoke as expected. No finding.", first)
+        advance(avery, "T-1", "remind", "Set a later date.", "2026-11-22T00:05:00Z", review_after="2026-11-25")
+        advance(avery, "T-1", "start", "Check the new outcome link.", "2026-11-22T00:06:00Z")
+        last = "2026-11-22T00:07:00Z"
+        advance(avery, "T-1", "park", "One concrete finding.", last,
+                label="Fixture evidence", url="https://example.test/outcome")
+        advance(avery, "T-1", "start", "Open check.", "2026-11-22T00:08:00Z")
+        advance(avery, "T-4", "start", "Check the fixture rollout.", "2026-11-22T00:09:00Z")
+        advance(avery, "T-4", "done", "Fixture rollout verified.", "2026-11-22T00:10:00Z")
+
+        path = "/api/v1/reports/goal-activity"
+        rows = self.call(app.test_client(), path, query_string={"project": "T"}).json["items"]
+        by_key = {row["key"]: row for row in rows}
+        self.assertEqual(set(by_key), {"T-1", "T-3", "T-4"})
+        standing = by_key["T-1"]
+        self.assertEqual((standing["owner"], standing["profile"]["name"], standing["kind"], standing["deadline"]),
+                         (owner, "Avery", "standing", None))
+        self.assertEqual((standing["starts"], standing["completed_checks"], standing["last_completed_at"]), (4, 2, last))
+        self.assertIsNone(standing["idle_offers"])
+        self.assertEqual([(event["at"], event["kind"], event["note"]) for event in standing["outcomes"]], [
+            (last, "park", "One concrete finding."), (first, "park", "All queues spoke as expected. No finding."),
+        ])
+        latest = standing["outcomes"][0]
+        self.assertEqual(latest["links"][0]["url"], "https://example.test/outcome")
+        self.assertEqual(self.call(avery, f"/api/v1/activity/{latest['id']}").json["task_key"], "T-1")
+        untouched = by_key["T-3"]
+        self.assertEqual((untouched["owner"], untouched["starts"], untouched["completed_checks"], untouched["outcomes"]),
+                         (other_owner, 0, 0, []))
+        self.assertIsNone(untouched["last_completed_at"])
+        dated = by_key["T-4"]
+        self.assertEqual((dated["kind"], dated["deadline"], dated["completed_checks"], dated["outcomes"][0]["kind"]),
+                         ("milestone", "2026-11-24", 1, "done"))
+        course = self.call(avery, path, query_string={"project": "COURSE"}).json["items"]
+        self.assertEqual([(goal["key"], goal["project"]) for goal in course], [("COURSE-1", "COURSE")])
+        self.call(avery, path, query_string={"project": "OTHER"}, status=404)
+
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute(tasks_goal_offers.SCHEMA)
+            for handoff, stamp in enumerate(("2026-11-22T00:00:00Z", "2026-11-22T00:03:00Z", "2026-11-22T00:07:00Z")):
+                tasks_goal_offers.record(db, owner, str(handoff), standing["id"], stamp)
+        observed = {row["key"]: row for row in self.call(avery, path).json["items"]}
+        self.assertEqual((observed["T-1"]["idle_offers"], observed["T-1"]["completed_checks"]), (3, 2))
+        self.assertIsNone(observed["T-4"]["idle_offers"])
+
+        roster = {str(self.provider.people["Avery"]["sub"]): "Avery"}
+        squad = self.app(portal_reader=True, project_roster=roster)
+        visible = self.call(squad.test_client(), path).json["items"]
+        self.assertEqual({row["key"] for row in visible}, {"T-1", "T-4"})
+
     def test_unassigned_work_is_actionable_only_for_the_projects_you_manage(self):
         app = self.app()
         avery, avery_key = self.login(app, "Avery")
