@@ -1007,11 +1007,6 @@ def create_app(
                 except ValueError as error:
                     raise RequestError(str(error)) from error
                 try:
-                    if tailnet:
-                        personal_codex.claim_ticket(
-                            connection, task, reporter["owner"],
-                            "The first tailnet report assigned the pilot ticket to its configured human owner.",
-                        )
                     event = personal_codex.append_progress(
                         connection, reporter, task, key, headline, details, tailnet=tailnet,
                     )

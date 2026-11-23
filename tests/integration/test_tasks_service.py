@@ -306,7 +306,14 @@ class TasksServiceTest(unittest.TestCase):
         self.call(anonymous, progress, method="POST", status=400, headers=report_headers,
                   json={**checkpoint, "status": "done"})
 
-        with patch.object(personal_codex, "append_progress", side_effect=ValueError("Cannot save this report.")):
+        record_activity = personal_codex.ledger.record
+
+        def reject_progress(db, number, operation, actor, state, note, *args):
+            if note == checkpoint["headline"]:
+                raise ValueError("Cannot save this report.")
+            return record_activity(db, number, operation, actor, state, note, *args)
+
+        with patch.object(personal_codex.ledger, "record", side_effect=reject_progress):
             self.call(anonymous, progress, method="POST", status=409, headers=report_headers, json=checkpoint)
         claimed_note = "The first tailnet report assigned the pilot ticket to its configured human owner."
         with closing(open_sqlite(self.database)) as db:
@@ -346,6 +353,12 @@ class TasksServiceTest(unittest.TestCase):
             metadata = json.loads(reports[0]["context"])["personal_codex"]
             self.assertEqual(metadata, {"reporting_auth": "tailnet", "session_id": checkpoint["session_id"],
                                         "label": checkpoint["session"]})
+            db.execute("UPDATE tasks SET dri = '' WHERE id = 1")
+            events = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        self.assertEqual(report(3), first)
+        with closing(open_sqlite(self.database)) as db, db:
+            self.assertEqual(db.execute("SELECT dri FROM tasks WHERE id = 1").fetchone()["dri"], "")
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM events").fetchone()[0], events)
             db.execute("UPDATE tasks SET dri = ? WHERE id = 1", (agent_id,))
         self.call(anonymous, endpoint, status=409, headers=tailnet)
         self.call(anonymous, progress, method="POST", status=409, headers=report_headers, json=checkpoint)

@@ -246,6 +246,8 @@ def append_progress(db, reporter, task, replay_key, headline, details, *, tailne
             raise ValueError("This replay key already identifies a different checkpoint.")
         return receipt["event_id"]
 
+    if tailnet:
+        claim_ticket(db, task, owner, "The first tailnet report assigned the pilot ticket to its configured human owner.")
     event = ledger.record(
         db, task["id"], "log", owner, task["state"], headline, None, [],
         {
