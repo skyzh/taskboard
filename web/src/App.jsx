@@ -20,7 +20,7 @@ import Stats from './Stats.jsx'
 import { watchBoardSections } from './sectionIndex.js'
 import { BoardBrand, notificationLogFilters, signInHref } from './shared.jsx'
 import { SearchResults, TaskSearch } from './TaskSearch.jsx'
-import { TaskDetail, WorkLog, WorkQueue } from './Work.jsx'
+import { KnowledgeRecordTools, TaskDetail, WorkLog, WorkQueue } from './Work.jsx'
 import { useTheme } from './theme.js'
 import {
   browserTimeZone, createTimeZoneFormatters, readTimeZonePreference, saveTimeZonePreference, TimeZoneContext,
@@ -354,6 +354,7 @@ export default function App() {
           {view === 'integrations' && <Integrations session={session}
             challenge={new URLSearchParams(taskContext).get('cli')} />}
           {view === 'knowledge' && <Knowledge session={session} verified={verified} revision={revision} projects={visibleProjects}
+            onChanged={refresh} RecordTools={KnowledgeRecordTools}
             search={knowledgeFilters.get('q') || ''} entry={knowledgeFilters.get('entry')} history={knowledgeFilters.get('history')}
             onSearch={value => writeFilterFragment(value ? `knowledge?${new URLSearchParams({ q: value })}` : 'knowledge', false)} />}
           {view === 'personal-codex' && <PersonalCodex key={session.data?.actor?.id} session={session}

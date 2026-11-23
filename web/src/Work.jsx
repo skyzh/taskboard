@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { ActivityDate } from './Overview.jsx'
-import { TicketKnowledgeLinks } from './Knowledge.jsx'
+import { entryHref, StagedWork, TicketKnowledgeLinks } from './Knowledge.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import ChecklistEdit from './ChecklistEdit.jsx'
 import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
@@ -334,6 +334,24 @@ function TicketIdentity({ task, state, children }) {
   )
 }
 
+function TicketReferences({ record }) {
+  return <>
+    {record.sources?.length > 0 && (
+      <details open><summary>Sources · {record.sources.length}</summary><EvidenceLinks links={record.sources} label="Sources" ticketSources /></details>
+    )}
+    {!!record.related_tasks?.length && (
+      <section aria-label="Related tasks">
+        <h3>Related tasks</h3>
+        <ul className="context-list">
+          {record.related_tasks.map(item => (
+            <li key={item.key}><a href={item.url}><span className="ticket-id">{item.key}</span> {item.title}</a></li>
+          ))}
+        </ul>
+      </section>
+    )}
+  </>
+}
+
 function TicketContext({ record, id, task, state, wide, detailed, session, revision, onChanged, showActions }) {
   const [open, setOpen] = useState(false)
   const watch = <div hidden={!showActions}><TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} /></div>
@@ -344,19 +362,7 @@ function TicketContext({ record, id, task, state, wide, detailed, session, revis
         {watch}
       </TicketIdentity> : watch}
       <RecordedActivity activity={record.last_activity} />
-      {record.sources.length > 0 && (
-        <details open><summary>Sources · {record.sources.length}</summary><EvidenceLinks links={record.sources} label="Sources" ticketSources /></details>
-      )}
-      {!!record.related_tasks?.length && (
-        <section aria-label="Related tasks">
-          <h3>Related tasks</h3>
-          <ul className="context-list">
-            {record.related_tasks.map(item => (
-              <li key={item.key}><a href={item.url}><span className="ticket-id">{item.key}</span> {item.title}</a></li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <TicketReferences record={record} />
     </div>
   )
   if (!detailed) return <div className="ticket-context">{content}</div>
@@ -367,6 +373,40 @@ function TicketContext({ record, id, task, state, wide, detailed, session, revis
       {content}
     </details>
   )
+}
+
+function RecordActivity({ id, task, activity, knowledge, children }) {
+  return (
+    <section className="ticket-activity" aria-labelledby={`ticket-activity-${id}`}>
+      <h3 id={`ticket-activity-${id}`}>Activity</h3>
+      {children}
+      <ResourceStatus resource={activity} label={knowledge ? 'Knowledge activity' : 'task activity'} />
+      {activity.data?.items.length === 0 && <p className="section-message">No activity yet.</p>}
+      <ol className="event-list" role="list">
+        {activity.data?.items.map(event => <EventRow key={event.id} event={event} ticketActivity />)}
+      </ol>
+      <LoadMore page={activity} label={`activity for ${taskLabel(id, task.key)}`} />
+    </section>
+  )
+}
+
+function KnowledgeRecordActions({ record, id, activity, signedIn, onChanged }) {
+  return <>
+    {signedIn && record.can_edit_details &&
+      <TaskDetailsEdit key={id} task={record.task} brief={record.brief} onChanged={onChanged} />}
+    <RecordActivity id={id} task={record.task} activity={activity} knowledge />
+  </>
+}
+
+export function KnowledgeRecordTools({ id, revision, onChanged }) {
+  const path = `/tasks/${encodeURIComponent(id)}`
+  const detail = useResource(path, revision)
+  const record = detail.data
+  const knowledge = record?.task?.record_kind === 'knowledge'
+  const activity = useLoadedPages(knowledge ? `${path}/activity` : null, {}, revision)
+  if (!record) return <ResourceStatus resource={detail} label="record details" />
+  if (!knowledge) return null
+  return <KnowledgeRecordActions record={record} id={id} activity={activity} signedIn onChanged={onChanged} />
 }
 
 export function TaskDetail({ id, revision, session, onChanged, preferredProject = 'T', returnHref, fromSearch, history }) {
@@ -383,7 +423,8 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   const activity = useLoadedPages(history ? null : `/tasks/${id}/activity`, {}, revision)
   const record = detail.data
   const task = record?.task
-  const state = task && taskState(task)
+  const knowledge = task?.record_kind === 'knowledge'
+  const state = task && !knowledge && taskState(task)
   const summary = state === 'closed' ? 'Closure reason' : task?.summary_label
   const project = typeof id === 'string' ? id.split('-')[0] : 'T'
   const taskProject = task?.key?.split('-')[0] || project
@@ -395,11 +436,13 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
     && ['ready', 'in_progress', 'parked'].includes(task.state)
   const showReturnPath = !record?.goal && typeof record?.can_edit_parking === 'boolean'
     ? signedIn && record.can_edit_parking : ownsReturnPath
-  const { data: fieldGuidance } = useFieldGuidance(signedIn && task ? taskProject : null, revision)
+  const { data: fieldGuidance } = useFieldGuidance(signedIn && task && !knowledge ? taskProject : null, revision)
   const fields = fieldGuidance?.fields
   const queueHref = returnHref || (project === 'T' && preferredProject === 'T' ? '#board' : `#project=${project}`)
-  const backHref = fromSearch ? `#${new URLSearchParams({ search: fromSearch })}` : queueHref
-  const detailed = Boolean(record && (record.brief || record.checklist.length || record.sources.length
+  const backHref = fromSearch ? `#${new URLSearchParams({ search: fromSearch })}`
+    : knowledge ? entryHref(task.key) : queueHref
+  const backLabel = fromSearch ? 'Back to Search results' : knowledge ? 'Open in Knowledge' : 'Back to Tasks'
+  const detailed = Boolean(record && !knowledge && (record.brief || record.checklist.length || record.sources.length
     || record.related_tasks?.length || record.goal?.tickets.length || state === 'human_review'))
   const sidebar = wide && detailed
   const deadline = record?.goal?.deadline
@@ -417,22 +460,32 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
     <article ref={article} id={anchor.slice(1)} className={`panel task-detail${sidebar ? ' has-sidebar' : ''}`}
       aria-labelledby={`task-heading-${id}`} tabIndex={-1}>
       <div className="ticket-heading-meta">
-        <a className="back-link" href={backHref}>{fromSearch ? 'Back to Search results' : 'Back to Tasks'}</a>
+        <a className="back-link" href={backHref}>{backLabel}</a>
         <p className="detail-meta">
           <span className="ticket-id">{taskLabel(id, task?.key)}</span>
+          {knowledge && <span>Knowledge</span>}
           {record?.goal && <span>{record.goal.kind === 'standing' ? 'Standing goal' : 'Milestone'}</span>}
         </p>
         {task && <a className="history-link" href={historyHref(currentHref)}>History</a>}
-        {signedHuman && task && <button className="ticket-actions-toggle" type="button"
+        {signedHuman && task && !knowledge && <button className="ticket-actions-toggle" type="button"
           aria-expanded={actionsOpen} onClick={() => setActionsOpen(open => !open)}>Ticket actions</button>}
       </div>
       <h1 id={`task-heading-${id}`}><MarkdownInline text={task?.title || `Task ${taskLabel(id)}`} relatedTasks={record?.related_tasks} /></h1>
-      {task && !sidebar && <div className="ticket-primary-identity"><TicketIdentity task={task} state={state} /></div>}
+      {task && !knowledge && !sidebar && <div className="ticket-primary-identity"><TicketIdentity task={task} state={state} /></div>}
       {deadline && (
         <p>Due <GoalDeadline deadline={deadline} finished={state === 'done' || state === 'closed'} /></p>
       )}
       <ResourceStatus resource={detail} label="task details" />
-      <div className="ticket-detail-layout">
+      {knowledge ? (
+        <div className="knowledge-record-content">
+          {record.brief && <Markdown text={record.brief} className="prose detail-brief" relatedTasks={record.related_tasks} />}
+          {Boolean(record.sources?.length || record.related_tasks?.length) &&
+            <div className="ticket-context-content"><TicketReferences record={record} /></div>}
+          <StagedWork changes={record.knowledge_stages?.filter(change => change.entry === task.key)} />
+          {signedIn && <TicketKnowledgeLinks ticket={task.key} revision={revision} />}
+          <KnowledgeRecordActions record={record} id={id} activity={activity} signedIn={signedIn} onChanged={onChanged} />
+        </div>
+      ) : <div className="ticket-detail-layout">
         <div className="ticket-detail-work">
           <section className={task ? `ticket-focus ${state}` : undefined} aria-label={summary}>
             {task && <>
@@ -535,19 +588,12 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
                 </ul>
               </section>
             )}
-            <section className="ticket-activity" aria-labelledby={`ticket-activity-${id}`}>
-              <h3 id={`ticket-activity-${id}`}>Activity</h3>
+            <RecordActivity id={id} task={task} activity={activity}>
               {signedIn && <div hidden={!showActions}><TaskActivityUpdate task={task} onChanged={onChanged} field={fields?.activity} /></div>}
-              <ResourceStatus resource={activity} label="task activity" />
-              {activity.data?.items.length === 0 && <p className="section-message">No activity yet.</p>}
-              <ol className="event-list" role="list">
-                {activity.data?.items.map(event => <EventRow key={event.id} event={event} ticketActivity />)}
-              </ol>
-              <LoadMore page={activity} label={`activity for ${taskLabel(id, task.key)}`} />
-            </section>
+            </RecordActivity>
           </div>
         )}
-      </div>
+      </div>}
     </article>
   )
 }
