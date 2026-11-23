@@ -77,9 +77,12 @@ function SummaryDemo() {
       if (event.key === 'Escape' && active) finish()
     }}>
       <header className="app-header" ref={header}>
-        <div className="masthead">
+        <div className="masthead demo-masthead">
           <BoardBrand href={repository} />
           <BoardViews current="reports" reportsHref="#reports" showNotifications preview />
+          <DemoControl as="a" className="demo-repository" href={repository} aria-label="Taskboard on GitHub">
+            <span aria-hidden="true" />
+          </DemoControl>
         </div>
         <p className="appbar-connection snapshot-date">
           Snapshot from <time dateTime={capturedAt}>{snapshotTime} UTC</time>
