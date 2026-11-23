@@ -245,6 +245,21 @@ def dated_goal(db, project, owner, row):
     }
 
 
+def queue_context(db, owner, project=None):
+    standing_goals = []
+    dated_goals = []
+    for row in goal_rows(db, [owner], project):
+        if row["state"] == "closed":
+            continue
+        prefix = row["project_prefix"]
+        reference = {"project": prefix, "ticket": projects.row_reference(row)}
+        if row["kind"] == "standing":
+            standing_goals.append({**reference, "summary": row["summary"]})
+        else:
+            dated_goals.append({**reference, **dated_goal(db, prefix, owner, row)})
+    return {"standing_goals": standing_goals, "dated_goals": dated_goals}
+
+
 def save(db, project, owner, goal):
     row = next(iter(goal_rows(db, [owner], project, "original")), None)
     related = owned_tickets(db, project, owner, goal[2]) if goal is not None else None

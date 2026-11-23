@@ -1092,7 +1092,7 @@ class TasksServiceTest(unittest.TestCase):
         events = self.call(owner, path + "/activity").json["items"]
         self.assertIn(estimate, [event["context"].get("eta") for event in events if event["action"] == "update"])
 
-    def test_standing_goal_is_owner_scoped_and_only_next_after_actionable_work(self):
+    def test_queue_goals_are_owner_scoped_and_work_keeps_priority(self):
         app = self.app(portal_reader=True)
         avery, owner = self.login(app, "Avery")
         blake, _ = self.login(app, "Blake")
@@ -1173,8 +1173,29 @@ class TasksServiceTest(unittest.TestCase):
         standing_ticket = work["standing_goals"][0]["ticket"]
         self.assertEqual(work["standing_goals"], [{**standing, "ticket": standing_ticket}])
         self.assertEqual(self.call(blake, path).json["standing_goals"], [])
-        self.assertNotIn("Improve the work queue", self.shared_cli(avery, "next", "--project", "T")[1])
-        self.assertIn("Improve course handoffs", self.shared_cli(avery, "next", "--project", "COURSE")[1])
+        next_work = self.action(avery, "my-next", query_string={"project": "T"})
+        self.assertEqual(next_work["work"]["key"], "T-1")
+        self.assertEqual(next_work["standing_goals"], [{**standing, "ticket": standing_ticket}])
+        dates = [
+            {"project": "T", "ticket": f"T-{number}", **goal}
+            for number, goal in enumerate([original, *my_goals["milestones"]], start=5)
+        ]
+        self.assertEqual(next_work["dated_goals"], dates)
+        ready_output = self.shared_cli(avery, "next", "--project", "T")[1]
+        self.assertLess(ready_output.index("Own Ready"), ready_output.index("Improve the work queue"))
+        self.assertIn("Original dated goal", ready_output)
+        self.assertIn("2026-11-28", ready_output)
+        self.assertIn("#task-5", ready_output)
+        self.assertRegex(ready_output, r"T-1 · Own Ready · https?://[^\s]+#task-1")
+        self.assertIn(f"Next: {next_work['next_step']}", ready_output)
+        self.assertNotIn("Start this goal ticket", ready_output)
+        self.assertNotIn("Improve course handoffs", ready_output)
+        course_output = self.shared_cli(avery, "next", "--project", "COURSE")[1]
+        self.assertIn("Improve course handoffs", course_output)
+        self.assertIn("#task-COURSE-1", course_output)
+        self.assertNotIn("Original dated goal", course_output)
+        other = self.action(blake, "my-next")
+        self.assertEqual((other["standing_goals"], other["dated_goals"]), ([], []))
 
         self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Start the fixture."})
         self.assertEqual(self.action(avery, "my-next")["work"]["kind"], "review")
@@ -1187,9 +1208,11 @@ class TasksServiceTest(unittest.TestCase):
         fallback = self.action(avery, "my-next")
         self.assertIsNone(fallback["work"])
         self.assertEqual(fallback["standing_goals"], [{**standing, "ticket": standing_ticket}])
+        self.assertEqual(fallback["dated_goals"], dates)
         self.assertIn("Start this goal ticket", fallback["next_step"])
         fallback_output = self.shared_cli(avery, "next", "--project", "T")[1]
         self.assertIn("Improve the work queue", fallback_output)
+        self.assertIn("Check the import", fallback_output)
         self.assertIn(f"Next: {fallback['next_step']}", fallback_output)
         self.assertEqual(self.action(avery, "my-queue", query_string={"state": "ready"})["items"], [])
         self.action(avery, "advance-task", {
@@ -1217,6 +1240,11 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([(goal["summary"], goal["deadline"]) for goal in remaining["milestones"]], [
             ("Confirm the import", "2026-12-04"),
         ])
+        after_close = self.action(avery, "my-next", query_string={"project": "T"})
+        self.assertEqual(after_close["standing_goals"], [])
+        self.assertEqual([goal["summary"] for goal in after_close["dated_goals"]],
+                         ["Original dated goal", "Confirm the import"])
+        self.assertNotIn("Start this goal ticket", after_close["next_step"])
 
     def test_completed_goals_leave_default_views_but_keep_their_dated_history(self):
         app = self.app(portal_reader=True)
@@ -1243,6 +1271,9 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIsNone(profile["goal"])
         self.assertEqual(profile["standing_goal"]["summary"], "Keep reviewing the sample.")
         self.assertEqual([goal["summary"] for goal in profile["milestones"]], ["Open milestone"])
+        active_queue = self.action(avery, "my-next")
+        self.assertEqual([goal["ticket"] for goal in active_queue["standing_goals"]], ["T-2"])
+        self.assertEqual([goal["ticket"] for goal in active_queue["dated_goals"]], ["T-5"])
         for reference, day in (("T-3", "2026-11-19"), ("T-4", "2026-11-20")):
             detail = self.call(avery, f"/api/v1/tasks/{reference}").json
             self.assertEqual((detail["task"]["state"], detail["goal"]["deadline"]), ("done", day))
