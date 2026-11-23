@@ -2555,6 +2555,7 @@ class TasksServiceTest(unittest.TestCase):
             'ready-review = "Have an independent subagent check the sample revision."\n'
             'standing-exploration = "Explore a sample and tag each new finding."\n'
             'standing-start = "Use the goal ticket to record your plan."\n'
+            'advance-park = "Check the example queue before revisiting this ticket."\n'
             'peer-create = "Send one ticket link in the example coordination channel."\n'
             'completion = "Find the next sample in {project}."\n'
             '[agent_guidance.cli]\n'
@@ -2578,6 +2579,9 @@ class TasksServiceTest(unittest.TestCase):
         history = self.action(avery, "task-activity", query_string={"id": "T-1"})["items"]
         original_step = next(event["note"] for event in history if event["action"] == "add")
         self.assertEqual(original_step, STANDING_EXPLORATION)
+        self.assertEqual(self.shared_cli(avery, "start", "T-1", "Check the sample.")[0], 0)
+        self.assertIn("Next: Check the example queue before revisiting this ticket.",
+                      self.shared_cli(avery, "park", "T-1", "Checked the sample.")[1])
 
         self.action(avery, "create-task", {"title": "Check the sample", "step": "Read the sample."})
         cue = "Have an independent subagent check the sample revision."

@@ -343,7 +343,11 @@ def raft_wake(offer, channel, message_id, can_wake):
 def raft_ready_count(notice, channel, message_id, can_wake, *, record_wake=None):
     count = notice["ready_count"]
     noun = "ticket" if count == 1 else "tickets"
-    title = f"You have {count} Ready {noun}. Read your Taskboard queue and take what you can move."
+    title = (
+        f"You have {count} Ready {noun}. Take Taskboard Inbox work first. "
+        "After parking a standing-goal check, recheck Inbox. "
+        "If clear, do at most one distinct, concrete follow-up this turn."
+    )
     return wake_with_title(title, channel, message_id, can_wake, status="scheduled", record_wake=record_wake)
 
 
