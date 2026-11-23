@@ -1081,12 +1081,25 @@ class BoardQueries:
 
         return page(rows, limit, "id", render)
 
-    def request_log(self, *, project, before=None, limit=20):
-        cursor_filter = "WHERE (at, kind, id) < (?, ?, ?)" if before else ""
+    def request_log(self, *, project, before=None, limit=20, actionable_reviewer=None):
+        project_filter = "WHERE tasks.project_prefix = ?" if project is not None else ""
+        filters, args = [], [project] if project is not None else []
+        if actionable_reviewer is not None:
+            filters.append("""
+                recipient = ? AND is_review AND (
+                    (kind = 'peer' AND state IN ('ready', 'in_progress') AND result_event_id IS NULL)
+                    OR (kind = 'review' AND state IN ('asked', 'in_progress', 'start_unconfirmed'))
+                )
+            """)
+            args.append(actionable_reviewer)
+        if before:
+            filters.append("(at, kind, id) < (?, ?, ?)")
+            args.extend(before)
+        where = "WHERE " + " AND ".join(filters) if filters else ""
         requester = f"({REVIEW_REQUESTER})" if ledger.has_event_context(self.db) else "NULL"
         rows = self.db.execute(
             f"""
-            WITH current AS ({ledger.current_tasks_sql(self.db)} WHERE tasks.project_prefix = ?),
+            WITH current AS ({ledger.current_tasks_sql(self.db)} {project_filter}),
             requests AS (
                 SELECT 'peer' AS kind, request.id, created.at, tasks.id AS source_id,
                        {TASK_REFERENCE} AS source_key, tasks.title AS source_title,
@@ -1136,9 +1149,9 @@ class BoardQueries:
                 WHERE worker_runs.role = 'review'
                   AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)
             )
-            SELECT * FROM requests {cursor_filter}
+            SELECT * FROM requests {where}
             ORDER BY at DESC, kind DESC, id DESC LIMIT ?
-            """, (project, *(before or ()), limit + 1),
+            """, (*args, limit + 1),
         ).fetchall()
         visible = rows[:limit]
         keys = {row[person] for row in visible for person in ("requester", "recipient", "source_owner") if row[person]}
@@ -1522,6 +1535,55 @@ class BoardQueries:
                     "key": item.get("task_key") or item["key"],
                     "title": item.get("task_title") or item["title"],
                 }
+
+    def needs_you(self, actor, *, today, project, before, limit):
+        owner = actor["ledger_key"]
+        decision_before, request_before, review_before = before or (None, None, None)
+        decisions = requests = reviews = {"items": [], "next_cursor": None}
+        if actor["kind"] == "human" and (before is None or decision_before is not None):
+            decisions = self.tasks(state="human_review", waiting_on=owner, project=project,
+                                   before=decision_before, limit=limit)
+        if actor["kind"] == "human" and (before is None or request_before is not None):
+            requests = self.attention(owner, state="open", today=today, before=request_before,
+                                      limit=limit, project=project)
+        if before is None or review_before is not None:
+            reviews = self.request_log(project=project, before=review_before, limit=limit, actionable_reviewer=owner)
+
+        decision_rows = decisions["items"]
+        actors = {}
+        if decision_rows:
+            ids = [item["event_id"] for item in decision_rows]
+            placeholders = ", ".join("?" for _ in ids)
+            actors = dict(self.db.execute(f"SELECT id, actor FROM events WHERE id IN ({placeholders})", ids))
+        people = profiles.visible_by_keys(self.db, set(actors.values()), self.base)
+        items = [
+            {
+                "id": f"decision:{item['event_id']}", "kind": "decision",
+                "ticket": item["key"], "title": item["title"],
+                "requester": actors.get(item["event_id"]),
+                "requester_profile": people.get(actors.get(item["event_id"])),
+            }
+            for item in decision_rows
+        ]
+        items.extend(
+            {
+                "id": f"request:{item['id']}", "kind": "request",
+                "ticket": item["task_key"], "title": item["task_title"],
+                "requester": item["sender"], "requester_profile": item["sender_profile"],
+            }
+            for item in requests["items"]
+        )
+        items.extend(
+            {
+                "id": f"review:{item['id']}", "kind": "review",
+                "ticket": item["request_key"] or item["source_key"],
+                "title": item["request_title"] or item["source_title"],
+                "requester": item["requester"], "requester_profile": item["requester_profile"],
+            }
+            for item in reviews["items"]
+        )
+        cursors = [result["next_cursor"] for result in (decisions, requests, reviews)]
+        return {"items": items, "next_cursor": json.dumps(cursors) if any(cursors) else None}
 
     def readiness(self, owner, *, project, before, limit):
         return readiness.page(self.db, ledger.current_tasks_sql(self.db), owner, project, before, limit)
