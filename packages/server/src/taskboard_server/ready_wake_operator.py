@@ -4,6 +4,7 @@ import argparse
 from contextlib import closing
 import json
 import os
+from pathlib import Path
 import stat
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, build_opener
@@ -12,7 +13,7 @@ from uuid import UUID
 from raft_auth import Identity
 from taskboard_client.references import MAX_ID, identifier, prefix
 from taskboard_server.ready_wake import WakeRecipient, launch_ready_wake
-from tasks_storage import Postgres
+from tasks_storage import Postgres, open_sqlite
 
 
 _MAX_TOKEN_BYTES = 16 * 1024
@@ -101,6 +102,8 @@ def _report(status, exit_code, *, reason=None):
 
 def main(argv=None, *, connect=Postgres, transport=_post):
     parser = _Parser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--db", action="append", default=[], type=Path,
+                        help="Path to the existing SQLite ledger. Without it, use TASKS_POSTGRES_DSN.")
     parser.add_argument("--project", required=True, type=_project, help="Exact project prefix.")
     parser.add_argument("--task", required=True, type=_task, help="Canonical ticket reference.")
     parser.add_argument("--event-id", required=True, type=_positive_id, help="Exact Ready event number.")
@@ -110,7 +113,9 @@ def main(argv=None, *, connect=Postgres, transport=_post):
                         help="Private file descriptor containing the approved recipient's agent-events token.")
     args = parser.parse_args(argv)
     dsn = os.environ.get("TASKS_POSTGRES_DSN")
-    if not dsn:
+    if len(args.db) > 1 or (args.db and dsn):
+        return _report("not_attempted", 2, reason="ambiguous_ledger_configuration")
+    if not args.db and not dsn:
         return _report("not_attempted", 2, reason="missing_ledger_configuration")
     attempted = False
 
@@ -125,7 +130,14 @@ def main(argv=None, *, connect=Postgres, transport=_post):
         except (OSError, ValueError):
             return _report("not_attempted", 2, reason="invalid_token_file")
         recipient = WakeRecipient(Identity(args.server_id, args.recipient_id, "agent", None, None, None), token)
-        with closing(connect(dsn)) as db:
+        if args.db:
+            path = args.db[0].expanduser().resolve(strict=True)
+            if not path.is_file():
+                raise ValueError("Select an existing SQLite ledger file.")
+            db = open_sqlite(path)
+        else:
+            db = connect(dsn)
+        with closing(db):
             status = launch_ready_wake(db, project=args.project, task=args.task, event_id=args.event_id,
                                        recipient=recipient, transport=submit)
     except KeyboardInterrupt:
