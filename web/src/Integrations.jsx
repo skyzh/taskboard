@@ -40,8 +40,13 @@ const workflows = [
 
 function WorkflowGuide({ board }) {
   const [selected, setSelected] = useState(workflows[0].id)
+  const [publishingInstructions, setPublishingInstructions] = useState('')
   const workflow = workflows.find(item => item.id === selected)
-  const prompt = `Read ${guide} and follow it to use Taskboard at ${board} for this work. ${workflow.prompt}`
+  const workflowPrompt = `Read ${guide} and follow it to use Taskboard at ${board} for this work. ${workflow.prompt}`
+  const instructions = publishingInstructions.trim()
+  const prompt = instructions
+    ? `Apply these publishing instructions before writing to Taskboard. They take precedence over the workflow below. Continue excluded work privately and omit its tickets, updates, and evidence links from Taskboard.\n\n${instructions}\n\n${workflowPrompt}`
+    : workflowPrompt
 
   return (
     <>
@@ -51,7 +56,13 @@ function WorkflowGuide({ board }) {
         {workflows.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
       </select>
       <p>{workflow.access}</p>
-      <CopyPrompt key={selected} prompt={prompt} />
+      <label className="integration-publishing-instructions">
+        Publishing instructions (optional)
+        <textarea rows={3} value={publishingInstructions}
+          placeholder="For example, keep security-related work outside Taskboard."
+          onChange={event => setPublishingInstructions(event.target.value)} />
+      </label>
+      <CopyPrompt key={prompt} prompt={prompt} />
       <p className="integration-guide-link"><a href={guide}>Read the Personal Agents guide</a></p>
     </>
   )
