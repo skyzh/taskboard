@@ -449,7 +449,7 @@ Knowledge entries are project records with a ticket ID, brief, links, and Activi
 ./tasks --shared knowledge-stage OPS-2 OPS-3
 ```
 
-Create the area’s index before placing other entries there. A nested area has its own index. Existing completed tickets tagged `decision-record` are recognized as Knowledge when the shared ledger opens. Their ticket IDs, Knowledge URLs, Activity, area placement, and staged links carry over. Open and closed tagged tickets continue as work tickets.
+Create the area’s index before placing other entries there. A nested area has its own index. Existing completed tickets tagged `decision-record` are recognized as Knowledge when the shared ledger opens. Their ticket IDs, Knowledge URLs, Activity, area placement, and staged links carry over. Open and closed tagged tickets continue as work tickets. Each project needs a registered project manager to edit migrated entries and apply staged changes.
 
 The **Knowledge** tab links each directory to its index and the index to its entries. Open the source ticket or use signed search to see the stage alongside the current brief. Read the newest linked work and the exact decision or correction before applying an older rule.
 
