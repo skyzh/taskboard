@@ -1065,7 +1065,8 @@ test('Reports shows linked and unlinked asks in one request log without recipien
   assert.match(verbose, /href="#task-COURSE-4"[^>]*><span class="ticket-id">COURSE-4<\/span> Verify the export on a phone<\/a>/)
   assert.equal((verbose.match(/href="#task-COURSE-4"/g) || []).length, 1)
   assert.match(verbose, /href="#task-COURSE-3"><span class="ticket-id">COURSE-3<\/span> Review the changes<\/a>/)
-  assert.match(verbose, /href="#event-11-log">Response<\/a>/)
+  assert.equal((verbose.match(/href="#event-11-log"/g) || []).length, 1)
+  assert.match(verbose, /href="#event-11-log">Review response<\/a>/)
   assert.match(verbose, /href="#task-COURSE-7"[^>]*><span class="ticket-id">COURSE-7<\/span><\/a>/)
 })
 

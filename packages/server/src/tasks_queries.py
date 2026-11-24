@@ -200,9 +200,10 @@ def request_log_item(row, people, db, *, recover_title):
         next_owner = row["recipient"]
     request_title = (row["request_title"] or "").strip() or None
     source_title = (row["source_title"] or "").strip() or None
+    pin = peer_asks.pending_stamp_review(db, row["id"]) if recover_title and row["kind"] == "peer" and row["is_review"] else None
+    pinned_pull = pin["pull"] if pin else row["manual_pull"]
     if recover_title and not (request_title or source_title):
-        pin = peer_asks.pending_stamp_review(db, row["id"]) if row["kind"] == "peer" and row["is_review"] else None
-        request_title = peer_asks.request_title(row["request_note"] or "", "", pull=pin["pull"] if pin else None) or None
+        request_title = peer_asks.request_title(row["request_note"] or "", "", pull=pinned_pull) or None
     item = {
         "id": f"{row['kind']}:{row['id']}",
         "at": row["at"],
@@ -220,6 +221,15 @@ def request_log_item(row, people, db, *, recover_title):
         "request_key": row["request_key"],
         "request_title": request_title,
     }
+    if recover_title:
+        pulls = [pinned_pull] if pinned_pull else sorted(
+            peer_asks.review_pull_requests(json.loads(row["request_links"] or "[]"))
+        )
+        if pulls:
+            item["pull_urls"] = [
+                f"https://github.com/{repository}/pull/{number}"
+                for repository, number in (pull.split("#") for pull in pulls)
+            ]
     if row["result_event_id"] is not None:
         item["response"] = {"id": row["result_event_id"], "at": row["response_at"]}
     if row["resolution_id"] is not None and (
@@ -1385,7 +1395,8 @@ class BoardQueries:
                        response.id AS result_event_id, response.at AS response_at,
                        request.event_id AS resolution_id, request.at AS resolution_at,
                        request.project_prefix || '-' || COALESCE(request.project_number, request.id) AS request_key,
-                       request.title AS request_title, created.note AS request_note,
+                       request.title AS request_title, created.note AS request_note, created.links AS request_links,
+                       json_extract(created.context, '$.manual_review.pull') AS manual_pull,
                        (ask.review_run_id IS NOT NULL OR json_extract(created.context, '$.manual_review') IS NOT NULL OR EXISTS (
                            SELECT 1 FROM events WHERE task_id = request.id AND action = 'log'
                            AND json_extract(context, '$.stamp_review') IS NOT NULL)) AS is_review
@@ -1398,7 +1409,7 @@ class BoardQueries:
                 UNION ALL
                 SELECT 'wait', tasks.event_id, tasks.at, tasks.id, {TASK_REFERENCE}, tasks.title,
                        event.actor, peer.ledger_key, tasks.dri, 'waiting', NULL, NULL, NULL, FALSE,
-                       NULL, NULL, NULL, NULL, NULL, NULL, event.note, FALSE
+                       NULL, NULL, NULL, NULL, NULL, NULL, event.note, event.links, NULL, FALSE
                 FROM current AS tasks
                 JOIN events AS event ON event.id = tasks.event_id
                 {self._PEER_WAIT_JOIN}
@@ -1415,7 +1426,7 @@ class BoardQueries:
                             WHEN worker_runs.status = 'collected' THEN 'done'
                             WHEN worker_runs.status = 'stopped' THEN 'canceled' END,
                        NULL, NULL, NULL, FALSE, response.id, response.at, resolved.id, resolved.at,
-                       NULL, NULL, worker_runs.brief, TRUE
+                       NULL, NULL, worker_runs.brief, NULL, NULL, TRUE
                 FROM worker_runs JOIN current AS tasks ON tasks.id = worker_runs.task_id
                 LEFT JOIN events AS response ON response.id = (
                     SELECT MAX(id) FROM events WHERE task_id = tasks.id AND action = 'log'
