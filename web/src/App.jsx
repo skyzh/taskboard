@@ -178,6 +178,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
     }
   }, [tour])
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(readWelcomeBannerPreference)
+  const [welcomeExpanded, setWelcomeExpanded] = useState(false)
   function chooseWelcomeBanner(show) {
     setShowWelcomeBanner(show)
     try {
@@ -418,33 +419,42 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {previewNotice && <p className="section-message">{previewNotice}</p>}
           {updateDeferred && <p className="board-connection" role="status">Taskboard will refresh when you finish your changes.</p>}
           {view === 'reports' && !showGoalActivity && showWelcomeBanner && (
-            <aside className="reports-welcome" aria-labelledby="reports-welcome-title">
+            <aside className="reports-welcome" aria-labelledby="reports-welcome-title" data-expanded={welcomeExpanded || undefined}>
               <div>
-                <h2 id="reports-welcome-title">Get started with Taskboard</h2>
-                <p>Taskboard is a shared workspace for people and agents. Track work in Tasks, see who’s doing what in
-                  Reports, and find shared decisions in Knowledge.</p>
-                <div className="reports-welcome-actions">
-                  <button type="button" ref={tourTrigger} className="reports-tour-trigger" disabled={projectsPending || Boolean(tourStep)}
-                    onClick={preview ? demoTour.start : startTour}>Take the tour</button>
-                  {!preview && <a href={demoUrl} target="_blank" rel="noreferrer"
-                    aria-label="See the demo (opens the public example in a new tab)">
-                    See the demo <ArrowUpRight size={16} aria-hidden="true" />
-                  </a>}
-                  {reportsScopeReady && <a href={integrationsHref}>Set up an agent</a>}
+                <h2 id="reports-welcome-title">
+                  <span>Get started with Taskboard</span>
+                  <button type="button" className="reports-welcome-toggle" aria-expanded={welcomeExpanded}
+                    aria-controls="reports-welcome-body" onClick={() => setWelcomeExpanded(open => !open)}>
+                    Get started with Taskboard <ChevronDown size={16} aria-hidden="true" />
+                  </button>
+                </h2>
+                <div id="reports-welcome-body" className="reports-welcome-body">
+                  <p>Taskboard is a shared workspace for people and agents. Track work in Tasks, see who’s doing what in
+                    Reports, and find shared decisions in Knowledge.</p>
+                  <div className="reports-welcome-actions">
+                    <button type="button" ref={tourTrigger} className="reports-tour-trigger" disabled={projectsPending || Boolean(tourStep)}
+                      onClick={preview ? demoTour.start : startTour}>Take the tour</button>
+                    {!preview && <a href={demoUrl} target="_blank" rel="noreferrer"
+                      aria-label="See the demo (opens the public example in a new tab)">
+                      See the demo <ArrowUpRight size={16} aria-hidden="true" />
+                    </a>}
+                    {reportsScopeReady && <a href={integrationsHref}>Set up an agent</a>}
+                  </div>
+                  {reportsScopeReady && <p className="report-note">Raft agents register as Team DRIs when they first connect.
+                    Use agent setup for personal agents or external AI factories.</p>}
                 </div>
-                {reportsScopeReady && <p className="report-note">Raft agents register as Team DRIs when they first connect.
-                  Use agent setup for personal agents or external AI factories.</p>}
               </div>
               <button type="button" className="reports-welcome-dismiss" aria-label="Dismiss welcome banner" onClick={() => {
                 main.current?.focus({ preventScroll: true })
+                setWelcomeExpanded(false)
                 chooseWelcomeBanner(false)
               }}><X size={18} aria-hidden="true" /></button>
             </aside>
           )}
-          {['reports', 'team-overview'].includes(view) && projectPicker}
+          {(view === 'team-overview' || (view === 'reports' && showGoalActivity)) && projectPicker}
           {view === 'reports' && (reportsPending
             ? <section className="reports" aria-labelledby="reports">
-              <ReportsHeading headingId="reports" />
+              <ReportsHeading headingId="reports" projectPicker={projectPicker} />
               <p className="section-message" role="status">Loading Reports…</p>
             </section>
             : showGoalActivity
@@ -454,7 +464,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
                 defaultProject={defaultProject} assigneeView={assigneeView}
                 onAssigneeViewChange={value => writeFilterFragment(reportFragment(allReports ? 'all' : project, value, defaultProject), false)}
                 projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null}
-                headerAction={personalAgentsLink} />)}
+                headerAction={personalAgentsLink} projectPicker={projectPicker} />)}
           {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject}
             projects={visibleProjects} />}
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}
