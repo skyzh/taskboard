@@ -11,4 +11,6 @@ Knowledge, staged changes, and their sources before acting. Use the
 settled decisions, blockers, and the handoff or verified outcome on the
 original ticket. Include evidence and who acts next. Stage a reusable
 decision with its exact source, or ask the Knowledge owner to record it.
-Verify the receipt before retrying a write. Use zero Inbox calls.
+Verify the receipt before retrying a write. Use this session for reporting
+under the human profile and leave unattended asks to DRIs with a running watcher.
+Use zero Inbox calls.

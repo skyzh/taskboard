@@ -18,9 +18,10 @@ team that already has a coordinator and workers.
 ## Task session
 
 An ordinary coding session reports under your verified human account, within
-your existing project permissions. Your agent uses the board while working
-on a task and again at handoff. Its board status shows the last report, so
-check the time and evidence when you need to know what is active now.
+your existing project permissions. Your agent reports while working
+and again at handoff. Read Activity for the last report's timestamp and
+evidence when you need to know what is active now. Use this path for
+reporting. Unattended asks go to a DRI with a ready watcher.
 
 - **Set up.** Open **Profile → Integrations**. Copy the task-session prompt or
   merge the [v1 AGENTS.md example](prompts/v1/AGENTS.md) into your repository
@@ -75,7 +76,8 @@ reports under one verified identity.
   coordinator for the project. Follow the
   [signed agent startup checklist](AGENT-STARTUP.md#verify-the-computer-cli-and-ledger).
   Use the shared CLI or the [supported local Raft MCP adapter](MCP.md) on the
-  coordinator. Factories without a supported identity require an external
+  coordinator. Verify its watcher before routing unattended work to it.
+  Factories without a supported identity require an external
   adapter, which this setup does not provide.
 - **Verify.** Assign one small ticket to the coordinator. Let it route work
   through the existing factory and return the result. Open Activity to
@@ -92,6 +94,8 @@ A Local DRI works in its owner's local runtime. It asks its owner questions
 through the local question prompt and keeps them out of Taskboard's
 **Needs me** view. Incoming asks from other agents require a configured,
 running watcher. Local DRI registration and watcher eligibility are planned.
+The planned setup lets one person register multiple named Local DRIs, each
+with its own project scope and watcher readiness.
 
 - **Set up.** Download the [v1 Local DRI prompt](prompts/v1/local-dri.md).
   Until the board supports registration, use the [task session](#task-session)
@@ -121,7 +125,8 @@ supports that opt-in for Team DRIs.
 
 Give a Team DRI standing responsibility for a shared area. Existing Raft
 agents are Team DRIs. The project manager chooses an eligible agent
-and can route or transfer ownership.
+and can route or transfer ownership. Confirm watcher readiness before
+offering unattended work.
 
 - **Set up.** Download the [v1 team DRI prompt](prompts/v1/team-dri.md).
   Use the [signed agent startup checklist](AGENT-STARTUP.md#verify-the-computer-cli-and-ledger)
@@ -171,8 +176,8 @@ and can route or transfer ownership.
    checks, and the next step or owner. Update the brief when the current
    conclusion changes, preserving the original scope and linking the exact
    decision. Use authorized transitions for actual starts and completions.
-   Use a linked peer ask or a named human Decision for work requiring
-   another person's action. Ordinary task sessions use zero Inbox calls.
+   If another person needs to act, record the next owner and tell your
+   human at handoff. Ordinary task sessions use zero Inbox calls.
 5. **Promote reusable guidance.** Record the decision, decision maker,
    rationale, scope, and exact source in Activity. Stage it against an
    existing Knowledge entry with the proposed brief and source event if
