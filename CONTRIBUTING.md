@@ -1,6 +1,6 @@
 # Contributing to Taskboard
 
-Use Python 3.11 or later, uv, and Node.js 20.19+ on the 20.x line or 22.12+ on newer supported lines. Follow the [local quick start](docs/taskboard/SETUP.md#try-a-disposable-checkout) to build the web app and try a disposable ledger. The [shared setup guide](docs/taskboard/SHARED-BOARD.md) describes the optional Raft adapter and its environment settings.
+Use Python 3.11 or later, uv 0.13.9 or later, and Node.js 20.19+ on the 20.x line or 22.12+ on newer supported lines. Follow the [local quick start](docs/taskboard/SETUP.md#try-a-disposable-checkout) to build the web app and try a disposable ledger. The [shared setup guide](docs/taskboard/SHARED-BOARD.md) describes the optional Raft adapter and its environment settings.
 
 ## Propose a change
 
@@ -15,6 +15,12 @@ For Summary status and dependency styles, use the [Summary visual workflow](.git
 For work within one owner's area, have an uninvolved subagent review the exact pull request head and base. Record its findings on the ticket and have the author submit the credited evidence when Stamp policy allows. If the work needs another owner's expertise or formal approval, or an uninvolved subagent is unavailable, ask an eligible reviewer to review and submit their own verdict. Follow the [review guide](docs/taskboard/AGENT-STARTUP.md#review-an-exact-revision) for the evidence format. Squash through Stamp after the exact revision has formal approval and both required checks pass against current `main`.
 
 ## Run the checks
+
+The workspace and standalone MCP script resolve Python distributions after
+seven days of publication. Use `uv lock` and `uv lock --script tasks_mcp.py`
+to refresh their respective locks. Package build requirements are pinned in
+the component manifests, and the MCP wheel smoke installs dependencies with
+hashes exported from the script lock.
 
 GitHub’s classic branch protection for `main` requires a pull request and both of the following checks against up-to-date `main`. Before merging, reviewers verify that both jobs in the [Taskboard CI workflow](.github/workflows/ci.yml) passed for the reviewed pull request.
 

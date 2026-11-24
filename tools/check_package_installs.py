@@ -43,7 +43,7 @@ print(json.dumps({{"ok": True, "data": {{"result": {{"actor": actor, "board": "h
     raft.chmod(0o700)
     fixture_env = {**environment, "PATH": os.pathsep.join((str(shim), environment["PATH"]))}
 
-    def install(name, components, *, locked_server=False, resolve=False):
+    def install(name, components, *, locked_server=False, locked_mcp=False):
         venv = directory / name
         if locked_server:
             run(["uv", "sync", "--locked", "--no-dev", "--python", sys.executable],
@@ -51,9 +51,16 @@ print(json.dumps({{"ok": True, "data": {{"result": {{"actor": actor, "board": "h
         else:
             run(["uv", "venv", "--python", sys.executable, venv], cwd=directory, environment=environment)
         executable = venv / "bin" / "python"
-        resolver = [] if resolve else ["--no-deps", "--no-index"]
-        run(["uv", "pip", "install", "--python", executable, *resolver,
+        if locked_mcp:
+            requirements = directory / "mcp-requirements.txt"
+            run(["uv", "export", "--locked", "--script", ROOT / "tasks_mcp.py", "--output-file", requirements],
+                cwd=ROOT, environment=environment)
+            run(["uv", "pip", "sync", "--require-hashes", "--python", executable, requirements],
+                cwd=directory, environment=environment)
+        run(["uv", "pip", "install", "--python", executable, "--no-deps", "--no-index",
              *(wheel(wheels, component) for component in components)], cwd=directory, environment=environment)
+        if locked_mcp:
+            run(["uv", "pip", "check", "--python", executable], cwd=directory, environment=environment)
         return venv / "bin"
 
     client = install("client", ("client",))
@@ -65,7 +72,7 @@ print(json.dumps({{"ok": True, "data": {{"result": {{"actor": actor, "board": "h
     assert "Avery" in result.stdout and "https://example.test/tasks/" in result.stdout
     run([cli / "python", "-I", "-c", "import importlib.util; assert importlib.util.find_spec('tasks_core') is None"],
         cwd=directory, environment=environment)
-    mcp = install("mcp", ("client", "mcp"), resolve=True)
+    mcp = install("mcp", ("client", "mcp"), locked_mcp=True)
     run([mcp / "taskboard-mcp"], cwd=directory, environment=fixture_env, input="", text=True, capture_output=True)
     run([mcp / "python", "-I", ROOT / "packages/mcp/tests/test_installed_mcp.py"],
         cwd=directory, environment=fixture_env)
