@@ -140,11 +140,12 @@ manager chooses a team-assignable agent and can route or transfer ownership.
    `https://github.com/example/repo/pull/123`. Use `/issues/123` for an
    issue. Strip fragments and query strings from the URL used to match the
    source, and keep exact review links as separate evidence. Compare the
-   source and current step if more than one ticket matches. Create a new
+   sources and current steps if more than one ticket matches, including
+   results on later pages. Create a new
    ticket only when the work needs tracking and no matching ticket exists.
    Attach a newly opened GitHub issue or PR via `link-github`, passing the
-   ticket ID and canonical URL. Follow the returned ticket if the action
-   reuses an existing link. Verify the source before writing more.
+   ticket ID and canonical URL. Read back that ticket to verify its source
+   and keep using the original ticket for updates.
 3. **Reuse Knowledge.** Look in the project's Knowledge index or use
    `search-with-decisions` for maintained decisions. Read the current
    brief, staged work, and exact decision or correction before applying it.
