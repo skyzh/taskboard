@@ -467,7 +467,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
             projects={visibleProjects} revision={revision}
             onProjectChange={value => writeFilterFragment(value ? `integrations?project=${value}` : 'integrations', true)}
             challenge={integrationsParams.get('cli')} preview={preview} />}
-          {view === 'knowledge' && <Knowledge key={`${knowledgeFilters.get('entry') || 'index'}:${recordHistory || ''}`}
+          {view === 'knowledge' && <Knowledge key={knowledgeFilters.get('entry') || 'index'}
             session={session} verified={verified} revision={revision} projects={visibleProjects}
             onChanged={refresh} RecordTools={KnowledgeRecordTools}
             search={knowledgeFilters.get('q') || ''} entry={knowledgeFilters.get('entry')} history={knowledgeFilters.get('history')}
@@ -497,7 +497,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
                 kanbanNavigation={kanbanNavigation} listNavigation={listNavigation} listReturn={listReturn} />
             </>
           )}
-          {view === 'task' && <TaskDetail key={`${selected}:${recordHistory || ''}`} id={selected} revision={revision} session={session}
+          {view === 'task' && <TaskDetail key={selected} id={selected} revision={revision} session={session}
             preferredProject={preferredProject} returnHref={fromList ? listReturn.current.board : undefined}
             fromSearch={fromSearch} history={recordHistory} onChanged={refresh} />}
           {view === 'team-overview' && (

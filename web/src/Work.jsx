@@ -418,6 +418,9 @@ export function KnowledgeRecordTools({ id, revision, onChanged }) {
 export function TaskDetail({ id, revision, session, onChanged, preferredProject = 'T', returnHref, fromSearch, history }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
   const [actionsOpen, setActionsOpen] = useState(false)
+  useEffect(() => {
+    if (history) setActionsOpen(false)
+  }, [history])
   const article = useRef(null)
   const [wide, setWide] = useState(false)
   useEffect(() => {
