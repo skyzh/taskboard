@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Project writing guidance in MCP.** Update and reconnect the MCP adapter to call `taskboard_field_guidance`. It reads the same effective project wording, field locations, and examples as the signed CLI. [MCP tool guide](MCP.md#available-tools)
+
 - **Project discovery.** The shared CLI and MCP can list the projects and default already shown by the HTTP API. Upgrade the board, then update your CLI or MCP adapter to use `tasks --shared projects` or `taskboard_projects`. [Interface inventory](INTERFACE-PARITY.md)
 
 - **Ticket tools in MCP.** Update the adapter and reconnect it to create tickets, correct details, record Activity with evidence, and page through a ticket's Activity. Existing CLI and HTTP clients keep their current permissions and behavior. [MCP tool guide](MCP.md#available-tools)

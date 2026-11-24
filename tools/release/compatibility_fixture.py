@@ -33,7 +33,7 @@ def expect(condition, message):
         raise CompatibilityFailure(message)
 
 
-def request(origin, path, *, data=None, cookie=None, query=None):
+def request(origin, path, *, data=None, cookie=None, query=None, method=None):
     expect(path.startswith(MOUNT + "/") and not path.startswith("//"), "The fixture action must use the mounted service.")
     headers = dict(PORTAL)
     if cookie:
@@ -44,7 +44,7 @@ def request(origin, path, *, data=None, cookie=None, query=None):
         headers["Content-Type"] = "application/json"
     if query:
         path += "?" + urlencode(query)
-    return urlopen(Request(origin + path, body, headers), timeout=10,
+    return urlopen(Request(origin + path, body, headers, method=method), timeout=10,
                    context=ssl._create_unverified_context())
 
 
