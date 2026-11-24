@@ -205,13 +205,14 @@ def shared_write(board, args, *, context):
     elif command == PEER_ASK:
         action = PEER_ASK
         reference = task_ref(args.id)
-        data.update(id=reference, transition=args.change, note=args.note)
+        transition = f"manual-{args.change}" if args.manual_review else args.change
+        data.update(id=reference, transition=transition, note=args.note)
         if args.recipient:
             data["recipient"] = board.person(args.recipient, "agent", reference)
         if args.review is not None:
             data["review"] = f"W-{args.review}"
-        if args.stamp_review:
-            data.update(zip(("review_pr", "review_head", "review_base"), args.stamp_review))
+        if revision := args.stamp_review or args.manual_review:
+            data.update(zip(("review_pr", "review_head", "review_base"), revision))
     elif command == "add":
         action = "create-task"
         data.update(title=ledger.task_title(args.title), step=args.step, brief=args.brief, project=args.project)

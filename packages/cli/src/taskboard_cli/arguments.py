@@ -313,7 +313,9 @@ def arguments(argv=None):
     peer_review.add_argument("--review", type=worker_run_id,
                              help="Link a planned review or a collected review when correcting an outcome.")
     peer_review.add_argument("--stamp-review", nargs=3, metavar=("PR_URL", "HEAD", "BASE"),
-                             help="Pin a linked PR on projects with configured Stamp import. Omit for a manual review handoff.")
+                             help="Pin a linked PR on projects with configured Stamp import.")
+    peer_review.add_argument("--manual-review", nargs=3, metavar=("PR_URL", "HEAD", "BASE"),
+                             help="Open or refresh a manual PR review, or return the result for that exact revision.")
     peer.add_argument("--to", dest="recipient", type=nonblank, help="Named agent for a new request.")
     peer.add_argument("--link", nargs=2, action="append", default=[], metavar=("LABEL", "TARGET"))
 
@@ -550,6 +552,8 @@ def arguments(argv=None):
             parser.error("Use --review when creating a peer request or correcting its recorded result.")
         if args.stamp_review is not None and args.change != "create":
             parser.error("Use --stamp-review when creating or refreshing a peer request.")
+        if args.manual_review is not None and args.change not in ("create", "result"):
+            parser.error("Use --manual-review when opening, refreshing, or returning a manual PR review.")
     if args.command == "capabilities" and args.mode != "shared":
         parser.error("Use --shared capabilities for shared agent commands.")
     if args.command in {

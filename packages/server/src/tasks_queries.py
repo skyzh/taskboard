@@ -101,7 +101,7 @@ REVIEW_REQUESTER = """
     SELECT events.actor FROM events
     WHERE events.task_id = worker_runs.task_id AND events.action = 'log'
       AND json_extract(events.context, '$.audit.action') = 'worker-delegate'
-      AND json_extract(events.context, '$.audit.run_id') = worker_runs.id
+      AND CAST(json_extract(events.context, '$.audit.run_id') AS BIGINT) = worker_runs.id
     ORDER BY events.id DESC LIMIT 1
 """
 WORKER_ORDER = f"""
@@ -1386,7 +1386,7 @@ class BoardQueries:
                        request.event_id AS resolution_id, request.at AS resolution_at,
                        request.project_prefix || '-' || COALESCE(request.project_number, request.id) AS request_key,
                        request.title AS request_title, created.note AS request_note,
-                       (ask.review_run_id IS NOT NULL OR EXISTS (
+                       (ask.review_run_id IS NOT NULL OR json_extract(created.context, '$.manual_review') IS NOT NULL OR EXISTS (
                            SELECT 1 FROM events WHERE task_id = request.id AND action = 'log'
                            AND json_extract(context, '$.stamp_review') IS NOT NULL)) AS is_review
                 FROM peer_asks AS ask

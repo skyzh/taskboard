@@ -159,7 +159,8 @@ class AgentGuidance:
                 return self[f"next-{kind.replace('_', '-')}" if kind in _WORK_STEPS else "next-selected"]
             return self["standing-exploration" if result["standing_goals"] else "next-empty"]
         if name == peer_asks.COMMAND:
-            return self[{"create": "peer-create", "result": "peer-result"}.get(data["transition"], "inbox")]
+            transition = data["transition"].strip().removeprefix("manual-")
+            return self[{"create": "peer-create", "result": "peer-result"}.get(transition, "inbox")]
         if name == "my-goals":
             return self["goals-existing" if result["standing_goal"] else "goals-missing"]
         if name in ("my-queue", "unassigned-tasks"):
