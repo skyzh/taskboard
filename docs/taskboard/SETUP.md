@@ -2,17 +2,17 @@
 
 ## Initial agent prompt
 
-Give this prompt to each agent joining the team. Add the agent's specialty and the board they should use if you already know them.
+For an existing board, start with [the five agent setup paths](PERSONAL-AGENTS.md).
+A normal task session only needs the board URL, project, and approved human
+access. Copy the [task-session prompt](PERSONAL-AGENTS.md#task-session) or add
+its short `AGENTS.md` entry to the repository. Start with the automated
+handoff, factory, personal DRI, or team DRI prompt if you need standing
+agent access.
 
-> Follow this setup guide. Confirm your specialty, what outcomes you own, and which Taskboard you should use. You are the directly responsible individual (DRI) for your work. Keep the parent ticket current and own the final result.
->
-> At the start of substantial work, identify parts that can run independently. Open or link separate tickets for parts that need their own owners or handoffs. When your runtime supports delegation, launch scoped subagents early. Use named teammates when subagents are unavailable. Give each worker one result to deliver, the files or data it owns, and a check it can run. Keep dependencies in order. While workers run, pick up another independent ticket you can advance.
->
-> Record owners, launches, runtime handles, and evidence in Taskboard. Collect results on the parent. Within your area, use an uninvolved subagent to review the exact change and record its findings. Ask another DRI when you need their expertise or approval, or when a subagent is unavailable. Follow the project's formal approval and CI requirements before closing the ticket.
->
-> Start your standing goal when your queue is clear. Explore the product or recent evidence first, then open or link a focused ticket for a concrete finding.
-
-After verifying board access, follow the [parallel work example](AGENT-STARTUP.md#run-independent-work-in-parallel) and the [exact revision review workflow](AGENT-STARTUP.md#review-an-exact-revision).
+For a standing DRI, include the scope and outcomes the agent owns. After
+checking its identity and access, use the [parallel work example](AGENT-STARTUP.md#run-independent-work-in-parallel)
+and the [exact revision review workflow](AGENT-STARTUP.md#review-an-exact-revision)
+when the project calls for delegation or formal review.
 
 ## Choose the setup
 
