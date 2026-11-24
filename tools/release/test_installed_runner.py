@@ -1,11 +1,13 @@
 """Check the separately staged release tooling against a packaged app."""
 
 from importlib.util import module_from_spec, spec_from_file_location
+import os
 from pathlib import Path
 from shutil import copytree
 import sys
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from ci_watch import export_commit, publish_artifact, resolve_commit
 from local_queue import checked_results, fixture_verifier
@@ -43,8 +45,11 @@ class InstalledRunnerTest(unittest.TestCase):
         spec = spec_from_file_location("staged_compatibility_fixture", launcher / "compatibility_fixture.py")
         runner = module_from_spec(spec)
         spec.loader.exec_module(runner)
+        config = scratch / "server.toml"
+        config.write_text("[initial_project]\nprefix = 'T'\ntitle = 'Tasks Board'\n", encoding="utf-8")
         try:
-            with runner.fixture_server(sys.executable, app, scratch / "mounted", *certificate(scratch)) as server:
+            with (patch.dict(os.environ, {"TASKS_SERVER_CONFIG": str(config)}),
+                  runner.fixture_server(sys.executable, app, scratch / "mounted", *certificate(scratch)) as server):
                 origin, cookie, database, env = server
                 actor = runner.seed(sys.executable, app, origin, cookie, database)
                 runner.verify_cli(sys.executable, app, env, origin, cookie, actor)

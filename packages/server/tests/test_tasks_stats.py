@@ -338,7 +338,7 @@ class StatsTest(unittest.TestCase):
             db = Path(directory) / "fixture.sqlite3"
             origin = "https://tasks.example.test"
             board = create_app(db, public_url=origin + "/tasks", portal_reader=True,
-                               portal_upstream_token="fixture-portal")
+                               portal_upstream_token="fixture-portal", initial_project=("T", "Tasks Board"))
             portal = board.test_client()
             path = "/tasks/api/v1/stats"
             denied = portal.get(path, base_url=origin)

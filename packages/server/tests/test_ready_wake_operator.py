@@ -54,7 +54,7 @@ class ReadyWakeOperatorTest(unittest.TestCase):
         scratch = TemporaryDirectory()
         self.addCleanup(scratch.cleanup)
         self.ledger = Path(scratch.name) / "board ? fixture.sqlite"
-        prepare(self.ledger, "https://tasks.example.test/board/", SERVER)
+        prepare(self.ledger, "https://tasks.example.test/board/", SERVER, initial_project=("T", "Tasks Board"))
         with closing(open_sqlite(self.ledger)) as db, write(db):
             self.owner = signed_in(db, Identity(SERVER, AGENT, "agent", "avery", "Avery", None))["ledger_key"]
             task = create_task_record(db, argparse.Namespace(title="Fixture", dri=self.owner, brief=None,

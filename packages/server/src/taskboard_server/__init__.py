@@ -11,6 +11,7 @@ def main():
     ledger.add_argument("--db", type=Path, help="Path to the SQLite ledger.")
     ledger.add_argument("--postgres", action="store_true", help="Use TASKS_POSTGRES_DSN.")
     parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--config", type=Path, help="Server TOML with the initial project.")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--local-readonly", action="store_true")
     parser.add_argument("--portal-reader", action="store_true")
@@ -25,4 +26,5 @@ def main():
 
     return serve(args.db.expanduser().resolve() if args.db else None, args.host, args.port,
                  local_readonly=args.local_readonly, portal_reader=args.portal_reader,
-                 websocket_revisions=args.websocket_revisions, postgres_dsn=postgres_dsn)
+                 websocket_revisions=args.websocket_revisions, postgres_dsn=postgres_dsn,
+                 server_config=args.config)

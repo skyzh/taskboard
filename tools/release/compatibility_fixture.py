@@ -1,6 +1,7 @@
 """Exercise pinned Taskboard clients and mounted APIs with synthetic identity."""
 
 from contextlib import contextmanager
+from inspect import signature
 import json
 import os
 from pathlib import Path
@@ -122,6 +123,8 @@ def serve_fixture(source, database, certificate, key, browser):
     origin = f"https://127.0.0.1:{server.server_port}"
     provider = FixtureRaft()
     options = {"dist": Path(browser) / "web" / "dist"} if browser else {}
+    if "initial_project" in signature(create_app).parameters:
+        options["initial_project"] = ("T", "Tasks Board")
     if os.environ.get("TASKBOARD_COMPAT_PROJECT_ADMIN") == "1":
         options["project_admin_subject"] = provider.people["Sam"]["sub"]
     server.app = create_app(

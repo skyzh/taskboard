@@ -7,6 +7,7 @@ from taskboard_server import personal_agents
 from tasks_goals import migrate_goal_tickets
 from tasks_knowledge import migrate_records
 from tasks_oidc_members import bind_issuer
+import tasks_projects as projects
 from tasks_service import prepare_postgres
 from tasks_storage import Postgres, write
 
@@ -74,8 +75,8 @@ def import_snapshot(path, dsn):
                 if table not in ("projects", "board_settings") and destination.has_table(table):
                     if destination.execute(f"SELECT 1 FROM {identifier(table)} LIMIT 1").fetchone():
                         raise ValueError("Use an empty PostgreSQL Taskboard schema.")
-            projects = destination.execute("SELECT prefix, title, dri FROM projects").fetchall()
-            if [tuple(row) for row in projects] != [("T", "Tasks Board", None)]:
+            existing = destination.execute("SELECT prefix, title, dri FROM projects").fetchall()
+            if [tuple(row) for row in existing] not in ([], [(projects.DEFAULT, projects.LEGACY_TITLE, None)]):
                 raise ValueError("Use an empty PostgreSQL Taskboard schema.")
             if "projects" in tables:
                 destination.execute("DELETE FROM projects")
@@ -86,7 +87,7 @@ def import_snapshot(path, dsn):
             for table in TABLES:
                 if table in tables:
                     counts[table] = copy_table(source, destination, table)
-            destination.execute("INSERT INTO projects VALUES ('T', 'Tasks Board', NULL) ON CONFLICT DO NOTHING")
+            projects.ensure_schema(destination, seed_legacy=False)
             for table, column in IDENTITIES.items():
                 reset_identity(destination, table, column)
             migrate_goal_tickets(destination)

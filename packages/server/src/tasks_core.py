@@ -372,7 +372,10 @@ def record(db, number, action, actor, state, note, waiting_on, links, context=No
 
 
 def create_task_record(db, args, links, *, context=None, at=None, state="ready"):
-    project = projects.require(db, getattr(args, "project", None) or projects.DEFAULT)
+    project = getattr(args, "project", None)
+    if project is None and tasks_storage.has_table(db, "board_settings"):
+        project = projects.default_project(db)
+    project = projects.require(db, project or projects.DEFAULT)
     project_number = projects.next_number(db, project)
     number = tasks_storage.insert_id(
         db, "INSERT INTO tasks (title, dri, brief, project_prefix, project_number) VALUES (?, ?, ?, ?, ?)",
@@ -1781,7 +1784,7 @@ def ledger_command(path, command):
     return f"{entry}{flags} {command}"
 
 
-def ensure_schema(db):
+def ensure_schema(db, *, seed_legacy_project=True):
     for sql in SCHEMA:
         db.execute(sql)
     if not has_event_context(db):
@@ -1796,7 +1799,7 @@ def ensure_schema(db):
         db.execute("ALTER TABLE tasks ADD COLUMN eta TEXT")
     ensure_record_kind(db, columns)
     ensure_checklist_schema(db)
-    projects.ensure_schema(db)
+    projects.ensure_schema(db, seed_legacy=seed_legacy_project)
     db.execute(maintenance.SCHEMA)
     releases.ensure_schema(db)
     for sql in merges.SCHEMA:
@@ -2027,7 +2030,7 @@ def run_local(args):
                 from tasks_service import serve
 
                 serve(None, args.host, args.port, local_readonly=False, portal_reader=args.portal_reader,
-                      postgres_dsn=dsn)
+                      postgres_dsn=dsn, server_config=args.config)
             elif args.command == "postgres-import":
                 from tasks_storage_import import import_snapshot
 
@@ -2074,7 +2077,8 @@ def run_local(args):
                 raise RuntimeError("Install the server dependencies with uv sync --frozen and run uv run ./tasks serve.") from error
             serve(None if args.marketplace_root is not None else path, args.host, args.port,
                   local_readonly=args.local_readonly, portal_reader=args.portal_reader,
-                  websocket_revisions=args.websocket_revisions, marketplace_root=args.marketplace_root)
+                  websocket_revisions=args.websocket_revisions, marketplace_root=args.marketplace_root,
+                  server_config=args.config)
             return 0
         if args.command == "register-project":
             project, settings = register_project(path, args.prefix, args.title, args.dri, args)

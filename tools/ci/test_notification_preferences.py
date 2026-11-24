@@ -47,6 +47,7 @@ class StorageReplayTest(unittest.TestCase):
         return f"{dsn}?options=-csearch_path%3D{schema}"
 
     def postgres_app(self, dsn, **options):
+        options.setdefault("initial_project", ("T", "Tasks Board"))
         self.board.provider = fixture.FixtureRaft()
         return create_app(
             None, public_url=fixture.ORIGIN + fixture.BASE, portal_reader=True,
@@ -185,6 +186,25 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual(note["staged_work"][0]["source"], "T-2")
         self.assertEqual(note["staged_work"][0]["source_at"], event["at"])
         self.assertEqual(self.board.action(signed, "knowledge-reconcile", {"project": "T"})["applied"], [])
+
+    def test_named_default_survives_postgres_bootstrap_and_import(self):
+        fresh_dsn = self.postgres_fixture()
+        with self.assertRaisesRegex(ValueError, "Configure an .*initial_project"):
+            self.postgres_app(fresh_dsn, initial_project=None)
+        fresh = self.postgres_app(fresh_dsn, initial_project=("NEW", "New Project"))
+        self.assertEqual(self.board.call(fresh.test_client(), "/api/v1/projects").json["default_project"], "NEW")
+
+        source = self.board.app(portal_reader=True, initial_project=("DEV", "Build Team"))
+        author, _ = self.board.login(source, "Avery")
+        self.board.action(author, "create-task", {"title": "Check a build", "step": "Verify CI."})
+        destination_dsn = self.postgres_fixture()
+        self.assertEqual(import_snapshot(self.board.database, destination_dsn)["projects"], 1)
+        destination = self.postgres_app(destination_dsn, initial_project=None)
+        project_index = self.board.call(destination.test_client(), "/api/v1/projects").json
+        self.assertEqual(project_index["default_project"], "DEV")
+        self.assertEqual([row["prefix"] for row in project_index["items"]], ["DEV"])
+        self.assertEqual(self.board.call(destination.test_client(), "/api/v1/tasks/DEV-1").json[
+            "task"]["title"], "Check a build")
 
     def test_postgres_upgrades_and_reopens_saved_publishing_instructions(self):
         dsn = self.postgres_fixture()

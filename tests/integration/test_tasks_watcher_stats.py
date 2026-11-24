@@ -37,7 +37,7 @@ class WatcherStatsTest(unittest.TestCase):
     def setUp(self):
         root = Path(self.enterContext(TemporaryDirectory()))
         app = create_app(root / "stats.sqlite3", public_url=ORIGIN + BASE, portal_reader=True,
-                         watcher_measurement_ticket="T-1",
+                         initial_project=("T", "Tasks Board"), watcher_measurement_ticket="T-1",
                          portal_upstream_token=PORTAL_FIXTURE, raft_config={
                              "api_origin": "https://raft.example.test", "server_id": SERVER, "client_id": CLIENT,
                              "client_secret": "synthetic-fixture-only", "transport": FixtureRaft(),

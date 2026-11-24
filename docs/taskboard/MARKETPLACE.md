@@ -14,6 +14,10 @@ Build the app with the repository's Python and npm lockfiles. Use a dedicated ap
 
 Set `TASKS_PUBLIC_URL` to the configured HTTPS mount. Provide `TASKS_RAFT_CLIENT_ID` and `TASKS_RAFT_CLIENT_SECRET` from the app's serving environment. Keep the secret in the deployment's secret store. The app requests `openid profile` to identify the actor and display their profile. Set `TASKS_MARKETPLACE_SESSION_DIR` to a separate absolute private directory for durable sign-in.
 
+Choose the [initial project](SHARED-BOARD.md#choose-the-initial-project) for
+new tenant ledgers. Set `TASKS_SERVER_CONFIG` in the service environment or
+pass `--config` at startup. Existing tenant ledgers retain their projects.
+
 ```sh
 uv run --frozen ./tasks serve --marketplace-root /srv/taskboard-marketplace/ledgers --port 8765
 ```

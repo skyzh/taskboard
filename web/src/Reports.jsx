@@ -260,7 +260,8 @@ export function ReportsHeading({ headingId, projectTitle, children, focusable })
 const projectLinkLabels = { raft: 'Raft', github: 'GitHub', stamp: 'Stamp' }
 
 function ProjectLinks({ project, revision }) {
-  const { data } = useResource(`/projects/${encodeURIComponent(project)}/links`, revision)
+  const path = project ? `/projects/${encodeURIComponent(project)}/links` : null
+  const { data } = useResource(path, revision)
   const links = data?.links?.filter(link => Object.hasOwn(projectLinkLabels, link.kind))
   if (!links?.length) return null
 
@@ -310,7 +311,7 @@ export function NeedsYou({ project, revision }) {
   )
 }
 
-function ProjectReports({ revision, project, projectTitle, hideRequests, reportControls, viewer, view }) {
+function ProjectReports({ revision, project, defaultProject = 'T', projectTitle, hideRequests, reportControls, viewer, view }) {
   const page = useLoadedPages('/reports', {
     view, project, ...(hideRequests && { hide_requests: true }),
     ...(viewer?.kind === 'human' && { include_self: true }),
@@ -321,7 +322,7 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, reportC
   return (
     <section className={projectTitle ? 'project-reports' : 'reports'} aria-labelledby={headingId}>
       <ReportsHeading headingId={headingId} projectTitle={projectTitle}>
-        {!projectTitle && <a href={project && project !== 'T'
+        {!projectTitle && <a href={project && project !== defaultProject
           ? `#${new URLSearchParams({ project, section: 'team-overview' })}` : '#team-overview'}>Team overview</a>}
         {project && <a href={`#${goalActivityFragment(project)}`}>Goal activity</a>}
         {reportControls}
