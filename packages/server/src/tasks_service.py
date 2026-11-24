@@ -25,6 +25,7 @@ from werkzeug.exceptions import NotFound, RequestEntityTooLarge
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 import tasks_audit as audit
+import tasks_agent_usage
 import tasks_codex_usage
 import tasks_core as ledger
 import tasks_maintenance as maintenance
@@ -531,6 +532,7 @@ def create_app(
     project_extensions=None,
     stamp_reader=None,
     codex_usage=None,
+    agent_usage_snapshot=None,
     codex_snapshot_uploader=None,
     codex_snapshot_upload_sources=None,
     personal_codex_pilot=None,
@@ -576,6 +578,8 @@ def create_app(
     if personal_codex_pilot and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
         raise ValueError("Personal Codex reporting requires a fixed-server shared board with Raft sign-in.")
     public_raft_links = {} if marketplace or local_readonly else project_links.public_raft_links(public_raft_channel_urls)
+    if agent_usage_snapshot and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
+        raise ValueError("Use an agent usage snapshot on a fixed Raft board.")
     if codex_usage and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
         raise ValueError("Codex usage requires a private shared board with server-bound Raft sign-in.")
     if codex_snapshot_uploader is not None:
@@ -2235,6 +2239,19 @@ def create_app(
         current_actor(required=True)
         return knowledge_directory()
 
+    @app.get("/api/v1/reports/agent-usage")
+    def report_agent_usage():
+        actor = current_actor(required=True, sync_profile=False)
+        if g.get("personal_agent_api") == "tailnet":
+            raise RequestError("Sign in with Raft to view agent usage.", 403)
+        server_id = actor["server_id"]
+        snapshot = tasks_agent_usage.load(agent_usage_snapshot, server_id)
+        with tasks_storage.read(db()) as connection:
+            result = tasks_agent_usage.report(connection, server_id, snapshot)
+        response = jsonify(result)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.get("/api/v1/reports/goal-activity")
     def report_goal_activity():
         current_actor()
@@ -3500,6 +3517,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             local_readonly=local_readonly, portal_reader=portal_reader,
             portal_upstream_token=portal_upstream_token, github_reader=github, websocket_revisions=websocket_revisions,
             codex_usage=tasks_codex_usage.configuration(os.environ),
+            agent_usage_snapshot=tasks_agent_usage.configuration(os.environ),
             codex_snapshot_uploader=os.environ.get("TASKS_CODEX_SNAPSHOT_UPLOADER_SUBJECT") or None,
             codex_snapshot_upload_sources=os.environ.get("TASKS_CODEX_SNAPSHOT_UPLOAD_SOURCES"),
             personal_codex_pilot=personal_codex.configuration(os.environ),

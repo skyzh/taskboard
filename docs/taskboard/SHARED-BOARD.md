@@ -16,6 +16,56 @@ and none was specified. Explicit project selections and All projects remain
 available. On an upgrade, use the existing ledger. It keeps its projects and
 ticket links, and requires no new config file.
 
+
+## Show approved daily agent usage
+
+A fixed Raft board can read an opt-in aggregate for signed Reports. Set
+`TASKS_AGENT_USAGE_SNAPSHOT` to the absolute path of an approved, atomically
+replaced JSON snapshot. Get approval for the fields, board, agent mapping,
+and signed viewers before connecting a live publisher. Supply aggregate
+fields only. The quota snapshot for a single human uses its own configuration.
+
+A fictional snapshot uses the following shape.
+
+```json
+{
+  "version": 1,
+  "server_id": "00000000-0000-0000-0000-000000000001",
+  "day": "2026-11-23",
+  "agents": [
+    {
+      "subject": "00000000-0000-0000-0000-000000000002",
+      "tokens": {
+        "input_tokens": 800,
+        "cached_input_tokens": 600,
+        "output_tokens": 200,
+        "reasoning_output_tokens": 50
+      },
+      "estimated_cost": {
+        "amount": "0.0125",
+        "currency": "USD",
+        "basis": "Fictional rate card"
+      }
+    }
+  ]
+}
+```
+
+Use the exact Raft server and agent subjects from the approved mapping. The
+signed `GET /api/v1/reports/agent-usage` resolves those subjects to registered
+agent owner keys on that server. The report covers the supplied Pacific day
+across the board. Total tokens count input and output once, including cached
+input and reasoning output as subsets. Measured coverage is the local Codex
+allocation supplied by the publisher. Use a null estimate when pricing is
+unavailable. A supplied amount is an estimate with its stated basis.
+
+Worker time is an elapsed-hours estimate for recorded Taskboard worker runs.
+Each distinct run is credited to its original delegator and counted between
+its recorded start and first report or stop, clipped to the report day.
+Parallel runs contribute separately. Incomplete intervals remain visible,
+and time is unavailable when no complete interval was recorded. Runtime
+activity and additional subagents require separate timing coverage.
+
 ## Serve behind a gateway
 
 Build the React assets and install the dependencies in [the setup guide](SETUP.md#build-from-source). Set the following in the service's environment.
