@@ -282,7 +282,7 @@ export default function App() {
   const showAllReports = view === 'reports' && hasProjectChoices && allReports
   const reportsPending = Boolean((allReports || requestedReportsProject) && !visibleProjects &&
     (sessionResource.pending || (hasSession && !projectList.error)))
-  const reportsMode = reportsPending ? fragment
+  const reportsMode = reportsPending ? (fragment || 'reports-all')
     : reportFragment(allReports ? 'all' : reportsProject,
       ['active', 'all', 'idle'].includes(requestedAssigneeView) ? assigneeView : undefined)
   const reportsHref = `#${view === 'reports' ? reportsMode : preferredReportsMode}`

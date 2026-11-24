@@ -51,7 +51,7 @@ test('board routes share one keyboard-focusable main scroll region beneath the h
 })
 
 test('Reports links to Team overview without embedding the board-wide feed', () => {
-  const reports = render('')
+  const reports = render('#reports')
   assert.match(reports, /id="reports"[^>]*>Reports/)
   assert.match(reports, /href="#team-overview">Team overview/)
   assert.doesNotMatch(reports, /id="queue-heading"|class="section-index"/)
@@ -67,12 +67,14 @@ test('Reports links to Team overview without embedding the board-wide feed', () 
   }
 })
 
-test('the combined Reports link opens the Reports tab', () => {
-  const combined = render('#reports-all')
-  assert.match(combined, /href="#reports-all" aria-current="page">Reports/)
-  assert.match(combined, /<h1 id="reports">Reports/)
-  assert.match(combined, /role="status">Loading Reports…/)
-  assert.doesNotMatch(combined, /id="queue-heading"/)
+test('the home URL and combined Reports link wait for the project list', () => {
+  for (const fragment of ['', '#reports-all']) {
+    const reports = render(fragment)
+    assert.match(reports, /href="#reports-all" aria-current="page">Reports/)
+    assert.match(reports, /<h1 id="reports">Reports/)
+    assert.match(reports, /role="status">Loading Reports…/)
+    assert.doesNotMatch(reports, /id="queue-heading"|href="#team-overview"/)
+  }
 })
 
 test('Tasks and a directly linked ticket have separate main content', () => {
