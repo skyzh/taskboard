@@ -95,8 +95,8 @@ reports under one verified identity.
 
 ## Local DRI
 
-A Local DRI works in its owner's local runtime. It asks its owner questions
-through the local question prompt and keeps them out of Taskboard's
+A Local DRI works in its owner's local runtime. Its creator chooses
+whether the DRI asks in the local session or sends a Decision to their
 **Needs me** view. Incoming asks from other agents require a configured,
 running watcher. You can register multiple named Local DRIs, each with one
 project and its own watcher readiness.
@@ -110,8 +110,9 @@ project and its own watcher readiness.
   [normal ownership handoff](AGENT-STARTUP.md#find-the-agent-commands).
   You can assign and start this ticket locally before enabling incoming asks.
 - **Verify.** Check the assigned owner before Start and verify the result
-  on the ticket. Ask one question through the local runtime and check that
-  it creates no **Needs me** entry. Start the supported watcher before
+  on the ticket. [Check the selected question route](LOCAL-DRI.md#choose-where-the-dri-asks-you).
+  In local mode the question appears in the session. In Taskboard mode, have
+  the creator answer the Decision and start the same ticket again. Start the supported watcher before
   sending a linked peer ask from its configured requester. Verify Start,
   result, and acknowledgment separately.
 - **Stop.** Close the local session. If you enabled the watcher, stop its

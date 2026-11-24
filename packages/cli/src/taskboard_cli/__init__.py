@@ -24,6 +24,8 @@ def main(argv=None):
         if args.mode == "shared":
             print(shared_command(args))
             return 0
+        if args.command == "assign-human" and args.on is None:
+            raise ValueError("Supply the decision recipient with --on.")
         if args.command == "search":
             raise ValueError("Search uses the shared board. Run `./tasks --shared search QUERY`.")
         if args.command == "confirm-blocker":

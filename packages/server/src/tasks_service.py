@@ -337,8 +337,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
     profiles.ensure_principals(db)
     db.execute(project_admin.SCHEMA)
     db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
-    for statement in local_dri.SCHEMA:
-        db.execute(statement)
+    local_dri.ensure_schema(db)
     if oidc_issuer is not None:
         if marketplace_marker(db) is not None:
             raise ValueError("OpenID Connect cannot use a Marketplace ledger.")
@@ -405,8 +404,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
             ledger.ensure_checklist_schema(db)
             db.execute(project_admin.SCHEMA)
             db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
-            for statement in local_dri.SCHEMA:
-                db.execute(statement)
+            local_dri.ensure_schema(db)
             pinned = db.execute("SELECT value FROM board_settings WHERE key = 'raft_server_id'").fetchone()
             if server_id and pinned and pinned["value"] != server_id:
                 raise ValueError("The task ledger is already bound to another Raft Server.")
@@ -1010,13 +1008,19 @@ def create_app(
                 personal_agents.save_publishing_instructions(connection, owner, instructions)
             return personal_api_response({"instructions": instructions})
 
+        def local_dri_question_mode(mode):
+            if mode not in local_dri.QUESTION_MODES:
+                raise RequestError("Choose local_prompt or taskboard for human questions.")
+            return mode
+
         @app.route("/api/v1/personal-agents/local-dris", methods=["GET", "POST"])
         def personal_local_dris():
             write = request.method == "POST"
             owner = personal_api_browser(write=write)
             if not write:
                 return personal_api_response({"local_dris": local_dri.owned(db(), owner)})
-            data = json_body({"project", "name"})
+            data = json_body({"project", "name", "human_questions"})
+            mode = local_dri_question_mode(data.get("human_questions", local_dri.LOCAL_PROMPT))
             name = text(data, "name", maximum=80)
             if len(name.splitlines()) != 1:
                 raise RequestError("Use a one-line Local DRI name.")
@@ -1024,7 +1028,17 @@ def create_app(
             if project is None:
                 raise RequestError("Choose one project for the Local DRI.")
             with tasks_storage.write(db()) as connection:
-                identifier = local_dri.register(connection, owner, raft_config["server_id"], project, name)
+                identifier = local_dri.register(connection, owner, raft_config["server_id"], project, name, mode)
+                saved = next(profile for profile in local_dri.owned(connection, owner) if profile["id"] == identifier)
+            return personal_api_response({"local_dri": saved})
+
+        @app.put("/api/v1/personal-agents/local-dris/<identifier>")
+        def personal_local_dri_question_settings(identifier):
+            owner = personal_api_browser(write=True)
+            mode = local_dri_question_mode(json_body({"human_questions"}).get("human_questions"))
+            with tasks_storage.write(db()) as connection:
+                if not local_dri.set_human_questions(connection, identifier, owner, mode):
+                    raise NotFound()
                 saved = next(profile for profile in local_dri.owned(connection, owner) if profile["id"] == identifier)
             return personal_api_response({"local_dri": saved})
 
@@ -2787,13 +2801,18 @@ def create_app(
         on = text(data, "on", optional=True, maximum=160)
         if on and command not in ("wait", "assign-human", "redirect-decision"):
             raise RequestError("This transition does not take a dependency or recipient.")
-        if "on_name" in data:
+        local = g.get("local_dri")
+        if local is not None and command in ("assign-human", "redirect-decision"):
+            if local["human_questions"] == local_dri.LOCAL_PROMPT:
+                raise RequestError(local_dri.QUESTION_REQUIRED, 403)
+            if command == "redirect-decision" or "on" in data or "on_name" in data:
+                raise RequestError("Local DRI decisions go to their registered creator. Omit the recipient.", 403)
+            on = local["owner"]
+        elif "on_name" in data:
             if on is not None or command not in ("assign-human", "redirect-decision"):
                 raise RequestError("Use either a name or an exact ID when assigning or redirecting a human decision.")
             on = resolve_assignee(text(data, "on_name", maximum=101), "human")
         if command in ("assign-human", "redirect-decision"):
-            if g.get("local_dri") is not None:
-                raise RequestError(local_dri.QUESTION_REQUIRED, 403)
             on = require_person(on, "human")
         blocked_by = data.get("blocked_by")
         if "blocked_by" in data:
@@ -2970,7 +2989,7 @@ def create_app(
             }
             if profile is not None:
                 context["project"] = profile["project"]
-                context["human_questions"] = "local_prompt"
+                context["human_questions"] = profile["human_questions"]
             if agent_guidance.cli:
                 context["cli_guidance"] = agent_guidance.cli
             if g.get("personal_agent_api"):

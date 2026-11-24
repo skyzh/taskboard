@@ -315,7 +315,14 @@ def shared_write(board, args, *, context):
             action = "advance-task"
             data["transition"] = command
             if command in ("assign-human", "redirect-decision"):
-                if context.get("decision_recipient_lookup") is True and not args.on.startswith("raft:human:"):
+                if context["actor"].get("dri_kind") == "local":
+                    if context.get("human_questions") != "taskboard":
+                        raise ValueError("Use your runtime's local question prompt.")
+                    if command == "redirect-decision" or args.on is not None:
+                        raise ValueError("Local DRI decisions go to their creator. Omit --on.")
+                elif args.on is None:
+                    raise ValueError("Supply the decision recipient with --on.")
+                elif context.get("decision_recipient_lookup") is True and not args.on.startswith("raft:human:"):
                     data["on_name"] = args.on
                 else:
                     data["on"] = board.person(args.on, "human")
@@ -512,7 +519,11 @@ def shared_command(args):
         return with_guidance(result["receipt"], result.get("next_step"))
     if command == "context":
         if local_dri is not None:
-            return f"Local DRI · {actor['name']} · {context['project']} · {url}\nUse your runtime's local question prompt."
+            guidance = (
+                "Ask your creator with assign-human TICKET QUESTION. Omit --on."
+                if context.get("human_questions") == "taskboard" else "Use your runtime's local question prompt."
+            )
+            return f"Local DRI · {actor['name']} · {context['project']} · {url}\n{guidance}"
         if actor["kind"] == "human":
             return f"Shared board · {actor['name']} · {url}"
         return with_guidance(

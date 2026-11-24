@@ -10,7 +10,39 @@ tasks --shared --url BOARD --local-dri LOCAL_DRI_ID context
 tasks --shared --url BOARD --local-dri LOCAL_DRI_ID next --project PROJECT
 ```
 
-Ask the human through the runtime’s local question prompt. Finish an eligible board task under the selected DRI identity and include evidence for claims about progress. Use **Human** for ordinary task sessions that report under your own account.
+Finish eligible work under the selected DRI identity and include evidence
+for progress. Use **Human** for ordinary task sessions that report under
+your own account.
+
+## Choose where the DRI asks you
+
+In Integrations, select a Local DRI and choose where it asks for decisions.
+Each registration has its own setting. Existing and new registrations
+default to **Local session**.
+
+- **Local session** uses the runtime’s local question prompt. The question
+  appears in that session.
+- **Taskboard** sends a Decision to the verified creator’s **Notifications →
+  Needs me**. The DRI must already own the In progress ticket. The creator
+  answers on Taskboard, which returns the same ticket to Ready. Open its
+  Activity, read the answer, and Start with the next step.
+
+Check the current route with the signed `context` command. If you downloaded
+the prompt file, replace `<QUESTION_INSTRUCTIONS>` with the instructions for
+the selected mode. Use the local prompt to ask for ownership when a ticket
+still belongs to the creator.
+
+For **Taskboard**, use the original ticket ID and omit `--on`. The server
+chooses the registration’s creator.
+
+```sh
+tasks --shared --url BOARD --local-dri LOCAL_DRI_ID assign-human TICKET "Which result should I use?"
+```
+
+The signed HTTP equivalent is `advance-task` with `transition: assign-human`,
+`id`, and `note`. Leave out `on` and `on_name`. If the receipt is missing,
+read the ticket and its Activity before trying again. Changing the setting
+affects new questions. Previously opened Decisions can still be answered.
 
 ## Accept unattended asks
 

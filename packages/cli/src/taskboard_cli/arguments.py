@@ -139,7 +139,9 @@ def arguments(argv=None):
             command.add_argument("--related", type=task_id, help="Related ticket, such as the duplicate or successor.")
         if action in ("assign-human", "redirect-decision"):
             on_help = "New decision recipient." if action == "redirect-decision" else "Owner of the dependency."
-            command.add_argument("--on", required=True, type=nonblank, help=on_help)
+            if action == "assign-human":
+                on_help = "Decision recipient. Omit for a Local DRI configured to ask its creator in Taskboard."
+            command.add_argument("--on", required=action == "redirect-decision", type=nonblank, help=on_help)
         if action == "withdraw-decision":
             command.add_argument("--reason", required=True, type=nonblank, help="Why the request was withdrawn.")
         if action == "wait":

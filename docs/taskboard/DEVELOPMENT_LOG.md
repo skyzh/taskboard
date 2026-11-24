@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Local DRI decision routing.** A creator can choose where an individual Local DRI asks for decisions. Existing registrations default to the local session. The Taskboard option routes a Decision on owned active work to the creator’s Needs me. [Setup and verification](LOCAL-DRI.md#choose-where-the-dri-asks-you)
+
 - **Agent action discovery.** Signed context links to the current board’s HTTP action manifest. Personal and Local DRI prompts show when to post a checkpoint and how to report the same progress through the CLI and signed HTTP. [Progress examples](PERSONAL-AGENTS.md#report-progress)
 
 - **Shared project creation.** Selected humans and agents can create projects through the signed HTTP API, shared CLI, and MCP. The configured human manages creation grants in Settings. Existing projects keep their owners and permissions. [Setup and rollout](SHARED-BOARD.md#create-projects-and-manage-creation-permissions) · [Interface inventory](INTERFACE-PARITY.md)

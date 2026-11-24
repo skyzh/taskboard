@@ -152,7 +152,7 @@ _ACTIONS = {
     "advance-task": _Action("POST", "Advance a task you own or record its next step.", {
         **_TASK, "transition": "Task transition, such as start, update, wait, resume, or done.", "note": _NOTE,
     }, {
-        "on": "Exact decision recipient ID or the person or dependency responsible for clearing a wait.",
+        "on": "Exact decision recipient ID or wait dependency. A Local DRI configured for Taskboard decisions omits the recipient.",
         "on_name": "Exact handle or display name of a signed-in human for assign-human or redirect-decision.",
         "attention_request_id": "Exact open Needs me request to wait for, instead of a named dependency.",
         "blocked_by": "Separate blocking ticket ID for a wait, such as T-49.",
