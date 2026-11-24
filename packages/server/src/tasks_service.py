@@ -1748,15 +1748,17 @@ def create_app(
         actor = current_actor(required=True, write=True)
         return create_shared_project(actor, json_body({"prefix", "title", "dri"}))
 
-    @app.get("/api/v1/projects")
-    def project_index():
-        actor = current_actor()
+    def project_directory(actor):
         default = projects.default_project(db())
         rows = db().execute("SELECT prefix, title, dri FROM projects ORDER BY prefix <> ?, prefix", (default,))
         return {"default_project": default, "items": [{
             **dict(row), **projects.project_features(row["prefix"]),
             "can_create_knowledge": can_create_knowledge(actor, row["prefix"], row["dri"]),
         } for row in rows]}
+
+    @app.get("/api/v1/projects")
+    def project_index():
+        return project_directory(current_actor())
 
     @app.route("/api/v1/projects/<project>/raft-channel", methods=("GET", "PUT"))
     def project_raft_channel(project):
@@ -3026,7 +3028,7 @@ def create_app(
         actor = current_actor(write=write, required=True)
         if name == "create-project":
             return create_shared_project(actor, data)
-        if actor["kind"] != "agent" and not g.get("personal_agent_api"):
+        if name != "list-projects" and actor["kind"] != "agent" and not g.get("personal_agent_api"):
             raise RequestError("This action requires a signed-in agent or Personal Agents connection.", 403)
         if g.get("personal_agent_api") and name in {
             "my-wake-subscriptions", "set-wake-subscription", "idle-goal-offer", "my-wake-workers",
@@ -3037,6 +3039,8 @@ def create_app(
         if profile is not None:
             local_dri_action(name, data, profile)
         key = actor["ledger_key"]
+        if name == "list-projects":
+            return project_directory(actor)
         if name == "context":
             context = {
                 "actor": actor_profile(actor), "board": base + "/",

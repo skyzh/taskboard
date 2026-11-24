@@ -22,7 +22,7 @@ ADVANCES = {
 }
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
          "search", "knowledge-areas", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance",
-         "worker-check", ledger.READ}
+         "worker-check", "projects", ledger.READ}
 WRITES = ADVANCES | {
     "confirm-blocker", "create-project",
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
@@ -513,6 +513,14 @@ def shared_command(args):
     if command in ("add", "list", "next", "recurring-add"):
         assert_actor(args.dri, actor)
     prompts = context.get("cli_guidance", {})
+    if command == "projects":
+        directory = board.invoke("list-projects")
+        if args.json:
+            return json.dumps(directory, ensure_ascii=False)
+        default = directory["default_project"]
+        lines = [f"Default project: {default}"] if default else []
+        lines.extend(f"{project['prefix']} · {project['title']}" for project in directory["items"])
+        return with_guidance("\n".join(lines) or "No projects registered.", directory["next_step"])
     if command == "create-project":
         payload = {"prefix": args.prefix, "title": args.title}
         if args.dri is not None:

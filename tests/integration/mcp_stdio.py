@@ -101,6 +101,17 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         ))
         with request(origin, MOUNT + "/api/v1/projects") as response:
             self.assertEqual([row["prefix"] for row in json.load(response)["items"]].count("LAB"), 1)
+        listed = await owner.call_tool("taskboard_projects")
+        self.assertFalse(listed.is_error, listed.content)
+        directory = listed.structured_content
+        self.assertEqual(directory, json.loads(cli_success(python, ROOT, environment, "projects", "--json")))
+        with request(origin, MOUNT + "/api/v1/projects", cookie=cookie) as response:
+            self.assertEqual({key: directory[key] for key in ("default_project", "items")}, json.load(response))
+        self.assertEqual(directory["default_project"], "T")
+        self.assertEqual([row["prefix"] for row in directory["items"]], ["T", "COURSE", "LAB"])
+        human_output = cli_success(python, ROOT, environment, "projects")
+        self.assertIn("Default project: T", human_output)
+        self.assertIn("LAB · Fictional Lab", human_output)
 
     async def verify_ticket_tools(self, owner, reviewer, python, origin, cookie, blake_cookie, environment):
         created = await owner.call_tool("taskboard_create_ticket", {
@@ -170,6 +181,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_context", "taskboard_queue", "taskboard_reviews", "taskboard_ticket",
             "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_create_project",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
+            "taskboard_projects",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_queue"].annotations.read_only_hint)

@@ -42,6 +42,7 @@ class _Action:
 
 _ACTIONS = {
     "context": _Action("GET", "Identify your signed-in Raft principal and board profile."),
+    "list-projects": _Action("GET", "List projects and the default project on the signed-in board."),
     "raft-channel-show": _Action("GET", "Show the selected project's Raft coordination channel.",
                                  {"project": "Taskboard project prefix."}),
     "raft-channel-set": _Action("POST", "Set or clear the project's verified Raft coordination channel.",

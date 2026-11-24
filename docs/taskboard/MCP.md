@@ -26,6 +26,7 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | Tool | Use |
 | --- | --- |
 | `taskboard_context` | Check your signed-in identity and shared board. |
+| `taskboard_projects` | List the shared board's projects and identify its default. |
 | `taskboard_queue` | Find owned or unassigned work, with project and state filters. |
 | `taskboard_reviews` | Find independent reviews assigned to you. |
 | `taskboard_ticket` | Read a ticket's current step, evidence, and handoffs. |
