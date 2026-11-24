@@ -103,7 +103,10 @@
   color: var(--paper);
   font-weight: var(--weight-emphasis);
 }
-.reports-welcome-actions .reports-tour-trigger:hover:enabled { text-decoration: underline; }
+.reports-welcome-actions .reports-tour-trigger:hover:enabled {
+  background: var(--green);
+  text-decoration: underline;
+}
 .reports-welcome-dismiss {
   display: grid;
   place-items: center;

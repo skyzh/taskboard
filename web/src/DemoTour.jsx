@@ -9,9 +9,10 @@ export function withoutTour(fragment) {
 }
 
 function matchesStep(fragment, route) {
-  const base = fragment.split('?', 1)[0]
-  if (route === 'reports') return ['', 'reports', 'reports-all'].includes(base)
-  return fragment === route
+  if (route !== 'reports') return fragment === route
+  const [base, query] = fragment.split('?', 2)
+  const project = new URLSearchParams(query).get('project')
+  return base === 'reports' && (!project || project === 'T')
 }
 
 function tourFragment(route, number) {
@@ -30,7 +31,10 @@ export function useDemoTour(rawFragment, steps = []) {
   const launcher = useRef(null)
 
   function open(index = 0) {
-    window.location.hash = tourFragment(steps[index].route, index + 1)
+    const route = steps[index].route
+    const current = withoutTour(rawFragment)
+    const destination = step?.route === route && matchesStep(current, route) ? current : route
+    window.location.hash = tourFragment(destination, index + 1)
   }
 
   function stop() {
