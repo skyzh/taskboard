@@ -247,12 +247,15 @@ export function AssigneeReportList({ entries, label, revision, project, projectT
   )
 }
 
-export function ReportsHeading({ headingId, projectTitle, children, focusable }) {
+export function ReportsHeading({ headingId, projectTitle, children, focusable, projectPicker }) {
   const Heading = projectTitle ? 'h2' : 'h1'
   return (
-    <div className="page-heading">
-      <Heading id={headingId} tabIndex={focusable ? -1 : undefined}>{projectTitle || 'Reports'}</Heading>
-      <div className="report-controls">{children}</div>
+    <div className="reports-heading">
+      {projectPicker}
+      <div className="page-heading">
+        <Heading id={headingId} tabIndex={focusable ? -1 : undefined}>{projectTitle || 'Reports'}</Heading>
+        <div className="report-controls">{children}</div>
+      </div>
     </div>
   )
 }
@@ -311,60 +314,67 @@ export function NeedsYou({ project, revision }) {
   )
 }
 
-function ProjectReports({ revision, project, defaultProject = 'T', projectTitle, hideRequests, reportControls, viewer, view }) {
+function ProjectReports({ revision, project, projectTitle, hideRequests, viewer, view }) {
   const page = useLoadedPages('/reports', {
     view, project, ...(hideRequests && { hide_requests: true }),
     ...(viewer?.kind === 'human' && { include_self: true }),
   }, revision)
   const label = view === 'all' ? 'Assignees' : 'Assignees with open work'
   const empty = view === 'all' ? 'No assignees.' : 'No open work to report.'
-  const headingId = projectTitle ? `reports-${project}` : 'reports'
+  const reports = (
+    <ReportsLayout sidebar={<QueuedAsks revision={revision} project={project} grouped={Boolean(projectTitle)} viewer={viewer} />}>
+      <ResourceStatus resource={page} label="reports" />
+      {page.data?.items.length === 0 && <p className="section-message" role="status">{empty}</p>}
+      <AssigneeReportList entries={page.data?.items} label={label} revision={revision} project={project} projectTitle={projectTitle} />
+      <LoadMore page={page} label={projectTitle ? `assignees in ${projectTitle}` : 'assignees'} />
+    </ReportsLayout>
+  )
+  if (!projectTitle) return reports
+  const headingId = `reports-${project}`
   return (
-    <section className={projectTitle ? 'project-reports' : 'reports'} aria-labelledby={headingId}>
+    <section className="project-reports" aria-labelledby={headingId}>
       <ReportsHeading headingId={headingId} projectTitle={projectTitle}>
-        {!projectTitle && <a href={project && project !== defaultProject
-          ? `#${new URLSearchParams({ project, section: 'team-overview' })}` : '#team-overview'}>Team overview</a>}
-        {project && <a href={`#${goalActivityFragment(project)}`}>Goal activity</a>}
-        {reportControls}
+        <a href={`#${goalActivityFragment(project)}`}>Goal activity</a>
       </ReportsHeading>
-      {!projectTitle && viewer && <NeedsYou key={viewer.id} project={project} revision={revision} />}
-      {!projectTitle && <StampIntegration key={project} project={project} revision={revision} />}
-      <ReportsLayout sidebar={<QueuedAsks revision={revision} project={project} grouped={Boolean(projectTitle)} viewer={viewer} />}>
-        <ResourceStatus resource={page} label="reports" />
-        {page.data?.items.length === 0 && <p className="section-message" role="status">{empty}</p>}
-        <AssigneeReportList entries={page.data?.items} label={label} revision={revision} project={project} projectTitle={projectTitle} />
-        <LoadMore page={page} label={projectTitle ? `assignees in ${projectTitle}` : 'assignees'} />
-      </ReportsLayout>
-      {!projectTitle && <ProjectLinks project={project} revision={revision} />}
+      {reports}
     </section>
   )
 }
 
-export default function Reports({ project, projects, assigneeView = 'active', onAssigneeViewChange, headerAction, ...props }) {
+export default function Reports({
+  revision, viewer, project, projects, defaultProject = 'T', assigneeView = 'active',
+  onAssigneeViewChange, headerAction, projectPicker,
+}) {
   const [hideRequests, setHideRequests] = useState(false)
-  const reportControls = <>
-    {headerAction}
-    <label className="activity-mode">
-      <input type="checkbox" checked={hideRequests} onChange={event => setHideRequests(event.target.checked)} />
-      Hide peer requests
-    </label>
-    <label>
-      Assignees
-      <select aria-label="Assignees" value={assigneeView} onChange={event => onAssigneeViewChange(event.target.value)}>
-        <option value="active">Active</option>
-        <option value="all">All</option>
-      </select>
-    </label>
-  </>
-  if (!projects) return <ProjectReports {...props} project={project} view={assigneeView}
-    hideRequests={hideRequests} reportControls={reportControls} />
+  const reportProps = { revision, viewer, view: assigneeView, hideRequests }
+  const teamOverview = project && project !== defaultProject
+    ? `#${new URLSearchParams({ project, section: 'team-overview' })}` : '#team-overview'
   return (
     <section className="reports" aria-labelledby="reports">
-      <ReportsHeading headingId="reports">{reportControls}</ReportsHeading>
-      {props.viewer && <NeedsYou key={props.viewer.id} revision={props.revision} />}
-      {projects.map(({ prefix, title }) => (
-        <ProjectReports key={prefix} {...props} project={prefix} projectTitle={title} view={assigneeView} hideRequests={hideRequests} />
-      ))}
+      <ReportsHeading headingId="reports" projectPicker={projectPicker}>
+        {!projects && <a href={teamOverview}>Team overview</a>}
+        {!projects && project && <a href={`#${goalActivityFragment(project)}`}>Goal activity</a>}
+        {headerAction}
+        <label className="activity-mode">
+          <input type="checkbox" checked={hideRequests} onChange={event => setHideRequests(event.target.checked)} />
+          Hide peer requests
+        </label>
+        <label>
+          Assignees
+          <select aria-label="Assignees" value={assigneeView} onChange={event => onAssigneeViewChange(event.target.value)}>
+            <option value="active">Active</option>
+            <option value="all">All</option>
+          </select>
+        </label>
+      </ReportsHeading>
+      {viewer && <NeedsYou key={viewer.id} project={projects ? undefined : project} revision={revision} />}
+      {projects ? projects.map(({ prefix, title }) => (
+        <ProjectReports key={prefix} {...reportProps} project={prefix} projectTitle={title} />
+      )) : <>
+        <StampIntegration key={project} project={project} revision={revision} />
+        <ProjectReports {...reportProps} project={project} />
+        <ProjectLinks project={project} revision={revision} />
+      </>}
     </section>
   )
 }
