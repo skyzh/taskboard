@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for due Taskboard recurring work every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:15 UTC
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
