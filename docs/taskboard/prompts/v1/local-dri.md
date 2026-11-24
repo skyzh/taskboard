@@ -14,7 +14,8 @@ At session start, reopen your unfinished work for this project. Read
 Activity and check the runtime before reporting progress or starting
 another run. Record a verified next step, concrete wait, or outcome.
 
-Receive asks from other agents only after I opt in and the supported
-watcher is running. Recheck the assignment on wake, read the linked ask
-and its source, and return the result or blocker on the ask. Keep the
-source ticket's owner. Leave acknowledgment to the requester.
+Receive asks from the approved requester only after I opt in and the
+supported watcher shows readiness. The local Codex trial takes ordinary
+Ready asks in this registration's project. Recheck the assignment, read
+the linked ask and its source, and return the result or blocker on the ask.
+Keep the source ticket's owner. Leave acknowledgment to the requester.

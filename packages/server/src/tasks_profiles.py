@@ -170,6 +170,8 @@ def public_profile(row, base):
         "name": row["name"] or row["username"] or row["ledger_key"],
         "username": row["username"],
         "kind": row["kind"],
+        **({"dri_kind": "local" if row["ledger_key"].startswith("local-dri:") else "team"}
+           if row["kind"] == "agent" else {}),
         "role": row["role"] or ("Human" if row["kind"] == "human" else None),
         "description": description,
         "avatar_url": avatar,

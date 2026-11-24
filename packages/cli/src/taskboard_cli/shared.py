@@ -7,6 +7,7 @@ import sys
 from urllib.parse import urlsplit
 
 from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
+from taskboard_client.connection import is_stable_person_id
 from taskboard_client.direct import DirectBoard
 
 from taskboard_client import references as projects
@@ -306,7 +307,7 @@ def shared_write(board, args, *, context):
             action = "record-activity"
         elif command == "transfer":
             action = "handoff"
-            if context.get("handoff_recipient_lookup") is True and not args.dri.startswith("raft:agent:"):
+            if context.get("handoff_recipient_lookup") is True and not is_stable_person_id(args.dri, "agent"):
                 data["owner_name"] = args.dri
             else:
                 data["owner"] = board.person(args.dri, "agent", data["id"])
@@ -437,11 +438,18 @@ def shared_next(board, url, filters, actor):
     return with_guidance("\n".join(goal_lines), result["next_step"])
 
 
+def require_local_dri_context(context, expected):
+    if expected is not None and (context["actor"].get("dri_kind") != "local" or context["actor"]["id"] != expected):
+        raise ValueError("The board did not verify the selected Local DRI.")
+
+
 def shared_command(args):
     command = args.command
     direct_url = getattr(args, "board_url", None) or os.environ.get("TASKBOARD_URL")
+    local_dri = getattr(args, "local_dri", None)
+    direct_options = {"local_dri": local_dri} if local_dri is not None else {}
     if command in ("login", "logout", "publishing-instructions", "api"):
-        board = DirectBoard(direct_url)
+        board = DirectBoard(direct_url, **direct_options)
         if command == "login":
             return board.login()
         if command == "logout":
@@ -463,6 +471,8 @@ def shared_command(args):
                 raise ValueError("Provide a JSON object for the API request.") from error
             if not isinstance(body, dict):
                 raise ValueError("Provide a JSON object for the API request.")
+        if local_dri is not None:
+            require_local_dri_context(board.invoke("context"), local_dri)
         return json.dumps(board.api(args.path, args.method, body), ensure_ascii=False)
     if command == "capabilities":
         return "\n".join((
@@ -484,8 +494,9 @@ def shared_command(args):
     if command == "log":
         merge_details(args.details)
     service = os.environ.get("TASKS_RAFT_SERVICE", "tasks-board")
-    board = DirectBoard(direct_url) if direct_url else SharedBoard(service)
+    board = DirectBoard(direct_url, **direct_options) if direct_url else SharedBoard(service)
     context = board.invoke("context")
+    require_local_dri_context(context, local_dri)
     actor, url = context["actor"], context["board"]
     if actor["kind"] != "agent" and not (direct_url and actor["kind"] == "human"):
         raise ValueError("The shared CLI requires a verified Raft agent.")
@@ -494,6 +505,8 @@ def shared_command(args):
         assert_actor(args.dri, actor)
     prompts = context.get("cli_guidance", {})
     if command == "context":
+        if local_dri is not None:
+            return f"Local DRI · {actor['name']} · {context['project']} · {url}\nUse your runtime's local question prompt."
         if actor["kind"] == "human":
             return f"Shared board · {actor['name']} · {url}"
         return with_guidance(

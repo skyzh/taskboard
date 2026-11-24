@@ -84,12 +84,15 @@ class BoardCredential:
 
 
 class DirectBoard(SharedBoard):
-    def __init__(self, base, *, opener=None):
+    def __init__(self, base, *, opener=None, local_dri=None):
         self.base = board_url(base)
         parsed = urlsplit(self.base)
         self.origin = f"{parsed.scheme}://{parsed.netloc}"
         self.credentials = BoardCredential(self.base)
         self.opener = opener or build_opener(NoRedirect())
+        if local_dri is not None and not re.fullmatch(r"local-dri:[0-9a-f-]{36}", local_dri):
+            raise ValueError("Use the Local DRI ID shown in Taskboard Integrations.")
+        self.local_dri = local_dri
 
     def request(self, path, method="GET", body=None, *, authenticate=True, token=None):
         headers = {"Accept": "application/json"}
@@ -97,6 +100,8 @@ class DirectBoard(SharedBoard):
             headers["Origin"] = self.origin
         if body is not None:
             headers["Content-Type"] = "application/json"
+        if self.local_dri is not None:
+            headers["X-Taskboard-Local-DRI"] = self.local_dri
         if authenticate:
             token = token or self.credentials.read()
             if token:

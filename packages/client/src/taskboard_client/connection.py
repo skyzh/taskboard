@@ -22,6 +22,10 @@ def reply_json(text):
     return value if isinstance(value, dict) else {}
 
 
+def is_stable_person_id(value, kind):
+    return value.startswith(f"raft:{kind}:") or (kind == "agent" and value.startswith("local-dri:"))
+
+
 def exact_person_id(people, value, kind):
     name = value.removeprefix("@").casefold()
     people = [person for person in people if person["kind"] == kind]
@@ -232,7 +236,7 @@ class SharedBoard:
             fields["before"] = page["next_cursor"]
 
     def person(self, value, kind, task=None):
-        if value.startswith(f"raft:{kind}:"):
+        if is_stable_person_id(value, kind):
             return value
         name = value.removeprefix("@")
         filters = {"query": name}
