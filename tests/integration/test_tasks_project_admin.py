@@ -19,9 +19,14 @@ class ProjectAdminTest(unittest.TestCase):
         call, action = fixture.call, fixture.action
         subject = fixture.provider.people["Sam"]["sub"]
         app = fixture.app(portal_reader=True, project_admin_subject=subject, personal_agent_tailnet_subject=subject)
+        fixture.provider.people["Quinn"]["preferred_username"] = ""
         sam, sam_id = fixture.login(app, "Sam")
         quinn, quinn_id = fixture.login(app, "Quinn")
         avery, avery_id = fixture.login(app, "Avery")
+        fixture.provider.people["Blake"]["name"] = "Avery"
+        other_agent = app.test_client()
+        call(other_agent, "/auth/callback", query_string={"code": "Blake"})
+        other_id = call(other_agent, "/api/v1/session").json["actor"]["id"]
         anonymous = app.test_client()
         baseline = call(anonymous, PROJECTS).json
         call(anonymous, SETTINGS, status=401)
@@ -41,9 +46,14 @@ class ProjectAdminTest(unittest.TestCase):
 
         settings = call(sam, SETTINGS).json
         self.assertTrue(settings["can_manage_permissions"])
-        self.assertEqual(next(row for row in settings["principals"] if row["id"] == sam_id), {
-            "id": sam_id, "name": "Sam", "kind": "human", "can_create_project": True, "managed": False,
+        directory = {row["id"]: row for row in settings["principals"]}
+        self.assertEqual(directory[sam_id], {
+            "id": sam_id, "name": "Sam", "handle": "sam",
+            "kind": "human", "can_create_project": True, "managed": False,
         })
+        self.assertEqual((directory[avery_id]["name"], directory[avery_id]["handle"]), ("Avery", "avery"))
+        self.assertEqual((directory[other_id]["name"], directory[other_id]["handle"]), ("Avery", "blake"))
+        self.assertIsNone(directory[quinn_id]["handle"])
         self.assertEqual(call(quinn, SETTINGS).json, {
             "can_manage_permissions": False, "can_create_project": False, "principals": [],
         })

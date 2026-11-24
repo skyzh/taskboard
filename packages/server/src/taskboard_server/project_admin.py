@@ -40,6 +40,7 @@ def directory(db, server, subject):
             fixed = manager(row, subject)
             items.append({
                 "id": row["ledger_key"], "name": row["name"] or row["username"] or row["ledger_key"],
+                "handle": row["username"] or None,
                 "kind": row["kind"], "can_create_project": fixed or row["granted"] is not None,
                 "managed": not fixed,
             })
