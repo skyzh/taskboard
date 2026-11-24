@@ -8936,6 +8936,86 @@ class TasksServiceTest(unittest.TestCase):
         totals = self.call(owner, "/api/v1/stats", query_string={"period": "day"}).json["peer_requests"]
         self.assertEqual((totals["acknowledged"], totals["canceled"], totals["closed"]), (3, 1, 0))
 
+    def test_manual_pull_review_rechecks_keep_one_request_and_preserve_exact_results(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        reviewer, reviewer_id = self.login(app, "Blake")
+        self.provider.people["Cedar"] = {
+            **self.provider.people["Blake"], "sub": str(UUID(int=59)), "name": "Cedar", "preferred_username": "cedar",
+        }
+        _, next_reviewer = self.login(app, "Cedar")
+        self.action(owner, "create-task", {"title": "Check a demo", "step": "Prepare."})
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Prepare."})
+        pr = "https://github.com/example/board/pull/221"
+        other_pr = "https://github.com/example/board/pull/222"
+        for pull in (pr, other_pr):
+            self.action(owner, "link-reference", {"id": "T-1", "label": "PR", "url": pull})
+        base, moved_base = "b" * 40, "e" * 40
+        original, corrected, rebased = "a" * 40, "c" * 40, "d" * 40
+
+        def open_review(note, head, base, *, pull=pr, peer="Blake"):
+            code, output, error = self.shared_cli(
+                owner, "peer-ask", "create", "T-1", note, "--to", peer, "--manual-review", pull, head, base,
+            )
+            self.assertEqual((code, error), (0, ""))
+            return output.split(" · ")[1]
+
+        def task(key):
+            return self.call(owner, f"/api/v1/tasks/{key}").json["task"]
+
+        def result(head, base, note, *, client=reviewer, url=None, status=200):
+            return self.action(client, "peer-ask", {
+                "id": "T-2", "transition": "manual-result", "note": note,
+                "review_pr": pr, "review_head": head, "review_base": base, "url": url or f"{pr}#pullrequestreview-1",
+            }, status=status)
+
+        self.assertEqual(open_review("Review the full demo.", original, base), "T-2")
+        self.assertEqual(task("T-1")["context"]["peer_ask_ticket"], "T-2")
+        self.action(reviewer, "advance-task", {"id": "T-2", "transition": "start", "note": "Checking the demo."})
+        returned = result(original, base, "Changes requested. Browser history and the GitHub link failed.")
+        self.assertEqual(returned["next_action"]["project"], "T")
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "resume", "note": "Fix both findings."})
+        self.assertEqual(task("T-2")["peer_request"]["phase"], "acknowledgment")
+        self.assertEqual(open_review("Recheck browser navigation and the link.", corrected, base), "T-2")
+        self.assertEqual((task("T-2")["dri"], task("T-2")["state"]), (reviewer_id, "ready"))
+        self.action(owner, "peer-ask", {"id": "T-2", "transition": "acknowledge", "note": "Old result."}, status=409)
+        self.action(reviewer, "advance-task", {"id": "T-2", "transition": "start", "note": "Checking the fix."})
+        stamp = "https://stamp.build/s/example/github/example/board/pull/221/approvals/a123/evidence"
+        result(corrected, base, "Approved the corrected demo.", url=stamp)
+        self.assertEqual(open_review("Recheck the exact rebase.", rebased, moved_base), "T-2")
+        self.assertEqual(open_review("Retry the same recheck.", rebased, moved_base), "T-2")
+        self.assertEqual(task("T-1")["waiting_on"], reviewer_id)
+        self.action(reviewer, "advance-task", {"id": "T-2", "transition": "start", "note": "Checking the rebase."})
+        code, output, error = self.shared_cli(reviewer, "show", "T-2")
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn(f"--manual-review {pr} {rebased} {moved_base}", output)
+        result(corrected, base, "Old revision.", status=409)
+        result(rebased, base, "Old base.", status=409)
+        result(rebased, moved_base, "Wrong PR evidence.", url=f"{other_pr}#pullrequestreview-2", status=409)
+        result(rebased, moved_base, "Wrong reviewer.", client=owner, status=403)
+
+        another = open_review("Review a separate PR.", original, base, pull=other_pr)
+        second = open_review("Review independently.", rebased, moved_base, peer="Cedar")
+        self.assertEqual((another, second), ("T-3", "T-4"))
+        self.assertEqual(task(second)["dri"], next_reviewer)
+        self.action(owner, "peer-ask", {"id": another, "transition": "cancel", "note": "Withdrew the separate PR."})
+        code, output, error = self.shared_cli(
+            reviewer, "peer-ask", "result", "T-2", "Approved the rebased pair. Stamp carried the approval and checks passed.",
+            "--manual-review", pr, rebased, moved_base, "--link", "Stamp approval", stamp,
+        )
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("T-2 · Ready for acknowledgment", output)
+        self.action(owner, "peer-ask", {"id": "T-2", "transition": "acknowledge", "note": "Verified the exact review."})
+
+        rows = self.call(owner, "/api/v1/reports/peer-request-history").json["items"]
+        self.assertEqual({row["task_key"]: row["phase"] for row in rows}, {second: "asked", another: "canceled", "T-2": "done"})
+        request_log = self.call(owner, "/api/v1/reports/request-log?project=T").json["items"]
+        self.assertEqual({row["request_key"] for row in request_log if row["review"]}, {"T-2", another, second})
+        self.assertEqual((task("T-1")["dri"], task("T-1")["state"]), (owner_id, "ready"))
+        activity = self.call(owner, "/api/v1/tasks/T-2/activity").json["items"]
+        revisions = [pin["head"] for event in activity if (pin := event["context"].get("manual_review_result"))]
+        self.assertEqual(revisions, [rebased, corrected, original])
+
     def test_stamp_pin_requires_the_project_importer_and_preserves_the_ordinary_handoff(self):
         pr = "https://github.com/example/board/pull/10"
         for configured in ({}, {"T": {"stamp-reviews": "other/board"}}, {"COURSE": {"stamp-reviews": "example/board"}}):

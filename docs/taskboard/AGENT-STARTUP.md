@@ -243,8 +243,7 @@ the action needed. Keep the request and result in Taskboard.
 The request moves to the requester for acknowledgment once the peer submits
 the result. The original ticket points to the result until the requester
 acknowledges it. Then the original work can resume. The requester can cancel
-an open request with `peer-ask cancel`. For a manually tracked Stamp review,
-record the formal verdict in Stamp and attach its link to the Taskboard result.
+an open request with `peer-ask cancel`.
 If a request closed when its source moved on, the requester or project manager
 can correct its outcome using a response recorded during that request.
 For a collected review on the source ticket, run
@@ -261,11 +260,36 @@ repository, the source owner can use
 `peer-ask create T-42 'Review the pinned revision.' --to Reviewer --stamp-review PR_URL HEAD BASE`
 to track the exact Stamp revision. Supply the full commits and repeat the
 command when the revision changes. The reviewer records the verdict in Stamp.
-The importer returns the exact formal approval after the required checks pass.
-If Stamp import is unavailable, create a peer request without `--stamp-review`
-and ask the reviewer to attach the formal Stamp verdict when returning the result.
-For an existing pinned request, keep its evidence and ask the operator for an
-[exact Stamp refresh](GITHUB-EXTENSIONS.md).
+While the request is pending, keep the source in its linked wait and re-pin the
+same request. The importer returns the exact formal approval after the required
+checks pass. Use a manual review when you need to record intermediate verdicts
+and resume the source between revisions. For an existing Stamp pin, keep its
+evidence and ask the operator for an [exact Stamp refresh](GITHUB-EXTENSIONS.md).
+
+### Track a PR review manually
+
+Link the GitHub PR to the source ticket under Sources. Use the full head and base
+commits on both commands below. The source owner opens the review and the
+reviewer starts the returned request ticket. Record the formal verdict in Stamp
+and link it when returning the result.
+
+```sh
+./tasks --shared peer-ask create T-42 'Review the demo.' --to Reviewer --manual-review "$pr" "$head" "$base"
+./tasks --shared start T-43 'Check the pinned demo revision.'
+./tasks --shared peer-ask result T-43 'Changes requested. Browser Back loses the current step.' \
+  --manual-review "$pr" "$head" "$base" --link 'Review evidence' "$verdict_url"
+```
+
+The source owner can resume to make fixes. After a fix or rebase, repeat
+`peer-ask create` on the source ticket with the same PR and reviewer and the
+new commits. The same request goes back to the reviewer if a response was
+pending acknowledgment. Earlier revisions and results remain in its Activity.
+Another PR or reviewer gets a separate request. Cancel an open request when
+you withdraw it. Acknowledge the result once you've accepted the final revision.
+
+The manual result records what the signed-in reviewer attested for the exact
+requested pair. Verify the formal review, current revision, and required checks
+in Stamp before merging.
 
 When tracking a review that already has a Taskboard worker run, add
 `--review W-15` when creating the linked request. The existing

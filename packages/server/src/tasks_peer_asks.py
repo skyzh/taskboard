@@ -66,6 +66,7 @@ def refresh_generated_titles(db, *, task_id=None):
     rows = db.execute(
         f"""
         SELECT request.id, request.title, original.note,
+               json_extract(original.context, '$.manual_review.pull') AS manual_pull,
                'Peer request for ' || source.project_prefix || '-' || COALESCE(source.project_number, source.id) AS fallback,
                (SELECT state FROM events WHERE task_id = request.id AND action NOT IN ('log', 'source-event')
                 ORDER BY id DESC LIMIT 1) AS state
@@ -91,7 +92,7 @@ def refresh_generated_titles(db, *, task_id=None):
         if row["title"] not in generated and not re.fullmatch(r"Review PR #[0-9]+", row["title"]):
             continue
         pin = pending_stamp_review(db, row["id"])
-        title = request_title(row["note"], row["fallback"], pull=pin["pull"] if pin else None)
+        title = request_title(row["note"], row["fallback"], pull=pin["pull"] if pin else row["manual_pull"])
         if task_id is None and row["title"] != row["fallback"] and (
             row["state"] == "done" or not title.startswith("Review PR #")
         ):
@@ -184,27 +185,37 @@ def current_wait(db, source):
     ).fetchone()
 
 
-def stamp_pin(db, source, pr, head, base, *, repository):
+def revision_pin(pr, head, base):
     from tasks_extensions import COMMIT
     from tasks_github import linked_source
 
     if not (pr and head and base and COMMIT.fullmatch(head) and COMMIT.fullmatch(base)):
-        raise ValueError("Provide a linked GitHub PR and its full Stamp head and base commits.")
+        raise ValueError("Provide a linked GitHub PR and its full head and base commits.")
     key, url = linked_source(pr)
-    if repository != key.split("#", 1)[0]:
-        raise ValueError("Stamp import is unavailable for this project and repository. "
-                         "For a new review, omit --stamp-review and have the reviewer link their Stamp verdict in the result.")
-    linked = db.execute(
+    if "/pull/" not in url:
+        raise ValueError("Use the GitHub pull request URL.")
+    return {"pull": key, "head": head, "base": base}, url
+
+
+def require_linked_pull(db, source, url):
+    if db.execute(
         """
         SELECT 1 FROM task_sources JOIN sources ON sources.id = task_sources.source_id
         WHERE task_sources.task_id = ? AND sources.kind = 'github'
           AND LOWER(RTRIM(sources.target, '/')) = ?
         """,
         (source, url),
-    ).fetchone()
-    if "/pull/" not in url or linked is None:
+    ).fetchone() is None:
         raise ValueError("Link this GitHub pull request to the source ticket first.")
-    return {"pull": key, "head": head, "base": base}
+
+
+def stamp_pin(db, source, pr, head, base, *, repository):
+    pin, url = revision_pin(pr, head, base)
+    if repository != pin["pull"].split("#", 1)[0]:
+        raise ValueError("Stamp import is unavailable for this project and repository. "
+                         "For a new review, omit --stamp-review and use --manual-review to link the formal verdict.")
+    require_linked_pull(db, source, url)
+    return pin
 
 
 def pending_stamp_review(db, task_id):
@@ -214,6 +225,15 @@ def pending_stamp_review(db, task_id):
         (task_id,),
     ).fetchone()
     return json.loads(row["context"])["stamp_review"] if row else None
+
+
+def pending_manual_review(db, task_id):
+    row = db.execute(
+        """SELECT context FROM events WHERE task_id = ?
+           AND json_extract(context, '$.manual_review') IS NOT NULL ORDER BY id DESC LIMIT 1""",
+        (task_id,),
+    ).fetchone()
+    return json.loads(row["context"])["manual_review"] if row else None
 
 
 def record_stamp_request(db, task_id, actor, state, pin):
@@ -231,7 +251,7 @@ def record_wait(db, source, args, links, context):
 
     recipient = getattr(args, "peer_recipient", None)
     previous = current_wait(db, source)
-    if previous and previous["recipient"] != recipient:
+    if previous and previous["recipient"] != recipient and not pending_manual_review(db, previous["task_id"]):
         if recipient is None and not ledger.event_context(source).get("named_peer_wait"):
             return False
         retire_wait(db, previous, args.by, "The owner replaced this wait.", outcome="superseded")
@@ -252,6 +272,14 @@ def create(db, args, links, *, named_wait=None):
         raise ValueError("Reopen the source task before asking a peer.")
     if args.recipient == args.by:
         raise ValueError("Choose another agent for the peer request.")
+    manual_review = getattr(args, "manual_review", None)
+    if manual_review:
+        if source["state"] not in ("ready", "in_progress", "waiting"):
+            raise ValueError("Request a manual PR review from an active source ticket.")
+        manual_review, url = revision_pin(*manual_review)
+        require_linked_pull(db, source["id"], url)
+        if not links:
+            links = [("GitHub pull request", url)]
     stamp_review = getattr(args, "stamp_review", None)
     if stamp_review:
         if args.review_run or source["state"] not in ("ready", "in_progress", "waiting"):
@@ -260,7 +288,7 @@ def create(db, args, links, *, named_wait=None):
         stamp_review = stamp_pin(db, source["id"], *stamp_review, repository=repository)
         named_wait = {}
         previous = current_wait(db, source)
-        if previous and previous["recipient"] != args.recipient:
+        if previous and previous["recipient"] != args.recipient and not pending_manual_review(db, previous["task_id"]):
             retire_wait(db, previous, args.by, "The owner changed the named reviewer.", outcome="superseded")
             source = ledger.get_task(db, args.id)
 
@@ -277,12 +305,29 @@ def create(db, args, links, *, named_wait=None):
     active = db.execute(
         f"""
         WITH current AS ({ledger.current_tasks_sql(db)})
-        SELECT current.*, peer_asks.review_run_id, peer_asks.result_event_id
+        SELECT current.*, peer_asks.review_run_id, peer_asks.result_event_id, peer_asks.source_wait_event_id
         FROM peer_asks JOIN current ON current.id = peer_asks.task_id
+        JOIN events AS opening ON opening.task_id = current.id AND opening.action = 'add'
         WHERE peer_asks.source_task_id = ? AND peer_asks.requester = ? AND peer_asks.recipient = ?
-          AND current.state <> 'done'
-        """, (source["id"], args.by, args.recipient),
+          AND current.state <> 'done' AND COALESCE(json_extract(opening.context, '$.manual_review.pull'), '') = ?
+        """, (source["id"], args.by, args.recipient, manual_review["pull"] if manual_review else ""),
     ).fetchone()
+    if manual_review and active:
+        reference = projects.row_reference(active)
+        if manual_review == pending_manual_review(db, active["id"]):
+            return f"{reference} · Existing peer request"
+        state = active["state"]
+        action = "update" if state in ("ready", "in_progress") else "log"
+        if active["result_event_id"]:
+            db.execute("UPDATE tasks SET dri = ? WHERE id = ?", (args.recipient, active["id"]))
+            db.execute("UPDATE peer_asks SET result_event_id = NULL WHERE task_id = ?", (active["id"],))
+            action, state = "transfer", "ready"
+        ledger.record(db, active["id"], action, args.by, state, args.note, None, links,
+                      {"manual_review": manual_review})
+        if source["state"] == "in_progress" or source["event_id"] == active["source_wait_event_id"]:
+            event = write_peer_wait(db, source, reference, args)
+            db.execute("UPDATE peer_asks SET source_wait_event_id = ? WHERE task_id = ?", (event, active["id"]))
+        return f"{reference} · Peer request refreshed"
     if stamp_review and active and active["result_event_id"]:
         if stamp_review == pending_stamp_review(db, active["id"]):
             return f"{projects.row_reference(active)} · Existing peer request"
@@ -308,12 +353,14 @@ def create(db, args, links, *, named_wait=None):
         return f"{projects.row_reference(active)} · Existing peer request"
 
     source_reference = projects.row_reference(source)
+    pin = stamp_review or manual_review
     request = Namespace(
         title=request_title(args.note, f"Peer request for {source_reference}",
-                            pull=stamp_review["pull"] if stamp_review else None), brief="",
+                            pull=pin["pull"] if pin else None), brief="",
         by=args.by, dri=args.recipient, project=projects.row_project(source), step=args.note,
     )
-    task_id = ledger.create_task_record(db, request, links)
+    context = {"manual_review": manual_review} if manual_review else None
+    task_id = ledger.create_task_record(db, request, links, context=context)
     reference = projects.for_task(db, task_id)
     wait_event = None
     if named_wait is not None:
@@ -323,10 +370,7 @@ def create(db, args, links, *, named_wait=None):
         and not ledger.event_context(source).get("peer_ask_ticket")
         and not ledger.is_automation_wait(source)
     ):
-        wait_event = ledger.record(
-            db, source["id"], "wait", args.by, "waiting", f"Waiting for peer request {reference}.",
-            args.recipient, [], {"peer_ask_ticket": reference},
-        )
+        wait_event = write_peer_wait(db, source, reference, args)
     else:
         ledger.record(db, source["id"], "log", args.by, source["state"], f"Opened peer request {reference}.", None, [])
     db.execute(
@@ -341,6 +385,13 @@ def create(db, args, links, *, named_wait=None):
     if stamp_review:
         record_stamp_request(db, task_id, args.by, "ready", stamp_review)
     return f"{reference} · Peer request opened"
+
+
+def write_peer_wait(db, source, reference, args):
+    import tasks_core as ledger
+
+    return ledger.record(db, source["id"], "wait", args.by, "waiting", f"Waiting for peer request {reference}.",
+                         args.recipient, [], {"peer_ask_ticket": reference})
 
 
 def write_named_wait(db, source, reference, args, links, context):
@@ -405,7 +456,7 @@ def update_source(db, ask, actor, reference, note, *, awaiting_acknowledgment=Fa
         ledger.record(db, source["id"], "update", actor, "ready", note, None, [], context)
 
 
-def submit_result(db, args, links, ask, task, *, stamp_verdict=None):
+def submit_result(db, args, links, ask, task, *, stamp_verdict=None, manual_review=None):
     import tasks_core as ledger
 
     reference = projects.row_reference(task)
@@ -419,8 +470,10 @@ def submit_result(db, args, links, ask, task, *, stamp_verdict=None):
     if task["state"] == "done" or (task["state"] != "in_progress" and not (ask["review_run_id"] or stamp_verdict)):
         raise ValueError("Start the peer request before submitting its result.")
     db.execute("UPDATE tasks SET dri = ? WHERE id = ?", (ask["requester"], task["id"]))
-    event = ledger.record(db, task["id"], "transfer", args.by, "ready", args.note, None, links,
-                          {"stamp_verdict": stamp_verdict} if stamp_verdict else None)
+    context = {"stamp_verdict": stamp_verdict} if stamp_verdict else {}
+    if manual_review:
+        context["manual_review_result"] = manual_review
+    event = ledger.record(db, task["id"], "transfer", args.by, "ready", args.note, None, links, context)
     db.execute("UPDATE peer_asks SET result_event_id = ? WHERE task_id = ?", (event, task["id"]))
     update_source(db, ask, args.by, reference, "The peer result is ready for acknowledgment.",
                   awaiting_acknowledgment=True)
@@ -518,7 +571,7 @@ def review_pull_requests(links):
     from tasks_github import linked_source
 
     pulls = set()
-    for _, url in json.loads(links):
+    for _, url in links:
         target = url.partition("#")[0]
         stamp = re.fullmatch(
             r"https://stamp\.build/(?:s/[A-Za-z0-9-]+/)?github/(.+/pull/[1-9][0-9]*)"
@@ -581,7 +634,7 @@ def correct_result(db, args, ask, task):
                 "SELECT links FROM events WHERE task_id = ? AND action = 'add' ORDER BY id LIMIT 1",
                 (task["id"],),
             ).fetchone()
-            if not review_pull_requests(opening["links"]) <= review_pull_requests(response["links"]):
+            if not review_pull_requests(json.loads(opening["links"])) <= review_pull_requests(json.loads(response["links"])):
                 raise ValueError("Choose a review that matches the pull request linked when the request was opened.")
     if response is None:
         raise ValueError("There is no verified response recorded during this request.")
@@ -635,5 +688,12 @@ def change(db, args, links):
     if args.change == "result":
         if pending_stamp_review(db, args.id):
             raise ValueError("Record the formal verdict in Stamp for the pinned pull request revision.")
-        return submit_result(db, args, links, ask, task)
+        manual_review = pending_manual_review(db, args.id)
+        reported = getattr(args, "manual_review", None)
+        if manual_review or reported:
+            if not reported or revision_pin(*reported)[0] != manual_review:
+                raise ValueError("Return the exact current PR, head, and base with --manual-review.")
+            if manual_review["pull"] not in review_pull_requests(links):
+                raise ValueError("Link the review evidence for this pull request.")
+        return submit_result(db, args, links, ask, task, manual_review=manual_review)
     return finish(db, args, links, ask, task)

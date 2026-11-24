@@ -2858,9 +2858,14 @@ def create_app(
                       and peer_asks.pending_stamp_review(db(), task["id"])):
                     result["peer_request_next"] = "Record the verdict in Stamp for the pinned revision."
                 elif ask["phase"] == "in_progress" and task["state"] == "in_progress":
-                    result["peer_request_next"] = (
-                        f'When the check is complete, run `./tasks --shared peer-ask result {reference} "<verified result>"`.'
-                    )
+                    result_command = f'./tasks --shared peer-ask result {reference} "<verified result>"'
+                    if pin := peer_asks.pending_manual_review(db(), task["id"]):
+                        repo, number = pin["pull"].split("#")
+                        result_command += (
+                            f' --manual-review https://github.com/{repo}/pull/{number} {pin["head"]} {pin["base"]}'
+                            ' --link "Review evidence" "<URL>"'
+                        )
+                    result["peer_request_next"] = f"When the check is complete, run `{result_command}`."
             return result
         if name == "confirm-blocker":
             return confirm_blocker(
@@ -2993,6 +2998,9 @@ def create_app(
         number = task_number(data.get("id"))
         if name == peer_asks.COMMAND:
             change = text(data, "transition", maximum=20)
+            manual = change in ("manual-create", "manual-result")
+            if manual:
+                change = change.removeprefix("manual-")
             if change not in peer_asks.TRANSITIONS:
                 raise RequestError("Choose a supported peer-request action.")
             recipient = text(data, "recipient", optional=change != "create", maximum=160)
@@ -3002,16 +3010,22 @@ def create_app(
                 raise RequestError("Provide a recipient only when creating a peer request.")
             review = record_id(data["review"], "W-", "review ID") if data.get("review") is not None else None
             pin_fields = ("review_pr", "review_head", "review_base")
-            stamp_review = None
+            revision = None
             if any(field in data for field in pin_fields):
-                stamp_review = tuple(text(data, field) for field in pin_fields)
+                revision = tuple(text(data, field) for field in pin_fields)
+            manual_review = revision if manual else None
+            stamp_review = None if manual else revision
+            if manual and manual_review is None:
+                raise RequestError("Provide the manual pull request, head, and base when opening or returning its review.")
             if review is not None and change not in ("create", "correct-result"):
                 raise RequestError("Link a review when creating a peer request or correcting a recorded result.")
+            if review is not None and manual_review is not None:
+                raise RequestError("Use either a worker review or a manual PR review.")
             if stamp_review is not None and change != "create":
                 raise RequestError("Pin a Stamp review only when creating or refreshing a peer request.")
             return mutate(peer_asks.COMMAND, actor, data, id=number, change=change,
                           note=text(data, "note"), recipient=recipient, review_run=review, stamp_review=stamp_review,
-                          stamp_repositories=stamp_repositories)
+                          manual_review=manual_review, stamp_repositories=stamp_repositories)
         if name == "change-ownership":
             return change_ownership(actor, number, data)
         if name == "close-task":
@@ -3081,8 +3095,8 @@ def create_app(
             result = dispatch_action(name, data)
             if "next_step" not in result:
                 result["next_step"] = agent_guidance.next_step(name, data, result)
-            receipt_transition = {"advance-task": "done", peer_asks.COMMAND: "result"}.get(name)
-            if name == "handoff" or (receipt_transition is not None and data["transition"].strip() == receipt_transition):
+            receipt_transitions = {"advance-task": ("done",), peer_asks.COMMAND: ("result", "manual-result")}.get(name)
+            if name == "handoff" or (receipt_transitions and data["transition"].strip() in receipt_transitions):
                 project, _ = projects.identifier(data["id"])
                 result["next_action"] = next_action_after_write(current_actor(required=True)["ledger_key"], project)
             return result

@@ -1386,7 +1386,7 @@ class BoardQueries:
                        request.event_id AS resolution_id, request.at AS resolution_at,
                        request.project_prefix || '-' || COALESCE(request.project_number, request.id) AS request_key,
                        request.title AS request_title, created.note AS request_note,
-                       (ask.review_run_id IS NOT NULL OR EXISTS (
+                       (ask.review_run_id IS NOT NULL OR json_extract(created.context, '$.manual_review') IS NOT NULL OR EXISTS (
                            SELECT 1 FROM events WHERE task_id = request.id AND action = 'log'
                            AND json_extract(context, '$.stamp_review') IS NOT NULL)) AS is_review
                 FROM peer_asks AS ask
