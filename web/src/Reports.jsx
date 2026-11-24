@@ -245,11 +245,11 @@ export function AssigneeReportList({ entries, label, revision, project, projectT
   )
 }
 
-export function ReportsHeading({ headingId, projectTitle, children }) {
+export function ReportsHeading({ headingId, projectTitle, children, focusable }) {
   const Heading = projectTitle ? 'h2' : 'h1'
   return (
     <div className="page-heading">
-      <Heading id={headingId}>{projectTitle || 'Reports'}</Heading>
+      <Heading id={headingId} tabIndex={focusable ? -1 : undefined}>{projectTitle || 'Reports'}</Heading>
       <div className="report-controls">{children}</div>
     </div>
   )

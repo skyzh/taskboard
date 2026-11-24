@@ -22,7 +22,7 @@ function ScheduleDate({ value }) {
   return value ? <time dateTime={value}>{formatTimestamp(value)}</time> : '—'
 }
 
-function ScheduleSummary({ schedule }) {
+export function ScheduleSummary({ schedule }) {
   const { owner_name: owner, cadence_hours: cadence, state, next_at: next } = schedule
   const interval = cadence % 24 === 0
     ? cadence === 24 ? 'Daily' : `Every ${cadence / 24} days`
@@ -37,7 +37,7 @@ function ScheduleSummary({ schedule }) {
   )
 }
 
-function OccurrenceHistory({ occurrences }) {
+export function OccurrenceHistory({ occurrences }) {
   if (!occurrences?.length) return <p className="schedule-muted">No runs recorded yet.</p>
   return (
     <details className="schedule-history">
