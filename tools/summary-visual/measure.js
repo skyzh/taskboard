@@ -1,76 +1,31 @@
 function sampleRows() {
-  function baseline(label) {
-    const range = document.createRange()
-    range.selectNodeContents(label)
-    const before = range.getBoundingClientRect()
-    const marker = document.createElement('span')
-    marker.style.cssText = 'display:inline-block;width:0;height:0;overflow:hidden;vertical-align:baseline'
-    label.prepend(marker)
-    range.selectNodeContents(label)
-    const after = range.getBoundingClientRect()
-    const value = marker.getBoundingClientRect().top
-    marker.remove()
-    const unchanged = ['x', 'y', 'width', 'height'].every(key => Math.abs(before[key] - after[key]) < .02)
-    return {value, unchanged}
+  function bounds(element) {
+    const {left, top, right, bottom} = element.getBoundingClientRect()
+    return {left, top, right, bottom}
   }
-  const round = number => +number.toFixed(3)
-  function rawTextBaseline(label) {
-    const text = [...label.childNodes].find(child => child.nodeType === Node.TEXT_NODE && child.textContent.trim())
-    const range = document.createRange()
-    range.selectNode(text)
-    const before = range.getBoundingClientRect()
-    const wrapper = document.createElement('span')
-    const marker = document.createElement('span')
-    marker.style.cssText = 'display:inline-block;width:0;height:0;overflow:hidden;vertical-align:baseline'
-    text.replaceWith(wrapper)
-    wrapper.append(text, marker)
-    range.selectNode(text)
-    const after = range.getBoundingClientRect()
-    const value = marker.getBoundingClientRect().top
-    wrapper.replaceWith(text)
-    return {value, unchanged:['x', 'y', 'width', 'height'].every(key => Math.abs(before[key] - after[key]) < .02)}
-  }
-  const tasks = [...document.querySelectorAll('.report-task-summary .task-row-heading > .report-status')].map(status => {
-    const heading = status.parentElement
+  const tasks = [...document.querySelectorAll('.report-task-summary.report-current-work')].map(row => {
+    const status = row.querySelector('.report-work-status')
+    const label = status.querySelector('.status')
+    const heading = row.querySelector('.task-row-heading')
     const title = heading.querySelector(':scope > a')
-    const id = title.querySelector('.ticket-id')
-    const label = status.firstElementChild
-    const dot = getComputedStyle(status, '::before')
-    const style = getComputedStyle(label)
-    const visuallyHidden = style.position === 'absolute'
-    const titleBaseline = baseline(id)
-    const statusBaseline = visuallyHidden ? null : baseline(label)
-    const statusBox = status.getBoundingClientRect()
-    const titleText = document.createRange()
-    titleText.selectNodeContents(title)
-    const titleLineHeight = parseFloat(getComputedStyle(title).lineHeight)
+    const step = row.querySelector('.report-task-cue')
+    const dependency = row.querySelector('.task-dependency')
+    const text = document.createRange()
+    text.selectNodeContents(title)
     const titleTop = title.getBoundingClientRect().top
-    const lineStarts = new Map()
-    for (const rect of titleText.getClientRects()) {
-      const line = Math.round((rect.top - titleTop) / titleLineHeight)
-      lineStarts.set(line, Math.min(lineStarts.get(line) ?? rect.left, rect.left))
-    }
-    const startPositions = [...lineStarts.values()]
+    const lineHeight = parseFloat(getComputedStyle(title).lineHeight)
+    const titleLines = new Set([...text.getClientRects()].filter(rect => rect.width > 0)
+      .map(rect => Math.round((rect.top - titleTop) / lineHeight))).size
     return {
-      key: id.textContent, label: label.textContent, visuallyHidden,
-      statusBaseline, titleBaseline, gap: statusBaseline && round(statusBaseline.value - titleBaseline.value),
-      titleLines: lineStarts.size,
-      titleIndentDifference: round(Math.max(...startPositions) - Math.min(...startPositions)),
-      dot: {width: dot.width, height: dot.height, color: dot.backgroundColor},
-      compactDotCenter: visuallyHidden ? round(statusBox.y + statusBox.height / 2 - titleBaseline.value) : null,
-      priority: heading.querySelector('.task-priority')?.textContent || null,
+      key: title.querySelector('.ticket-id').textContent, state: label.textContent,
+      visibleStatus: label.getBoundingClientRect().width > 0 && getComputedStyle(label).visibility === 'visible',
+      heading: bounds(heading), status: bounds(status), step: bounds(step), titleLines,
+      dependency: dependency && {text: dependency.textContent, bounds: bounds(dependency)},
     }
   }).sort((a, b) => a.key.localeCompare(b.key))
-  const waitingLine = document.querySelector('.report-waiting-line')
-  const status = waitingLine?.querySelector(':scope > .status')
-  const dependency = waitingLine?.querySelector(':scope > .task-dependency > span')
-  const assignee = dependency?.querySelector('strong')
-  const waitingBaselines = status && dependency && assignee && [status, dependency, assignee].map(rawTextBaseline)
   return {
     viewport: {width: innerWidth, height: innerHeight, scale: visualViewport.scale, dpr: devicePixelRatio},
     ua: navigator.userAgent, tasks,
-    waiting: waitingLine?.textContent.trim() || null,
-    waitingBaselines,
     overflow: document.documentElement.scrollWidth > innerWidth,
   }
 }

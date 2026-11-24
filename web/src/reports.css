@@ -281,33 +281,20 @@
 .report-outcome > a { white-space: nowrap; }
 .report-outcome time { font-size: .79rem; }
 .report-owner .report-task .task-row-note { color: var(--ink); }
-/* Keep every line of a Summary title in the same column beside its status. */
-.report-task-summary .task-row-heading:has(> .report-status) {
-  display: grid;
-  grid-template-columns: max-content minmax(0, max-content) max-content;
-  align-items: first baseline;
-}
-.report-task-summary .task-row-heading:has(> .report-status) > :is(.report-peer-request, .task-row-meta) {
-  grid-column: 1 / -1;
-}
-.report-task-summary .task-row-heading > .report-status + :is(a, .static-task-title) {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.report-status { margin-inline-end: .45rem; }
+.report-work-status { grid-area: status; }
+.report-current-work :is(.task-row-heading, .task-row-context) { overflow-wrap: anywhere; }
+.report-current-work .task-row-heading { position: relative; }
+.report-current-work .task-priority-strip { inset-block-start: 0; inset-inline-start: -.65rem; }
 @media (width > 40rem) {
-  .task-row.report-task-summary {
+  .task-row:is(.report-task-summary, .report-current-work) {
     grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(4.8rem, .2fr);
   }
-  /* Align the label's text with the task title on their shared line. */
-  .report-task-summary .task-row-heading > .report-status { display: inline-block; white-space: nowrap; }
-  .report-task-summary .task-row-heading > .report-status::before {
-    display: inline-block;
-    margin-inline-end: .32rem;
-    vertical-align: middle;
+  .task-row.report-current-work {
+    grid-template-areas: "heading status progress" "heading context progress";
+    grid-template-rows: max-content auto;
   }
 }
-.report-owner .task-row-meta:empty { display: none; }
+.report-task .task-row-meta:empty { display: none; }
 .report-task .task-row-meta { color: var(--muted); font-size: .8rem; }
 .task-row.report-task-summary { padding-inline-start: 0; }
 .report-task-summary .task-row-heading > .task-priority { margin-inline-start: .4rem; white-space: nowrap; }
@@ -319,14 +306,6 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.report-waiting-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: .12rem .45rem; }
-.report-waiting-line > .status { display: block; white-space: nowrap; }
-.report-waiting-line > .status::before {
-  display: inline-block;
-  margin-inline-end: .32rem;
-  vertical-align: middle;
-}
-.report-waiting-line > .task-dependency { overflow-wrap: anywhere; }
 .report-task-cue { overflow-wrap: anywhere; }
 .report-peer-request { margin-bottom: .15rem; color: var(--muted); font-size: .81rem; }
 .report-peer-request svg { margin-inline-end: .32rem; vertical-align: -.17em; }
@@ -361,20 +340,8 @@
   .owner-links a { display: inline-flex; align-items: center; gap: .28rem; min-height: 2rem; }
   .report-details > summary { padding-block: .18rem; }
   .report-goals-panel > summary { min-height: 2rem; align-content: center; }
-  .report-task-summary .task-row-heading > .report-status {
-    align-self: start;
-    font-size: inherit;
-    line-height: inherit;
-    height: 1lh;
-  }
-  .status.report-status::before { width: .5rem; height: .5rem; }
-  .report-status > span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+  .task-row.report-current-work {
+    grid-template-areas: "status status" "heading progress" "context context";
   }
 }
 

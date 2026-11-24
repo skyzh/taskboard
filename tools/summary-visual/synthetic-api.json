@@ -183,7 +183,7 @@
             "release_number": null,
             "state": "in_progress",
             "summary_label": "Current step",
-            "title": "Check that this longer sample title wraps onto a new line and keeps its status indicator beside the first line",
+            "title": "Check the longer sample title and verify that its ticket information wraps inside the available column",
             "waiting_on": null,
             "waiting_profile": null
           },

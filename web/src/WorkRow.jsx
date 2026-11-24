@@ -78,9 +78,8 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   const showRequester = reportSummary && ['asked', 'in_progress'].includes(ask?.phase)
   const parkedRequest = showRequester && state === 'parked'
   const cue = report ? reportTaskCue(task, parkedRequest) : null
+  const currentWork = report && (state === 'in_progress' || state === 'waiting')
   const showTaskStatus = !reportSummary || !ask || ask.phase === 'in_progress' || parkedRequest
-  const headingStatus = showTaskStatus && reportSummary && state === 'in_progress'
-  const waitingLine = showTaskStatus && reportSummary && state === 'waiting'
   const dependency = task.waiting_on || task.blockers
   const exceptionalPriority = task.priority === 'high' || task.priority === 'low'
   const activityAt = task.last_activity_at || task.at
@@ -89,12 +88,21 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   const detailNote = detailedReport && (cue ? cue.details : task.note)
   const showDetails = detailedReport && (detailNote || task.links?.length > 0 || task.event_id)
   const cueLabel = publicPreview ? task.summary_label : detailedReport && cue?.label
+  const step = cue?.text && (
+    <div className="report-task-cue">
+      {cueLabel && <strong>{cueLabel}</strong>}
+      <Markdown text={cue.text} className="task-row-note prose" links={!publicPreview} />
+      {detailedReport && task.release_result && task.at && <p className="event-meta">Step updated <ReportTime at={task.at} /></p>}
+    </div>
+  )
+  const lastActivity = detailedReport && activityAt && !showReportedProgress &&
+    <span>Last activity <ReportTime at={activityAt} /></span>
   return (
-    <li className={`task-row${selected ? ' selected' : ''}${report ? ' report-task' : ''}${reportSummary ? ' report-task-summary' : ''}`}>
-      {!reportSummary && <TaskPriority priority={task.priority} strip />}
+    <li className={`task-row${selected ? ' selected' : ''}${report ? ' report-task' : ''}${reportSummary ? ' report-task-summary' : ''}${currentWork ? ' report-current-work' : ''}`}>
+      {currentWork && <div className="report-work-status"><Status state={state} /></div>}
       <div className="task-row-heading">
-        {showRequester && <ReportPeerRequester ask={ask} parked={parkedRequest} />}
-        {headingStatus && <Status state={state} compactOnPhone />}
+        {!reportSummary && <TaskPriority priority={task.priority} strip />}
+        {showRequester && !currentWork && <ReportPeerRequester ask={ask} parked={parkedRequest} />}
         <TaskLink reference={task.key} id={task.id} title={task.title} current={selected} searchQuery={searchQuery}
           publicHref={publicPreview ? task.public_url || null : undefined} />
         {reportSummary && (exceptionalPriority
@@ -102,17 +110,21 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
           : <span className="report-priority-accessible">Priority Normal</span>)}
         <div className="task-row-meta">
           {compactQueue && <span className="queue-task-key ticket-id" aria-hidden="true">{taskLabel(task.id, task.key)}</span>}
-          {showTaskStatus && !headingStatus && !waitingLine && <Status state={state} />}
-          {!reportSummary && <TaskWaitAge task={task} />}
+          {showTaskStatus && !currentWork && <Status state={state} />}
+          {!reportSummary && !currentWork && <TaskWaitAge task={task} />}
           {owner && <Assignee task={task} compact />}
           {compactQueue && exceptionalPriority && (
             <span className="queue-task-priority"><TaskPriority priority={task.priority} /></span>
           )}
-          {detailedReport && activityAt && !showReportedProgress && <span>Last activity <ReportTime at={activityAt} /></span>}
+          {!currentWork && lastActivity}
         </div>
       </div>
       <div className="task-row-context">
+        {currentWork && step}
+        {showRequester && currentWork && <ReportPeerRequester ask={ask} parked={parkedRequest} />}
         {!publicPreview && <PeerRequestContext task={task} showState={!showRequester} />}
+        {currentWork && lastActivity && <p className="event-meta">{lastActivity}</p>}
+        {currentWork && !reportSummary && <TaskWaitAge task={task} />}
         {showReportedProgress && (
           <p className="event-meta">
             {progressReport
@@ -122,21 +134,10 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
             {task.local_watcher === 'off' && <> · Automatic follow-up off</>}
           </p>
         )}
-        {waitingLine ? (
-          <p className="report-waiting-line">
-            <Status state={state} />
-            {dependency && <span className="task-dependency"><Dependency task={task} publicPreview={publicPreview} inlineWaiting /></span>}
-          </p>
-        ) : dependency && (
+        {dependency && (
           <p className="task-dependency"><Dependency task={task} publicPreview={publicPreview} /></p>
         )}
-        {cue?.text && (
-          <div className="report-task-cue">
-            {cueLabel && <strong>{cueLabel}</strong>}
-            <Markdown text={cue.text} className="task-row-note prose" links={!publicPreview} />
-            {detailedReport && task.release_result && task.at && <p className="event-meta">Step updated <ReportTime at={task.at} /></p>}
-          </div>
-        )}
+        {!currentWork && step}
         {detailedReport && task.release_result && <ReportReleaseResult receipt={task.release_result} />}
         {detailedReport && cue?.text && ownReport && task.release_after_step && (
           <p className="report-note">Review your next step after this release result.</p>

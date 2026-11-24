@@ -244,13 +244,9 @@ export function WorkerAssignment({ run }) {
   )
 }
 
-export function Status({ state, compactOnPhone = false }) {
+export function Status({ state }) {
   const label = states[state] || state
-  return (
-    <span className={`status ${state}${compactOnPhone ? ' report-status' : ''}`}>
-      {compactOnPhone ? <span>{label}</span> : label}
-    </span>
-  )
+  return <span className={`status ${state}`}>{label}</span>
 }
 
 export function taskState(task) {
@@ -355,7 +351,7 @@ export function Assignee({ task, compact = false }) {
   )
 }
 
-export function Dependency({ task, publicPreview = false, inlineWaiting = false }) {
+export function Dependency({ task, publicPreview = false }) {
   if (task.blockers) {
     const { tickets, cycle } = task.blockers
     return (
@@ -373,8 +369,7 @@ export function Dependency({ task, publicPreview = false, inlineWaiting = false 
     )
   }
   if (!task.waiting_on) return null
-  const label = waitLabel(task)
-  return <span>{inlineWaiting && label === 'Waiting on' ? 'on' : label} <strong>{profileName(task.waiting_on, task.waiting_profile)}</strong></span>
+  return <span>{waitLabel(task)} <strong>{profileName(task.waiting_on, task.waiting_profile)}</strong></span>
 }
 
 export function addFilterName(filters, key, profile) {

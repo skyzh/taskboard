@@ -44,18 +44,31 @@ test('task rows distinguish labelled priorities by segment count and keep the de
   assert.match(label, />Priority High</)
 })
 
-test('Summary rows show priority words and put a single waiting label before the update', () => {
-  const renderSummary = record => renderToStaticMarkup(React.createElement(TaskRow, {
-    task: record, owner: false, report: 'summary',
+test('Reports read status, ticket and step in order, with waiting context after the step', () => {
+  const render = (record, report) => renderToStaticMarkup(React.createElement(TaskRow, {
+    task: record, owner: false, report,
   }))
-  const waiting = renderSummary({ ...task, priority: 'high', state: 'waiting',
-    wait_kind: 'person', waiting_on: 'Morgan',
-  })
-  assert.match(waiting, /class="task-priority"><span[^>]+>Priority <\/span>High<\/span>/)
-  assert.match(waiting, /class="report-waiting-line"><span class="status waiting">Waiting<\/span><span class="task-dependency"><span>on <strong>Morgan<\/strong>/)
-  assert.ok(waiting.indexOf('report-waiting-line') < waiting.indexOf('Check the rollback plan.'))
-  assert.doesNotMatch(waiting, /task-priority-strip/)
-  assert.match(renderSummary(task), /class="report-priority-accessible">Priority Normal<\/span>/)
+  const waiting = { ...task, priority: 'high', state: 'waiting', wait_kind: 'person', waiting_on: 'Morgan' }
+  for (const report of ['summary', true]) {
+    for (const [record, label] of [[task, 'In progress'], [waiting, 'Waiting']]) {
+      const row = render(record, report)
+      const status = `class="report-work-status"><span class="status ${record.state}">${label}</span>`
+      const title = 'href="#task-COURSE-4"'
+      const note = 'Check the rollback plan.'
+      assert.ok(row.includes(status) && row.includes(title) && row.includes(note))
+      assert.ok(row.indexOf(status) < row.indexOf(title) && row.indexOf(title) < row.indexOf(note))
+      assert.equal(row.split(`class="status ${record.state}"`).length, 2)
+      if (report === true) assert.ok(row.indexOf('task-priority-strip') > row.indexOf(status))
+      if (record === waiting) {
+        const dependency = 'Waiting on <strong>Morgan</strong>'
+        assert.ok(row.indexOf(dependency) > row.indexOf(note))
+      }
+    }
+  }
+  const summary = render(waiting, 'summary')
+  assert.match(summary, /class="task-priority"><span[^>]+>Priority <\/span>High<\/span>/)
+  assert.doesNotMatch(summary, /task-priority-strip/)
+  assert.match(render(task, 'summary'), /class="report-priority-accessible">Priority Normal<\/span>/)
 })
 
 test('a source row links to a peer request using its stored ticket reference', () => {
