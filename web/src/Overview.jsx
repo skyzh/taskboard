@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useLoadedPages } from './data.js'
 import {
   ActivityMark, EvidenceLinks, LoadMore, OutcomeNote, ResourceStatus, TaskLink, Timestamp,
@@ -6,13 +6,14 @@ import {
 } from './shared.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import { activityHeadline, briefSourceText } from './workCopy.js'
-import { ReportTime } from './ReportTime.jsx'
+import { ReportTime, useReportDay } from './ReportTime.jsx'
 import { MarkdownInline } from './Markdown.jsx'
 import { useTimeZone } from './timeZone.js'
 
 const dayLabel = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
+const shortDay = new Intl.DateTimeFormat('en-US', { month: 'numeric', day: 'numeric', timeZone: 'UTC' })
 const overviewPages = { now: data => data.now, decisions: data => data.decisions }
-const outcomeDaysPage = data => ({ items: data.days, next_cursor: data.next_day })
+const outcomeDaysPage = data => ({ items: data.days, next_cursor: data.next_day, week: data.week })
 
 function ActivitySection({ id, title, field, overview, revision, empty, project }) {
   const firstPage = overview.data?.[field]
@@ -145,13 +146,14 @@ export function OutcomeRow({ events }) {
   )
 }
 
-function OutcomeDay({ day, owner, revision, project, timeZone }) {
-  const page = useLoadedPages('/outcomes', { dri: owner, day, project, time_zone: timeZone }, revision)
+function OutcomeDay({ day, owner, revision, project, timeZone, empty = false }) {
+  const page = useLoadedPages(empty ? null : '/outcomes', { dri: owner, day, project, time_zone: timeZone }, revision)
   const tasks = groupOutcomes(page.data?.items || [])
   const Row = owner ? OutcomeSummary : OutcomeRow
   return (
     <section className="outcome-day" aria-labelledby={`outcomes-${day}`}>
-      <h3 id={`outcomes-${day}`}><ActivityDate day={day} /></h3>
+      <h3 id={`outcomes-${day}`} tabIndex={-1}><ActivityDate day={day} /></h3>
+      {empty && <p className="section-message">No outcomes for this day.</p>}
       <ResourceStatus resource={page} label="outcomes" />
       <ol className="outcome-list" role="list">
         {[...tasks].map(([id, events]) => <Row key={id} events={events} />)}
@@ -161,17 +163,54 @@ function OutcomeDay({ day, owner, revision, project, timeZone }) {
   )
 }
 
-export function Outcomes({ revision, owner, project }) {
+function OutcomeWeek({ week, openDay }) {
+  return (
+    <ol className="outcome-week" role="list" aria-label="Outcome counts for the last seven days">
+      {week.map(({ day, count }) => (
+        <li key={day}>
+          <button type="button" data-level={Math.min(count, 3)} onClick={() => openDay(day)}
+            aria-label={`${dayLabel.format(new Date(day))}, ${count} ${count === 1 ? 'outcome' : 'outcomes'}`}>
+            <time dateTime={day}>{shortDay.format(new Date(day))}</time>
+            <strong>{count}</strong>
+          </button>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+export function Outcomes({ revision, owner, project, showWeek = false }) {
   const { timeZone } = useTimeZone()
-  const page = useLoadedPages('/outcomes/days', { dri: owner, project, time_zone: timeZone }, revision, {
+  const today = useReportDay()
+  const [selection, setSelection] = useState(null)
+  const page = useLoadedPages('/outcomes/days', {
+    dri: owner, project, time_zone: timeZone, ...(showWeek ? { week_ending: today } : {}),
+  }, revision, {
     limit: 2, moreLimit: 1, cursorParam: 'before_day', readPage: outcomeDaysPage,
   })
   const days = page.data?.items || []
+  const week = page.data?.week
+  const selected = selection?.timeZone === timeZone && week?.find(item => item.day === selection.day)
+  const selectedDay = selected?.day
+  const displayedDays = selectedDay && !days.includes(selectedDay) ? [selectedDay, ...days] : days
+  function openDay(day) {
+    const heading = document.getElementById(`outcomes-${day}`)
+    if (heading) heading.focus()
+    else setSelection({ day, timeZone })
+  }
+  useEffect(() => {
+    if (selectedDay) document.getElementById(`outcomes-${selectedDay}`)?.focus()
+  }, [selectedDay])
+
   return (
     <section className="feed-section outcomes" aria-labelledby="outcomes-title">
       <h2 id="outcomes-title">{owner ? 'Recent outcomes' : 'Outcomes'}</h2>
-      {!days.length && page.data && <p className="section-message">No outcomes yet.</p>}
-      {days.map(day => <OutcomeDay key={day} day={day} owner={owner} revision={revision} project={project} timeZone={timeZone} />)}
+      {week && <OutcomeWeek week={week} openDay={openDay} />}
+      {!displayedDays.length && page.data && <p className="section-message">No outcomes yet.</p>}
+      {displayedDays.map(day => (
+        <OutcomeDay key={day} day={day} owner={owner} revision={revision} project={project}
+          timeZone={timeZone} empty={day === selectedDay && selected.count === 0} />
+      ))}
       <ResourceStatus resource={page} label="outcomes" />
       <LoadMore page={page} label="days of outcomes" />
     </section>

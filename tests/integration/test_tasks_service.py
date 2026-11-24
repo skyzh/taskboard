@@ -7420,6 +7420,25 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([event["task_key"] for event in course["items"]], ["COURSE-1"])
         self.assertEqual(self.call(viewer, utc_query + "&limit=2").json, first_utc)
 
+        week_url = base + "/days?dri=Avery&week_ending=2026-11-21"
+        expected_week = [
+            {"day": f"2026-11-{day}", "count": count}
+            for day, count in zip(range(15, 22), (0, 0, 0, 0, 0, 1, 2))
+        ]
+        self.assertEqual(self.call(viewer, week_url).json["week"], expected_week)
+        self.assertEqual(self.call(viewer, week_url + "&before_day=2026-11-20").json, {
+            "days": ["2026-11-03"], "next_day": None, "week": expected_week,
+        })
+        self.assertEqual(
+            [item["count"] for item in self.call(viewer, week_url + "&time_zone=UTC").json["week"]],
+            [0, 0, 0, 0, 0, 0, 3],
+        )
+        self.assertEqual(
+            [item["count"] for item in self.call(viewer, week_url + "&project=COURSE&time_zone=UTC").json["week"]],
+            [0, 0, 0, 0, 0, 0, 1],
+        )
+        self.call(viewer, base + "/days?week_ending=0001-01-06", status=400)
+
     def test_imported_pixel_avatar_keeps_svg_bytes_and_portal_access(self):
         self.cli("add", "Check the portrait", "--dri", "Avery", "--step", "Open the profile.")
         app = self.app(portal_reader=True)

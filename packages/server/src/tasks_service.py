@@ -2158,10 +2158,13 @@ def create_app(
     def outcome_days():
         current_actor()
         args = request.args
+        week_ending = day_arg(args, "week_ending")
+        if week_ending is not None and week_ending.toordinal() < 7:
+            raise RequestError("Provide a week_ending date with six preceding days.")
         return query().outcome_days(
             dri=text(args, "dri", optional=True, maximum=160),
             before=day_arg(args, "before_day"), limit=integer(args.get("limit", 2), "limit", maximum=2),
-            project=project_scope(args), time_zone=time_zone_arg(args),
+            project=project_scope(args), time_zone=time_zone_arg(args), week_ending=week_ending,
         )
 
     @app.get("/api/v1/milestones")

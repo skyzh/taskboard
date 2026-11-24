@@ -82,5 +82,11 @@ test('outcome days and links use the selected time zone', () => {
     assert.deepEqual(get('/outcomes/days?' + filters).days, [day])
     assert.ok(get('/outcomes?' + filters + '&day=' + day).items.length > 0)
     assert.deepEqual(get('/outcomes?' + filters + '&day=' + otherDay).items, [])
+    const { week } = get('/outcomes/days?' + filters + '&week_ending=2026-11-24')
+    assert.equal(week.length, 7)
+    assert.equal(week[0].day, '2026-11-18')
+    assert.deepEqual(week.filter(item => item.count > 0), [
+      { day, count: get('/outcomes?' + filters + '&day=' + day).items.length },
+    ])
   }
 })
