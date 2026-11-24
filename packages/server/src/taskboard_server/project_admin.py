@@ -47,6 +47,24 @@ def directory(db, server, subject):
     return items
 
 
+def registrations(db, server):
+    rows = db.execute(
+        """
+        SELECT principal.ledger_key, principal.kind, principal.name, principal.username, local.actor AS local_actor
+        FROM board_principals AS principal
+        LEFT JOIN local_dris AS local ON local.actor = principal.ledger_key
+        WHERE principal.server_id = ? AND principal.kind IN ('human', 'agent')
+        ORDER BY LOWER(principal.name), principal.ledger_key
+        """, (server,),
+    )
+    return [{
+        "id": row["ledger_key"],
+        "name": row["name"] or row["username"] or row["ledger_key"],
+        "handle": row["username"] or None,
+        "kind": "local_dri" if row["local_actor"] else "team_dri" if row["kind"] == "agent" else "human",
+    } for row in rows]
+
+
 def set_grant(db, principal, enabled):
     if enabled:
         return db.execute(

@@ -1,11 +1,14 @@
 """Check shared project creation and its Settings grants on an isolated board."""
 
+from contextlib import closing
 import unittest
 
 import test_tasks_service as service
+from tasks_storage import open_sqlite
 
 
 SETTINGS = "/api/v1/admin/project-creation"
+REGISTRATIONS = "/api/v1/admin/registrations"
 PROJECTS = "/api/v1/projects"
 ORIGIN = {"Origin": service.ORIGIN}
 DENIED = "Taskboard project creation permission is required."
@@ -89,6 +92,35 @@ class ProjectAdminTest(unittest.TestCase):
         local = call(sam, "/api/v1/personal-agents/local-dris", method="POST", headers=ORIGIN,
                      json={"name": "Fixture Local DRI", "project": "LAB"}).json["local_dri"]
         grant(sam, local["id"], status=404)
+
+        with closing(open_sqlite(fixture.database)) as db, db:
+            db.execute(
+                "INSERT INTO board_principals (ledger_key, server_id, kind, subject, name) VALUES (?, ?, ?, ?, ?)",
+                ("foreign-fixture", "different-board", "human", subject, "Foreign"),
+            )
+        self.assertTrue(call(sam, "/api/v1/session").json["can_manage_registrations"])
+        for client, headers, status in (
+            (quinn, {}, 403), (avery, {}, 403), (anonymous, {}, 401),
+            (anonymous, token_headers, 403),
+            (anonymous, {**token_headers, "X-Taskboard-Local-DRI": local["id"]}, 403),
+        ):
+            session_status = 403 if "X-Taskboard-Local-DRI" in headers else 200
+            session = call(client, "/api/v1/session", headers=headers, status=session_status).json
+            self.assertFalse(session.get("can_manage_registrations"))
+            call(client, REGISTRATIONS, headers=headers, status=status)
+        revision = call(sam, "/api/v1/revision").json
+        response = call(sam, REGISTRATIONS)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        registrations = {row["id"]: row for row in response.json["items"]}
+        self.assertEqual(set(registrations), {sam_id, quinn_id, avery_id, other_id, local["id"]})
+        self.assertEqual(registrations[sam_id], {"id": sam_id, "name": "Sam", "handle": "sam", "kind": "human"})
+        self.assertEqual((registrations[avery_id]["kind"], registrations[avery_id]["handle"]), ("team_dri", "avery"))
+        self.assertEqual((registrations[other_id]["name"], registrations[other_id]["handle"]), ("Avery", "blake"))
+        self.assertEqual(registrations[local["id"]], {
+            "id": local["id"], "name": "Fixture Local DRI", "handle": None, "kind": "local_dri",
+        })
+        self.assertEqual(call(sam, "/api/v1/revision").json, revision)
+
         action(anonymous, "create-project", {"prefix": "NO", "title": "Denied"},
                headers={**token_headers, "X-Taskboard-Local-DRI": local["id"]}, status=403)
 
