@@ -35,6 +35,14 @@ test('renders block paragraphs, ordered and nested lists, and code as HTML struc
   assert.match(body, /<pre><code>&lt;code&gt;argument&lt;\/code&gt;\n<\/code><\/pre>/)
 })
 
+test('keeps Mermaid source readable before its browser renderer loads', () => {
+  const text = '```mermaid\nflowchart LR\nA --> B\n```\n\n```text\ncode stays code\n```'
+  const body = render(markdown.Markdown, { text })
+  assert.match(body, /<pre><code>flowchart LR\nA --&gt; B\n<\/code><\/pre>/)
+  assert.match(body, /<pre><code>code stays code\n<\/code><\/pre>/)
+  assert.doesNotMatch(body, /<iframe|<img|<svg/)
+})
+
 test('labels default GitHub links and retains authored link text, Raft URLs and safe navigation', () => {
   const body = render(markdown.Markdown, { text: [
     'https://github.com/example/tool/pull/14',
