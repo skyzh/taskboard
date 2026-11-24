@@ -98,6 +98,26 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertIn("T-2 · Peer request opened", output)
         action(client, "advance-task", {"id": "T-2", "transition": "start", "note": "Check the sample."}, headers=sender)
         original = action(client, "task-activity", query_string={"id": "T-2"}, headers=sender)
+
+        def current_report():
+            entries = call(manager, "/api/v1/reports?project=T&view=all").json["items"]
+            by_owner = {entry["owner"]: entry for entry in entries}
+            self.assertNotIn(ops["id"], by_owner)
+            self.assertEqual(by_owner[team_id]["tasks"], [])
+            row, = by_owner[perf["id"]]["tasks"]
+            self.assertEqual(row["state"], "in_progress")
+            return row
+
+        progress = current_report()["reported_progress"]
+        self.assertEqual(progress["id"], original["items"][0]["id"])
+        self.assertEqual(current_report()["local_watcher"], "ready_only")
+        with patch.object(local_dri, "now", return_value=local_dri.now() + timedelta(minutes=7)):
+            self.assertEqual(current_report()["local_watcher"], "off")
+            self.assertEqual(current_report()["reported_progress"], progress)
+        self.assertFalse(readiness("stopped"))
+        self.assertEqual(current_report()["local_watcher"], "off")
+        self.assertTrue(readiness("active"))
+
         action(client, "raise-attention", {"id": "T-2", "recipient": sam_id, "reason": "Approve it."},
                headers=sender, status=403)
         for transition in ("assign-human", "redirect-decision", "wait"):

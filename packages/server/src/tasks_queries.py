@@ -24,6 +24,7 @@ import tasks_readiness as readiness
 import tasks_storage
 import watches
 import workers
+from taskboard_server import local_dri
 from tasks_evidence_preview import raster_path
 
 
@@ -398,6 +399,35 @@ class BoardQueries:
         if include_report_fields:
             owner_keys.extend(ask["requester"] for ask in requests.values())
         owners = profiles.visible_by_keys(self.db, owner_keys, self.base)
+        reporting_tasks = {
+            row["id"] for row in rows
+            if include_report_fields and row["state"] == "in_progress"
+            and (owners.get(row["dri"], {}).get("kind") == "human"
+                 or owners.get(row["dri"], {}).get("dri_kind") == "local")
+        }
+        work_reports = {}
+        if reporting_tasks:
+            marks = ", ".join("?" for _ in reporting_tasks)
+            event_context = "activity.context" if ledger.has_event_context(self.db) else "'{}'"
+            work_reports = {
+                report["task_id"]: {"id": report["id"], "at": report["at"]}
+                for report in self.db.execute(
+                    f"""
+                    SELECT tasks.id AS task_id, events.id, events.at FROM tasks
+                    JOIN events ON events.id = (
+                        SELECT MAX(activity.id) FROM events AS activity
+                        WHERE activity.task_id = tasks.id AND activity.actor = tasks.dri
+                          AND activity.state = 'in_progress'
+                          AND (activity.action IN ('start', 'update', 'resume')
+                               OR (activity.action = 'log'
+                                   AND json_extract({event_context}, '$.watcher_measurements') IS NULL
+                                   AND ({event_context} = '{{}}'
+                                        OR json_extract({event_context}, '$.activity_details') IS NOT NULL)))
+                    )
+                    WHERE tasks.id IN ({marks})
+                    """, tuple(sorted(reporting_tasks)),
+                )
+            }
         recipients = profiles.visible_by_keys(self.db, [row["waiting_on"] for row in rows if row["waiting_on"]], self.base)
         tasks_by_id = {row["id"]: row for row in rows}
         wait_starts = self.wait_starts(rows)
@@ -427,6 +457,7 @@ class BoardQueries:
                 """, ids,
             )}
         results = []
+        local_watchers = {}
         for row in rows:
             label, note = ledger.current_summary(row)
             goal = goal_rows.get(row["id"])
@@ -492,6 +523,13 @@ class BoardQueries:
                     item["peer_request"]["requester_name"] = requester.get("name") or requester.get("username")
             if include_report_fields:
                 item["last_activity_at"] = activity_times.get(row["id"], row["at"])
+                if row["id"] in reporting_tasks:
+                    item["reported_progress"] = work_reports.get(row["id"])
+                    if owners.get(row["dri"], {}).get("dri_kind") == "local":
+                        watcher = row["dri"], projects.row_project(row)
+                        if watcher not in local_watchers:
+                            local_watchers[watcher] = local_dri.ready(self.db, *watcher)
+                        item["local_watcher"] = "ready_only" if local_watchers[watcher] else "off"
                 if isinstance(details, str):
                     item["details"] = details
             if receipt := release_results.get(row["id"]):
@@ -1492,13 +1530,23 @@ class BoardQueries:
         work_columns = ", ".join(f"COALESCE(work.{state}, 0) AS {state}" for state in WORK_STATES)
         roster = project == projects.DEFAULT and self.project_roster is not None
         names = projects.roster_owners(self.db, self.project_roster) if roster else {}
-        owner_source = """SELECT dri FROM project_tasks WHERE dri <> ''
-                          UNION SELECT ledger_key FROM board_principals WHERE kind = 'agent' AND ? = 'T'
-                          UNION SELECT dri FROM projects WHERE prefix = ? AND dri IS NOT NULL
-                          UNION SELECT recipient FROM legacy_waits"""
+        local_dris = watches.has_table(self.db, "local_dris")
+        team_only = "AND ledger_key NOT IN (SELECT actor FROM local_dris)" if local_dris else ""
+        owner_source = f"""SELECT dri FROM project_tasks WHERE dri <> ''
+                           UNION SELECT ledger_key FROM board_principals WHERE kind = 'agent' AND ? = 'T' {team_only}
+                           UNION SELECT dri FROM projects WHERE prefix = ? AND dri IS NOT NULL
+                           UNION SELECT recipient FROM legacy_waits"""
         owner_args = (project, project)
+        local_owners = ()
+        if local_dris:
+            owner_source += " UNION SELECT actor FROM local_dris WHERE project = ?"
+            owner_args += (project,)
+            if roster:
+                local_owners = tuple(row["actor"] for row in self.db.execute(
+                    "SELECT actor FROM local_dris WHERE project = ?", (project,),
+                ))
         if roster:
-            owner_args = tuple(names)
+            owner_args = (*names, *local_owners)
             if personal_owner and personal_owner not in names:
                 owner_args += (personal_owner,)
             if not owner_args:
