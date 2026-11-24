@@ -3,10 +3,12 @@ const activityFragment = /^#event-([1-9]\d*)-log$/
 const githubIssueOrPull = /^\/([\w.-]+\/[\w.-]+)\/(pull|issues)\/([1-9]\d*)(?:\/|$)/
 const githubCommit = /^\/([\w.-]+\/[\w.-]+)\/commit\/([a-f\d]{7,40})(?:\/|$)/i
 const stampPull = /^\/(?:s\/[\w.-]+\/)?github\/([\w.-]+\/[\w.-]+)\/pull\/([1-9]\d*)(?:\/|$)/
+const fragmentRoute = fragment => fragment.split('?', 1)[0]
 
 export function markdownHref(href) {
   if (typeof href !== 'string') return null
-  if (taskFragment.test(href) || activityFragment.test(href)) return href
+  const route = fragmentRoute(href)
+  if (taskFragment.test(route) || activityFragment.test(route)) return href
   if (!URL.canParse(href)) return null
   const url = new URL(href)
   if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.username || url.password) return null
@@ -30,9 +32,10 @@ function sourceRecord(href, board) {
   const url = URL.canParse(href) ? new URL(href) : null
   const fragment = href.startsWith('#') ? href
     : url && url.origin === board?.origin && url.pathname === board.pathname ? url.hash : ''
-  const task = taskFragment.exec(fragment)
+  const route = fragmentRoute(fragment)
+  const task = taskFragment.exec(route)
   if (task) return { kind: 'Ticket', reference: `${(task[1] || 'T-').toUpperCase()}${task[2]}` }
-  const activity = activityFragment.exec(fragment)
+  const activity = activityFragment.exec(route)
   if (activity) return { kind: 'Activity', reference: `Activity #${activity[1]}` }
 
   if (url?.protocol !== 'https:' || url.port || url.username || url.password) return null

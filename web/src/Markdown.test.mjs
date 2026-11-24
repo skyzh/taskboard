@@ -115,7 +115,7 @@ test('adds compact recognized references to source and evidence links', () => {
     { label: 'Decision record', url: 'https://stamp.build/s/team/github/example/tool/pull/14/approvals/deadbeef/evidence' },
     { label: 'Fix revision', url: 'https://github.com/example/tool/commit/cafebabe1234567' },
     { label: 'Original task', url: '#task-COURSE-19' },
-    { label: 'Checkup', url: '#event-23-log' },
+    { label: 'Checkup', url: '#event-23-log?actor=prism' },
     { label: 'Manual', url: 'https://example.test/example/tool/pull/14' },
   ]
   const result = render(shared.EvidenceLinks, { links, label: 'Sources', ticketSources: true })
@@ -129,6 +129,7 @@ test('adds compact recognized references to source and evidence links', () => {
   }
   const board = new URL('https://board.example/tasks/')
   assert.equal(evidenceLinkLabel(`${board}#task-7`, 'Source', { board }), 'Source · T-7')
+  assert.equal(evidenceLinkLabel(`${board}#task-COURSE-19?history=1`, 'Older version', { board }), 'Older version · COURSE-19')
   assert.equal(evidenceLinkLabel('https://other.example/tasks/#task-7', 'Source', { board }), 'Source')
   assert.equal(evidenceLinkLabel('https://board.example/another/#task-7', 'Source', { board }), 'Source')
 })
