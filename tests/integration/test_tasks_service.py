@@ -7556,6 +7556,39 @@ class TasksServiceTest(unittest.TestCase):
                     other = self.call(client, endpoint, query_string=filters).json
                     self.assertEqual([row["owner"] for row in other["items"]], [agent])
 
+    def test_reports_distinguishes_human_report_time_from_later_ticket_activity(self):
+        app = self.app(portal_reader=True, personal_agent_tailnet_subject=self.provider.people["Sam"]["sub"])
+        sam, human = self.login(app, "Sam")
+        avery, agent = self.login(app, "Avery")
+        local = app.test_client()
+        trusted = {"X-Taskboard-Personal-Agent": "1", "X-Portal-Auth-Method": "tailscale", "Origin": ORIGIN}
+        self.action(local, "create-task", {"title": "Human sample", "step": "Read the sample."}, headers=trusted)
+        self.action(local, "advance-task", {"id": "T-1", "transition": "start", "note": "Inspecting the sample."},
+                    headers=trusted)
+        self.action(avery, "create-task", {"title": "Team sample", "step": "Read the sample."})
+        self.action(avery, "advance-task", {"id": "T-2", "transition": "start", "note": "Inspecting the sample."})
+        self.action(local, "record-activity", {"id": "T-1", "note": "Confirmed the sample fields."}, headers=trusted)
+        self.action(avery, "record-activity", {"id": "T-1", "note": "Question about the export."})
+
+        def tasks_by_owner():
+            rows = self.call(sam, "/api/v1/reports?view=active").json["items"]
+            return {entry["owner"]: entry["tasks"][0] for entry in rows}
+
+        with closing(sqlite3.connect(self.database)) as db, db:
+            recorded, later = db.execute("SELECT id, at FROM events WHERE task_id = 1 AND action = 'log' ORDER BY id").fetchall()
+        rows = tasks_by_owner()
+        self.assertEqual(rows[human]["reported_progress"], dict(zip(("id", "at"), recorded)))
+        self.assertEqual(rows[human]["last_activity_at"], later[1])
+        self.assertEqual(rows[human]["state"], "in_progress")
+        self.assertNotIn("reported_progress", rows[agent])
+
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute(
+                "UPDATE events SET actor = ? WHERE actor = ? AND task_id = 1 AND action IN ('log', 'start')",
+                (agent, human),
+            )
+        self.assertIsNone(tasks_by_owner()[human]["reported_progress"])
+
     def test_stats_period_returns_after_sign_in(self):
         app = self.app(portal_reader=True)
         for fragment in ("#stats", "#stats?project=COURSE&period=week", "#stats?period=week&project=COURSE", "#stats?project=COURSE"):

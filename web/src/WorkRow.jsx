@@ -84,6 +84,8 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   const dependency = task.waiting_on || task.blockers
   const exceptionalPriority = task.priority === 'high' || task.priority === 'low'
   const activityAt = task.last_activity_at || task.at
+  const showReportedProgress = report && !publicPreview && task.reported_progress !== undefined
+  const progressReport = task.reported_progress
   const detailNote = detailedReport && (cue ? cue.details : task.note)
   const showDetails = detailedReport && (detailNote || task.links?.length > 0 || task.event_id)
   const cueLabel = publicPreview ? task.summary_label : detailedReport && cue?.label
@@ -106,11 +108,20 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
           {compactQueue && exceptionalPriority && (
             <span className="queue-task-priority"><TaskPriority priority={task.priority} /></span>
           )}
-          {detailedReport && activityAt && <span>Last activity <ReportTime at={activityAt} /></span>}
+          {detailedReport && activityAt && !showReportedProgress && <span>Last activity <ReportTime at={activityAt} /></span>}
         </div>
       </div>
       <div className="task-row-context">
         {!publicPreview && <PeerRequestContext task={task} showState={!showRequester} />}
+        {showReportedProgress && (
+          <p className="event-meta">
+            {progressReport
+              ? <>Progress last reported <a href={eventHref(progressReport.id)}><ReportTime at={progressReport.at} linked /></a></>
+              : 'Progress report time unknown'}
+            {task.local_watcher === 'ready_only' && <> · Watcher handles Ready asks only</>}
+            {task.local_watcher === 'off' && <> · Automatic follow-up off</>}
+          </p>
+        )}
         {waitingLine ? (
           <p className="report-waiting-line">
             <Status state={state} />
