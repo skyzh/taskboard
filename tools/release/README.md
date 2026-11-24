@@ -318,9 +318,12 @@ pinned in [supported-runner.txt](supported-runner.txt). CI fetches that exact
 revision. Fetch it locally with
 `git fetch --no-tags --depth=1 origin "$(cat tools/release/supported-runner.txt)"`
 if it is missing. The test runs both the pinned and candidate launchers and
-checks against the same staged app manifest. If a change requires replacing
-the installed launcher or checks, review the operator handoff and update the
-supported pin explicitly. CI cannot inspect a private installation’s pins.
+checks against the same staged app manifest. The runner supplies an explicit
+synthetic initial project when opening a blank fixture ledger. The check
+clears the serving TOML variable to exercise that setup path. If a change
+requires replacing the installed launcher or checks, review the operator
+handoff and update the supported pin explicitly. CI cannot inspect a private
+installation’s pins.
 
 The default run uses synthetic local fixtures. Release operators can enable additional process replays using artifacts verified against trusted digests from their release records. Supply settings in the test environment. Keep artifacts, pins and receipts outside the source checkout.
 

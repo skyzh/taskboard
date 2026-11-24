@@ -45,14 +45,13 @@ class InstalledRunnerTest(unittest.TestCase):
         spec = spec_from_file_location("staged_compatibility_fixture", launcher / "compatibility_fixture.py")
         runner = module_from_spec(spec)
         spec.loader.exec_module(runner)
-        config = scratch / "server.toml"
-        config.write_text("[initial_project]\nprefix = 'T'\ntitle = 'Tasks Board'\n", encoding="utf-8")
         try:
-            with (patch.dict(os.environ, {"TASKS_SERVER_CONFIG": str(config)}),
-                  runner.fixture_server(sys.executable, app, scratch / "mounted", *certificate(scratch)) as server):
-                origin, cookie, database, env = server
-                actor = runner.seed(sys.executable, app, origin, cookie, database)
-                runner.verify_cli(sys.executable, app, env, origin, cookie, actor)
+            with patch.dict(os.environ):
+                os.environ.pop("TASKS_SERVER_CONFIG", None)
+                with runner.fixture_server(sys.executable, app, scratch / "mounted", *certificate(scratch)) as server:
+                    origin, cookie, database, env = server
+                    actor = runner.seed(sys.executable, app, origin, cookie, database)
+                    runner.verify_cli(sys.executable, app, env, origin, cookie, actor)
         except runner.CompatibilityFailure as error:
             diagnostics = scratch / "mounted/service.log"
             output = diagnostics.read_text() if diagnostics.is_file() else ""
