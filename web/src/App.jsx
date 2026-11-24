@@ -276,7 +276,8 @@ export default function App() {
   const integrationsParams = new URLSearchParams(view === 'integrations' ? taskContext : undefined)
   const integrationsProject = visibleProjects?.find(item => item.prefix === integrationsParams.get('project'))?.prefix
   const integrationsHref = allReports ? '#integrations' : `#integrations?project=${project}`
-  const personalAgentsLink = session.data?.actor?.kind === 'human'
+  const reportsScopeReady = allReports || !requestedReportsProject || Boolean(visibleProjects)
+  const personalAgentsLink = reportsScopeReady && session.data?.actor?.kind === 'human'
     ? <a href={integrationsHref}>Personal Agents</a> : null
   const showAllReports = view === 'reports' && hasProjectChoices && allReports
   const reportsPending = Boolean((allReports || requestedReportsProject) && !visibleProjects &&
@@ -366,7 +367,7 @@ export default function App() {
                   <a href={demoTourUrl} target="_blank" rel="noreferrer" aria-label="Take the tour (opens a sample board in a new tab)">
                     Take the tour <ArrowUpRight size={16} aria-hidden="true" />
                   </a>
-                  <a href={integrationsHref}>Set up an agent</a>
+                  {reportsScopeReady && <a href={integrationsHref}>Set up an agent</a>}
                 </div>
               </div>
               <button type="button" aria-label="Dismiss welcome banner" onClick={() => {
