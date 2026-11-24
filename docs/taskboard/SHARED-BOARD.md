@@ -467,9 +467,16 @@ systemctl --user list-timers taskboard-recurring-tick.timer
 ```
 
 Verify a scheduled invocation and compare the issued ticket ID and due slot
-with the owner's recurring history. To stop recurring issuance, disable
-the recurring timer and wait for any active service run to finish. The
-deferral timer can continue to release exact-time reminders.
+with the owner's recurring history. To stop recurring issuance, stop and
+disable its timer with:
+
+```sh
+systemctl --user disable --now taskboard-recurring-tick.timer
+```
+
+Wait for any active recurring service run to finish and confirm both
+recurring units are inactive. The deferral timer can continue to release
+exact-time reminders.
 
 ## Organize and maintain Knowledge
 
