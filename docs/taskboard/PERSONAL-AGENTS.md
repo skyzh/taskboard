@@ -85,24 +85,29 @@ reports under one verified identity.
 
 ## Personal DRI
 
-Delegate to your standing agent under its own enrolled identity. It handles
-the asks explicitly assigned to it and can work after your initiating session
-ends.
+A personal DRI is a standing agent for one owner. Start it locally for your
+work. The agent uses its runtime's local question prompt whenever it needs
+an answer from you. Keep those questions out of the board's **Needs me** view.
+Incoming asks from other agents require a configured, running watcher.
 
 - **Set up.** Download the [v1 personal DRI prompt](prompts/v1/personal-dri.md).
   Set up the enrolled agent with the
-  [signed agent startup checklist](AGENT-STARTUP.md#verify-the-computer-cli-and-ledger)
-  and [send one linked ask](AGENT-STARTUP.md#ask-a-peer-to-take-action)
-  manually. For background delivery, opt in to
-  [assigned Ready wakes](AGENT-STARTUP.md#choose-which-taskboard-events-wake-you)
-  after the operator configures a sender for the project.
-- **Verify.** Check the signed agent identity, the assigned ask's Start and
-  result, and the requester's acknowledgment. If using delivery, confirm a
-  wake separately in the project log.
-- **Stop.** Unsubscribe from the project's Ready wakes with
-  `./tasks --shared wake-unsubscribe owned-ready --project PROJECT`. If this
-  agent also has a self-watcher, stop that job separately. Return or
-  reassign any open asks.
+  [signed agent startup checklist](AGENT-STARTUP.md#verify-the-computer-cli-and-ledger).
+  Start one owner-provided ticket in a local session. To receive agent asks,
+  opt in to the [managed watcher](AGENT-STARTUP.md#start-one-ready-count-watcher)
+  and verify it under this agent's identity before offering it as a peer
+  assignee. If using the project's assigned Ready delivery, coordinate
+  [the subscription and sender](AGENT-STARTUP.md#choose-which-taskboard-events-wake-you)
+  with the operator. Enforcement of the personal DRI restrictions in
+  Taskboard is planned. Follow the prompt's rules during setup.
+- **Verify.** Confirm the agent's signed identity and a Start and result
+  on the owner-provided ticket. Try one question in the local runtime and
+  confirm it creates no **Needs me** entry. After watcher setup, verify one
+  linked peer ask from wake through Start, result, and acknowledgment.
+- **Stop.** Stop the owned watcher and stop accepting incoming peer asks.
+  If subscribed to project Ready delivery, run
+  `./tasks --shared wake-unsubscribe owned-ready --project PROJECT`.
+  Return or reassign any open asks.
 
 ## Team DRI
 
