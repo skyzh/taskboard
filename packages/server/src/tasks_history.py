@@ -49,6 +49,15 @@ def previous_content(db, task, event_id):
     return fields
 
 
+def neighbor(db, task_id, event_id, *, newer):
+    comparison, order = (">", "ASC") if newer else ("<", "DESC")
+    row = db.execute(
+        f"SELECT id, at FROM events WHERE task_id = ? AND id {comparison} ? ORDER BY id {order} LIMIT 1",
+        (task_id, event_id),
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
 def version(db, task, event_id):
     event = db.execute("SELECT * FROM events WHERE task_id = ? AND id = ?",
                        (task["id"], event_id)).fetchone()
@@ -71,6 +80,8 @@ def version(db, task, event_id):
             "actor": visible["actor"],
             "label": ledger.event_label(visible["action"], ledger.event_context(visible)),
         },
+        "previous": neighbor(db, task["id"], event_id, newer=False),
+        "next": neighbor(db, task["id"], event_id, newer=True),
     }
     if state is not None:
         result.update(

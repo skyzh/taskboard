@@ -4162,22 +4162,30 @@ class TasksServiceTest(unittest.TestCase):
         self.action(owner, "create-task", {"title": "Original", "brief": "First draft.", "step": "Collect evidence."})
         created = latest_event(route)
         self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Review the evidence."})
+        started = latest_event(route)
         self.call(owner, route + "/details", method="POST",
                   json={"title": "Corrected", "brief": "Second draft.", "reason": "A confirmed change."})
         edited = latest_event(route)
-        self.call(owner, route + "/details", method="POST", json={"brief": "", "reason": "Clear the draft."})
-        cleared = latest_event(route)
         self.action(owner, "create-task", {"title": "Another record", "step": "Read it."})
         foreign_event = latest_event("/api/v1/tasks/T-2")
+        self.call(owner, route + "/details", method="POST", json={"brief": "", "reason": "Clear the draft."})
+        cleared = latest_event(route)
+        times = {item["id"]: item["at"] for item in self.call(owner, route + "/activity").json["items"]}
 
         original = self.call(portal, f"{route}/history/{created}").json
         self.assertEqual([original[key] for key in ("title", "brief", "state", "note")],
                          ["Original", "First draft.", "ready", "Collect evidence."])
+        self.assertIsNone(original["previous"])
+        self.assertEqual(original["next"], {"id": started, "at": times[started]})
         corrected = self.call(owner, f"{route}/history/{edited}").json
         self.assertEqual([corrected[key] for key in ("title", "brief", "state", "note")],
                          ["Corrected", "Second draft.", "in_progress", "Review the evidence."])
         self.assertEqual((corrected["event"]["id"], corrected["event"]["actor"]), (edited, owner_id))
-        self.assertEqual(self.call(owner, f"{route}/history/{cleared}").json["brief"], "")
+        self.assertEqual(corrected["previous"], {"id": started, "at": times[started]})
+        self.assertEqual(corrected["next"], {"id": cleared, "at": times[cleared]})
+        latest = self.call(owner, f"{route}/history/{cleared}").json
+        self.assertEqual(latest["brief"], "")
+        self.assertIsNone(latest["next"])
         self.call(owner, f"{route}/history/{foreign_event}", status=404)
 
         self.action(owner, "task-tag", {"id": "T-1", "action": "add", "tag": "decision-record"})
