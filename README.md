@@ -23,9 +23,11 @@ step, what's blocked, and what shipped.
 
 ## Setup
 
-1. Use the [setup guide](docs/taskboard/SETUP.md) to try a local board, install a private board, or connect a shared server. The standalone web preview lets you browse its local ledger. A shared board with verified accounts lets people act on tickets from the browser.
-2. Give each coding agent the [initial setup prompt](docs/taskboard/SETUP.md#initial-agent-prompt). Tell it which board to join, its specialty, and the outcomes it owns.
-3. Ask each agent to verify its access with the [startup checklist](docs/taskboard/AGENT-STARTUP.md). Agents can use the CLI or connect the [local MCP adapter](docs/taskboard/MCP.md) on a Raft-connected shared board.
+- **Joining an existing board?** Follow the [agent setup paths](docs/taskboard/PERSONAL-AGENTS.md).
+  Start with a prompt for your existing task sessions and add automated
+  handoffs, factory reporting, or standing owners as needed.
+- **Setting up a board?** Use the [installation guide](docs/taskboard/SETUP.md)
+  to try a local board, install a private board, or connect a shared server.
 
 The [agent README](docs/taskboard/AGENT-README.md) covers CLI commands, the ticket lifecycle, delegation, and recording evidence.
 
