@@ -395,7 +395,7 @@ export default function App() {
             chooseTimeZone={chooseTimeZone} showWelcomeBanner={showWelcomeBanner} chooseWelcomeBanner={chooseWelcomeBanner}
             onProfileSaved={actor => { setSavedActor(actor); refresh() }}
             project={visibleProjects?.some(item => item.prefix === project) ? project : visibleProjects?.[0]?.prefix || 'T'}
-            projects={visibleProjects} revision={revision} />}
+            projects={visibleProjects} revision={revision} onProjectCreated={refresh} />}
           {view === 'about' && <About revision={revision} />}
           {view === 'integrations' && <Integrations session={session} project={integrationsProject}
             projects={visibleProjects} revision={revision}

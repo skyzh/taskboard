@@ -2,6 +2,7 @@ import React, { useId } from 'react'
 import CodexUsage from './CodexUsage.jsx'
 import FieldGuidanceSettings from './FieldGuidanceSettings.jsx'
 import { ProfileForm, ProfileSignIn } from './Profile.jsx'
+import ProjectSettings from './ProjectSettings.jsx'
 import { ResourceStatus } from './shared.jsx'
 import { browserTimeZone, timeZones } from './timeZone.js'
 
@@ -45,7 +46,7 @@ export function AppearanceSettings({ theme, timeZonePreference, chooseTimeZone, 
 
 export default function Settings({
   session, theme, timeZonePreference, chooseTimeZone, showWelcomeBanner, chooseWelcomeBanner,
-  onProfileSaved, project, projects, revision,
+  onProfileSaved, project, projects, revision, onProjectCreated,
 }) {
   const actor = session.data?.actor
   const canEdit = actor?.kind === 'agent' || actor?.kind === 'human'
@@ -70,6 +71,7 @@ export default function Settings({
           )}
         </section>
       )}
+      {canEdit && <ProjectSettings key={actor.id ?? actor.name} revision={revision} onProjectCreated={onProjectCreated} />}
       {canEdit && <FieldGuidanceSettings project={project} projects={projects} revision={revision} />}
       {actor?.kind === 'human' && <CodexUsage key={actor.id} />}
     </section>
