@@ -307,9 +307,9 @@ export default function App() {
   const reportsHref = `#${view === 'reports' ? reportsMode : preferredReportsMode}`
   function startTour(event) {
     const onReports = view === 'reports' && !showGoalActivity
-    const reportsRoute = onReports ? fragment : preferredReportsMode
-    const tourProject = onReports ? project
-      : new URLSearchParams(reportsRoute.split('?', 2)[1]).get('project') || reportsProject
+    const pageProject = ['reports', 'board', 'task', 'assignee', 'team-overview'].includes(view) ? project : undefined
+    const reportsRoute = onReports ? fragment : pageProject ? reportFragment(pageProject) : preferredReportsMode
+    const tourProject = pageProject || new URLSearchParams(reportsRoute.split('?', 2)[1]).get('project') || reportsProject
     const taskRoute = new URLSearchParams({ project: tourProject, section: 'queue-heading' }).toString()
     tourOrigin.current = fragment
     tourFromNavbar.current = event.currentTarget === navbarTourTrigger.current
