@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, X } from 'lucide-react'
 import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from './data.js'
 import About from './About.jsx'
 import BoardViews from './BoardViews.jsx'
@@ -25,6 +25,16 @@ import { useTheme } from './theme.js'
 import {
   browserTimeZone, createTimeZoneFormatters, readTimeZonePreference, saveTimeZonePreference, TimeZoneContext,
 } from './timeZone.js'
+
+const welcomeBannerKey = 'tasks-board.reports-welcome-hidden'
+
+function readWelcomeBannerPreference() {
+  try {
+    return window.localStorage.getItem(welcomeBannerKey) !== 'true'
+  } catch {
+    return true
+  }
+}
 
 function reportFragment(project, assigneeView) {
   const route = project === 'all' ? 'reports-all' : 'reports'
@@ -136,6 +146,17 @@ function BoardConnection({ checkedAt, checking, stale, source }) {
 export default function App() {
   const [fragment, writeFilterFragment] = useFragment()
   const theme = useTheme()
+  const main = useRef(null)
+  const [showWelcomeBanner, setShowWelcomeBanner] = useState(readWelcomeBannerPreference)
+  function chooseWelcomeBanner(show) {
+    setShowWelcomeBanner(show)
+    try {
+      if (show) window.localStorage.removeItem(welcomeBannerKey)
+      else window.localStorage.setItem(welcomeBannerKey, 'true')
+    } catch {
+      // The preference still applies to the current page.
+    }
+  }
   const [timeZonePreference, setTimeZonePreference] = useState(readTimeZonePreference)
   const timeZone = timeZonePreference || browserTimeZone
   const timeZoneFormatters = useMemo(() => createTimeZoneFormatters(timeZone), [timeZone])
@@ -330,9 +351,18 @@ export default function App() {
         {hasSession && <BoardConnection {...connection} />}
         {view === 'team-overview' && <SectionIndex key={project} overview={overview.data} />}
       </header>
-      <main tabIndex={0} aria-label="Taskboard content">
+      <main ref={main} tabIndex={0} aria-label="Taskboard content">
         <div className="main-content">
           {updateDeferred && <p className="board-connection" role="status">Taskboard will refresh when you finish your changes.</p>}
+          {view === 'reports' && !showGoalActivity && showWelcomeBanner && (
+            <aside className="reports-welcome" aria-label="Welcome to Taskboard">
+              <p>Taskboard is a place for people and agents to work together, track and report progress, and share knowledge.</p>
+              <button type="button" aria-label="Dismiss welcome banner" onClick={() => {
+                main.current?.focus({ preventScroll: true })
+                chooseWelcomeBanner(false)
+              }}><X size={18} aria-hidden="true" /></button>
+            </aside>
+          )}
           {['reports', 'team-overview'].includes(view) && projectPicker}
           {view === 'reports' && (reportsPending
             ? <section className="reports" aria-labelledby="reports">
@@ -349,7 +379,8 @@ export default function App() {
           {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject}
             projects={visibleProjects} />}
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}
-            chooseTimeZone={chooseTimeZone} onProfileSaved={actor => { setSavedActor(actor); refresh() }}
+            chooseTimeZone={chooseTimeZone} showWelcomeBanner={showWelcomeBanner} chooseWelcomeBanner={chooseWelcomeBanner}
+            onProfileSaved={actor => { setSavedActor(actor); refresh() }}
             project={visibleProjects?.some(item => item.prefix === project) ? project : visibleProjects?.[0]?.prefix || 'T'}
             projects={visibleProjects} revision={revision} />}
           {view === 'about' && <About revision={revision} />}
