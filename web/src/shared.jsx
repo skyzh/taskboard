@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { activityExtraText, waitLabel } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
-import { sourceLinkLabel } from './sourceLinks.js'
+import { evidenceLinkLabel, markdownHref } from './sourceLinks.js'
 import { useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
 import { DemoUnavailable } from './DemoControl.jsx'
@@ -428,6 +428,7 @@ function TicketSourceMark({ url, local }) {
 export function EvidenceLinks({ links, label = 'Evidence', ticketSources = false }) {
   const listId = useId()
   if (!links?.length) return null
+  const board = typeof window === 'undefined' ? null : new URL('./', window.location.href)
   return (
     <ul className={ticketSources ? 'evidence-links ticket-source-list' : 'evidence-links'} aria-label={label} role="list">
       {links.map((link, index) => {
@@ -438,14 +439,16 @@ export function EvidenceLinks({ links, label = 'Evidence', ticketSources = false
         )
         const parsed = URL.canParse(url) ? new URL(url) : null
         const protocol = parsed?.protocol
-        const supported = protocol === 'http:' || protocol === 'https:' || protocol === 'file:'
+        const supported = protocol === 'http:' || protocol === 'https:' || protocol === 'file:' ||
+          (!parsed && markdownHref(url))
         const preview = protocol === 'file:' && /^\.\/api\/v1\/local-evidence\/[1-9]\d*\/\d+$/.test(link.preview_url)
           ? link.preview_url
           : null
         return (
           <li key={index}>
             {ticketSources && <TicketSourceMark url={parsed} local={protocol === 'file:'} />}
-            {supported ? <a href={url} aria-describedby={statusId}>{link.generated ? sourceLinkLabel(url, label) : label}</a> : <span>{label} {url}</span>}
+            {supported ? <a href={url} aria-describedby={statusId}>{evidenceLinkLabel(url, label, { generated: link.generated, board })}</a>
+              : <span>{label} {url}</span>}
             <GitHubSourceStatus id={statusId} snapshot={link.github} />
             {protocol === 'file:' && (
               <details className="path-disclosure">

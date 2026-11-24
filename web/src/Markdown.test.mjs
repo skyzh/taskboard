@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer } from 'vite'
+import { evidenceLinkLabel } from './sourceLinks.js'
 
 const render = (Component, props) => renderToStaticMarkup(React.createElement(Component, props))
 let vite
@@ -99,10 +100,37 @@ test('shows GitHub state beside its source link and preserves unannotated links'
   for (const [index, link] of links.slice(0, 3).entries()) {
     const description = result.match(new RegExp(`aria-describedby="([^"]+-github-${index})"`))?.[1]
     assert.ok(description)
-    assert.ok(result.includes(`<a href="${link.url}" aria-describedby="${description}">${link.label}</a>`))
+    const reference = ['example/tool#14', 'example/tool#22', 'example/tool#15'][index]
+    assert.ok(result.includes(`<a href="${link.url}" aria-describedby="${description}">${link.label} · ${reference}</a>`))
     assert.ok(result.includes(`<span id="${description}" class="github-source-status">${['Merged', 'Last seen open', 'Status unavailable'][index]}</span>`))
   }
   assert.ok(result.includes('<li><a href="https://example.test/notes">Manual</a></li>'))
+})
+
+test('adds compact recognized references to source and evidence links', () => {
+  const links = [
+    { label: 'Compatibility notes', url: 'https://github.com/example/tool/pull/14/files?diff=split#discussion_r42' },
+    { label: 'Already named (Example/Tool #14)', url: 'https://github.com/example/tool/pull/14' },
+    { label: 'Follow-up to example/tool#140', url: 'https://github.com/example/tool/pull/14' },
+    { label: 'Decision record', url: 'https://stamp.build/s/team/github/example/tool/pull/14/approvals/deadbeef/evidence' },
+    { label: 'Fix revision', url: 'https://github.com/example/tool/commit/cafebabe1234567' },
+    { label: 'Original task', url: '#task-COURSE-19' },
+    { label: 'Checkup', url: '#event-23-log' },
+    { label: 'Manual', url: 'https://example.test/example/tool/pull/14' },
+  ]
+  const result = render(shared.EvidenceLinks, { links, label: 'Sources', ticketSources: true })
+  const labels = [
+    'Compatibility notes · example/tool#14', 'Already named (Example/Tool #14)',
+    'Follow-up to example/tool#140 · example/tool#14', 'Decision record · example/tool#14',
+    'Fix revision · example/tool@cafebab', 'Original task · COURSE-19', 'Checkup · Activity #23', 'Manual',
+  ]
+  for (const [index, link] of links.entries()) {
+    assert.ok(result.includes(`<a href="${link.url}">${labels[index]}</a>`))
+  }
+  const board = new URL('https://board.example/tasks/')
+  assert.equal(evidenceLinkLabel(`${board}#task-7`, 'Source', { board }), 'Source · T-7')
+  assert.equal(evidenceLinkLabel('https://other.example/tasks/#task-7', 'Source', { board }), 'Source')
+  assert.equal(evidenceLinkLabel('https://board.example/another/#task-7', 'Source', { board }), 'Source')
 })
 
 test('renders Markdown in historical details and checklist labels without changing evidence gates', () => {
@@ -117,9 +145,9 @@ test('renders Markdown in historical details and checklist labels without changi
   })
   assert.match(event, /Legacy <strong>result<\/strong>/)
   assert.match(event, /<ul><li><a href="https:\/\/example\.test\/notes">Read notes<\/a><\/li><\/ul>/)
-  assert.match(event, /Pull request example\/tool #14/)
-  assert.match(event, /href="https:\/\/github\.com\/example\/tool\/pull\/22">GitHub<\/a>/)
-  assert.match(event, /href="https:\/\/github\.com\/example\/tool\/issues\/9">Tracking<\/a>/)
+  assert.match(event, /Pull request · example\/tool#14/)
+  assert.match(event, /href="https:\/\/github\.com\/example\/tool\/pull\/22">GitHub · example\/tool#22<\/a>/)
+  assert.match(event, /href="https:\/\/github\.com\/example\/tool\/issues\/9">Tracking · example\/tool#9<\/a>/)
   assert.match(event, /Private evidence <span class="evidence-unavailable">\(local file\)<\/span>/)
   assert.doesNotMatch(event, /private\/withheld/)
   const steps = render(shared.ChecklistSteps, {
