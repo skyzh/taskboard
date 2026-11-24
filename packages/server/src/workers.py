@@ -38,6 +38,24 @@ TRANSITIONS = {
     "stop": (("planned", "running"), "stopped"),
 }
 
+LATEST_WAKE_CHECK = """
+    SELECT event.id FROM events AS event
+    WHERE event.task_id = worker_runs.task_id AND event.action = 'log'
+      AND json_extract(event.context, '$.audit.action') = 'worker-check'
+      AND CAST(json_extract(event.context, '$.audit.run_id') AS BIGINT) = worker_runs.id
+    ORDER BY event.id DESC LIMIT 1
+"""
+
+
+def wake_check(db, run_id):
+    row = db.execute(f"""
+        SELECT wake.id, json_extract(wake.context, '$.audit.mode') AS mode,
+               json_extract(wake.context, '$.audit.at') AS at
+        FROM worker_runs JOIN events AS wake ON wake.id = ({LATEST_WAKE_CHECK})
+        WHERE worker_runs.id = ?
+        """, (run_id,)).fetchone()
+    return dict(row) if row and row["mode"] != "clear" else None
+
 
 def timestamp():
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")

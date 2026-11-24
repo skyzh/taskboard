@@ -81,6 +81,9 @@ _ACTIONS = {
     "my-readiness": _Action("GET", "Read dependency changes that need your readiness check.",
                             optional=_PROJECT | _SCOPE | _PAGINATION),
     "my-reviews": _Action("GET", "List your actionable review assignments.", optional=_PROJECT | _PAGINATION),
+    "my-wake-workers": _Action("GET", "List signed worker assignments eligible for an idle wake.", {
+        "status": "Choose planned, running, or checkpoint.",
+    }, _PAGINATION),
     "tagged-tasks": _Action("GET", "Read tagged tickets in one project.", {
         "project": "Tasks project prefix.", "tag": "Tag to filter.",
     }, _PAGINATION),
@@ -214,6 +217,10 @@ _ACTIONS = {
     "watch-task": _Action("POST", "Follow or unfollow task activity.", _TASK, {
         "watch": "Pass true to follow (the default) or false to unfollow.",
     }),
+    "worker-check-show": _Action("GET", "Inspect the wake checkpoint for your worker run.", {"run": "Worker run ID."}),
+    "worker-check": _Action("POST", "Set or clear a wake checkpoint for your worker run.", {
+        "run": "Worker run ID.", "mode": "Choose at, report, or clear.",
+    }, {"at": "Whole-second UTC timestamp for an at checkpoint."}),
     "my-watches": _Action("GET", "Read recent activity on tasks you follow.", optional=_PROJECT | _SCOPE | _PAGINATION),
     "my-activity": _Action("GET", "Read the activity of tasks you own or follow.", optional=_PROJECT | _SCOPE | _PAGINATION),
     "raise-attention": _Action("POST", "Ask a verified human to look at a task you own.", {

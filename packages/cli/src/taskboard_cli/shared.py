@@ -20,13 +20,14 @@ ADVANCES = {
     "assign-human", "redirect-decision", "withdraw-decision",
 }
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
-         "search", "knowledge-areas", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance", ledger.READ}
+         "search", "knowledge-areas", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance",
+         "worker-check", ledger.READ}
 WRITES = ADVANCES | {
     "confirm-blocker",
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
     "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "raft-channel-set",
     "wake-subscribe", "wake-unsubscribe", "knowledge-add", "knowledge-place", "knowledge-stage", "knowledge-reconcile",
-    ledger.WRITE, PEER_ASK,
+    "worker-check", ledger.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
 def assert_actor(value, actor):
     if value is None:
@@ -493,6 +494,20 @@ def shared_command(args):
             prompts.get("context", "Check your Inbox with `./tasks --shared next`. "
                         "Use `./tasks --shared capabilities` to see available commands."),
         )
+    if command == "worker-check":
+        data = {"run": f"W-{args.run}"}
+        if args.show:
+            result = board.invoke("worker-check-show", data)
+        else:
+            data["mode"] = "at" if args.at else "report" if args.on_report else "clear"
+            if args.at:
+                data["at"] = args.at
+            result = board.invoke("worker-check", data, write=True)
+        checkpoint = result["checkpoint"]
+        label = "No explicit checkpoint"
+        if checkpoint:
+            label = f"Check at {checkpoint['at']}" if checkpoint["mode"] == "at" else "Wake on worker report"
+        return f"{result['run']} · {result['ticket']} · {label}"
     if command in {"raft-channel-show", "raft-channel-set"}:
         write = command == "raft-channel-set"
         data = {"project": projects.prefix(args.project)}

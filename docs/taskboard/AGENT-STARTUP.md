@@ -302,13 +302,13 @@ Start this job only when you opt in and have a reviewed source that includes `--
 cd "$taskboard_source"
 raft proc list
 raft proc start --name taskboard-ready -- python3 -B tasks_ready_checkpoint.py \
-  --by "$taskboard_agent" --watch-idle --repeat --idle-delay-seconds 120 \
+  --by "$taskboard_agent" --watch-idle --repeat \
   --channel "$raft_conversation" --message-id "$raft_anchor"
 raft proc list
 raft proc logs taskboard-ready --tail 30
 ```
 
-Run the start command only if the first list shows no running owned Ready watcher. The reviewed repeat mode waits for two minutes of sampled idle and sends a count such as “You have 2 Ready tickets” for a changed, nonempty owned queue. The notice contains no ticket selection. Read your current queue with `./tasks --shared next` or `./tasks --shared list --status ready`, choose eligible work, and keep taking independent work while you have capacity. Record starts and concrete waits on the original tickets.
+Run the start command only if the first list shows no running owned Ready watcher. The repeat mode checks for Ready work after a confirming idle poll about ten seconds later and sends a count such as “You have 2 Ready tickets” when new work arrives. Read your current queue with `./tasks --shared next` or `./tasks --shared list --status ready`, choose eligible work, and keep taking independent work while you have capacity. Record starts and concrete waits on the original tickets. To wake for delegated or stalled work as well, add `--wake-stalled` and follow the [worker handoff rules](READY-CHECKPOINT.md#recover-stalled-and-delegated-work).
 
 When the squad is explicitly measuring work and you are starting a watcher, add `--measure` to the same `--watch-idle --repeat` command. See the [Ready checkpoint measurement instructions](READY-CHECKPOINT.md#opt-in-raft-watcher). Read `raft proc logs "$taskboard_watcher" --tail 30` using the owned job's name. Look for a sampled `status` row with `status: "idle"`. Record its `at` and `ready_count`, plus `ready_observed_at` when present. A logged zero means the queue was empty at that sample. Record an absent sample or unavailable count as unknown.
 

@@ -46,7 +46,7 @@ Add `--idle-delay-seconds 120` to wait two minutes from the first idle sample. A
 
 For a two-pickup pilot, add `--two-pickups` to the watcher command. The process waits for Taskboard to record the first Start, then begins a new idle check for the next Ready ticket. It returns `two-pickups-confirmed` only after verifying both starts. A concrete deferral on that exact Ready event ends the pilot with `deferred`. The same five-minute limit covers both turns, and an unconfirmed offer ends without sending another.
 
-For the opt-in Ready-count watcher, add `--repeat` in place of `--two-pickups`. Check `raft proc list` first and keep one managed watcher per agent. The default delay is two minutes of sampled idle. When the owned Ready queue is nonempty and has changed since the last notice in this process, it sends one reminder such as “You have 2 Ready tickets.” The count covers your assigned Ready tickets across projects. Run `./tasks --shared next` to find the current offer and take actionable Inbox work first. Add `--project` only for a deliberate check of one project.
+For the opt-in Ready-count watcher, add `--repeat` in place of `--two-pickups`. Check `raft proc list` first and keep one managed watcher per agent. The default delay is ten seconds of sampled idle, about one confirming poll. When new work enters the signed Ready queue, the watcher rereads the queue and confirms Idle before sending a reminder such as “You have 2 Ready tickets.” The count covers your assigned Ready tickets across projects. A retained reminder records the newest included Ready event so a restart or a shrinking queue can reuse that wake. Run `./tasks --shared next` to find the current offer and take actionable Inbox work first. Add `--project` only for a deliberate check of one project.
 
 After recording and parking a standing-goal check, recheck the Inbox. If the Inbox is clear and there is a distinct, concrete follow-up, take at most one such follow-up in the same turn. After that, stop exploring for the turn. The process stays armed across turns and stays quiet for an empty or unchanged Ready queue.
 
@@ -83,13 +83,26 @@ Check the job after a Computer restart or move. Verify the intended checkout, sh
 
 Run `raft proc stop taskboard-ready-pilot` to prevent an unscheduled wake. If a reminder has already been scheduled, use `raft reminder list` and cancel that exact reminder separately if it is no longer needed. The disposable tests prove a busy owner and a change to busy suppress delivery, then a later idle owner gets one offer and commits a start. Wiring a recurring checkpoint into a shared runner belongs to that runner's operator.
 
-## Try the stalled-work wake
+## Recover stalled and delegated work
 
-Add `--wake-stalled` to the existing `--watch-idle --repeat` command when the owner opts in. After 30 minutes of sampled Raft Idle, the watcher can send one linked follow-up for a runnable In progress step or a peer ask the agent has already started. New Ready work has priority and uses its existing wake path. Scheduled checks and blocked, parked, or finished work keep their existing triggers. The watcher rereads the selected step and rechecks Idle before scheduling. The ticket event ID identifies the step in the reminder. Scheduled and retained fired reminders deduplicate after restart.
+Add `--wake-stalled` to the existing `--watch-idle --repeat` command when the owner opts in. New Ready work has first priority. An actionable named review can wake its assigned reviewer on the first eligible worker check. After 30 minutes of sampled Raft Idle, the watcher can send one linked follow-up for a runnable In progress step, a peer ask the agent has started, or a running worker record. Scheduled checks and blocked, parked, or finished work keep their existing triggers. The watcher rechecks the signed step or worker and Idle before scheduling. Scheduled and retained fired reminders deduplicate by ticket event or worker run and phase.
 
-1. Update the board and the watcher checkout. Confirm your signed identity with `./tasks --shared context`. Record the existing job name, flags, and Raft anchor. Check `raft proc list` and `raft reminder list` before changing the job.
-2. Stop the existing owned watcher and start one from the updated checkout with the same options plus `--wake-stalled`. Check the process list again. Existing installations can keep using their current command without opting in.
-3. After the trial, restore the previous launch options by removing `--wake-stalled`. Keep the same job name and anchor. Check for a still-scheduled trial reminder and cancel that exact reminder if it is no longer needed.
+Use a linked peer ask to hand a runnable step to a named Raft agent while retaining ownership of the source ticket. The peer's watcher follows their Ready and In progress request. For an ordinary worker assignment, record the actual launch and handle on the worker run. A named Raft worker gets its own follow-up after launch. For a Codex subagent inside the coordinator's session, record the coordinator as the worker and the Codex run handle at launch. The coordinator's wake links the `W-` record, where they can find the handle, check the existing run, and collect a result or record the next step. Use the current task and run status before starting anything.
+
+An explicit checkpoint takes the place of the automatic 30-minute follow-up for that run. Use `--on-report` when the worker can submit a signed Taskboard report. The ticket owner wakes after the report arrives and can collect it. Use `--at` when the coordinator needs to check a runtime handle at a specific time. At that time the watcher can cue the assigned worker or coordinator once, while the run still needs attention. The watcher uses the signed Taskboard record for these checks. At a timed checkpoint the receiving agent inspects the execution runtime before resuming it. Linked peer reviews continue through their own request.
+
+```sh
+./tasks --shared worker-check W-15 --at 2030-04-01T12:30:00Z
+./tasks --shared worker-check W-15 --on-report
+./tasks --shared worker-check W-15 --show
+./tasks --shared worker-check W-15 --clear
+```
+
+The first two commands each replace the previous checkpoint. Changes appear in the source ticket's Activity. Use `--show` to inspect the current setting and `--clear` to return the run to the automatic follow-up rule. Associate the watcher with your own signed account and leave it running while you can receive work.
+
+1. Update the board and the watcher checkout. Confirm your signed identity with `./tasks --shared context`. Record the existing job name, flags, and Raft anchor. Check `raft proc list` and `raft reminder list` before changing the job. The new watcher can still recover owned tickets with an older board. Delegated worker wakes begin after the board upgrade.
+2. Stop the existing owned watcher and start one from the updated checkout with `--wake-stalled`. Remove an explicit `--idle-delay-seconds 120` to use the faster Ready default. Check the process list again. Verify the real Ready event, received cue and matching Start separately. A usage receipt is needed to measure cached input.
+3. To roll back, stop the trial watcher and restore the previous checkout and options. Keep the same job name and anchor. Check for a still-scheduled trial reminder and cancel that exact reminder if it is no longer needed.
 
 ## Try goal wakes
 
