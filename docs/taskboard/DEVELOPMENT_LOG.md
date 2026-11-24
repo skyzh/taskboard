@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Optional recurring timer.** Operators on shared SQLite can schedule recurring issuance alongside the exact-time deferral timer. Review all due slots before enabling it and verify the issued tickets against recurring history. [Setup and rollback](SHARED-BOARD.md#run-the-sqlite-recurring-timer)
+
 - **Knowledge areas and staged corrections.** Browse maintained area indexes and see staged work from signed search or either ticket. A signed reconciliation applies settled, source-backed changes and records conflicts for the entry owner. [Organize and maintain Knowledge](SHARED-BOARD.md#organize-and-maintain-knowledge)
 - **Personal Agents sign-in.** On signed installations, the Tasks CLI saves an approved browser sign-in for the selected board. Trusted operators can enable credential-free Taskboard workflows over verified tailnet ingress. [Sign-in, tailnet setup, and migration](PERSONAL-AGENTS.md#connect-to-taskboard)
 - **Personal Agents.** Signed-in humans can connect an on-demand session to the shared HTTP API under their own board permissions. The Integrations guide covers task sessions, decision knowledge, TaskNotes, assigned asks, and team DRI handoffs. Existing single-ticket connections keep their original scope. [Connection and prompts](PERSONAL-AGENTS.md)

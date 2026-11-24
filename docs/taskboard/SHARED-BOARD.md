@@ -435,8 +435,48 @@ The four-hour fixture uses a disposable ledger and a synthetic clock:
 uv run --frozen python -B -m unittest -v test_tasks_recurring
 ```
 
-This slice provides explicit local execution and verified shared management
-actions. It does not install a recurring operator job or send notifications.
+### Run the SQLite recurring timer
+
+On a shared SQLite board with the [deferral timer](#run-the-sqlite-deferral-timer),
+the same systemd user manager can run the separate
+[recurring service](../../tools/release/systemd/taskboard-recurring-tick.service)
+and [timer](../../tools/release/systemd/taskboard-recurring-tick.timer). They
+reuse `deferral-tick.env` so both jobs read the same configured CLI and
+ledger. The recurring timer checks at second 15 of each minute, between
+the deferral timer's checks. If the recurring timer misses a scheduled
+check while stopped, systemd runs a catch-up check when it resumes. The
+full tick can also release due deferrals.
+Both jobs use the same SQLite write transaction rules, so each ticket's
+deferral is released once.
+
+Before enabling the recurring timer, confirm that the environment points to
+the active SQLite ledger and a maintenance-aware CLI. Check for an existing
+recurring scheduler and review due slots with the project and recurrence
+owners. The first full tick can issue work for every active series already
+due. If an earlier review was completed manually, link it from its issued
+occurrence so the owner can record the result once.
+
+Place both files in `~/.config/systemd/user/` under the existing board
+service account, with the deferral timer left in place.
+
+```sh
+systemd-analyze --user verify ~/.config/systemd/user/taskboard-recurring-tick.{service,timer}
+systemctl --user daemon-reload
+systemctl --user enable --now taskboard-recurring-tick.timer
+systemctl --user list-timers taskboard-recurring-tick.timer
+```
+
+Verify a scheduled invocation and compare the issued ticket ID and due slot
+with the owner's recurring history. To stop recurring issuance, stop and
+disable its timer with:
+
+```sh
+systemctl --user disable --now taskboard-recurring-tick.timer
+```
+
+Wait for any active recurring service run to finish and confirm both
+recurring units are inactive. The deferral timer can continue to release
+exact-time reminders.
 
 ## Organize and maintain Knowledge
 

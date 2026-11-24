@@ -1,0 +1,8 @@
+[Unit]
+Description=Issue due Taskboard recurring work
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/taskboard/deferral-tick.env
+ExecStartPre=/usr/bin/test -f ${TASKBOARD_DATABASE}
+ExecStart=:/bin/sh -ec 'exec "$TASKBOARD_PYTHON" -B "$TASKBOARD_COMMAND" --offline --db "$TASKBOARD_DATABASE" recurring-tick --as-of "$(/usr/bin/date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)"'
