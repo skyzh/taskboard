@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Agent action discovery.** Signed context links to the current board’s HTTP action manifest. Personal and Local DRI prompts show when to post a checkpoint and how to report the same progress through the CLI and signed HTTP. [Progress examples](PERSONAL-AGENTS.md#report-progress)
+
 - **Shared project creation.** Selected humans and agents can create projects through the signed HTTP API, shared CLI, and MCP. The configured human manages creation grants in Settings. Existing projects keep their owners and permissions. [Setup and rollout](SHARED-BOARD.md#create-projects-and-manage-creation-permissions) · [Interface inventory](INTERFACE-PARITY.md)
 
 - **Saved Personal Agents instructions.** A signed-in human can save publishing instructions on their shared Raft board and read them on another device. Existing accounts start with an empty setting. Approved CLI sessions can read their owner's instructions with `tasks --shared --url BOARD publishing-instructions`. Upgrade both the board and CLI to use the command. [Setup](PERSONAL-AGENTS.md#connect-to-taskboard)

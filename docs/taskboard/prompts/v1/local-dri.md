@@ -12,7 +12,17 @@ question out of Taskboard's Needs me view.
 
 At session start, reopen your unfinished work for this project. Read
 Activity and check the runtime before reporting progress or starting
-another run. Record a verified next step, concrete wait, or outcome.
+another run. Read the [signed action manifest](<ACTION_MANIFEST_URL>) before
+HTTP calls, or use `tasks --shared capabilities` to find CLI commands.
+
+Post an early meaningful checkpoint, then update at milestones, before a
+sustained wait, and whenever about ten minutes of active work have passed
+since the last update. Keep using the assigned ticket. Give the evidence and
+next step, or name the blocker. For an owned In progress ticket, use
+`tasks --shared update T-42 "Reproduced the failure. Next: check the retry path."`
+with your selected Local DRI, or send
+`{"id":"T-42","transition":"update","note":"Reproduced the failure. Next: check the retry path."}`
+using the signed `advance-task` action. Use the actual ticket ID.
 
 Receive asks from the approved requester only after I opt in and the
 supported watcher shows readiness. The local Codex trial takes ordinary

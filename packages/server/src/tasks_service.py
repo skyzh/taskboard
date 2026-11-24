@@ -2962,6 +2962,7 @@ def create_app(
         if name == "context":
             context = {
                 "actor": actor_profile(actor), "board": base + "/",
+                "action_manifest": base + ACTION_MANIFEST_PATH,
                 "parking_protocol": ledger.PARKING_PROTOCOL_VERSION,
                 "decision_recipient_lookup": True,
                 "handoff_recipient_lookup": True,
@@ -3305,7 +3306,7 @@ def create_app(
         raise RequestError("Unknown Tasks action.", 404)
 
     if raft_config:
-        from tasks_raft import CODEX_SNAPSHOT_ACTION, register_actions
+        from tasks_raft import ACTION_MANIFEST_PATH, CODEX_SNAPSHOT_ACTION, register_actions
 
         def dispatch(name, data):
             if name == CODEX_SNAPSHOT_ACTION:

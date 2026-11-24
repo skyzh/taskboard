@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from flask import Flask, jsonify, request
 
 _ACTION_PREFIX = "/api/v1/raft"
-_MANIFEST_PATH = "/.well-known/raft-agent-manifest.json"
+ACTION_MANIFEST_PATH = "/.well-known/raft-agent-manifest.json"
 _TASK = {"id": "Task ID, such as T-1 or COURSE-1."}
 _PROJECT = {"project": "Optional Tasks project prefix, such as T or COURSE."}
 _SCOPE = {"scope": "Use all to read across projects. Omit scope and project for the legacy T queue."}
@@ -332,7 +332,7 @@ def register_actions(app: Flask, *, public_url: str, client_id: str,
         "context_check": {"url": f"{public_base}{_ACTION_PREFIX}/context", "method": "GET"},
     }
 
-    @app.get(_MANIFEST_PATH)
+    @app.get(ACTION_MANIFEST_PATH)
     def raft_manifest():
         return jsonify(manifest)
 
