@@ -261,11 +261,12 @@ const projectLinkLabels = { raft: 'Raft', github: 'GitHub', stamp: 'Stamp' }
 
 function ProjectLinks({ project, revision }) {
   const { data } = useResource(`/projects/${encodeURIComponent(project)}/links`, revision)
-  if (!data?.links?.length) return null
+  const links = data?.links?.filter(link => Object.hasOwn(projectLinkLabels, link.kind))
+  if (!links?.length) return null
 
   return (
     <nav className="report-project-links" aria-label="Project links">
-      {data.links.map(({ kind, url, name }) => (
+      {links.map(({ kind, url, name }) => (
         <a key={kind} href={url} rel="noreferrer">
           <span className="report-project-mark" data-kind={kind} aria-hidden="true" />
           <span>{projectLinkLabels[kind]}{name && <> {name}</>}</span>

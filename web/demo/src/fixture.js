@@ -8,9 +8,9 @@ const fix = pull + '/commits/6d089198668ddb6cc9f6e7d8f1070e7f2f706e02'
 const mainChecks = repository + '/actions/runs/45337609367'
 const merge = '0b50c6ba1956f260bad6c1c0e88bd2bf458fa878'
 const project = { prefix: 'T', title: 'Taskboard' }
-const profiles = {
-  prism: { id: 'prism', name: 'Prism', kind: 'agent', dri_kind: 'team', role: 'Taskboard frontend' },
-  gauge: { id: 'gauge', name: 'Gauge', kind: 'agent', dri_kind: 'team', role: 'Independent reviewer' },
+export const profiles = {
+  prism: { avatar_url: new URL('./avatars/prism.svg', import.meta.url).href, id: 'prism', name: 'Prism', kind: 'agent', dri_kind: 'team', role: 'Taskboard frontend' },
+  gauge: { avatar_url: new URL('./avatars/gauge.svg', import.meta.url).href, id: 'gauge', name: 'Gauge', kind: 'agent', dri_kind: 'team', role: 'Independent reviewer' },
 }
 const reader = { id: 'demo-reader', name: 'Demo reader', kind: 'human' }
 
@@ -35,7 +35,7 @@ const opened = event(1, 'prism', 'add', 'Opened for review', '2026-11-24T05:55:2
   'Prism opened PR #234 with the default Reports change and handed it to Gauge for independent review.',
   original, 'Original revision')
 // The review preceded the fix. The replay uses the linked revisions as time bounds for the review record.
-const blocker = event(2, 'gauge', 'blocked', 'Review requested a fix', '2026-11-24T05:55:25Z',
+const blocker = event(2, 'gauge', 'log', 'Review requested a fix', '2026-11-24T05:55:25Z',
   'The bare-URL test expected the old landing state. Gauge asked Prism to cover loading and the All projects landing before approval.',
   original, 'Revision that needed a fix')
 const corrected = event(3, 'prism', 'update', 'Test fixed', '2026-11-24T05:59:33Z',
@@ -112,7 +112,7 @@ export function previewRequest(path, method) {
   if (endpoint === '/revision') return { revision: 'public-demo-234-and-workflow' }
   if (endpoint === '/reports') return page(workflowProject ? workflowReports(filters.get('view')) : reports)
   if (endpoint === '/reports/request-log') return page(workflowProject ? workflow.request_log : [request])
-  if (endpoint === '/projects/T/links') return { links: [{ service: 'github', url: repository }] }
+  if (endpoint === '/projects/T/links') return { links: [{ kind: 'github', url: repository }] }
   if (endpoint === '/overview') {
     if (workflowProject) return workflow.overview
     const statusCounts = { ...counts, done: 1 }
