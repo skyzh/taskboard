@@ -100,6 +100,8 @@ main [id] { scroll-margin-top: .8rem; }
 .brand-mark i { display: block; height: .11rem; background: #fff; border-radius: 1rem; }
 .brand-mark i:last-child { width: 64%; }
 .account { margin-inline-start: auto; flex-shrink: 0; min-width: 0; max-width: 17rem; overflow-wrap: anywhere; }
+.account-with-tour { display: flex; align-items: center; gap: .25rem; }
+.navbar-tour-trigger { min-height: 2.75rem; min-width: 2.75rem; padding-inline: .35rem; }
 .profile { min-width: 0; position: relative; }
 .profile-toggle {
   display: inline-flex;
@@ -1159,6 +1161,8 @@ button:disabled { opacity: .57; }
 .integration-setup-note { color: var(--muted); font-size: .88rem; }
 .integration-dri-id { overflow-wrap: anywhere; }
 .integration-registration-form { width: min(100%, 25rem); }
+.integration-registration-form label:has(select) { display: grid; justify-items: start; gap: .35rem; }
+.integration-registration-form select { max-inline-size: 100%; }
 .integration-project { margin-bottom: .85rem; }
 .integration-path-details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .35rem .6rem; }
 .integration-path-details dt { font-weight: var(--weight-emphasis); }

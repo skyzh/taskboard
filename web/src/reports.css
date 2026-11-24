@@ -94,20 +94,40 @@
   min-height: 2.75rem;
   font-weight: var(--weight-emphasis);
 }
-.reports-welcome-actions a:first-child {
+.reports-welcome-actions .reports-tour-trigger {
+  min-height: 2.75rem;
   padding-inline: .65rem;
+  border-color: var(--green);
   border-radius: .35rem;
   background: var(--green);
   color: var(--paper);
-  text-decoration: none;
+  font-weight: var(--weight-emphasis);
 }
-.reports-welcome-actions a:first-child:hover { text-decoration: underline; }
-.reports-welcome button {
+.reports-welcome-actions .reports-tour-trigger:hover:enabled { text-decoration: underline; }
+.reports-welcome-dismiss {
   display: grid;
   place-items: center;
   width: 2.75rem;
   height: 2.75rem;
   padding: 0;
+}
+.board-tour {
+  width: min(82rem, 100% - 1.8rem);
+  margin: .35rem auto .65rem;
+  padding: .65rem .8rem;
+  border: 1px solid var(--line);
+  border-radius: .5rem;
+  background: var(--paper);
+}
+.board-tour h2 { font-size: 1.05rem; }
+.board-tour h2 span { color: var(--muted); font-size: .875rem; font-weight: var(--weight-body); }
+.board-tour p { margin-block: .3rem .5rem; }
+.board-tour-actions { display: flex; flex-wrap: wrap; gap: .35rem; }
+.board-tour-actions button { min-height: 2.75rem; }
+[data-board-tour-target] {
+  outline: 2px solid var(--ink);
+  outline-offset: .25rem;
+  border-radius: .15rem;
 }
 .reports-layout { display: grid; gap: 1.25rem; }
 .project-reports + .project-reports { margin-top: 1.15rem; padding-top: .85rem; border-top: 1px solid var(--line); }
