@@ -414,6 +414,7 @@ def arguments(argv=None):
     commands.add_parser("context", help="Show your verified actor and shared board.")
     commands.add_parser("login", help="Approve a shared Taskboard CLI sign-in in your browser.")
     commands.add_parser("logout", help="Revoke the saved sign-in for this Taskboard URL.")
+    commands.add_parser("publishing-instructions", help="Read your personal publishing instructions after CLI sign-in.")
     api = commands.add_parser("api", help="Call a signed shared board API path directly.")
     api.add_argument("path", help="Path beginning /api/v1/, with an optional encoded query.")
     api.add_argument("--method", choices=("GET", "POST", "PUT", "PATCH", "DELETE"), default="GET")
@@ -516,7 +517,7 @@ def arguments(argv=None):
         parser.error("--url selects the shared board.")
     if args.board_url is not None:
         args.mode = "shared"
-    if args.command in ("login", "logout", "api"):
+    if args.command in ("login", "logout", "publishing-instructions", "api"):
         if args.mode not in (None, "shared") or args.db is not None:
             parser.error(f"{args.command} requires the shared board.")
         args.board_url = args.board_url or os.environ.get("TASKBOARD_URL")

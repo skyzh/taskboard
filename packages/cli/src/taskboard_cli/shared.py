@@ -440,12 +440,18 @@ def shared_next(board, url, filters, actor):
 def shared_command(args):
     command = args.command
     direct_url = getattr(args, "board_url", None) or os.environ.get("TASKBOARD_URL")
-    if command in ("login", "logout", "api"):
+    if command in ("login", "logout", "publishing-instructions", "api"):
         board = DirectBoard(direct_url)
         if command == "login":
             return board.login()
         if command == "logout":
             return board.logout()
+        if command == "publishing-instructions":
+            result = board.api("/api/v1/personal-agents/publishing-instructions", "GET")
+            instructions = result.get("instructions")
+            if not isinstance(instructions, str):
+                raise ValueError("Taskboard did not return publishing instructions.")
+            return instructions
         body = None
         if args.data_file is not None:
             if args.method == "GET":

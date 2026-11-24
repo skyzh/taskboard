@@ -23,6 +23,9 @@ from tasks_goal_offers import idle_offer_counts
 
 PREFERENCE = "/api/v1/notifications/preferences"
 REVISION = "/api/v1/revision"
+PUBLISHING = "/api/v1/personal-agents/publishing-instructions"
+ORIGIN = {"Origin": fixture.ORIGIN}
+INSTRUCTIONS = {"instructions": "Keep the fictional test private.\nUse verified evidence 🚲."}
 
 
 class StorageReplayTest(unittest.TestCase):
@@ -105,6 +108,8 @@ class StorageReplayTest(unittest.TestCase):
         original = self.board.action(client, "idle-goal-offer", handoff)["offer"]
         self.board.action(client, "set-goal-review-time", {"id": "T-1", "time": "09:15"})
         human, _ = self.board.login(source_app, "Sam")
+        self.assertEqual(self.board.call(human, PUBLISHING, method="PUT", headers=ORIGIN, json=INSTRUCTIONS).json,
+                         INSTRUCTIONS)
         token = self.board.call(
             human, "/api/v1/personal-agents/connections", method="POST",
             headers={"Origin": fixture.ORIGIN}, json={"session": "Source connection"},
@@ -121,6 +126,7 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual(imported["wake_subscriptions"], 1)
         self.assertEqual(imported["goal_idle_offers"], 1)
         self.assertEqual(imported["goal_review_times"], 1)
+        self.assertEqual(imported["personal_agent_instructions"], 1)
         self.assertNotIn("personal_agent_connections", imported)
         self.assertNotIn("personal_agent_cli_approvals", imported)
         destination_app = self.postgres_app(dsn)
@@ -129,6 +135,8 @@ class StorageReplayTest(unittest.TestCase):
         self.board.call(destination_app.test_client(), "/api/v1/personal-agents/cli-exchange", method="POST",
                         headers={"Origin": fixture.ORIGIN}, json={"verifier": verifier}, status=202)
         client, _ = self.board.login(destination_app, "Avery")
+        human, _ = self.board.login(destination_app, "Sam")
+        self.assertEqual(self.board.call(human, PUBLISHING).json, INSTRUCTIONS)
         self.assertEqual(self.board.action(client, "idle-goal-offer", handoff)["offer"], original)
         self.assertEqual(self.board.action(client, "my-goals")["review_times"], {"T-1": "09:15"})
         cues = self.board.action(client, "my-goal-cues", query_string={"project": "T"})
@@ -176,6 +184,28 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual(note["staged_work"][0]["source"], "T-2")
         self.assertEqual(note["staged_work"][0]["source_at"], event["at"])
         self.assertEqual(self.board.action(signed, "knowledge-reconcile", {"project": "T"})["applied"], [])
+
+    def test_postgres_upgrades_and_reopens_saved_publishing_instructions(self):
+        dsn = self.postgres_fixture()
+        app = self.postgres_app(dsn)
+        self.board.login(app, "Sam")
+        with closing(Postgres(dsn)) as db:
+            self.assertEqual(db.execute("SELECT schema_version FROM taskboard_writer WHERE id = 1").fetchone()[0], 1)
+            db.execute("DROP TABLE personal_agent_instructions")
+
+        upgraded = self.postgres_app(dsn)
+        owner, _ = self.board.login(upgraded, "Sam")
+        other, _ = self.board.login(upgraded, "Quinn")
+        empty = {"instructions": ""}
+        self.assertEqual(self.board.call(owner, PUBLISHING).json, empty)
+        self.assertEqual(self.board.call(owner, PUBLISHING, method="PUT", headers=ORIGIN, json=INSTRUCTIONS).json,
+                         INSTRUCTIONS)
+        self.assertEqual(self.board.call(other, PUBLISHING).json, empty)
+
+        owner, _ = self.board.login(self.postgres_app(dsn), "Sam")
+        self.assertEqual(self.board.call(owner, PUBLISHING).json, INSTRUCTIONS)
+        self.assertEqual(self.board.call(owner, PUBLISHING, method="PUT", headers=ORIGIN, json=empty).json, empty)
+        self.assertEqual(self.board.call(owner, PUBLISHING).json, empty)
 
     def test_postgres_reopens_a_populated_version_one_board(self):
         dsn = self.postgres_fixture()

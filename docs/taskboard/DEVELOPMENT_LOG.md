@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Saved Personal Agents instructions.** A signed-in human can save publishing instructions on their shared Raft board and read them on another device. Existing accounts start with an empty setting. Approved CLI sessions can read their owner's instructions with `tasks --shared --url BOARD publishing-instructions`. Upgrade both the board and CLI to use the command. [Setup](PERSONAL-AGENTS.md#connect-to-taskboard)
+
 - **Optional recurring timer.** Operators on shared SQLite can schedule recurring issuance alongside the exact-time deferral timer. Review all due slots before enabling it and verify the issued tickets against recurring history. [Setup and rollback](SHARED-BOARD.md#run-the-sqlite-recurring-timer)
 
 - **Knowledge areas and staged corrections.** Browse maintained area indexes and see staged work from signed search or either ticket. A signed reconciliation applies settled, source-backed changes and records conflicts for the entry owner. [Organize and maintain Knowledge](SHARED-BOARD.md#organize-and-maintain-knowledge)

@@ -215,10 +215,85 @@ class TasksServiceTest(unittest.TestCase):
             with patch("taskboard_cli.shared.DirectBoard", return_value=saved):
                 self.assertEqual(tasks_main(["--shared", "--url", ORIGIN + BASE, "context"]), 0)
             self.assertIn("Shared board · Sam", out.getvalue())
+            instructions = {"instructions": "Keep the fixture private.\nCheck any copied reference."}
+            self.call(browser, settings + "/publishing-instructions", method="PUT", headers=origin, json=instructions)
+            with patch("taskboard_cli.shared.DirectBoard", return_value=saved), redirect_stdout(StringIO()) as prompt:
+                self.assertEqual(tasks_main(["--shared", "--url", ORIGIN + BASE, "publishing-instructions"]), 0)
+            self.assertEqual(prompt.getvalue(), instructions["instructions"] + "\n")
             token = saved.credentials.read()
             self.assertEqual(saved.logout(), f"Signed out of {ORIGIN}{BASE}/")
             self.assertIsNone(saved.credentials.read())
             self.call(unsigned, "/api/v1/raft/context", headers={"Authorization": f"Bearer {token}"}, status=401)
+
+    def test_personal_agent_instructions_follow_the_signed_owner_on_an_upgraded_board(self):
+        endpoint = "/api/v1/personal-agents/publishing-instructions"
+        origin = {"Origin": ORIGIN}
+        session_dir = self.database.parent / "sessions"
+        options = {
+            "portal_reader": True, "session_dir": session_dir,
+            "personal_agent_tailnet_subject": self.provider.people["Sam"]["sub"],
+        }
+        before = self.app(**options)
+        sam, sam_key = self.login(before, "Sam")
+        author, _ = self.login(before, "Blake")
+        self.action(author, "create-task", {"title": "Existing ticket", "step": "Retain this work."})
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("DROP TABLE personal_agent_instructions")
+
+        app = self.app(**options)
+        previous_sign_in = app.test_client()
+        domain = urlsplit(ORIGIN).hostname
+        cookie = sam.get_cookie("raft_board_session", domain=domain, path=BASE + "/")
+        previous_sign_in.set_cookie(cookie.key, cookie.value, domain=domain, path=cookie.path)
+        self.assertEqual(self.call(previous_sign_in, endpoint).json, {"instructions": ""})
+        self.assertEqual(self.call(previous_sign_in, "/api/v1/tasks/T-1").json["task"]["title"], "Existing ticket")
+        quinn, quinn_key = self.login(app, "Quinn")
+        agent, _ = self.login(app, "Avery")
+        anonymous = app.test_client()
+        self.call(anonymous, endpoint, status=401)
+        self.call(agent, endpoint, status=403)
+        self.call(anonymous, endpoint, status=403, headers={
+            "X-Portal-Auth-Method": "tailscale", "X-Taskboard-Personal-Agent": "1",
+        })
+
+        instructions = {"instructions": "  Only publish fictional examples.\nKeep résumé 🚲 work private.\n"}
+        call = self.call
+        revision = call(previous_sign_in, "/api/v1/revision").json
+        call(previous_sign_in, endpoint, method="PUT", json=instructions, status=403)
+        call(previous_sign_in, endpoint, method="PUT", json=instructions, status=403,
+             headers={"Origin": "https://elsewhere.example"})
+        for body in ({}, {"instructions": None}, {"instructions": "x" * 8001}, {"instructions": "\x00"},
+                     {"instructions": "\ud800"}, {**instructions, "owner": quinn_key}):
+            call(previous_sign_in, endpoint, method="PUT", json=body, status=400, headers=origin)
+        saved = call(previous_sign_in, endpoint, method="PUT", json=instructions, headers=origin)
+        self.assertEqual(saved.json, instructions)
+        self.assertEqual(saved.headers["Cache-Control"], "no-store")
+        self.assertEqual(call(previous_sign_in, "/api/v1/revision").json, revision)
+        self.assertEqual(call(quinn, endpoint, query_string={"owner": sam_key}).json, {"instructions": ""})
+        other = {"instructions": "Quinn’s separate instructions"}
+        self.assertEqual(call(quinn, endpoint, method="PUT", headers=origin, json=other).json, other)
+        for path in ("/api/v1/session", "/api/v1/assignee", "/api/v1/activity"):
+            result = call(quinn, path, query_string={"owner": sam_key})
+            self.assertNotIn("Only publish fictional examples", result.get_data(as_text=True))
+
+        token = call(previous_sign_in, "/api/v1/personal-agents/connections", method="POST",
+                     headers=origin, json={"session": "Owner task session"}).json["token"]
+        bearer = {**origin, "Authorization": "Bearer " + token}
+        read = call(anonymous, endpoint, headers=bearer, query_string={"owner": quinn_key})
+        self.assertEqual(read.json, instructions)
+        self.assertEqual(read.headers["Cache-Control"], "no-store")
+        call(anonymous, endpoint, method="PUT", json=other, headers=bearer, status=403)
+
+        restarted = self.app(**options)
+        self.provider.issued.discard("Sam")
+        fresh_sam, _ = self.login(restarted, "Sam")
+        self.assertEqual(call(fresh_sam, endpoint).json, instructions)
+        empty = {"instructions": ""}
+        self.assertEqual(call(fresh_sam, endpoint, method="PUT", json=empty, headers=origin).json, empty)
+        self.assertEqual(call(restarted.test_client(), endpoint, headers=bearer).json, empty)
+        self.assertEqual(call(quinn, endpoint).json, other)
+        call(previous_sign_in, "/auth/logout", method="POST", headers=origin, status=204)
+        call(restarted.test_client(), endpoint, headers=bearer, status=401)
 
     def test_personal_agents_tailnet_requires_portal_marker_and_explicit_opt_in(self):
         subject = self.provider.people["Sam"]["sub"]
