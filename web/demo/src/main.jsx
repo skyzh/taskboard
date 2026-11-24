@@ -42,7 +42,14 @@ const tour = [
   { href: '#settings', title: 'Settings', text: 'Try display preferences and see the sample profile.' },
   { href: '#about', title: 'About', text: 'Find the project source and learn what this demo shows.' },
   { href: '#integrations', title: 'Personal Agents', text: 'Open the setup guide to connect agents to your own board.', action: setupGuide },
-]
+].map((step, index) => ({
+  ...step,
+  location: step.href + (step.href.includes('?') ? '&' : '?') + 'tour=' + (index + 1),
+}))
+
+function withoutTour(hash) {
+  return tour.find(step => step.location === hash)?.href || hash
+}
 
 function readRoute(hash) {
   const [path, query] = hash.slice(1).split('?', 2)
@@ -101,11 +108,10 @@ function ReportsView({ owner, all, startTour, trigger, tourOpen }) {
   )
 }
 
-function DemoAccount({ hash }) {
+function DemoAccount({ hash, agent }) {
   const details = useRef(null)
   const accountButton = useRef(null)
-  const isAgent = hash === '#my-activity'
-  const profile = profiles.get(isAgent ? 'juniper' : 'avery')
+  const profile = profiles.get(agent ? 'juniper' : 'avery')
   useEffect(() => {
     details.current.open = false
   }, [hash])
@@ -133,7 +139,6 @@ function DemoAccount({ hash }) {
 
 function Demo() {
   const [hash, setHash] = useState(() => window.location.hash)
-  const [step, setStep] = useState(null)
   const [layout, setLayout] = useState('list')
   const [column, setColumn] = useState('ready')
   const theme = useTheme()
@@ -146,15 +151,16 @@ function Demo() {
   const tourPanel = useRef(null)
   const restoreFocus = useRef(false)
   const backLinks = useRef(new Map())
-  const route = readRoute(hash)
-  const active = step == null ? null : tour[step]
+  const step = tour.findIndex(item => item.location === hash)
+  const active = tour[step]
+  const route = readRoute(active?.href || hash)
 
   useEffect(() => {
     function changed(event) {
-      const from = new URL(event.oldURL).hash || '#reports'
+      const from = withoutTour(new URL(event.oldURL).hash) || '#reports'
       const to = new URL(event.newURL).hash
       const origin = readRoute(from)
-      const target = readRoute(to)
+      const target = readRoute(withoutTour(to))
       if (target.task && ['reports', 'assignee', 'board', 'search', 'notifications', 'schedules', 'knowledge'].includes(origin.view)) {
         backLinks.current.set(target.task.id, { href: from, label: {
           reports: 'Back to Reports', assignee: 'Back to report', board: 'Back to Tasks', search: 'Back to Search results',
@@ -196,14 +202,12 @@ function Demo() {
   }, [hash, active])
 
   function moveTour(next) {
-    window.location.hash = tour[next].href
-    setStep(next)
+    window.location.hash = tour[next].location
   }
 
   function finishTour() {
     restoreFocus.current = true
     window.location.hash = '#reports'
-    setStep(null)
   }
 
   function chooseTimeZone(value) {
@@ -222,7 +226,12 @@ function Demo() {
             <BoardBrand href="#reports" />
             <BoardViews current={route.tab} reportsHref="#reports" showNotifications showKnowledge
               isAgent={route.view === 'my-activity'} />
-            <DemoAccount hash={hash} />
+            <div className="demo-header-actions">
+              <DemoAccount hash={hash} agent={route.view === 'my-activity'} />
+              <a className="demo-repository" href={repository} aria-label="Taskboard on GitHub">
+                <span aria-hidden="true" />
+              </a>
+            </div>
           </div>
           {active && (
             <aside className="snapshot-tour" aria-labelledby="tour-title" tabIndex={-1} ref={tourPanel} onKeyDown={event => {
