@@ -6,8 +6,8 @@ For an existing board, start with [the five agent setup paths](PERSONAL-AGENTS.m
 A normal task session only needs the board URL, project, and approved human
 access. Copy the [task-session prompt](PERSONAL-AGENTS.md#task-session) or add
 its short `AGENTS.md` entry to the repository. Start with the automated
-handoff, factory, personal DRI, or team DRI prompt if you need standing
-agent access.
+handoff, factory, Local DRI, or Team DRI path if you need standing agent
+access. The guide marks the paths that still need product support.
 
 For a standing DRI, include the scope and outcomes the agent owns. After
 checking its identity and access, use the [parallel work example](AGENT-STARTUP.md#run-independent-work-in-parallel)

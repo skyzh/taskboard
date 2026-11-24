@@ -9,7 +9,7 @@ is the person or agent directly responsible for the outcome.
 [Task session](#task-session) →
 [Automated handoff](#automated-handoff) →
 [Existing AI factory](#ai-factory) →
-[Personal DRI](#personal-dri) →
+[Local DRI](#local-dri) →
 [Team DRI](#team-dri)
 
 Choose the path that fits your setup. The factory path is an entry point for a
@@ -19,7 +19,8 @@ team that already has a coordinator and workers.
 
 An ordinary coding session reports under your verified human account, within
 your existing project permissions. Your agent uses the board while working
-on a task and again at handoff.
+on a task and again at handoff. Its board status shows the last report, so
+check the time and evidence when you need to know what is active now.
 
 - **Set up.** Open **Profile → Integrations**. Copy the task-session prompt or
   merge the [v1 AGENTS.md example](prompts/v1/AGENTS.md) into your repository
@@ -83,50 +84,51 @@ reports under one verified identity.
   project manager transfer open work. Ask the board operator to remove the
   coordinator's board access if retiring the connection.
 
-## Personal DRI
+<a name="personal-dri"></a>
 
-A personal DRI is a standing agent for one owner. Start it locally for your
-work. The agent uses its runtime's local question prompt whenever it needs
-an answer from you. Keep those questions out of the board's **Needs me** view.
-Incoming asks from other agents require a configured, running watcher.
-A ticket's status is the last recorded state. Check its Activity and the
-actual runtime before treating an In progress ticket as active. At the
-next local session, reopen unfinished work and report its verified state.
-The Raft watcher can also
-[cue stalled work](READY-CHECKPOINT.md#recover-stalled-and-delegated-work)
-with an explicit `--wake-stalled` opt-in. Confirm the agent resumed before
-counting the cue as pickup.
+## Local DRI
 
-- **Set up.** Download the [v1 personal DRI prompt](prompts/v1/personal-dri.md).
-  Set up the enrolled agent with the
-  [signed agent startup checklist](AGENT-STARTUP.md#verify-the-computer-cli-and-ledger).
-  Start one owner-provided ticket in a local session. To receive agent asks,
-  opt in to the [managed watcher](AGENT-STARTUP.md#start-one-ready-count-watcher)
-  and verify it under this agent's identity before offering it as a peer
-  assignee. If using the project's assigned Ready delivery, coordinate
-  [the subscription and sender](AGENT-STARTUP.md#choose-which-taskboard-events-wake-you)
-  with the operator. Enforcement of the personal DRI restrictions in
-  Taskboard is planned. Follow the prompt's rules during setup.
-- **Verify.** Confirm the agent's signed identity and a Start and result
-  on the owner-provided ticket. Try one question in the local runtime and
-  confirm it creates no **Needs me** entry. After watcher setup, verify one
-  linked peer ask from wake through Start, result, and acknowledgment.
-- **Stop.** Stop the owned watcher and stop accepting incoming peer asks.
-  If subscribed to project Ready delivery, run
-  `./tasks --shared wake-unsubscribe owned-ready --project PROJECT`.
-  Return or reassign any open asks.
+A Local DRI works in its owner's local runtime. It asks its owner questions
+through the local question prompt and keeps them out of Taskboard's
+**Needs me** view. Incoming asks from other agents require a configured,
+running watcher. Local DRI registration and watcher eligibility are planned.
+
+- **Set up.** Download the [v1 Local DRI prompt](prompts/v1/local-dri.md).
+  Until the board supports registration, use the [task session](#task-session)
+  in your local runtime with your approved human access. Once registration
+  is available, assign the first ticket to the verified Local DRI. Use the
+  [normal ownership handoff](AGENT-STARTUP.md#find-the-agent-commands)
+  for an existing ticket. Giving the runtime a ticket link leaves its
+  current owner in place. You can assign and start
+  this first ticket locally before enabling incoming asks.
+- **Verify.** Check the assigned owner before Start and verify the result
+  on the ticket. Ask one question through the local runtime and check that
+  it creates no **Needs me** entry. When a supported watcher is available,
+  check that it is running before sending a linked peer ask. Verify the
+  wake, Start, result, and acknowledgment separately.
+- **Stop.** Close the local session. If you enabled the watcher, stop its
+  owned job and check any pending wakes. Return or reassign open work
+  before revoking the Local DRI's access.
+
+**In progress** is the last state recorded on the ticket. When a local session
+starts again, the prompt checks unfinished work, reads Activity, and records
+a concrete next step, wait, or outcome after checking the actual runtime.
+Automatic follow-up requires a watcher configured to cue stalled work.
+The [current Raft watcher](READY-CHECKPOINT.md#recover-stalled-and-delegated-work)
+supports that opt-in for Team DRIs.
 
 ## Team DRI
 
-Give an enrolled agent standing responsibility for a shared area. The project
-manager chooses a team-assignable agent and can route or transfer ownership.
+Give a Team DRI standing responsibility for a shared area. Existing Raft
+agents are Team DRIs. The project manager chooses an eligible agent
+and can route or transfer ownership.
 
 - **Set up.** Download the [v1 team DRI prompt](prompts/v1/team-dri.md).
   Use the [signed agent startup checklist](AGENT-STARTUP.md#verify-the-computer-cli-and-ledger)
   on the agent's runtime. Have the project manager confirm assignment
   eligibility and assign an ordinary ticket. Its runtime handles any
-  background execution. Optional Ready wakes use the same project opt-in as
-  a personal DRI.
+  background execution. For optional delivery through Raft, use
+  [assigned Ready wakes](AGENT-STARTUP.md#choose-which-taskboard-events-wake-you).
 - **Verify.** Check that the agent is the recorded owner. Have a teammate
   recover its blocker or completed result, decision sources, and evidence
   from Reports and Activity.
