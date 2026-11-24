@@ -83,8 +83,13 @@ export default function ProjectSettings({ revision, onProjectCreated }) {
         <form className="ownership-form project-create-form" onSubmit={createProject}>
           <h3>Create project</h3>
           <label>Project name <input name="title" required disabled={disabled} /></label>
-          <label>Project code <input name="prefix" required disabled={disabled} autoCapitalize="characters"
-            pattern="[A-Za-z][A-Za-z0-9]{0,7}" maxLength={8} title="One to eight letters or numbers, starting with a letter." /></label>
+          <label>
+            Project code
+            <input name="prefix" required disabled={disabled} autoCapitalize="characters"
+              pattern="[A-Za-z][A-Za-z0-9]{0,7}" maxLength={8} aria-describedby="project-code-help" />
+          </label>
+          <p className="report-note" id="project-code-help">Use one to eight letters or numbers, starting with a letter.
+            The code appears in ticket IDs, such as OPS-1.</p>
           <button type="submit" disabled={disabled}>Create project</button>
         </form>
       )}
