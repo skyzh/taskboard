@@ -99,7 +99,7 @@ _ACTIONS = {
     "task-tag": _Action("POST", "Add or remove a tag from a ticket you own or manage.", {
         **_TASK, "tag": "Tag to change.", "action": "Choose add or remove.",
     }),
-    "task": _Action("GET", "Read a task, its current step, and its handoffs.", _TASK),
+    "task": _Action("GET", "Read a task, its current step, handoffs, and any due owner progress prompt.", _TASK),
     "task-activity": _Action("GET", "Read a task's activity and evidence links.", _TASK, _PAGINATION),
     "confirm-blocker": _Action("POST", "Record proof that a current trigger was satisfied and return the ticket to Ready.", {
         **_TASK, "wait_event": "Event ID of the current recorded wait.", "note": "Verified outcome of that trigger.",

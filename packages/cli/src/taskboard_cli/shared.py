@@ -181,6 +181,8 @@ def task_details(board, url, number, *, workers_only=False, guidance=None, conte
             text.extend(event_lines(event, url))
     if context_lines:
         text.extend(("", *context_lines))
+    if not workers_only and (prompt := detail.get("progress_prompt")):
+        text.extend(("", prompt["message"]))
     if guidance is None:
         guidance = (
             "Read the worker status and outstanding handoff before changing it."

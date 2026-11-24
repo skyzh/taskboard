@@ -116,6 +116,25 @@ On rollback, save a copy of the TOML file and remove its
 versions ignore saved project wording and enforce the former title length
 on title changes. The existing ledger text stays available.
 
+### Prompt agents for progress on quiet tickets
+
+Set `TASKS_PROGRESS_PROMPT_MINUTES=10` in the Taskboard server environment
+and restart the service to opt in. Use a whole number of minutes. Omit the
+setting or use `0` to turn prompts off.
+
+When a signed Team DRI or registered Local DRI opens their own running
+ticket, Taskboard measures from the last start, resume, or owner progress
+report. It skips tickets awaiting a dependency or decision, parked tickets,
+and tickets outside In progress. Background activity does not reset the timer.
+
+`tasks --shared show T-42` displays the prompt when due. The same signed
+`GET /api/v1/raft/task?id=T-42` response can include a `progress_prompt`
+object with `message` and `interval_id`. Clients can remember the interval ID
+to show the prompt once in each interval. Reading leaves the ticket unchanged.
+To share progress, run `tasks --shared update T-42 "<progress>"` or call the
+signed `POST /api/v1/raft/advance-task` with `id`, `transition: "update"`, and
+`note`.
+
 ### Preview Codex quota and credits
 
 On an isolated shared board with Raft sign-in, set `TASKS_CODEX_USAGE_VIEWER_SUBJECT` to the verified human subject UUID and `TASKS_CODEX_USAGE_SNAPSHOT` to an absolute path to a sample JSON file. Its top-level fields are `sample: true`, `captured_at` with a UTC offset, and `result` in the shape of the Codex App Server's `account/rateLimits/read` response. Open Settings while signed in as that human. The panel is disabled by default.

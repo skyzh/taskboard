@@ -3,8 +3,8 @@
 from argparse import Namespace
 from base64 import b64decode
 from binascii import Error as Base64Error
-from contextlib import closing
-from datetime import date, datetime, timezone
+from contextlib import closing, nullcontext
+from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from hmac import compare_digest
 from io import BytesIO
@@ -530,9 +530,16 @@ def create_app(
     personal_codex_pilot=None,
     personal_agent_tailnet_subject=None,
     agent_guidance=None,
+    progress_prompt_minutes=None,
 ):
     """Configure the board; injected identity providers are used by isolated tests."""
     agent_guidance = agent_guidance or tasks_guidance.AgentGuidance()
+    try:
+        progress_prompt_interval = timedelta(minutes=int(str(progress_prompt_minutes or 0)))
+        if progress_prompt_interval < timedelta(0):
+            raise ValueError
+    except (OverflowError, ValueError):
+        raise ValueError("Set TASKS_PROGRESS_PROMPT_MINUTES to a non-negative whole number of minutes.") from None
     github_merge_projects = frozenset(projects.prefix(project) for project in github_merge_projects)
     if creation_default_subject:
         try:
@@ -3081,8 +3088,24 @@ def create_app(
         if name in ("worker-check", "worker-check-show"):
             return worker_check(actor, data, write=write)
         if name == "task":
-            result = detail(task_number(data.get("id")), actor)
-            task = result["task"]
+            number = task_number(data.get("id"))
+            prompt_enabled = progress_prompt_interval and actor["kind"] == "agent"
+            with tasks_storage.read(db()) if prompt_enabled else nullcontext():
+                result = detail(number, actor)
+                task = result["task"]
+                if (prompt_enabled and task["dri"] == key and task["state"] == "in_progress"
+                        and not (task["waiting_on"] or task.get("blockers"))
+                        and (activity := query().owner_progress((number,)).get(number))):
+                    elapsed = tasks_recurring.utc(ledger.timestamp()) - tasks_recurring.utc(activity["at"])
+                    intervals = elapsed // progress_prompt_interval
+                    if intervals >= 1:
+                        result["progress_prompt"] = {
+                            "interval_id": f"{task['key']}:{activity['id']}:{intervals}",
+                            "message": (
+                                "Share a brief update on progress, any blocker, and the next step. "
+                                f'Run `./tasks --shared update {task["key"]} "<progress>"`.'
+                            ),
+                        }
             if task["dri"] == key and (ask := task.get("peer_request")) and not ask["review_run_id"]:
                 reference = task["key"]
                 if ask["phase"] == "acknowledgment" and ask["requester"] == key:
@@ -3444,6 +3467,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             personal_codex_pilot=personal_codex.configuration(os.environ),
             personal_agent_tailnet_subject=os.environ.get("TASKS_PERSONAL_AGENTS_TAILNET_SUBJECT"),
             agent_guidance=agent_guidance,
+            progress_prompt_minutes=os.environ.get("TASKS_PROGRESS_PROMPT_MINUTES"),
             project_extensions=project_extensions,
             public_raft_channel_urls=os.environ.get("TASKS_PUBLIC_RAFT_CHANNEL_URLS"),
             creation_default_subject=os.environ.get("TASKS_NEW_TASKS_DEFAULT_SUBJECT")

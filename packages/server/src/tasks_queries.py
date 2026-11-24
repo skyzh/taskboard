@@ -368,6 +368,31 @@ class BoardQueries:
     def wait_starts(self, rows):
         return ledger.wait_starts(self.db, rows)
 
+    def owner_progress(self, task_ids):
+        if not task_ids:
+            return {}
+        marks = ", ".join("?" for _ in task_ids)
+        event_context = "activity.context" if ledger.has_event_context(self.db) else "'{}'"
+        return {
+            report["task_id"]: {"id": report["id"], "at": report["at"]}
+            for report in self.db.execute(
+                f"""
+                SELECT tasks.id AS task_id, events.id, events.at FROM tasks
+                JOIN events ON events.id = (
+                    SELECT MAX(activity.id) FROM events AS activity
+                    WHERE activity.task_id = tasks.id AND activity.actor = tasks.dri
+                      AND activity.state = 'in_progress'
+                      AND (activity.action IN ('start', 'update', 'resume')
+                           OR (activity.action = 'log'
+                               AND json_extract({event_context}, '$.watcher_measurements') IS NULL
+                               AND ({event_context} = '{{}}'
+                                    OR json_extract({event_context}, '$.activity_details') IS NOT NULL)))
+                )
+                WHERE tasks.id IN ({marks})
+                """, tuple(sorted(task_ids)),
+            )
+        }
+
     def task_rows(self, rows, *, include_report_fields=False, include_release_results=False):
         if not rows:
             return []
@@ -405,29 +430,7 @@ class BoardQueries:
             and (owners.get(row["dri"], {}).get("kind") == "human"
                  or owners.get(row["dri"], {}).get("dri_kind") == "local")
         }
-        work_reports = {}
-        if reporting_tasks:
-            marks = ", ".join("?" for _ in reporting_tasks)
-            event_context = "activity.context" if ledger.has_event_context(self.db) else "'{}'"
-            work_reports = {
-                report["task_id"]: {"id": report["id"], "at": report["at"]}
-                for report in self.db.execute(
-                    f"""
-                    SELECT tasks.id AS task_id, events.id, events.at FROM tasks
-                    JOIN events ON events.id = (
-                        SELECT MAX(activity.id) FROM events AS activity
-                        WHERE activity.task_id = tasks.id AND activity.actor = tasks.dri
-                          AND activity.state = 'in_progress'
-                          AND (activity.action IN ('start', 'update', 'resume')
-                               OR (activity.action = 'log'
-                                   AND json_extract({event_context}, '$.watcher_measurements') IS NULL
-                                   AND ({event_context} = '{{}}'
-                                        OR json_extract({event_context}, '$.activity_details') IS NOT NULL)))
-                    )
-                    WHERE tasks.id IN ({marks})
-                    """, tuple(sorted(reporting_tasks)),
-                )
-            }
+        work_reports = self.owner_progress(reporting_tasks)
         recipients = profiles.visible_by_keys(self.db, [row["waiting_on"] for row in rows if row["waiting_on"]], self.base)
         tasks_by_id = {row["id"]: row for row in rows}
         wait_starts = self.wait_starts(rows)
