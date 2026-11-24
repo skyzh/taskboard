@@ -68,7 +68,7 @@ class MarketplaceTest(unittest.TestCase):
     def make_app(self, **overrides):
         settings = {
             "database": None, "public_url": ORIGIN + MOUNT, "marketplace_root": self.tenants,
-            "dist": self.dist, "raft_config": {
+            "dist": self.dist, "initial_project": ("T", "Tasks Board"), "raft_config": {
                 "api_origin": PROVIDER, "server_id": None, "client_id": CLIENT,
                 "client_secret": "synthetic-fixture-only", "transport": self.provider,
                 "session_dir": self.root / "marketplace-sessions",

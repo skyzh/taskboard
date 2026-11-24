@@ -29,11 +29,13 @@ class RevisionWebSocketTest(unittest.TestCase):
         with socket.socket() as reserved:
             reserved.bind(("127.0.0.1", 0))
             self.port = reserved.getsockname()[1]
+        config = Path(state.name) / "server.toml"
+        config.write_text("[initial_project]\nprefix = 'T'\ntitle = 'Tasks Board'\n", encoding="utf-8")
         env = {key: value for key, value in os.environ.items() if not key.startswith("TASKS_")}
         env.update(TASKS_PUBLIC_URL=ORIGIN + "/tasks", TASKS_PORTAL_UPSTREAM_TOKEN=PORTAL.decode())
         self.process = subprocess.Popen(
             [sys.executable, "-B", str(ROOT / "tasks"), "--db", str(self.database), "serve",
-             "--portal-reader", "--websocket-revisions", "--port", str(self.port)],
+             "--config", str(config), "--portal-reader", "--websocket-revisions", "--port", str(self.port)],
             cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
         )
         self.addCleanup(self.stop_server)

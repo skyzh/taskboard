@@ -40,10 +40,10 @@ function readWelcomeBannerPreference() {
   }
 }
 
-function reportFragment(project, assigneeView) {
+function reportFragment(project, assigneeView, defaultProject = 'T') {
   const route = project === 'all' ? 'reports-all' : 'reports'
   const params = new URLSearchParams()
-  if (project !== 'T' && project !== 'all') params.set('project', project)
+  if (project !== defaultProject && project !== 'all') params.set('project', project)
   if (assigneeView) params.set('view', assigneeView)
   return params.size ? `${route}?${params}` : route
 }
@@ -194,7 +194,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const namedTask = taskAnchor.match(/^task-([A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})$/)?.[1]
   const selected = namedTask || fragmentId(taskAnchor, /^task-([1-9]\d*)$/)
   const fromSearch = selected ? new URLSearchParams(taskContext).get('from-search')?.trim() : ''
-  const [preferredProject, chooseProject] = useState('T')
+  const [projectChoice, chooseProject] = useState(null)
   const reportsParams = ['reports', 'reports-all'].includes(taskAnchor) ? new URLSearchParams(taskContext) : null
   const requestedReportsProject = reportsParams?.get('project')
   const requestedAssigneeView = reportsParams?.get('view')
@@ -245,6 +245,10 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const logFilters = notificationLogFilters(fragment)
   const projectList = useResource(hasSession ? '/projects' : null, revision)
   const visibleProjects = projectList.data?.items
+  const defaultProject = projectList.data?.default_project
+    || visibleProjects?.find(entry => entry.prefix === 'T')?.prefix || visibleProjects?.[0]?.prefix || 'T'
+  const preferredProject = projectChoice || defaultProject
+  const projectsPending = !visibleProjects && !projectList.error && (sessionResource.pending || hasSession)
   const hasProjectChoices = visibleProjects?.length > 1
   const knowledgeFilters = taskAnchor === 'knowledge' ? new URLSearchParams(taskContext) : null
   const statsFilters = taskAnchor === 'stats' ? new URLSearchParams(taskContext) : null
@@ -274,7 +278,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
     view = 'team-overview'
   }
   const reportsProject = visibleProjects?.find(entry => entry.prefix === requestedReportsProject)?.prefix
-    || visibleProjects?.find(entry => entry.prefix === 'T')?.prefix || visibleProjects?.[0]?.prefix || 'T'
+    || defaultProject
   const project = view === 'reports' ? reportsProject : selected ? namedTask?.split('-')[0] || 'T'
     : logFilters?.project || params.get('project') || preferredProject
   useEffect(() => {
@@ -297,7 +301,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
     if (view !== 'board' && !fromList) listReturn.current = null
   }, [view, fromList])
   const overview = useResource(
-    !needsOidcSignIn && ['board', 'team-overview', 'activity'].includes(view)
+    !needsOidcSignIn && (!projectsPending || view === 'activity') && ['board', 'team-overview', 'activity'].includes(view)
       ? queryPath('/overview', { project: view === 'activity' ? undefined : project })
       : null,
     revision,
@@ -309,11 +313,10 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const personalAgentsLink = reportsScopeReady && session.data?.actor?.kind === 'human'
     ? <a href={integrationsHref}>Personal Agents</a> : null
   const showAllReports = view === 'reports' && hasProjectChoices && allReports
-  const reportsPending = Boolean((allReports || requestedReportsProject) && !visibleProjects &&
-    (sessionResource.pending || (hasSession && !projectList.error)))
+  const reportsPending = Boolean((allReports || requestedReportsProject) && projectsPending)
   const reportsMode = reportsPending ? (fragment || 'reports-all')
     : reportFragment(allReports ? 'all' : reportsProject,
-      ['active', 'all', 'idle'].includes(requestedAssigneeView) ? assigneeView : undefined)
+      ['active', 'all', 'idle'].includes(requestedAssigneeView) ? assigneeView : undefined, defaultProject)
   const reportsHref = `#${view === 'reports' ? reportsMode : preferredReportsMode}`
   function startTour() {
     const taskRoute = new URLSearchParams({ project: reportsProject, section: 'queue-heading' }).toString()
@@ -362,7 +365,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
         chooseProject(value)
         setQueueFilters({})
         setWaitingLabel('')
-        window.location.hash = view === 'reports' ? showGoalActivity ? goalActivityFragment(value) : reportFragment(value, assigneeView)
+        window.location.hash = view === 'reports' ? showGoalActivity ? goalActivityFragment(value) : reportFragment(value, assigneeView, defaultProject)
           : view === 'team-overview' ? new URLSearchParams({ project: value, section: 'team-overview' }).toString()
           : view
       }}>
@@ -417,7 +420,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
                 <p>Taskboard is a shared workspace for people and agents. Track work in Tasks, see who’s doing what in
                   Reports, and find shared decisions in Knowledge.</p>
                 <div className="reports-welcome-actions">
-                  <button type="button" ref={tourTrigger} className="reports-tour-trigger" disabled={reportsPending || Boolean(tourStep)}
+                  <button type="button" ref={tourTrigger} className="reports-tour-trigger" disabled={projectsPending || Boolean(tourStep)}
                     onClick={preview ? demoTour.start : startTour}>Take the tour</button>
                   {!preview && <a href={demoUrl} target="_blank" rel="noreferrer"
                     aria-label="See the demo (opens the public example in a new tab)">
@@ -443,8 +446,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
             : showGoalActivity
               ? <GoalActivity key={project} project={project} revision={revision} agent={goalAgent} goal={goalKey}
                 onFilter={(agent, goal) => writeFilterFragment(goalActivityFragment(project, agent, goal))} />
-              : <Reports revision={revision} project={project} assigneeView={assigneeView}
-                onAssigneeViewChange={value => writeFilterFragment(reportFragment(allReports ? 'all' : project, value), false)}
+              : <Reports revision={revision} project={projectsPending ? undefined : project}
+                defaultProject={defaultProject} assigneeView={assigneeView}
+                onAssigneeViewChange={value => writeFilterFragment(reportFragment(allReports ? 'all' : project, value, defaultProject), false)}
                 projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null}
                 headerAction={personalAgentsLink} />)}
           {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject}
@@ -484,7 +488,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
                 {verified && <a href={'#' + new URLSearchParams({ schedules: '', project })}>Schedules</a>}
               </div>
               <WorkQueue revision={revision} overview={overview.data} filters={queueFilters} setFilters={setQueueFilters}
-                waitingLabel={waitingLabel} setWaitingLabel={setWaitingLabel} project={project} projectPicker={projectPicker}
+                waitingLabel={waitingLabel} setWaitingLabel={setWaitingLabel}
+                project={projectsPending && !params.get('project') ? undefined : project} projectPicker={projectPicker}
                 layout={queueLayout} setLayout={setQueueLayout} phoneColumn={phoneColumn} setPhoneColumn={setPhoneColumn}
                 kanbanNavigation={kanbanNavigation} listNavigation={listNavigation} listReturn={listReturn} />
             </>

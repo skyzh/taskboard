@@ -150,6 +150,7 @@ class TasksServiceTest(unittest.TestCase):
 
     def app(self, github=None, session_dir=None, api_origin="https://raft.example.test",
             human_session_installation_id=None, **kwargs):
+        kwargs.setdefault("initial_project", ("T", "Tasks Board"))
         return create_app(
             self.database, public_url=ORIGIN + BASE, github_reader=github,
             portal_upstream_token=PORTAL_FIXTURE,
@@ -7194,6 +7195,48 @@ class TasksServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "TASKS_PORTAL_UPSTREAM_TOKEN"):
             create_app(self.database, public_url=ORIGIN + BASE, identity_provider=lambda: None)
         self.assertFalse(self.database.exists())
+
+    def test_initial_project_config_sets_the_shared_default(self):
+        from tasks_projects import load_initial_project
+
+        with self.assertRaisesRegex(ValueError, "Configure an .*initial_project"):
+            self.app(portal_reader=True, initial_project=None)
+        config = self.database.with_suffix(".toml")
+        config.write_text("[initial_project]\nprefix = 12\ntitle = 'Build Team'\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Use a project prefix"):
+            load_initial_project(config)
+        config.write_text("[initial_project]\nprefix = 'dev'\ntitle = 'Build Team'\n", encoding="utf-8")
+        app = self.app(portal_reader=True, initial_project=load_initial_project(config))
+        viewer = app.test_client()
+        self.assertEqual(self.call(viewer, "/api/v1/projects").json, {
+            "default_project": "DEV",
+            "items": [{"prefix": "DEV", "title": "Build Team", "dri": None, "can_create_knowledge": False}],
+        })
+        owner, _ = self.login(app, "Avery")
+        self.assertEqual(self.action(owner, "context")["default_project"], "DEV")
+        output = self.shared_cli(owner, "add", "Check a build", "--step", "Verify CI.")
+        self.assertEqual((output[0], output[2]), (0, ""))
+        self.assertIn("DEV-1", output[1])
+        listing = self.call(viewer, "/api/v1/tasks").json["items"]
+        self.assertEqual([item["key"] for item in listing], ["DEV-1"])
+        self.call(viewer, "/api/v1/tasks", query_string={"project": "T"}, status=404)
+
+        next_app = self.app(portal_reader=True, initial_project=("ALT", "Another Project"))
+        next_viewer = next_app.test_client()
+        self.assertEqual(self.call(next_viewer, "/api/v1/projects").json,
+                         self.call(viewer, "/api/v1/projects").json)
+        self.assertEqual(self.call(next_viewer, "/api/v1/tasks/DEV-1").json["task"]["key"], "DEV-1")
+        self.app(portal_reader=True, initial_project=None)
+
+    def test_initial_project_config_preserves_an_existing_ledger(self):
+        self.cli("add", "Existing ticket", "--dri", "Avery", "--step", "Read the plan.")
+        app = self.app(portal_reader=True, initial_project=("DEV", "Build Team"))
+        viewer = app.test_client()
+        projects = self.call(viewer, "/api/v1/projects").json
+        self.assertEqual(projects["default_project"], "T")
+        self.assertEqual([entry["prefix"] for entry in projects["items"]], ["T"])
+        self.assertEqual(self.call(viewer, "/api/v1/tasks/1").json["task"]["key"], "T-1")
+        self.assertEqual(self.call(viewer, "/api/v1/tasks/T-1").json["task"]["title"], "Existing ticket")
 
     def test_portal_reader_opens_board_views_and_preserves_shared_boundaries(self):
         evidence = self.database.parent / "Local evidence.txt"

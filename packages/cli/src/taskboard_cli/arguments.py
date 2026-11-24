@@ -94,7 +94,7 @@ def arguments(argv=None):
 
     add = commands.add_parser("add", help="Create a ready task with one named owner.", epilog=FIELD_GUIDANCE_HELP)
     add.add_argument("title", type=nonblank)
-    add.add_argument("--project", type=nonblank, help="Project prefix. Defaults to T.")
+    add.add_argument("--project", type=nonblank, help="Project prefix. Defaults to the board’s default project.")
     add.add_argument("--dri", type=nonblank, help="Accountable owner. Shared tasks are created under your own identity.")
     add.add_argument("--by", type=nonblank, help="Creator. Defaults to the owner.")
     add.add_argument("--brief", type=nonblank)
@@ -357,11 +357,11 @@ def arguments(argv=None):
     for listing in (overview, next_item):
         listing.add_argument("--project", type=nonblank, help="Limit to one project prefix.")
     goal = commands.add_parser("goals", help="Read your standing and dated goals in shared mode.")
-    goal.add_argument("--project", type=nonblank, help="Read goals in this project. Defaults to T.")
+    goal.add_argument("--project", type=nonblank, help="Read goals in this project. Defaults to the board’s default project.")
     goal_save = commands.add_parser("save-goal", help="Save or clear one of your goals in shared mode.")
     goal_save.add_argument("kind", choices=("standing", "dated", "legacy"))
     goal_save.add_argument("summary", help="One-line goal summary. Pass an empty string to clear it.")
-    goal_save.add_argument("--project", type=nonblank, help="Save the goal in this project. Defaults to T.")
+    goal_save.add_argument("--project", type=nonblank, help="Save the goal in this project. Defaults to the board’s default project.")
     goal_save.add_argument("--deadline", help="YYYY-MM-DD deadline for a dated goal.")
     goal_save.add_argument("--ticket", type=nonblank, action="append", help="Link an owned project ticket. Repeat to add more.")
     goal_save.add_argument("--milestone", type=nonblank, help="Existing dated milestone name when editing or clearing it.")
@@ -376,7 +376,7 @@ def arguments(argv=None):
         ("wake-unsubscribe", "Remove a project wake subscription in shared mode."),
     ):
         subscription = commands.add_parser(action, help=description)
-        subscription.add_argument("--project", type=nonblank, help="Project prefix. Defaults to T.")
+        subscription.add_argument("--project", type=nonblank, help="Project prefix. Defaults to the board’s default project.")
         if action != "wake-subscriptions":
             subscription.add_argument("event_type", choices=("owned-ready",), help="Wake when a task you own becomes Ready.")
     reviews = commands.add_parser("reviews", help="List your actionable review assignments across projects.")
@@ -391,7 +391,7 @@ def arguments(argv=None):
     guidance = commands.add_parser("field-guidance", help="Read effective writing guidance for a project.")
     guidance.add_argument("field", nargs="?", choices=("title", "brief", "next_step", "activity"),
                           help="Omit to see every field.")
-    guidance.add_argument("--project", type=nonblank, help="Project prefix. Defaults to T.")
+    guidance.add_argument("--project", type=nonblank, help="Project prefix. Defaults to the board’s default project.")
     create_project = commands.add_parser("create-project", help="Create a project on the signed shared board.")
     create_project.add_argument("prefix", type=nonblank)
     create_project.add_argument("title", type=nonblank)
@@ -432,6 +432,7 @@ def arguments(argv=None):
     commands.add_parser("board", help="Refresh the standalone HTML dashboard and print its path.")
     serve = commands.add_parser("serve", help="Serve the React board and paginated task API.")
     serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--config", type=Path, help="Server TOML with the initial project.")
     serve.add_argument("--port", type=int, default=8765)
     serve.add_argument("--websocket-revisions", action="store_true", help="Enable revision push with the WebSocket extra.")
     serve_mode = serve.add_mutually_exclusive_group()

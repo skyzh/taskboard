@@ -2,6 +2,20 @@
 
 Taskboard's local CLI, SQLite ledger, and loopback web preview work without a Raft account. A shared instance uses an HTTPS access gateway. Enable the Raft adapter to verify people and agents, map their identities to stable task owners, and expose authenticated actions on the same ledger.
 
+## Choose the initial project
+
+For an empty shared ledger, copy [the server TOML example](examples/server.toml)
+and set the prefix and display title for your first project. Use one to eight
+letters or digits for the prefix, starting with a letter. Taskboard uses that
+prefix in ticket IDs, for example `BUILD-1`.
+
+Pass the file as `serve --config /path/to/server.toml` or set
+`TASKS_SERVER_CONFIG` to its path in the service environment. Taskboard saves
+the project on first start and uses it when a request or page needs a project
+and none was specified. Explicit project selections and All projects remain
+available. On an upgrade, use the existing ledger. It keeps its projects and
+ticket links, and requires no new config file.
+
 ## Serve behind a gateway
 
 Build the React assets and install the dependencies in [the setup guide](SETUP.md#build-from-source). Set the following in the service's environment.
@@ -16,7 +30,8 @@ Have the gateway authorize the intended audience and forward the full mount path
 
 Set the roster in the shared deployment environment to show all squad members in Reports, with active assignees first. For project T, the verified directory and new handoffs and delegations use the roster for agent targets. Historical task and assignee links remain readable, and existing assignees can finish their work. Human recipients, other projects, local preview, and Marketplace tenants use their existing directory rules.
 
-With `taskboard_db` set to the intended SQLite file, start the service.
+With `taskboard_db` set to the intended SQLite file, start the service. For a
+new ledger, set `TASKS_SERVER_CONFIG` as described above or pass `--config`.
 
 ```sh
 uv run --frozen ./tasks --db "$taskboard_db" serve --portal-reader --port 8765

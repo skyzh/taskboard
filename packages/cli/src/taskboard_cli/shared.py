@@ -644,7 +644,7 @@ def shared_command(args):
             "tagged-empty", "Check the tag or project before searching again.",
         ))
     if command == "search":
-        project = projects.prefix(args.project or projects.DEFAULT)
+        project = projects.prefix(args.project or context.get("project") or context.get("default_project") or projects.DEFAULT)
         params = {"project": project, "q": args.query if args.activity else args.query.strip(), "limit": args.limit}
         if args.before is not None:
             params["before"] = args.before

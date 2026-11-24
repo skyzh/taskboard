@@ -1,11 +1,62 @@
 """Project registration and public task identifiers."""
 
 import json
+from pathlib import Path
+import tomllib
 from uuid import UUID
 
 import tasks_storage
 
 from taskboard_client.references import DEFAULT, MAX_ID, identifier, prefix
+
+
+INITIAL_PROJECT_REQUIRED = (
+    "Configure an [initial_project] with prefix and title in the server TOML. "
+    "Pass --config PATH or set TASKS_SERVER_CONFIG."
+)
+LEGACY_TITLE = "Tasks Board"
+
+
+def load_initial_project(path):
+    if path is None:
+        return None
+    try:
+        with Path(path).expanduser().open("rb") as source:
+            config = tomllib.load(source)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise ValueError("Read a valid server TOML file with --config PATH or TASKS_SERVER_CONFIG.") from error
+    project = config.get("initial_project")
+    if not isinstance(project, dict) or project.keys() != {"prefix", "title"}:
+        raise ValueError(INITIAL_PROJECT_REQUIRED)
+    name, title = project["prefix"], project["title"]
+    if not isinstance(name, str):
+        raise ValueError("Use a project prefix of one to eight letters and digits, starting with a letter.")
+    name = prefix(name)
+    if (not isinstance(title, str) or not 0 < len(title.strip()) <= 160
+            or any(not character.isprintable() for character in title)):
+        raise ValueError("Use a one-line initial project title of at most 160 characters.")
+    return name, title.strip()
+
+
+def default_project(db):
+    row = db.execute("SELECT value FROM board_settings WHERE key = 'default_project'").fetchone()
+    return row["value"] if row is not None else DEFAULT
+
+
+def bootstrap(db, initial, *, required=False):
+    if db.execute("SELECT 1 FROM projects WHERE prefix = ?", (default_project(db),)).fetchone():
+        return
+    existing = db.execute("SELECT prefix FROM projects ORDER BY prefix LIMIT 1").fetchone()
+    if existing is not None:
+        name = existing["prefix"]
+    elif initial is not None:
+        name, title = initial
+        db.execute("INSERT INTO projects VALUES (?, ?, NULL)", (name, title))
+    elif required:
+        raise ValueError(INITIAL_PROJECT_REQUIRED)
+    else:
+        return
+    db.execute("INSERT INTO board_settings VALUES ('default_project', ?) ON CONFLICT (key) DO NOTHING", (name,))
 
 
 PROJECT_FIELDS = {DEFAULT: ("queued_for_release", "release_number")}
@@ -82,7 +133,7 @@ def roster_profile(owner, name):
             "role": None, "description": None, "avatar_url": None}
 
 
-def ensure_schema(db):
+def ensure_schema(db, *, seed_legacy=True):
     db.execute(
         """
         CREATE TABLE IF NOT EXISTS projects (
@@ -92,12 +143,15 @@ def ensure_schema(db):
         )
         """
     )
-    db.execute("INSERT INTO projects VALUES (?, ?, NULL) ON CONFLICT (prefix) DO NOTHING", (DEFAULT, "Tasks Board"))
     columns = tasks_storage.table_columns(db, "tasks")
     if "project_prefix" not in columns:
         db.execute("ALTER TABLE tasks ADD COLUMN project_prefix TEXT NOT NULL DEFAULT 'T'")
     if "project_number" not in columns:
         db.execute("ALTER TABLE tasks ADD COLUMN project_number INTEGER")
+    if not db.execute("SELECT 1 FROM projects LIMIT 1").fetchone() and (
+        seed_legacy or db.execute("SELECT 1 FROM tasks WHERE project_prefix = ? LIMIT 1", (DEFAULT,)).fetchone()
+    ):
+        db.execute("INSERT INTO projects VALUES (?, ?, NULL)", (DEFAULT, LEGACY_TITLE))
     db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS task_project_number ON tasks (project_prefix, project_number)"
     )

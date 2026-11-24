@@ -67,6 +67,10 @@ test('Reports links to Team overview without embedding the board-wide feed', () 
   }
 })
 
+test('the direct Reports tour waits for the configured project', () => {
+  assert.match(render('#reports'), /class="reports-tour-trigger" disabled="">Take the tour/)
+})
+
 test('the home URL and combined Reports link wait for the project list', () => {
   for (const fragment of ['', '#reports-all']) {
     const reports = render(fragment)

@@ -136,6 +136,7 @@ class OIDCTest(unittest.TestCase):
         self.two = self.member("fixture-two")
 
     def board(self, **options):
+        options.setdefault("initial_project", ("T", "Tasks Board"))
         return create_app(self.database, public_url=PUBLIC, portal_upstream_token=PORTAL["X-Portal-Upstream-Token"],
                           oidc_config=self.settings, **options)
 
