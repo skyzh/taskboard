@@ -4354,6 +4354,87 @@ class TasksServiceTest(unittest.TestCase):
             db.execute("UPDATE events SET action = 'imported' WHERE task_id = ? AND at = ?", (1, reopened_at))
         self.assertNotIn("waiting_since", task())
 
+    def test_opt_in_progress_prompt_tracks_owner_progress_without_writing(self):
+        app = self.app(portal_reader=True, progress_prompt_minutes="10")
+        owner, owner_id = self.login(app, "Avery")
+        other, _ = self.login(app, "Blake")
+        anonymous = app.test_client()
+        for title in ("Test the signed build", "Finish prerequisite"):
+            self.action(owner, "create-task", {"title": title, "step": "Check the evidence."})
+
+        def at(time):
+            return patch("tasks_core.timestamp", return_value=f"2030-04-01T{time}Z")
+
+        def advance(transition, time, **fields):
+            with at(time):
+                self.action(owner, "advance-task", {
+                    "id": "T-1", "transition": transition, "note": "Check the evidence.", **fields,
+                })
+                return read(time)["task"]["event_id"]
+
+        def read(time, client=owner):
+            with at(time):
+                return self.action(client, "task", query_string={"id": "T-1"})
+
+        self.assertNotIn("progress_prompt", read("09:50:00"))
+        start = advance("start", "10:00:00")
+        self.assertNotIn("progress_prompt", read("09:59:59"))
+        self.assertNotIn("progress_prompt", read("10:09:59"))
+        revision = self.call(owner, "/api/v1/revision").json
+        due = read("10:10:00")["progress_prompt"]
+        self.assertEqual(due["interval_id"], f"T-1:{start}:1")
+        self.assertEqual(read("10:19:59")["progress_prompt"], due)
+        self.assertEqual(read("10:20:00")["progress_prompt"]["interval_id"], f"T-1:{start}:2")
+        self.assertEqual(self.call(owner, "/api/v1/revision").json, revision)
+        self.assertNotIn("progress_prompt", read("10:20:00", other))
+        with at("10:20:00"):
+            self.action(anonymous, "task", query_string={"id": "T-1"}, status=401)
+            for viewer in (owner, anonymous):
+                self.assertNotIn("progress_prompt", self.call(viewer, "/api/v1/tasks/T-1").json)
+            code, output, errors = self.shared_cli(owner, "show", "T-1")
+            self.assertEqual((code, errors), (0, ""))
+            self.assertIn(due["message"], output)
+
+        with closing(open_sqlite(self.database)) as db, db:
+            for actor, context in ((owner_id, {"watcher_measurements": {}}), ("System", {})):
+                record(db, 1, "log", actor, "in_progress", "Background event.", None, [],
+                       context, at="2030-04-01T10:20:00Z")
+        self.assertEqual(read("10:21:00")["progress_prompt"]["interval_id"], f"T-1:{start}:2")
+        progress = advance("update", "10:23:00")
+        self.assertNotIn("progress_prompt", read("10:32:59"))
+        self.assertEqual(read("10:33:00")["progress_prompt"]["interval_id"], f"T-1:{progress}:1")
+        with at("10:34:00"):
+            self.action(owner, "record-activity", {
+                "id": "T-1", "note": "Fixture signed.", "details": "The build is ready for review.",
+            })
+        self.assertNotIn("progress_prompt", read("10:43:59"))
+        self.assertIn("progress_prompt", read("10:44:00"))
+
+        advance("wait", "11:00:00", on="CI", automation=True)
+        self.assertNotIn("progress_prompt", read("11:15:00"))
+        advance("resume", "11:20:00")
+        advance("wait", "11:21:00", blocked_by="T-2")
+        self.assertNotIn("progress_prompt", read("11:36:00"))
+        resumed = advance("resume", "11:40:00")
+        self.assertNotIn("progress_prompt", read("11:49:59"))
+        self.assertEqual(read("11:50:00")["progress_prompt"]["interval_id"], f"T-1:{resumed}:1")
+        advance("park", "12:00:00", review_after="2030-04-02")
+        self.assertNotIn("progress_prompt", read("12:15:00"))
+        advance("unpark", "12:20:00")
+        advance("start", "12:21:00")
+        advance("done", "12:30:00")
+        self.assertNotIn("progress_prompt", read("12:45:00"))
+
+    def test_progress_prompt_is_off_by_default(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        self.action(owner, "create-task", {"title": "Test the build", "step": "Check the evidence."})
+        with patch("tasks_core.timestamp", return_value="2030-04-01T10:00:00Z"):
+            self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Start the replay."})
+        with patch("tasks_core.timestamp", return_value="2030-04-01T12:00:00Z"):
+            read = self.action(owner, "task", query_string={"id": "T-1"})
+        self.assertNotIn("progress_prompt", read)
+
     def test_shared_cli_reports_lost_write_receipt_without_repeating_write(self):
         app = self.app(portal_reader=True)
         avery, _ = self.login(app, "Avery")

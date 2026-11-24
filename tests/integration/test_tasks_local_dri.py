@@ -25,7 +25,7 @@ class LocalDRIRoutingTest(unittest.TestCase):
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         roster = {fixture.provider.people[name]["sub"]: name for name in ("Avery", "Blake")}
-        app = fixture.app(portal_reader=True, project_roster=roster)
+        app = fixture.app(portal_reader=True, project_roster=roster, progress_prompt_minutes=10)
         manager, manager_id = fixture.login(app, "Avery")
         _, team_id = fixture.login(app, "Blake")
         sam, sam_id = fixture.login(app, "Sam")
@@ -101,7 +101,17 @@ class LocalDRIRoutingTest(unittest.TestCase):
         )
         self.assertEqual((code, error), (0, ""))
         self.assertIn("T-2 · Peer request opened", output)
-        action(client, "advance-task", {"id": "T-2", "transition": "start", "note": "Check the sample."}, headers=sender)
+        with patch("tasks_core.timestamp", return_value="2030-04-01T10:00:00Z"):
+            action(client, "advance-task", {
+                "id": "T-2", "transition": "start", "note": "Check the sample.",
+            }, headers=sender)
+        with patch("tasks_core.timestamp", return_value="2030-04-01T10:10:00Z"):
+            query = {"id": "T-2"}
+            detail = action(client, "task", query_string=query, headers=sender)
+            self.assertEqual(detail["progress_prompt"]["interval_id"], f"T-2:{detail['task']['event_id']}:1")
+            self.assertNotIn("progress_prompt", action(manager, "task", query_string=query))
+            inherited_human = {key: value for key, value in sender.items() if key != "X-Taskboard-Local-DRI"}
+            self.assertNotIn("progress_prompt", action(client, "task", query_string=query, headers=inherited_human))
         original = action(client, "task-activity", query_string={"id": "T-2"}, headers=sender)
 
         def current_report():
