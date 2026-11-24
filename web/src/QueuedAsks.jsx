@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ArrowRight, Check, CircleX, Clock, GitPullRequest, MessageSquare, Play, Reply } from 'lucide-react'
+import { ArrowRight, Check, CircleX, Clock, MessageSquare, Play, Reply } from 'lucide-react'
 import { useLoadedPages } from './data.js'
 import { AssigneeAvatar, eventHref, LoadMore, peerRequestLabels, profileName, ResourceStatus, taskHref, TaskLink } from './shared.jsx'
 import { ReportTime } from './ReportTime.jsx'
@@ -30,41 +30,18 @@ function Person({ name, profile }) {
 
 function RequestRow({ item, viewer, publicPreview, verbose }) {
   const [status, Icon, terminal] = phases[item.phase] || ['Status unavailable', MessageSquare]
-  const summary = item.request_title || item.source_title
-  const showReference = item.request_key && (verbose || !summary)
-  const label = <>
-    {showReference && <span className="ticket-id">{item.request_key}</span>}
-    {showReference && summary && ' '}
-    {summary || (!showReference && 'Request')}
-  </>
-  const requestHref = publicPreview ? item.public_url
-    : taskHref(item.request_key ?? item.source_id, item.request_key ?? item.source_key)
   const responseHref = item.response ? eventHref(item.response.id) : null
   const canReviewResponse = item.phase === 'acknowledgment' && item.next_owner && viewer?.id === item.next_owner
-  const owner = item.next_owner || item.recipient
-  const ownerProfile = item.next_owner ? item.next_owner_profile : item.recipient_profile
-  const ownerName = profileName(owner, ownerProfile)
-  return (
-    <li className={terminal ? 'request-row request-terminal' : 'request-row'}>
-      <div className="request-summary">
-        <Icon size={14} aria-hidden="true" />
-        {requestHref && (!verbose || showReference)
-          ? <a className="request-summary-text" href={requestHref} title={summary}>{label}</a>
-          : <span className="request-summary-text">{label}</span>}
-        {!verbose && <span className="relative-time-accessible">{status}</span>}
-        {!verbose && owner && <span className="request-summary-avatar" title={ownerName}>
-          <AssigneeAvatar name={ownerName} url={ownerProfile?.avatar_url} />
-          <span className="relative-time-accessible">{item.next_owner ? `Next for ${ownerName}` : ownerName}</span>
-        </span>}
-      </div>
-      {canReviewResponse && responseHref && <a className="request-action" href={responseHref}>Review response</a>}
-      {verbose && (
+  const rowClass = terminal ? 'request-row request-terminal' : 'request-row'
+  if (verbose) {
+    const pulls = item.pull_urls || []
+    const canceled = ['canceled', 'closed_without_response'].includes(item.phase)
+    const statusLabel = canceled && !item.response ? 'Canceled without a response' : status
+    return (
+      <li className={rowClass}>
         <div className="request-details">
-          <div className="request-row-line">
-            <span className="request-status">
-              {item.review && <span className="request-review"><GitPullRequest size={14} aria-hidden="true" />Review</span>}
-              {status}
-            </span>
+          <div className="request-state">
+            <span className="request-status"><Icon size={14} aria-hidden="true" />{statusLabel}</span>
             {item.at && <ReportTime at={item.at} />}
           </div>
           <div className="request-row-line">
@@ -75,21 +52,57 @@ function RequestRow({ item, viewer, publicPreview, verbose }) {
             </>}
             <Person name={item.recipient} profile={item.recipient_profile} />
           </div>
-          {item.next_owner && (
-            <span className="request-owner">Next for {profileName(item.next_owner, item.next_owner_profile)}</span>
+          {item.request_key && (
+            <div className="request-row-line">
+              <a href={taskHref(item.request_key, item.request_key)}>
+                <span className="ticket-id">{item.request_key}</span>{item.request_title && ` ${item.request_title}`}
+              </a>
+            </div>
           )}
           <div className="request-row-line">
             <TaskLink id={item.source_id} reference={item.source_key} title={item.source_title}
               publicHref={publicPreview ? item.public_url || null : undefined} />
           </div>
-          {(responseHref || item.resolution) && (
+          {item.next_owner && (
+            <span className="request-owner">Next for {profileName(item.next_owner, item.next_owner_profile)}</span>
+          )}
+          {(pulls.length > 0 || responseHref || item.resolution) && (
             <div className="request-row-line">
-              {responseHref && <a href={responseHref}>Response</a>}
-              {item.resolution && <a href={eventHref(item.resolution.id)}>{status} record</a>}
+              {pulls.map(url => (
+                <a key={url} href={url}>
+                  {pulls.length === 1 ? 'Pull request' : url.replace('https://github.com/', '').replace('/pull/', '#')}
+                </a>
+              ))}
+              {responseHref && <a href={responseHref}>{canReviewResponse ? 'Review response' : 'Response'}</a>}
+              {item.resolution && <a href={eventHref(item.resolution.id)}>{canceled ? 'Cancellation record' : `${status} record`}</a>}
             </div>
           )}
         </div>
-      )}
+      </li>
+    )
+  }
+
+  const summary = item.request_title || item.source_title
+  const label = summary || (item.request_key ? <span className="ticket-id">{item.request_key}</span> : 'Request')
+  const requestHref = publicPreview ? item.public_url
+    : taskHref(item.request_key ?? item.source_id, item.request_key ?? item.source_key)
+  const owner = item.next_owner || item.recipient
+  const ownerProfile = item.next_owner ? item.next_owner_profile : item.recipient_profile
+  const ownerName = profileName(owner, ownerProfile)
+  return (
+    <li className={rowClass}>
+      <div className="request-summary">
+        <Icon size={14} aria-hidden="true" />
+        {requestHref
+          ? <a className="request-summary-text" href={requestHref} title={summary}>{label}</a>
+          : <span className="request-summary-text">{label}</span>}
+        <span className="relative-time-accessible">{status}</span>
+        {owner && <span className="request-summary-avatar" title={ownerName}>
+          <AssigneeAvatar name={ownerName} url={ownerProfile?.avatar_url} />
+          <span className="relative-time-accessible">{item.next_owner ? `Next for ${ownerName}` : ownerName}</span>
+        </span>}
+      </div>
+      {canReviewResponse && responseHref && <a className="request-action" href={responseHref}>Review response</a>}
     </li>
   )
 }

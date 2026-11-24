@@ -9045,6 +9045,9 @@ class TasksServiceTest(unittest.TestCase):
             }, status=status)
 
         self.assertEqual(open_review("Review the full demo.", original, base), "T-2")
+        row, = self.call(owner, "/api/v1/reports/request-log").json["items"]
+        self.assertTrue(row["review"])
+        self.assertEqual(row["pull_urls"], [pr])
         self.assertEqual(task("T-1")["context"]["peer_ask_ticket"], "T-2")
         self.action(reviewer, "advance-task", {"id": "T-2", "transition": "start", "note": "Checking the demo."})
         returned = result(original, base, "Changes requested. Browser history and the GitHub link failed.")
@@ -9112,6 +9115,9 @@ class TasksServiceTest(unittest.TestCase):
                 self.assertIsNone(task["context"].get("peer_ask_ticket"))
 
                 ask = self.action(owner, "peer-ask", {**request, "url": pr})["receipt"].split()[0]
+                rows = self.call(owner, "/api/v1/reports/request-log").json["items"]
+                row, = [item for item in rows if item["request_key"] == ask]
+                self.assertEqual(row["pull_urls"], [pr])
                 self.action(reviewer, "advance-task", {"id": ask, "transition": "start", "note": "Check the PR."})
                 evidence = "https://stamp.build/s/example/github/example/board/pull/10/approvals/a123/evidence"
                 self.action(reviewer, "peer-ask", {"id": ask, "transition": "result", "note": "Reviewed.", "url": evidence})
@@ -9142,6 +9148,11 @@ class TasksServiceTest(unittest.TestCase):
             self.assertEqual((status, error), (0, ""))
             self.assertIn("T-2 · Existing peer request", output)
             self.assertEqual(self.call(prism, "/api/v1/tasks/T-2").json["task"]["title"], "Review PR #40")
+        route = "/api/v1/reports/request-log"
+        pinned_row, = [row for row in self.call(prism, route).json["items"] if row["request_key"] == "T-2"]
+        self.assertEqual(pinned_row["pull_urls"], [pr])
+        portal_row, = [row for row in self.call(app.test_client(), route).json["items"] if row["request_key"] == "T-2"]
+        self.assertNotIn("pull_urls", portal_row)
         self.provider = FixtureRaft()
         without_import = self.app(portal_reader=True)
         peer, _ = self.login(without_import, "Blake")
