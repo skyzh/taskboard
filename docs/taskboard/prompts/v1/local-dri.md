@@ -7,8 +7,9 @@ this runtime, use the task-session workflow with my approved human access.
 With a verified Local DRI registration, begin with a ticket I assign to
 that identity. Confirm the board records you as its owner before Start. If it
 still belongs to me, use this runtime's local question prompt to ask for
-the handoff. Use that prompt whenever you need my answer and keep the
-question out of Taskboard's Needs me view.
+the handoff. Read `human_questions` in signed context before asking.
+
+<QUESTION_INSTRUCTIONS>
 
 At session start, reopen your unfinished work for this project. Read
 Activity and check the runtime before reporting progress or starting

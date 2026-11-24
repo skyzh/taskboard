@@ -3,14 +3,23 @@
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+from tasks_storage import table_columns
+
+
+LOCAL_PROMPT = "local_prompt"
+TASKBOARD = "taskboard"
+QUESTION_MODES = (LOCAL_PROMPT, TASKBOARD)
+QUESTION_COLUMN = "human_questions TEXT NOT NULL DEFAULT 'local_prompt' CHECK (human_questions IN ('local_prompt', 'taskboard'))"
+
 
 SCHEMA = (
-    """
+    f"""
     CREATE TABLE IF NOT EXISTS local_dris (
         actor TEXT PRIMARY KEY REFERENCES board_principals (ledger_key),
         owner TEXT NOT NULL REFERENCES board_principals (ledger_key),
         project TEXT NOT NULL REFERENCES projects (prefix),
         name TEXT NOT NULL,
+        {QUESTION_COLUMN},
         UNIQUE (owner, project, name)
     )
     """,
@@ -28,11 +37,18 @@ WATCHER_REQUIRED = "local_dri_watcher_required"
 QUESTION_REQUIRED = "Use the local question prompt for a Local DRI's human questions."
 
 
+def ensure_schema(db):
+    for statement in SCHEMA:
+        db.execute(statement)
+    if "human_questions" not in table_columns(db, "local_dris"):
+        db.execute(f"ALTER TABLE local_dris ADD COLUMN {QUESTION_COLUMN}")
+
+
 def now():
     return datetime.now(timezone.utc)
 
 
-def register(db, owner, server, project, name):
+def register(db, owner, server, project, name, human_questions=LOCAL_PROMPT):
     existing = db.execute(
         "SELECT actor FROM local_dris WHERE owner = ? AND project = ? AND name = ?", (owner, project, name),
     ).fetchone()
@@ -44,8 +60,17 @@ def register(db, owner, server, project, name):
         "INSERT INTO board_principals (ledger_key, server_id, kind, subject, name) VALUES (?, ?, 'agent', ?, ?)",
         (actor, server, subject, name),
     )
-    db.execute("INSERT INTO local_dris (actor, owner, project, name) VALUES (?, ?, ?, ?)", (actor, owner, project, name))
+    db.execute(
+        "INSERT INTO local_dris (actor, owner, project, name, human_questions) VALUES (?, ?, ?, ?, ?)",
+        (actor, owner, project, name, human_questions),
+    )
     return actor
+
+
+def set_human_questions(db, actor, owner, mode):
+    return db.execute(
+        "UPDATE local_dris SET human_questions = ? WHERE actor = ? AND owner = ?", (mode, actor, owner),
+    ).rowcount > 0
 
 
 def registration(db, actor):
@@ -67,7 +92,7 @@ def ready(db, actor, project, *, requester=None):
 def owned(db, owner):
     rows = db.execute(
         """
-        SELECT local.actor AS id, local.project, local.name, watcher.expires_at
+        SELECT local.actor AS id, local.project, local.name, local.human_questions, watcher.expires_at
         FROM local_dris AS local LEFT JOIN local_dri_watchers AS watcher ON watcher.actor = local.actor
         WHERE local.owner = ? ORDER BY local.project, local.name, local.actor
         """, (owner,),
@@ -75,7 +100,7 @@ def owned(db, owner):
     instant = now().isoformat()
     return [
         {"id": row["id"], "name": row["name"], "project": row["project"],
-         "watcher_ready": bool(row["expires_at"] and row["expires_at"] > instant)}
+         "human_questions": row["human_questions"], "watcher_ready": bool(row["expires_at"] and row["expires_at"] > instant)}
         for row in rows
     ]
 
