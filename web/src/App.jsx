@@ -173,7 +173,7 @@ export default function App() {
   const showGoalActivity = requestedAssigneeView === 'goal-activity'
   const goalAgent = reportsParams?.get('agent')
   const goalKey = reportsParams?.get('goal')
-  const allReports = taskAnchor === 'reports-all'
+  const allReports = !fragment || taskAnchor === 'reports-all'
   const [preferredReportsMode, rememberReportsMode] = useState(allReports ? 'reports-all' : 'reports')
   const linkedEvent = fragmentId(taskAnchor, /^event-([1-9]\d*)-log$/)
   const [queueFilters, setQueueFilters] = useState({})
