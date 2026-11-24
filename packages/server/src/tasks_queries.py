@@ -101,7 +101,7 @@ REVIEW_REQUESTER = """
     SELECT events.actor FROM events
     WHERE events.task_id = worker_runs.task_id AND events.action = 'log'
       AND json_extract(events.context, '$.audit.action') = 'worker-delegate'
-      AND json_extract(events.context, '$.audit.run_id') = worker_runs.id
+      AND CAST(json_extract(events.context, '$.audit.run_id') AS BIGINT) = worker_runs.id
     ORDER BY events.id DESC LIMIT 1
 """
 WORKER_ORDER = f"""
