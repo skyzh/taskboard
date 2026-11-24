@@ -147,6 +147,7 @@ main [id] { scroll-margin-top: .8rem; }
   text-decoration: none;
 }
 .profile-actions > :is(button, a):hover { background: var(--wash); }
+.profile-actions > a.profile-manage { display: flex; align-items: center; min-height: 2.75rem; }
 .profile-freshness { display: none; }
 .shortcuts-dialog {
   width: min(22rem, calc(100% - 2rem));
@@ -835,6 +836,10 @@ button:disabled { opacity: .57; }
 .ownership-form :is(input, select, textarea) { max-width: 100%; }
 .settings { max-width: 34rem; }
 .settings-panel + .settings-panel { margin-top: .75rem; }
+.registration-directory { list-style: none; margin: .45rem 0 0; padding: 0; }
+.registration-directory li { padding-block: .45rem; overflow-wrap: anywhere; }
+.registration-directory li + li { border-block-start: 1px solid var(--line); }
+.registration-directory small { display: block; color: var(--muted); }
 .project-creation-permissions { margin: .5rem 0 0; border: 0; padding: 0; min-inline-size: 0; }
 .project-creation-permissions legend { padding: 0; font-weight: var(--weight-emphasis); }
 .project-creation-permissions ul { list-style: none; padding: 0; }

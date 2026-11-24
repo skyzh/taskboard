@@ -16,6 +16,7 @@ import { ReportTime } from './ReportTime.jsx'
 import { Outcomes, Overview } from './Overview.jsx'
 import PersonalCodex from './PersonalCodex.jsx'
 import Profile from './Profile.jsx'
+import RegistrationDirectory from './RegistrationDirectory.jsx'
 import Reports, { ReportsHeading } from './Reports.jsx'
 import Schedules from './Schedules.jsx'
 import Settings from './Settings.jsx'
@@ -220,7 +221,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const sessionResource = useResource('/session')
   const websocket = sessionResource.data?.websocket_revisions === true
   const [savedActor, setSavedActor] = useState(null)
-  const session = savedActor ? { ...sessionResource, data: { actor: savedActor } } : sessionResource
+  const session = savedActor ? { ...sessionResource, data: { ...sessionResource.data, actor: savedActor } } : sessionResource
+  const canManageRegistrations = !preview && !session.error && session.data?.actor?.kind === 'human' &&
+    session.data?.can_manage_registrations === true
   const hasSession = Boolean(session.data?.actor)
   const needsOidcSignIn = !hasSession && session.data?.sign_in_provider === 'oidc'
   const appHeader = useRef(null)
@@ -263,6 +266,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   else if (search) view = 'search'
   else if (!fragment || taskAnchor === 'reports' || allReports) view = 'reports'
   else if (fragment === 'settings') view = 'settings'
+  else if (fragment === 'manage') view = 'manage'
   else if (taskAnchor === 'integrations') view = 'integrations'
   else if (fragment === 'personal-codex') view = 'personal-codex'
   else if (fragment === 'about') view = 'about'
@@ -398,7 +402,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
               {demoTour.toggle}
               <a className="board-repository" href="https://github.com/skyzh/taskboard" aria-label="Taskboard on GitHub"><span aria-hidden="true" /></a>
             </>}
-            <Profile session={session} fragment={`#${fragment}`} theme={theme}
+            <Profile session={session} fragment={`#${fragment}`} theme={theme} canManageRegistrations={canManageRegistrations}
               freshness={hasSession && !preview && <BoardFreshness checkedAt={connection.checkedAt}
                 source={connection.source} className="profile-freshness" />} preview={preview} />
           </div>
@@ -458,6 +462,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
             onProfileSaved={actor => { setSavedActor(actor); refresh() }}
             project={visibleProjects?.some(item => item.prefix === project) ? project : visibleProjects?.[0]?.prefix || 'T'}
             projects={visibleProjects} revision={revision} onProjectCreated={refresh} />}
+          {view === 'manage' && <RegistrationDirectory available={canManageRegistrations} session={session} revision={revision} />}
           {view === 'about' && <About revision={revision} />}
           {view === 'integrations' && <Integrations session={session} project={integrationsProject}
             projects={visibleProjects} revision={revision}

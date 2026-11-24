@@ -67,7 +67,7 @@ export function ProfileSignIn({ session, fragment }) {
   return <a href={signInHref(fragment)}>Sign in with Raft</a>
 }
 
-export default function Profile({ session, fragment, theme, freshness, preview = false }) {
+export default function Profile({ session, fragment, theme, freshness, canManageRegistrations = false, preview = false }) {
   const actor = session.data?.actor
   const panelId = useId()
   const shortcutsTitle = useId()
@@ -166,6 +166,8 @@ export default function Profile({ session, fragment, theme, freshness, preview =
           {nextMode === 'night' ? 'Night mode' : 'Day mode'}
         </button>
         <a href="#settings" onClick={closeAndFocus}>Settings</a>
+        {canManageRegistrations && <a href="#manage" className="profile-manage" onClick={closeAndFocus}
+          aria-current={fragment === '#manage' ? 'page' : undefined}>Manage</a>}
         {actor?.kind === 'human' && <a href="#integrations" onClick={closeAndFocus}>Integrations</a>}
         <a href="#about" onClick={closeAndFocus}>About</a>
         <button type="button" aria-keyshortcuts="Alt+Shift+H" onClick={() => showShortcuts(true)}>Keyboard shortcuts</button>
