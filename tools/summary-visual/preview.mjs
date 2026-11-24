@@ -16,11 +16,11 @@ const capture = `
   const layout = new URL(location.href).searchParams.get('layout');
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   try {
-    const rows = '.report-task-summary .task-row-heading > .report-status';
-    for (let attempt = 0; attempt < 240 && document.querySelectorAll(rows).length < 2; attempt++) await pause(200);
-    if (document.querySelectorAll(rows).length < 2) return;
+    const rows = '.report-task-summary.report-current-work';
+    for (let attempt = 0; attempt < 240 && document.querySelectorAll(rows).length < 3; attempt++) await pause(200);
+    if (document.querySelectorAll(rows).length < 3) return;
     await document.fonts.ready;
-    document.querySelector('.report-waiting-line')?.closest('.report-owner-section')?.scrollIntoView({block:'start'});
+    document.querySelector('.report-work-status > .waiting')?.closest('.report-owner-section')?.scrollIntoView({block:'start'});
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const data = sampleRows();
     await fetch('/tasks/__measure/' + layout, {method:'POST', body:JSON.stringify(data, null, 2)});
