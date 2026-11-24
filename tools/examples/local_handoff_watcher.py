@@ -77,10 +77,16 @@ def report_watcher(board, watcher, state, requester):
 
 def run_one(board, *, actor, url, project, requester, worker):
     verify_context(board, actor, url, project)
-    offer = board.invoke("my-next", {"project": project})["work"]
-    if not offer or offer["kind"] != "ready":
-        return None
-    ticket = offer["key"]
+    for task in board.pages("my-queue", {"project": project, "state": "ready", "order": "priority"}):
+        ask = task.get("peer_request") or {}
+        if ask.get("requester") == requester and ask.get("phase") == "asked":
+            receipt = run_ask(board, task["key"], actor, project, requester, worker)
+            if receipt:
+                return receipt
+    return None
+
+
+def run_ask(board, ticket, actor, project, requester, worker):
     detail = board.invoke("task", {"id": ticket})
     task = detail["task"]
     ask = task.get("peer_request") or {}

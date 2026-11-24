@@ -1,29 +1,73 @@
 # Try the local handoff watcher
 
-Use this read-only pilot on a designated project, with one requester and one authorized Git checkout. The watcher uses a signed Raft agent to read and return assigned Taskboard requests. Its worker runs as a fresh Codex session on that Computer.
+The read-only pilot takes ordinary Ready asks from one approved requester
+in one project. For each accepted ask, it starts a fresh Codex session in one
+authorized Git checkout. The watcher records the result on the same linked ask.
 
-## Set up and verify one handoff
+## Install and verify one Local DRI handoff
 
-1. Install Python 3.11 or newer, the Raft CLI, and the Codex CLI. Sign into Codex on the Computer running the watcher. Check out Taskboard with `tools/examples/local_handoff_watcher.py`.
-2. Sign into the Taskboard integration as the agent that will receive the handoff. Check the expected board and copy the stable agent and requester IDs from the signed Taskboard context or assignee lookup.
-3. Have that requester open one linked ask for the agent. Try a read-only check in a fictional or test repository first. The requested task should name the file or behavior to verify and the evidence to return.
+1. Get Python 3.11 or later, the Codex CLI, and a reviewed Taskboard checkout
+   containing `tools/examples/local_handoff_watcher.py`. Sign into Codex
+   on the Computer where the worker will run.
+2. [Register a Local DRI](LOCAL-DRI.md) on a board that supports registration.
+   On the watcher's Computer, approve a Tasks CLI sign-in as its owner.
+   Run the context command below and check the board, Local DRI ID, and
+   registered project. Get the approved requester's stable agent ID from
+   signed context or the board's assignee lookup.
+3. From the Taskboard checkout, start the watcher. Set the project to the
+   one in the Local DRI's registration. Use an authorized test checkout
+   for the first read-only check.
 
 ```sh
-raft integration login --service tasks-board
-raft integration invoke --service tasks-board --action context --json
+./tasks --shared --url "$taskboard_board" login
+./tasks --shared --url "$taskboard_board" --local-dri "$local_dri_id" context
+"$codex_executable" login status
 
 python3 -m tools.examples.local_handoff_watcher \
-  --board https://tasks.example.org/tasks/ --actor 'WATCHER_ACTOR_ID' \
-  --requester 'APPROVED_REQUESTER_ID' --project T --directory /path/to/test-repo \
-  --codex /absolute/path/to/codex
+  --board "$taskboard_board" --actor "$local_dri_id" \
+  --requester "$approved_requester_id" --project "$taskboard_project" \
+  --directory "$worker_checkout" --codex "$codex_executable" --watch
 ```
 
-The command checks one queue offer and exits. Confirm that the linked ask contains one Start and one result under the watcher’s identity. The requester acknowledges that same ask. The source ticket retains its owner. Repeat the command to verify that the same request does not start another session.
+Use the complete HTTPS board URL and absolute Codex executable path. Run the
+watcher under the same OS account as the CLI sign-in. The `--watch` flag
+publishes readiness and polls every 30 seconds when idle. Confirm that the
+Local DRI shows watcher readiness in Integrations before the configured
+requester sends the linked ask. Ask for a read-only check and specific
+evidence to return.
+
+Check for one Start and one result under the Local DRI's identity. Have
+the requester acknowledge the result on that ask. The source ticket keeps
+its owner. Check Activity after the next poll to confirm the recorded
+Start did not launch another worker.
 
 ## Run in the background and stop
 
-Append `--watch` to the command to poll every 30 seconds. On a Raft-managed Computer, run it as a managed job with `raft proc start --name local-handoff --cwd /path/to/taskboard --` followed by the same command and flags. Stop the job with `raft proc stop local-handoff`. If running it in the foreground, press **Ctrl+C**.
+On a Raft-managed Computer, check `raft proc list` for an existing job first.
+Run the same command, including `--watch`, after
+`raft proc start --name local-handoff --cwd /path/to/taskboard --`. Check the job
+and the Local DRI's readiness before routing work to it. Give jobs distinct
+names if you set up watchers for multiple Local DRIs.
 
-Only the selected requester’s ordinary linked Ready asks are eligible. The watcher checks the current queue offer and leaves manual and Stamp-pinned reviews or worker-linked reviews for their normal workflows. The board must accept Start before a worker is launched. If the worker requires help, the watcher records a blocker on the ask. If an operation is interrupted or its receipt is unknown, inspect the existing Start and the worker’s outcome before completing the record manually. A retry does not launch another worker for that Start.
+Press **Ctrl+C** in the foreground or run `raft proc stop local-handoff`
+for that managed job. Check the job list and the Local DRI's readiness.
+A normal stop clears readiness. If the process cannot clear it, the last
+readiness lease expires after six minutes. Existing asks and Activity
+remain available for a manual handoff.
 
-The managed Raft wake still serves enrolled standing agents. For a factory that already dispatches its own workers, use its separate coordinator setup.
+## What the watcher handles
+
+The watcher checks its project's current offer. It starts ordinary Ready
+handoffs from the configured requester and leaves reviews and stalled
+**In progress** tickets for their existing workflows. The board must accept
+Start before the worker launches. A worker that needs help returns a blocker
+on the ask. If a receipt is missing or a run stops unexpectedly, read the
+ticket and inspect the existing worker result before finishing the record.
+A retry does not launch another worker for a recorded Start.
+
+A Raft Team DRI can also run this example under its own signed Raft integration.
+Use its stable actor ID in `--actor` and the board's service key in `--service`
+when it differs from `tasks-board`. With this identity, omitting `--watch`
+checks one existing offer and exits. The [managed Raft wake](AGENT-STARTUP.md#start-one-ready-count-watcher)
+continues to wake existing enrolled agents. An existing AI factory can use
+its own orchestration through a signed coordinator.

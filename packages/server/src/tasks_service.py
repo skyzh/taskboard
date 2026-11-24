@@ -2847,7 +2847,7 @@ def create_app(
                 raise RequestError("Use the Local DRI's registered project.", 403)
             data["project"] = project
         elif name in ("task", "task-activity", "advance-task", "peer-ask", "record-activity", "raise-attention"):
-            for field in ("id", "blocked_by"):
+            for field in ("id", "blocked_by", "review_on"):
                 if field in data:
                     try:
                         target_project, _ = projects.identifier(data[field])
@@ -3185,8 +3185,11 @@ def create_app(
             role = text(data, "role", maximum=30)
             if role not in ("build", "review"):
                 raise RequestError("Choose build or review.")
+            worker = require_person(text(data, "worker", maximum=160), "agent", task_id=number)
+            if local_dri.registration(db(), worker) is not None:
+                raise RequestError("Choose a Team DRI for a worker delegation.", 403)
             return mutate(
-                "delegate", actor, data, id=number, worker=require_person(text(data, "worker", maximum=160), "agent", task_id=number),
+                "delegate", actor, data, id=number, worker=worker,
                 role=role, brief=text(data, "brief"), effort=text(data, "effort", optional=True, maximum=30) or "high",
             )
         if name == "watch-task":

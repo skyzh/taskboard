@@ -1,16 +1,21 @@
 ## Automated handoff (v1)
 
-Use Taskboard at `<BOARD_HTTPS_URL>` for project `<PROJECT>`. With my opt-in,
-verify the enrolled recipient, allowed queue, reviewed checkout, and existing
-Raft Computer jobs. Use the
-[managed Ready watcher](https://github.com/skyzh/taskboard/blob/main/docs/taskboard/AGENT-STARTUP.md#start-one-ready-count-watcher)
-to wake the enrolled agent today. Let that agent take one eligible linked ask,
-read its source and acceptance criteria, and record Start, evidence, and the
-result or concrete blocker on the same ask. Leave acknowledgment to the requester.
+Use Taskboard at `<BOARD_HTTPS_URL>` for project `<PROJECT>`. Verify the
+recipient, authorized checkout, and existing jobs before starting a watcher.
+For an enrolled Raft agent that needs a wake, use the
+[managed Ready watcher](https://github.com/skyzh/taskboard/blob/main/docs/taskboard/AGENT-STARTUP.md#start-one-ready-count-watcher).
+The receiving agent opens the linked ask, checks its source and acceptance
+criteria, and records Start and the result or blocker on that ask.
 
-Fresh worker launch is a trial. Use it only with an approved launcher and
-runner for this queue and repository. Supply the ask, source, and acceptance
-criteria as data. Verify capacity and current assignment, then launch one
-worker for the exact offer. Record its real handle and check for an existing
-run before retrying. Keep the source ticket's owner. Show the wake, Start,
-result, and acknowledgment receipts and the command to stop the owned job.
+For the fresh-worker trial, follow the
+[local Codex watcher setup](https://github.com/skyzh/taskboard/blob/main/docs/taskboard/LOCAL-HANDOFF-WATCHER.md).
+Use a board that supports the verified Local DRI registration. Verify the
+signed project, one approved requester, one authorized Git checkout, and
+the installed Codex executable. Start in watch mode and confirm readiness
+before the requester sends the test ask.
+
+Handle only the approved requester's ordinary Ready asks in that project.
+Run the read-only worker after the board confirms Start. Put the result or
+blocker on the same ask and leave acknowledgment to the requester. Read
+Activity and check the existing worker before any retry. Show one Start,
+one result, and the stop command and readiness check.

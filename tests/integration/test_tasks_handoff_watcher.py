@@ -61,6 +61,10 @@ class LocalHandoffWatcherTest(unittest.TestCase):
             "id": "T-1", "transition": "create", "recipient": agent_id,
             "note": "Read sample.txt in the fixture repo. Report the exact short receipt code it contains.",
         })
+        fixture.action(asker, "create-task", {"title": "Separate high priority work", "step": "Inspect by hand."})
+        fixture.action(asker, "set-priority", {"id": "T-3", "priority": "high"})
+        fixture.action(asker, "handoff", {"id": "T-3", "owner": agent_id, "note": "Inspect by hand."})
+        self.assertEqual(board.invoke("my-next", {"project": "T"})["work"]["key"], "T-3")
         repo = fixture.database.parent / "fixture"
         repo.mkdir()
         (repo / "sample.txt").write_text("PAPER-417\n", encoding="utf-8")
@@ -90,5 +94,6 @@ class LocalHandoffWatcherTest(unittest.TestCase):
         self.assertEqual(result["actor"], agent_id)
         self.assertIn("PAPER-417", result["note"])
         self.assertEqual(board.invoke("task", {"id": "T-1"})["task"]["dri"], asker_id)
+        self.assertEqual(board.invoke("task", {"id": "T-3"})["task"]["state"], "ready")
         if local:
             self.assertFalse(report_watcher(board, watcher, "stopped", asker_id)["watcher_ready"])

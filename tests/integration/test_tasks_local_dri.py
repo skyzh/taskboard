@@ -84,6 +84,8 @@ class LocalDRIRoutingTest(unittest.TestCase):
 
         self.assertTrue(readiness("active"))
         self.assertTrue(directory("T")[perf["id"]]["accepts_agent_asks"])
+        action(manager, "delegate", {"id": "T-1", "worker": perf["id"], "role": "review",
+                                     "brief": "Review the same request."}, status=403)
         action(manager, "peer-ask", {
             **ask, "transition": "manual-create", "review_pr": "https://github.com/example/repo/pull/1",
             "review_head": "a" * 40, "review_base": "b" * 40,
@@ -97,6 +99,12 @@ class LocalDRIRoutingTest(unittest.TestCase):
         for transition in ("assign-human", "redirect-decision", "wait"):
             action(client, "advance-task", {"id": "T-2", "transition": transition, "on": sam_id, "note": "Approve it."},
                    headers=sender, status=403)
+        action(manager, "create-task", {"project": "OPS", "title": "Separate project",
+                                        "step": "Check this other dependency."})
+        action(client, "advance-task", {
+            "id": "T-2", "transition": "park", "note": "Wait for another project.",
+            "review_on": "OPS-1", "review_criteria": "Wait for its outcome.",
+        }, headers=sender, status=403)
         self.assertEqual(action(client, "task-activity", query_string={"id": "T-2"}, headers=sender), original)
         self.assertIn("Ready for acknowledgment", action(client, "peer-ask", {
             "id": "T-2", "transition": "result", "note": "Verified the sample total.",
@@ -111,4 +119,4 @@ class LocalDRIRoutingTest(unittest.TestCase):
         with patch.object(local_dri, "now", return_value=local_dri.now() + timedelta(minutes=7)):
             self.assertFalse(directory("T")[perf["id"]]["accepts_agent_asks"])
             action(manager, "peer-ask", ask, status=403)
-        self.assertEqual(action(manager, "peer-ask", {**ask, "recipient": team_id})["receipt"].split()[0], "T-3")
+        self.assertEqual(action(manager, "peer-ask", {**ask, "recipient": team_id})["receipt"].split()[0], "T-4")
