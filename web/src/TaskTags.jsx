@@ -9,7 +9,7 @@ export default function TaskTags({ task, editable, onChanged }) {
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState(null)
   const tags = task.tags || []
-  if (!editable && !tags.length) return null
+  if (!editable) return null
 
   async function save(tag, action) {
     if (saving) return
@@ -46,22 +46,20 @@ export default function TaskTags({ task, editable, onChanged }) {
           {tags.map(tag => (
             <li key={tag}>
               <span>{tag}</span>
-              {editable && <button type="button" disabled={saving} aria-label={`Remove tag ${tag}`}
-                onClick={() => save(tag, 'remove')}>Remove</button>}
+              <button type="button" disabled={saving} aria-label={`Remove tag ${tag}`}
+                onClick={() => save(tag, 'remove')}>Remove</button>
             </li>
           ))}
         </ul>
       )}
-      {editable && (
-        <form className="task-tag-form" onSubmit={add} data-reload-blocked={Boolean(saving || draft)}>
-          <label>Tag
-            <input type="text" value={draft} maxLength={maxLength} required disabled={saving}
-              autoCapitalize="none" spellCheck={false}
-              onChange={event => { setDraft(event.target.value); setNotice(null) }} />
-          </label>
-          <button type="submit" disabled={saving || !draft.trim()}>Add tag</button>
-        </form>
-      )}
+      <form className="task-tag-form" onSubmit={add} data-reload-blocked={Boolean(saving || draft)}>
+        <label>Tag
+          <input type="text" value={draft} maxLength={maxLength} required disabled={saving}
+            autoCapitalize="none" spellCheck={false}
+            onChange={event => { setDraft(event.target.value); setNotice(null) }} />
+        </label>
+        <button type="submit" disabled={saving || !draft.trim()}>Add tag</button>
+      </form>
       {notice && <p role={notice.error ? 'alert' : 'status'}>{notice.text}</p>}
     </section>
   )

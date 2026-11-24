@@ -1111,6 +1111,40 @@ test('ticket detail uses the current record and keeps sources and evidence', () 
   assert.doesNotMatch(markup, /class="detail-checklist"/)
 })
 
+test('ticket details show the saved schedule and populated properties without repeating them in the work note', () => {
+  const record = {
+    task: { id: 1, key: 'T-1', title: 'Check the CSV', state: 'parked', summary_label: 'Reason for parking',
+      note: 'Wait for a fresh input file.', context: {}, tags: ['fixture'], eta: '2030-04-04T20:00:00Z' },
+    brief: 'Compare the sample rows.', checklist: [], sources: [], workers: [],
+  }
+  const zone = createTimeZoneFormatters('America/New_York')
+  fixture.resources = { '/tasks/1': { data: record } }
+  fixture.pages = {}
+  const render = (context, wide = false) => {
+    record.task.context = context
+    fixture.state = [true, false, wide]
+    return renderToStaticMarkup(React.createElement(TimeZoneContext.Provider, { value: zone },
+      React.createElement(TaskDetail, { id: 1, session: {} })))
+  }
+  for (const wide of [false, true]) {
+    const date = render({ review_after: '2030-04-01' }, wide)
+    assert.match(date, /class="ticket-properties"><div><dt>Review date<\/dt><dd><time dateTime="2030-04-01">2030-04-01<\/time>/)
+    assert.match(date, /<dt>Estimated completion<\/dt><dd><time/)
+    assert.match(date, /<dt>Tags<\/dt><dd>fixture<\/dd>/)
+    assert.equal(date.split('2030-04-01').length, 3)
+    assert.match(date, /Wait for a fresh input file\./)
+    assert.match(date, /Compare the sample rows\./)
+    assert.doesNotMatch(date, /Review on or after|<dt>Defer until/)
+    const instant = '2030-04-02T03:30:00Z'
+    const exact = render({ defer_until: instant }, wide)
+    assert.ok(exact.includes(`<dt>Defer until</dt><dd><time dateTime="${instant}">${zone.formatTimestamp(instant)}</time>`))
+    assert.doesNotMatch(exact, /<dt>Review date|Deferred until/)
+  }
+  delete record.task.eta
+  delete record.task.tags
+  assert.doesNotMatch(render({}), /ticket-properties|<dt>Review date|<dt>Defer until/)
+})
+
 test('ticket editors share the signed guidance read for the ticket project', () => {
   const path = '/projects/COURSE/field-guidance'
   fixture.resources = {
@@ -1563,7 +1597,7 @@ test('the ticket shows its tags and enables changes in authorized Edit mode', ()
     fixture.state = [true, editing]
     return renderToStaticMarkup(React.createElement(TaskDetail, { id: task.key, session }))
   }
-  assert.match(detail(task, false), /aria-label="Task tags".*<span>reflection<\/span>/)
+  assert.match(detail(task, false), /<dt>Tags<\/dt><dd>reflection<\/dd>/)
   assert.doesNotMatch(detail(task, false), /Remove tag reflection|Add tag/)
   assert.doesNotMatch(detail(task, true, { pending: true }), /Remove tag reflection|Add tag/)
   const signedAgent = { data: { actor: { kind: 'agent', id: 'fixture-agent' } } }
@@ -1573,7 +1607,8 @@ test('the ticket shows its tags and enables changes in authorized Edit mode', ()
   assert.match(editable, /aria-label="Remove tag reflection"/)
   assert.match(editable, /<label>Tag<input[^>]*maxLength="32"/)
   assert.match(editable, />Add tag<\/button>/)
-  assert.doesNotMatch(detail({ ...task, tags: undefined }, undefined), /Task tags|Add tag/)
+  assert.doesNotMatch(editable, /<dt>Tags<\/dt>/)
+  assert.doesNotMatch(detail({ ...task, tags: undefined }, undefined), /<dt>Tags<\/dt>|Add tag/)
 })
 
 test('tag edits use the exact ticket route and retain an invalid or unsaved draft', async () => {
