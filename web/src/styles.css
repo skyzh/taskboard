@@ -1119,11 +1119,36 @@ button:disabled { opacity: .57; }
 .schedule-editor fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: .65rem; padding: 0; margin: 0 0 .6rem; border: 0; }
 .schedule-panel label { display: grid; gap: .2rem; }
 
-.integration-workflow { display: block; max-inline-size: 100%; margin-block: .4rem .55rem; }
+.integrations-setup { max-width: 50rem; }
+.integration-paths {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1.25rem;
+  list-style: none;
+  margin: .5rem 0 .85rem;
+  padding: 0;
+}
+.integration-paths li { display: flex; position: relative; }
+.integration-paths button { width: 100%; min-height: 2.75rem; white-space: normal; }
+.integration-path-arrow { position: absolute; inset-inline-start: -1rem; top: calc(50% - 7px); color: var(--muted); }
+@media (max-width: 48rem) {
+  .integration-paths { grid-template-columns: 1fr; gap: .9rem; }
+  .integration-path-arrow { inset-inline-start: calc(50% - 7px); top: -.9rem; transform: rotate(90deg); }
+}
+.integration-identity { display: grid; justify-items: start; gap: .45rem; margin-bottom: .95rem; }
+.integration-setup-note { color: var(--muted); font-size: .88rem; }
+.integration-dri-id { overflow-wrap: anywhere; }
+.integration-registration-form { width: min(100%, 25rem); }
+.integration-project { margin-bottom: .85rem; }
+.integration-path-details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .35rem .6rem; }
+.integration-path-details dt { font-weight: var(--weight-emphasis); }
+.integration-path-details dd { margin: 0; }
+.integration-paths button[aria-pressed="true"] { border-color: var(--green); color: var(--green); }
+.integration-instruction-actions { display: flex; flex-wrap: wrap; gap: .4rem .65rem; }
 .integration-publishing-instructions { display: grid; gap: .25rem; margin-block-start: .65rem; }
 .integration-publishing-instructions textarea { width: 100%; min-width: 0; }
 .integrations .personal-codex-prompt { overflow-wrap: anywhere; white-space: pre-wrap; }
-.integration-guide-link { margin-block-start: .65rem; }
+.integration-guide-link { display: flex; flex-wrap: wrap; gap: .35rem .75rem; margin-block-start: .65rem; }
 .cli-login-command, .cli-sign-in-code { margin-block: .45rem .65rem; overflow-wrap: anywhere; }
 .cli-sign-in-code code { font-size: 1.25rem; letter-spacing: .06em; }
 

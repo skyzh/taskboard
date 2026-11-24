@@ -7518,7 +7518,7 @@ class TasksServiceTest(unittest.TestCase):
             ("Quinn", "#about"), ("Casey", "#reports?project=COURSE"),
             ("Casey", "#reports?project=COURSE&view=all"), ("Sam", "#knowledge"),
             ("Sam", "#knowledge?entry=SRE-2"), ("Quinn", "#knowledge?q=sample+rule"),
-            ("Sam", "#integrations?cli=" + "a" * 64),
+            ("Sam", "#integrations?cli=" + "a" * 64), ("Sam", "#integrations?project=COURSE"),
         ):
             with self.subTest(fragment=fragment):
                 self.provider.issued.discard(name)
@@ -7531,7 +7531,7 @@ class TasksServiceTest(unittest.TestCase):
         for fragment in (
             "#reports?project=//other.example", "#reports?project=COURSE&project=T",
             "#knowledge?entry=SRE-2&next=//other.example", "#knowledge?q=sample&q=rule",
-            "#integrations?cli=0&next=//other.example",
+            "#integrations?cli=0&next=//other.example", "#integrations?project=COURSE&next=//other.example",
         ):
             self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
 

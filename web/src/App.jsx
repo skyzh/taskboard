@@ -251,8 +251,10 @@ export default function App() {
       : null,
     revision,
   )
+  const integrationsParams = new URLSearchParams(view === 'integrations' ? taskContext : undefined)
+  const integrationsProject = visibleProjects?.find(item => item.prefix === integrationsParams.get('project'))?.prefix
   const personalAgentsLink = session.data?.actor?.kind === 'human'
-    ? <a href="#integrations">Personal Agents</a> : null
+    ? <a href={allReports ? '#integrations' : `#integrations?project=${project}`}>Personal Agents</a> : null
   const showAllReports = view === 'reports' && hasProjectChoices && allReports
   const reportsPending = Boolean((allReports || requestedReportsProject) && !visibleProjects &&
     (sessionResource.pending || (hasSession && !projectList.error)))
@@ -351,8 +353,10 @@ export default function App() {
             project={visibleProjects?.some(item => item.prefix === project) ? project : visibleProjects?.[0]?.prefix || 'T'}
             projects={visibleProjects} revision={revision} />}
           {view === 'about' && <About revision={revision} />}
-          {view === 'integrations' && <Integrations session={session}
-            challenge={new URLSearchParams(taskContext).get('cli')} />}
+          {view === 'integrations' && <Integrations session={session} project={integrationsProject}
+            projects={visibleProjects} revision={revision}
+            onProjectChange={value => writeFilterFragment(value ? `integrations?project=${value}` : 'integrations', true)}
+            challenge={integrationsParams.get('cli')} />}
           {view === 'knowledge' && <Knowledge session={session} verified={verified} revision={revision} projects={visibleProjects}
             onChanged={refresh} RecordTools={KnowledgeRecordTools}
             search={knowledgeFilters.get('q') || ''} entry={knowledgeFilters.get('entry')} history={knowledgeFilters.get('history')}
