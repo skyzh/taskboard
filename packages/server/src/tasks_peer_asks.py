@@ -277,9 +277,12 @@ def create(db, args, links, *, named_wait=None):
         project = projects.row_project(source)
         if profile["project"] != project:
             raise PermissionError("Choose a Local DRI registered for this project.")
+        if (args.review_run or getattr(args, "manual_review", None) or getattr(args, "stamp_review", None)):
+            raise ValueError("Send pinned and worker-linked reviews to a Team DRI.")
         sender = db.execute("SELECT kind FROM board_principals WHERE ledger_key = ?", (args.by,)).fetchone()
-        if sender is not None and sender["kind"] == "agent" and not local_dri.ready(db, args.recipient, project):
-            raise PermissionError("Set up the Local DRI watcher before sending an agent ask.")
+        if (sender is not None and sender["kind"] == "agent"
+                and not local_dri.ready(db, args.recipient, project, requester=args.by)):
+            raise PermissionError("Set up the Local DRI watcher for this requester before sending the ask.")
     manual_review = getattr(args, "manual_review", None)
     if manual_review:
         if source["state"] not in ("ready", "in_progress", "waiting"):

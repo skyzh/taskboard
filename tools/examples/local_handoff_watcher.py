@@ -3,17 +3,20 @@
 import argparse
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
 from time import sleep
+from uuid import uuid4
 
 from tools.checkout import add_packages
 
 add_packages("client")
 
 from taskboard_client import SharedBoard
+from taskboard_client.direct import DirectBoard
 from taskboard_client.references import prefix
 
 
@@ -56,11 +59,24 @@ def codex_worker(executable, directory, work):
     return ("Blocked. " if result["status"] == "blocked" else "") + note.strip()
 
 
-def run_one(board, *, actor, url, project, requester, worker):
+def verify_context(board, actor, url, project):
     context = board.invoke("context")
     if (context["actor"]["kind"] != "agent" or context["actor"]["id"] != actor
-            or context["board"].rstrip("/") != url.rstrip("/")):
-        raise ValueError("The signed agent or board differs from the selected watcher.")
+            or context["board"].rstrip("/") != url.rstrip("/")
+            or (actor.startswith("local-dri:") and (
+                context["actor"].get("dri_kind") != "local" or context.get("project") != project
+            ))):
+        raise ValueError("The signed agent, board, or project differs from the selected watcher.")
+
+
+def report_watcher(board, watcher, state, requester):
+    return board.api("/api/v1/raft/local-dri-watcher", "POST", {
+        "watcher": watcher, "state": state, "requester": requester,
+    })
+
+
+def run_one(board, *, actor, url, project, requester, worker):
+    verify_context(board, actor, url, project)
     offer = board.invoke("my-next", {"project": project})["work"]
     if not offer or offer["kind"] != "ready":
         return None
@@ -93,6 +109,10 @@ def run_one(board, *, actor, url, project, requester, worker):
     return board.invoke("peer-ask", {"id": ticket, "transition": "result", "note": note}, write=True)["receipt"]
 
 
+def stop_watcher(_signum, _frame):
+    raise KeyboardInterrupt
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--board", required=True, help="Expected HTTPS board URL, including its mount.")
@@ -108,9 +128,22 @@ def main(argv=None):
     if (not executable.is_absolute() or not executable.is_file()
             or not os.access(executable, os.X_OK) or not (directory / ".git").exists()):
         parser.error("Choose an executable by absolute path and an existing Git checkout.")
+    local = args.actor.startswith("local-dri:")
+    watcher = str(uuid4()) if local and args.watch else None
+    active = False
+    if watcher:
+        signal.signal(signal.SIGTERM, stop_watcher)
     try:
-        board = SharedBoard(args.service)
+        board = DirectBoard(args.board, local_dri=args.actor) if local else SharedBoard(args.service)
+        verify_context(board, args.actor, args.board, args.project)
+        if watcher and subprocess.run(
+            [executable, "login", "status"], cwd=directory, capture_output=True, timeout=20,
+        ).returncode:
+            raise ValueError("Sign in to Codex on this Computer before starting the watcher.")
         while True:
+            if watcher:
+                active = True
+                report_watcher(board, watcher, "active", args.requester)
             receipt = run_one(
                 board, actor=args.actor, url=args.board, project=args.project, requester=args.requester,
                 worker=lambda work: codex_worker(str(executable), directory, work),
@@ -122,9 +155,15 @@ def main(argv=None):
             sleep(30)
     except KeyboardInterrupt:
         return 0
-    except (KeyError, OSError, ValueError, RuntimeError) as error:
+    except (KeyError, OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(f"Local handoff watcher: {error}", file=sys.stderr)
         return 1
+    finally:
+        if active:
+            try:
+                report_watcher(board, watcher, "stopped", args.requester)
+            except (OSError, ValueError, RuntimeError):
+                print("Could not clear watcher readiness. The board lease will expire.", file=sys.stderr)
 
 
 if __name__ == "__main__":

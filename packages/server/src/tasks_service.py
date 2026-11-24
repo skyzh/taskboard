@@ -1025,7 +1025,7 @@ def create_app(
             profile = g.get("local_dri")
             if profile is None:
                 raise RequestError("Select an owned Local DRI to report watcher readiness.", 403)
-            data = json_body({"watcher", "state"})
+            data = json_body({"watcher", "state", "requester"})
             try:
                 watcher = str(UUID(text(data, "watcher", maximum=36)))
             except ValueError as error:
@@ -1033,8 +1033,11 @@ def create_app(
             state = data.get("state")
             if state not in ("active", "stopped"):
                 raise RequestError("Choose active or stopped as the watcher state.")
+            requester = require_person(text(data, "requester", maximum=160), "agent") if state == "active" else None
+            if requester == profile["actor"]:
+                raise RequestError("Choose a different agent as the Local DRI's requester.")
             with tasks_storage.write(db()) as connection:
-                local_dri.mark_watcher(connection, profile["actor"], watcher, state == "active")
+                local_dri.mark_watcher(connection, profile["actor"], watcher, requester)
                 ready = local_dri.ready(connection, profile["actor"], profile["project"])
             return personal_api_response({"project": profile["project"], "watcher_ready": ready,
                                           "receipt": "Local DRI watcher state recorded."})
@@ -2621,7 +2624,7 @@ def create_app(
             raise NotFound()
         return profile_image(row["avatar"], digest)
 
-    def assignees(data, *, signed=False):
+    def assignees(data, *, requester=None):
         paging = page_args(data)
         term = text(data, "query", optional=True, maximum=100) or ""
         limit = paging["limit"]
@@ -2650,9 +2653,10 @@ def create_app(
         items = []
         for row in rows[:limit]:
             profile = profiles.public_profile(row, base)
-            if signed and row["kind"] == "agent":
+            if requester is not None and row["kind"] == "agent":
                 is_local = local_dri.registration(connection, row["ledger_key"]) is not None
-                ready = not is_local or local_dri.ready(connection, row["ledger_key"], project)
+                sender = requester["ledger_key"] if requester["kind"] == "agent" else None
+                ready = not is_local or local_dri.ready(connection, row["ledger_key"], project, requester=sender)
                 profile.update(accepts_agent_asks=ready,
                                agent_ask_restriction=None if ready else local_dri.WATCHER_REQUIRED)
             items.append(profile)
@@ -2663,7 +2667,7 @@ def create_app(
 
     @app.get("/api/v1/assignees")
     def people():
-        return assignees(request.args, signed=current_actor() is not None)
+        return assignees(request.args, requester=current_actor())
 
     def assignee_candidates(name, project):
         filters = {"query": name.removeprefix("@"), "project": project}
@@ -3064,7 +3068,7 @@ def create_app(
         if name == "task-tag":
             return change_tag(actor, task_number(data.get("id")), data)
         if name == "assignees":
-            return assignees(data, signed=True)
+            return assignees(data, requester=actor)
         if name == "my-watches":
             return query().events(watcher=key, project=project_scope(data), **page_args(data))
         if name == "my-activity":

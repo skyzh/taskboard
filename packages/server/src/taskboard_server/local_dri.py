@@ -18,6 +18,7 @@ SCHEMA = (
     CREATE TABLE IF NOT EXISTS local_dri_watchers (
         actor TEXT PRIMARY KEY REFERENCES local_dris (actor),
         watcher TEXT NOT NULL,
+        requester TEXT NOT NULL REFERENCES board_principals (ledger_key),
         expires_at TEXT NOT NULL
     )
     """,
@@ -53,12 +54,13 @@ def registration(db, actor):
     return db.execute("SELECT * FROM local_dris WHERE actor = ?", (actor,)).fetchone()
 
 
-def ready(db, actor, project):
+def ready(db, actor, project, *, requester=None):
     return db.execute(
         """
         SELECT 1 FROM local_dri_watchers AS watcher JOIN local_dris AS local ON local.actor = watcher.actor
         WHERE watcher.actor = ? AND local.project = ? AND watcher.expires_at > ?
-        """, (actor, project, now().isoformat()),
+          AND (? IS NULL OR watcher.requester = ?)
+        """, (actor, project, now().isoformat(), requester, requester),
     ).fetchone() is not None
 
 
@@ -78,13 +80,14 @@ def owned(db, owner):
     ]
 
 
-def mark_watcher(db, actor, watcher, active):
-    if active:
+def mark_watcher(db, actor, watcher, requester):
+    if requester is not None:
         db.execute(
             """
-            INSERT INTO local_dri_watchers (actor, watcher, expires_at) VALUES (?, ?, ?)
-            ON CONFLICT (actor) DO UPDATE SET watcher = excluded.watcher, expires_at = excluded.expires_at
-            """, (actor, watcher, (now() + LEASE).isoformat()),
+            INSERT INTO local_dri_watchers (actor, watcher, requester, expires_at) VALUES (?, ?, ?, ?)
+            ON CONFLICT (actor) DO UPDATE SET watcher = excluded.watcher, requester = excluded.requester,
+                expires_at = excluded.expires_at
+            """, (actor, watcher, requester, (now() + LEASE).isoformat()),
         )
     else:
         db.execute("DELETE FROM local_dri_watchers WHERE actor = ? AND watcher = ?", (actor, watcher))

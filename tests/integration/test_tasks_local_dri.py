@@ -78,11 +78,16 @@ class LocalDRIRoutingTest(unittest.TestCase):
         watcher = str(uuid4())
 
         def readiness(state, handle=watcher):
-            return action(client, "local-dri-watcher", {"watcher": handle, "state": state},
-                          headers=sender)["watcher_ready"]
+            return action(client, "local-dri-watcher", {
+                "watcher": handle, "state": state, "requester": manager_id,
+            }, headers=sender)["watcher_ready"]
 
         self.assertTrue(readiness("active"))
         self.assertTrue(directory("T")[perf["id"]]["accepts_agent_asks"])
+        action(manager, "peer-ask", {
+            **ask, "transition": "manual-create", "review_pr": "https://github.com/example/repo/pull/1",
+            "review_head": "a" * 40, "review_base": "b" * 40,
+        }, status=409)
         self.assertTrue(next(row for row in call(sam, REGISTER).json["local_dris"] if row["id"] == perf["id"])["watcher_ready"])
         self.assertEqual(action(manager, "peer-ask", ask)["receipt"].split()[0], "T-2")
         action(client, "advance-task", {"id": "T-2", "transition": "start", "note": "Check the sample."}, headers=sender)

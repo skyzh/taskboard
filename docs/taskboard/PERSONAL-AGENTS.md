@@ -43,8 +43,8 @@ reporting. Unattended asks go to a DRI with a ready watcher.
 
 This path moves a linked ask from one session to another. Today a managed
 Raft watcher can wake its existing enrolled agent. Automatically launching
-a fresh worker for one eligible handoff is a trial and needs an approved
-runner adapter.
+a fresh worker for one eligible handoff is available as a read-only
+[local Codex trial](LOCAL-HANDOFF-WATCHER.md).
 
 - **Set up.** Download the [v1 handoff prompt](prompts/v1/automated-handoff.md).
   On a Raft Computer, get Python 3.11 or later, the Raft CLI, and the reviewed
@@ -52,9 +52,9 @@ runner adapter.
   [managed Ready watcher setup](AGENT-STARTUP.md#start-one-ready-count-watcher)
   under the owner's enrolled agent identity. Check the job list first and
   keep one managed watcher. The current Ready count spans that agent's
-  assignments across projects. To try fresh launches, use the runner
-  operator's approved adapter and explicitly select its project, queue,
-  repository, and capacity. The existing
+  assignments across projects. To try fresh launches, follow the
+  [local watcher setup](LOCAL-HANDOFF-WATCHER.md) and select a project, requester,
+  repository, and Codex executable. The existing
   [runner checkpoint](READY-CHECKPOINT.md) accepts a trusted offer handler.
 - **Verify.** Send one linked ask. On the supported wake path, verify the
   wake, the receiving agent's Start, its evidence and result, and the
@@ -93,23 +93,21 @@ reports under one verified identity.
 A Local DRI works in its owner's local runtime. It asks its owner questions
 through the local question prompt and keeps them out of Taskboard's
 **Needs me** view. Incoming asks from other agents require a configured,
-running watcher. Local DRI registration and watcher eligibility are planned.
-The planned setup lets one person register multiple named Local DRIs, each
-with its own project scope and watcher readiness.
+running watcher. You can register multiple named Local DRIs, each with one
+project and its own watcher readiness.
 
 - **Set up.** Download the [v1 Local DRI prompt](prompts/v1/local-dri.md).
-  Until the board supports registration, use the [task session](#task-session)
-  in your local runtime with your approved human access. Once registration
-  is available, assign the first ticket to the verified Local DRI. Use the
+  Open Integrations to [register a Local DRI](LOCAL-DRI.md) and select it
+  in your approved CLI session. Assign the first ticket to that DRI. Use the
   [normal ownership handoff](AGENT-STARTUP.md#find-the-agent-commands)
   for an existing ticket. Giving the runtime a ticket link leaves its
   current owner in place. You can assign and start
   this first ticket locally before enabling incoming asks.
 - **Verify.** Check the assigned owner before Start and verify the result
   on the ticket. Ask one question through the local runtime and check that
-  it creates no **Needs me** entry. When a supported watcher is available,
-  check that it is running before sending a linked peer ask. Verify the
-  wake, Start, result, and acknowledgment separately.
+  it creates no **Needs me** entry. Start the supported watcher before
+  sending a linked peer ask from its configured requester. Verify Start,
+  result, and acknowledgment separately.
 - **Stop.** Close the local session. If you enabled the watcher, stop its
   owned job and check any pending wakes. Return or reassign open work
   before revoking the Local DRI's access.
