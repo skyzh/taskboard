@@ -1574,7 +1574,7 @@ def create_app(
         if oidc is not None:
             actor = oidc.actor()
             return {"actor": actor_profile(actor) if actor else None,
-                    "sign_in_available": True, "sign_in_provider": "oidc"}
+                    "sign_in_available": True, "sign_in_provider": "oidc", **registration_capability(actor)}
         if marketplace and raft.identity() is None:
             return {"actor": None, "sign_in_available": True}
         actor = current_actor()
@@ -1588,7 +1588,7 @@ def create_app(
                 }
             return {"actor": {"id": None, "name": "Local reader", "kind": "local", "role": None, "avatar_url": None},
                     **transport}
-        return {"actor": actor_profile(actor), **transport}
+        return {"actor": actor_profile(actor), **registration_capability(actor), **transport}
 
     @app.get("/api/v1/account/codex-usage")
     def account_codex_usage():
@@ -1662,6 +1662,18 @@ def create_app(
 
     def manages_project_admin_permissions(actor):
         return g.get("personal_agent_api") is None and project_admin.manager(actor, project_admin_subject)
+
+    def registration_capability(actor):
+        return {"can_manage_registrations": True} if actor and manages_project_admin_permissions(actor) else {}
+
+    @app.get("/api/v1/admin/registrations")
+    def registrations():
+        actor = current_actor(required=True, sync_profile=False)
+        if not manages_project_admin_permissions(actor):
+            raise RequestError("Use the signed-in permission manager to view board registrations.", 403)
+        response = jsonify(items=project_admin.registrations(db(), actor["server_id"]))
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     def project_admin_state(connection, actor):
         manage = manages_project_admin_permissions(actor)
