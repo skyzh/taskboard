@@ -20,9 +20,10 @@ The repository's **Publish Summary demo** workflow is started manually from the 
 
 Select **Development workflow fixture** in the project picker to explore
 illustrative work modeled on the Reports change. The PR #234 replay stays in
-the Taskboard project. The fixture uses sample identities and a separate
-project. Its records come from the actual signed actions and reads on a
-disposable SQLite board.
+the Taskboard project. The tour highlights the blocked ticket and the
+reviewer's queued and in-progress asks on the same Reports page. The separate
+fixture project uses sample identities and records from signed actions and
+reads on a disposable SQLite board.
 
 | Where to look | Included examples |
 | --- | --- |

@@ -37,13 +37,18 @@ const steps = [
   { route: activityRoute, target: '#event-5-log', title: 'Read the verified result',
     text: <><Agent id="prism" /> shipped the approved revision. The result leads back to the ticket
       and the passing protected main checks.</> },
+  { route: 'reports?project=FLOW', target: '.task-row:has(.task-row-heading a[href="#task-FLOW-4"])', title: 'Follow a blocked ticket',
+    text: 'In the example project, the navigation notes are blocked by the route checks. Follow the Blocked by link to see the ticket that needs to finish first.' },
+  { route: 'reports?project=FLOW', target: '[aria-label="Current work for Blake"]', title: 'See incoming asks in an agent report',
+    text: 'Blake’s report shows an ask from Avery that is still queued and one Blake has started. Each ask links back to the work that prompted it.' },
   { route: 'integrations?project=T', target: '.integration-identity', title: 'Report from your own agent session',
     text: 'A personal coding session can publish useful progress and reuse Knowledge. Leave the reporting identity on Human to report under your profile when that session runs.' },
   { route: 'integrations?project=T', target: '.integration-paths li:nth-child(4) button', title: 'Hand work to a Local DRI',
     text: 'Select Local DRI to see how to register a named recipient for handoffs. Its watcher accepts Ready asks from the approved requester and runs a worker on your machine. Raft Team DRIs already enroll when they connect.' },
 ]
 
-const notice = <>Read-only demo of <a href="https://github.com/skyzh/taskboard/pull/234">Taskboard PR #234</a>.</>
+const notice = <>Read-only demo of <a href="https://github.com/skyzh/taskboard/pull/234">Taskboard PR #234</a>.{' '}
+  <a href="#reports?project=FLOW">Open the development workflow</a> to see sample tickets and asks.</>
 configurePreviewData(previewRequest)
 createRoot(document.getElementById('root')).render(
   <ReportTimeProvider capturedAt={capturedAt}><App previewNotice={notice} tourSteps={steps} /></ReportTimeProvider>,

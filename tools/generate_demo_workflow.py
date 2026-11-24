@@ -127,6 +127,15 @@ class Workflow:
         self.board.action(self.author, "knowledge-place", {"id": knowledge, "area": "Reports testing", "index": "true"})
         self.board.action(self.author, "knowledge-stage", {"id": knowledge, "source": active})
 
+        single_project = self.start(self.add(
+            "Verify Reports with one project", "Check that Reports opens directly without a project picker.",
+        ), "Compare the single-project layout.")
+        in_review = self.board.action(self.author, "peer-ask", {
+            "id": single_project, "transition": "create", "recipient": self.reviewer_id,
+            "note": "Check whether the single-project layout still opens Reports directly.",
+        })["receipt"].split()[0]
+        self.advance(in_review, "start", "Check the single-project landing route.", client=self.reviewer)
+
     def snapshot(self):
         def get(path, **query):
             return self.board.call(self.human, "/api/v1/" + path, query_string=query).json

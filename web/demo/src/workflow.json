@@ -1,6 +1,159 @@
 {
   "activity": [
     {
+      "action": "start",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "at": "2026-11-24T06:02:00+00:00",
+      "context": {},
+      "id": 50,
+      "label": "Started",
+      "links": [],
+      "note": "Check the single-project landing route.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 20,
+      "task_key": "FLOW-15",
+      "task_title": "Check whether the single-project layout still opens Reports directly",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "wait",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T06:01:20+00:00",
+      "context": {
+        "peer_ask_ticket": "FLOW-15"
+      },
+      "id": 49,
+      "label": "Wait recorded",
+      "links": [],
+      "note": "Waiting for peer request FLOW-15.",
+      "related_tasks": [
+        {
+          "id": 20,
+          "key": "FLOW-15",
+          "title": "Check whether the single-project layout still opens Reports directly",
+          "url": "#task-FLOW-15"
+        }
+      ],
+      "state": "waiting",
+      "task_id": 19,
+      "task_key": "FLOW-14",
+      "task_title": "Verify Reports with one project",
+      "waiting_on": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "waiting_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      }
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T06:01:00+00:00",
+      "context": {},
+      "id": 48,
+      "label": "Created",
+      "links": [],
+      "note": "Check whether the single-project layout still opens Reports directly.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 20,
+      "task_key": "FLOW-15",
+      "task_title": "Check whether the single-project layout still opens Reports directly",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "start",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T06:00:40+00:00",
+      "context": {},
+      "id": 47,
+      "label": "Started",
+      "links": [],
+      "note": "Compare the single-project layout.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 19,
+      "task_key": "FLOW-14",
+      "task_title": "Verify Reports with one project",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T06:00:00+00:00",
+      "context": {},
+      "id": 46,
+      "label": "Created",
+      "links": [],
+      "note": "Check that Reports opens directly without a project picker.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 19,
+      "task_key": "FLOW-14",
+      "task_title": "Verify Reports with one project",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
       "action": "log",
       "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
       "actor_profile": {
@@ -1269,10 +1422,10 @@
       "closed": 1,
       "done": 3,
       "human_review": 1,
-      "in_progress": 1,
+      "in_progress": 2,
       "parked": 1,
       "ready": 2,
-      "waiting": 3
+      "waiting": 4
     },
     "decisions": {
       "items": [
@@ -1324,6 +1477,42 @@
     },
     "now": {
       "items": [
+        {
+          "action": "start",
+          "at": "2026-11-24T06:02:00+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {},
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "kind": "agent",
+            "name": "Blake",
+            "role": null,
+            "username": "blake"
+          },
+          "event_id": 50,
+          "id": 20,
+          "key": "FLOW-15",
+          "links": [],
+          "note": "Check the single-project landing route.",
+          "peer_request": {
+            "asked_at": "2026-11-24T06:01:00+00:00",
+            "phase": "in_progress",
+            "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "source_id": 19,
+            "source_key": "FLOW-14"
+          },
+          "priority": "normal",
+          "state": "in_progress",
+          "summary_label": "Current step",
+          "title": "Check whether the single-project layout still opens Reports directly",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
         {
           "action": "wait",
           "at": "2026-11-24T05:48:20+00:00",
@@ -2435,6 +2624,293 @@
         }
       }
     },
+    "FLOW-14": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T06:01:20+00:00",
+          "id": 49
+        },
+        "ownership_actions": [],
+        "related_tasks": [
+          {
+            "id": 20,
+            "key": "FLOW-15",
+            "title": "Check whether the single-project layout still opens Reports directly",
+            "url": "#task-FLOW-15"
+          }
+        ],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "wait",
+          "at": "2026-11-24T06:01:20+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "peer_ask_ticket": "FLOW-15"
+          },
+          "decision_request_id": null,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "eta": null,
+          "event_id": 49,
+          "id": 19,
+          "key": "FLOW-14",
+          "links": [],
+          "note": "Waiting for peer request FLOW-15.",
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "waiting",
+          "summary_label": "Unblock condition",
+          "title": "Verify Reports with one project",
+          "wait_kind": "person",
+          "waiting_on": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "waiting_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "kind": "agent",
+            "name": "Blake",
+            "role": null,
+            "username": "blake"
+          },
+          "waiting_since": "2026-11-24T06:01:20+00:00"
+        },
+        "workers": []
+      },
+      "events": [
+        49,
+        47,
+        46
+      ],
+      "history": {
+        "46": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T06:00:00+00:00",
+            "id": 46,
+            "label": "Created"
+          },
+          "key": "FLOW-14",
+          "next": {
+            "at": "2026-11-24T06:00:40+00:00",
+            "id": 47
+          },
+          "note": "Check that Reports opens directly without a project picker.",
+          "previous": null,
+          "state": "ready",
+          "title": "Verify Reports with one project"
+        },
+        "47": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T06:00:40+00:00",
+            "id": 47,
+            "label": "Started"
+          },
+          "key": "FLOW-14",
+          "next": {
+            "at": "2026-11-24T06:01:20+00:00",
+            "id": 49
+          },
+          "note": "Compare the single-project layout.",
+          "previous": {
+            "at": "2026-11-24T06:00:00+00:00",
+            "id": 46
+          },
+          "state": "in_progress",
+          "title": "Verify Reports with one project"
+        },
+        "49": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T06:01:20+00:00",
+            "id": 49,
+            "label": "Wait recorded"
+          },
+          "key": "FLOW-14",
+          "next": null,
+          "note": "Waiting for peer request FLOW-15.",
+          "previous": {
+            "at": "2026-11-24T06:00:40+00:00",
+            "id": 47
+          },
+          "state": "waiting",
+          "title": "Verify Reports with one project"
+        }
+      }
+    },
+    "FLOW-15": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T06:02:00+00:00",
+          "id": 50
+        },
+        "ownership_actions": [],
+        "related_tasks": [],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "start",
+          "at": "2026-11-24T06:02:00+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {},
+          "decision_request_id": null,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "kind": "agent",
+            "name": "Blake",
+            "role": null,
+            "username": "blake"
+          },
+          "eta": null,
+          "event_id": 50,
+          "id": 20,
+          "key": "FLOW-15",
+          "links": [],
+          "note": "Check the single-project landing route.",
+          "peer_request": {
+            "asked_at": "2026-11-24T06:01:00+00:00",
+            "phase": "in_progress",
+            "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "source_id": 19,
+            "source_key": "FLOW-14"
+          },
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "in_progress",
+          "summary_label": "Current step",
+          "title": "Check whether the single-project layout still opens Reports directly",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        "workers": []
+      },
+      "events": [
+        50,
+        48
+      ],
+      "history": {
+        "48": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T06:01:00+00:00",
+            "id": 48,
+            "label": "Created"
+          },
+          "key": "FLOW-15",
+          "next": {
+            "at": "2026-11-24T06:02:00+00:00",
+            "id": 50
+          },
+          "note": "Check whether the single-project layout still opens Reports directly.",
+          "previous": null,
+          "state": "ready",
+          "title": null
+        },
+        "50": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+              "kind": "agent",
+              "name": "Blake",
+              "role": null,
+              "username": "blake"
+            },
+            "at": "2026-11-24T06:02:00+00:00",
+            "id": 50,
+            "label": "Started"
+          },
+          "key": "FLOW-15",
+          "next": null,
+          "note": "Check the single-project landing route.",
+          "previous": {
+            "at": "2026-11-24T06:01:00+00:00",
+            "id": 48
+          },
+          "state": "in_progress",
+          "title": null
+        }
+      }
+    },
     "FLOW-2": {
       "detail": {
         "brief": "",
@@ -3507,11 +3983,11 @@
       }
     },
     {
-      "as_of": "2026-11-24T05:49:40+00:00",
+      "as_of": "2026-11-24T06:01:20+00:00",
       "goals": [],
       "last_activity": {
-        "at": "2026-11-24T05:59:40+00:00",
-        "id": 45
+        "at": "2026-11-24T06:01:20+00:00",
+        "id": 49
       },
       "legacy_peer_waits": [],
       "owner": "raft:agent:00000000-0000-0000-0000-000000000028",
@@ -3611,12 +4087,12 @@
         }
       ],
       "report_count": 0,
-      "task_count": 5,
+      "task_count": 6,
       "task_counts": {
         "human_review": 1,
         "in_progress": 1,
         "ready": 0,
-        "waiting": 3
+        "waiting": 4
       },
       "tasks": [
         {
@@ -3649,6 +4125,49 @@
           "wait_kind": "person",
           "waiting_on": null,
           "waiting_profile": null
+        },
+        {
+          "action": "wait",
+          "at": "2026-11-24T06:01:20+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "peer_ask_ticket": "FLOW-15"
+          },
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "event_id": 49,
+          "id": 19,
+          "key": "FLOW-14",
+          "last_activity_at": "2026-11-24T06:01:20+00:00",
+          "links": [],
+          "note": "Waiting for peer request FLOW-15.",
+          "priority": "normal",
+          "state": "waiting",
+          "summary_label": "Unblock condition",
+          "title": "Verify Reports with one project",
+          "wait_kind": "person",
+          "waiting_on": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "waiting_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "kind": "agent",
+            "name": "Blake",
+            "role": null,
+            "username": "blake"
+          },
+          "waiting_since": "2026-11-24T06:01:20+00:00"
         },
         {
           "action": "wait",
@@ -3812,11 +4331,11 @@
       }
     },
     {
-      "as_of": "2026-11-24T05:45:20+00:00",
+      "as_of": "2026-11-24T06:02:00+00:00",
       "goals": [],
       "last_activity": {
-        "at": "2026-11-24T05:50:00+00:00",
-        "id": 24
+        "at": "2026-11-24T06:02:00+00:00",
+        "id": 50
       },
       "legacy_peer_waits": [],
       "owner": "raft:agent:00000000-0000-0000-0000-000000000029",
@@ -3834,14 +4353,52 @@
       },
       "recent_outcomes": [],
       "report_count": 0,
-      "task_count": 1,
+      "task_count": 2,
       "task_counts": {
         "human_review": 0,
-        "in_progress": 0,
+        "in_progress": 1,
         "ready": 2,
         "waiting": 0
       },
       "tasks": [
+        {
+          "action": "start",
+          "at": "2026-11-24T06:02:00+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {},
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "kind": "agent",
+            "name": "Blake",
+            "role": null,
+            "username": "blake"
+          },
+          "event_id": 50,
+          "id": 20,
+          "key": "FLOW-15",
+          "last_activity_at": "2026-11-24T06:02:00+00:00",
+          "links": [],
+          "note": "Check the single-project landing route.",
+          "peer_request": {
+            "asked_at": "2026-11-24T06:01:00+00:00",
+            "phase": "in_progress",
+            "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "requester_name": "Avery",
+            "source_id": 19,
+            "source_key": "FLOW-14"
+          },
+          "priority": "normal",
+          "state": "in_progress",
+          "summary_label": "Current step",
+          "title": "Check whether the single-project layout still opens Reports directly",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
         {
           "action": "add",
           "at": "2026-11-24T05:45:20+00:00",
@@ -3891,6 +4448,50 @@
     }
   ],
   "request_log": [
+    {
+      "at": "2026-11-24T06:01:00+00:00",
+      "id": "peer:20",
+      "next_owner": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "next_owner_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "phase": "in_progress",
+      "recipient": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "recipient_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "request_key": "FLOW-15",
+      "request_title": "Check whether the single-project layout still opens Reports directly",
+      "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "requester_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "review": false,
+      "source_id": 19,
+      "source_key": "FLOW-14",
+      "source_title": "Verify Reports with one project"
+    },
     {
       "at": "2026-11-24T05:54:20+00:00",
       "id": "peer:17",
@@ -3980,6 +4581,84 @@
     }
   ],
   "tasks": [
+    {
+      "action": "start",
+      "at": "2026-11-24T06:02:00+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {},
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "event_id": 50,
+      "id": 20,
+      "key": "FLOW-15",
+      "links": [],
+      "note": "Check the single-project landing route.",
+      "peer_request": {
+        "asked_at": "2026-11-24T06:01:00+00:00",
+        "phase": "in_progress",
+        "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "source_id": 19,
+        "source_key": "FLOW-14"
+      },
+      "priority": "normal",
+      "state": "in_progress",
+      "summary_label": "Current step",
+      "title": "Check whether the single-project layout still opens Reports directly",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "wait",
+      "at": "2026-11-24T06:01:20+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {
+        "peer_ask_ticket": "FLOW-15"
+      },
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "event_id": 49,
+      "id": 19,
+      "key": "FLOW-14",
+      "links": [],
+      "note": "Waiting for peer request FLOW-15.",
+      "priority": "normal",
+      "state": "waiting",
+      "summary_label": "Unblock condition",
+      "title": "Verify Reports with one project",
+      "wait_kind": "person",
+      "waiting_on": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "waiting_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "waiting_since": "2026-11-24T06:01:20+00:00"
+    },
     {
       "action": "done",
       "at": "2026-11-24T05:58:00+00:00",

@@ -16,7 +16,7 @@ test('workflow tasks cover the board states and link a blocker to its source', (
   assert.deepEqual([...new Set(taskStates)].sort(),
     ['closed', 'done', 'human_review', 'in_progress', 'parked', 'ready', 'waiting'])
   const waits = get('/tasks?project=FLOW&state=waiting').items
-  assert.deepEqual(waits.map(task => task.wait_kind).sort(), ['automation', 'person', 'ticket'])
+  assert.deepEqual([...new Set(waits.map(task => task.wait_kind))].sort(), ['automation', 'person', 'ticket'])
   const blocked = waits.find(task => task.wait_kind === 'ticket')
   const [blocker] = blocked.blockers.tickets
   const dependency = get('/tasks/' + blocker.key)
@@ -37,6 +37,19 @@ test('queued and acknowledged asks resolve to a task and its requesting ticket',
   assert.equal(get('/tasks/' + queued.source_key).task.state, 'waiting')
   assert.ok(get('/activity/' + finished.response.id).event)
   assert.ok(get('/activity/' + finished.resolution.id).event)
+})
+
+test('the reviewer report shows the queued ask and the ask already in progress', () => {
+  const reports = get('/reports?project=FLOW&view=active').items
+  const reviewer = reports.find(report => report.profile.name === 'Blake')
+  const asks = reviewer.tasks.filter(task => task.peer_request)
+  assert.deepEqual(asks.map(task => task.peer_request.phase).sort(), ['asked', 'in_progress'])
+  for (const task of asks) {
+    assert.equal(task.peer_request.requester_name, 'Avery')
+    const source = get('/tasks/' + task.peer_request.source_key)
+    assert.equal(source.task.state, 'waiting')
+    assert.equal(source.task.context.peer_ask_ticket, task.key)
+  }
 })
 
 test('the fixture surfaces a decision and a staged Knowledge entry with original ticket links', () => {
