@@ -52,8 +52,9 @@ unsigned request to an authenticated shared board requires sign-in.
 
 **Settings** reads `GET /api/v1/admin/project-creation`. The result contains
 `can_create_project`, `can_manage_permissions`, and `principals`. The permission
-manager sees eligible rows with `id`, `name`, `kind`, `can_create_project`,
-and `managed`. Their own row has `managed: false`. Other callers receive an
+manager sees eligible rows with `id`, `name`, `handle`, `kind`,
+`can_create_project`, and `managed`. The verified Raft handle is null if
+unavailable. The manager's own row has `managed: false`. Other callers receive an
 empty list. The permission manager updates a grant using same-origin
 `PUT /api/v1/admin/project-creation` with `{principal, allowed}`; the response
 has the same shape as GET. Changes apply to subsequent signed requests.
