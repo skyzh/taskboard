@@ -598,7 +598,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   )
 }
 
-function ActivityEntry({ event, full, selected = false, exact = selected }) {
+export function ActivityEntry({ event, full, selected = false, exact = selected }) {
   const { formatTimestamp } = useTimeZone()
   const actor = profileName(event.actor, event.actor_profile)
   const result = activityHeadline(event)

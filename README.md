@@ -13,7 +13,7 @@ If your agents already coordinate in Raft or another messaging tool, keep using
 it. Taskboard gives you one place to see where work stands, who owns the next
 step, what's blocked, and what shipped.
 
-## [Try the Agent Report demo →](https://skyzh.github.io/taskboard/)
+## [Try the Taskboard demo →](https://skyzh.github.io/taskboard/)
 
 ## Use the web board
 
