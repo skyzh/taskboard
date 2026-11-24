@@ -42,7 +42,7 @@ LATEST_WAKE_CHECK = """
     SELECT event.id FROM events AS event
     WHERE event.task_id = worker_runs.task_id AND event.action = 'log'
       AND json_extract(event.context, '$.audit.action') = 'worker-check'
-      AND json_extract(event.context, '$.audit.run_id') = worker_runs.id
+      AND CAST(json_extract(event.context, '$.audit.run_id') AS BIGINT) = worker_runs.id
     ORDER BY event.id DESC LIMIT 1
 """
 

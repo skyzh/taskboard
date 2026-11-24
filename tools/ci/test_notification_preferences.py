@@ -78,6 +78,24 @@ class StorageReplayTest(unittest.TestCase):
     def test_postgres(self):
         self.replay(self.postgres_app(self.postgres_fixture()))
 
+    def test_postgres_worker_wake_checkpoint_matches_the_signed_run(self):
+        app = self.postgres_app(self.postgres_fixture())
+        owner, _ = self.board.login(app, "Avery")
+        worker, worker_key = self.board.login(app, "Blake")
+        action = self.board.action
+        action(owner, "create-task", {"title": "Verify a worker checkpoint", "step": "Start a sample run."})
+        action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Start the sample run."})
+        action(owner, "delegate", {"id": "T-1", "worker": worker_key, "role": "build", "brief": "Run the sample."})
+        action(owner, "worker-handoff", {"run": "W-1", "transition": "start", "handle": "sample-runtime"})
+        saved = action(owner, "worker-check", {"run": "W-1", "mode": "report"})["checkpoint"]
+        self.assertEqual(action(owner, "worker-check-show", query_string={"run": "W-1"})["checkpoint"], saved)
+        self.assertEqual(action(worker, "my-wake-workers", query_string={"status": "running"})["items"], [])
+        action(worker, "worker-handoff", {"run": "W-1", "transition": "report", "result": "completed", "note": "Checked."})
+        args = {"status": "checkpoint"}
+        self.assertEqual(action(worker, "my-wake-workers", query_string=args)["items"], [])
+        due, = action(owner, "my-wake-workers", query_string=args)["items"]
+        self.assertEqual((due["id"], due["check_event"], due["check_mode"]), (1, saved["id"], "report"))
+
     def test_wake_subscriptions_and_idle_offers_survive_sqlite_import(self):
         source_app = self.board.app(portal_reader=True)
         client, owner = self.board.login(source_app, "Avery")
