@@ -1,3 +1,6 @@
+import { createTimeZoneFormatters } from '../../src/timeZone.js'
+import workflow from './workflow.json' with { type: 'json' }
+
 const repository = 'https://github.com/skyzh/taskboard'
 const pull = repository + '/pull/234'
 const original = pull + '/commits/a987a54a79822d38d42539d2ccf7b1632c645976'
@@ -71,6 +74,19 @@ const detail = {
   checklist: [], sources, related_tasks: [], workers: [], last_activity: released,
 }
 const page = (items = []) => ({ items, next_cursor: null })
+const workflowEvents = new Map(workflow.activity.map(event => [event.id, event]))
+const combinedActivity = [...events, ...workflow.activity].sort(
+  (first, second) => Date.parse(second.at) - Date.parse(first.at) || second.id - first.id,
+)
+const workflowRecords = new Map(Object.entries(workflow.records).flatMap(([key, record]) => [
+  [key, record],
+  [String(record.detail.task.id), record],
+]))
+
+function workflowReports(view) {
+  if (view !== 'active' && view !== 'idle') return workflow.reports
+  return workflow.reports.filter(entry => (entry.task_count > 0) === (view === 'active'))
+}
 
 export function previewRequest(path, method) {
   if (method.toUpperCase() !== 'GET') {
@@ -79,47 +95,91 @@ export function previewRequest(path, method) {
   const [endpoint, query] = path.split('?')
   const filters = new URLSearchParams(query)
   const owner = filters.get('owner')
+  const projectFilter = filters.get('project')
+  const allProjects = filters.get('scope') === 'all'
+  const workflowProject = projectFilter === workflow.project.prefix
   const text = filters.get('q')?.toLowerCase()
   const matches = item => !text || `${item.key} ${item.title}`.toLowerCase().includes(text)
-  const matchingEvents = events.filter(item =>
+  const selectedTasks = allProjects ? [task, ...workflow.tasks] : workflowProject ? workflow.tasks : [task]
+  const selectedEvents = allProjects ? combinedActivity : workflowProject
+    ? workflow.activity : events
+  const matchingEvents = selectedEvents.filter(item =>
     (!filters.has('actor') || item.actor === filters.get('actor')) &&
     (!filters.has('action') || item.action === filters.get('action')) &&
-    (filters.get('detail') === 'all' || [released, blocker, approved].includes(item)))
+    (item.id > released.id || filters.get('detail') === 'all' || [released, blocker, approved].includes(item)))
   if (endpoint === '/session') return { actor: reader }
-  if (endpoint === '/projects') return page([project])
-  if (endpoint === '/revision') return { revision: 'public-demo-234' }
-  if (endpoint === '/reports') return page(reports)
-  if (endpoint === '/reports/request-log') return page([request])
+  if (endpoint === '/projects') return page([project, workflow.project])
+  if (endpoint === '/revision') return { revision: 'public-demo-234-and-workflow' }
+  if (endpoint === '/reports') return page(workflowProject ? workflowReports(filters.get('view')) : reports)
+  if (endpoint === '/reports/request-log') return page(workflowProject ? workflow.request_log : [request])
   if (endpoint === '/projects/T/links') return { links: [{ service: 'github', url: repository }] }
-  if (endpoint === '/overview') return { now: page(), decisions: page(), owner_profiles: profiles, status_counts: { ...counts, done: 1 } }
-  if (endpoint === '/assignee') return { profile: profiles[owner], task_counts: counts, pending_reports: [], has_outcomes: owner === 'prism' }
+  if (endpoint === '/overview') {
+    if (workflowProject) return workflow.overview
+    const statusCounts = { ...counts, done: 1 }
+    return { now: page(), decisions: page(), owner_profiles: profiles, counts: statusCounts,
+      status_counts: statusCounts }
+  }
+  if (endpoint === '/assignee') {
+    if (workflowProject) {
+      const entry = workflow.reports.find(item => item.owner === owner)
+      return { ...entry, has_outcomes: Boolean(entry?.recent_outcomes.length) }
+    }
+    return { profile: profiles[owner], task_counts: counts, pending_reports: [], has_outcomes: owner === 'prism' }
+  }
   if (endpoint === '/tasks') {
-    const fits = (!filters.has('dri') || filters.get('dri') === task.dri) &&
-      (!filters.has('state') || filters.get('state') === task.state) && matches(task)
-    return page(fits ? [task] : [])
+    const state = filters.get('state')
+    return page(selectedTasks.filter(item =>
+      (!filters.has('dri') || filters.get('dri') === item.dri) &&
+      (!state || (item.display_state || item.state) === state) &&
+      (!filters.has('waiting_on') || filters.get('waiting_on') === item.waiting_on) &&
+      (filters.get('hide_requests') !== 'true' || !item.peer_request) &&
+      matches(item)))
   }
   if (/^\/tasks\/(?:1406|T-1406)$/.test(endpoint)) return detail
   if (/^\/tasks\/(?:1406|T-1406)\/activity$/.test(endpoint)) return page(events)
   if (endpoint.endsWith('/watch')) return { watching: false }
+  const recordPath = endpoint.match(/^\/tasks\/([^/]+)(?:\/(activity|history)\/?(\d+)?)?$/)
+  const record = workflowRecords.get(recordPath?.[1])
+  if (record) {
+    if (recordPath[2] === 'activity') return page(record.events.map(id => workflowEvents.get(id)))
+    if (recordPath[2] === 'history' && record.history[recordPath[3]]) return record.history[recordPath[3]]
+    if (!recordPath[2]) return record.detail
+  }
   if (endpoint === '/activity') return page(matchingEvents)
-  if (endpoint.startsWith('/activity/')) return { event: events.find(item => item.id === Number(endpoint.split('/').at(-1))) }
-  if (endpoint === '/outcomes/days') return { days: filters.get('dri') === 'gauge' ? [] : ['2026-11-24'], next_day: null }
-  if (endpoint === '/outcomes') return page(filters.get('dri') === 'gauge' ? [] : [released])
+  if (endpoint.startsWith('/activity/')) {
+    const id = Number(endpoint.split('/').at(-1))
+    return { event: workflowEvents.get(id) || events.find(item => item.id === id) }
+  }
+  if (endpoint === '/outcomes' || endpoint === '/outcomes/days') {
+    const { formatDay } = createTimeZoneFormatters(filters.get('time_zone') || 'America/Los_Angeles')
+    const outcomes = selectedEvents.filter(item => item.action === 'done' &&
+      (!filters.has('dri') || filters.get('dri') === item.actor))
+    if (endpoint === '/outcomes/days') {
+      return { days: [...new Set(outcomes.map(item => formatDay(item.at)))].sort().reverse(), next_day: null }
+    }
+    return page(outcomes.filter(item => !filters.has('day') || formatDay(item.at) === filters.get('day')))
+  }
   if (endpoint === '/knowledge') {
-    return page(matches(reportNote) && (!filters.has('entry') || filters.get('entry') === reportNote.key) &&
-      (!filters.has('source') || filters.get('source') === task.key) ? [reportNote] : [])
+    return page([reportNote, ...workflow.knowledge].filter(item => matches(item) &&
+      (!filters.has('entry') || filters.get('entry') === item.key) &&
+      (!filters.has('source') || item.sources.some(source => source.task_key === filters.get('source')) ||
+        item.staged_work?.some(change => change.source === filters.get('source')))))
   }
   if (/^\/tasks\/(?:234|T-234)$/.test(endpoint)) {
     const { id, key, title, summary } = reportNote
     return { task: { id, key, title, record_kind: 'knowledge' }, brief: summary, checklist: [], sources, related_tasks: [] }
   }
   if (/^\/tasks\/(?:234|T-234)\/activity$/.test(endpoint)) return page()
-  if (endpoint === '/knowledge/areas') return { areas: [] }
+  if (endpoint === '/knowledge/areas') return { areas: workflow.areas }
   if (endpoint === '/release') return { commit: merge }
   if (endpoint === '/personal-agents/access') return { available: false }
   if (endpoint === '/personal-agents/local-dris') return { local_dris: [] }
   if (endpoint === '/personal-agents/publishing-instructions') return { instructions: '', can_save: false }
-  if (endpoint === '/notifications/open-count') return { count: 0 }
+  if (endpoint === '/notifications/open-count') return { count: workflow.decisions.length }
+  if (endpoint === '/notifications/decisions') {
+    return page(filters.get('state') === 'answered' ? [] : workflow.decisions)
+  }
+  if (endpoint === '/notifications/needs-you') return page(workflowProject || allProjects ? workflow.needs_you : [])
   if (endpoint === '/notifications/work') return { items: [] }
   if (endpoint === '/notifications/preferences') return { task_creations: false }
   if (endpoint === '/stats' || endpoint.startsWith('/tasks/') || endpoint.includes('/history')) {

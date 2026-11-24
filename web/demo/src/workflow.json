@@ -1,0 +1,4397 @@
+{
+  "activity": [
+    {
+      "action": "log",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:59:40+00:00",
+      "context": {},
+      "id": 45,
+      "label": "Activity logged",
+      "links": [],
+      "note": "Staged work for Knowledge entry FLOW-13.",
+      "related_tasks": [
+        {
+          "id": 18,
+          "key": "FLOW-13",
+          "title": "Reports verification",
+          "url": "#task-FLOW-13"
+        }
+      ],
+      "state": "in_progress",
+      "task_id": 6,
+      "task_key": "FLOW-1",
+      "task_title": "Test explicit Reports project links",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "log",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:59:00+00:00",
+      "context": {},
+      "id": 44,
+      "label": "Activity logged",
+      "links": [],
+      "note": "Set as index for Knowledge area Reports testing.",
+      "related_tasks": [],
+      "state": "done",
+      "task_id": 18,
+      "task_key": "FLOW-13",
+      "task_title": "Reports verification",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:58:40+00:00",
+      "context": {
+        "record_kind": "knowledge"
+      },
+      "id": 43,
+      "label": "Created",
+      "links": [],
+      "note": "Knowledge entry created.",
+      "related_tasks": [],
+      "state": "done",
+      "task_id": 18,
+      "task_key": "FLOW-13",
+      "task_title": "Reports verification",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "done",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:58:00+00:00",
+      "context": {},
+      "id": 42,
+      "label": "Completed",
+      "links": [],
+      "note": "The signed replay steps are verified.",
+      "related_tasks": [],
+      "state": "done",
+      "task_id": 16,
+      "task_key": "FLOW-11",
+      "task_title": "Document the signed replay commands",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "start",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:57:40+00:00",
+      "context": {},
+      "id": 41,
+      "label": "Started",
+      "links": [],
+      "note": "Finish the note after applying the review.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 16,
+      "task_key": "FLOW-11",
+      "task_title": "Document the signed replay commands",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "update",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:57:00+00:00",
+      "context": {
+        "peer_ask_ticket": "FLOW-12"
+      },
+      "id": 40,
+      "label": "Progress",
+      "links": [],
+      "note": "Peer result acknowledged in FLOW-12. Continue the original work.",
+      "related_tasks": [
+        {
+          "id": 17,
+          "key": "FLOW-12",
+          "title": "Check the commands against the signed fixture",
+          "url": "#task-FLOW-12"
+        }
+      ],
+      "state": "ready",
+      "task_id": 16,
+      "task_key": "FLOW-11",
+      "task_title": "Document the signed replay commands",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "done",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:56:40+00:00",
+      "context": {},
+      "id": 39,
+      "label": "Completed",
+      "links": [],
+      "note": "Use the checked command sequence.",
+      "related_tasks": [],
+      "state": "done",
+      "task_id": 17,
+      "task_key": "FLOW-12",
+      "task_title": "Check the commands against the signed fixture",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "wait",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "at": "2026-11-24T05:56:00+00:00",
+      "context": {
+        "blocked_by": 17,
+        "peer_ask_ticket": "FLOW-12"
+      },
+      "id": 38,
+      "label": "Wait recorded",
+      "links": [],
+      "note": "The peer result is ready for acknowledgment.",
+      "related_tasks": [],
+      "state": "waiting",
+      "task_id": 16,
+      "task_key": "FLOW-11",
+      "task_title": "Document the signed replay commands",
+      "waiting_on": "FLOW-12",
+      "waiting_profile": null
+    },
+    {
+      "action": "transfer",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "at": "2026-11-24T05:55:40+00:00",
+      "context": {},
+      "id": 37,
+      "label": "Transferred",
+      "links": [],
+      "note": "The commands match the fixture.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 17,
+      "task_key": "FLOW-12",
+      "task_title": "Check the commands against the signed fixture",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "start",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "at": "2026-11-24T05:55:20+00:00",
+      "context": {},
+      "id": 36,
+      "label": "Started",
+      "links": [],
+      "note": "Run the documented commands.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 17,
+      "task_key": "FLOW-12",
+      "task_title": "Check the commands against the signed fixture",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "wait",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:54:40+00:00",
+      "context": {
+        "peer_ask_ticket": "FLOW-12"
+      },
+      "id": 35,
+      "label": "Wait recorded",
+      "links": [],
+      "note": "Waiting for peer request FLOW-12.",
+      "related_tasks": [
+        {
+          "id": 17,
+          "key": "FLOW-12",
+          "title": "Check the commands against the signed fixture",
+          "url": "#task-FLOW-12"
+        }
+      ],
+      "state": "waiting",
+      "task_id": 16,
+      "task_key": "FLOW-11",
+      "task_title": "Document the signed replay commands",
+      "waiting_on": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "waiting_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      }
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:54:20+00:00",
+      "context": {},
+      "id": 34,
+      "label": "Created",
+      "links": [],
+      "note": "Check the commands against the signed fixture.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 17,
+      "task_key": "FLOW-12",
+      "task_title": "Check the commands against the signed fixture",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "start",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:54:00+00:00",
+      "context": {},
+      "id": 33,
+      "label": "Started",
+      "links": [],
+      "note": "Write the steps for the authenticated replay.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 16,
+      "task_key": "FLOW-11",
+      "task_title": "Document the signed replay commands",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:53:20+00:00",
+      "context": {},
+      "id": 32,
+      "label": "Created",
+      "links": [],
+      "note": "Review the commands before they enter Knowledge.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 16,
+      "task_key": "FLOW-11",
+      "task_title": "Document the signed replay commands",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "done",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:52:40+00:00",
+      "context": {},
+      "id": 31,
+      "label": "Completed",
+      "links": [],
+      "note": "Reports links retain the selected project.",
+      "related_tasks": [],
+      "state": "done",
+      "task_id": 15,
+      "task_key": "FLOW-10",
+      "task_title": "Verify Tasks links from Reports",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "start",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:52:20+00:00",
+      "context": {},
+      "id": 30,
+      "label": "Started",
+      "links": [],
+      "note": "Open the linked Tasks views.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 15,
+      "task_key": "FLOW-10",
+      "task_title": "Verify Tasks links from Reports",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:51:40+00:00",
+      "context": {},
+      "id": 29,
+      "label": "Created",
+      "links": [],
+      "note": "Check that reports link to the same project’s work.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 15,
+      "task_key": "FLOW-10",
+      "task_title": "Verify Tasks links from Reports",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "update",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:51:20+00:00",
+      "context": {
+        "closure": {}
+      },
+      "id": 28,
+      "label": "Closed",
+      "links": [],
+      "note": "The existing project selector covers both routes.",
+      "related_tasks": [],
+      "state": "done",
+      "task_id": 14,
+      "task_key": "FLOW-9",
+      "task_title": "Replace both project selectors",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:51:00+00:00",
+      "context": {},
+      "id": 27,
+      "label": "Created",
+      "links": [],
+      "note": "Check whether a second control is needed.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 14,
+      "task_key": "FLOW-9",
+      "task_title": "Replace both project selectors",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "park",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:50:40+00:00",
+      "context": {
+        "review_after": "2026-11-27"
+      },
+      "id": 26,
+      "label": "Parked",
+      "links": [],
+      "note": "Revisit after the default scope decision.",
+      "related_tasks": [],
+      "state": "parked",
+      "task_id": 13,
+      "task_key": "FLOW-8",
+      "task_title": "Revisit Reports copy",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:50:20+00:00",
+      "context": {},
+      "id": 25,
+      "label": "Created",
+      "links": [],
+      "note": "Review the labels after the project default is settled.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 13,
+      "task_key": "FLOW-8",
+      "task_title": "Revisit Reports copy",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "at": "2026-11-24T05:50:00+00:00",
+      "context": {},
+      "id": 24,
+      "label": "Created",
+      "links": [],
+      "note": "Open Reports with a project that has no open tickets.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 12,
+      "task_key": "FLOW-7",
+      "task_title": "Cover an empty project",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "assign-human",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:49:40+00:00",
+      "context": {
+        "choices": [
+          "All projects",
+          "Last project"
+        ]
+      },
+      "id": 23,
+      "label": "Decision requested",
+      "links": [],
+      "note": "Which scope should the bare URL open?",
+      "related_tasks": [],
+      "state": "human_review",
+      "task_id": 11,
+      "task_key": "FLOW-6",
+      "task_title": "Choose the default reporting scope",
+      "waiting_on": "raft:human:00000000-0000-0000-0000-00000000002a",
+      "waiting_profile": {
+        "avatar_url": null,
+        "description": null,
+        "id": "raft:human:00000000-0000-0000-0000-00000000002a",
+        "kind": "human",
+        "name": "Sam",
+        "role": "Human",
+        "username": "sam"
+      }
+    },
+    {
+      "action": "start",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:49:20+00:00",
+      "context": {},
+      "id": 22,
+      "label": "Started",
+      "links": [],
+      "note": "Compare the route options.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 11,
+      "task_key": "FLOW-6",
+      "task_title": "Choose the default reporting scope",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:48:40+00:00",
+      "context": {},
+      "id": 21,
+      "label": "Created",
+      "links": [],
+      "note": "Collect the project manager’s decision.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 11,
+      "task_key": "FLOW-6",
+      "task_title": "Choose the default reporting scope",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "wait",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:48:20+00:00",
+      "context": {
+        "wait_kind": "automation"
+      },
+      "id": 20,
+      "label": "Wait recorded",
+      "links": [],
+      "note": "The visual check is still running.",
+      "related_tasks": [],
+      "state": "waiting",
+      "task_id": 10,
+      "task_key": "FLOW-5",
+      "task_title": "Verify the release candidate",
+      "waiting_on": "Visual checks",
+      "waiting_profile": null
+    },
+    {
+      "action": "start",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:48:00+00:00",
+      "context": {},
+      "id": 19,
+      "label": "Started",
+      "links": [],
+      "note": "Check the candidate's protected jobs.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 10,
+      "task_key": "FLOW-5",
+      "task_title": "Verify the release candidate",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:47:20+00:00",
+      "context": {},
+      "id": 18,
+      "label": "Created",
+      "links": [],
+      "note": "Read the protected check results.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 10,
+      "task_key": "FLOW-5",
+      "task_title": "Verify the release candidate",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "wait",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:47:00+00:00",
+      "context": {
+        "blocked_by": 6
+      },
+      "id": 17,
+      "label": "Wait recorded",
+      "links": [],
+      "note": "Need the explicit-project test result.",
+      "related_tasks": [],
+      "state": "waiting",
+      "task_id": 9,
+      "task_key": "FLOW-4",
+      "task_title": "Publish the Reports navigation notes",
+      "waiting_on": "FLOW-1",
+      "waiting_profile": null
+    },
+    {
+      "action": "start",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:46:40+00:00",
+      "context": {},
+      "id": 16,
+      "label": "Started",
+      "links": [],
+      "note": "Draft the new navigation behavior.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 9,
+      "task_key": "FLOW-4",
+      "task_title": "Publish the Reports navigation notes",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:46:00+00:00",
+      "context": {},
+      "id": 15,
+      "label": "Created",
+      "links": [],
+      "note": "Update the notes after the route checks pass.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 9,
+      "task_key": "FLOW-4",
+      "task_title": "Publish the Reports navigation notes",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "wait",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:45:40+00:00",
+      "context": {
+        "named_peer_wait": true,
+        "peer_ask_ticket": "FLOW-3"
+      },
+      "id": 14,
+      "label": "Wait recorded",
+      "links": [],
+      "note": "Review the signed fixture for scope drift.",
+      "related_tasks": [],
+      "state": "waiting",
+      "task_id": 7,
+      "task_key": "FLOW-2",
+      "task_title": "Run the signed Reports replay",
+      "waiting_on": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "waiting_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      }
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:45:20+00:00",
+      "context": {},
+      "id": 13,
+      "label": "Created",
+      "links": [],
+      "note": "Review the signed fixture for scope drift.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 8,
+      "task_key": "FLOW-3",
+      "task_title": "Review the signed fixture for scope drift",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "start",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:45:00+00:00",
+      "context": {},
+      "id": 12,
+      "label": "Started",
+      "links": [],
+      "note": "Prepare the signed fixture.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 7,
+      "task_key": "FLOW-2",
+      "task_title": "Run the signed Reports replay",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:44:20+00:00",
+      "context": {},
+      "id": 11,
+      "label": "Created",
+      "links": [],
+      "note": "Prepare the command and recorded result.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 7,
+      "task_key": "FLOW-2",
+      "task_title": "Run the signed Reports replay",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "update",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:44:00+00:00",
+      "context": {},
+      "id": 10,
+      "label": "Progress",
+      "links": [],
+      "note": "Verified reload. Check Back from Tasks.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 6,
+      "task_key": "FLOW-1",
+      "task_title": "Test explicit Reports project links",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "log",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:43:40+00:00",
+      "context": {
+        "audit": {
+          "action": "checklist-add",
+          "label": "Verify Back navigation",
+          "position": 1
+        }
+      },
+      "id": 9,
+      "label": "Activity logged",
+      "links": [],
+      "note": "Added checklist step 1.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 6,
+      "task_key": "FLOW-1",
+      "task_title": "Test explicit Reports project links",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "log",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:43:20+00:00",
+      "context": {
+        "audit": {
+          "action": "reference-add",
+          "label": "Public example of this workflow",
+          "source_id": 1,
+          "source_kind": "github"
+        }
+      },
+      "id": 8,
+      "label": "Activity logged",
+      "links": [],
+      "note": "Reference added.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 6,
+      "task_key": "FLOW-1",
+      "task_title": "Test explicit Reports project links",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "start",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:43:00+00:00",
+      "context": {},
+      "id": 7,
+      "label": "Started",
+      "links": [],
+      "note": "Compare reload and Back on both routes.",
+      "related_tasks": [],
+      "state": "in_progress",
+      "task_id": 6,
+      "task_key": "FLOW-1",
+      "task_title": "Test explicit Reports project links",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "actor_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "at": "2026-11-24T05:42:20+00:00",
+      "context": {},
+      "id": 6,
+      "label": "Created",
+      "links": [],
+      "note": "Compare the default route with an explicit project link.",
+      "related_tasks": [],
+      "state": "ready",
+      "task_id": 6,
+      "task_key": "FLOW-1",
+      "task_title": "Test explicit Reports project links",
+      "waiting_on": null,
+      "waiting_profile": null
+    }
+  ],
+  "areas": [
+    {
+      "available": true,
+      "index": "FLOW-13",
+      "path": "Reports testing",
+      "project": "FLOW",
+      "title": "Reports verification"
+    }
+  ],
+  "decisions": [
+    {
+      "action": "assign-human",
+      "at": "2026-11-24T05:49:40+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {
+        "choices": [
+          "All projects",
+          "Last project"
+        ]
+      },
+      "decision_request_id": 23,
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "event_id": 23,
+      "id": 11,
+      "key": "FLOW-6",
+      "links": [],
+      "note": "Which scope should the bare URL open?",
+      "priority": "normal",
+      "state": "human_review",
+      "summary_label": "Decision needed",
+      "title": "Choose the default reporting scope",
+      "wait_kind": "person",
+      "waiting_on": "raft:human:00000000-0000-0000-0000-00000000002a",
+      "waiting_profile": {
+        "avatar_url": null,
+        "description": null,
+        "id": "raft:human:00000000-0000-0000-0000-00000000002a",
+        "kind": "human",
+        "name": "Sam",
+        "role": "Human",
+        "username": "sam"
+      }
+    }
+  ],
+  "knowledge": [
+    {
+      "area": "Reports testing",
+      "area_entries": [],
+      "id": 18,
+      "key": "FLOW-13",
+      "sources": [],
+      "staged_work": [
+        {
+          "applied_event_id": null,
+          "conflict": null,
+          "entry": "FLOW-13",
+          "entry_title": "Reports verification",
+          "source": "FLOW-1",
+          "source_at": null,
+          "source_event_id": null,
+          "source_title": "Test explicit Reports project links",
+          "staged_at": "2026-11-24T05:59:20+00:00"
+        }
+      ],
+      "summary": "Use explicit links when checking project scope.",
+      "title": "Reports verification"
+    }
+  ],
+  "needs_you": [
+    {
+      "id": "decision:23",
+      "kind": "decision",
+      "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "requester_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "ticket": "FLOW-6",
+      "title": "Choose the default reporting scope"
+    }
+  ],
+  "overview": {
+    "counts": {
+      "closed": 1,
+      "done": 3,
+      "human_review": 1,
+      "in_progress": 1,
+      "parked": 1,
+      "ready": 2,
+      "waiting": 3
+    },
+    "decisions": {
+      "items": [
+        {
+          "action": "assign-human",
+          "at": "2026-11-24T05:49:40+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "choices": [
+              "All projects",
+              "Last project"
+            ]
+          },
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "event_id": 23,
+          "id": 11,
+          "key": "FLOW-6",
+          "links": [],
+          "note": "Which scope should the bare URL open?",
+          "priority": "normal",
+          "state": "human_review",
+          "summary_label": "Decision needed",
+          "title": "Choose the default reporting scope",
+          "wait_kind": "person",
+          "waiting_on": "raft:human:00000000-0000-0000-0000-00000000002a",
+          "waiting_profile": {
+            "avatar_url": null,
+            "description": null,
+            "id": "raft:human:00000000-0000-0000-0000-00000000002a",
+            "kind": "human",
+            "name": "Sam",
+            "role": "Human",
+            "username": "sam"
+          }
+        }
+      ],
+      "next_cursor": null
+    },
+    "now": {
+      "items": [
+        {
+          "action": "wait",
+          "at": "2026-11-24T05:48:20+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "wait_kind": "automation"
+          },
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "event_id": 20,
+          "id": 10,
+          "key": "FLOW-5",
+          "links": [],
+          "note": "The visual check is still running.",
+          "priority": "normal",
+          "state": "waiting",
+          "summary_label": "Unblock condition",
+          "title": "Verify the release candidate",
+          "wait_kind": "automation",
+          "waiting_on": "Visual checks",
+          "waiting_profile": null,
+          "waiting_since": "2026-11-24T05:48:20+00:00"
+        },
+        {
+          "action": "update",
+          "at": "2026-11-24T05:44:00+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 1,
+          "context": {},
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "event_id": 10,
+          "id": 6,
+          "key": "FLOW-1",
+          "links": [],
+          "note": "Verified reload. Check Back from Tasks.",
+          "priority": "normal",
+          "state": "in_progress",
+          "summary_label": "Current step",
+          "title": "Test explicit Reports project links",
+          "waiting_on": null,
+          "waiting_profile": null
+        }
+      ],
+      "next_cursor": null
+    },
+    "owner_profiles": {
+      "raft:agent:00000000-0000-0000-0000-000000000028": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "raft:agent:00000000-0000-0000-0000-000000000029": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      }
+    },
+    "owners": [
+      "raft:agent:00000000-0000-0000-0000-000000000028",
+      "raft:agent:00000000-0000-0000-0000-000000000029"
+    ]
+  },
+  "project": {
+    "prefix": "FLOW",
+    "title": "Development workflow fixture"
+  },
+  "records": {
+    "FLOW-1": {
+      "detail": {
+        "brief": "Keep the board scope in the URL when a user opens Reports from a saved link.",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [
+          {
+            "checked": 0,
+            "completed_at": null,
+            "completed_by": null,
+            "label": "Verify Back navigation",
+            "position": 1,
+            "started_at": null,
+            "started_by": null,
+            "task_id": 6
+          }
+        ],
+        "goal": null,
+        "knowledge_stages": [
+          {
+            "applied_event_id": null,
+            "conflict": null,
+            "entry": "FLOW-13",
+            "entry_title": "Reports verification",
+            "source": "FLOW-1",
+            "source_at": null,
+            "source_event_id": null,
+            "source_title": "Test explicit Reports project links",
+            "staged_at": "2026-11-24T05:59:20+00:00"
+          }
+        ],
+        "last_activity": {
+          "at": "2026-11-24T05:59:40+00:00",
+          "id": 45
+        },
+        "ownership_actions": [],
+        "related_tasks": [
+          {
+            "id": 18,
+            "key": "FLOW-13",
+            "title": "Reports verification",
+            "url": "#task-FLOW-13"
+          }
+        ],
+        "sources": [
+          {
+            "label": "Public example of this workflow",
+            "unavailable": false,
+            "url": "https://github.com/skyzh/taskboard/pull/234"
+          }
+        ],
+        "tag_editable": false,
+        "task": {
+          "action": "update",
+          "at": "2026-11-24T05:44:00+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 1,
+          "context": {},
+          "decision_request_id": null,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "eta": null,
+          "event_id": 10,
+          "id": 6,
+          "key": "FLOW-1",
+          "links": [],
+          "note": "Verified reload. Check Back from Tasks.",
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "in_progress",
+          "summary_label": "Current step",
+          "title": "Test explicit Reports project links",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        "workers": []
+      },
+      "events": [
+        45,
+        10,
+        9,
+        8,
+        7,
+        6
+      ],
+      "history": {
+        "6": {
+          "brief": "Keep the board scope in the URL when a user opens Reports from a saved link.",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:42:20+00:00",
+            "id": 6,
+            "label": "Created"
+          },
+          "key": "FLOW-1",
+          "next": {
+            "at": "2026-11-24T05:43:00+00:00",
+            "id": 7
+          },
+          "note": "Compare the default route with an explicit project link.",
+          "previous": null,
+          "state": "ready",
+          "title": "Test explicit Reports project links"
+        },
+        "7": {
+          "brief": "Keep the board scope in the URL when a user opens Reports from a saved link.",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:43:00+00:00",
+            "id": 7,
+            "label": "Started"
+          },
+          "key": "FLOW-1",
+          "next": {
+            "at": "2026-11-24T05:43:20+00:00",
+            "id": 8
+          },
+          "note": "Compare reload and Back on both routes.",
+          "previous": {
+            "at": "2026-11-24T05:42:20+00:00",
+            "id": 6
+          },
+          "state": "in_progress",
+          "title": "Test explicit Reports project links"
+        },
+        "8": {
+          "brief": "Keep the board scope in the URL when a user opens Reports from a saved link.",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:43:20+00:00",
+            "id": 8,
+            "label": "Activity logged"
+          },
+          "key": "FLOW-1",
+          "next": {
+            "at": "2026-11-24T05:43:40+00:00",
+            "id": 9
+          },
+          "note": "Compare reload and Back on both routes.",
+          "previous": {
+            "at": "2026-11-24T05:43:00+00:00",
+            "id": 7
+          },
+          "state": "in_progress",
+          "title": "Test explicit Reports project links"
+        },
+        "9": {
+          "brief": "Keep the board scope in the URL when a user opens Reports from a saved link.",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:43:40+00:00",
+            "id": 9,
+            "label": "Activity logged"
+          },
+          "key": "FLOW-1",
+          "next": {
+            "at": "2026-11-24T05:44:00+00:00",
+            "id": 10
+          },
+          "note": "Compare reload and Back on both routes.",
+          "previous": {
+            "at": "2026-11-24T05:43:20+00:00",
+            "id": 8
+          },
+          "state": "in_progress",
+          "title": "Test explicit Reports project links"
+        },
+        "10": {
+          "brief": "Keep the board scope in the URL when a user opens Reports from a saved link.",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:44:00+00:00",
+            "id": 10,
+            "label": "Progress"
+          },
+          "key": "FLOW-1",
+          "next": {
+            "at": "2026-11-24T05:59:40+00:00",
+            "id": 45
+          },
+          "note": "Verified reload. Check Back from Tasks.",
+          "previous": {
+            "at": "2026-11-24T05:43:40+00:00",
+            "id": 9
+          },
+          "state": "in_progress",
+          "title": "Test explicit Reports project links"
+        },
+        "45": {
+          "brief": "Keep the board scope in the URL when a user opens Reports from a saved link.",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:59:40+00:00",
+            "id": 45,
+            "label": "Activity logged"
+          },
+          "key": "FLOW-1",
+          "next": null,
+          "note": "Verified reload. Check Back from Tasks.",
+          "previous": {
+            "at": "2026-11-24T05:44:00+00:00",
+            "id": 10
+          },
+          "state": "in_progress",
+          "title": "Test explicit Reports project links"
+        }
+      }
+    },
+    "FLOW-10": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T05:52:40+00:00",
+          "id": 31
+        },
+        "ownership_actions": [],
+        "related_tasks": [],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "done",
+          "at": "2026-11-24T05:52:40+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {},
+          "decision_request_id": null,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "eta": null,
+          "event_id": 31,
+          "id": 15,
+          "key": "FLOW-10",
+          "links": [],
+          "note": "Reports links retain the selected project.",
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "done",
+          "summary_label": "Outcome",
+          "title": "Verify Tasks links from Reports",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        "workers": []
+      },
+      "events": [
+        31,
+        30,
+        29
+      ],
+      "history": {
+        "29": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:51:40+00:00",
+            "id": 29,
+            "label": "Created"
+          },
+          "key": "FLOW-10",
+          "next": {
+            "at": "2026-11-24T05:52:20+00:00",
+            "id": 30
+          },
+          "note": "Check that reports link to the same project’s work.",
+          "previous": null,
+          "state": "ready",
+          "title": "Verify Tasks links from Reports"
+        },
+        "30": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:52:20+00:00",
+            "id": 30,
+            "label": "Started"
+          },
+          "key": "FLOW-10",
+          "next": {
+            "at": "2026-11-24T05:52:40+00:00",
+            "id": 31
+          },
+          "note": "Open the linked Tasks views.",
+          "previous": {
+            "at": "2026-11-24T05:51:40+00:00",
+            "id": 29
+          },
+          "state": "in_progress",
+          "title": "Verify Tasks links from Reports"
+        },
+        "31": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:52:40+00:00",
+            "id": 31,
+            "label": "Completed"
+          },
+          "key": "FLOW-10",
+          "next": null,
+          "note": "Reports links retain the selected project.",
+          "previous": {
+            "at": "2026-11-24T05:52:20+00:00",
+            "id": 30
+          },
+          "state": "done",
+          "title": "Verify Tasks links from Reports"
+        }
+      }
+    },
+    "FLOW-11": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T05:58:00+00:00",
+          "id": 42
+        },
+        "ownership_actions": [],
+        "related_tasks": [
+          {
+            "id": 17,
+            "key": "FLOW-12",
+            "title": "Check the commands against the signed fixture",
+            "url": "#task-FLOW-12"
+          }
+        ],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "done",
+          "at": "2026-11-24T05:58:00+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {},
+          "decision_request_id": null,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "eta": null,
+          "event_id": 42,
+          "id": 16,
+          "key": "FLOW-11",
+          "links": [],
+          "note": "The signed replay steps are verified.",
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "done",
+          "summary_label": "Outcome",
+          "title": "Document the signed replay commands",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        "workers": []
+      },
+      "events": [
+        42,
+        41,
+        40,
+        38,
+        35,
+        33,
+        32
+      ],
+      "history": {
+        "32": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:53:20+00:00",
+            "id": 32,
+            "label": "Created"
+          },
+          "key": "FLOW-11",
+          "next": {
+            "at": "2026-11-24T05:54:00+00:00",
+            "id": 33
+          },
+          "note": "Review the commands before they enter Knowledge.",
+          "previous": null,
+          "state": "ready",
+          "title": "Document the signed replay commands"
+        },
+        "33": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:54:00+00:00",
+            "id": 33,
+            "label": "Started"
+          },
+          "key": "FLOW-11",
+          "next": {
+            "at": "2026-11-24T05:54:40+00:00",
+            "id": 35
+          },
+          "note": "Write the steps for the authenticated replay.",
+          "previous": {
+            "at": "2026-11-24T05:53:20+00:00",
+            "id": 32
+          },
+          "state": "in_progress",
+          "title": "Document the signed replay commands"
+        },
+        "35": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:54:40+00:00",
+            "id": 35,
+            "label": "Wait recorded"
+          },
+          "key": "FLOW-11",
+          "next": {
+            "at": "2026-11-24T05:56:00+00:00",
+            "id": 38
+          },
+          "note": "Waiting for peer request FLOW-12.",
+          "previous": {
+            "at": "2026-11-24T05:54:00+00:00",
+            "id": 33
+          },
+          "state": "waiting",
+          "title": "Document the signed replay commands"
+        },
+        "38": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+              "kind": "agent",
+              "name": "Blake",
+              "role": null,
+              "username": "blake"
+            },
+            "at": "2026-11-24T05:56:00+00:00",
+            "id": 38,
+            "label": "Wait recorded"
+          },
+          "key": "FLOW-11",
+          "next": {
+            "at": "2026-11-24T05:57:00+00:00",
+            "id": 40
+          },
+          "note": "The peer result is ready for acknowledgment.",
+          "previous": {
+            "at": "2026-11-24T05:54:40+00:00",
+            "id": 35
+          },
+          "state": "waiting",
+          "title": "Document the signed replay commands"
+        },
+        "40": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:57:00+00:00",
+            "id": 40,
+            "label": "Progress"
+          },
+          "key": "FLOW-11",
+          "next": {
+            "at": "2026-11-24T05:57:40+00:00",
+            "id": 41
+          },
+          "note": "Peer result acknowledged in FLOW-12. Continue the original work.",
+          "previous": {
+            "at": "2026-11-24T05:56:00+00:00",
+            "id": 38
+          },
+          "state": "ready",
+          "title": "Document the signed replay commands"
+        },
+        "41": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:57:40+00:00",
+            "id": 41,
+            "label": "Started"
+          },
+          "key": "FLOW-11",
+          "next": {
+            "at": "2026-11-24T05:58:00+00:00",
+            "id": 42
+          },
+          "note": "Finish the note after applying the review.",
+          "previous": {
+            "at": "2026-11-24T05:57:00+00:00",
+            "id": 40
+          },
+          "state": "in_progress",
+          "title": "Document the signed replay commands"
+        },
+        "42": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:58:00+00:00",
+            "id": 42,
+            "label": "Completed"
+          },
+          "key": "FLOW-11",
+          "next": null,
+          "note": "The signed replay steps are verified.",
+          "previous": {
+            "at": "2026-11-24T05:57:40+00:00",
+            "id": 41
+          },
+          "state": "done",
+          "title": "Document the signed replay commands"
+        }
+      }
+    },
+    "FLOW-12": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T05:56:40+00:00",
+          "id": 39
+        },
+        "ownership_actions": [],
+        "related_tasks": [],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "done",
+          "at": "2026-11-24T05:56:40+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {},
+          "decision_request_id": null,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "eta": null,
+          "event_id": 39,
+          "id": 17,
+          "key": "FLOW-12",
+          "links": [],
+          "note": "Use the checked command sequence.",
+          "peer_request": {
+            "asked_at": "2026-11-24T05:54:20+00:00",
+            "phase": "done",
+            "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "source_id": 16,
+            "source_key": "FLOW-11"
+          },
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "done",
+          "summary_label": "Outcome",
+          "title": "Check the commands against the signed fixture",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        "workers": []
+      },
+      "events": [
+        39,
+        37,
+        36,
+        34
+      ],
+      "history": {
+        "34": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:54:20+00:00",
+            "id": 34,
+            "label": "Created"
+          },
+          "key": "FLOW-12",
+          "next": {
+            "at": "2026-11-24T05:55:20+00:00",
+            "id": 36
+          },
+          "note": "Check the commands against the signed fixture.",
+          "previous": null,
+          "state": "ready",
+          "title": null
+        },
+        "36": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+              "kind": "agent",
+              "name": "Blake",
+              "role": null,
+              "username": "blake"
+            },
+            "at": "2026-11-24T05:55:20+00:00",
+            "id": 36,
+            "label": "Started"
+          },
+          "key": "FLOW-12",
+          "next": {
+            "at": "2026-11-24T05:55:40+00:00",
+            "id": 37
+          },
+          "note": "Run the documented commands.",
+          "previous": {
+            "at": "2026-11-24T05:54:20+00:00",
+            "id": 34
+          },
+          "state": "in_progress",
+          "title": null
+        },
+        "37": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+              "kind": "agent",
+              "name": "Blake",
+              "role": null,
+              "username": "blake"
+            },
+            "at": "2026-11-24T05:55:40+00:00",
+            "id": 37,
+            "label": "Transferred"
+          },
+          "key": "FLOW-12",
+          "next": {
+            "at": "2026-11-24T05:56:40+00:00",
+            "id": 39
+          },
+          "note": "The commands match the fixture.",
+          "previous": {
+            "at": "2026-11-24T05:55:20+00:00",
+            "id": 36
+          },
+          "state": "ready",
+          "title": null
+        },
+        "39": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:56:40+00:00",
+            "id": 39,
+            "label": "Completed"
+          },
+          "key": "FLOW-12",
+          "next": null,
+          "note": "Use the checked command sequence.",
+          "previous": {
+            "at": "2026-11-24T05:55:40+00:00",
+            "id": 37
+          },
+          "state": "done",
+          "title": null
+        }
+      }
+    },
+    "FLOW-13": {
+      "detail": {
+        "brief": "Use explicit links when checking project scope.",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "knowledge_stages": [
+          {
+            "applied_event_id": null,
+            "conflict": null,
+            "entry": "FLOW-13",
+            "entry_title": "Reports verification",
+            "source": "FLOW-1",
+            "source_at": null,
+            "source_event_id": null,
+            "source_title": "Test explicit Reports project links",
+            "staged_at": "2026-11-24T05:59:20+00:00"
+          }
+        ],
+        "last_activity": {
+          "at": "2026-11-24T05:59:00+00:00",
+          "id": 44
+        },
+        "ownership_actions": [],
+        "related_tasks": [],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "add",
+          "at": "2026-11-24T05:58:40+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "record_kind": "knowledge"
+          },
+          "decision_request_id": null,
+          "dri": "",
+          "dri_profile": null,
+          "eta": null,
+          "event_id": 43,
+          "id": 18,
+          "key": "FLOW-13",
+          "links": [],
+          "note": "Knowledge entry created.",
+          "priority": "normal",
+          "record_kind": "knowledge",
+          "state": "done",
+          "summary_label": "Outcome",
+          "tags": [
+            "decision-record"
+          ],
+          "title": "Reports verification",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        "workers": []
+      },
+      "events": [
+        44,
+        43
+      ],
+      "history": {
+        "43": {
+          "brief": "Use explicit links when checking project scope.",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:58:40+00:00",
+            "id": 43,
+            "label": "Created"
+          },
+          "key": "FLOW-13",
+          "next": {
+            "at": "2026-11-24T05:59:00+00:00",
+            "id": 44
+          },
+          "note": "Knowledge entry created.",
+          "previous": null,
+          "state": "done",
+          "title": "Reports verification"
+        },
+        "44": {
+          "brief": "Use explicit links when checking project scope.",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:59:00+00:00",
+            "id": 44,
+            "label": "Activity logged"
+          },
+          "key": "FLOW-13",
+          "next": null,
+          "note": "Knowledge entry created.",
+          "previous": {
+            "at": "2026-11-24T05:58:40+00:00",
+            "id": 43
+          },
+          "state": "done",
+          "title": "Reports verification"
+        }
+      }
+    },
+    "FLOW-2": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T05:45:40+00:00",
+          "id": 14
+        },
+        "ownership_actions": [],
+        "related_tasks": [],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "wait",
+          "at": "2026-11-24T05:45:40+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "named_peer_wait": true,
+            "peer_ask_ticket": "FLOW-3"
+          },
+          "decision_request_id": null,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "eta": null,
+          "event_id": 14,
+          "id": 7,
+          "key": "FLOW-2",
+          "links": [],
+          "note": "Review the signed fixture for scope drift.",
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "waiting",
+          "summary_label": "Unblock condition",
+          "title": "Run the signed Reports replay",
+          "wait_kind": "person",
+          "waiting_on": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "waiting_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "kind": "agent",
+            "name": "Blake",
+            "role": null,
+            "username": "blake"
+          },
+          "waiting_since": "2026-11-24T05:45:40+00:00"
+        },
+        "workers": []
+      },
+      "events": [
+        14,
+        12,
+        11
+      ],
+      "history": {
+        "11": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:44:20+00:00",
+            "id": 11,
+            "label": "Created"
+          },
+          "key": "FLOW-2",
+          "next": {
+            "at": "2026-11-24T05:45:00+00:00",
+            "id": 12
+          },
+          "note": "Prepare the command and recorded result.",
+          "previous": null,
+          "state": "ready",
+          "title": "Run the signed Reports replay"
+        },
+        "12": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:45:00+00:00",
+            "id": 12,
+            "label": "Started"
+          },
+          "key": "FLOW-2",
+          "next": {
+            "at": "2026-11-24T05:45:40+00:00",
+            "id": 14
+          },
+          "note": "Prepare the signed fixture.",
+          "previous": {
+            "at": "2026-11-24T05:44:20+00:00",
+            "id": 11
+          },
+          "state": "in_progress",
+          "title": "Run the signed Reports replay"
+        },
+        "14": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:45:40+00:00",
+            "id": 14,
+            "label": "Wait recorded"
+          },
+          "key": "FLOW-2",
+          "next": null,
+          "note": "Review the signed fixture for scope drift.",
+          "previous": {
+            "at": "2026-11-24T05:45:00+00:00",
+            "id": 12
+          },
+          "state": "waiting",
+          "title": "Run the signed Reports replay"
+        }
+      }
+    },
+    "FLOW-3": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T05:45:20+00:00",
+          "id": 13
+        },
+        "ownership_actions": [],
+        "related_tasks": [],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "add",
+          "at": "2026-11-24T05:45:20+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {},
+          "decision_request_id": null,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "kind": "agent",
+            "name": "Blake",
+            "role": null,
+            "username": "blake"
+          },
+          "eta": null,
+          "event_id": 13,
+          "id": 8,
+          "key": "FLOW-3",
+          "links": [],
+          "note": "Review the signed fixture for scope drift.",
+          "peer_request": {
+            "asked_at": "2026-11-24T05:45:20+00:00",
+            "phase": "asked",
+            "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "source_id": 7,
+            "source_key": "FLOW-2"
+          },
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "ready",
+          "summary_label": "Next step",
+          "title": "Review the signed fixture for scope drift",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        "workers": []
+      },
+      "events": [
+        13
+      ],
+      "history": {
+        "13": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:45:20+00:00",
+            "id": 13,
+            "label": "Created"
+          },
+          "key": "FLOW-3",
+          "next": null,
+          "note": "Review the signed fixture for scope drift.",
+          "previous": null,
+          "state": "ready",
+          "title": null
+        }
+      }
+    },
+    "FLOW-4": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T05:47:00+00:00",
+          "id": 17
+        },
+        "ownership_actions": [],
+        "related_tasks": [],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "wait",
+          "at": "2026-11-24T05:47:00+00:00",
+          "blockers": {
+            "cycle": null,
+            "tickets": [
+              {
+                "id": 6,
+                "key": "FLOW-1",
+                "state": "in_progress"
+              }
+            ]
+          },
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "blocked_by": 6
+          },
+          "decision_request_id": null,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "eta": null,
+          "event_id": 17,
+          "id": 9,
+          "key": "FLOW-4",
+          "links": [],
+          "note": "Need the explicit-project test result.",
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "waiting",
+          "summary_label": "Unblock condition",
+          "title": "Publish the Reports navigation notes",
+          "wait_kind": "ticket",
+          "waiting_on": "FLOW-1",
+          "waiting_profile": null,
+          "waiting_since": "2026-11-24T05:47:00+00:00"
+        },
+        "workers": []
+      },
+      "events": [
+        17,
+        16,
+        15
+      ],
+      "history": {
+        "15": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:46:00+00:00",
+            "id": 15,
+            "label": "Created"
+          },
+          "key": "FLOW-4",
+          "next": {
+            "at": "2026-11-24T05:46:40+00:00",
+            "id": 16
+          },
+          "note": "Update the notes after the route checks pass.",
+          "previous": null,
+          "state": "ready",
+          "title": "Publish the Reports navigation notes"
+        },
+        "16": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:46:40+00:00",
+            "id": 16,
+            "label": "Started"
+          },
+          "key": "FLOW-4",
+          "next": {
+            "at": "2026-11-24T05:47:00+00:00",
+            "id": 17
+          },
+          "note": "Draft the new navigation behavior.",
+          "previous": {
+            "at": "2026-11-24T05:46:00+00:00",
+            "id": 15
+          },
+          "state": "in_progress",
+          "title": "Publish the Reports navigation notes"
+        },
+        "17": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:47:00+00:00",
+            "id": 17,
+            "label": "Wait recorded"
+          },
+          "key": "FLOW-4",
+          "next": null,
+          "note": "Need the explicit-project test result.",
+          "previous": {
+            "at": "2026-11-24T05:46:40+00:00",
+            "id": 16
+          },
+          "state": "waiting",
+          "title": "Publish the Reports navigation notes"
+        }
+      }
+    },
+    "FLOW-5": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T05:48:20+00:00",
+          "id": 20
+        },
+        "ownership_actions": [],
+        "related_tasks": [],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "wait",
+          "at": "2026-11-24T05:48:20+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "wait_kind": "automation"
+          },
+          "decision_request_id": null,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "eta": null,
+          "event_id": 20,
+          "id": 10,
+          "key": "FLOW-5",
+          "links": [],
+          "note": "The visual check is still running.",
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "waiting",
+          "summary_label": "Unblock condition",
+          "title": "Verify the release candidate",
+          "wait_kind": "automation",
+          "waiting_on": "Visual checks",
+          "waiting_profile": null,
+          "waiting_since": "2026-11-24T05:48:20+00:00"
+        },
+        "workers": []
+      },
+      "events": [
+        20,
+        19,
+        18
+      ],
+      "history": {
+        "18": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:47:20+00:00",
+            "id": 18,
+            "label": "Created"
+          },
+          "key": "FLOW-5",
+          "next": {
+            "at": "2026-11-24T05:48:00+00:00",
+            "id": 19
+          },
+          "note": "Read the protected check results.",
+          "previous": null,
+          "state": "ready",
+          "title": "Verify the release candidate"
+        },
+        "19": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:48:00+00:00",
+            "id": 19,
+            "label": "Started"
+          },
+          "key": "FLOW-5",
+          "next": {
+            "at": "2026-11-24T05:48:20+00:00",
+            "id": 20
+          },
+          "note": "Check the candidate's protected jobs.",
+          "previous": {
+            "at": "2026-11-24T05:47:20+00:00",
+            "id": 18
+          },
+          "state": "in_progress",
+          "title": "Verify the release candidate"
+        },
+        "20": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:48:20+00:00",
+            "id": 20,
+            "label": "Wait recorded"
+          },
+          "key": "FLOW-5",
+          "next": null,
+          "note": "The visual check is still running.",
+          "previous": {
+            "at": "2026-11-24T05:48:00+00:00",
+            "id": 19
+          },
+          "state": "waiting",
+          "title": "Verify the release candidate"
+        }
+      }
+    },
+    "FLOW-6": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T05:49:40+00:00",
+          "id": 23
+        },
+        "ownership_actions": [],
+        "related_tasks": [],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "assign-human",
+          "at": "2026-11-24T05:49:40+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "choices": [
+              "All projects",
+              "Last project"
+            ]
+          },
+          "decision_request_id": 23,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "eta": null,
+          "event_id": 23,
+          "id": 11,
+          "key": "FLOW-6",
+          "links": [],
+          "note": "Which scope should the bare URL open?",
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "human_review",
+          "summary_label": "Decision needed",
+          "title": "Choose the default reporting scope",
+          "wait_kind": "person",
+          "waiting_on": "raft:human:00000000-0000-0000-0000-00000000002a",
+          "waiting_profile": {
+            "avatar_url": null,
+            "description": null,
+            "id": "raft:human:00000000-0000-0000-0000-00000000002a",
+            "kind": "human",
+            "name": "Sam",
+            "role": "Human",
+            "username": "sam"
+          }
+        },
+        "workers": []
+      },
+      "events": [
+        23,
+        22,
+        21
+      ],
+      "history": {
+        "21": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:48:40+00:00",
+            "id": 21,
+            "label": "Created"
+          },
+          "key": "FLOW-6",
+          "next": {
+            "at": "2026-11-24T05:49:20+00:00",
+            "id": 22
+          },
+          "note": "Collect the project manager’s decision.",
+          "previous": null,
+          "state": "ready",
+          "title": "Choose the default reporting scope"
+        },
+        "22": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:49:20+00:00",
+            "id": 22,
+            "label": "Started"
+          },
+          "key": "FLOW-6",
+          "next": {
+            "at": "2026-11-24T05:49:40+00:00",
+            "id": 23
+          },
+          "note": "Compare the route options.",
+          "previous": {
+            "at": "2026-11-24T05:48:40+00:00",
+            "id": 21
+          },
+          "state": "in_progress",
+          "title": "Choose the default reporting scope"
+        },
+        "23": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:49:40+00:00",
+            "id": 23,
+            "label": "Decision requested"
+          },
+          "key": "FLOW-6",
+          "next": null,
+          "note": "Which scope should the bare URL open?",
+          "previous": {
+            "at": "2026-11-24T05:49:20+00:00",
+            "id": 22
+          },
+          "state": "human_review",
+          "title": "Choose the default reporting scope"
+        }
+      }
+    },
+    "FLOW-7": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T05:50:00+00:00",
+          "id": 24
+        },
+        "ownership_actions": [],
+        "related_tasks": [],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "add",
+          "at": "2026-11-24T05:50:00+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {},
+          "decision_request_id": null,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "kind": "agent",
+            "name": "Blake",
+            "role": null,
+            "username": "blake"
+          },
+          "eta": null,
+          "event_id": 24,
+          "id": 12,
+          "key": "FLOW-7",
+          "links": [],
+          "note": "Open Reports with a project that has no open tickets.",
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "ready",
+          "summary_label": "Next step",
+          "title": "Cover an empty project",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        "workers": []
+      },
+      "events": [
+        24
+      ],
+      "history": {
+        "24": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+              "kind": "agent",
+              "name": "Blake",
+              "role": null,
+              "username": "blake"
+            },
+            "at": "2026-11-24T05:50:00+00:00",
+            "id": 24,
+            "label": "Created"
+          },
+          "key": "FLOW-7",
+          "next": null,
+          "note": "Open Reports with a project that has no open tickets.",
+          "previous": null,
+          "state": "ready",
+          "title": "Cover an empty project"
+        }
+      }
+    },
+    "FLOW-8": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T05:50:40+00:00",
+          "id": 26
+        },
+        "ownership_actions": [],
+        "related_tasks": [],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "park",
+          "at": "2026-11-24T05:50:40+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "review_after": "2026-11-27"
+          },
+          "decision_request_id": null,
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "eta": null,
+          "event_id": 26,
+          "id": 13,
+          "key": "FLOW-8",
+          "links": [],
+          "note": "Revisit after the default scope decision.",
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "parked",
+          "summary_label": "Reason for parking",
+          "title": "Revisit Reports copy",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        "workers": []
+      },
+      "events": [
+        26,
+        25
+      ],
+      "history": {
+        "25": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:50:20+00:00",
+            "id": 25,
+            "label": "Created"
+          },
+          "key": "FLOW-8",
+          "next": {
+            "at": "2026-11-24T05:50:40+00:00",
+            "id": 26
+          },
+          "note": "Review the labels after the project default is settled.",
+          "previous": null,
+          "state": "ready",
+          "title": "Revisit Reports copy"
+        },
+        "26": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:50:40+00:00",
+            "id": 26,
+            "label": "Parked"
+          },
+          "key": "FLOW-8",
+          "next": null,
+          "note": "Revisit after the default scope decision.",
+          "previous": {
+            "at": "2026-11-24T05:50:20+00:00",
+            "id": 25
+          },
+          "state": "parked",
+          "title": "Revisit Reports copy"
+        }
+      }
+    },
+    "FLOW-9": {
+      "detail": {
+        "brief": "",
+        "can_close": false,
+        "can_confirm_blocker": false,
+        "can_edit_details": false,
+        "can_edit_parking": false,
+        "checklist": [],
+        "goal": null,
+        "last_activity": {
+          "at": "2026-11-24T05:51:20+00:00",
+          "id": 28
+        },
+        "ownership_actions": [],
+        "related_tasks": [],
+        "sources": [],
+        "tag_editable": false,
+        "task": {
+          "action": "update",
+          "at": "2026-11-24T05:51:20+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "closure": {}
+          },
+          "decision_request_id": null,
+          "display_state": "closed",
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "eta": null,
+          "event_id": 28,
+          "id": 14,
+          "key": "FLOW-9",
+          "links": [],
+          "note": "The existing project selector covers both routes.",
+          "priority": "normal",
+          "record_kind": "work",
+          "state": "done",
+          "summary_label": "Closure reason",
+          "title": "Replace both project selectors",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        "workers": []
+      },
+      "events": [
+        28,
+        27
+      ],
+      "history": {
+        "27": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:51:00+00:00",
+            "id": 27,
+            "label": "Created"
+          },
+          "key": "FLOW-9",
+          "next": {
+            "at": "2026-11-24T05:51:20+00:00",
+            "id": 28
+          },
+          "note": "Check whether a second control is needed.",
+          "previous": null,
+          "state": "ready",
+          "title": "Replace both project selectors"
+        },
+        "28": {
+          "brief": "",
+          "event": {
+            "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "actor_profile": {
+              "avatar_url": null,
+              "description": null,
+              "dri_kind": "team",
+              "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+              "kind": "agent",
+              "name": "Avery",
+              "role": null,
+              "username": "avery"
+            },
+            "at": "2026-11-24T05:51:20+00:00",
+            "id": 28,
+            "label": "Closed"
+          },
+          "key": "FLOW-9",
+          "next": null,
+          "note": "The existing project selector covers both routes.",
+          "previous": {
+            "at": "2026-11-24T05:51:00+00:00",
+            "id": 27
+          },
+          "state": "closed",
+          "title": "Replace both project selectors"
+        }
+      }
+    }
+  },
+  "reports": [
+    {
+      "as_of": null,
+      "goals": [],
+      "last_activity": null,
+      "legacy_peer_waits": [],
+      "owner": "raft:human:00000000-0000-0000-0000-00000000002a",
+      "pending_reports": [],
+      "pending_reports_before": null,
+      "profile": {
+        "avatar_url": null,
+        "description": null,
+        "id": "raft:human:00000000-0000-0000-0000-00000000002a",
+        "kind": "human",
+        "name": "Sam",
+        "role": "Human",
+        "username": "sam"
+      },
+      "recent_outcomes": [],
+      "report_count": 0,
+      "task_count": 0,
+      "task_counts": {
+        "human_review": 0,
+        "in_progress": 0,
+        "ready": 0,
+        "waiting": 0
+      },
+      "tasks": [],
+      "worker_counts": {
+        "launched": 0,
+        "launched_reviews": 0,
+        "recorded": 0,
+        "running": 0,
+        "running_reviews": 0
+      }
+    },
+    {
+      "as_of": "2026-11-24T05:49:40+00:00",
+      "goals": [],
+      "last_activity": {
+        "at": "2026-11-24T05:59:40+00:00",
+        "id": 45
+      },
+      "legacy_peer_waits": [],
+      "owner": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "pending_reports": [],
+      "pending_reports_before": null,
+      "profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "recent_outcomes": [
+        {
+          "action": "done",
+          "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "actor_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "at": "2026-11-24T05:58:00+00:00",
+          "context": {},
+          "id": 42,
+          "label": "Completed",
+          "links": [],
+          "note": "The signed replay steps are verified.",
+          "related_tasks": [],
+          "state": "done",
+          "task_id": 16,
+          "task_key": "FLOW-11",
+          "task_title": "Document the signed replay commands",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        {
+          "action": "done",
+          "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "actor_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "at": "2026-11-24T05:56:40+00:00",
+          "context": {},
+          "id": 39,
+          "label": "Completed",
+          "links": [],
+          "note": "Use the checked command sequence.",
+          "related_tasks": [],
+          "state": "done",
+          "task_id": 17,
+          "task_key": "FLOW-12",
+          "task_title": "Check the commands against the signed fixture",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        {
+          "action": "done",
+          "actor": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "actor_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "at": "2026-11-24T05:52:40+00:00",
+          "context": {},
+          "id": 31,
+          "label": "Completed",
+          "links": [],
+          "note": "Reports links retain the selected project.",
+          "related_tasks": [],
+          "state": "done",
+          "task_id": 15,
+          "task_key": "FLOW-10",
+          "task_title": "Verify Tasks links from Reports",
+          "waiting_on": null,
+          "waiting_profile": null
+        }
+      ],
+      "report_count": 0,
+      "task_count": 5,
+      "task_counts": {
+        "human_review": 1,
+        "in_progress": 1,
+        "ready": 0,
+        "waiting": 3
+      },
+      "tasks": [
+        {
+          "action": "assign-human",
+          "at": "2026-11-24T05:49:40+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {},
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "event_id": null,
+          "id": 11,
+          "key": "FLOW-6",
+          "last_activity_at": "2026-11-24T05:49:40+00:00",
+          "links": [],
+          "note": "",
+          "priority": "normal",
+          "state": "human_review",
+          "summary_label": "Decision needed",
+          "title": "Choose the default reporting scope",
+          "wait_kind": "person",
+          "waiting_on": null,
+          "waiting_profile": null
+        },
+        {
+          "action": "wait",
+          "at": "2026-11-24T05:48:20+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "wait_kind": "automation"
+          },
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "event_id": 20,
+          "id": 10,
+          "key": "FLOW-5",
+          "last_activity_at": "2026-11-24T05:48:20+00:00",
+          "links": [],
+          "note": "The visual check is still running.",
+          "priority": "normal",
+          "state": "waiting",
+          "summary_label": "Unblock condition",
+          "title": "Verify the release candidate",
+          "wait_kind": "automation",
+          "waiting_on": "Visual checks",
+          "waiting_profile": null,
+          "waiting_since": "2026-11-24T05:48:20+00:00"
+        },
+        {
+          "action": "wait",
+          "at": "2026-11-24T05:47:00+00:00",
+          "blockers": {
+            "cycle": null,
+            "tickets": [
+              {
+                "id": 6,
+                "key": "FLOW-1",
+                "state": "in_progress"
+              }
+            ]
+          },
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "blocked_by": 6
+          },
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "event_id": 17,
+          "id": 9,
+          "key": "FLOW-4",
+          "last_activity_at": "2026-11-24T05:47:00+00:00",
+          "links": [],
+          "note": "Need the explicit-project test result.",
+          "priority": "normal",
+          "state": "waiting",
+          "summary_label": "Unblock condition",
+          "title": "Publish the Reports navigation notes",
+          "wait_kind": "ticket",
+          "waiting_on": "FLOW-1",
+          "waiting_profile": null,
+          "waiting_since": "2026-11-24T05:47:00+00:00"
+        },
+        {
+          "action": "wait",
+          "at": "2026-11-24T05:45:40+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {
+            "named_peer_wait": true,
+            "peer_ask_ticket": "FLOW-3"
+          },
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "event_id": 14,
+          "id": 7,
+          "key": "FLOW-2",
+          "last_activity_at": "2026-11-24T05:45:40+00:00",
+          "links": [],
+          "note": "Review the signed fixture for scope drift.",
+          "priority": "normal",
+          "state": "waiting",
+          "summary_label": "Unblock condition",
+          "title": "Run the signed Reports replay",
+          "wait_kind": "person",
+          "waiting_on": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "waiting_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "kind": "agent",
+            "name": "Blake",
+            "role": null,
+            "username": "blake"
+          },
+          "waiting_since": "2026-11-24T05:45:40+00:00"
+        },
+        {
+          "action": "update",
+          "at": "2026-11-24T05:44:00+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 1,
+          "context": {},
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "kind": "agent",
+            "name": "Avery",
+            "role": null,
+            "username": "avery"
+          },
+          "event_id": 10,
+          "id": 6,
+          "key": "FLOW-1",
+          "last_activity_at": "2026-11-24T05:59:40+00:00",
+          "links": [],
+          "note": "Verified reload. Check Back from Tasks.",
+          "priority": "normal",
+          "state": "in_progress",
+          "summary_label": "Current step",
+          "title": "Test explicit Reports project links",
+          "waiting_on": null,
+          "waiting_profile": null
+        }
+      ],
+      "worker_counts": {
+        "launched": 0,
+        "launched_reviews": 0,
+        "recorded": 0,
+        "running": 0,
+        "running_reviews": 0
+      }
+    },
+    {
+      "as_of": "2026-11-24T05:45:20+00:00",
+      "goals": [],
+      "last_activity": {
+        "at": "2026-11-24T05:50:00+00:00",
+        "id": 24
+      },
+      "legacy_peer_waits": [],
+      "owner": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "pending_reports": [],
+      "pending_reports_before": null,
+      "profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "recent_outcomes": [],
+      "report_count": 0,
+      "task_count": 1,
+      "task_counts": {
+        "human_review": 0,
+        "in_progress": 0,
+        "ready": 2,
+        "waiting": 0
+      },
+      "tasks": [
+        {
+          "action": "add",
+          "at": "2026-11-24T05:45:20+00:00",
+          "checklist_completed": 0,
+          "checklist_total": 0,
+          "context": {},
+          "dri": "raft:agent:00000000-0000-0000-0000-000000000029",
+          "dri_profile": {
+            "avatar_url": null,
+            "description": null,
+            "dri_kind": "team",
+            "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+            "kind": "agent",
+            "name": "Blake",
+            "role": null,
+            "username": "blake"
+          },
+          "event_id": 13,
+          "id": 8,
+          "key": "FLOW-3",
+          "last_activity_at": "2026-11-24T05:45:20+00:00",
+          "links": [],
+          "note": "Review the signed fixture for scope drift.",
+          "peer_request": {
+            "asked_at": "2026-11-24T05:45:20+00:00",
+            "phase": "asked",
+            "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+            "requester_name": "Avery",
+            "source_id": 7,
+            "source_key": "FLOW-2"
+          },
+          "priority": "normal",
+          "state": "ready",
+          "summary_label": "Next step",
+          "title": "Review the signed fixture for scope drift",
+          "waiting_on": null,
+          "waiting_profile": null
+        }
+      ],
+      "worker_counts": {
+        "launched": 0,
+        "launched_reviews": 0,
+        "recorded": 0,
+        "running": 0,
+        "running_reviews": 0
+      }
+    }
+  ],
+  "request_log": [
+    {
+      "at": "2026-11-24T05:54:20+00:00",
+      "id": "peer:17",
+      "next_owner": null,
+      "next_owner_profile": null,
+      "phase": "done",
+      "recipient": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "recipient_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "request_key": "FLOW-12",
+      "request_title": "Check the commands against the signed fixture",
+      "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "requester_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "resolution": {
+        "at": "2026-11-24T05:56:40+00:00",
+        "id": 39
+      },
+      "response": {
+        "at": "2026-11-24T05:55:40+00:00",
+        "id": 37
+      },
+      "review": false,
+      "source_id": 16,
+      "source_key": "FLOW-11",
+      "source_title": "Document the signed replay commands"
+    },
+    {
+      "at": "2026-11-24T05:45:20+00:00",
+      "id": "peer:8",
+      "next_owner": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "next_owner_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "phase": "asked",
+      "recipient": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "recipient_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "request_key": "FLOW-3",
+      "request_title": "Review the signed fixture for scope drift",
+      "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "requester_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "review": false,
+      "source_id": 7,
+      "source_key": "FLOW-2",
+      "source_title": "Run the signed Reports replay"
+    }
+  ],
+  "tasks": [
+    {
+      "action": "done",
+      "at": "2026-11-24T05:58:00+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {},
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "event_id": 42,
+      "id": 16,
+      "key": "FLOW-11",
+      "links": [],
+      "note": "The signed replay steps are verified.",
+      "priority": "normal",
+      "state": "done",
+      "summary_label": "Outcome",
+      "title": "Document the signed replay commands",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "done",
+      "at": "2026-11-24T05:56:40+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {},
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "event_id": 39,
+      "id": 17,
+      "key": "FLOW-12",
+      "links": [],
+      "note": "Use the checked command sequence.",
+      "peer_request": {
+        "asked_at": "2026-11-24T05:54:20+00:00",
+        "phase": "done",
+        "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "source_id": 16,
+        "source_key": "FLOW-11"
+      },
+      "priority": "normal",
+      "state": "done",
+      "summary_label": "Outcome",
+      "title": "Check the commands against the signed fixture",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "done",
+      "at": "2026-11-24T05:52:40+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {},
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "event_id": 31,
+      "id": 15,
+      "key": "FLOW-10",
+      "links": [],
+      "note": "Reports links retain the selected project.",
+      "priority": "normal",
+      "state": "done",
+      "summary_label": "Outcome",
+      "title": "Verify Tasks links from Reports",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "update",
+      "at": "2026-11-24T05:51:20+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {
+        "closure": {}
+      },
+      "display_state": "closed",
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "event_id": 28,
+      "id": 14,
+      "key": "FLOW-9",
+      "links": [],
+      "note": "The existing project selector covers both routes.",
+      "priority": "normal",
+      "state": "done",
+      "summary_label": "Closure reason",
+      "title": "Replace both project selectors",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "park",
+      "at": "2026-11-24T05:50:40+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {
+        "review_after": "2026-11-27"
+      },
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "event_id": 26,
+      "id": 13,
+      "key": "FLOW-8",
+      "links": [],
+      "note": "Revisit after the default scope decision.",
+      "priority": "normal",
+      "state": "parked",
+      "summary_label": "Reason for parking",
+      "title": "Revisit Reports copy",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "add",
+      "at": "2026-11-24T05:50:00+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {},
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "event_id": 24,
+      "id": 12,
+      "key": "FLOW-7",
+      "links": [],
+      "note": "Open Reports with a project that has no open tickets.",
+      "priority": "normal",
+      "state": "ready",
+      "summary_label": "Next step",
+      "title": "Cover an empty project",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "assign-human",
+      "at": "2026-11-24T05:49:40+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {
+        "choices": [
+          "All projects",
+          "Last project"
+        ]
+      },
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "event_id": 23,
+      "id": 11,
+      "key": "FLOW-6",
+      "links": [],
+      "note": "Which scope should the bare URL open?",
+      "priority": "normal",
+      "state": "human_review",
+      "summary_label": "Decision needed",
+      "title": "Choose the default reporting scope",
+      "wait_kind": "person",
+      "waiting_on": "raft:human:00000000-0000-0000-0000-00000000002a",
+      "waiting_profile": {
+        "avatar_url": null,
+        "description": null,
+        "id": "raft:human:00000000-0000-0000-0000-00000000002a",
+        "kind": "human",
+        "name": "Sam",
+        "role": "Human",
+        "username": "sam"
+      }
+    },
+    {
+      "action": "wait",
+      "at": "2026-11-24T05:48:20+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {
+        "wait_kind": "automation"
+      },
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "event_id": 20,
+      "id": 10,
+      "key": "FLOW-5",
+      "links": [],
+      "note": "The visual check is still running.",
+      "priority": "normal",
+      "state": "waiting",
+      "summary_label": "Unblock condition",
+      "title": "Verify the release candidate",
+      "wait_kind": "automation",
+      "waiting_on": "Visual checks",
+      "waiting_profile": null,
+      "waiting_since": "2026-11-24T05:48:20+00:00"
+    },
+    {
+      "action": "wait",
+      "at": "2026-11-24T05:47:00+00:00",
+      "blockers": {
+        "cycle": null,
+        "tickets": [
+          {
+            "id": 6,
+            "key": "FLOW-1",
+            "state": "in_progress"
+          }
+        ]
+      },
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {
+        "blocked_by": 6
+      },
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "event_id": 17,
+      "id": 9,
+      "key": "FLOW-4",
+      "links": [],
+      "note": "Need the explicit-project test result.",
+      "priority": "normal",
+      "state": "waiting",
+      "summary_label": "Unblock condition",
+      "title": "Publish the Reports navigation notes",
+      "wait_kind": "ticket",
+      "waiting_on": "FLOW-1",
+      "waiting_profile": null,
+      "waiting_since": "2026-11-24T05:47:00+00:00"
+    },
+    {
+      "action": "wait",
+      "at": "2026-11-24T05:45:40+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {
+        "named_peer_wait": true,
+        "peer_ask_ticket": "FLOW-3"
+      },
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "event_id": 14,
+      "id": 7,
+      "key": "FLOW-2",
+      "links": [],
+      "note": "Review the signed fixture for scope drift.",
+      "priority": "normal",
+      "state": "waiting",
+      "summary_label": "Unblock condition",
+      "title": "Run the signed Reports replay",
+      "wait_kind": "person",
+      "waiting_on": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "waiting_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "waiting_since": "2026-11-24T05:45:40+00:00"
+    },
+    {
+      "action": "add",
+      "at": "2026-11-24T05:45:20+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 0,
+      "context": {},
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000029",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000029",
+        "kind": "agent",
+        "name": "Blake",
+        "role": null,
+        "username": "blake"
+      },
+      "event_id": 13,
+      "id": 8,
+      "key": "FLOW-3",
+      "links": [],
+      "note": "Review the signed fixture for scope drift.",
+      "peer_request": {
+        "asked_at": "2026-11-24T05:45:20+00:00",
+        "phase": "asked",
+        "requester": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "source_id": 7,
+        "source_key": "FLOW-2"
+      },
+      "priority": "normal",
+      "state": "ready",
+      "summary_label": "Next step",
+      "title": "Review the signed fixture for scope drift",
+      "waiting_on": null,
+      "waiting_profile": null
+    },
+    {
+      "action": "update",
+      "at": "2026-11-24T05:44:00+00:00",
+      "checklist_completed": 0,
+      "checklist_total": 1,
+      "context": {},
+      "dri": "raft:agent:00000000-0000-0000-0000-000000000028",
+      "dri_profile": {
+        "avatar_url": null,
+        "description": null,
+        "dri_kind": "team",
+        "id": "raft:agent:00000000-0000-0000-0000-000000000028",
+        "kind": "agent",
+        "name": "Avery",
+        "role": null,
+        "username": "avery"
+      },
+      "event_id": 10,
+      "id": 6,
+      "key": "FLOW-1",
+      "links": [],
+      "note": "Verified reload. Check Back from Tasks.",
+      "priority": "normal",
+      "state": "in_progress",
+      "summary_label": "Current step",
+      "title": "Test explicit Reports project links",
+      "waiting_on": null,
+      "waiting_profile": null
+    }
+  ]
+}
