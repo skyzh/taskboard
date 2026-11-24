@@ -60,7 +60,7 @@ from tasks_queries import BoardQueries, PACIFIC, pacific_day, task_creation
 
 from taskboard_client.connection import exact_person_id
 from taskboard_server.paths import CHECKOUT, DIST, PACKAGE
-from taskboard_server import personal_agents, personal_codex, project_links, raft_channels
+from taskboard_server import local_dri, personal_agents, personal_codex, project_links, raft_channels
 FRONTEND_BUILD_META = re.compile(rb'<meta name="tasks-frontend-build" content="([0-9a-f]{64})">')
 # Some Linux systems expose the host's localtime file alongside IANA zones.
 TIME_ZONE_NAMES = available_timezones() - {"localtime"}
@@ -336,6 +336,8 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
         db.execute("INSERT INTO board_settings VALUES ('marketplace_server_id', ?) ON CONFLICT (key) DO NOTHING", (server_id,))
     profiles.ensure_principals(db)
     db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
+    for statement in local_dri.SCHEMA:
+        db.execute(statement)
     if oidc_issuer is not None:
         if marketplace_marker(db) is not None:
             raise ValueError("OpenID Connect cannot use a Marketplace ledger.")
@@ -401,6 +403,8 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
             ledger.ensure_record_kind(db)
             ledger.ensure_checklist_schema(db)
             db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
+            for statement in local_dri.SCHEMA:
+                db.execute(statement)
             pinned = db.execute("SELECT value FROM board_settings WHERE key = 'raft_server_id'").fetchone()
             if server_id and pinned and pinned["value"] != server_id:
                 raise ValueError("The task ledger is already bound to another Raft Server.")
@@ -744,6 +748,12 @@ def create_app(
         authorization = request.headers.get("Authorization", "")
         scheme, _, token = authorization.partition(" ")
         bearer = scheme.lower() == "bearer" and token.startswith(personal_agents.API_TOKEN_PREFIX)
+        selection = request.headers.get("X-Taskboard-Local-DRI")
+        if selection is not None:
+            if not bearer:
+                raise RequestError("Approve a Personal Agents CLI sign-in before selecting a Local DRI.", 401)
+            if not request.path.startswith("/api/v1/raft/"):
+                raise RequestError("Use the signed Local DRI workflow actions.", 403)
         tailnet_requested = not authorization and request.headers.get("X-Taskboard-Personal-Agent") == "1"
         if not (bearer or tailnet_requested):
             return None
@@ -778,6 +788,12 @@ def create_app(
         if actor is None or actor["ledger_key"] != connection["owner"]:
             raise RequestError("A valid Personal Agents connection is required.", 401)
         g.personal_agent_api = "login_required"
+        if selection is not None:
+            profile = local_dri.registration(db(), selection)
+            if profile is None or profile["owner"] != actor["ledger_key"]:
+                raise NotFound()
+            g.local_dri = profile
+            return profiles.get(db(), profile["actor"])
         return actor
 
     def current_actor(kind=None, *, write=False, required=False, sync_profile=True):
@@ -851,10 +867,15 @@ def create_app(
         person = profiles.get(db(), key)
         if person is None or (kind is not None and person["kind"] != kind):
             raise RequestError("Choose a known assignee who has signed in to this board.", 404)
-        if kind == "agent" and project_roster is not None and person["subject"] not in project_roster:
-            task = db().execute("SELECT project_prefix FROM tasks WHERE id = ?", (task_id,)).fetchone()
-            if task is not None and task["project_prefix"] == projects.DEFAULT:
-                raise RequestError("Choose an agent from this project's roster.")
+        if person["kind"] == "agent" and task_id is not None:
+            profile = local_dri.registration(db(), key)
+            if profile is not None or (project_roster is not None and person["subject"] not in project_roster):
+                task = db().execute("SELECT project_prefix FROM tasks WHERE id = ?", (task_id,)).fetchone()
+                if task is not None:
+                    if profile is not None and profile["project"] != task["project_prefix"]:
+                        raise RequestError("Choose a Local DRI registered for this project.", 403)
+                    if profile is None and task["project_prefix"] == projects.DEFAULT:
+                        raise RequestError("Choose an agent from this project's roster.")
         return person["ledger_key"]
 
     def project_filter(data, default=None):
@@ -978,6 +999,45 @@ def create_app(
             with tasks_storage.write(db()) as connection:
                 personal_agents.save_publishing_instructions(connection, owner, instructions)
             return personal_api_response({"instructions": instructions})
+
+        @app.route("/api/v1/personal-agents/local-dris", methods=["GET", "POST"])
+        def personal_local_dris():
+            write = request.method == "POST"
+            owner = personal_api_browser(write=write)
+            if not write:
+                return personal_api_response({"local_dris": local_dri.owned(db(), owner)})
+            data = json_body({"project", "name"})
+            name = text(data, "name", maximum=80)
+            if len(name.splitlines()) != 1:
+                raise RequestError("Use a one-line Local DRI name.")
+            project = project_filter(data)
+            if project is None:
+                raise RequestError("Choose one project for the Local DRI.")
+            with tasks_storage.write(db()) as connection:
+                identifier = local_dri.register(connection, owner, raft_config["server_id"], project, name)
+                saved = next(profile for profile in local_dri.owned(connection, owner) if profile["id"] == identifier)
+            return personal_api_response({"local_dri": saved})
+
+        @app.post("/api/v1/raft/local-dri-watcher")
+        def personal_local_watcher():
+            require_personal_api_origin()
+            current_actor("agent", write=True, sync_profile=False)
+            profile = g.get("local_dri")
+            if profile is None:
+                raise RequestError("Select an owned Local DRI to report watcher readiness.", 403)
+            data = json_body({"watcher", "state"})
+            try:
+                watcher = str(UUID(text(data, "watcher", maximum=36)))
+            except ValueError as error:
+                raise RequestError("Use the watcher's stable run UUID.") from error
+            state = data.get("state")
+            if state not in ("active", "stopped"):
+                raise RequestError("Choose active or stopped as the watcher state.")
+            with tasks_storage.write(db()) as connection:
+                local_dri.mark_watcher(connection, profile["actor"], watcher, state == "active")
+                ready = local_dri.ready(connection, profile["actor"], profile["project"])
+            return personal_api_response({"project": profile["project"], "watcher_ready": ready,
+                                          "receipt": "Local DRI watcher state recorded."})
 
         @app.post("/api/v1/personal-agents/cli-authorize")
         def personal_agent_cli_authorize():
@@ -2369,6 +2429,8 @@ def create_app(
         return {"watching": watching}
 
     def raise_attention(actor, number, data):
+        if g.get("local_dri") is not None:
+            raise RequestError(local_dri.QUESTION_REQUIRED, 403)
         sender = actor["ledger_key"]
         recipient = require_person(text(data, "recipient", maximum=160), "human")
         reason = text(data, "reason")
@@ -2559,17 +2621,21 @@ def create_app(
             raise NotFound()
         return profile_image(row["avatar"], digest)
 
-    def assignees(data):
+    def assignees(data, *, signed=False):
         paging = page_args(data)
         term = text(data, "query", optional=True, maximum=100) or ""
         limit = paging["limit"]
         project = project_filter(data, projects.DEFAULT)
-        scope = ""
+        scope = """ AND NOT EXISTS (
+            SELECT 1 FROM local_dris WHERE actor = board_principals.ledger_key AND project <> ?
+        )"""
         subjects = []
         if project == projects.DEFAULT and project_roster is not None:
             subjects = list(project_roster)
             members = ", ".join("?" for _ in subjects)
-            scope = f" AND (kind <> 'agent' OR subject IN ({members}))"
+            team = f"subject IN ({members})" if subjects else "FALSE"
+            scope += f""" AND (kind <> 'agent' OR {team}
+                OR EXISTS (SELECT 1 FROM local_dris WHERE actor = board_principals.ledger_key))"""
         connection = db()
         sort = tasks_storage.principal_order(connection)
         username_match = tasks_storage.find_text(connection, "LOWER(username)", "LOWER(?)")
@@ -2579,17 +2645,25 @@ def create_app(
             SELECT {sort} AS rowid, {profiles.FIELDS} FROM board_principals
             WHERE {sort} < ? AND ({username_match} > 0 OR {name_match} > 0){scope}
             ORDER BY {sort} DESC LIMIT ?
-            """, (paging["before"] or projects.MAX_ID, term, term, *subjects, limit + 1),
+            """, (paging["before"] or projects.MAX_ID, term, term, project, *subjects, limit + 1),
         ).fetchall()
+        items = []
+        for row in rows[:limit]:
+            profile = profiles.public_profile(row, base)
+            if signed and row["kind"] == "agent":
+                is_local = local_dri.registration(connection, row["ledger_key"]) is not None
+                ready = not is_local or local_dri.ready(connection, row["ledger_key"], project)
+                profile.update(accepts_agent_asks=ready,
+                               agent_ask_restriction=None if ready else local_dri.WATCHER_REQUIRED)
+            items.append(profile)
         return {
-            "items": [profiles.public_profile(row, base) for row in rows[:limit]],
+            "items": items,
             "next_cursor": rows[limit - 1]["rowid"] if len(rows) > limit else None,
         }
 
     @app.get("/api/v1/assignees")
     def people():
-        current_actor()
-        return assignees(request.args)
+        return assignees(request.args, signed=current_actor() is not None)
 
     def assignee_candidates(name, project):
         filters = {"query": name.removeprefix("@"), "project": project}
@@ -2629,6 +2703,8 @@ def create_app(
                 raise RequestError("Use either a name or an exact ID when assigning or redirecting a human decision.")
             on = resolve_assignee(text(data, "on_name", maximum=101), "human")
         if command in ("assign-human", "redirect-decision"):
+            if g.get("local_dri") is not None:
+                raise RequestError(local_dri.QUESTION_REQUIRED, 403)
             on = require_person(on, "human")
         blocked_by = data.get("blocked_by")
         if "blocked_by" in data:
@@ -2662,6 +2738,8 @@ def create_app(
             if on == actor["ledger_key"]:
                 raise RequestError("Choose a different person for this wait.")
             human_wait = person["kind"] == "human"
+            if human_wait and g.get("local_dri") is not None:
+                raise RequestError(local_dri.QUESTION_REQUIRED, 403)
             if not human_wait:
                 peer = on
         parking = parking_fields(data, command)
@@ -2758,6 +2836,24 @@ def create_app(
             return {"project": project, "kind": "unavailable"}
         return {"project": project, "kind": "empty"}
 
+    def local_dri_action(name, data, profile):
+        project = profile["project"]
+        if name in ("my-next", "my-queue", "assignees", "knowledge-areas", "search-tasks"):
+            if data.get("scope") or data.get("project", project) != project:
+                raise RequestError("Use the Local DRI's registered project.", 403)
+            data["project"] = project
+        elif name in ("task", "task-activity", "advance-task", "peer-ask", "record-activity", "raise-attention"):
+            for field in ("id", "blocked_by"):
+                if field in data:
+                    try:
+                        target_project, _ = projects.identifier(data[field])
+                    except ValueError as error:
+                        raise RequestError(str(error)) from error
+                    if target_project != project:
+                        raise RequestError("Use the Local DRI's registered project.", 403)
+        elif name != "context":
+            raise RequestError("This action is outside the Local DRI workflow.", 403)
+
     def dispatch_action(name, data):
         write = request.method != "GET"
         actor = current_actor(write=write, required=True)
@@ -2768,6 +2864,9 @@ def create_app(
             "worker-check", "worker-check-show",
         }:
             raise RequestError("This action requires a standing Raft agent.", 403)
+        profile = g.get("local_dri")
+        if profile is not None:
+            local_dri_action(name, data, profile)
         key = actor["ledger_key"]
         if name == "context":
             context = {
@@ -2776,6 +2875,9 @@ def create_app(
                 "decision_recipient_lookup": True,
                 "handoff_recipient_lookup": True,
             }
+            if profile is not None:
+                context["project"] = profile["project"]
+                context["human_questions"] = "local_prompt"
             if agent_guidance.cli:
                 context["cli_guidance"] = agent_guidance.cli
             if g.get("personal_agent_api"):
@@ -2962,7 +3064,7 @@ def create_app(
         if name == "task-tag":
             return change_tag(actor, task_number(data.get("id")), data)
         if name == "assignees":
-            return assignees(data)
+            return assignees(data, signed=True)
         if name == "my-watches":
             return query().events(watcher=key, project=project_scope(data), **page_args(data))
         if name == "my-activity":

@@ -82,6 +82,7 @@ def arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, help="Use a specific offline task database.")
     parser.add_argument("--url", dest="board_url", help="Use the shared Taskboard HTTPS URL directly.")
+    parser.add_argument("--local-dri", help="Select an owned Local DRI using the approved CLI sign-in.")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--shared", dest="mode", action="store_const", const="shared",
                       help="Use the shared board through your verified Raft session.")
@@ -513,6 +514,10 @@ def arguments(argv=None):
     delivery.add_argument("note", type=nonblank)
     add_link_flag(delivery, OFFLINE_EVIDENCE_HELP)
     args = parser.parse_args(argv)
+    if args.local_dri is not None:
+        args.board_url = args.board_url or os.environ.get("TASKBOARD_URL")
+        if not args.board_url or args.command in ("login", "logout", "publishing-instructions"):
+            parser.error("Approve CLI sign-in first, then select a board URL to use a Local DRI.")
     if args.board_url is not None and (args.mode not in (None, "shared") or args.db is not None):
         parser.error("--url selects the shared board.")
     if args.board_url is not None:

@@ -4,6 +4,7 @@ from argparse import Namespace
 import json
 import re
 
+from taskboard_server import local_dri
 from taskboard_client.work import PEER_ASK as COMMAND, PEER_ASK_TRANSITIONS as TRANSITIONS
 
 import tasks_projects as projects
@@ -272,6 +273,13 @@ def create(db, args, links, *, named_wait=None):
         raise ValueError("Reopen the source task before asking a peer.")
     if args.recipient == args.by:
         raise ValueError("Choose another agent for the peer request.")
+    if profile := local_dri.registration(db, args.recipient):
+        project = projects.row_project(source)
+        if profile["project"] != project:
+            raise PermissionError("Choose a Local DRI registered for this project.")
+        sender = db.execute("SELECT kind FROM board_principals WHERE ledger_key = ?", (args.by,)).fetchone()
+        if sender is not None and sender["kind"] == "agent" and not local_dri.ready(db, args.recipient, project):
+            raise PermissionError("Set up the Local DRI watcher before sending an agent ask.")
     manual_review = getattr(args, "manual_review", None)
     if manual_review:
         if source["state"] not in ("ready", "in_progress", "waiting"):

@@ -17,7 +17,7 @@ TABLES = (
     "task_tags", "tasknote_snapshots", "sources", "source_deliveries", "task_sources",
     "task_references", "task_watches", "worker_runs", "peer_asks", "recurring_definitions",
     "recurring_occurrences", "project_maintenance", "release_batches", "release_events",
-    "release_tasks", "release_changelogs", "merge_candidates", "board_principals", "personal_agent_instructions",
+    "release_tasks", "release_changelogs", "merge_candidates", "board_principals", "personal_agent_instructions", "local_dris",
     "board_assignee_imports", "board_project_goals", "board_standing_goals", "board_goal_milestones", "task_goals",
     "goal_review_times",
     "oidc_members", "audit_events",
@@ -27,7 +27,7 @@ TABLES = (
     "knowledge_areas", "knowledge_entries", "knowledge_stages",
 )
 # Connections depend on the source deployment's live browser sessions.
-NON_PORTABLE_TABLES = {"personal_agent_connections", "personal_agent_cli_approvals"}
+NON_PORTABLE_TABLES = {"personal_agent_connections", "personal_agent_cli_approvals", "local_dri_watchers"}
 IDENTITIES = {
     "tasks": "id", "events": "id", "sources": "id", "worker_runs": "id",
     "recurring_definitions": "id", "release_batches": "id", "board_principals": "principal_order",
