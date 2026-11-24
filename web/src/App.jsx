@@ -192,6 +192,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const timeZone = timeZonePreference || browserTimeZone
   const timeZoneFormatters = useMemo(() => createTimeZoneFormatters(timeZone), [timeZone])
   const [taskAnchor, taskContext] = fragment.split('?', 2)
+  const recordHistory = new URLSearchParams(taskContext).get('history')
   const namedTask = taskAnchor.match(/^task-([A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})$/)?.[1]
   const selected = namedTask || fragmentId(taskAnchor, /^task-([1-9]\d*)$/)
   const fromSearch = selected ? new URLSearchParams(taskContext).get('from-search')?.trim() : ''
@@ -466,7 +467,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
             projects={visibleProjects} revision={revision}
             onProjectChange={value => writeFilterFragment(value ? `integrations?project=${value}` : 'integrations', true)}
             challenge={integrationsParams.get('cli')} preview={preview} />}
-          {view === 'knowledge' && <Knowledge session={session} verified={verified} revision={revision} projects={visibleProjects}
+          {view === 'knowledge' && <Knowledge key={`${knowledgeFilters.get('entry') || 'index'}:${recordHistory || ''}`}
+            session={session} verified={verified} revision={revision} projects={visibleProjects}
             onChanged={refresh} RecordTools={KnowledgeRecordTools}
             search={knowledgeFilters.get('q') || ''} entry={knowledgeFilters.get('entry')} history={knowledgeFilters.get('history')}
             onSearch={value => writeFilterFragment(value ? `knowledge?${new URLSearchParams({ q: value })}` : 'knowledge', false)} />}
@@ -495,9 +497,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
                 kanbanNavigation={kanbanNavigation} listNavigation={listNavigation} listReturn={listReturn} />
             </>
           )}
-          {view === 'task' && <TaskDetail key={selected} id={selected} revision={revision} session={session}
+          {view === 'task' && <TaskDetail key={`${selected}:${recordHistory || ''}`} id={selected} revision={revision} session={session}
             preferredProject={preferredProject} returnHref={fromList ? listReturn.current.board : undefined}
-            fromSearch={fromSearch} history={new URLSearchParams(taskContext).get('history')} onChanged={refresh} />}
+            fromSearch={fromSearch} history={recordHistory} onChanged={refresh} />}
           {view === 'team-overview' && (
             <>
               <div className="page-heading"><h1 id="team-overview">Team overview</h1></div>

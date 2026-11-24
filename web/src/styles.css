@@ -628,14 +628,22 @@ button:disabled { opacity: .57; }
 .task-detail:target { background: var(--paper); }
 /* Deep links focus the article. Interactive controls retain their normal focus rings. */
 .task-detail:focus-visible { outline: none; }
-.ticket-heading-meta:has(.ticket-actions-toggle) {
+.ticket-heading-meta:has(.record-edit-toggle) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   column-gap: .65rem;
 }
-.ticket-heading-meta:has(.ticket-actions-toggle) .back-link { margin: 0; }
-.ticket-actions-toggle { min-height: 2.75rem; margin-inline-start: auto; }
+.ticket-heading-meta:has(.record-edit-toggle) .back-link { margin: 0; }
+.record-edit-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+}
+.record-edit-toggle[aria-pressed="true"] { color: var(--paper); background: var(--green); border-color: var(--green); }
+.ticket-heading-meta .record-edit-toggle { margin-inline-start: auto; }
 .history-link { display: inline-flex; min-height: 2.75rem; align-items: center; margin-inline-start: .65rem; }
 .record-history .context-list { margin-top: .65rem; }
 .task-detail h1 { margin: .38rem 0 .25rem; font-size: clamp(1.45rem, 3vw, 2.15rem); letter-spacing: -.035em; }
