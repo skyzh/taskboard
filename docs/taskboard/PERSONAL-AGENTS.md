@@ -75,10 +75,10 @@ reports under one verified identity.
   Have the project manager and board operator enroll an eligible Raft
   coordinator for the project. Follow the
   [signed agent startup checklist](AGENT-STARTUP.md#verify-the-computer-cli-and-ledger).
-  Use the shared CLI or the [supported local Raft MCP adapter](MCP.md) on the
-  coordinator. Verify its watcher before routing unattended work to it.
-  Factories without a supported identity require an external
-  adapter, which this setup does not provide.
+  Follow the [factory coordinator setup](FACTORY-DRI.md) to connect the
+  existing worker command. If the factory runs elsewhere, run the signed
+  coordinator on a Raft Computer and use the factory's own authorized adapter.
+  Verify its watcher before routing unattended work to it.
 - **Verify.** Assign one small ticket to the coordinator. Let it route work
   through the existing factory and return the result. Open Activity to
   verify the coordinator's attribution, worker evidence, and next owner.
