@@ -161,9 +161,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const theme = useTheme()
   const main = useRef(null)
   const tourTrigger = useRef(null)
-  const navbarTourTrigger = useRef(null)
   const tourOrigin = useRef('')
-  const tourFromNavbar = useRef(false)
   const restoreTourFocus = useRef(false)
   const [tour, setTour] = useState(null)
   const tourIndex = tour?.findIndex(step => step.route === fragment) ?? -1
@@ -174,8 +172,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
   useLayoutEffect(() => {
     if (restoreTourFocus.current && !tour) {
       restoreTourFocus.current = false
-      const trigger = tourFromNavbar.current ? navbarTourTrigger.current : tourTrigger.current
-      ;(trigger || main.current)?.focus({ preventScroll: true })
+      const trigger = tourTrigger.current || main.current
+      trigger?.focus({ preventScroll: true })
     }
   }, [tour])
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(readWelcomeBannerPreference)
@@ -317,22 +315,16 @@ export default function App({ previewNotice, tourSteps } = {}) {
     : reportFragment(allReports ? 'all' : reportsProject,
       ['active', 'all', 'idle'].includes(requestedAssigneeView) ? assigneeView : undefined)
   const reportsHref = `#${view === 'reports' ? reportsMode : preferredReportsMode}`
-  function startTour(event) {
-    const onReports = view === 'reports' && !showGoalActivity
-    const pageProject = ['reports', 'board', 'task', 'assignee', 'team-overview'].includes(view) ? project : undefined
-    const reportsRoute = onReports ? fragment : pageProject ? reportFragment(pageProject) : preferredReportsMode
-    const tourProject = pageProject || new URLSearchParams(reportsRoute.split('?', 2)[1]).get('project') || reportsProject
-    const taskRoute = new URLSearchParams({ project: tourProject, section: 'queue-heading' }).toString()
+  function startTour() {
+    const taskRoute = new URLSearchParams({ project: reportsProject, section: 'queue-heading' }).toString()
     tourOrigin.current = fragment
-    tourFromNavbar.current = event.currentTarget === navbarTourTrigger.current
     setTour([
-      { route: reportsRoute, target: 'reports', title: 'Reports', text: 'See who owns the current work, what needs a decision, and what was completed.' },
+      { route: fragment, target: 'reports', title: 'Reports', text: 'See who owns the current work, what needs a decision, and what was completed.' },
       { route: taskRoute, target: 'board', title: 'Tasks', text: 'Open a ticket to see its owner, current state, and next step.' },
       { route: 'activity', target: 'activity', title: 'Activity', text: 'See who reported progress, asked for help, or recorded an outcome, and when.' },
       ...(verified ? [{ route: 'knowledge', target: 'knowledge', title: 'Knowledge',
         text: 'Find shared decisions and notes, with links back to the work they came from.' }] : []),
     ])
-    writeFilterFragment(reportsRoute, false)
   }
   function closeTour() {
     restoreTourFocus.current = true
@@ -398,11 +390,11 @@ export default function App({ previewNotice, tourSteps } = {}) {
           <BoardViews current={activeTab} reportsHref={reportsHref} isAgent={isAgent}
             showNotifications={verified || session.data?.sign_in_available} showKnowledge={verified} />
           <TaskSearch query={search} fragment={fragment} />
-          <div className="account account-with-tour">
-            {preview ? demoTour.toggle : <button type="button" ref={navbarTourTrigger} className="navbar-tour-trigger"
-              aria-label="Take the tour" disabled={Boolean(tourStep) || reportsPending || (sessionResource.pending && !sessionResource.data)}
-              onClick={startTour}>Tour</button>}
-            <a className="board-repository" href="https://github.com/skyzh/taskboard" aria-label="Taskboard on GitHub"><span aria-hidden="true" /></a>
+          <div className={preview ? 'account account-with-tour' : 'account'}>
+            {preview && <>
+              {demoTour.toggle}
+              <a className="board-repository" href="https://github.com/skyzh/taskboard" aria-label="Taskboard on GitHub"><span aria-hidden="true" /></a>
+            </>}
             <Profile session={session} fragment={`#${fragment}`} theme={theme}
               freshness={hasSession && !preview && <BoardFreshness checkedAt={connection.checkedAt}
                 source={connection.source} className="profile-freshness" />} preview={preview} />
