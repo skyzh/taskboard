@@ -1159,6 +1159,8 @@ button:disabled { opacity: .57; }
 .integration-setup-note { color: var(--muted); font-size: .88rem; }
 .integration-dri-id { overflow-wrap: anywhere; }
 .integration-registration-form { width: min(100%, 25rem); }
+.integration-registration-form label:has(select) { display: grid; justify-items: start; gap: .35rem; }
+.integration-registration-form select { max-inline-size: 100%; }
 .integration-project { margin-bottom: .85rem; }
 .integration-path-details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .35rem .6rem; }
 .integration-path-details dt { font-weight: var(--weight-emphasis); }

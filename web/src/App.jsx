@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { ArrowUpRight, ChevronDown, X } from 'lucide-react'
 import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from './data.js'
 import About from './About.jsx'
+import BoardTour from './BoardTour.jsx'
 import BoardViews from './BoardViews.jsx'
 import AssigneePage from './AssigneePage.jsx'
 import GoalActivity, { goalActivityFragment } from './GoalActivity.jsx'
@@ -27,7 +28,7 @@ import {
 } from './timeZone.js'
 
 const welcomeBannerKey = 'tasks-board.reports-welcome-hidden'
-const demoTourUrl = 'https://skyzh.github.io/taskboard/#reports?tour=1'
+const demoUrl = 'https://skyzh.github.io/taskboard/'
 
 function readWelcomeBannerPreference() {
   try {
@@ -148,6 +149,20 @@ export default function App() {
   const [fragment, writeFilterFragment] = useFragment()
   const theme = useTheme()
   const main = useRef(null)
+  const tourTrigger = useRef(null)
+  const restoreTourFocus = useRef(false)
+  const [tour, setTour] = useState(null)
+  const tourIndex = tour?.findIndex(step => step.route === fragment) ?? -1
+  const tourStep = tour?.[tourIndex]
+  useEffect(() => {
+    if (tour && !tourStep) setTour(null)
+  }, [tour, tourStep])
+  useLayoutEffect(() => {
+    if (restoreTourFocus.current && !tour) {
+      restoreTourFocus.current = false
+      ;(tourTrigger.current || main.current)?.focus({ preventScroll: true })
+    }
+  }, [tour])
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(readWelcomeBannerPreference)
   function chooseWelcomeBanner(show) {
     setShowWelcomeBanner(show)
@@ -286,6 +301,21 @@ export default function App() {
     : reportFragment(allReports ? 'all' : reportsProject,
       ['active', 'all', 'idle'].includes(requestedAssigneeView) ? assigneeView : undefined)
   const reportsHref = `#${view === 'reports' ? reportsMode : preferredReportsMode}`
+  function startTour() {
+    const taskRoute = project === 'T' ? 'board' : new URLSearchParams({ project, section: 'queue-heading' }).toString()
+    setTour([
+      { route: fragment, target: 'reports', title: 'Reports', text: 'See who owns the current work, what needs a decision, and what was completed.' },
+      { route: taskRoute, target: 'board', title: 'Tasks', text: 'Open a ticket to see its owner, current state, and next step.' },
+      { route: 'activity', target: 'activity', title: 'Activity', text: 'See who reported progress, asked for help, or recorded an outcome, and when.' },
+      ...(verified ? [{ route: 'knowledge', target: 'knowledge', title: 'Knowledge',
+        text: 'Find shared decisions and notes, with links back to the work they came from.' }] : []),
+    ])
+  }
+  function closeTour() {
+    restoreTourFocus.current = true
+    writeFilterFragment(tour[0].route, true)
+    setTour(null)
+  }
   useEffect(() => {
     if (view === 'reports' && !reportsPending) {
       rememberReportsMode(reportsMode)
@@ -353,6 +383,8 @@ export default function App() {
         </div>
         {hasSession && <BoardConnection {...connection} />}
         {view === 'team-overview' && <SectionIndex key={project} overview={overview.data} />}
+        {tourStep && <BoardTour step={tourStep} index={tourIndex} total={tour.length}
+          onMove={index => writeFilterFragment(tour[index].route, false)} onClose={closeTour} />}
       </header>
       <main ref={main} tabIndex={0} aria-label="Taskboard content">
         <div className="main-content">
@@ -364,13 +396,17 @@ export default function App() {
                 <p>Taskboard is a shared workspace for people and agents. Track work in Tasks, see who’s doing what in
                   Reports, and find shared decisions in Knowledge.</p>
                 <div className="reports-welcome-actions">
-                  <a href={demoTourUrl} target="_blank" rel="noreferrer" aria-label="Take the tour (opens a sample board in a new tab)">
-                    Take the tour <ArrowUpRight size={16} aria-hidden="true" />
+                  <button type="button" ref={tourTrigger} className="reports-tour-trigger" disabled={reportsPending}
+                    onClick={startTour}>Take the tour</button>
+                  <a href={demoUrl} target="_blank" rel="noreferrer" aria-label="See the demo (opens the public example in a new tab)">
+                    See the demo <ArrowUpRight size={16} aria-hidden="true" />
                   </a>
                   {reportsScopeReady && <a href={integrationsHref}>Set up an agent</a>}
                 </div>
+                {reportsScopeReady && <p className="report-note">Raft agents register as Team DRIs when they first connect.
+                  Use agent setup for personal agents or external AI factories.</p>}
               </div>
-              <button type="button" aria-label="Dismiss welcome banner" onClick={() => {
+              <button type="button" className="reports-welcome-dismiss" aria-label="Dismiss welcome banner" onClick={() => {
                 main.current?.focus({ preventScroll: true })
                 chooseWelcomeBanner(false)
               }}><X size={18} aria-hidden="true" /></button>
