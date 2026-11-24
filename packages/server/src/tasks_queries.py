@@ -4,7 +4,7 @@ import json
 import re
 from collections import deque
 from contextlib import nullcontext
-from datetime import datetime
+from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from heapq import nsmallest
 from urllib.parse import urlsplit
@@ -1116,7 +1116,7 @@ class BoardQueries:
                 cursor = rows[-1]["scan_id"] - 1
         return page(matches, limit, "id", list)
 
-    def outcome_days(self, *, dri, before, limit, project=None, time_zone=PACIFIC):
+    def outcome_days(self, *, dri, before, limit, project=None, time_zone=PACIFIC, week_ending=None):
         day_sql = self.outcome_day_sql(time_zone)
         terms, args = [OUTCOME_ACTIONS], []
         if dri is not None:
@@ -1125,6 +1125,16 @@ class BoardQueries:
         if project is not None:
             terms.append("tasks.project_prefix = ?")
             args.append(project)
+        week = {}
+        if week_ending is not None:
+            calendar = [(week_ending - timedelta(days=offset)).isoformat() for offset in range(6, -1, -1)]
+            counts = dict(self.db.execute(
+                f"SELECT {day_sql} AS day, COUNT(*) "
+                "FROM events JOIN tasks ON tasks.id = events.task_id "
+                f"WHERE {' AND '.join(terms)} AND {day_sql} BETWEEN ? AND ? GROUP BY day",
+                (*args, calendar[0], calendar[-1]),
+            ).fetchall())
+            week = {"week": [{"day": day, "count": counts.get(day, 0)} for day in calendar]}
         if before is not None:
             terms.append(f"{day_sql} < ?")
             args.append(before.isoformat())
@@ -1136,7 +1146,7 @@ class BoardQueries:
                 f"WHERE {where} ORDER BY day DESC LIMIT ?", (*args, limit + 1),
             )
         ]
-        return {"days": days[:limit], "next_day": days[limit - 1] if len(days) > limit else None}
+        return {"days": days[:limit], "next_day": days[limit - 1] if len(days) > limit else None, **week}
 
     def related_activity(self, person, *, before, limit, project=None):
         result = self.events(before=before, limit=limit, owner_or_watcher=person, project=project)

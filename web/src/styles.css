@@ -423,6 +423,34 @@ h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
 }
 .assignee-avatar.large.initials { font-size: .8rem; }
 .outcome-day { margin-top: .65rem; }
+.outcome-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: .3rem;
+  max-width: 25rem;
+  margin-top: .55rem;
+  padding: 0;
+  list-style: none;
+}
+.outcome-week button {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: .2rem 0;
+  color: var(--ink);
+  font-size: .72rem;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  background: var(--wash);
+  border-color: var(--line);
+}
+.outcome-week strong { font-size: .9rem; }
+.outcome-week button[data-level="1"] { background: color-mix(in srgb, var(--green) 12%, var(--paper)); }
+.outcome-week button[data-level="2"] { background: color-mix(in srgb, var(--green) 21%, var(--paper)); }
+.outcome-week button[data-level="3"] { background: color-mix(in srgb, var(--green) 30%, var(--paper)); }
+.outcome-week button:hover { border-color: var(--green); }
 .outcome-day + .outcome-day { margin-top: .9rem; }
 .outcome-day > :is(h2, h3) { color: var(--muted); font-size: .82rem; font-weight: var(--weight-emphasis); }
 .outcome-row { border-bottom: 1px solid var(--line); padding: .45rem 0; font-size: .875rem; }

@@ -155,7 +155,17 @@ export function previewRequest(path, method) {
     const outcomes = selectedEvents.filter(item => item.action === 'done' &&
       (!filters.has('dri') || filters.get('dri') === item.actor))
     if (endpoint === '/outcomes/days') {
-      return { days: [...new Set(outcomes.map(item => formatDay(item.at)))].sort().reverse(), next_day: null }
+      const outcomeDates = outcomes.map(item => formatDay(item.at))
+      const result = { days: [...new Set(outcomeDates)].sort().reverse(), next_day: null }
+      const weekEnding = filters.get('week_ending')
+      if (weekEnding) {
+        const lastDay = Date.parse(weekEnding + 'T00:00:00Z')
+        result.week = Array.from({ length: 7 }, (_, index) => {
+          const day = new Date(lastDay - (6 - index) * 86_400_000).toISOString().slice(0, 10)
+          return { day, count: outcomeDates.filter(date => date === day).length }
+        })
+      }
+      return result
     }
     return page(outcomes.filter(item => !filters.has('day') || formatDay(item.at) === filters.get('day')))
   }

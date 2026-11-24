@@ -27,6 +27,9 @@ export default function AssigneePage({ owner, section, revision, project, report
   const entry = resource.data
   if (!entry) return <ResourceStatus resource={resource} label="assignee profile" />
   const profile = entry.profile
+  const showOutcomeWeek = profile?.kind === 'agent'
+  const showOutcomes = showOutcomeWeek || entry.has_outcomes !== false || section === 'outcomes-title'
+  const hasOutcomeLink = showOutcomeWeek || entry.has_outcomes
   const name = profileName(owner, profile)
   const role = briefSourceText(profile?.role)
   const about = [!role && profile?.role, profile?.description].filter(Boolean).join('\n\n')
@@ -58,13 +61,13 @@ export default function AssigneePage({ owner, section, revision, project, report
         </div>
       </header>
       {viewer?.kind === 'human' && viewer.id === owner && <NeedsYou project={project} revision={revision} />}
-      {(showStandingGoal || showMilestones || entry.goal || hasWork || entry.has_outcomes || reports.length > 0) && (
+      {(showStandingGoal || showMilestones || entry.goal || hasWork || hasOutcomeLink || reports.length > 0) && (
         <nav className="owner-links profile-index" aria-label={`${name}’s work sections`}>
           {showStandingGoal && <a href={ownerHref(owner, 'dri-standing-goal-title', project)}>Standing goal</a>}
           {entry.goal && <a href={ownerHref(owner, 'dri-goal-title', project)}>Original dated goal</a>}
           {showMilestones && <a href={ownerHref(owner, 'dri-milestones-title', project)}>Dated milestones</a>}
           <OwnerWorkLinks owner={owner} project={project} counts={counts} />
-          {entry.has_outcomes && <a href={ownerHref(owner, 'outcomes-title', project)}>Recent outcomes</a>}
+          {hasOutcomeLink && <a href={ownerHref(owner, 'outcomes-title', project)}>Recent outcomes</a>}
           {reports.length > 0 && (
             <a href={ownerHref(owner, 'reports-pending-title', project)}>Worker reports <strong>{entry.report_count}</strong></a>
           )}
@@ -75,8 +78,7 @@ export default function AssigneePage({ owner, section, revision, project, report
       {showMilestones && <DriMilestones milestones={milestones} project={project} editable={canEditGoal} onChanged={resource.retry} />}
       {sections.filter(item => item.state !== 'ready').map(item =>
         <OwnerWork key={item.state} owner={owner} project={project} revision={revision} {...item} />)}
-      {(entry.has_outcomes !== false || section === 'outcomes-title') &&
-        <Outcomes revision={revision} owner={owner} project={project} />}
+      {showOutcomes && <Outcomes revision={revision} owner={owner} project={project} showWeek={showOutcomeWeek} />}
       {ready && <OwnerWork owner={owner} project={project} revision={revision} {...ready} />}
       {(reports.length > 0 || section === 'reports-pending-title') && (
         <section className="feed-section" aria-labelledby="reports-pending-title">
@@ -86,7 +88,7 @@ export default function AssigneePage({ owner, section, revision, project, report
             : <p className="section-message">No worker reports to review.</p>}
         </section>
       )}
-      {!hasWork && entry.has_outcomes === false && !reports.length && !section && (
+      {!hasWork && !showOutcomes && !reports.length && !section && (
         <p className="section-message">No current work or recent outcomes.</p>
       )}
     </>
