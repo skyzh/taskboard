@@ -37,7 +37,7 @@ const workflows = [
   },
   {
     id: 'local-dri', label: 'Local DRI', file: 'local-dri.md', prompt: localDriPrompt,
-    description: 'A Local DRI works in its owner’s runtime and asks questions through the local question prompt.',
+    description: 'A Local DRI works in its owner’s runtime. It asks its creator in the local session by default.',
     setup: 'Until registration is available, use Task sessions with approved human access. A registered Local DRI can start an assigned ticket locally. Incoming asks from agents require a running watcher.',
     verify: 'Check the assigned owner before Start. Reopen unfinished work in the next session and check Activity. In progress is the last reported state.',
   },
@@ -170,20 +170,46 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
   const [selected, setSelected] = useState(workflows[0].id)
   const [identityId, setIdentityId] = useState('')
   const [registrationOpen, setRegistrationOpen] = useState(false)
+  const [savingDestination, setSavingDestination] = useState(false)
+  const [destinationFeedback, setDestinationFeedback] = useState(null)
   const registrationResource = useResource(human ? registrationsPath : null, revision)
   const registrations = registrationResource.data?.local_dris || []
   const identity = registrations.find(item => item.id === identityId)
   const unavailableIdentity = Boolean(identityId && !identity)
+  const destination = identity?.human_questions
+  const supportsDestination = destination === 'local_prompt' || destination === 'taskboard'
+  const destinationPending = savingDestination || registrationResource.pending
   const promptProject = identity?.project || (unavailableIdentity ? undefined : project)
   const workflow = workflows.find(item => item.id === selected)
+  const questionInstructions = destination === 'taskboard'
+    ? `To ask your creator on an owned In progress ticket, use \`tasks --shared --url ${board} --local-dri ${identity.id} assign-human TICKET "Question"\`. Omit \`--on\`. With signed HTTP, call \`advance-task\` with \`transition: assign-human\` and omit \`on\` and \`on_name\`. Read the answer when the ticket returns to Ready.`
+    : 'Ask your creator through the runtime’s local question prompt.'
   const versionedPrompt = workflow.prompt.trim().replace('<BOARD_HTTPS_URL>', () => board)
     .replace('<PROJECT>', promptProject || '<PROJECT>')
     .replace('<ACTION_MANIFEST_URL>', () => new URL('.well-known/raft-agent-manifest.json', board).href)
+    .replace('<QUESTION_INSTRUCTIONS>', () => questionInstructions)
   const identityPrompt = identity && [
     `Use the verified Local DRI "${identity.name}" for project ${identity.project}. Its ID is ${identity.id}.`,
     `Verify it with tasks --shared --url ${board} --local-dri ${identity.id} context before writing.`,
   ].join(' ')
-  const text = unavailableIdentity ? null : identityPrompt ? `${identityPrompt}\n\n${versionedPrompt}` : versionedPrompt
+  const text = identityId && (unavailableIdentity || destinationPending || registrationResource.error)
+    ? null : identityPrompt ? `${identityPrompt}\n\n${versionedPrompt}` : versionedPrompt
+
+  async function saveDestination(value) {
+    setSavingDestination(true)
+    setDestinationFeedback(null)
+    try {
+      await request(`${registrationsPath}/${encodeURIComponent(identity.id)}`, {
+        method: 'PUT', body: { human_questions: value },
+      })
+      registrationResource.retry()
+      setDestinationFeedback({ id: identity.id, text: 'Question destination saved.' })
+    } catch (error) {
+      setDestinationFeedback({ id: identity.id, text: error.message, error: true })
+    } finally {
+      setSavingDestination(false)
+    }
+  }
   return (
     <>
       {human && (
@@ -209,6 +235,23 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
                   : 'Set up the watcher before sending this Local DRI an ask from another agent.'}
           </p>
           {identity && <p className="integration-dri-id">Local DRI ID <code>{identity.id}</code></p>}
+          {supportsDestination && (
+            <>
+              <label className="settings-preference">
+                Where this Local DRI asks you
+                <select value={destination} aria-describedby="question-destination-help"
+                  disabled={destinationPending || Boolean(registrationResource.error)}
+                  onChange={event => saveDestination(event.currentTarget.value)}>
+                  <option value="local_prompt">In the local session</option>
+                  <option value="taskboard">In Taskboard (Needs me)</option>
+                </select>
+              </label>
+              <p id="question-destination-help">Taskboard sends the question to the person who registered this Local DRI.</p>
+              {savingDestination && <p role="status">Saving question destination…</p>}
+              {!destinationPending && destinationFeedback?.id === identity.id && !registrationResource.error &&
+                <p role={destinationFeedback.error ? 'alert' : 'status'}>{destinationFeedback.text}</p>}
+            </>
+          )}
           {registrationResource.error?.status === 404
             ? <p className="integration-setup-note">Local DRI registration is pending on this board.</p>
             : <ResourceStatus resource={registrationResource} label="Local DRIs" />}
