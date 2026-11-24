@@ -1434,6 +1434,8 @@ class BoardQueries:
             args.extend(before)
         where = "WHERE " + " AND ".join(filters) if filters else ""
         requester = f"({REVIEW_REQUESTER})" if ledger.has_event_context(self.db) else "NULL"
+        # Filter within each task's history so SQLite can use the task index
+        # instead of scanning all events with a given action for every request.
         rows = self.db.execute(
             f"""
             WITH current AS ({ledger.current_tasks_sql(self.db)} {project_filter}),
@@ -1442,15 +1444,17 @@ class BoardQueries:
                        {TASK_REFERENCE} AS source_key, tasks.title AS source_title,
                        ask.requester, ask.recipient, tasks.dri AS source_owner, request.state, request.display_state,
                        request.context, request.current_action,
-                       EXISTS (SELECT 1 FROM events WHERE task_id = request.id AND action = 'start') AS has_started,
+                       (SELECT COUNT(*) FILTER (WHERE action = 'start') > 0
+                        FROM events WHERE task_id = request.id) AS has_started,
                        response.id AS result_event_id, response.at AS response_at,
                        request.event_id AS resolution_id, request.at AS resolution_at,
                        request.project_prefix || '-' || COALESCE(request.project_number, request.id) AS request_key,
                        request.title AS request_title, created.note AS request_note, created.links AS request_links,
                        json_extract(created.context, '$.manual_review.pull') AS manual_pull,
-                       (ask.review_run_id IS NOT NULL OR json_extract(created.context, '$.manual_review') IS NOT NULL OR EXISTS (
-                           SELECT 1 FROM events WHERE task_id = request.id AND action = 'log'
-                           AND json_extract(context, '$.stamp_review') IS NOT NULL)) AS is_review
+                       (ask.review_run_id IS NOT NULL OR json_extract(created.context, '$.manual_review') IS NOT NULL OR (
+                           SELECT COUNT(*) FILTER (
+                               WHERE action = 'log' AND json_extract(context, '$.stamp_review') IS NOT NULL
+                           ) > 0 FROM events WHERE task_id = request.id)) AS is_review
                 FROM peer_asks AS ask
                 JOIN current AS request ON request.id = ask.task_id
                 JOIN tasks ON tasks.id = ask.source_task_id AND tasks.project_prefix = request.project_prefix
