@@ -70,6 +70,8 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                 blake = io_action(origin, "context", cookie=blake_cookie)["actor"]
                 async with connect(avery_environment) as owner, connect(blake_environment) as reviewer:
                     await self.verify_workflow(owner, reviewer, python, origin, cookie, avery_environment, blake)
+                    await self.verify_field_guidance(owner, reviewer, python, origin, cookie, blake_cookie,
+                                                     avery_environment)
                     await self.verify_project_creation(owner, reviewer, python, origin, cookie, database, avery_environment)
                     await self.verify_ticket_tools(owner, reviewer, python, origin, cookie, blake_cookie,
                                                    avery_environment)
@@ -79,6 +81,71 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                     self.assertIn("Shared write outcome unknown", lost.content[0].text)
                 history = io_action(origin, "task-activity", cookie=cookie, query={"id": "T-1"})
                 self.assertEqual([event["action"] for event in history["items"]].count("start"), 1)
+
+    async def verify_field_guidance(self, owner, reviewer, python, origin, cookie, blake_cookie, environment):
+        async def compare(project=None):
+            params = {"project": project} if project is not None else {}
+            result = await owner.call_tool("taskboard_field_guidance", params)
+            self.assertFalse(result.is_error, result.content)
+            signed = io_action(origin, "field-guidance", cookie=cookie, query=params)
+            self.assertEqual(result.structured_content, signed)
+            prefix = project or "T"
+            self.assertEqual(signed["project"], prefix)
+            with request(origin, MOUNT + f"/api/v1/projects/{prefix}/field-guidance", cookie=cookie) as response:
+                browser = json.load(response)
+            self.assertEqual(browser, {key: signed[key] for key in ("project", "editable", "fields")})
+            cli_args = ("--project", project) if project is not None else ()
+            printed = cli_success(python, ROOT, environment, "field-guidance", *cli_args)
+            self.assertIn(f"{prefix} · Writing guidance", printed)
+            for field in signed["fields"].values():
+                for key in ("guidance", "where", "example"):
+                    self.assertIn(field[key], printed)
+            return signed
+
+        default = await compare()
+        self.assertEqual({field["source"] for field in default["fields"].values()}, {"default"})
+        course = await compare("COURSE")
+        self.assertTrue(course["editable"])
+        self.assertEqual(course["fields"], default["fields"])
+        path = MOUNT + "/api/v1/projects/COURSE/field-guidance"
+        text = "Describe a concrete result in the course title."
+        with request(origin, path, method="PUT", cookie=cookie,
+                     data={"field": "title", "guidance": text}) as response:
+            self.assertEqual(response.status, 200)
+        updated = await compare("COURSE")
+        self.assertEqual(updated["fields"], {
+            **course["fields"], "title": {**course["fields"]["title"], "guidance": text, "source": "project"},
+        })
+        self.assertEqual(await compare(), default)
+
+        other = await reviewer.call_tool("taskboard_field_guidance", {"project": "COURSE"})
+        self.assertFalse(other.is_error, other.content)
+        self.assertEqual(other.structured_content, io_action(
+            origin, "field-guidance", cookie=blake_cookie, query={"project": "COURSE"},
+        ))
+        self.assertFalse(other.structured_content["editable"])
+        self.assertEqual(other.structured_content["fields"], updated["fields"])
+
+        unsigned_env = {**environment, "TASKBOARD_COMPAT_COOKIE": ""}
+        async with connect(unsigned_env) as unsigned:
+            for client, session, env, project, status in (
+                (owner, cookie, environment, "MISSING", 404),
+                (unsigned, "", unsigned_env, "COURSE", 401),
+            ):
+                params = {"project": project}
+                with self.assertRaises(HTTPError) as blocked:
+                    io_action(origin, "field-guidance", cookie=session, query=params)
+                with blocked.exception as response:
+                    self.assertEqual(response.code, status)
+                    error = json.load(response)["error"]
+                if status == 401:
+                    error = "The Tasks app did not accept the current Raft session."
+                rejected = await client.call_tool("taskboard_field_guidance", params)
+                self.assertTrue(rejected.is_error)
+                self.assertIn(error, rejected.content[0].text)
+                denied = cli(python, ROOT, env, "field-guidance", "--project", project)
+                self.assertNotEqual(denied.returncode, 0)
+                self.assertIn(error, denied.stderr)
 
     async def verify_project_creation(self, owner, reviewer, python, origin, cookie, database, environment):
         actor = io_action(origin, "context", cookie=cookie)["actor"]
@@ -181,7 +248,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_context", "taskboard_queue", "taskboard_reviews", "taskboard_ticket",
             "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_create_project",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
-            "taskboard_projects",
+            "taskboard_projects", "taskboard_field_guidance",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_queue"].annotations.read_only_hint)

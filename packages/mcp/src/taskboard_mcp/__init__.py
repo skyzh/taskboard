@@ -46,6 +46,11 @@ def build_server(board: SharedBoard) -> MCPServer:
         return board.invoke("list-projects")
 
     @server.tool(annotations=read_only)
+    def taskboard_field_guidance(project: Project | None = None) -> dict[str, Any]:
+        """Read effective writing guidance, locations and examples for ticket fields. Omit project for the board default."""
+        return board.invoke("field-guidance", {"project": project} if project is not None else {})
+
+    @server.tool(annotations=read_only)
     def taskboard_queue(
         project: Project | None = None,
         state: State | None = "ready",
