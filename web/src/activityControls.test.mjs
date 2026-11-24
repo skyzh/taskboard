@@ -1546,22 +1546,24 @@ test('the Tag filter uses the current project in both task layouts', () => {
   }
 })
 
-test('the ticket shows its tags and enables editing only when allowed', () => {
+test('the ticket shows its tags and enables changes in authorized Edit mode', () => {
   const task = { id: 7, key: 'COURSE-7', title: 'Review the sample', state: 'ready',
     summary_label: 'Next step', tags: ['reflection'] }
-  const detail = (task, editable, session = {}) => {
+  const detail = (task, editable, session = {}, editing = false) => {
     fixture.resources = { '/tasks/COURSE-7': { data: {
       task, tag_editable: editable, checklist: [], sources: [], workers: [],
     } } }
     fixture.pages = {}
-    fixture.state = []
+    fixture.state = [true, editing]
     return renderToStaticMarkup(React.createElement(TaskDetail, { id: task.key, session }))
   }
   assert.match(detail(task, false), /aria-label="Task tags".*<span>reflection<\/span>/)
   assert.doesNotMatch(detail(task, false), /Remove tag reflection|Add tag/)
   assert.doesNotMatch(detail(task, true, { pending: true }), /Remove tag reflection|Add tag/)
   const signedAgent = { data: { actor: { kind: 'agent', id: 'fixture-agent' } } }
-  const editable = detail(task, true, signedAgent)
+  assert.doesNotMatch(detail(task, true, signedAgent), /Remove tag reflection|Add tag/)
+  assert.doesNotMatch(detail(task, false, signedAgent, true), /Remove tag reflection|Add tag/)
+  const editable = detail(task, true, signedAgent, true)
   assert.match(editable, /aria-label="Remove tag reflection"/)
   assert.match(editable, /<label>Tag<input[^>]*maxLength="32"/)
   assert.match(editable, />Add tag<\/button>/)

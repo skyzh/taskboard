@@ -5,6 +5,7 @@ import { entryHref, StagedWork, TicketKnowledgeLinks } from './Knowledge.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import ChecklistEdit from './ChecklistEdit.jsx'
 import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
+import EditToggle from './EditToggle.jsx'
 import { useFieldGuidance } from './FieldGuidance.jsx'
 import { MergeQueue } from './MergeQueue.jsx'
 import ParkingForm from './ParkingForm.jsx'
@@ -391,9 +392,14 @@ function RecordActivity({ id, task, activity, knowledge, children }) {
 }
 
 function KnowledgeRecordActions({ record, id, activity, signedIn, onChanged }) {
+  const [editing, setEditing] = useState(false)
   return <>
-    {signedIn && record.can_edit_details &&
-      <TaskDetailsEdit key={id} task={record.task} brief={record.brief} onChanged={onChanged} />}
+    {signedIn && record.can_edit_details && <>
+      <EditToggle label="Edit Knowledge entry" active={editing} onToggle={() => setEditing(value => !value)} />
+      <div hidden={!editing}>
+        <TaskDetailsEdit key={id} task={record.task} brief={record.brief} onChanged={onChanged} />
+      </div>
+    </>}
     <RecordActivity id={id} task={record.task} activity={activity} knowledge />
   </>
 }
@@ -412,6 +418,9 @@ export function KnowledgeRecordTools({ id, revision, onChanged }) {
 export function TaskDetail({ id, revision, session, onChanged, preferredProject = 'T', returnHref, fromSearch, history }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
   const [actionsOpen, setActionsOpen] = useState(false)
+  useEffect(() => {
+    if (history) setActionsOpen(false)
+  }, [history])
   const article = useRef(null)
   const [wide, setWide] = useState(false)
   useEffect(() => {
@@ -429,8 +438,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   const project = typeof id === 'string' ? id.split('-')[0] : 'T'
   const taskProject = task?.key?.split('-')[0] || project
   const signedIn = ['agent', 'human'].includes(session.data?.actor?.kind)
-  const signedHuman = session.data?.actor?.kind === 'human'
-  const showActions = signedIn && (!signedHuman || actionsOpen)
+  const showActions = signedIn && actionsOpen
   const canAnswer = task && mayAnswer(task, session)
   const ownsReturnPath = task && session.data?.actor?.id && session.data.actor.id === task.dri
     && ['ready', 'in_progress', 'parked'].includes(task.state)
@@ -467,8 +475,8 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
           {record?.goal && <span>{record.goal.kind === 'standing' ? 'Standing goal' : 'Milestone'}</span>}
         </p>
         {task && <a className="history-link" href={historyHref(currentHref)}>History</a>}
-        {signedHuman && task && !knowledge && <button className="ticket-actions-toggle" type="button"
-          aria-expanded={actionsOpen} onClick={() => setActionsOpen(open => !open)}>Ticket actions</button>}
+        {signedIn && task && !knowledge && <EditToggle label="Edit ticket" active={showActions}
+          onToggle={() => setActionsOpen(open => !open)} />}
       </div>
       <h1 id={`task-heading-${id}`}><MarkdownInline text={task?.title || `Task ${taskLabel(id)}`} relatedTasks={record?.related_tasks} /></h1>
       {task && !knowledge && !sidebar && <div className="ticket-primary-identity"><TicketIdentity task={task} state={state} /></div>}
@@ -506,7 +514,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
                     onChanged={onChanged} />
                 ) : <ParkingForm key={task.event_id} task={task} onChanged={onChanged} />}</div>}
               {(!canAnswer || !showActions) && <Options options={task.context?.choices} />}
-              {canAnswer && !showActions && <p className="event-meta">Open Ticket actions to answer this decision.</p>}
+              {canAnswer && !showActions && <p className="event-meta">Select Edit to answer this decision.</p>}
               <EvidenceLinks links={task.links} />
               {record.can_confirm_blocker && (
                 <div hidden={!showActions}>

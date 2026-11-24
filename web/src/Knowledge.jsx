@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { request, useLoadedPages, useResource } from './data.js'
+import EditToggle from './EditToggle.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import RecordHistory, { historyHref } from './RecordHistory.jsx'
 import { LoadMore, ResourceStatus, eventHref, signInHref, taskHref } from './shared.jsx'
@@ -155,6 +156,7 @@ export function StagedWork({ changes }) {
 }
 
 export default function Knowledge({ session, verified, revision, projects, search, entry, history, onSearch, onChanged, RecordTools }) {
+  const [editing, setEditing] = useState(false)
   const page = useLoadedPages(verified ? '/knowledge' : null, { q: entry ? undefined : search, entry }, revision)
   const directory = useResource(verified && !entry && !search ? '/knowledge/areas' : null, revision)
   const signIn = session.data?.sign_in_available || session.error?.status === 401
@@ -171,10 +173,13 @@ export default function Knowledge({ session, verified, revision, projects, searc
     <section className="knowledge" aria-labelledby="knowledge">
       <div className="page-heading"><h1 id="knowledge" tabIndex={-1}>Knowledge</h1>
         {entry && <a href="#knowledge">All entries</a>}
+        {verified && !entry && writableProjects.length > 0 &&
+          <EditToggle label="Edit Knowledge" active={editing} onToggle={() => setEditing(value => !value)} />}
       </div>
       {verified ? <>
-        {!entry && writableProjects.length > 0 &&
-          <KnowledgeCreate key={session.data?.actor?.id} projects={writableProjects} onCreated={onChanged} />}
+        {!entry && writableProjects.length > 0 && <div hidden={!editing}>
+          <KnowledgeCreate key={session.data?.actor?.id} projects={writableProjects} onCreated={onChanged} />
+        </div>}
         <KnowledgeSearch key={search} search={search} onSearch={onSearch} />
         {!entry && !search && <KnowledgeDirectory directory={directory} projects={projects} />}
         <ResourceStatus resource={page} label="Knowledge entries" />
