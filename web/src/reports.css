@@ -74,19 +74,35 @@
 }
 .report-controls label { display: flex; align-items: center; gap: .5rem; color: var(--muted); }
 .reports-welcome {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: .55rem;
   margin-bottom: .85rem;
-  padding: .3rem .45rem .3rem .75rem;
+  padding: .65rem .45rem .55rem .85rem;
   border: 1px solid var(--line);
   border-radius: .5rem;
   background: var(--wash);
 }
-.reports-welcome p { margin: .3rem 0; }
+.reports-welcome h2 { font-size: 1.05rem; }
+.reports-welcome p { margin-block: .22rem .45rem; max-width: 65ch; }
+.reports-welcome-actions { display: flex; flex-wrap: wrap; gap: .15rem .7rem; }
+.reports-welcome-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  min-height: 2.75rem;
+  font-weight: var(--weight-emphasis);
+}
+.reports-welcome-actions a:first-child {
+  padding-inline: .65rem;
+  border-radius: .35rem;
+  background: var(--green);
+  color: var(--paper);
+  text-decoration: none;
+}
+.reports-welcome-actions a:first-child:hover { text-decoration: underline; }
 .reports-welcome button {
-  flex: none;
   display: grid;
   place-items: center;
   width: 2.75rem;
