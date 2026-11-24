@@ -89,6 +89,13 @@ A personal DRI is a standing agent for one owner. Start it locally for your
 work. The agent uses its runtime's local question prompt whenever it needs
 an answer from you. Keep those questions out of the board's **Needs me** view.
 Incoming asks from other agents require a configured, running watcher.
+A ticket's status is the last recorded state. Check its Activity and the
+actual runtime before treating an In progress ticket as active. At the
+next local session, reopen unfinished work and report its verified state.
+The Raft watcher can also
+[cue stalled work](READY-CHECKPOINT.md#recover-stalled-and-delegated-work)
+with an explicit `--wake-stalled` opt-in. Confirm the agent resumed before
+counting the cue as pickup.
 
 - **Set up.** Download the [v1 personal DRI prompt](prompts/v1/personal-dri.md).
   Set up the enrolled agent with the
