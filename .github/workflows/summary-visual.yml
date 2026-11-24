@@ -6,6 +6,9 @@ on:
     paths:
       - .github/workflows/summary-visual.yml
       - tools/summary-visual/**
+      - web/.npmrc
+      - web/package.json
+      - web/package-lock.json
       - web/src/Reports.jsx
       - web/src/WorkRow.jsx
       - web/src/shared.jsx
@@ -34,8 +37,7 @@ jobs:
         run: |
           npm --prefix web ci --no-audit --no-fund
           npm --prefix web run build
-          npm install --prefix "$RUNNER_TEMP/taskboard-visual" --no-save --no-package-lock --ignore-scripts --no-audit --no-fund playwright@1.63.0
-          playwright="$RUNNER_TEMP/taskboard-visual/node_modules/.bin/playwright"
+          playwright="web/node_modules/.bin/playwright"
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             "$playwright" install chromium
           else
@@ -48,7 +50,7 @@ jobs:
             args+=(--headless)
           fi
           bash tools/summary-visual/capture.sh web/dist "$RUNNER_TEMP/summary-visual-evidence" \
-            "$RUNNER_TEMP/taskboard-visual/node_modules/playwright/index.mjs" "${args[@]}"
+            "$PWD/web/node_modules/playwright/index.mjs" "${args[@]}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:

@@ -71,13 +71,12 @@ another interface.
 
 ## Run the mounted fixture
 
-Use the normal Taskboard environment for the loopback app and the pinned SDK
-for the test client. Run from the checkout root after setting up the app
-environment.
+After setting up the app environment and building the web assets, run the
+clean-package check from the checkout root. It installs the fixture's MCP SDK
+and dependencies from the script lock with hash verification.
 
 ```sh
-TASKBOARD_MCP_FIXTURE_PYTHON="$PWD/.venv/bin/python" \
-  uv run --no-project --with 'mcp==2.0.0' python -B tools/test_mcp_stdio.py -v
+uv run --locked python -B tools/check_package_installs.py
 ```
 
 The test starts the adapter with the documented locked command. Its two

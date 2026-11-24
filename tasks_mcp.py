@@ -1,6 +1,9 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["mcp==2.0.0"]
+#
+# [tool.uv]
+# exclude-newer = "7 days"
 # ///
 """Launch taskboard_mcp from this checkout."""
 
