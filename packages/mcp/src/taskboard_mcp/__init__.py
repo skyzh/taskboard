@@ -17,6 +17,8 @@ Limit = Annotated[int, Field(ge=1, le=100, description="Results per page.")]
 Cursor = Annotated[int | str, Field(description="next_cursor from the previous page of the same query.")]
 Note = Annotated[str, Field(description="Current step or result to record on the ticket.")]
 Details = Annotated[str, Field(description="Additional evidence or handoff details. Keep the note to one line.")]
+EvidenceUrl = Annotated[str, Field(description="HTTP or HTTPS link to supporting evidence.")]
+EvidenceLabel = Annotated[str, Field(description="Display label for the evidence link.")]
 State = Literal["ready", "in_progress", "waiting", "human_review", "parked", "done", "closed"]
 
 
@@ -63,6 +65,14 @@ def build_server(board: SharedBoard) -> MCPServer:
         return board.invoke("task", {"id": ticket})
 
     @server.tool(annotations=read_only)
+    def taskboard_activity(ticket: Ticket, limit: Limit = 20, before: Cursor | None = None) -> dict[str, Any]:
+        """Read a ticket's Activity, newest first."""
+        params = {"id": ticket, "limit": limit}
+        if before is not None:
+            params["before"] = before
+        return board.invoke("task-activity", params)
+
+    @server.tool(annotations=read_only)
     def taskboard_reviews(
         project: Project | None = None, limit: Limit = 20, before: Cursor | None = None,
     ) -> dict[str, Any]:
@@ -75,6 +85,41 @@ def build_server(board: SharedBoard) -> MCPServer:
         if details is not None:
             data["details"] = details
         return board.invoke("advance-task", data, write=True)
+
+    def ticket_write(action: str, **fields: Any) -> dict[str, Any]:
+        return board.invoke(action, {key: value for key, value in fields.items() if value is not None}, write=True)
+
+    @server.tool(annotations=write)
+    def taskboard_create_ticket(
+        title: Annotated[str, Field(description="Actionable ticket title.")],
+        step: Annotated[str, Field(description="First step for the ticket owner.")],
+        project: Project | None = None,
+        brief: Annotated[str, Field(description="Scope and expected result.")] | None = None,
+        url: EvidenceUrl | None = None,
+        label: EvidenceLabel | None = None,
+    ) -> dict[str, Any]:
+        """Create a Ready ticket owned by your signed identity."""
+        return ticket_write("create-task", title=title, step=step, project=project, brief=brief, url=url, label=label)
+
+    @server.tool(annotations=write)
+    def taskboard_edit_ticket(
+        ticket: Ticket,
+        reason: Annotated[str, Field(description="Reason for changing the ticket title or brief.")],
+        title: Annotated[str, Field(description="Replacement title.")] | None = None,
+        brief: Annotated[str, Field(description="Replacement brief. An empty string clears it.")] | None = None,
+        url: EvidenceUrl | None = None,
+        label: EvidenceLabel | None = None,
+    ) -> dict[str, Any]:
+        """Correct the title or brief as the ticket owner or project manager."""
+        return ticket_write("edit-task-details", id=ticket, reason=reason, title=title, brief=brief, url=url, label=label)
+
+    @server.tool(annotations=write)
+    def taskboard_log(
+        ticket: Ticket, note: Note, details: Details | None = None,
+        url: EvidenceUrl | None = None, label: EvidenceLabel | None = None,
+    ) -> dict[str, Any]:
+        """Record a contribution on a ticket without advancing its state."""
+        return ticket_write("record-activity", id=ticket, note=note, details=details, url=url, label=label)
 
     @server.tool(annotations=ToolAnnotations(idempotent_hint=True))
     def taskboard_create_project(

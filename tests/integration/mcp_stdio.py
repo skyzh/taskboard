@@ -9,6 +9,7 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
+from urllib.error import HTTPError
 
 from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -16,7 +17,7 @@ from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/release"))
-from compatibility_fixture import MOUNT, cli_success, fixture_server, io_action, request, seed
+from compatibility_fixture import MOUNT, cli, cli_success, fixture_server, io_action, request, seed
 from release_compatibility import certificate
 
 
@@ -70,6 +71,8 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                 async with connect(avery_environment) as owner, connect(blake_environment) as reviewer:
                     await self.verify_workflow(owner, reviewer, python, origin, cookie, avery_environment, blake)
                     await self.verify_project_creation(owner, reviewer, python, origin, cookie, database, avery_environment)
+                    await self.verify_ticket_tools(owner, reviewer, python, origin, cookie, blake_cookie,
+                                                   avery_environment)
                 async with connect(with_lost_receipt(folder, avery_environment)) as owner:
                     lost = await owner.call_tool("taskboard_start", {"ticket": "T-1", "note": "Start the spare fixture."})
                     self.assertTrue(lost.is_error)
@@ -99,6 +102,63 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         with request(origin, MOUNT + "/api/v1/projects") as response:
             self.assertEqual([row["prefix"] for row in json.load(response)["items"]].count("LAB"), 1)
 
+    async def verify_ticket_tools(self, owner, reviewer, python, origin, cookie, blake_cookie, environment):
+        created = await owner.call_tool("taskboard_create_ticket", {
+            "project": "COURSE", "title": "Check a fixture outcome",
+            "step": "Read the signed response.", "brief": "Compare the output.",
+            "label": "Fixture specification", "url": "https://example.test/specification",
+        })
+        self.assertFalse(created.is_error, created.content)
+        receipt = created.structured_content["receipt"]
+        ticket = receipt.split()[0]
+        self.assertEqual(ticket, "COURSE-2")
+        self.assertIn("created", receipt)
+        self.assertIn("COURSE-2 · Ready", cli_success(python, ROOT, environment, "show", ticket))
+
+        correction = {"title": "Verify the fixture outcome", "brief": "", "reason": "Clarify scope."}
+        rejected = await reviewer.call_tool("taskboard_edit_ticket", {"ticket": ticket, **correction})
+        self.assertTrue(rejected.is_error)
+        with self.assertRaises(HTTPError) as blocked:
+            request(origin, MOUNT + f"/api/v1/tasks/{ticket}/details", cookie=blake_cookie, data=correction)
+        with blocked.exception as response:
+            self.assertEqual(response.code, 403)
+            error = json.load(response)["error"]
+        self.assertIn(error, rejected.content[0].text)
+        denied_cli = cli(python, ROOT, {**environment, "TASKBOARD_COMPAT_COOKIE": blake_cookie},
+                         "edit", ticket, correction["reason"], "--title", correction["title"])
+        self.assertNotEqual(denied_cli.returncode, 0)
+        self.assertIn(error, denied_cli.stderr)
+
+        edited = await owner.call_tool("taskboard_edit_ticket", {"ticket": ticket, **correction})
+        self.assertFalse(edited.is_error, edited.content)
+        self.assertEqual(edited.structured_content["receipt"], f"{ticket} · Details updated")
+        logged = await owner.call_tool("taskboard_log", {
+            "ticket": ticket, "note": "Compare fixture responses", "details": "The records agree.",
+            "label": "Fixture readback", "url": "https://example.test/readback",
+        })
+        self.assertFalse(logged.is_error, logged.content)
+        self.assertEqual(logged.structured_content["receipt"], f"{ticket} · Activity logged")
+
+        with request(origin, MOUNT + f"/api/v1/tasks/{ticket}", cookie=cookie) as response:
+            stored = json.load(response)
+        self.assertEqual(stored["task"]["title"], correction["title"])
+        self.assertEqual(stored["task"]["state"], "ready")
+        self.assertEqual(stored["brief"], "")
+        page = await owner.call_tool("taskboard_activity", {"ticket": ticket, "limit": 1})
+        self.assertFalse(page.is_error, page.content)
+        recent = page.structured_content
+        expected = io_action(origin, "task-activity", cookie=cookie, query={"id": ticket, "limit": 1})
+        self.assertEqual(recent, expected)
+        self.assertEqual(recent["items"][0]["details"], "The records agree.")
+        older = await owner.call_tool("taskboard_activity", {
+            "ticket": ticket, "limit": 1, "before": recent["next_cursor"],
+        })
+        self.assertFalse(older.is_error, older.content)
+        self.assertLess(older.structured_content["items"][0]["id"], recent["items"][0]["id"])
+        shown = cli_success(python, ROOT, environment, "show", ticket)
+        self.assertIn("Compare fixture responses", shown)
+        self.assertIn("https://example.test/readback", shown)
+
     async def verify_workflow(self, owner, reviewer, python, origin, cookie, environment, blake):
         async def value(client, name, **params):
             result = await client.call_tool(name, params)
@@ -109,6 +169,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(tools), {
             "taskboard_context", "taskboard_queue", "taskboard_reviews", "taskboard_ticket",
             "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_create_project",
+            "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_queue"].annotations.read_only_hint)
