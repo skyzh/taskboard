@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Signed agent usage.** A fixed Raft board can read a daily opt-in aggregate with measured tokens, an optional publisher-supplied cost estimate, and elapsed Taskboard worker time with coverage. [Configure the snapshot](SHARED-BOARD.md#show-approved-daily-agent-usage)
+
 - **Initial shared project.** Choose the first project's prefix and title in the server TOML. Existing ledgers keep their project IDs and use their existing default. [Shared board setup](SHARED-BOARD.md#choose-the-initial-project)
 
 - **Local DRI decision routing.** A creator can choose where an individual Local DRI asks for decisions. Existing registrations default to the local session. The Taskboard option routes a Decision on owned active work to the creator’s Needs me. [Setup and verification](LOCAL-DRI.md#choose-where-the-dri-asks-you)
