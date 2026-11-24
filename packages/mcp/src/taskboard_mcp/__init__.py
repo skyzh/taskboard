@@ -41,6 +41,11 @@ def build_server(board: SharedBoard) -> MCPServer:
         return board.invoke("context")
 
     @server.tool(annotations=read_only)
+    def taskboard_projects() -> dict[str, Any]:
+        """List projects and the default project on the signed-in board."""
+        return board.invoke("list-projects")
+
+    @server.tool(annotations=read_only)
     def taskboard_queue(
         project: Project | None = None,
         state: State | None = "ready",

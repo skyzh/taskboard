@@ -7214,6 +7214,12 @@ class TasksServiceTest(unittest.TestCase):
         })
         owner, _ = self.login(app, "Avery")
         self.assertEqual(self.action(owner, "context")["default_project"], "DEV")
+        human, _ = self.login(app, "Sam")
+        for signed in (owner, human):
+            directory = self.action(signed, "list-projects")
+            self.assertTrue(directory.pop("next_step"))
+            self.assertEqual(directory, self.call(signed, "/api/v1/projects").json)
+        self.action(viewer, "list-projects", status=401)
         output = self.shared_cli(owner, "add", "Check a build", "--step", "Verify CI.")
         self.assertEqual((output[0], output[2]), (0, ""))
         self.assertIn("DEV-1", output[1])

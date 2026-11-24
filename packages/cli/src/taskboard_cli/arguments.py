@@ -392,6 +392,8 @@ def arguments(argv=None):
     guidance.add_argument("field", nargs="?", choices=("title", "brief", "next_step", "activity"),
                           help="Omit to see every field.")
     guidance.add_argument("--project", type=nonblank, help="Project prefix. Defaults to the board’s default project.")
+    project_directory = commands.add_parser("projects", help="List projects on the signed shared board.")
+    project_directory.add_argument("--json", action="store_true", help="Print the signed directory response as JSON.")
     create_project = commands.add_parser("create-project", help="Create a project on the signed shared board.")
     create_project.add_argument("prefix", type=nonblank)
     create_project.add_argument("title", type=nonblank)
@@ -554,8 +556,8 @@ def arguments(argv=None):
     if args.command == "postgres-import":
         parser.error("postgres-import requires --postgres and a closed SQLite snapshot.")
     args.mode = args.mode or ("offline" if args.db is not None else os.environ.get("TASKS_MODE", "offline"))
-    if args.command == "create-project" and args.mode != "shared":
-        parser.error("create-project requires the signed shared board.")
+    if args.command in ("projects", "create-project") and args.mode != "shared":
+        parser.error(f"{args.command} requires the signed shared board.")
     if args.mode not in ("offline", "shared"):
         parser.error("TASKS_MODE must be offline or shared.")
     if args.command == PEER_ASK:

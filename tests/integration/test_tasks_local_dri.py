@@ -57,6 +57,10 @@ class LocalDRIRoutingTest(unittest.TestCase):
         context = action(client, "context", headers=sender)
         self.assertEqual((context["actor"]["id"], context["actor"]["dri_kind"], context["project"],
                           context["human_questions"]), (perf["id"], "local", "T", "local_prompt"))
+        action(client, "list-projects", headers=sender, status=403)
+        human_headers = {name: value for name, value in sender.items() if name != "X-Taskboard-Local-DRI"}
+        directory_rows = action(client, "list-projects", headers=human_headers)["items"]
+        self.assertEqual([row["prefix"] for row in directory_rows], ["T", "OPS"])
         call(client, "/api/v1/reports", headers=sender, status=403)
         action(client, "task", query_string={"id": "OPS-1"}, headers=sender, status=403)
         action(client, "my-queue", query_string={"scope": "all"}, headers=sender, status=403)

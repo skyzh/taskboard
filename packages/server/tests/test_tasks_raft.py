@@ -50,6 +50,7 @@ class RaftActionRoutesTest(unittest.TestCase):
         self.assertNotIn("docs_url", manifest)
         expected = {
             "context": ("GET", "", ""),
+            "list-projects": ("GET", "", ""),
             "raft-channel-show": ("GET", "project", ""),
             "raft-channel-set": ("POST", "project channel_id", ""),
             "field-guidance": ("GET", "", "project"),
