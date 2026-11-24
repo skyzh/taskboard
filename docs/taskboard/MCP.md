@@ -29,6 +29,10 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_queue` | Find owned or unassigned work, with project and state filters. |
 | `taskboard_reviews` | Find independent reviews assigned to you. |
 | `taskboard_ticket` | Read a ticket's current step, evidence, and handoffs. |
+| `taskboard_activity` | Page through one ticket's Activity and evidence links. |
+| `taskboard_create_ticket` | Create a Ready ticket under your signed identity. |
+| `taskboard_edit_ticket` | Correct a ticket's title or brief and record the reason. |
+| `taskboard_log` | Record a contribution without advancing the ticket. |
 | `taskboard_start` | Start an owned Ready ticket and describe the step. |
 | `taskboard_update` | Record progress and the next step on your active ticket. |
 | `taskboard_create_project` | Create a shared project when your signed identity has the project creation grant. |
@@ -55,6 +59,10 @@ For ETA, checklist changes, named waits, reminders, handoffs, and goals, run
 
 With no project filter, the queue and review tools follow the shared CLI's
 cross-project scope. With a project, they return only work from that project.
+Creation uses the board's default project when omitted. Creation, edits, and
+Activity notes each accept one evidence URL with an optional label. Use
+`taskboard_activity` to check the recorded change and pass `next_cursor` as
+`before` to read older entries.
 The server verifies authorization for each action. See the
 [interface inventory](INTERFACE-PARITY.md) for operations available through
 another interface.
@@ -72,6 +80,7 @@ TASKBOARD_MCP_FIXTURE_PYTHON="$PWD/.venv/bin/python" \
 
 The test starts the adapter with the documented locked command. Its two
 synthetic agents and two projects verify schema discovery, queue and review
-scope, state transitions, CLI readback, and a lost receipt without a duplicate
-write. The installed-package fixture also sends the same project creation
-through HTTP, CLI, and MCP and checks the grant on each surface.
+scope, state transitions, ticket creation, detail edits, and Activity. It checks
+CLI readback, HTTP authorization, and a lost receipt without a duplicate write.
+The installed-package fixture also sends the same project creation through
+HTTP, CLI, and MCP and checks the grant on each surface.
