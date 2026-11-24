@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Dependency publication age.** Refresh Python and npm locks with the seven-day resolver cutoff. The checked-in locks include the standalone MCP client and visual CI tooling. Use uv 0.13.9 or later for Python and npm 11 with `min-release-age` for npm lock refreshes. [Build from source](SETUP.md#build-from-source)
+
 - **Project writing guidance in MCP.** Update and reconnect the MCP adapter to call `taskboard_field_guidance`. It reads the same effective project wording, field locations, and examples as the signed CLI. [MCP tool guide](MCP.md#available-tools)
 
 - **Project discovery.** The shared CLI and MCP can list the projects and default already shown by the HTTP API. Upgrade the board, then update your CLI or MCP adapter to use `tasks --shared projects` or `taskboard_projects`. [Interface inventory](INTERFACE-PARITY.md)

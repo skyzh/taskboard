@@ -27,7 +27,11 @@ Confirm the selected path before provisioning an app, connecting an identity pro
 
 ## Build from source
 
-Use Python 3.11 or later, uv, and Node.js 20.19 or later on the 20.x line, or Node.js 22.12 or later. Run these commands from the approved checkout or source archive. Use this build for a development checkout or a shared server. The local installer performs the build for a persistent private installation.
+Use Python 3.11 or later, uv 0.13.9 or later, and Node.js 20.19 or later on the 20.x line, or Node.js 22.12 or later. Run these commands from the approved checkout or source archive. Use this build for a development checkout or a shared server. The local installer performs the build for a persistent private installation.
+
+When refreshing the npm lockfile, use an npm 11 version that supports
+`min-release-age`. CI uses npm 11.19.1 bundled with Node.js 24.22.3. The
+Python and npm resolver settings apply a seven-day publication cutoff.
 
 ```sh
 uv sync --frozen
