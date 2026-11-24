@@ -1,11 +1,11 @@
 ## Local DRI (v1)
 
 Use my local agent runtime for Taskboard at `<BOARD_HTTPS_URL>` and project
-`<PROJECT>`. Local DRI registration is pending. Until the board supports
-it, use the task-session workflow with my approved human access.
+`<PROJECT>`. If the board has no verified Local DRI registration for
+this runtime, use the task-session workflow with my approved human access.
 
-Once registered, begin with a ticket I assign to your verified Local DRI
-identity. Confirm the board records you as its owner before Start. If it
+With a verified Local DRI registration, begin with a ticket I assign to
+that identity. Confirm the board records you as its owner before Start. If it
 still belongs to me, use this runtime's local question prompt to ask for
 the handoff. Use that prompt whenever you need my answer and keep the
 question out of Taskboard's Needs me view.
