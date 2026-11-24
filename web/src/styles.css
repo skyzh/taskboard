@@ -100,6 +100,8 @@ main [id] { scroll-margin-top: .8rem; }
 .brand-mark i { display: block; height: .11rem; background: #fff; border-radius: 1rem; }
 .brand-mark i:last-child { width: 64%; }
 .account { margin-inline-start: auto; flex-shrink: 0; min-width: 0; max-width: 17rem; overflow-wrap: anywhere; }
+.account-with-tour { display: flex; align-items: center; gap: .25rem; }
+.navbar-tour-trigger { min-height: 2.75rem; min-width: 2.75rem; padding-inline: .35rem; }
 .profile { min-width: 0; position: relative; }
 .profile-toggle {
   display: inline-flex;

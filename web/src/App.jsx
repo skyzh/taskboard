@@ -150,6 +150,9 @@ export default function App() {
   const theme = useTheme()
   const main = useRef(null)
   const tourTrigger = useRef(null)
+  const navbarTourTrigger = useRef(null)
+  const tourOrigin = useRef('')
+  const tourFromNavbar = useRef(false)
   const restoreTourFocus = useRef(false)
   const [tour, setTour] = useState(null)
   const tourIndex = tour?.findIndex(step => step.route === fragment) ?? -1
@@ -160,7 +163,8 @@ export default function App() {
   useLayoutEffect(() => {
     if (restoreTourFocus.current && !tour) {
       restoreTourFocus.current = false
-      ;(tourTrigger.current || main.current)?.focus({ preventScroll: true })
+      const trigger = tourFromNavbar.current ? navbarTourTrigger.current : tourTrigger.current
+      ;(trigger || main.current)?.focus({ preventScroll: true })
     }
   }, [tour])
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(readWelcomeBannerPreference)
@@ -301,19 +305,26 @@ export default function App() {
     : reportFragment(allReports ? 'all' : reportsProject,
       ['active', 'all', 'idle'].includes(requestedAssigneeView) ? assigneeView : undefined)
   const reportsHref = `#${view === 'reports' ? reportsMode : preferredReportsMode}`
-  function startTour() {
-    const taskRoute = project === 'T' ? 'board' : new URLSearchParams({ project, section: 'queue-heading' }).toString()
+  function startTour(event) {
+    const onReports = view === 'reports' && !showGoalActivity
+    const reportsRoute = onReports ? fragment : preferredReportsMode
+    const tourProject = onReports ? project
+      : new URLSearchParams(reportsRoute.split('?', 2)[1]).get('project') || reportsProject
+    const taskRoute = new URLSearchParams({ project: tourProject, section: 'queue-heading' }).toString()
+    tourOrigin.current = fragment
+    tourFromNavbar.current = event.currentTarget === navbarTourTrigger.current
     setTour([
-      { route: fragment, target: 'reports', title: 'Reports', text: 'See who owns the current work, what needs a decision, and what was completed.' },
+      { route: reportsRoute, target: 'reports', title: 'Reports', text: 'See who owns the current work, what needs a decision, and what was completed.' },
       { route: taskRoute, target: 'board', title: 'Tasks', text: 'Open a ticket to see its owner, current state, and next step.' },
       { route: 'activity', target: 'activity', title: 'Activity', text: 'See who reported progress, asked for help, or recorded an outcome, and when.' },
       ...(verified ? [{ route: 'knowledge', target: 'knowledge', title: 'Knowledge',
         text: 'Find shared decisions and notes, with links back to the work they came from.' }] : []),
     ])
+    writeFilterFragment(reportsRoute, false)
   }
   function closeTour() {
     restoreTourFocus.current = true
-    writeFilterFragment(tour[0].route, true)
+    writeFilterFragment(tourOrigin.current, true)
     setTour(null)
   }
   useEffect(() => {
@@ -375,7 +386,10 @@ export default function App() {
           <BoardViews current={activeTab} reportsHref={reportsHref} isAgent={isAgent}
             showNotifications={verified || session.data?.sign_in_available} showKnowledge={verified} />
           <TaskSearch query={search} fragment={fragment} />
-          <div className="account">
+          <div className="account account-with-tour">
+            <button type="button" ref={navbarTourTrigger} className="navbar-tour-trigger" aria-label="Take the tour"
+              disabled={Boolean(tourStep) || reportsPending || (sessionResource.pending && !sessionResource.data)}
+              onClick={startTour}>Tour</button>
             <Profile session={session} fragment={`#${fragment}`} theme={theme}
               freshness={hasSession && <BoardFreshness checkedAt={connection.checkedAt}
                 source={connection.source} className="profile-freshness" />} />
@@ -396,7 +410,7 @@ export default function App() {
                 <p>Taskboard is a shared workspace for people and agents. Track work in Tasks, see who’s doing what in
                   Reports, and find shared decisions in Knowledge.</p>
                 <div className="reports-welcome-actions">
-                  <button type="button" ref={tourTrigger} className="reports-tour-trigger" disabled={reportsPending}
+                  <button type="button" ref={tourTrigger} className="reports-tour-trigger" disabled={reportsPending || Boolean(tourStep)}
                     onClick={startTour}>Take the tour</button>
                   <a href={demoUrl} target="_blank" rel="noreferrer" aria-label="See the demo (opens the public example in a new tab)">
                     See the demo <ArrowUpRight size={16} aria-hidden="true" />
