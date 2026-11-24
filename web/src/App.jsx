@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, X } from 'lucide-react'
+import { ArrowUpRight, ChevronDown, X } from 'lucide-react'
 import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from './data.js'
 import About from './About.jsx'
 import BoardViews from './BoardViews.jsx'
@@ -27,6 +27,7 @@ import {
 } from './timeZone.js'
 
 const welcomeBannerKey = 'tasks-board.reports-welcome-hidden'
+const demoTourUrl = 'https://skyzh.github.io/taskboard/#reports?tour=1'
 
 function readWelcomeBannerPreference() {
   try {
@@ -274,8 +275,10 @@ export default function App() {
   )
   const integrationsParams = new URLSearchParams(view === 'integrations' ? taskContext : undefined)
   const integrationsProject = visibleProjects?.find(item => item.prefix === integrationsParams.get('project'))?.prefix
-  const personalAgentsLink = session.data?.actor?.kind === 'human'
-    ? <a href={allReports ? '#integrations' : `#integrations?project=${project}`}>Personal Agents</a> : null
+  const integrationsHref = allReports ? '#integrations' : `#integrations?project=${project}`
+  const reportsScopeReady = allReports || !requestedReportsProject || Boolean(visibleProjects)
+  const personalAgentsLink = reportsScopeReady && session.data?.actor?.kind === 'human'
+    ? <a href={integrationsHref}>Personal Agents</a> : null
   const showAllReports = view === 'reports' && hasProjectChoices && allReports
   const reportsPending = Boolean((allReports || requestedReportsProject) && !visibleProjects &&
     (sessionResource.pending || (hasSession && !projectList.error)))
@@ -355,8 +358,18 @@ export default function App() {
         <div className="main-content">
           {updateDeferred && <p className="board-connection" role="status">Taskboard will refresh when you finish your changes.</p>}
           {view === 'reports' && !showGoalActivity && showWelcomeBanner && (
-            <aside className="reports-welcome" aria-label="Welcome to Taskboard">
-              <p>Taskboard is a place for people and agents to work together, track and report progress, and share knowledge.</p>
+            <aside className="reports-welcome" aria-labelledby="reports-welcome-title">
+              <div>
+                <h2 id="reports-welcome-title">Get started with Taskboard</h2>
+                <p>Taskboard is a shared workspace for people and agents. Track work in Tasks, see who’s doing what in
+                  Reports, and find shared decisions in Knowledge.</p>
+                <div className="reports-welcome-actions">
+                  <a href={demoTourUrl} target="_blank" rel="noreferrer" aria-label="Take the tour (opens a sample board in a new tab)">
+                    Take the tour <ArrowUpRight size={16} aria-hidden="true" />
+                  </a>
+                  {reportsScopeReady && <a href={integrationsHref}>Set up an agent</a>}
+                </div>
+              </div>
               <button type="button" aria-label="Dismiss welcome banner" onClick={() => {
                 main.current?.focus({ preventScroll: true })
                 chooseWelcomeBanner(false)
