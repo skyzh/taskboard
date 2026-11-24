@@ -50,6 +50,7 @@ import tasks_stamp
 import tasks_stats
 import tasks_wake_subscriptions as wake_subscriptions
 import watches
+import workers
 import tasks_storage
 from raft_auth import RaftAuth
 from tasks_evidence_preview import read_image
@@ -1255,6 +1256,56 @@ def create_app(
             )
             ledger.bump_revision(connection)
         return {"receipt": f"{projects.row_reference(task)} · Blocker confirmed", "event_id": event}
+
+    def worker_check(actor, data, *, write):
+        run_id = record_id(data.get("run"), "W-", "run ID")
+        key = actor["ledger_key"]
+        mode = text(data, "mode", maximum=6) if write else None
+        at = None
+        if write:
+            if mode not in ("at", "report", "clear") or (mode == "at") != ("at" in data):
+                raise RequestError("Choose at with a timestamp, report, or clear.")
+            if mode == "at":
+                try:
+                    at = ledger.defer_time(text(data, "at", maximum=40))["defer_until"]
+                except ValueError as error:
+                    raise RequestError(str(error)) from error
+        transaction = tasks_storage.write if write else tasks_storage.read
+        with transaction(db()) as connection:
+            try:
+                run = workers.get_run(connection, run_id)
+                task = ledger.get_task(connection, run["task_id"])
+            except ValueError as error:
+                raise RequestError(str(error), 404) from error
+            if key not in (run["worker"], task["dri"]):
+                raise RequestError("Only the worker or ticket owner can access this checkpoint.", 403)
+            checkpoint = workers.wake_check(connection, run_id)
+            if write:
+                if key != task["dri"] and (mode == "report" or (checkpoint and checkpoint["mode"] == "report")):
+                    raise RequestError("The ticket owner manages the report checkpoint.", 403)
+                if mode != "clear" and (run["status"] not in ("running", "reported")
+                                        or task["display_state"] not in ("ready", "in_progress")):
+                    raise RequestError("Set a checkpoint on a launched run on active work.", 409)
+                if mode != "clear" and connection.execute(
+                    "SELECT 1 FROM peer_asks WHERE review_run_id = ?", (run_id,),
+                ).fetchone():
+                    raise RequestError("Follow the linked peer request for this review.", 409)
+                if mode == "at" and run["status"] != "running":
+                    raise RequestError("The run already reported. Use its result or set a report checkpoint.", 409)
+                old_setting = (checkpoint["mode"], checkpoint["at"]) if checkpoint else ("clear", None)
+                if old_setting != (mode, at):
+                    note = {"at": f"Wake check scheduled for {at}", "report": "Wake when the worker reports",
+                            "clear": "Wake check cleared"}[mode]
+                    event = ledger.record(
+                        connection, task["id"], "log", key, task["state"], f"W-{run_id} · {note}", None, [],
+                        {"audit": {"action": "worker-check", "run_id": run_id, "mode": mode, "at": at}},
+                    )
+                    ledger.bump_revision(connection)
+                    checkpoint = None if mode == "clear" else {"id": event, "mode": mode, "at": at}
+        result = {"run": f"W-{run_id}", "ticket": projects.row_reference(task), "checkpoint": checkpoint}
+        if write:
+            result["receipt"] = f"W-{run_id} · Worker wake checkpoint saved"
+        return result
 
     def mutate(command, actor, data, **fields):
         args = Namespace(command=command, by=actor["ledger_key"], **fields)
@@ -2691,7 +2742,10 @@ def create_app(
         actor = current_actor(write=write, required=True)
         if actor["kind"] != "agent" and not g.get("personal_agent_api"):
             raise RequestError("This action requires a signed-in agent or Personal Agents connection.", 403)
-        if g.get("personal_agent_api") and name in {"my-wake-subscriptions", "set-wake-subscription", "idle-goal-offer"}:
+        if g.get("personal_agent_api") and name in {
+            "my-wake-subscriptions", "set-wake-subscription", "idle-goal-offer", "my-wake-workers",
+            "worker-check", "worker-check-show",
+        }:
             raise RequestError("This action requires a standing Raft agent.", 403)
         key = actor["ledger_key"]
         if name == "context":
@@ -2784,6 +2838,13 @@ def create_app(
             return query().tasks(dri="", state=state, project=project_scope(data), **queue_page_args(data, state))
         if name == "my-reviews":
             return query().actionable_reviews(key, project=project_filter(data), **page_args(data))
+        if name == "my-wake-workers":
+            status = text(data, "status", maximum=10)
+            if status not in ("planned", "running", "checkpoint"):
+                raise RequestError("Choose planned, running, or checkpoint.")
+            return query().wake_workers(key, status, **page_args(data))
+        if name in ("worker-check", "worker-check-show"):
+            return worker_check(actor, data, write=write)
         if name == "task":
             result = detail(task_number(data.get("id")), actor)
             task = result["task"]

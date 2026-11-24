@@ -1163,6 +1163,43 @@ class BoardQueries:
         ).fetchall()
         return page(rows, limit, "id", lambda visible: [dict(row) for row in visible])
 
+    def wake_workers(self, person, status, *, before, limit):
+        """Return minimal wake routing for the signed worker, using current task state."""
+        mode = "json_extract(wake.context, '$.audit.mode')"
+        check_at = "json_extract(wake.context, '$.audit.at')"
+        assigned = "worker_runs.worker = ?"
+        if status == "planned":
+            eligible = f"{assigned} AND worker_runs.status = 'planned' AND worker_runs.role = 'review'"
+            params = (person,)
+        elif status == "running":
+            eligible = (f"{assigned} AND ({RUNNING}) AND current.display_state = 'in_progress' "
+                        f"AND COALESCE({mode}, 'clear') = 'clear'")
+            params = (person,)
+        else:
+            eligible = f"""
+                ({assigned} AND ({RUNNING}) AND {mode} = 'at' AND {check_at} <= ?)
+                OR (current.dri = ? AND worker_runs.status = 'reported' AND {mode} = 'report')
+            """
+            params = (person, ledger.timestamp(), person)
+        unlinked = ""
+        if watches.has_table(self.db, "peer_asks"):
+            unlinked = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)"
+        rows = self.db.execute(
+            f"""
+            WITH current AS ({ledger.current_tasks_sql(self.db)})
+            SELECT worker_runs.id, tasks.id AS task_id, {TASK_REFERENCE} AS task_key,
+                   CASE WHEN current.dri = ? THEN 1 ELSE 0 END AS coordinator,
+                   wake.id AS check_event, {mode} AS check_mode
+            FROM worker_runs JOIN tasks ON tasks.id = worker_runs.task_id
+            JOIN current ON current.id = tasks.id
+            LEFT JOIN events AS wake ON wake.id = ({workers.LATEST_WAKE_CHECK})
+            WHERE current.display_state IN ('ready', 'in_progress') AND worker_runs.id < ?
+              AND ({eligible}) {unlinked}
+            ORDER BY worker_runs.id DESC LIMIT ?
+            """, (person, before or projects.MAX_ID, *params, limit + 1),
+        ).fetchall()
+        return page(rows, limit, "id", lambda visible: [dict(row) for row in visible])
+
     def queued_reviews(self, *, before, limit, project=projects.DEFAULT):
         requester = f"({REVIEW_REQUESTER})" if ledger.has_event_context(self.db) else "NULL"
         rows = self.db.execute(
