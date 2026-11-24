@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 
 let activeMutations = 0
+let previewRequest
+
+export function configurePreviewData(readRequest) {
+  previewRequest = readRequest
+}
 
 export function queryPath(path, filters = {}) {
   const params = new URLSearchParams()
@@ -11,6 +16,7 @@ export function queryPath(path, filters = {}) {
 }
 
 export async function request(path, { signal, cache, body, method = body ? 'POST' : 'GET' } = {}) {
+  if (previewRequest) return previewRequest(path, method)
   const multipart = body instanceof FormData
   const mutation = method.toUpperCase() !== 'GET'
   if (mutation) activeMutations += 1
@@ -39,6 +45,7 @@ export async function request(path, { signal, cache, body, method = body ? 'POST
 }
 
 export async function signOut() {
+  if (previewRequest) return previewRequest('/auth/logout', 'POST')
   activeMutations += 1
   try {
     const response = await fetch('./auth/logout', { method: 'POST', credentials: 'same-origin' })

@@ -67,7 +67,7 @@ export function ProfileSignIn({ session, fragment }) {
   return <a href={signInHref(fragment)}>Sign in with Raft</a>
 }
 
-export default function Profile({ session, fragment, theme, freshness }) {
+export default function Profile({ session, fragment, theme, freshness, preview = false }) {
   const actor = session.data?.actor
   const panelId = useId()
   const shortcutsTitle = useId()
@@ -170,7 +170,7 @@ export default function Profile({ session, fragment, theme, freshness }) {
         <a href="#about" onClick={closeAndFocus}>About</a>
         <button type="button" aria-keyshortcuts="Alt+Shift+H" onClick={() => showShortcuts(true)}>Keyboard shortcuts</button>
         <ProfileSignIn session={session} fragment={fragment} />
-        {verified && <button type="button" onClick={handleSignOut} disabled={signingOut}>
+        {verified && !preview && <button type="button" onClick={handleSignOut} disabled={signingOut}>
           {signingOut ? 'Signing out…' : 'Sign out'}
         </button>}
         {freshness}

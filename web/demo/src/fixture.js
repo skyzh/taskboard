@@ -1,112 +1,129 @@
-import { ownerHref, taskHref } from '../../src/shared.jsx'
+const repository = 'https://github.com/skyzh/taskboard'
+const pull = repository + '/pull/234'
+const original = pull + '/commits/a987a54a79822d38d42539d2ccf7b1632c645976'
+const fix = pull + '/commits/6d089198668ddb6cc9f6e7d8f1070e7f2f706e02'
+const mainChecks = repository + '/actions/runs/45337609367'
+const merge = '0b50c6ba1956f260bad6c1c0e88bd2bf458fa878'
+const project = { prefix: 'T', title: 'Taskboard' }
+const profiles = {
+  prism: { id: 'prism', name: 'Prism', kind: 'agent', dri_kind: 'team', role: 'Taskboard frontend' },
+  gauge: { id: 'gauge', name: 'Gauge', kind: 'agent', dri_kind: 'team', role: 'Independent reviewer' },
+}
+const reader = { id: 'demo-reader', name: 'Demo reader', kind: 'human' }
 
-export const repository = 'https://github.com/skyzh/taskboard'
-export const setupGuide = repository + '/blob/main/docs/taskboard/SETUP.md#initial-agent-prompt'
-export const personalAgentsGuide = repository + '/blob/main/docs/taskboard/PERSONAL-AGENTS.md'
-export const project = { key: 'T', title: 'Inventory Export' }
-export const capturedAt = '2026-09-16T18:00:00Z'
+export const capturedAt = '2026-11-24T06:06:11Z'
 
-export const profiles = new Map([
-  ['avery', { name: 'Avery', kind: 'human', role: 'Project lead' }],
-  ['juniper', { name: 'Juniper', kind: 'agent', role: 'Export implementation' }],
-])
+const task = {
+  id: 1406, key: 'T-1406', record_kind: 'work', title: 'Open All projects from the Reports home URL',
+  state: 'done', dri: 'prism', dri_profile: profiles.prism, priority: 'normal', summary_label: 'Outcome',
+  note: 'The home URL now opens Reports with All projects selected. Explicit project links and single-project accounts retain their layout.',
+  checklist_total: 0, checklist_completed: 0,
+}
 
-function task(id, title, state, owner, note, options = {}) {
+function event(id, actor, action, label, at, note, source, linkLabel) {
   return {
-    id, key: `T-${id}`, title, state, note, priority: 'normal',
-    dri: owner, dri_profile: profiles.get(owner), public_url: taskHref(id),
-    summary_label: { in_progress: 'Next step', ready: 'Next step', human_review: 'Decision', done: 'Outcome' }[state],
-    ...options,
+    id, task_id: task.id, task_key: task.key, task_title: task.title,
+    actor, actor_profile: profiles[actor], action, label, at, note,
+    links: [{ url: source, label: linkLabel }],
   }
 }
 
-export const decision = task(1, 'Choose which fields to include in the inventory export', 'done', 'avery',
-  'The first CSV export includes SKU, item name, and quantity on hand.', {
-    brief: 'Give store managers a small CSV they can open in a spreadsheet to review inventory counts.',
-    checklist_total: 2,
-    checklist_completed: 2,
-    checklist: [
-      { position: 1, label: 'Compare sample CSV files with store managers', checked: true },
-      { position: 2, label: 'Record the fields and follow-up work', checked: true },
-    ],
-    context: { choices: ['SKU, item name, and quantity on hand', 'Include supplier costs in the first export'] },
-  })
-export const review = task(2, 'Review the export with a store manager', 'in_progress', 'juniper',
-  'Compare the sample files against the inventory counts and record the result for Avery.', {
-    peer_request: { phase: 'in_progress', source_id: decision.id, source_key: decision.key },
-    checklist_total: 2,
-    checklist_completed: 1,
-    checklist: [
-      { position: 1, label: 'Create a sample with empty quantities and quoted names', checked: true },
-      { position: 2, label: 'Review the sample with Avery', checked: false },
-    ],
-  })
-export const weeklyRun = task(3, 'Check the weekly inventory export', 'ready', 'juniper',
-  'Compare the latest sample with the approved field list.')
-export const approval = task(4, 'Decide whether the export should include archived items', 'human_review', 'avery',
-  'Choose whether managers should see archived items in the first export.', {
-    context: { choices: ['Active items only', 'Include archived items'] },
-  })
-export const checkedNames = task(7, 'Check that item names survive CSV export', 'done', 'juniper',
-  'The sample preserved commas and quotation marks in item names.', {
-    peer_request: { phase: 'done', source_id: decision.id, source_key: decision.key },
-  })
-export const tasks = [decision, review, weeklyRun, approval, checkedNames]
-
-function activity(id, record, actor, action, label, at, note, context) {
-  return {
-    id, task_id: record.id, task_key: record.key, task_title: record.title, public_url: record.public_url,
-    actor, actor_profile: profiles.get(actor), action, label, at, note, context,
-  }
+const opened = event(1, 'prism', 'add', 'Opened for review', '2026-11-24T05:55:25Z',
+  'Prism opened PR #234 with the default Reports change and handed it to Gauge for independent review.',
+  original, 'Original revision')
+// The review preceded the fix. The replay uses the linked revisions as time bounds for the review record.
+const blocker = event(2, 'gauge', 'blocked', 'Review requested a fix', '2026-11-24T05:55:25Z',
+  'The bare-URL test expected the old landing state. Gauge asked Prism to cover loading and the All projects landing before approval.',
+  original, 'Revision that needed a fix')
+const corrected = event(3, 'prism', 'update', 'Test fixed', '2026-11-24T05:59:33Z',
+  'Prism separated the explicit Reports link check from the bare home URL check and verified the All projects loading state.',
+  fix, 'Read the test fix')
+const approved = event(4, 'gauge', 'update', 'Review approved', '2026-11-24T05:59:33Z',
+  'Gauge approved the fixed revision after the checks passed, returning it to Prism to ship.',
+  pull, 'Review and checks')
+const released = event(5, 'prism', 'done', 'Released', capturedAt,
+  'PR #234 merged and the protected main checks passed.',
+  mainChecks, 'Main checks')
+const events = [released, approved, corrected, blocker, opened]
+const counts = { ready: 0, in_progress: 0, parked: 0, human_review: 0 }
+const reports = Object.entries(profiles).map(([owner, profile]) => ({
+  owner, profile, last_activity: events.find(item => item.actor === owner),
+  tasks: [], task_count: 0, task_counts: counts, pending_reports: [],
+  recent_outcomes: owner === 'prism' ? [released] : [],
+}))
+const request = {
+  id: '234-review', phase: 'done', at: opened.at,
+  requester: 'prism', requester_profile: profiles.prism, recipient: 'gauge', recipient_profile: profiles.gauge,
+  source_id: task.id, source_key: task.key, source_title: task.title, pull_urls: [pull], response: approved,
 }
-
-export const responseEvent = activity(10, checkedNames, 'juniper', 'done', 'Response',
-  '2026-09-15T12:30:00Z', checkedNames.note)
-export const decisionEvent = activity(11, decision, 'avery', 'decide', 'Decision recorded',
-  '2026-09-16T14:10:00Z', 'Store managers will receive one CSV for each store.', { choice: 'SKU, item name, and quantity on hand' })
-export const askEvent = activity(12, review, 'avery', 'log', 'Request',
-  '2026-09-16T15:00:00Z', 'Asked Juniper to check a sample export with a store manager.')
-export const reviewEvent = activity(13, review, 'juniper', 'update', 'Progress',
-  '2026-09-16T16:30:00Z', 'The sample contains the approved columns and keeps quoted item names intact.')
-export const scheduleEvent = activity(14, weeklyRun, 'juniper', 'add', 'Created',
-  '2026-09-16T17:30:00Z', 'The weekly export check is ready.')
-export const approvalEvent = activity(15, approval, 'avery', 'assign-human', 'Decision requested',
-  '2026-09-16T17:45:00Z', approval.note)
-export const events = [approvalEvent, scheduleEvent, reviewEvent, askEvent, decisionEvent, responseEvent]
-
-export const knowledge = {
-  area: 'Inventory Export',
-  index: { key: 'T-5', title: 'Inventory export decisions', brief: 'Record the decisions that affect the CSV store managers receive.' },
-  note: { key: 'T-6', title: 'Inventory CSV fields', brief: decision.note },
-}
-export const knowledgeHref = key => '#knowledge?' + new URLSearchParams({ entry: key })
-
-export const reports = [...profiles].map(([owner, profile]) => {
-  const current = tasks.filter(task => task.dri === owner && task.state !== 'done')
-  return {
-    owner, profile, public_url: ownerHref(owner, undefined, project.key),
-    last_activity: events.find(event => event.actor === owner),
-    tasks: current,
-    task_count: current.length,
-    goals: owner === 'avery'
-      ? [{ kind: 'standing', summary: 'Keep the export easy to review in a spreadsheet.', public_url: knowledgeHref(knowledge.note.key) }]
-      : [{ kind: 'standing', summary: 'Keep a weekly sample aligned with the approved fields.', ticket: weeklyRun.key, public_url: weeklyRun.public_url }],
-    recent_outcomes: owner === 'avery' ? [decisionEvent] : [responseEvent],
-  }
-})
-
-function requestRow(task, record, phase, response) {
-  return {
-    id: task.id, phase, at: record.at, request_key: task.key, request_title: task.title,
-    requester: 'avery', requester_profile: profiles.get('avery'),
-    recipient: 'juniper', recipient_profile: profiles.get('juniper'),
-    next_owner: response ? null : 'juniper', next_owner_profile: profiles.get('juniper'),
-    source_id: decision.id, source_key: decision.key, source_title: decision.title,
-    ...(response && { response }),
-  }
-}
-
-export const requestLog = [
-  requestRow(review, askEvent, 'in_progress'),
-  requestRow(checkedNames, responseEvent, 'done', responseEvent),
+const sources = [
+  { label: 'Pull request #234', url: pull },
+  { label: 'Review fix', url: fix },
+  { label: 'Protected main checks', url: mainChecks },
 ]
+const reportNote = {
+  id: 234, key: 'T-234', title: 'Demo note on verifying the Reports home view', area: 'Reports',
+  summary: 'Use the bare home URL to verify All projects. Use explicit links to verify a project selection and the Reports navigation.',
+  sources: [{ task_key: task.key, event_id: released.id, at: released.at, label: 'Verified release' }],
+}
+const detail = {
+  task, brief: 'Show All projects by default on the Reports home page. Preserve explicit project links, reload and Back behavior, and the single-project layout.',
+  checklist: [], sources, related_tasks: [], workers: [], last_activity: released,
+}
+const page = (items = []) => ({ items, next_cursor: null })
+
+export function previewRequest(path, method) {
+  if (method.toUpperCase() !== 'GET') {
+    throw Object.assign(new Error('This action requires the full board.'), { status: 403 })
+  }
+  const [endpoint, query] = path.split('?')
+  const filters = new URLSearchParams(query)
+  const owner = filters.get('owner')
+  const text = filters.get('q')?.toLowerCase()
+  const matches = item => !text || `${item.key} ${item.title}`.toLowerCase().includes(text)
+  const matchingEvents = events.filter(item =>
+    (!filters.has('actor') || item.actor === filters.get('actor')) &&
+    (!filters.has('action') || item.action === filters.get('action')) &&
+    (filters.get('detail') === 'all' || [released, blocker, approved].includes(item)))
+  if (endpoint === '/session') return { actor: reader }
+  if (endpoint === '/projects') return page([project])
+  if (endpoint === '/revision') return { revision: 'public-demo-234' }
+  if (endpoint === '/reports') return page(reports)
+  if (endpoint === '/reports/request-log') return page([request])
+  if (endpoint === '/projects/T/links') return { links: [{ service: 'github', url: repository }] }
+  if (endpoint === '/overview') return { now: page(), decisions: page(), owner_profiles: profiles, status_counts: { ...counts, done: 1 } }
+  if (endpoint === '/assignee') return { profile: profiles[owner], task_counts: counts, pending_reports: [], has_outcomes: owner === 'prism' }
+  if (endpoint === '/tasks') {
+    const fits = (!filters.has('dri') || filters.get('dri') === task.dri) &&
+      (!filters.has('state') || filters.get('state') === task.state) && matches(task)
+    return page(fits ? [task] : [])
+  }
+  if (/^\/tasks\/(?:1406|T-1406)$/.test(endpoint)) return detail
+  if (/^\/tasks\/(?:1406|T-1406)\/activity$/.test(endpoint)) return page(events)
+  if (endpoint.endsWith('/watch')) return { watching: false }
+  if (endpoint === '/activity') return page(matchingEvents)
+  if (endpoint.startsWith('/activity/')) return { event: events.find(item => item.id === Number(endpoint.split('/').at(-1))) }
+  if (endpoint === '/outcomes/days') return { days: filters.get('dri') === 'gauge' ? [] : ['2026-11-24'], next_day: null }
+  if (endpoint === '/outcomes') return page(filters.get('dri') === 'gauge' ? [] : [released])
+  if (endpoint === '/knowledge') {
+    return page(matches(reportNote) && (!filters.has('entry') || filters.get('entry') === reportNote.key) &&
+      (!filters.has('source') || filters.get('source') === task.key) ? [reportNote] : [])
+  }
+  if (/^\/tasks\/(?:234|T-234)$/.test(endpoint)) {
+    const { id, key, title, summary } = reportNote
+    return { task: { id, key, title, record_kind: 'knowledge' }, brief: summary, checklist: [], sources, related_tasks: [] }
+  }
+  if (/^\/tasks\/(?:234|T-234)\/activity$/.test(endpoint)) return page()
+  if (endpoint === '/knowledge/areas') return { areas: [] }
+  if (endpoint === '/release') return { commit: merge }
+  if (endpoint === '/personal-agents/access') return { available: false }
+  if (endpoint === '/personal-agents/local-dris') return { local_dris: [] }
+  if (endpoint === '/personal-agents/publishing-instructions') return { instructions: '', can_save: false }
+  if (endpoint === '/notifications/open-count') return { count: 0 }
+  if (endpoint === '/notifications/work') return { items: [] }
+  if (endpoint === '/notifications/preferences') return { task_creations: false }
+  if (endpoint === '/stats' || endpoint.startsWith('/tasks/') || endpoint.includes('/history')) {
+    throw Object.assign(new Error('This view requires the full board.'), { status: 404 })
+  }
+  return page()
+}

@@ -961,7 +961,7 @@ button:disabled { opacity: .57; }
 }
 @media (max-width: 40rem) {
   .masthead, .section-index, .main-content, .appbar-connection { width: calc(100% - 1.8rem); }
-  .masthead { min-height: 0; grid-template-columns: minmax(0, 1fr) auto fit-content(40%); gap: 0 .45rem; }
+  .masthead { min-height: 0; grid-template-columns: minmax(0, 1fr) auto fit-content(49%); gap: 0 .45rem; }
   .brand { grid-column: 1; grid-row: 1; min-height: 2.75rem; }
   .account { grid-column: 3; grid-row: 1; max-width: 100%; }
   .profile-toggle { min-height: 2.75rem; max-width: 100%; }

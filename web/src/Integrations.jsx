@@ -313,9 +313,9 @@ function CliSignIn({ challenge, session }) {
   )
 }
 
-export default function Integrations({ session, project, projects, onProjectChange, revision, challenge = null }) {
+export default function Integrations({ session, project, projects, onProjectChange, revision, challenge = null, preview = false }) {
   const access = useResource(challenge === null ? '/personal-agents/access' : null)
-  const board = new URL('./', window.location.href).href
+  const board = preview ? 'https://board.example/tasks/' : new URL('./', window.location.href).href
   return (
     <section className={challenge === null ? 'settings integrations integrations-setup' : 'settings integrations'}
       aria-labelledby="integrations">

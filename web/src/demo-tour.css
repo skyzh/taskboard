@@ -1,0 +1,23 @@
+.board-repository {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: .35rem;
+  color: var(--ink);
+}
+.board-repository:hover { background: var(--wash); }
+.board-repository span {
+  width: 1.25rem;
+  height: 1.25rem;
+  background: currentColor;
+  mask: url('./project-marks/github.svg') center / contain no-repeat;
+}
+.demo-tour-toggle[aria-pressed="true"] { border-color: var(--green); }
+[data-tour-target] {
+  outline: 3px solid #000;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px #fff;
+  scroll-margin-block: .75rem;
+}
