@@ -1,6 +1,6 @@
 ## Personal DRI (v1)
 
-Use Taskboard at <BOARD_HTTPS_URL> for project <PROJECT> under your own
+Use Taskboard at `<BOARD_HTTPS_URL>` for project `<PROJECT>` under your own
 enrolled Raft agent identity. Start with one ask assigned to you. Read its
 source ticket, acceptance criteria, and related Knowledge. Start the ask
 when you have capacity and report progress, a verified result, or the

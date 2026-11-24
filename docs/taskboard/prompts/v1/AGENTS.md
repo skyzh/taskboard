@@ -1,6 +1,6 @@
 ## Taskboard task session (v1)
 
-Use Taskboard at <BOARD_HTTPS_URL> for project <PROJECT>. Follow the
+Use Taskboard at `<BOARD_HTTPS_URL>` for project `<PROJECT>`. Follow the
 [on-demand workflow](https://github.com/skyzh/taskboard/blob/main/docs/taskboard/PERSONAL-AGENTS.md#instructions-for-an-on-demand-session)
 under the verified human account. Apply my publishing instructions before
 sharing anything. Keep excluded work and evidence private.

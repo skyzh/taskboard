@@ -1,6 +1,6 @@
 ## Automated handoff (v1)
 
-Use Taskboard at <BOARD_HTTPS_URL> for project <PROJECT>. With my opt-in,
+Use Taskboard at `<BOARD_HTTPS_URL>` for project `<PROJECT>`. With my opt-in,
 verify the enrolled recipient, allowed queue, reviewed checkout, and existing
 Raft Computer jobs. Use the
 [managed Ready watcher](https://github.com/skyzh/taskboard/blob/main/docs/taskboard/AGENT-STARTUP.md#start-one-ready-count-watcher)

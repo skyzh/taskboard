@@ -1,6 +1,6 @@
 ## Existing AI factory (v1)
 
-Use Taskboard at <BOARD_HTTPS_URL> for project <PROJECT>. Verify my enrolled
+Use Taskboard at `<BOARD_HTTPS_URL>` for project `<PROJECT>`. Verify my enrolled
 factory coordinator identity and project scope. Read the assigned ticket,
 acceptance criteria, and current Knowledge with its sources. Keep the
 coordinator accountable for the outcome and use our existing orchestration
