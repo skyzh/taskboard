@@ -71,7 +71,7 @@ before(async () => {
     bundle: true,
     format: 'cjs',
     platform: 'node',
-    external: ['lucide-react'],
+    external: ['lucide-react', './mermaidRenderer.js'],
     loader: { '.css': 'empty' },
     write: false,
     plugins: [{

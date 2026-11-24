@@ -1,5 +1,6 @@
 import React from 'react'
 import MarkdownIt from 'markdown-it'
+import MermaidDiagram from './MermaidDiagram.jsx'
 import { markdownHref, sourceLinkLabel } from './sourceLinks.js'
 
 const markdown = new MarkdownIt({ html: false, linkify: true })
@@ -63,7 +64,11 @@ function tokensToElements(tokens, links, related) {
         case 'hardbreak': current.children.push(<br key={index} />); break
         case 'hr': current.children.push(<hr key={index} />); break
         case 'code_inline': current.children.push(<code key={index}>{token.content}</code>); break
-        case 'fence': case 'code_block': current.children.push(<pre key={index}><code>{token.content}</code></pre>); break
+        case 'fence': case 'code_block':
+          current.children.push(token.type === 'fence' && token.info.trim() === 'mermaid'
+            ? <MermaidDiagram key={`${index}:${token.content}`} text={token.content} />
+            : <pre key={index}><code>{token.content}</code></pre>)
+          break
         case 'image': {
           const href = links && !current.inLink && markdownHref(token.attrGet('src'))
           const label = token.content || (href && sourceLinkLabel(href))

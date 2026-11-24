@@ -36,7 +36,7 @@ before(async () => {
       `,
       resolveDir: sourceDirectory,
     },
-    platform: 'node', bundle: true, format: 'cjs', write: false, external: ['react'],
+    platform: 'node', bundle: true, format: 'cjs', write: false, external: ['react', './mermaidRenderer.js'],
     loader: { '.css': 'empty' },
     plugins: [{
       name: 'release-history-test-data',

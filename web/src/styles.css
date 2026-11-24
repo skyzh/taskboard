@@ -585,6 +585,10 @@ button:disabled { opacity: .57; }
 .markdown > * + * { margin-top: .4rem; }
 .markdown :is(ol, ul) { padding-inline-start: 1.4rem; }
 .markdown pre { overflow-x: auto; white-space: pre; }
+.mermaid-viewport { overflow-x: auto; background: #fff; border: 1px solid var(--line); padding: .55rem; }
+.mermaid-viewport img { display: block; max-inline-size: none; height: auto; }
+.mermaid-diagram details { margin-block-start: .35rem; }
+.mermaid-renderer-frame { position: fixed; inset: -2000px auto auto -2000px; width: 1024px; height: 768px; visibility: hidden; }
 .markdown blockquote { padding-inline-start: .65rem; border-inline-start: 2px solid var(--line); }
 
 .filters { display: grid; gap: .55rem; margin: .65rem 0; }
