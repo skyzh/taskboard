@@ -155,6 +155,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
   const inProgress = progressCount == null ? tasks.some(task => task.state === 'in_progress') : progressCount > 0
   const OwnerHeading = projectTitle ? 'h3' : 'h2'
   const WorkHeading = projectTitle ? 'h4' : 'h3'
+  const activityLink = `#activity?${new URLSearchParams({ actor: owner, detail: 'all' })}`
   const queueLink = `#${new URLSearchParams({ ...(project && { project }), section: 'queue-heading', owner })}`
   return (
     <li className="report-owner">
@@ -214,6 +215,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         {outcomes.size > 0 && (publicPreview ? <DemoUnavailable>All outcomes</DemoUnavailable>
           : <a href={ownerHref(owner, 'outcomes-title', project)}>All outcomes</a>)}
         {publicPreview ? <DemoUnavailable>All tasks</DemoUnavailable> : <a href={queueLink}>All tasks</a>}
+        {!publicPreview && <a href={activityLink} aria-label={`Activity by ${name}`}>Activity</a>}
       </div>}
       {!publicPreview && reports.length > 0 && (
         <PendingReports owner={owner} project={project} projectTitle={projectTitle} name={name} initial={reports}

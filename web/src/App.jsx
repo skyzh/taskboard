@@ -3,6 +3,8 @@ import { ArrowUpRight, ChevronDown, X } from 'lucide-react'
 import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from './data.js'
 import About from './About.jsx'
 import BoardTour from './BoardTour.jsx'
+import { useDemoTour, withoutTour } from './DemoTour.jsx'
+import './demo-tour.css'
 import BoardViews from './BoardViews.jsx'
 import AssigneePage from './AssigneePage.jsx'
 import GoalActivity, { goalActivityFragment } from './GoalActivity.jsx'
@@ -52,16 +54,23 @@ function fragmentId(fragment, pattern) {
   return Number.isSafeInteger(id) ? id : null
 }
 
-function useFragment() {
-  const [{ fragment, reveal }, setLocation] = useState(() => ({ fragment: window.location.hash.slice(1), reveal: true }))
+function useFragment(preview) {
+  const [{ fragment: rawFragment, reveal }, setLocation] = useState(() => ({ fragment: window.location.hash.slice(1), reveal: true }))
+  const fragment = preview ? withoutTour(rawFragment) : rawFragment
   useEffect(() => {
-    function changed() { setLocation({ fragment: window.location.hash.slice(1), reveal: true }) }
+    function changed() {
+      const fragment = window.location.hash.slice(1)
+      setLocation(previous => ({
+        fragment,
+        reveal: !preview || withoutTour(previous.fragment) !== withoutTour(fragment),
+      }))
+    }
     window.addEventListener('hashchange', changed)
     return () => window.removeEventListener('hashchange', changed)
-  }, [])
+  }, [preview])
 
   useEffect(() => {
-    if (!fragment || !reveal) return
+    if (!fragment || !reveal || rawFragment !== fragment) return
     const params = new URLSearchParams(fragment)
     const section = params.get('section')
     const base = fragment.split('?', 1)[0]
@@ -88,7 +97,7 @@ function useFragment() {
     })
     observer.observe(document.getElementById('root'), { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [fragment, reveal])
+  }, [fragment, reveal, rawFragment])
   const writeFilterFragment = useCallback((next, replace) => {
     const hash = `#${next}`
     if (window.location.hash === hash) return
@@ -96,7 +105,7 @@ function useFragment() {
     else window.history.pushState(window.history.state, '', hash)
     setLocation({ fragment: next, reveal: false })
   }, [])
-  return [fragment, writeFilterFragment]
+  return [fragment, writeFilterFragment, rawFragment]
 }
 
 function SectionIndex({ overview }) {
@@ -145,8 +154,10 @@ function BoardConnection({ checkedAt, checking, stale, source }) {
   )
 }
 
-export default function App() {
-  const [fragment, writeFilterFragment] = useFragment()
+export default function App({ previewNotice, tourSteps } = {}) {
+  const preview = Boolean(previewNotice)
+  const [fragment, writeFilterFragment, rawFragment] = useFragment(preview)
+  const demoTour = useDemoTour(rawFragment, tourSteps)
   const theme = useTheme()
   const main = useRef(null)
   const tourTrigger = useRef(null)
@@ -341,8 +352,8 @@ export default function App() {
     setConnection(previous => ({ ...previous, ...status }))
   }, [])
   useEffect(() => {
-    if (hasSession) return watchBoardRevision(refresh, updateConnection, { websocket })
-  }, [hasSession, refresh, updateConnection, websocket])
+    if (hasSession && !preview) return watchBoardRevision(refresh, updateConnection, { websocket })
+  }, [hasSession, preview, refresh, updateConnection, websocket])
   function chooseTimeZone(preference) {
     setTimeZonePreference(preference)
     saveTimeZonePreference(preference)
@@ -387,21 +398,24 @@ export default function App() {
             showNotifications={verified || session.data?.sign_in_available} showKnowledge={verified} />
           <TaskSearch query={search} fragment={fragment} />
           <div className="account account-with-tour">
-            <button type="button" ref={navbarTourTrigger} className="navbar-tour-trigger" aria-label="Take the tour"
-              disabled={Boolean(tourStep) || reportsPending || (sessionResource.pending && !sessionResource.data)}
-              onClick={startTour}>Tour</button>
+            {preview ? demoTour.toggle : <button type="button" ref={navbarTourTrigger} className="navbar-tour-trigger"
+              aria-label="Take the tour" disabled={Boolean(tourStep) || reportsPending || (sessionResource.pending && !sessionResource.data)}
+              onClick={startTour}>Tour</button>}
+            <a className="board-repository" href="https://github.com/skyzh/taskboard" aria-label="Taskboard on GitHub"><span aria-hidden="true" /></a>
             <Profile session={session} fragment={`#${fragment}`} theme={theme}
-              freshness={hasSession && <BoardFreshness checkedAt={connection.checkedAt}
-                source={connection.source} className="profile-freshness" />} />
+              freshness={hasSession && !preview && <BoardFreshness checkedAt={connection.checkedAt}
+                source={connection.source} className="profile-freshness" />} preview={preview} />
           </div>
         </div>
-        {hasSession && <BoardConnection {...connection} />}
+        {hasSession && !preview && <BoardConnection {...connection} />}
+        {demoTour.panel}
         {view === 'team-overview' && <SectionIndex key={project} overview={overview.data} />}
         {tourStep && <BoardTour step={tourStep} index={tourIndex} total={tour.length}
           onMove={index => writeFilterFragment(tour[index].route, false)} onClose={closeTour} />}
       </header>
       <main ref={main} tabIndex={0} aria-label="Taskboard content">
         <div className="main-content">
+          {previewNotice && <p className="section-message">{previewNotice}</p>}
           {updateDeferred && <p className="board-connection" role="status">Taskboard will refresh when you finish your changes.</p>}
           {view === 'reports' && !showGoalActivity && showWelcomeBanner && (
             <aside className="reports-welcome" aria-labelledby="reports-welcome-title">
@@ -411,10 +425,11 @@ export default function App() {
                   Reports, and find shared decisions in Knowledge.</p>
                 <div className="reports-welcome-actions">
                   <button type="button" ref={tourTrigger} className="reports-tour-trigger" disabled={reportsPending || Boolean(tourStep)}
-                    onClick={startTour}>Take the tour</button>
-                  <a href={demoUrl} target="_blank" rel="noreferrer" aria-label="See the demo (opens the public example in a new tab)">
+                    onClick={preview ? demoTour.start : startTour}>Take the tour</button>
+                  {!preview && <a href={demoUrl} target="_blank" rel="noreferrer"
+                    aria-label="See the demo (opens the public example in a new tab)">
                     See the demo <ArrowUpRight size={16} aria-hidden="true" />
-                  </a>
+                  </a>}
                   {reportsScopeReady && <a href={integrationsHref}>Set up an agent</a>}
                 </div>
                 {reportsScopeReady && <p className="report-note">Raft agents register as Team DRIs when they first connect.
@@ -450,7 +465,7 @@ export default function App() {
           {view === 'integrations' && <Integrations session={session} project={integrationsProject}
             projects={visibleProjects} revision={revision}
             onProjectChange={value => writeFilterFragment(value ? `integrations?project=${value}` : 'integrations', true)}
-            challenge={integrationsParams.get('cli')} />}
+            challenge={integrationsParams.get('cli')} preview={preview} />}
           {view === 'knowledge' && <Knowledge session={session} verified={verified} revision={revision} projects={visibleProjects}
             onChanged={refresh} RecordTools={KnowledgeRecordTools}
             search={knowledgeFilters.get('q') || ''} entry={knowledgeFilters.get('entry')} history={knowledgeFilters.get('history')}
