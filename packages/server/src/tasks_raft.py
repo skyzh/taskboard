@@ -107,6 +107,10 @@ _ACTIONS = {
     "assignees": _Action("GET", "Find board assignees and their stable IDs.", optional={
         "query": "Search by name or handle.", **_PROJECT, **_PAGINATION,
     }),
+    "create-project": _Action("POST", "Create a Taskboard project using the signed actor's project creation grant.", {
+        "prefix": "Unique project prefix of one to eight letters or digits, starting with a letter.",
+        "title": "Project display title.",
+    }, {"dri": "Exact verified project owner ID. Defaults to the signed creator."}),
     "create-task": _Action("POST", "Create a task you will own.", {
         "title": "Short, actionable task title. Read field-guidance for the project’s wording and example.",
         "step": "First step for the owner.",

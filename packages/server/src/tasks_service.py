@@ -60,7 +60,7 @@ from tasks_queries import BoardQueries, PACIFIC, pacific_day, task_creation
 
 from taskboard_client.connection import exact_person_id
 from taskboard_server.paths import CHECKOUT, DIST, PACKAGE
-from taskboard_server import local_dri, personal_agents, personal_codex, project_links, raft_channels
+from taskboard_server import local_dri, personal_agents, personal_codex, project_admin, project_links, raft_channels
 FRONTEND_BUILD_META = re.compile(rb'<meta name="tasks-frontend-build" content="([0-9a-f]{64})">')
 # Some Linux systems expose the host's localtime file alongside IANA zones.
 TIME_ZONE_NAMES = available_timezones() - {"localtime"}
@@ -335,6 +335,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
     if marketplace:
         db.execute("INSERT INTO board_settings VALUES ('marketplace_server_id', ?) ON CONFLICT (key) DO NOTHING", (server_id,))
     profiles.ensure_principals(db)
+    db.execute(project_admin.SCHEMA)
     db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
     for statement in local_dri.SCHEMA:
         db.execute(statement)
@@ -402,6 +403,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
         else:
             ledger.ensure_record_kind(db)
             ledger.ensure_checklist_schema(db)
+            db.execute(project_admin.SCHEMA)
             db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
             for statement in local_dri.SCHEMA:
                 db.execute(statement)
@@ -514,6 +516,7 @@ def create_app(
     websocket_revisions=False,
     marketplace_root=None,
     project_roster=None,
+    project_admin_subject=None,
     release_queue_ticket=None,
     watcher_measurement_ticket=None,
     oidc_config=None,
@@ -542,6 +545,13 @@ def create_app(
     personal_api_enabled = bool(
         not marketplace and not local_readonly and oidc_config is None and (raft_config or {}).get("server_id")
     )
+    if project_admin_subject is not None:
+        if not personal_api_enabled:
+            raise ValueError("Project administration requires a fixed-server Raft board.")
+        try:
+            project_admin_subject = str(UUID(project_admin_subject))
+        except ValueError as error:
+            raise ValueError("Set TASKS_PROJECT_ADMIN_HUMAN_SUBJECT to a verified human subject UUID.") from error
     if personal_agent_tailnet_subject is not None:
         if not personal_api_enabled:
             raise ValueError("Personal Agents tailnet access requires a fixed-server shared board with Raft sign-in.")
@@ -1607,6 +1617,81 @@ def create_app(
             actor["kind"] == "agent"
             and (project != projects.DEFAULT or project_roster is None or actor["subject"] in project_roster)
         ))
+
+    def project_admin_access(connection, actor):
+        return g.get("personal_agent_api") != "tailnet" and project_admin.allowed(connection, actor, project_admin_subject)
+
+    def manages_project_admin_permissions(actor):
+        return g.get("personal_agent_api") is None and project_admin.manager(actor, project_admin_subject)
+
+    def project_admin_state(connection, actor):
+        manage = manages_project_admin_permissions(actor)
+        return {
+            "can_create_project": project_admin_access(connection, actor),
+            "can_manage_permissions": manage,
+            "principals": project_admin.directory(connection, actor["server_id"], project_admin_subject) if manage else [],
+        }
+
+    @app.route("/api/v1/admin/project-creation", methods=("GET", "PUT"))
+    def project_creation_settings():
+        write = request.method == "PUT"
+        actor = current_actor(required=True, write=write)
+        if not write:
+            with tasks_storage.read(db()) as connection:
+                return project_admin_state(connection, actor)
+        if request.headers.get("Origin") != origin or not manages_project_admin_permissions(actor):
+            raise RequestError("Use the signed-in permission manager in Taskboard Settings.", 403)
+        data = json_body({"principal", "allowed"})
+        allowed = data.get("allowed")
+        if type(allowed) is not bool:
+            raise RequestError("Send allowed as true or false.")
+        key = text(data, "principal", maximum=160)
+        with tasks_storage.write(db()) as connection:
+            target = profiles.get(connection, key)
+            if target is None or target["server_id"] != actor["server_id"] or not project_admin.eligible(target):
+                raise RequestError("Choose a verified person or agent on this board.", 404)
+            if project_admin.manager(target, project_admin_subject):
+                raise RequestError("The configured permission manager's access is fixed.", 403)
+            if project_admin.set_grant(connection, key, allowed):
+                audit.record(connection, scope="private", actor=actor["ledger_key"],
+                             operation="grant-project-create" if allowed else "revoke-project-create",
+                             record_type="principal", record_id=key, at=ledger.timestamp())
+                ledger.bump_revision(connection)
+            return project_admin_state(connection, actor)
+
+    def create_shared_project(actor, data):
+        with tasks_storage.write(db()) as connection:
+            if not project_admin_access(connection, actor):
+                raise RequestError("Taskboard project creation permission is required.", 403)
+            try:
+                prefix = projects.prefix(text(data, "prefix", maximum=8))
+            except ValueError as error:
+                raise RequestError(str(error)) from error
+            title = text(data, "title", maximum=160)
+            if len(title.splitlines()) != 1 or any(not char.isprintable() for char in title):
+                raise RequestError("Use a one-line project title.")
+            dri = text(data, "dri", maximum=160, optional=True) or actor["ledger_key"]
+            target = profiles.get(connection, dri)
+            if target is None or target["server_id"] != actor["server_id"] or not project_admin.eligible(target):
+                raise RequestError("Choose a verified person or agent on this board as the owner.", 404)
+            project = {"prefix": prefix, "title": title, "dri": dri}
+            existing = connection.execute("SELECT prefix, title, dri FROM projects WHERE prefix = ?", (prefix,)).fetchone()
+            if existing is not None:
+                if dict(existing) != project:
+                    raise RequestError(f"Project {prefix} is already registered.", 409)
+            else:
+                projects.register(connection, prefix, title, dri)
+                now = ledger.timestamp()
+                maintenance.seed(connection, prefix, dri, None, now, live=True)
+                audit.record(connection, scope="private", actor=actor["ledger_key"], operation="create-project",
+                             record_type="project", record_id=prefix, at=now)
+                ledger.bump_revision(connection)
+            return {"project": project, "receipt": f"Project {prefix} · Registered"}
+
+    @app.post("/api/v1/projects")
+    def project_create():
+        actor = current_actor(required=True, write=True)
+        return create_shared_project(actor, json_body({"prefix", "title", "dri"}))
 
     @app.get("/api/v1/projects")
     def project_index():
@@ -2861,6 +2946,8 @@ def create_app(
     def dispatch_action(name, data):
         write = request.method != "GET"
         actor = current_actor(write=write, required=True)
+        if name == "create-project":
+            return create_shared_project(actor, data)
         if actor["kind"] != "agent" and not g.get("personal_agent_api"):
             raise RequestError("This action requires a signed-in agent or Personal Agents connection.", 403)
         if g.get("personal_agent_api") and name in {
@@ -2878,6 +2965,7 @@ def create_app(
                 "parking_protocol": ledger.PARKING_PROTOCOL_VERSION,
                 "decision_recipient_lookup": True,
                 "handoff_recipient_lookup": True,
+                "can_create_project": project_admin_access(db(), actor),
             }
             if profile is not None:
                 context["project"] = profile["project"]
@@ -3341,6 +3429,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             creation_default_subject=os.environ.get("TASKS_NEW_TASKS_DEFAULT_SUBJECT")
             if not (local_readonly or marketplace) else None,
             marketplace_root=marketplace_root,
+            project_admin_subject=os.environ.get("TASKS_PROJECT_ADMIN_HUMAN_SUBJECT") or None,
             project_roster=projects.parse_roster(os.environ.get("TASKS_PROJECT_ROSTER"))
             if not (local_readonly or marketplace) else None,
             release_queue_ticket=(os.environ.get("TASKS_RELEASE_QUEUE_TICKET", releases.DEFAULT_QUEUE_TICKET) or None)

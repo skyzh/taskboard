@@ -46,7 +46,7 @@ class StorageReplayTest(unittest.TestCase):
         self.addCleanup(admin.execute, f"DROP SCHEMA {schema} CASCADE")
         return f"{dsn}?options=-csearch_path%3D{schema}"
 
-    def postgres_app(self, dsn):
+    def postgres_app(self, dsn, **options):
         self.board.provider = fixture.FixtureRaft()
         return create_app(
             None, public_url=fixture.ORIGIN + fixture.BASE, portal_reader=True,
@@ -57,6 +57,7 @@ class StorageReplayTest(unittest.TestCase):
                 "client_id": fixture.CLIENT, "client_secret": "synthetic-fixture-only",
                 "transport": self.board.provider,
             },
+            **options,
         )
 
     def replay(self, app):
@@ -206,6 +207,33 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual(self.board.call(owner, PUBLISHING).json, INSTRUCTIONS)
         self.assertEqual(self.board.call(owner, PUBLISHING, method="PUT", headers=ORIGIN, json=empty).json, empty)
         self.assertEqual(self.board.call(owner, PUBLISHING).json, empty)
+
+    def test_project_admin_grants_survive_import_and_revoke_on_postgres(self):
+        root = self.board.provider.people["Sam"]["sub"]
+        source = self.board.app(portal_reader=True, project_admin_subject=root)
+        manager, _ = self.board.login(source, "Sam")
+        agent, agent_id = self.board.login(source, "Avery")
+        settings = "/api/v1/admin/project-creation"
+        grant = {"principal": agent_id, "allowed": True}
+        self.board.call(manager, settings, method="PUT", headers=ORIGIN, json=grant)
+        project = {"prefix": "LAB", "title": "Fictional project"}
+        first = self.board.action(agent, "create-project", project)["project"]
+        snapshot = self.board.database.with_name("admin-snapshot.sqlite3")
+        with closing(sqlite3.connect(self.board.database)) as current, closing(sqlite3.connect(snapshot)) as backup:
+            current.backup(backup)
+
+        dsn = self.postgres_fixture()
+        self.assertEqual(import_snapshot(snapshot, dsn)["project_admin_grants"], 1)
+        app = self.postgres_app(dsn, project_admin_subject=root)
+        manager, _ = self.board.login(app, "Sam")
+        agent, _ = self.board.login(app, "Avery")
+        self.assertEqual(self.board.call(agent, "/api/v1/projects", method="POST", json=project).json["project"], first)
+        self.board.call(manager, settings, method="PUT", headers=ORIGIN, json={**grant, "allowed": False})
+        self.board.action(agent, "create-project", project, status=403)
+        with closing(Postgres(dsn)) as connection:
+            self.assertEqual(connection.execute(
+                "SELECT COUNT(*) FROM project_maintenance WHERE project = 'LAB'",
+            ).fetchone()[0], 1)
 
     def test_postgres_reopens_a_populated_version_one_board(self):
         dsn = self.postgres_fixture()

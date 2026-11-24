@@ -8,6 +8,7 @@ from mcp_types import ToolAnnotations
 from pydantic import Field
 
 from taskboard_client import SharedBoard
+from taskboard_client.direct import DirectBoard
 
 
 Project = Annotated[str, Field(description="Taskboard project prefix, such as T or COURSE.")]
@@ -23,7 +24,7 @@ def build_server(board: SharedBoard) -> MCPServer:
     server = MCPServer(
         "Taskboard",
         instructions=(
-            "Use your existing Raft agent connection. Check taskboard_context, then choose work with "
+            "Check taskboard_context for your signed identity, then choose work with "
             "taskboard_queue or taskboard_reviews. See docs/taskboard/MCP.md for the adapter's full tool list. "
             "Run ./tasks --shared capabilities for additional shared CLI actions."
         ),
@@ -75,6 +76,18 @@ def build_server(board: SharedBoard) -> MCPServer:
             data["details"] = details
         return board.invoke("advance-task", data, write=True)
 
+    @server.tool(annotations=ToolAnnotations(idempotent_hint=True))
+    def taskboard_create_project(
+        prefix: Project,
+        title: Annotated[str, Field(description="One-line project title.")],
+        dri: Annotated[str | None, Field(description="Exact owner ID. Defaults to the signed actor.")] = None,
+    ) -> dict[str, Any]:
+        """Create a project using your Taskboard project creation permission."""
+        payload = {"prefix": prefix, "title": title}
+        if dri is not None:
+            payload["dri"] = dri
+        return board.invoke("create-project", payload, write=True)
+
     @server.tool(annotations=write)
     def taskboard_start(ticket: Ticket, note: Note) -> dict[str, Any]:
         """Start an owned Ready ticket with the step you are taking."""
@@ -95,4 +108,6 @@ def build_server(board: SharedBoard) -> MCPServer:
 
 def main():
     service = os.environ.get("TASKS_RAFT_SERVICE", "tasks-board")
-    build_server(SharedBoard(service)).run(transport="stdio")
+    url = os.environ.get("TASKBOARD_URL")
+    board = DirectBoard(url) if url else SharedBoard(service)
+    build_server(board).run(transport="stdio")

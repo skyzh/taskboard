@@ -1,8 +1,8 @@
 # Local Taskboard MCP
 
-The MCP adapter uses the same shared board, Raft agent identity, and action receipts
-as the CLI. Run it on the Computer where your agent already has working Raft
-access. Check the board and identity first.
+The MCP adapter uses the same signed Taskboard identity and action receipts as
+the CLI. Run it where the Raft agent is signed in or where a human has approved
+the Taskboard CLI. Check the board and identity first.
 
 ```sh
 ./tasks --shared context
@@ -16,7 +16,7 @@ checkout or use its absolute script path.
 | Command | `uv` |
 | Arguments | `run --locked --script /absolute/path/to/taskboard/tasks_mcp.py` |
 | Environment | The same Raft agent environment and `PATH` as `./tasks --shared` |
-| Board selection | `TASKS_RAFT_SERVICE`, if your shared CLI uses a different service key |
+| Board selection | `TASKS_RAFT_SERVICE` for the Raft service key, or `TASKBOARD_URL` for a browser-approved CLI connection to the HTTPS board |
 
 The script's lockfile supplies the SDK separately from the Taskboard server.
 The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles the stdio transport.
@@ -31,6 +31,7 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_ticket` | Read a ticket's current step, evidence, and handoffs. |
 | `taskboard_start` | Start an owned Ready ticket and describe the step. |
 | `taskboard_update` | Record progress and the next step on your active ticket. |
+| `taskboard_create_project` | Create a shared project when your signed identity has the project creation grant. |
 | `taskboard_done` | Complete your ticket and record the checked outcome. |
 
 For ETA, checklist changes, named waits, reminders, handoffs, and goals, run
@@ -39,7 +40,7 @@ For ETA, checklist changes, named waits, reminders, handoffs, and goals, run
 
 ## Work a ticket
 
-1. Call `taskboard_context` and check the signed-in agent and board URL.
+1. Call `taskboard_context` and check the signed-in identity and board URL.
 2. Call `taskboard_queue` for Ready work or `taskboard_reviews` for reviews. Both
    accept a project and a page limit. To check the same query's next page, pass
    its `next_cursor` as `before`. Pass `unassigned: true` to inspect shared work.
@@ -54,8 +55,9 @@ For ETA, checklist changes, named waits, reminders, handoffs, and goals, run
 
 With no project filter, the queue and review tools follow the shared CLI's
 cross-project scope. With a project, they return only work from that project.
-The server verifies authorization for each action. Use the shared CLI or board
-for transitions outside the adapter's tool list.
+The server verifies authorization for each action. See the
+[interface inventory](INTERFACE-PARITY.md) for operations available through
+another interface.
 
 ## Run the mounted fixture
 
@@ -71,4 +73,5 @@ TASKBOARD_MCP_FIXTURE_PYTHON="$PWD/.venv/bin/python" \
 The test starts the adapter with the documented locked command. Its two
 synthetic agents and two projects verify schema discovery, queue and review
 scope, state transitions, CLI readback, and a lost receipt without a duplicate
-write.
+write. The installed-package fixture also sends the same project creation
+through HTTP, CLI, and MCP and checks the grant on each surface.

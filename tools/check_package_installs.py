@@ -28,7 +28,7 @@ def wheel(directory, component):
 def check(directory):
     wheels = directory / "wheels"
     build(wheels)
-    environment = {key: value for key, value in os.environ.items() if not key.startswith("TASKS_")}
+    environment = {key: value for key, value in os.environ.items() if not key.startswith(("TASKS_", "TASKBOARD_"))}
     shim = directory / "bin"
     shim.mkdir()
     raft = shim / "raft"
@@ -73,6 +73,8 @@ print(json.dumps({{"ok": True, "data": {{"result": {{"actor": actor, "board": "h
         cwd=directory, environment=environment)
 
     server = install("server", ("client", "server"), locked_server=True)
+    run([mcp / "python", "-I", ROOT / "tools/test_mcp_stdio.py"], cwd=directory,
+        environment={**environment, "TASKBOARD_MCP_FIXTURE_PYTHON": str(server / "python")})
     database = directory / "preview.sqlite3"
     run([sys.executable, ROOT / "tasks", "--db", database, "add", "Verify the installed board",
          "--dri", "Avery", "--step", "Read installed assets."], cwd=directory, environment=environment)

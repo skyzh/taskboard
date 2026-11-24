@@ -82,18 +82,21 @@ def next_slot(as_of, hours, requested):
 
 
 def seed(db, project, manager, args, as_of, *, live):
-    owner = args.maintenance_owner if args.maintenance_owner is not None else manager
-    hours = args.maintenance_hours if args.maintenance_hours is not None else DEFAULT_HOURS
+    requested_owner = getattr(args, "maintenance_owner", None)
+    owner = manager if requested_owner is None else requested_owner
+    hours = getattr(args, "maintenance_hours", None)
+    if hours is None:
+        hours = DEFAULT_HOURS
     validate_owner(db, owner, live)
-    slot = next_slot(as_of, hours, args.maintenance_next_at)
+    slot = next_slot(as_of, hours, getattr(args, "maintenance_next_at", None))
     number, _ = recurring.create_definition(
         db, owner, f"project-maintenance-{uuid4().hex}", DEFAULT_TITLE, DEFAULT_STEP, hours, slot, as_of,
     )
     db.execute(
         "INSERT INTO project_maintenance (project, definition_id, members) VALUES (?, ?, ?)",
-        (project, number, members_json(args.maintenance_members or [])),
+        (project, number, members_json(getattr(args, "maintenance_members", None) or [])),
     )
-    if args.maintenance_state == "paused":
+    if getattr(args, "maintenance_state", None) == "paused":
         db.execute("UPDATE recurring_definitions SET state = 'paused' WHERE id = ?", (number,))
 
 
