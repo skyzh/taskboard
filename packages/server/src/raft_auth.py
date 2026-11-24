@@ -48,7 +48,7 @@ BOARD_FRAGMENT = re.compile(
     r"(?:&history=(?:all|[1-9][0-9]{0,18}))?|q=[A-Za-z0-9_%+.*~-]{1,1920}))?"
     r"|stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?"
     r"|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?|settings|about|personal-codex"
-    r"|integrations(?:\?cli=[0-9a-f]{64})?)"
+    r"|integrations(?:\?(?:cli=[0-9a-f]{64}|project=[A-Z][A-Z0-9]{0,7}))?)"
 )
 _MAX_PROVIDER_RESPONSE = 64 * 1024
 _RAFT_API_ORIGIN = "https://api.raft.build"
