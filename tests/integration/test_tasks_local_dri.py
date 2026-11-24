@@ -91,7 +91,11 @@ class LocalDRIRoutingTest(unittest.TestCase):
             "review_head": "a" * 40, "review_base": "b" * 40,
         }, status=409)
         self.assertTrue(next(row for row in call(sam, REGISTER).json["local_dris"] if row["id"] == perf["id"])["watcher_ready"])
-        self.assertEqual(action(manager, "peer-ask", ask)["receipt"].split()[0], "T-2")
+        code, output, error = fixture.shared_cli(
+            manager, "peer-ask", "create", "T-1", "Check the sample total.", "--to", perf["id"],
+        )
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("T-2 · Peer request opened", output)
         action(client, "advance-task", {"id": "T-2", "transition": "start", "note": "Check the sample."}, headers=sender)
         original = action(client, "task-activity", query_string={"id": "T-2"}, headers=sender)
         action(client, "raise-attention", {"id": "T-2", "recipient": sam_id, "reason": "Approve it."},
@@ -120,3 +124,11 @@ class LocalDRIRoutingTest(unittest.TestCase):
             self.assertFalse(directory("T")[perf["id"]]["accepts_agent_asks"])
             action(manager, "peer-ask", ask, status=403)
         self.assertEqual(action(manager, "peer-ask", {**ask, "recipient": team_id})["receipt"].split()[0], "T-4")
+
+        action(manager, "create-task", {"title": "Manual assignment", "step": "Start locally."})
+        code, output, error = fixture.shared_cli(
+            manager, "transfer", "T-5", "Start locally.", "--dri", perf["id"],
+        )
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("T-5", output)
+        self.assertEqual(action(manager, "task", query_string={"id": "T-5"})["task"]["dri"], perf["id"])

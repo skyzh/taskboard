@@ -7,6 +7,7 @@ import sys
 from urllib.parse import urlsplit
 
 from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
+from taskboard_client.connection import is_stable_person_id
 from taskboard_client.direct import DirectBoard
 
 from taskboard_client import references as projects
@@ -306,7 +307,7 @@ def shared_write(board, args, *, context):
             action = "record-activity"
         elif command == "transfer":
             action = "handoff"
-            if context.get("handoff_recipient_lookup") is True and not args.dri.startswith("raft:agent:"):
+            if context.get("handoff_recipient_lookup") is True and not is_stable_person_id(args.dri, "agent"):
                 data["owner_name"] = args.dri
             else:
                 data["owner"] = board.person(args.dri, "agent", data["id"])
