@@ -723,6 +723,9 @@ button:disabled { opacity: .57; }
 .ticket-context { margin-block: .8rem; border-top: 1px solid var(--line); }
 .ticket-context > summary { padding-block: .55rem; font-weight: var(--weight-emphasis); }
 .ticket-context-content { display: grid; gap: .55rem; padding-block: .55rem; overflow-wrap: anywhere; }
+.ticket-properties { display: grid; gap: .45rem; margin: 0; font-size: .875rem; }
+.ticket-properties dt { color: var(--muted); font-size: .8rem; }
+.ticket-properties dd { margin: 0; }
 .recurring-runs { margin-block: .8rem; border-block: 1px solid var(--line); }
 .recurring-runs > summary { padding-block: .55rem; font-weight: var(--weight-emphasis); }
 .recurring-runs > ol { list-style: none; margin: 0; padding: 0; }

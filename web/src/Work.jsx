@@ -20,7 +20,7 @@ import TaskOwnership from './TaskOwnership.jsx'
 import TaskTags from './TaskTags.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import {
-  actions, ActivityMark, addFilterName, Assignee, AssigneeAvatar, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, LoadMore, Options, OutcomeNote, PeerRequestContext, RecordedActivity, ReminderWhen, ResourceStatus, Status,
+  actions, ActivityMark, addFilterName, Assignee, AssigneeAvatar, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, LoadMore, Options, OutcomeNote, PeerRequestContext, RecordedActivity, ResourceStatus, Status,
   states, TaskLink, TaskPriority, Timestamp, WorkerAssignment, WorkerRunState, WorkerRunTiming, eventHref, profileName,
   taskHref, taskLabel, taskState,
 } from './shared.jsx'
@@ -329,10 +329,22 @@ function TicketIdentity({ task, state, children }) {
       <p className="detail-meta ticket-status-meta">
         <Status state={state} />
         <TaskPriority priority={task.priority} />
-        {task.eta && state !== 'closed' && <span>Estimated completion <Timestamp at={task.eta} /></span>}
       </p>
     </>
   )
+}
+
+function ticketProperties({ task, goal }, state, editingTags) {
+  const { defer_until: deferUntil, review_after: reviewDate, readiness } = task.context || {}
+  return [
+    deferUntil ? ['Defer until', <Timestamp at={deferUntil} />] :
+      reviewDate && ['Review date', <time dateTime={reviewDate}>{reviewDate}</time>],
+    state === 'parked' && readiness?.source_key && ['Review after',
+      <TaskLink id={readiness.source_id} reference={readiness.source_key} />],
+    task.eta && state !== 'closed' && ['Estimated completion', <Timestamp at={task.eta} />],
+    goal?.deadline && ['Due', <GoalDeadline deadline={goal.deadline} finished={state === 'done' || state === 'closed'} />],
+    !editingTags && task.tags?.length && ['Tags', task.tags.join(', ')],
+  ].filter(Boolean)
 }
 
 function TicketReferences({ record }) {
@@ -353,7 +365,7 @@ function TicketReferences({ record }) {
   </>
 }
 
-function TicketContext({ record, id, task, state, wide, detailed, session, revision, onChanged, showActions }) {
+function TicketContext({ record, id, task, state, wide, detailed, properties, session, revision, onChanged, showActions }) {
   const [open, setOpen] = useState(false)
   const watch = <div hidden={!showActions}><TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} /></div>
   const content = (
@@ -362,6 +374,13 @@ function TicketContext({ record, id, task, state, wide, detailed, session, revis
       {wide ? <TicketIdentity task={task} state={state}>
         {watch}
       </TicketIdentity> : watch}
+      {properties.length > 0 && (
+        <dl className="ticket-properties">
+          {properties.map(([label, value]) => (
+            <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+          ))}
+        </dl>
+      )}
       <RecordedActivity activity={record.last_activity} />
       <TicketReferences record={record} />
     </div>
@@ -439,6 +458,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   const taskProject = task?.key?.split('-')[0] || project
   const signedIn = ['agent', 'human'].includes(session.data?.actor?.kind)
   const showActions = signedIn && actionsOpen
+  const editingTags = showActions && record?.tag_editable
   const canAnswer = task && mayAnswer(task, session)
   const ownsReturnPath = task && session.data?.actor?.id && session.data.actor.id === task.dri
     && ['ready', 'in_progress', 'parked'].includes(task.state)
@@ -450,10 +470,10 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
   const backHref = fromSearch ? `#${new URLSearchParams({ search: fromSearch })}`
     : knowledge ? entryHref(task.key) : queueHref
   const backLabel = fromSearch ? 'Back to Search results' : knowledge ? 'Open in Knowledge' : 'Back to Tasks'
+  const properties = task && !knowledge ? ticketProperties(record, state, editingTags) : []
   const detailed = Boolean(record && !knowledge && (record.brief || record.checklist.length || record.sources.length
-    || record.related_tasks?.length || record.goal?.tickets.length || state === 'human_review'))
+    || record.related_tasks?.length || record.goal?.tickets.length || state === 'human_review' || properties.length || editingTags))
   const sidebar = wide && detailed
-  const deadline = record?.goal?.deadline
   const anchor = taskHref(id)
   const currentHref = fromSearch ? `${anchor}?${new URLSearchParams({ 'from-search': fromSearch })}` : anchor
   if (history && task) {
@@ -480,9 +500,6 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
       </div>
       <h1 id={`task-heading-${id}`}><MarkdownInline text={task?.title || `Task ${taskLabel(id)}`} relatedTasks={record?.related_tasks} /></h1>
       {task && !knowledge && !sidebar && <div className="ticket-primary-identity"><TicketIdentity task={task} state={state} /></div>}
-      {deadline && (
-        <p>Due <GoalDeadline deadline={deadline} finished={state === 'done' || state === 'closed'} /></p>
-      )}
       <ResourceStatus resource={detail} label="task details" />
       {knowledge ? (
         <div className="knowledge-record-content">
@@ -507,7 +524,6 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
                 <Markdown text={record.goal.parked_note} relatedTasks={record.related_tasks} />
               </>}
               <ClosureReference context={task.context} />
-              <ReminderWhen context={task.context} />
               {showReturnPath && <div hidden={!showActions}>{record.goal ? (
                   <ReminderDate key={`${id}:${task.context?.review_after || ''}`}
                     path={`/tasks/${id}/reminder`} saved={task.context?.review_after}
@@ -563,10 +579,10 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
                 <TaskClosure key={`close-${task.id}`} task={task} onChanged={onChanged} />
               )}
             </div>
-            <TaskTags task={task} editable={showActions && record.tag_editable} onChanged={onChanged} />
+            <TaskTags task={task} editable={editingTags} onChanged={onChanged} />
           </>}
         </div>
-        {task && <TicketContext key={id} record={record} id={id} task={task} state={state} wide={sidebar} detailed={detailed}
+        {task && <TicketContext key={id} record={record} id={id} task={task} state={state} wide={sidebar} detailed={detailed} properties={properties}
           session={session} revision={revision} onChanged={onChanged} showActions={showActions} />}
         {task && (
           <div className="ticket-detail-history">
