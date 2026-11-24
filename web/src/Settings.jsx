@@ -11,7 +11,7 @@ const themeChoices = [
   { value: '', label: 'Auto' },
 ]
 
-export function AppearanceSettings({ theme, timeZonePreference, chooseTimeZone }) {
+export function AppearanceSettings({ theme, timeZonePreference, chooseTimeZone, children }) {
   const browserZoneId = useId()
   const usesBrowserZone = !timeZonePreference
   return (
@@ -38,17 +38,27 @@ export function AppearanceSettings({ theme, timeZonePreference, chooseTimeZone }
         </select>
       </label>
       {usesBrowserZone && <p className="settings-browser-zone" id={browserZoneId}>{browserTimeZone}</p>}
+      {children}
     </section>
   )
 }
 
-export default function Settings({ session, theme, timeZonePreference, chooseTimeZone, onProfileSaved, project, projects, revision }) {
+export default function Settings({
+  session, theme, timeZonePreference, chooseTimeZone, showWelcomeBanner, chooseWelcomeBanner,
+  onProfileSaved, project, projects, revision,
+}) {
   const actor = session.data?.actor
   const canEdit = actor?.kind === 'agent' || actor?.kind === 'human'
   return (
     <section className="settings" aria-labelledby="settings">
       <div className="page-heading"><h1 id="settings">Settings</h1></div>
-      <AppearanceSettings theme={theme} timeZonePreference={timeZonePreference} chooseTimeZone={chooseTimeZone} />
+      <AppearanceSettings theme={theme} timeZonePreference={timeZonePreference} chooseTimeZone={chooseTimeZone}>
+        <label className="settings-preference settings-welcome-banner">
+          <input type="checkbox" checked={showWelcomeBanner}
+            onChange={event => chooseWelcomeBanner(event.currentTarget.checked)} />
+          Show welcome banner on Reports
+        </label>
+      </AppearanceSettings>
       {(canEdit || session.pending || session.error || session.data?.sign_in_available) && (
         <section className="panel settings-panel" aria-labelledby="profile-heading">
           <h2 id="profile-heading">Profile</h2>

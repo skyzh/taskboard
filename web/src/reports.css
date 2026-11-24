@@ -73,6 +73,26 @@
   .report-project-links a { width: 100%; }
 }
 .report-controls label { display: flex; align-items: center; gap: .5rem; color: var(--muted); }
+.reports-welcome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .55rem;
+  margin-bottom: .85rem;
+  padding: .3rem .45rem .3rem .75rem;
+  border: 1px solid var(--line);
+  border-radius: .5rem;
+  background: var(--wash);
+}
+.reports-welcome p { margin: .3rem 0; }
+.reports-welcome button {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+}
 .reports-layout { display: grid; gap: 1.25rem; }
 .project-reports + .project-reports { margin-top: 1.15rem; padding-top: .85rem; border-top: 1px solid var(--line); }
 .project-reports > .page-heading { min-height: 0; }
