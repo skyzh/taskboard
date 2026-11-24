@@ -158,12 +158,18 @@ test('history anchors the previous version and offers a return to the same recor
   fixture.pages['/tasks/T-12/activity'] = { data: { items: [event] } }
   fixture.resources['/tasks/T-12/history/54'] = { data: {
     title: 'An earlier decision', brief: 'Use the earlier rule.', state: 'done', note: 'Work only', event,
+    previous: { id: 50, at: '2026-11-23T19:20:00Z' },
+    next: { id: 58, at: '2026-11-23T19:30:00Z' },
   } }
   try {
     const timeline = renderToStaticMarkup(React.createElement(RecordHistory, { ...props, history: 'all' }))
-    assert.match(timeline, /href="#knowledge\?entry=T-12&amp;history=54">Details updated/)
+    assert.match(timeline, /aria-label="Version timeline"/)
+    assert.match(timeline, /href="#knowledge\?entry=T-12&amp;history=54"><span>Details updated<\/span>/)
     const version = renderToStaticMarkup(React.createElement(RecordHistory, { ...props, history: '54' }))
     assert.match(version, /href="#knowledge\?entry=T-12">Back to current version/)
+    assert.match(version, /href="#knowledge\?entry=T-12&amp;history=50"><span>Previous version<\/span><small><time dateTime="2026-11-23T19:20:00Z"/)
+    assert.match(version, /href="#knowledge\?entry=T-12&amp;history=58"><span>Next version<\/span><small><time dateTime="2026-11-23T19:30:00Z"/)
+    assert.match(version, /href="#knowledge\?entry=T-12&amp;history=54" aria-current="location"/)
     assert.match(version, /<h2>An earlier decision<\/h2>/)
     assert.match(version, /Use the earlier rule/)
     assert.match(version, /href="#event-54-log"/)
