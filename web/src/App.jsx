@@ -173,7 +173,7 @@ export default function App() {
   const showGoalActivity = requestedAssigneeView === 'goal-activity'
   const goalAgent = reportsParams?.get('agent')
   const goalKey = reportsParams?.get('goal')
-  const allReports = taskAnchor === 'reports-all'
+  const allReports = !fragment || taskAnchor === 'reports-all'
   const [preferredReportsMode, rememberReportsMode] = useState(allReports ? 'reports-all' : 'reports')
   const linkedEvent = fragmentId(taskAnchor, /^event-([1-9]\d*)-log$/)
   const [queueFilters, setQueueFilters] = useState({})
@@ -282,7 +282,7 @@ export default function App() {
   const showAllReports = view === 'reports' && hasProjectChoices && allReports
   const reportsPending = Boolean((allReports || requestedReportsProject) && !visibleProjects &&
     (sessionResource.pending || (hasSession && !projectList.error)))
-  const reportsMode = reportsPending ? fragment
+  const reportsMode = reportsPending ? (fragment || 'reports-all')
     : reportFragment(allReports ? 'all' : reportsProject,
       ['active', 'all', 'idle'].includes(requestedAssigneeView) ? assigneeView : undefined)
   const reportsHref = `#${view === 'reports' ? reportsMode : preferredReportsMode}`
