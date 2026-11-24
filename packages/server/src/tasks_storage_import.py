@@ -3,6 +3,7 @@
 from contextlib import closing
 import sqlite3
 
+from taskboard_server import personal_agents
 from tasks_goals import migrate_goal_tickets
 from tasks_knowledge import migrate_records
 from tasks_oidc_members import bind_issuer
@@ -16,7 +17,7 @@ TABLES = (
     "task_tags", "tasknote_snapshots", "sources", "source_deliveries", "task_sources",
     "task_references", "task_watches", "worker_runs", "peer_asks", "recurring_definitions",
     "recurring_occurrences", "project_maintenance", "release_batches", "release_events",
-    "release_tasks", "release_changelogs", "merge_candidates", "board_principals",
+    "release_tasks", "release_changelogs", "merge_candidates", "board_principals", "personal_agent_instructions",
     "board_assignee_imports", "board_project_goals", "board_standing_goals", "board_goal_milestones", "task_goals",
     "goal_review_times",
     "oidc_members", "audit_events",
@@ -110,7 +111,10 @@ def copy_table(source, destination, table):
     write_sql = f"INSERT INTO {table_sql} ({fields_sql}) VALUES ({markers})"
     count = 0
     for row in rows:
-        destination.execute(write_sql, tuple(row))
+        if table == "personal_agent_instructions":
+            personal_agents.save_publishing_instructions(destination, row["owner"], row["instructions"])
+        else:
+            destination.execute(write_sql, tuple(row))
         count += 1
     actual = destination.execute(f"SELECT COUNT(*) FROM {table_sql}").fetchone()[0]
     if count != actual:

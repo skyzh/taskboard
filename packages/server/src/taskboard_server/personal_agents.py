@@ -1,10 +1,12 @@
-"""Revocable HTTP connections for human-owned personal agent sessions."""
+"""Connections and publishing instructions for human-owned personal agents."""
 
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import re
 from secrets import token_urlsafe
 from uuid import uuid4
+
+from tasks_storage import Postgres
 
 
 API_TOKEN_PREFIX = "tbpa_"
@@ -31,6 +33,41 @@ CLI_SCHEMA = """
         expires_at TEXT NOT NULL
     )
 """
+
+
+INSTRUCTIONS_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS personal_agent_instructions (
+        owner TEXT PRIMARY KEY REFERENCES board_principals (ledger_key),
+        instructions TEXT NOT NULL
+    )
+"""
+MAX_INSTRUCTIONS = 8000
+
+
+def publishing_instructions(db, owner):
+    row = db.execute(
+        "SELECT instructions FROM personal_agent_instructions WHERE owner = ?", (owner,),
+    ).fetchone()
+    return row["instructions"] if row is not None else ""
+
+
+def save_publishing_instructions(db, owner, instructions):
+    if instructions == "" or isinstance(db, Postgres):
+        db.execute("DELETE FROM personal_agent_instructions WHERE owner = ?", (owner,))
+        if instructions:
+            # PostgreSQL can log bound values. COPY keeps the text out of SQL
+            # statements and parameter tracing. The caller holds the writer lock.
+            with db.connection.cursor() as cursor, cursor.copy(
+                "COPY personal_agent_instructions (owner, instructions) FROM STDIN"
+            ) as copy:
+                copy.write_row((owner, instructions))
+    else:
+        db.execute(
+            """
+            INSERT INTO personal_agent_instructions (owner, instructions) VALUES (?, ?)
+            ON CONFLICT (owner) DO UPDATE SET instructions = excluded.instructions
+            """, (owner, instructions),
+        )
 
 
 def utc_now():

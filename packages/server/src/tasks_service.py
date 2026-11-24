@@ -335,6 +335,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None):
     if marketplace:
         db.execute("INSERT INTO board_settings VALUES ('marketplace_server_id', ?) ON CONFLICT (key) DO NOTHING", (server_id,))
     profiles.ensure_principals(db)
+    db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
     if oidc_issuer is not None:
         if marketplace_marker(db) is not None:
             raise ValueError("OpenID Connect cannot use a Marketplace ledger.")
@@ -399,6 +400,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None):
         else:
             ledger.ensure_record_kind(db)
             ledger.ensure_checklist_schema(db)
+            db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
             pinned = db.execute("SELECT value FROM board_settings WHERE key = 'raft_server_id'").fetchone()
             if server_id and pinned and pinned["value"] != server_id:
                 raise ValueError("The task ledger is already bound to another Raft Server.")
@@ -745,7 +747,11 @@ def create_app(
         tailnet_requested = not authorization and request.headers.get("X-Taskboard-Personal-Agent") == "1"
         if not (bearer or tailnet_requested):
             return None
-        if request.path.startswith(("/api/v1/personal-agents/", "/api/v1/personal-codex/")):
+        instructions_read = (
+            bearer and request.endpoint == "personal_agent_instructions" and request.method in ("GET", "HEAD")
+        )
+        if (not instructions_read
+                and request.path.startswith(("/api/v1/personal-agents/", "/api/v1/personal-codex/"))):
             raise RequestError("Use the signed-in browser for setup.", 403)
         if tailnet_requested:
             if not personal_agent_tailnet():
@@ -957,6 +963,21 @@ def create_app(
         @app.get("/api/v1/personal-agents/access")
         def personal_agent_access():
             return personal_api_response({"mode": "tailnet" if personal_agent_tailnet() else "login_required"})
+
+        @app.route("/api/v1/personal-agents/publishing-instructions", methods=["GET", "PUT"])
+        def personal_agent_instructions():
+            if request.method != "PUT":
+                owner = current_actor("human", sync_profile=False)["ledger_key"]
+                return personal_api_response({"instructions": personal_agents.publishing_instructions(db(), owner)})
+
+            owner = personal_api_browser(write=True)
+            instructions = json_body({"instructions"}).get("instructions")
+            if (not isinstance(instructions, str) or len(instructions) > personal_agents.MAX_INSTRUCTIONS
+                    or re.search(r"[\x00\ud800-\udfff]", instructions)):
+                raise RequestError(f"Provide instructions as text of at most {personal_agents.MAX_INSTRUCTIONS} characters.")
+            with tasks_storage.write(db()) as connection:
+                personal_agents.save_publishing_instructions(connection, owner, instructions)
+            return personal_api_response({"instructions": instructions})
 
         @app.post("/api/v1/personal-agents/cli-authorize")
         def personal_agent_cli_authorize():
