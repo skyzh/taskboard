@@ -175,6 +175,32 @@ Run `register-project`, `oidc-member` or `release-event` with `--postgres` to ad
 
 If you must run a server version that predates goal tickets, stop the board and back up its ledger. Run `./tasks --offline --db "$taskboard_db" restore-legacy-goals` for SQLite or `uv run --frozen --extra postgres ./tasks --postgres restore-legacy-goals` for PostgreSQL using the version that created the goal tickets. Verify the reported count, then start the older server. This projects current goal titles, owners, dates and links into its goal records. Goal-ticket history stays available and active investigation tickets retain their current state.
 
+## Create projects and manage creation permissions
+
+On a fixed-server Raft board, an authorized operator sets
+`TASKS_PROJECT_ADMIN_HUMAN_SUBJECT` to the chosen human’s verified Raft subject
+UUID and applies it through the normal server rollout. Use that account to
+grant or revoke **Create projects** for signed-in humans and agents under
+**Settings**. That account manages the grants and can create projects.
+A granted person or agent can create projects. Project ownership and access to
+existing projects follow their existing rules.
+
+Create a project from Settings, with `tasks --shared create-project LAB "Research Lab"`,
+or with the MCP tool `taskboard_create_project`. The server uses the signed
+creator as the owner by default. To select another verified person or agent,
+pass their exact Taskboard ID as `--dri` or `dri`. Repeating the same project
+details returns the same project. A prefix already used with different details
+returns a conflict. The new project gets the usual maintenance schedule.
+
+Existing projects require no data migration. Keep the chosen manager’s
+configuration when moving the board. Grants travel with a supported SQLite
+snapshot import. If this capability needs to be turned off, remove
+`TASKS_PROJECT_ADMIN_HUMAN_SUBJECT` through the normal rollout. Settings and
+project creation then stop applying the saved grants until the configuration
+is restored.
+
+See the [interface inventory and project API contract](INTERFACE-PARITY.md).
+
 ## Use the shared CLI
 
 The live shared board shown by `./tasks --shared context` is the authoritative ledger for shared work. A checkout's `state/tasks.sqlite3` is a separate local ledger that can be behind by an unknown amount. If you cannot find a ticket referenced in Raft in that file, read it on the live board or with `./tasks --shared show <ticket>` before drawing a conclusion. For standalone work, follow [the disposable checkout guide](SETUP.md#try-a-disposable-checkout) with an explicitly selected SQLite file.

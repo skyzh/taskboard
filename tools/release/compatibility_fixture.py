@@ -120,28 +120,33 @@ def serve_fixture(source, database, certificate, key, browser):
     server = make_server("127.0.0.1", 0, lambda env, start: [],
                          ssl_context=(certificate, key))
     origin = f"https://127.0.0.1:{server.server_port}"
+    provider = FixtureRaft()
+    options = {"dist": Path(browser) / "web" / "dist"} if browser else {}
+    if os.environ.get("TASKBOARD_COMPAT_PROJECT_ADMIN") == "1":
+        options["project_admin_subject"] = provider.people["Sam"]["sub"]
     server.app = create_app(
         database, public_url=origin + MOUNT, portal_reader=True,
         portal_upstream_token=PORTAL["X-Portal-Upstream-Token"],
         raft_config={
             "api_origin": "https://fixture-raft.invalid", "server_id": SERVER,
-            "client_id": SERVICE, "client_secret": "synthetic-fixture-only", "transport": FixtureRaft(),
+            "client_id": SERVICE, "client_secret": "synthetic-fixture-only", "transport": provider,
         },
-        **({"dist": Path(browser) / "web" / "dist"} if browser else {}),
+        **options,
     )
     print(origin, flush=True)
     server.serve_forever()
 
 
 @contextmanager
-def fixture_server(python, source, directory, certificate, key, *, browser=None, database=None):
+def fixture_server(python, source, directory, certificate, key, *, browser=None, database=None, project_admin=False):
     directory.mkdir()
     database = database if database is not None else directory / "fixture.sqlite3"
     command = [python, "-B", SCRIPT, "serve", source, database, certificate, key]
     if browser:
         command.append(browser)
     with (directory / "service.log").open("w") as log:
-        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=log, text=True) as process:
+        env = {**os.environ, "TASKBOARD_COMPAT_PROJECT_ADMIN": "1" if project_admin else "0"}
+        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=log, text=True, env=env) as process:
             try:
                 with selectors.DefaultSelector() as selector:
                     selector.register(process.stdout, selectors.EVENT_READ)

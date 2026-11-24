@@ -1,7 +1,10 @@
 """Exercise the Taskboard adapter with an official MCP client and a mounted fixture."""
 
+from contextlib import closing
+import json
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -57,7 +60,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         python = Path(os.environ["TASKBOARD_MCP_FIXTURE_PYTHON"]).absolute()
         with TemporaryDirectory(prefix="taskboard-mcp-") as temporary:
             folder = Path(temporary)
-            with fixture_server(python, ROOT, folder / "service", *certificate(folder)) as mounted:
+            with fixture_server(python, ROOT, folder / "service", *certificate(folder), project_admin=True) as mounted:
                 origin, cookie, database, avery_environment = mounted
                 seed(python, ROOT, origin, cookie, database)
                 with request(origin, MOUNT + "/auth/callback", query={"code": "Blake"}) as response:
@@ -66,12 +69,35 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                 blake = io_action(origin, "context", cookie=blake_cookie)["actor"]
                 async with connect(avery_environment) as owner, connect(blake_environment) as reviewer:
                     await self.verify_workflow(owner, reviewer, python, origin, cookie, avery_environment, blake)
+                    await self.verify_project_creation(owner, reviewer, python, origin, cookie, database, avery_environment)
                 async with connect(with_lost_receipt(folder, avery_environment)) as owner:
                     lost = await owner.call_tool("taskboard_start", {"ticket": "T-1", "note": "Start the spare fixture."})
                     self.assertTrue(lost.is_error)
                     self.assertIn("Shared write outcome unknown", lost.content[0].text)
                 history = io_action(origin, "task-activity", cookie=cookie, query={"id": "T-1"})
                 self.assertEqual([event["action"] for event in history["items"]].count("start"), 1)
+
+    async def verify_project_creation(self, owner, reviewer, python, origin, cookie, database, environment):
+        actor = io_action(origin, "context", cookie=cookie)["actor"]
+        with closing(sqlite3.connect(database)) as connection, connection:
+            connection.execute("INSERT INTO project_admin_grants VALUES (?)", (actor["id"],))
+
+        params = {"prefix": "LAB", "title": "Fictional Lab"}
+        denied = await reviewer.call_tool("taskboard_create_project", params)
+        self.assertTrue(denied.is_error)
+        self.assertIn("Taskboard project creation permission is required.", denied.content[0].text)
+
+        created = await owner.call_tool("taskboard_create_project", params)
+        self.assertFalse(created.is_error, created.content)
+        project = {**params, "dri": actor["id"]}
+        self.assertEqual(created.structured_content["project"], project)
+        with request(origin, MOUNT + "/api/v1/projects", data=params, cookie=cookie) as response:
+            self.assertEqual(json.load(response)["project"], project)
+        self.assertIn("Project LAB · Registered", cli_success(
+            python, ROOT, environment, "create-project", "LAB", "Fictional Lab",
+        ))
+        with request(origin, MOUNT + "/api/v1/projects") as response:
+            self.assertEqual([row["prefix"] for row in json.load(response)["items"]].count("LAB"), 1)
 
     async def verify_workflow(self, owner, reviewer, python, origin, cookie, environment, blake):
         async def value(client, name, **params):
@@ -82,7 +108,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         tools = {tool.name: tool for tool in (await owner.list_tools()).tools}
         self.assertEqual(set(tools), {
             "taskboard_context", "taskboard_queue", "taskboard_reviews", "taskboard_ticket",
-            "taskboard_start", "taskboard_update", "taskboard_done",
+            "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_create_project",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_queue"].annotations.read_only_hint)

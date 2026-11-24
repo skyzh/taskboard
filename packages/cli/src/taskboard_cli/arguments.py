@@ -390,6 +390,10 @@ def arguments(argv=None):
     guidance.add_argument("field", nargs="?", choices=("title", "brief", "next_step", "activity"),
                           help="Omit to see every field.")
     guidance.add_argument("--project", type=nonblank, help="Project prefix. Defaults to T.")
+    create_project = commands.add_parser("create-project", help="Create a project on the signed shared board.")
+    create_project.add_argument("prefix", type=nonblank)
+    create_project.add_argument("title", type=nonblank)
+    create_project.add_argument("--dri", type=nonblank, help="Exact verified owner ID. Defaults to your signed identity.")
     register_project = commands.add_parser("register-project", help="Register a project in an operator's local ledger.")
     register_project.add_argument("prefix", type=nonblank)
     register_project.add_argument("title", type=nonblank)
@@ -547,6 +551,8 @@ def arguments(argv=None):
     if args.command == "postgres-import":
         parser.error("postgres-import requires --postgres and a closed SQLite snapshot.")
     args.mode = args.mode or ("offline" if args.db is not None else os.environ.get("TASKS_MODE", "offline"))
+    if args.command == "create-project" and args.mode != "shared":
+        parser.error("create-project requires the signed shared board.")
     if args.mode not in ("offline", "shared"):
         parser.error("TASKS_MODE must be offline or shared.")
     if args.command == PEER_ASK:

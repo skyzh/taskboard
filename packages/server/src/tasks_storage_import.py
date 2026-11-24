@@ -17,7 +17,7 @@ TABLES = (
     "task_tags", "tasknote_snapshots", "sources", "source_deliveries", "task_sources",
     "task_references", "task_watches", "worker_runs", "peer_asks", "recurring_definitions",
     "recurring_occurrences", "project_maintenance", "release_batches", "release_events",
-    "release_tasks", "release_changelogs", "merge_candidates", "board_principals", "personal_agent_instructions", "local_dris",
+    "release_tasks", "release_changelogs", "merge_candidates", "board_principals", "project_admin_grants", "personal_agent_instructions", "local_dris",
     "board_assignee_imports", "board_project_goals", "board_standing_goals", "board_goal_milestones", "task_goals",
     "goal_review_times",
     "oidc_members", "audit_events",

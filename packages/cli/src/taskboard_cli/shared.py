@@ -24,7 +24,7 @@ READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watc
          "search", "knowledge-areas", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance",
          "worker-check", ledger.READ}
 WRITES = ADVANCES | {
-    "confirm-blocker",
+    "confirm-blocker", "create-project",
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
     "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "raft-channel-set",
     "wake-subscribe", "wake-unsubscribe", "knowledge-add", "knowledge-place", "knowledge-stage", "knowledge-reconcile",
@@ -504,6 +504,12 @@ def shared_command(args):
     if command in ("add", "list", "next", "recurring-add"):
         assert_actor(args.dri, actor)
     prompts = context.get("cli_guidance", {})
+    if command == "create-project":
+        payload = {"prefix": args.prefix, "title": args.title}
+        if args.dri is not None:
+            payload["dri"] = args.dri
+        result = board.invoke("create-project", payload, write=True)
+        return with_guidance(result["receipt"], result.get("next_step"))
     if command == "context":
         if local_dri is not None:
             return f"Local DRI · {actor['name']} · {context['project']} · {url}\nUse your runtime's local question prompt."
