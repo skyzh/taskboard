@@ -25,7 +25,9 @@ reporting. Unattended asks go to a DRI with a ready watcher.
 
 - **Set up.** Open **Profile → Integrations**. Copy the task-session prompt or
   merge the [v1 AGENTS.md example](prompts/v1/AGENTS.md) into your repository
-  instructions. Fill in the exact HTTPS board URL and project. Use
+  instructions. Fill in the exact HTTPS board URL and project. For the
+  downloaded prompt, replace `<ACTION_MANIFEST_URL>` with the board's
+  [signed action manifest](#find-the-right-api). Use
   [direct HTTPS on an enabled trusted tailnet](#trusted-tailnet) or get the
   Tasks CLI from your team's approved checkout or source archive and
   [approve sign-in](#signed-cli). Nothing runs in the background.
@@ -99,8 +101,9 @@ through the local question prompt and keeps them out of Taskboard's
 running watcher. You can register multiple named Local DRIs, each with one
 project and its own watcher readiness.
 
-- **Set up.** Download the [v1 Local DRI prompt](prompts/v1/local-dri.md).
-  On a board that supports registration, open Integrations to
+- **Set up.** Copy the Local DRI prompt from Integrations or download the
+  [v1 prompt](prompts/v1/local-dri.md) and fill in its board, project, and
+  [manifest URL](#find-the-right-api). On a board with registration, open Integrations to
   [register a Local DRI](LOCAL-DRI.md) and verify it in your approved CLI
   session. Use the [task session](#task-session) on older boards. Assign
   the first ticket to the Local DRI through the
@@ -170,14 +173,14 @@ offering unattended work.
    brief, staged work, and exact decision or correction before applying it.
    Check who decided, why, and which scope it applies to. Use
    `search-activity` for past attempts and their evidence.
-4. **Report what changed as you work.** Use `record-activity` for a
-   meaningful checkpoint, decision, blocker, or handoff on the original
-   ticket. Give a short outcome, relevant evidence and revision, remaining
-   checks, and the next step or owner. Update the brief when the current
-   conclusion changes, preserving the original scope and linking the exact
-   decision. Use authorized transitions for actual starts and completions.
-   If another person needs to act, record the next owner and tell your
-   human at handoff. Ordinary task sessions use zero Inbox calls.
+4. **Report what changed as you work.** Post an early meaningful checkpoint
+   on the original ticket, then update at milestones, before a sustained
+   wait, and whenever about ten minutes of active work have passed since
+   the last update. Give the confirmed result, relevant evidence, and the
+   next step or concrete blocker. Update the brief when the conclusion
+   changes, keeping the original scope and exact decision source. If
+   another person needs to act, record the next owner. Ordinary task
+   sessions use zero Inbox calls. [Progress examples](#report-progress)
 5. **Promote reusable guidance.** Record the decision, decision maker,
    rationale, scope, and exact source in Activity. Stage it against an
    existing Knowledge entry with the proposed brief and source event if
@@ -237,21 +240,48 @@ Verify the profile with `GET /api/v1/raft/context` before writing.
 
 ### Find the right API
 
-Read `GET /.well-known/raft-agent-manifest.json` under the board mount for
-the full action names and parameter contract. Resolve manifest paths
-relative to the board origin. Use query parameters for GET and a JSON object
-for POST. Direct board APIs such as Reports apply the existing permissions.
+Open `/.well-known/raft-agent-manifest.json` under your board's mount for
+the signed action names, methods, paths, and parameters. For a board at
+`https://board.example/tasks/`, the manifest is
+`https://board.example/tasks/.well-known/raft-agent-manifest.json`.
+The signed `context` response also links it as `action_manifest`. The CLI
+lists commands with `tasks --shared capabilities`.
+Resolve each manifest action path relative to the board origin because the
+path already includes the mount. Use query parameters for GET and a JSON
+object for POST. Each request still needs the appropriate board identity and
+permissions. The [interface inventory](INTERFACE-PARITY.md) describes the
+other web API surfaces.
 
 | Work | Shared action |
 | --- | --- |
 | Confirm identity | GET `context` |
 | Find work and Knowledge | GET `search-tasks` with `project` and `q`, `search-with-decisions` with `q`, or `knowledge-areas` with optional `project` |
 | Read current work | GET `task` or `task-activity` with `id` |
-| Create and report | POST `create-task` with `project`, `title`, and `step`, or `record-activity` with `id`, `note`, optional `details`, and optional evidence `url` and `label` |
+| Create or record Activity | POST `create-task` with `project`, `title`, and `step`, or `record-activity` with `id`, `note`, optional `details`, and optional evidence `url` and `label` |
+| Update an owned In progress ticket | POST `advance-task` with `id`, `transition: update`, and `note` |
 | Attach GitHub sources and other evidence | POST `link-github` with `id` and `github_url`. Use `link-reference` with `id`, `label`, and `url` for a TaskNote or another authorized HTTPS source. |
 | Maintain the brief and Knowledge | POST `edit-task-details`, `create-knowledge`, or `knowledge-stage`, within the actor's project permissions |
 | Ask or hand off | GET `assignees`. POST `peer-ask`, `raise-attention`, or `advance-task` with the `assign-human` transition. Use `handoff` or manager-only `change-ownership` for ownership. |
 | Read Reports | GET `/api/v1/reports?project=PROJECT` under the board mount |
+
+### Report progress
+
+Use the original ticket ID and the same verified identity you checked in
+context. For an owned ticket already In progress:
+
+```sh
+tasks --shared update T-42 "Reproduced the failure. Next: check the retry path."
+```
+
+For signed HTTP, use the manifest's POST `advance-task` endpoint and send:
+
+```json
+{"id":"T-42","transition":"update","note":"Reproduced the failure. Next: check the retry path."}
+```
+
+Read back the ticket and its Activity to confirm the new step and actor. To
+record an authorized checkpoint without changing the current step or state,
+use `tasks --shared log` or the signed `record-activity` action instead.
 
 The [single-ticket pilot](PERSONAL-CODEX.md) remains available for existing
 pilot sessions.

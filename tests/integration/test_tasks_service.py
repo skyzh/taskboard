@@ -207,9 +207,26 @@ class TasksServiceTest(unittest.TestCase):
             self.assertNotIn("tbpa_", out.getvalue())
             self.assertEqual(board.credentials.path.stat().st_mode & 0o777, 0o600)
             saved = DirectBoard(ORIGIN + BASE + "/", opener=transport)
-            self.assertEqual(saved.invoke("context")["actor"]["id"], owner)
+            context = saved.invoke("context")
+            self.assertEqual(context["actor"]["id"], owner)
+            self.assertEqual(context["action_manifest"], ORIGIN + BASE + "/.well-known/raft-agent-manifest.json")
+            manifest_path = urlsplit(context["action_manifest"]).path.removeprefix(BASE)
+            manifest = self.call(unsigned, manifest_path).json
+            advance = next(action for action in manifest["actions"] if action["name"] == "advance-task")
+            self.assertEqual(advance["endpoint"], {"method": "POST", "path": BASE + "/api/v1/raft/advance-task"})
+
             saved.invoke("create-task", {"title": "CLI test", "step": "Verify the result."}, write=True)
             saved.invoke("advance-task", {"id": "T-1", "transition": "start", "note": "Started."}, write=True)
+            saved.invoke("advance-task", {"id": "T-1", "transition": "update", "note": "Reproduced the failure."},
+                         write=True)
+            with patch("taskboard_cli.shared.DirectBoard", return_value=saved):
+                self.assertEqual(tasks_main(["--shared", "--url", ORIGIN + BASE, "update", "T-1",
+                                             "Checked the retry path. Next: verify the fix."]), 0)
+            activity = saved.invoke("task-activity", {"id": "T-1"})["items"]
+            self.assertEqual([(event["actor"], event["note"]) for event in activity[:2]], [
+                (owner, "Checked the retry path. Next: verify the fix."),
+                (owner, "Reproduced the failure."),
+            ])
             saved.invoke("advance-task", {"id": "T-1", "transition": "done", "note": "Verified."}, write=True)
             self.assertEqual(saved.api("/api/v1/tasks/T-1", "GET")["task"]["state"], "done")
             with patch("taskboard_cli.shared.DirectBoard", return_value=saved):

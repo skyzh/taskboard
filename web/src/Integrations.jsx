@@ -178,6 +178,7 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
   const workflow = workflows.find(item => item.id === selected)
   const versionedPrompt = workflow.prompt.trim().replace('<BOARD_HTTPS_URL>', () => board)
     .replace('<PROJECT>', promptProject || '<PROJECT>')
+    .replace('<ACTION_MANIFEST_URL>', () => new URL('.well-known/raft-agent-manifest.json', board).href)
   const identityPrompt = identity && [
     `Use the verified Local DRI "${identity.name}" for project ${identity.project}. Its ID is ${identity.id}.`,
     `Verify it with tasks --shared --url ${board} --local-dri ${identity.id} context before writing.`,
