@@ -99,7 +99,10 @@ test('profile actions use a native disclosure button while editing lives in Sett
   assert.ok(panel)
   assert.match(header, /<button type="button" class="profile-toggle"/)
   assert.ok(header.includes(`<div id="${panel}" class="profile-actions" hidden="">`))
-  assert.match(header, /Night mode/)
+  assert.match(header, /role="group" aria-label="Color theme"/)
+  assert.match(header, /aria-label="Auto" title="Auto" aria-pressed="true"/)
+  assert.match(header, /aria-label="Day" title="Day" aria-pressed="false"/)
+  assert.match(header, /aria-label="Night" title="Night" aria-pressed="false"/)
   assert.match(header, /href="#settings">Settings/)
   assert.match(header, /<button type="button">Sign out<\/button>/)
   assert.doesNotMatch(header, /<form|Save profile/)
@@ -145,12 +148,12 @@ test('only signed-in agents and humans have a Sign out action', () => {
 })
 
 test('portal and signed-out viewers can change appearance and still sign in', () => {
-  const night = { ...theme, mode: 'night' }
+  const night = { ...theme, mode: 'night', preference: 'night' }
   for (const session of [portal, { error: { status: 401 } }]) {
     const header = renderToStaticMarkup(React.createElement(Profile, { session, fragment: '#task-1', theme: night }))
     assert.match(header, /aria-label="Not signed in"/)
     assert.match(header, />Not signed in<\/span>/)
-    assert.match(header, /Day mode/)
+    assert.match(header, /aria-label="Night" title="Night" aria-pressed="true"/)
     assert.match(header, /href="#settings">Settings/)
     assert.match(header, /href="\.\/auth\/login\?fragment=%23task-1">Sign in with Raft<\/a>/)
     const settings = renderToStaticMarkup(React.createElement(Settings, { session, theme: night, timeZonePreference: 'UTC' }))

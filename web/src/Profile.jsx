@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Monitor, Moon, Sun } from 'lucide-react'
 import { request, signOut } from './data.js'
 import { AssigneeAvatar, ResourceStatus, signInHref } from './shared.jsx'
 import { matchesBoardShortcut } from './shortcuts.js'
@@ -73,6 +74,12 @@ export function ProfileSignIn({ session, fragment }) {
   return <a href={signInHref(fragment)}>Sign in with Raft</a>
 }
 
+const themeActions = [
+  { value: '', label: 'Auto', Icon: Monitor },
+  { value: 'day', label: 'Day', Icon: Sun },
+  { value: 'night', label: 'Night', Icon: Moon },
+]
+
 export default function Profile({ session, fragment, theme, freshness, canManageRegistrations = false, preview = false }) {
   const actor = session.data?.actor
   const panelId = useId()
@@ -86,7 +93,6 @@ export default function Profile({ session, fragment, theme, freshness, canManage
   const [signOutFailed, setSignOutFailed] = useState(false)
   const verified = actor?.kind === 'human' || actor?.kind === 'agent'
   const name = verified ? actor.name : 'Not signed in'
-  const nextMode = theme.mode === 'night' ? 'day' : 'night'
 
   const showShortcuts = useCallback(fromMenu => {
     const dialog = shortcuts.current
@@ -168,9 +174,14 @@ export default function Profile({ session, fragment, theme, freshness, canManage
         <span className="profile-chevron" aria-hidden="true" />
       </button>
       <div id={panelId} className="profile-actions" hidden={!open}>
-        <button type="button" onClick={() => { theme.chooseTheme(nextMode); closeAndFocus() }}>
-          {nextMode === 'night' ? 'Night mode' : 'Day mode'}
-        </button>
+        <div className="profile-theme-switch" role="group" aria-label="Color theme">
+          {themeActions.map(({ value, label, Icon }) => (
+            <button key={label} type="button" aria-label={label} title={label}
+              aria-pressed={theme.preference === value} onClick={() => theme.chooseTheme(value)}>
+              <Icon size={18} aria-hidden="true" />
+            </button>
+          ))}
+        </div>
         <a href="#settings" onClick={closeAndFocus}>Settings</a>
         {canManageRegistrations && <a href="#manage" className="profile-manage" onClick={closeAndFocus}
           aria-current={fragment === '#manage' ? 'page' : undefined}>Manage</a>}

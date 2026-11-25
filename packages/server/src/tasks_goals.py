@@ -312,8 +312,12 @@ def owned_tickets(db, project, owner, ids):
     return related
 
 
-def milestones(db, project, owner):
-    return [dated_goal(db, project, owner, row) for row in goal_rows(db, [owner], project, "milestone")]
+def milestones(db, project, owner, *, include_ticket=False):
+    return [
+        {**dated_goal(db, project, owner, row),
+         **({"ticket": projects.row_reference(row)} if include_ticket else {})}
+        for row in goal_rows(db, [owner], project, "milestone")
+    ]
 
 
 def save_milestone(db, project, owner, previous, goal):
