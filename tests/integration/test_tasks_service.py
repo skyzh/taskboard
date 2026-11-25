@@ -3839,7 +3839,7 @@ class TasksServiceTest(unittest.TestCase):
         for fields in ({}, {"owner_name": "Shared name"}, {"owner_name": "@sam"},
                        {"owner_name": "@blake", "owner": sam_id}):
             self.action(avery, "handoff", {**handoff, **fields}, status=400)
-        self.action(blake, "handoff", {**handoff, "owner_name": "@blake"}, status=409)
+        self.action(blake, "handoff", {**handoff, "owner_name": "@avery"}, status=409)
         self.assertEqual(task()["event_id"], original)
 
         actions = []
@@ -4150,6 +4150,42 @@ class TasksServiceTest(unittest.TestCase):
         self.assertNotIn("Use the corrected instructions.", output)
         latest = self.call(owner, route + "/activity").json["items"][0]
         self.assertEqual((latest["actor"], latest["details"]), (manager_id, "Clear the obsolete brief."))
+
+    def test_project_agent_edits_and_handoffs_are_attributed_within_membership(self):
+        self.provider.people["Outside"] = {
+            **self.provider.people["Blake"], "sub": str(UUID(int=61)),
+            "name": "Outside", "preferred_username": "outside",
+        }
+        roster = {self.provider.people[name]["sub"]: name for name in ("Avery", "Blake")}
+        app = self.app(portal_reader=True, project_roster=roster)
+        owner, owner_id = self.login(app, "Avery")
+        collaborator, collaborator_id = self.login(app, "Blake")
+        outsider, _ = self.login(app, "Outside")
+        self.action(owner, "create-task", {"title": "Original import", "step": "Review the sample."})
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Check the rows."})
+        change = {"id": "T-1", "title": "Corrected import", "reason": "Use the right feed."}
+        handoff = {"id": "T-1", "note": "Review the verified feed.", "owner": collaborator_id}
+        self.action(outsider, "edit-task-details", change, status=403)
+        self.action(outsider, "handoff", handoff, status=409)
+        self.assertFalse(self.call(outsider, "/api/v1/tasks/T-1").json["can_edit_details"])
+        self.assertTrue(self.call(collaborator, "/api/v1/tasks/T-1").json["can_edit_details"])
+        code, output, error = self.shared_cli(collaborator, "edit", "T-1", change["reason"], "--title", change["title"])
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("Details updated", output)
+        code, output, error = self.shared_cli(collaborator, "transfer", "T-1", handoff["note"], "--dri", collaborator_id)
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("Transferred", output)
+        task = self.call(owner, "/api/v1/tasks/T-1").json["task"]
+        self.assertEqual((task["title"], task["dri"], task["state"]), (change["title"], collaborator_id, "ready"))
+        transferred, edited, *_ = self.action(owner, "task-activity", query_string={"id": "T-1"})["items"]
+        self.assertEqual((transferred["actor"], edited["actor"]), (collaborator_id, collaborator_id))
+        self.assertEqual((transferred["context"]["previous_dri"], transferred["context"]["next_dri"]),
+                         (owner_id, collaborator_id))
+        self.assertEqual(edited["context"]["audit"]["previous"]["title"], "Original import")
+        self.assertEqual(edited["context"]["audit"]["current"]["title"], change["title"])
+        self.action(collaborator, "advance-task", {"id": "T-1", "transition": "start", "note": "Verify the feed."})
+        self.action(collaborator, "advance-task", {"id": "T-1", "transition": "done", "note": "Verified."})
+        self.action(owner, "handoff", {**handoff, "owner": owner_id}, status=409)
 
     def test_record_history_replays_old_and_current_edits_at_their_activity_events(self):
         app = self.app(portal_reader=True)

@@ -194,22 +194,21 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("COURSE-2 · Ready", cli_success(python, ROOT, environment, "show", ticket))
 
         correction = {"title": "Verify the fixture outcome", "brief": "", "reason": "Clarify scope."}
-        rejected = await reviewer.call_tool("taskboard_edit_ticket", {"ticket": ticket, **correction})
-        self.assertTrue(rejected.is_error)
-        with self.assertRaises(HTTPError) as blocked:
-            request(origin, MOUNT + f"/api/v1/tasks/{ticket}/details", cookie=blake_cookie, data=correction)
-        with blocked.exception as response:
-            self.assertEqual(response.code, 403)
-            error = json.load(response)["error"]
-        self.assertIn(error, rejected.content[0].text)
-        denied_cli = cli(python, ROOT, {**environment, "TASKBOARD_COMPAT_COOKIE": blake_cookie},
-                         "edit", ticket, correction["reason"], "--title", correction["title"])
-        self.assertNotEqual(denied_cli.returncode, 0)
-        self.assertIn(error, denied_cli.stderr)
-
-        edited = await owner.call_tool("taskboard_edit_ticket", {"ticket": ticket, **correction})
+        edited = await reviewer.call_tool("taskboard_edit_ticket", {"ticket": ticket, **correction})
         self.assertFalse(edited.is_error, edited.content)
         self.assertEqual(edited.structured_content["receipt"], f"{ticket} · Details updated")
+        expected_actor = io_action(origin, "context", cookie=blake_cookie)["actor"]["id"]
+        mcp_event, = io_action(origin, "task-activity", cookie=cookie, query={"id": ticket, "limit": 1})["items"]
+        self.assertEqual(mcp_event["actor"], expected_actor)
+        with request(origin, MOUNT + f"/api/v1/tasks/{ticket}/details", cookie=blake_cookie,
+                     data={"brief": "Retain the signed response.", "reason": "Add evidence."}) as response:
+            self.assertEqual(json.load(response)["receipt"], f"{ticket} · Details updated")
+        output = cli_success(python, ROOT, {**environment, "TASKBOARD_COMPAT_COOKIE": blake_cookie},
+                             "edit", ticket, "Clear the temporary brief.", "--brief", "")
+        self.assertIn("Details updated", output)
+        records = io_action(origin, "task-activity", cookie=cookie, query={"id": ticket, "limit": 3})["items"]
+        self.assertEqual([event["actor"] for event in records], [expected_actor] * 3)
+        self.assertEqual(records[0]["context"]["audit"]["previous"]["brief"], "Retain the signed response.")
         logged = await owner.call_tool("taskboard_log", {
             "ticket": ticket, "note": "Compare fixture responses", "details": "The records agree.",
             "label": "Fixture readback", "url": "https://example.test/readback",
@@ -221,6 +220,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             stored = json.load(response)
         self.assertEqual(stored["task"]["title"], correction["title"])
         self.assertEqual(stored["task"]["state"], "ready")
+        self.assertEqual(stored["task"]["dri"], io_action(origin, "context", cookie=cookie)["actor"]["id"])
         self.assertEqual(stored["brief"], "")
         page = await owner.call_tool("taskboard_activity", {"ticket": ticket, "limit": 1})
         self.assertFalse(page.is_error, page.content)
