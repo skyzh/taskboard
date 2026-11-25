@@ -4,10 +4,12 @@ Use this example when a project wants agents to collect additional ticket data. 
 
 | Example field | Value | Evidence |
 | --- | --- | --- |
-| Agent hours | Agent effort recorded in seconds and displayed in hours | Active duration for ticket-linked runs, including delegated workers |
-| Agent cost | Decimal amount and currency | Ticket-linked charge or an estimate with documented rates and usage |
+| Agent hours (`agent_hours`) | Agent effort recorded in seconds and displayed in hours | Active duration for ticket-linked runs, including delegated workers |
+| Agent cost (`agent_cost`) | Decimal amount and currency | Ticket-linked charge or an estimate with documented rates and usage |
 
-An older board can record the same evidence in ticket Activity using `./tasks --shared log "$ticket" 'Recorded agent usage' --details "$usage_note"`. Activity is a readable record. Typed field values require support from the board.
+On a board with typed fields, read the `ticket_fields` in signed `field-guidance` for the ticket's project. Use each field's key, type, and collection prompt. Follow the signed action manifest for `set-ticket-field`. Supply the field, method, and basis. For a known value, also supply the value, coverage, and evidence URL. A known cost needs its currency.
+
+When the board lacks typed fields, record the evidence in ticket Activity using `./tasks --shared log "$ticket" 'Recorded agent usage' --details "$usage_note"`.
 
 ## Prompt to adapt
 
