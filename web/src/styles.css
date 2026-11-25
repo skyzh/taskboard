@@ -765,6 +765,7 @@ button:disabled { opacity: .57; }
 .has-sidebar .ticket-context > summary { display: none; }
 .ticket-focus {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: .35rem;
   margin-top: 1rem;
   padding: .75rem .85rem;

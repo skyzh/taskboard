@@ -14,9 +14,9 @@ export function FieldHelp({ field, id }) {
   return (
     <div className="field-guidance-help" id={id}>
       {field.guidance && <p>{field.guidance}</p>}
-      <p>{field.where}</p>
+      {field.where && <p>{field.where}</p>}
       {field.format && <p><strong>Format</strong> {field.format}</p>}
-      <p><strong>Example</strong> {field.example}</p>
+      {field.example && <p><strong>Example</strong> {field.example}</p>}
     </div>
   )
 }
