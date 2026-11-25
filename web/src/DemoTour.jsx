@@ -39,7 +39,7 @@ export function useDemoTour(rawFragment, steps = [], navigate) {
 
   function stop() {
     restore.current = true
-    navigate(withoutTour(rawFragment))
+    navigate(withoutTour(rawFragment), { reveal: false })
   }
 
   function toggle() {
