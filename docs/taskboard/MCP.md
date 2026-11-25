@@ -37,6 +37,8 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_edit_ticket` | Correct a work ticket or Knowledge entry's title or brief and record the reason. |
 | `taskboard_log` | Record a contribution without advancing the ticket. |
 | `taskboard_checkpoint` | Record a Checkpoint in Activity with its reasoning and evidence, keeping the current handoff. |
+| `taskboard_assign_human` | Request a blocking Decision from a signed-in human on an owned In progress ticket. |
+| `taskboard_raise_attention` | Send a nonblocking attention request from an owned ticket. |
 | `taskboard_start` | Start a Ready ticket and describe the step. |
 | `taskboard_update` | Record progress and the next step on an active ticket. |
 | `taskboard_create_project` | Create a shared project when your signed identity has the project creation grant. |
@@ -46,6 +48,13 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 For ETA, checklist changes, named waits, reminders, handoffs, and goals, run
 `./tasks --shared capabilities` and see the
 [agent command guide](AGENT-STARTUP.md#find-the-agent-commands).
+
+Both Needs You tools accept a human's exact handle, name, or stable ID in
+`recipient`. A Local DRI in Taskboard question mode can omit it to ask its
+creator. A Decision can include `options`. An attention request returns an
+`id` for linking a wait. Reuse the same `request_key` and fields to retry an
+attention send with an unknown outcome. Check the ticket and its Activity
+before retrying a Decision. Upgrade the board and reconnect the adapter.
 
 ## Work a ticket
 

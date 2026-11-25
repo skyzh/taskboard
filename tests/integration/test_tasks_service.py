@@ -5436,6 +5436,56 @@ class TasksServiceTest(unittest.TestCase):
             ("start", owner_id), ("add", owner_id),
         ])
 
+    def test_browser_needs_you_uses_the_same_send_and_recipient_rules(self):
+        app = self.app(portal_reader=True)
+        avery, _ = self.login(app, "Avery")
+        sam, sam_id = self.login(app, "Sam")
+        quinn, quinn_id = self.login(app, "Quinn")
+        viewer = app.test_client()
+        self.action(avery, "create-task", {"title": "Export the sample", "step": "Check the format."})
+        self.action(avery, "handoff", {"id": "T-1", "owner": sam_id, "note": "Check the format."})
+        detail = "/api/v1/tasks/T-1"
+        route = detail + "/needs-you"
+        headers = {"Origin": ORIGIN}
+        ask = {"kind": "attention", "reason": "Check the sample.", "recipient": quinn_id, "request_key": "sample-1"}
+
+        self.assertEqual(self.call(sam, detail).json["needs_you_actions"], ["attention"])
+        for other in (avery, quinn, viewer):
+            self.assertEqual(self.call(other, detail).json["needs_you_actions"], [])
+        self.call(viewer, route, method="POST", headers=headers, json=ask, status=401)
+        self.call(avery, route, method="POST", headers=headers, json=ask, status=403)
+        self.call(sam, route, method="POST", headers={"Origin": "https://example.test"}, json=ask, status=403)
+        self.call(sam, route, method="POST", headers=headers, json={**ask, "recipient": "unknown"}, status=404)
+        sent = self.call(sam, route, method="POST", headers=headers, json=ask).json
+        self.assertEqual(self.call(sam, route, method="POST", headers=headers, json=ask).json, sent)
+        self.call(sam, route, method="POST", headers=headers, json={**ask, "reason": "Changed."}, status=409)
+        requests = "/api/v1/notifications/requests"
+        self.assertEqual([row["id"] for row in self.call(quinn, requests).json["items"]], [sent["id"]])
+        handled = f"{requests}/{sent['id']}/handled"
+        self.call(sam, handled, method="POST", headers=headers, status=404)
+        self.call(quinn, handled, method="POST", headers=headers)
+        self.assertEqual(self.call(sam, route, method="POST", headers=headers, json=ask).json, sent)
+        self.assertEqual(self.call(quinn, requests).json["items"], [])
+        task = self.call(sam, detail).json["task"]
+        self.assertEqual((task["state"], task["dri"]), ("ready", sam_id))
+
+        self.call(sam, detail + "/transition", method="POST", headers=headers,
+                  json={"transition": "start", "note": "Check the format."})
+        self.assertEqual(self.call(sam, detail).json["needs_you_actions"], ["attention", "decision"])
+        decision = {"kind": "decision", "note": "Which format?", "on": quinn_id, "options": ["CSV", "JSON"]}
+        self.call(avery, route, method="POST", headers=headers, json=decision, status=409)
+        self.call(sam, route, method="POST", headers=headers, json={**decision, "on": "unknown"}, status=404)
+        self.call(sam, route, method="POST", headers=headers, json=decision)
+        self.call(sam, route, method="POST", headers=headers, json=decision, status=409)
+        state = self.call(sam, detail).json
+        self.assertEqual((state["task"]["state"], state["task"]["dri"]), ("human_review", sam_id))
+        self.assertEqual(state["needs_you_actions"], ["attention"])
+        row, = self.call(quinn, "/api/v1/notifications/decisions").json["items"]
+        answer = {"request_id": row["event_id"], "note": "Use CSV.", "choice": "CSV"}
+        self.call(sam, detail + "/decision", method="POST", headers=headers, json=answer, status=409)
+        self.call(quinn, detail + "/decision", method="POST", headers=headers, json=answer)
+        self.assertEqual(self.call(sam, detail).json["task"]["state"], "ready")
+
     def test_private_notifications_keep_watches_and_requests_scoped(self):
         app = self.app(portal_reader=True)
         viewer = app.test_client()
@@ -6017,7 +6067,7 @@ class TasksServiceTest(unittest.TestCase):
             db.execute("INSERT INTO attention_wait_links VALUES (22, 1, NULL)")
         self.app(portal_reader=True)
         with closing(sqlite3.connect(self.database)) as db:
-            self.assertEqual(db.execute("SELECT * FROM attention_requests").fetchall(), [(*before, None, None)])
+            self.assertEqual(db.execute("SELECT * FROM attention_requests").fetchall(), [(*before, None, None, None)])
             self.assertEqual(db.execute("SELECT * FROM attention_wait_links").fetchall(), [(22, 1, None, None)])
 
     def test_milestone_and_history_labels_preserve_stable_profile_keys(self):

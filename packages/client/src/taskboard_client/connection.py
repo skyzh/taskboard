@@ -4,6 +4,7 @@ import json
 import re
 from shlex import quote
 import subprocess
+from uuid import uuid4
 
 from . import references as projects
 
@@ -12,6 +13,11 @@ BEFORE_DISPATCH = {"INTEGRATION_NOT_FOUND", "INTEGRATION_ACTION_NOT_FOUND", "INV
 APP_REJECTION = {400, 401, 403, 404, 405, 409, 415, 422}
 TEMPORARY_READ_STATUS = {502, 503, 504}
 READ_FAILURE = "Shared read failed. Check the registered app and your Raft session."
+
+
+def attention_retry_hint(params):
+    key = (params or {}).get("request_key")
+    return f"Attention request outcome unknown. Retry the same request with key {key}." if key else None
 
 
 def reply_json(text):
@@ -162,6 +168,15 @@ class SharedBoard:
     def __init__(self, service):
         self.service = service
 
+    def raise_attention(self, ticket, reason, *, recipient=None, request_key=None, unblocks=None, url=None, label=None):
+        params = {"id": ticket, "reason": reason, "request_key": request_key if request_key is not None else str(uuid4())}
+        if recipient is not None:
+            field = "recipient" if is_stable_person_id(recipient, "human") else "recipient_name"
+            params[field] = recipient
+        params.update({key: value for key, value in {"unblocks": unblocks, "url": url, "label": label}.items()
+                       if value is not None})
+        return self.invoke("raise-attention", params, write=True)
+
     def invoke(self, action, params=None, *, write=False):
         call = ["raft", "integration", "invoke", "--service", self.service, "--action", action, "--json"]
         payload = None
@@ -177,6 +192,8 @@ class SharedBoard:
         )
         if action == "save-goal":
             unknown = "Shared write outcome unknown. Read your project goals before retrying."
+        if action == "raise-attention" and write:
+            unknown = attention_retry_hint(params) or unknown
         try:
             result = subprocess.run(call, input=payload, capture_output=True, text=True, timeout=45)
         except FileNotFoundError as error:

@@ -573,9 +573,14 @@ class LocalDRIRoutingTest(unittest.TestCase):
                 patch("taskboard_cli.shared.DirectBoard", return_value=board), \
                 redirect_stdout(StringIO()) as output, redirect_stderr(StringIO()) as errors:
             command = ["--shared", "--url", board_url, "--local-dri", registered["id"]]
+            self.assertEqual(tasks_main([*command, "raise-attention", "T-1", "Follow up with the creator."]), 0)
+            self.assertEqual(tasks_main([*command, "raise-attention", "T-1", "Follow up with Quinn.", "--on", "@quinn"]), 0)
+            self.assertIn("Attention request ID:", output.getvalue())
             self.assertEqual(tasks_main([*command, "assign-human", "T-1", question["note"], "--on", "@quinn"]), 0)
             self.assertIn("Decision requested", output.getvalue())
             self.assertEqual(errors.getvalue(), "")
+        self.assertIn("Follow up with the creator.", [row["reason"] for row in call(sam, "/api/v1/notifications/requests").json["items"]])
+        self.assertIn("Follow up with Quinn.", [row["reason"] for row in call(quinn, "/api/v1/notifications/requests").json["items"]])
         self.assertEqual(call(sam, "/api/v1/notifications/decisions").json["items"], [])
         item, = call(quinn, "/api/v1/notifications/decisions").json["items"]
         route = "/api/v1/tasks/T-1/decision"
