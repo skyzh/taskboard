@@ -61,6 +61,16 @@ def bootstrap(db, initial, *, required=False):
 
 PROJECT_FIELDS = {DEFAULT: ("queued_for_release", "release_number")}
 
+OWNER_GRANTS_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS project_owner_grants (
+        project TEXT NOT NULL REFERENCES projects (prefix),
+        principal TEXT NOT NULL,
+        PRIMARY KEY (project, principal)
+    )
+"""
+MANAGED_BY = "SELECT prefix FROM projects WHERE dri = ? UNION SELECT project FROM project_owner_grants WHERE principal = ?"
+PROJECT_OWNERS = "SELECT dri FROM projects WHERE prefix = ? AND dri IS NOT NULL UNION SELECT principal FROM project_owner_grants WHERE project = ?"
+
 TICKET_ALIASES_SCHEMA = """
     CREATE TABLE IF NOT EXISTS task_project_aliases (
         project_prefix TEXT NOT NULL REFERENCES projects (prefix),
@@ -197,6 +207,7 @@ def ensure_schema(db, *, seed_legacy=True):
         )
         """
     )
+    db.execute(OWNER_GRANTS_SCHEMA)
     columns = tasks_storage.table_columns(db, "tasks")
     if "project_prefix" not in columns:
         db.execute("ALTER TABLE tasks ADD COLUMN project_prefix TEXT NOT NULL DEFAULT 'T'")
@@ -221,8 +232,36 @@ def require(db, project):
 
 def manages(db, project, actor):
     return db.execute(
-        "SELECT 1 FROM projects WHERE prefix = ? AND dri = ?", (project, actor),
+        f"SELECT 1 FROM ({MANAGED_BY}) AS owned WHERE prefix = ?", (actor, actor, project),
     ).fetchone() is not None
+
+
+def owner_keys(db, project):
+    primary = db.execute("SELECT dri FROM projects WHERE prefix = ?", (project,)).fetchone()["dri"]
+    additional = [row["principal"] for row in db.execute(
+        "SELECT principal FROM project_owner_grants WHERE project = ? ORDER BY principal", (project,),
+    )]
+    return ([primary] if primary else []) + additional
+
+
+def set_owner(db, project, principal, enabled):
+    owners = owner_keys(db, project)
+    if enabled and principal not in owners:
+        if owners:
+            db.execute("INSERT INTO project_owner_grants VALUES (?, ?)", (project, principal))
+        else:
+            db.execute("UPDATE projects SET dri = ? WHERE prefix = ?", (principal, project))
+        return True
+    if not enabled and principal in owners:
+        if len(owners) == 1:
+            raise ValueError("Add another project owner before removing the last one.")
+        if owners[0] == principal:
+            replacement = owners[1]
+            db.execute("UPDATE projects SET dri = ? WHERE prefix = ?", (replacement, project))
+            principal = replacement
+        db.execute("DELETE FROM project_owner_grants WHERE project = ? AND principal = ?", (project, principal))
+        return True
+    return False
 
 
 def register(db, name, title, dri):

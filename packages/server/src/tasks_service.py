@@ -416,6 +416,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None, initial_project=No
             projects.bootstrap(db, initial_project, required=require_initial)
             tasks_recurring.ensure_project_binding(db)
             projects.ensure_alias_schema(db)
+            db.execute(projects.OWNER_GRANTS_SCHEMA)
             db.execute(project_admin.SCHEMA)
             db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
             local_dri.ensure_schema(db)
@@ -976,8 +977,8 @@ def create_app(
     def move_destinations(connection, task, actor, project):
         return [
             dict(row) for row in connection.execute(
-                "SELECT prefix, title FROM projects WHERE dri = ? AND prefix <> ? ORDER BY title, prefix",
-                (actor, project),
+                f"SELECT prefix, title FROM projects WHERE prefix IN ({projects.MANAGED_BY}) AND prefix <> ? ORDER BY title, prefix",
+                (actor, actor, project),
             )
             if move_assignment_allowed(connection, task["dri"], row["prefix"])
         ]
@@ -1864,8 +1865,8 @@ def create_app(
     def project_writer(actor, project):
         return actor is not None and (actor["kind"] == "human" or project_agent(actor, project))
 
-    def can_create_knowledge(actor, project, manager):
-        return project_writer(actor, project) or (actor is not None and actor["ledger_key"] == manager)
+    def can_create_knowledge(actor, project):
+        return project_writer(actor, project) or (actor is not None and projects.manages(db(), project, actor["ledger_key"]))
 
     def can_edit_shared_content(connection, actor, task, project):
         if actor is None:
@@ -1889,12 +1890,36 @@ def create_app(
     def registration_capability(actor):
         return {"can_manage_registrations": True} if actor and manages_project_admin_permissions(actor) else {}
 
+    def registration_permissions(row, project, owners):
+        administrator = project_admin.manager(row, project_admin_subject)
+        may_create = project_admin_subject is not None and (administrator or row["project_creation_grant"] is not None)
+        local_project = row["local_project"]
+        project_access = local_project is None or local_project == project
+        owner = row["ledger_key"] in owners and project_access
+        ordinary = local_project == project if local_project is not None else project_writer(row, project)
+        return {
+            "create_projects": may_create,
+            "manage_board_permissions": administrator,
+            "view_project": project_access,
+            "edit_shared_content": owner or ordinary,
+            "edit_project_prompts": owner,
+            "manage_project_workflow": owner,
+            "manage_project_owners": local_project is None and (owner or administrator),
+        }
+
     @app.get("/api/v1/admin/registrations")
     def registrations():
         actor = current_actor(required=True, sync_profile=False)
         if not manages_project_admin_permissions(actor):
             raise RequestError("Use the signed-in permission manager to view board registrations.", 403)
-        response = jsonify(items=project_admin.registrations(db(), actor["server_id"]))
+        project = project_filter(request.args, use_default=True)
+        with tasks_storage.read(db()) as connection:
+            owners = set(projects.owner_keys(connection, project))
+            items = [
+                {**project_admin.registration(row), "permissions": registration_permissions(row, project, owners)}
+                for row in project_admin.registered_principals(connection, actor["server_id"])
+            ]
+        response = jsonify(project=project, items=items)
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -1976,12 +2001,63 @@ def create_app(
             rows = db().execute("SELECT prefix, title, dri FROM projects ORDER BY prefix <> ?, prefix", (default,))
         return {"default_project": default, "items": [{
             **dict(row), **projects.project_features(row["prefix"]),
-            "can_create_knowledge": can_create_knowledge(actor, row["prefix"], row["dri"]),
+            "can_create_knowledge": can_create_knowledge(actor, row["prefix"]),
         } for row in rows]}
 
     @app.get("/api/v1/projects")
     def project_index():
         return project_directory(current_actor())
+
+    def can_manage_project_owners(connection, actor, project):
+        return (g.get("personal_agent_api") != "tailnet" and g.get("local_dri") is None
+                and (manages_project_admin_permissions(actor) or projects.manages(connection, project, actor["ledger_key"])))
+
+    def project_owner_state(connection, actor, project):
+        editable = can_manage_project_owners(connection, actor, project)
+        owners = projects.owner_keys(connection, project)
+        people = {
+            row["ledger_key"]: project_admin.registration(row)
+            for row in project_admin.registered_principals(connection, actor["server_id"])
+            if row["ledger_key"] in owners or (editable and project_admin.eligible(row) and project_writer(row, project))
+        }
+        return {
+            "project": project, "editable": editable,
+            "owners": [people.get(key, {"id": key, "name": key, "kind": None, "handle": None}) for key in owners],
+            "choices": [item for key, item in people.items() if key not in owners] if editable else [],
+        }
+
+    @app.route("/api/v1/projects/<project>/owners", methods=("GET", "PUT"))
+    def project_owners(project):
+        write = request.method == "PUT"
+        actor = current_actor(required=True, write=write)
+        project = project_filter({"project": project})
+        if not write:
+            with tasks_storage.read(db()) as connection:
+                return project_owner_state(connection, actor, project)
+        key = actor["ledger_key"]
+        data = json_body({"principal", "allowed"})
+        principal = text(data, "principal", maximum=160)
+        allowed = data.get("allowed")
+        if type(allowed) is not bool:
+            raise RequestError("Send allowed as true or false.")
+        with tasks_storage.write(db()) as connection:
+            if not can_manage_project_owners(connection, actor, project):
+                raise RequestError("Use a signed-in project owner or the board permission manager.", 403)
+            if allowed and principal not in projects.owner_keys(connection, project):
+                target = profiles.get(connection, principal)
+                if (target is None or target["server_id"] != actor["server_id"]
+                        or not project_admin.eligible(target) or not project_writer(target, project)):
+                    raise RequestError("Choose a verified person or Team DRI who can work in this project.", 404)
+            try:
+                changed = projects.set_owner(connection, project, principal, allowed)
+            except ValueError as error:
+                raise RequestError(str(error), 409) from error
+            if changed:
+                audit.record(connection, scope="private", actor=key,
+                             operation="grant-project-owner" if allowed else "revoke-project-owner",
+                             record_type="project-owner", record_id=f"{project}:{principal}", at=ledger.timestamp())
+                ledger.bump_revision(connection)
+            return project_owner_state(connection, actor, project)
 
     @app.route("/api/v1/projects/<project>/raft-channel", methods=("GET", "PUT"))
     def project_raft_channel(project):
@@ -2540,8 +2616,7 @@ def create_app(
         brief = text(data, "brief")
         try:
             with tasks_storage.write(db()) as connection:
-                manager = connection.execute("SELECT dri FROM projects WHERE prefix = ?", (project,)).fetchone()["dri"]
-                if not can_create_knowledge(actor, project, manager):
+                if not can_create_knowledge(actor, project):
                     raise PermissionError("Only a signed project writer or project manager can create Knowledge entries.")
                 return knowledge_records.create(connection, actor["ledger_key"], project, title, brief)
         except PermissionError as error:

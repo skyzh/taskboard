@@ -508,7 +508,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
             onProfileSaved={actor => { setSavedActor(actor); refresh() }}
             project={visibleProjects?.some(item => item.prefix === project) ? project : visibleProjects?.[0]?.prefix || 'T'}
             projects={visibleProjects} revision={revision} onProjectCreated={refresh} />}
-          {view === 'manage' && <RegistrationDirectory available={canManageRegistrations} session={session} revision={revision} />}
+          {view === 'manage' && <RegistrationDirectory available={canManageRegistrations} session={session} revision={revision}
+            project={preferredProject} projects={visibleProjects} />}
           {view === 'about' && <About revision={revision} />}
           {view === 'integrations' && <Integrations session={session} project={integrationsProject}
             projects={visibleProjects} revision={revision}

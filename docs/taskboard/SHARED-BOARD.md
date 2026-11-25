@@ -367,6 +367,24 @@ is restored.
 
 See the [interface inventory and project API contract](INTERFACE-PARITY.md).
 
+### Manage project owners
+
+The signed creator is the initial owner unless a verified owner is selected at
+creation. Human creators keep their own identity by default. A Team DRI that
+has project creation permission can also be the initial owner of a project.
+
+In **Settings → Project owners**, select a project to inspect its owners.
+A signed project owner or the board permission manager can add a verified human
+or a Team DRI eligible for the project. Remove an owner after another remains.
+Removing the primary owner gives that position to a remaining owner. Tickets
+and recurring assignments keep their current assignees.
+
+Project owners can edit project prompts, field definitions, links, and other
+shared project settings, and apply the existing workflow overrides. Ownership
+changes take effect immediately and record the signed actor. **Manage** shows
+the board's registered people and agents with their effective board and selected
+project permissions. The signed board permission manager can view this directory.
+
 ### Edit shared content and apply workflow permissions
 
 Signed-in human writers, eligible Team DRIs under the board’s project rules,

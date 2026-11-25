@@ -329,10 +329,9 @@ class BoardQueries:
         ]
         if project is None:
             maintenance_rows = self.db.execute(
-                """SELECT definition.*, managed.project, managed.members FROM project_maintenance AS managed
-                   JOIN recurring_definitions AS definition ON definition.id = managed.definition_id
-                   JOIN projects ON projects.prefix = managed.project
-                   WHERE projects.dri = ? ORDER BY projects.prefix""", (owner,),
+                f"""SELECT definition.*, managed.project, managed.members FROM project_maintenance AS managed
+                    JOIN recurring_definitions AS definition ON definition.id = managed.definition_id
+                    WHERE managed.project IN ({projects.MANAGED_BY}) ORDER BY managed.project""", (owner, owner),
             )
             result["project_maintenance"] = [
                 {**self.schedule_report(row["id"], row["owner"], as_of),
@@ -653,8 +652,8 @@ class BoardQueries:
         if exclude_goals:
             terms.append("NOT EXISTS (SELECT 1 FROM task_goals WHERE task_goals.task_id = tasks.id AND retired = 0)")
         if managed_by is not None:
-            terms.append("tasks.project_prefix IN (SELECT prefix FROM projects WHERE dri = ?)")
-            args.append(managed_by)
+            terms.append(f"tasks.project_prefix IN ({projects.MANAGED_BY})")
+            args.extend((managed_by, managed_by))
         if tag is not None:
             terms.append("tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?)")
             args.append(tag)
@@ -785,7 +784,7 @@ class BoardQueries:
                              project=None, maintenance_dri=None, source_project=None):
         def render(rows):
             assignments = knowledge.maintenance_assignments(self.db, [row["id"] for row in rows])
-            managed = {row["prefix"] for row in self.db.execute("SELECT prefix FROM projects WHERE dri = ?", (actor,))}
+            managed = {row["prefix"] for row in self.db.execute(projects.MANAGED_BY, (actor, actor))}
             return [{
                 "id": row["id"], "key": projects.row_reference(row), "title": row["title"],
                 "project": projects.row_project(row), "maintenance_dri": assignments.get(row["id"]),
@@ -1736,9 +1735,9 @@ class BoardQueries:
         team_only = "AND ledger_key NOT IN (SELECT actor FROM local_dris)" if local_dris else ""
         owner_source = f"""SELECT dri FROM project_tasks WHERE dri <> ''
                            UNION SELECT ledger_key FROM board_principals WHERE kind = 'agent' AND ? = 'T' {team_only}
-                           UNION SELECT dri FROM projects WHERE prefix = ? AND dri IS NOT NULL
+                           UNION {projects.PROJECT_OWNERS}
                            UNION SELECT recipient FROM legacy_waits"""
-        owner_args = (project, project)
+        owner_args = (project, project, project)
         local_owners = ()
         if local_dris:
             owner_source += " UNION SELECT actor FROM local_dris WHERE project = ?"

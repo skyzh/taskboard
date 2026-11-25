@@ -297,6 +297,32 @@ class StorageReplayTest(unittest.TestCase):
                 "SELECT COUNT(*) FROM project_maintenance WHERE project = 'LAB'",
             ).fetchone()[0], 1)
 
+    def test_project_owner_permissions_survive_import_and_revoke_on_postgres(self):
+        root = self.board.provider.people["Sam"]["sub"]
+        source = self.board.app(portal_reader=True, project_admin_subject=root)
+        sam, sam_id = self.board.login(source, "Sam")
+        agent, agent_id = self.board.login(source, "Avery")
+        self.board.call(sam, "/api/v1/projects", method="POST", json={"prefix": "LAB", "title": "Fictional lab"})
+        owners = "/api/v1/projects/LAB/owners"
+        grant = {"principal": agent_id, "allowed": True}
+        self.board.call(sam, owners, method="PUT", json=grant)
+        snapshot = self.board.database.with_name("project-owners-snapshot.sqlite3")
+        with closing(sqlite3.connect(self.board.database)) as current, closing(sqlite3.connect(snapshot)) as backup:
+            current.backup(backup)
+
+        dsn = self.postgres_fixture()
+        self.assertEqual(import_snapshot(snapshot, dsn)["project_owner_grants"], 1)
+        target = self.postgres_app(dsn, project_admin_subject=root)
+        sam, _ = self.board.login(target, "Sam")
+        agent, _ = self.board.login(target, "Avery")
+        self.assertEqual([row["id"] for row in self.board.call(agent, owners).json["owners"]], [sam_id, agent_id])
+        path = "/api/v1/projects/LAB/field-guidance"
+        values = {"field": "title", "guidance": "Name the resulting observation."}
+        self.board.call(agent, path, method="PUT", json=values)
+        self.board.call(sam, owners, method="PUT", json={**grant, "allowed": False})
+        self.board.call(agent, path, method="PUT", json=values, status=403)
+        self.assertEqual([row["id"] for row in self.board.call(sam, owners).json["owners"]], [sam_id])
+
     def test_ticket_fields_keep_correction_receipts_after_postgres_import(self):
         source = self.board.app(portal_reader=True)
         agent, owner = self.board.login(source, "Avery")

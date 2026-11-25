@@ -7,7 +7,6 @@ import sqlite3
 
 import tasks_audit as audit
 from tasks_merges import ACCEPTED_SQUASHES
-import tasks_projects as projects
 import tasks_storage
 
 
@@ -330,21 +329,24 @@ def project_agents(db, project, roster):
     roster_scope = " OR principals.subject IN (" + ", ".join("?" for _ in roster) + ")" if roster else ""
     return db.execute(
         f"""
-        WITH receipts AS ({RECIPIENTS}), people AS (
-            SELECT dri FROM projects WHERE (? IS NULL OR prefix = ?)
-            UNION SELECT dri FROM tasks WHERE (? IS NULL OR project_prefix = ?)
+        WITH receipts AS ({RECIPIENTS}), scope(project) AS (VALUES (CAST(? AS TEXT))), people AS (
+            SELECT dri FROM projects, scope WHERE scope.project IS NULL OR prefix = scope.project
+            UNION SELECT principal FROM project_owner_grants AS grants, scope
+                WHERE scope.project IS NULL OR grants.project = scope.project
+            UNION SELECT dri FROM tasks, scope WHERE scope.project IS NULL OR project_prefix = scope.project
             UNION SELECT notices.recipient
                 FROM receipts AS notices
                 JOIN events ON events.id = notices.source_event_id
                 JOIN tasks ON tasks.id = events.task_id
-                WHERE (? IS NULL OR tasks.project_prefix = ?)
+                CROSS JOIN scope
+                WHERE scope.project IS NULL OR tasks.project_prefix = scope.project
         )
         SELECT principals.subject, principals.ledger_key,
                COALESCE(NULLIF(principals.name, ''), NULLIF(principals.username, ''), principals.ledger_key) AS name
         FROM board_principals AS principals
         WHERE principals.kind = 'agent' AND (principals.ledger_key IN (SELECT dri FROM people){roster_scope})
         ORDER BY LOWER(name), principals.subject
-        """, (project, project, project, project, project, project, *roster),
+        """, (project, *roster),
     ).fetchall()
 
 
