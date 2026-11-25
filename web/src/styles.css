@@ -1170,7 +1170,8 @@ button:disabled { opacity: .57; }
     line-height: 1.2;
     white-space: normal;
   }
-  .queue-filter-toggle svg { flex: none; }
+  .queue-filter-toggle :is(svg, .queue-filter-extra) { flex: none; }
+  .queue-filter-extra { white-space: nowrap; }
   .queue-filter-toggle:is([data-active="true"], [aria-expanded="true"]) {
     border-color: var(--green);
     color: var(--green);

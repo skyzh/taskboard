@@ -124,7 +124,7 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
               <>
                 <ListFilter size="1em" aria-hidden="true" />
                 <span>{collapsedStatus}</span>
-                {otherFilterCount > 0 && <span aria-hidden="true">+{otherFilterCount}</span>}
+                {otherFilterCount > 0 && <span className="queue-filter-extra" aria-hidden="true">{`+${otherFilterCount}`}</span>}
               </>
             ) : (filterCount ? `Filters (${filterCount})` : 'Filters')}
           </button>
