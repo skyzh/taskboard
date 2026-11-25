@@ -223,6 +223,7 @@ A shared board can instead require human sign-in from one OpenID Connect issuer.
 | `TASKS_OIDC_CLIENT_ID` | Registered client ID |
 | `TASKS_OIDC_CLIENT_SECRET` | Registered client secret |
 | `TASKS_OIDC_SESSION_DIR` | Absolute private directory owned by the service account with mode `0700` |
+| `TASKS_OIDC_PHOTO_ORIGIN` | Optional HTTPS origin for photos, such as `https://photos.example.org` |
 
 Install with `uv sync --frozen --extra oidc`. Start the existing service command without `--portal-reader` or Raft settings. The gateway admits visitors to Taskboard and the provider verifies their accounts. Taskboard requires a matching membership for all ledger access. The existing shared CLI uses the Raft adapter.
 
@@ -236,6 +237,8 @@ uv run --frozen ./tasks --offline --db "$taskboard_db" oidc-member revoke \
 ```
 
 Email and display names do not grant access. Revocation takes effect on the next request, including for a visitor who already signed in. Re-admitting the exact subject restores its existing account key. The board keeps sessions in the designated directory and never stores the provider access token.
+
+Photo import is off by default. When enabled, a member's verified ID token can supply a `picture` URL on the exact configured origin. Choose an origin you trust to serve profile images without credentials. Taskboard downloads only from that origin, declines redirects, and stores a normalized PNG from a valid PNG, JPEG, or WebP of at most 1 MiB. Board-uploaded avatars take priority. A missing photo or failed download leaves the current avatar in place and sign-in still works. Removing the setting stops future downloads.
 
 ## Use a PostgreSQL ledger
 

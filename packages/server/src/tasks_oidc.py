@@ -1,5 +1,6 @@
 """OpenID Connect sign-in for a self-hosted Taskboard."""
 
+from hashlib import sha256
 from json import dumps
 from math import ceil
 from secrets import token_urlsafe
@@ -8,7 +9,7 @@ from urllib.parse import urlsplit
 
 from flask import jsonify, make_response, redirect, request, session
 
-from raft_auth import BOARD_FRAGMENT
+from raft_auth import BOARD_FRAGMENT, fetch_profile_photo
 from raft_sessions import DurableSessions, Session
 from tasks_oidc_members import issuer_url, valid_subject
 
@@ -25,8 +26,9 @@ def configuration(environment):
     if mode not in ("raft", "oidc"):
         raise ValueError("Set TASKS_IDENTITY_PROVIDER to raft or oidc.")
     oidc_settings = {name.lower(): environment.get(f"TASKS_OIDC_{name}") for name in REQUIRED}
+    photo_origin = environment.get("TASKS_OIDC_PHOTO_ORIGIN")
     if mode == "raft":
-        if any(oidc_settings.values()):
+        if any(oidc_settings.values()) or photo_origin:
             raise ValueError("Select the oidc identity provider before setting OpenID Connect credentials.")
         return None
     if not all(oidc_settings.values()):
@@ -36,7 +38,22 @@ def configuration(environment):
         "TASKS_RAFT_SESSION_DIR", "TASKS_RAFT_HUMAN_SESSION_INSTALLATION_ID", "TASKS_MARKETPLACE_SESSION_DIR",
     ]):
         raise ValueError("Start OpenID Connect in an environment without Raft provider configuration.")
-    return oidc_settings
+    return {**oidc_settings, "photo_origin": photo_origin or None}
+
+
+def visible_url(value):
+    return isinstance(value, str) and all(32 < ord(character) < 127 and character != "\\" for character in value)
+
+
+def configured_photo_origin(value):
+    if value is None:
+        return None
+    try:
+        if visible_url(value) and urlsplit(issuer_url(value)).path in ("", "/"):
+            return value.rstrip("/")
+    except ValueError:
+        pass
+    raise ValueError("Set TASKS_OIDC_PHOTO_ORIGIN to one HTTPS origin without a path.")
 
 
 def error(message, status):
@@ -54,7 +71,8 @@ def allowed_endpoint(value):
 
 
 class OIDC:
-    def __init__(self, app, public_url, *, issuer, client_id, client_secret, session_dir, admit, resolve):
+    def __init__(self, app, public_url, *, issuer, client_id, client_secret, session_dir, admit, resolve,
+                 photo_origin=None):
         try:
             from authlib.integrations.base_client import OAuthError
             from authlib.integrations.flask_client import OAuth
@@ -64,6 +82,7 @@ class OIDC:
         except ModuleNotFoundError as failure:
             raise ValueError("Install OpenID Connect with uv sync --frozen --extra oidc.") from failure
         self.issuer = issuer_url(issuer)
+        self.photo_origin = configured_photo_origin(photo_origin)
         if not (client_id and client_secret and session_dir):
             raise ValueError("Configure the OpenID Connect client and private session directory.")
         self.public_url = public_url
@@ -145,7 +164,7 @@ class OIDC:
                 or not valid_subject(subject) or type(expiry) is not int or expiry <= now
             ):
                 return error("OpenID Connect sign-in could not be verified.", 401)
-            if not self.admit(subject, claims.get("name")):
+            if not self.admit(subject, claims.get("name"), claims.get("picture")):
                 return error("This account has no Taskboard membership.", 403)
             response = redirect(f"{self.public_url}/{fragment}")
             key = token_urlsafe(32)
@@ -158,6 +177,17 @@ class OIDC:
             return error("OpenID Connect sign-in could not be verified.", 401)
         finally:
             session.clear()
+
+    def profile_photo(self, actor, picture):
+        if (not self.photo_origin or actor["avatar_digest"] or not visible_url(picture)
+                or not picture.startswith(self.photo_origin + "/") or "#" in picture):
+            return None
+        # A signed image URL can carry private query parameters. Store only its digest.
+        source = sha256(picture.encode()).hexdigest()
+        if actor["provider_avatar_source"] == source and actor["provider_avatar_digest"]:
+            return None
+        contents = fetch_profile_photo(picture)
+        return (source, contents) if contents else None
 
     def actor(self):
         key = request.cookies.get(COOKIE)

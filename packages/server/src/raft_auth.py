@@ -106,6 +106,20 @@ def _send_photo(upstream: Request) -> bytes:
         return result.read(MAX_AVATAR_BYTES + 1) if result.getcode() == 200 else b""
 
 
+def fetch_profile_photo(url: str, *, pixel: bool = False) -> bytes | None:
+    accept = "image/png, image/jpeg, image/webp"
+    if pixel:
+        accept = "image/svg+xml, " + accept
+    try:
+        upstream = Request(url, headers={"Accept": accept})
+        return imported_avatar(_send_photo(upstream), "pixel:profile" if pixel else None)
+    except HTTPError as error:
+        error.close()
+    except (OSError, HTTPException, ValueError):
+        pass
+    return None
+
+
 def _send(upstream: Request) -> tuple[int, object]:
     # Each request uses the configured provider origin, including its TLS identity.
     # Never forward the client credentials or bearer token to a redirect target.
@@ -353,18 +367,8 @@ class RaftAuth:
     def profile_photo(self, url: str) -> bytes | None:
         location = urlsplit(url)
         pixel = (f"{location.scheme}://{location.netloc}" == _RAFT_API_ORIGIN
-                 and _PIXEL_AVATAR_PATH.fullmatch(location.path))
-        accept = "image/png, image/jpeg, image/webp"
-        if pixel:
-            accept = "image/svg+xml, " + accept
-        try:
-            upstream = Request(url, headers={"Accept": accept})
-            return imported_avatar(_send_photo(upstream), "pixel:profile" if pixel else None)
-        except HTTPError as error:
-            error.close()
-        except (OSError, HTTPException, ValueError):
-            pass
-        return None
+                 and _PIXEL_AVATAR_PATH.fullmatch(location.path) is not None)
+        return fetch_profile_photo(url, pixel=pixel)
 
     def _prune(self, now: float) -> None:
         self._pending = {key: value for key, value in self._pending.items() if value.expires > now}

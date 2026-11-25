@@ -117,15 +117,19 @@ def signed_in(db, identity, *, picture_source=None, load_picture=None):
     elif not avatar_changed:
         return current
     if avatar_changed:
-        db.execute(
-            """
-            UPDATE board_principals
-            SET provider_avatar_source = ?, provider_avatar = ?, provider_avatar_digest = ?
-            WHERE (server_id, kind, subject) = (?, ?, ?) AND avatar_digest IS NULL
-            """, (picture_source, avatar, sha256(avatar).hexdigest() if avatar else None, *key),
-        )
+        save_provider_avatar(db, key, picture_source, avatar)
     # A migration can bind the principal to a pre-existing local handle.
     return for_identity(db, identity)
+
+
+def save_provider_avatar(db, identity_key, source, avatar):
+    return db.execute(
+        """
+        UPDATE board_principals
+        SET provider_avatar_source = ?, provider_avatar = ?, provider_avatar_digest = ?
+        WHERE (server_id, kind, subject) = (?, ?, ?) AND avatar_digest IS NULL
+        """, (source, avatar, sha256(avatar).hexdigest() if avatar else None, *identity_key),
+    ).rowcount
 
 
 def bind_legacy(db, server_id, kind, subject, old_name):
