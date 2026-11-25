@@ -26,6 +26,7 @@ from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 import tasks_audit as audit
 import tasks_agent_usage
+import tasks_ticket_fields as ticket_fields
 import tasks_codex_usage
 import tasks_core as ledger
 import tasks_maintenance as maintenance
@@ -338,6 +339,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
                    require_initial=False, legacy_preview=False):
     ledger.ensure_schema(db, seed_legacy_project=legacy_preview and initial_project is None)
     db.execute(ledger.BOARD_SETTINGS_SCHEMA)
+    db.execute(ticket_fields.SCHEMA)
     projects.bootstrap(db, initial_project, required=require_initial)
     if marketplace:
         db.execute("INSERT INTO board_settings VALUES ('marketplace_server_id', ?) ON CONFLICT (key) DO NOTHING", (server_id,))
@@ -410,6 +412,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None, initial_project=No
         else:
             ledger.ensure_record_kind(db)
             ledger.ensure_checklist_schema(db)
+            db.execute(ticket_fields.SCHEMA)
             projects.bootstrap(db, initial_project, required=require_initial)
             tasks_recurring.ensure_project_binding(db)
             projects.ensure_alias_schema(db)
@@ -1425,6 +1428,12 @@ def create_app(
         is_note = ledger.is_knowledge(task)
         editable = allowed or (not is_note and key is not None and task["dri"] == key)
         details_editable = can_edit_shared_content(db(), actor, task, project)
+        if key is not None and not is_note and (fields := ticket_fields.definitions(db(), project)):
+            configured = ticket_fields.detail(db(), number, fields, result["workers"], editable=details_editable)
+            for field in configured["fields"]:
+                if "links" in field:
+                    field["links"] = query().links(field["links"], event_id=field["event_id"])
+            result["ticket_fields"] = configured
         may_close = editable and not is_note
         if ask := task.get("peer_request"):
             may_close = key is not None and (key == ask["requester"] or allowed)
@@ -1624,6 +1633,44 @@ def create_app(
     def edit_ticket(actor, number, data):
         return mutate("edit", actor, data, id=number, note=text(data, "reason"),
                       title=data.get("title"), brief=data.get("brief"))
+
+    def set_ticket_field(actor, number, data):
+        key = text(data, "field", maximum=32)
+        method = text(data, "method", maximum=16)
+        basis = text(data, "basis", maximum=240)
+        links = one_link(data)
+        with tasks_storage.write(db()) as connection:
+            task = ledger.find_task(connection, number)
+            if task is None or ledger.is_knowledge(task):
+                raise NotFound()
+            project = projects.row_project(task)
+            if not can_edit_shared_content(connection, actor, task, project):
+                raise RequestError("This ticket requires project write access.", 403)
+            field = next((item for item in ticket_fields.definitions(connection, project) if item["key"] == key), None)
+            if field is None:
+                raise RequestError("This field is not configured for the ticket's project.", 404)
+            try:
+                value = ticket_fields.validate_value(
+                    field, data.get("value"), method, text(data, "coverage", optional=True, maximum=16),
+                    text(data, "currency", optional=True, maximum=3), basis,
+                )
+            except ValueError as error:
+                raise RequestError(str(error)) from error
+            if method != "unknown" and not links:
+                raise RequestError("Link the ticket-level evidence for this value.")
+            prior = ticket_fields.saved_values(connection, number).get((key, field["kind"]))
+            if (prior is not None and all(prior[name] == item for name, item in value.items())
+                    and prior["links"] == [list(link) for link in links]):
+                event = prior["event_id"]
+            else:
+                last = {"supersedes": prior["event_id"]} if prior is not None else {}
+                event = ledger.record(
+                    connection, number, "log", actor["ledger_key"], task["state"], "Recorded a ticket field.", None, [],
+                    {"audit": {"action": ticket_fields.ACTION, **last}},
+                )
+                ticket_fields.save_receipt(connection, event, value, links)
+                ledger.bump_revision(connection)
+        return {"receipt": f"{projects.row_reference(task)} · Ticket field recorded", "event_id": event, "field": value}
 
     def move_ticket(actor, reference, data):
         destination = project_filter({"project": text(data, "project", maximum=8)})
@@ -1971,6 +2018,37 @@ def create_app(
             )
         return project_links.read(db(), project, project_extensions.get(project, {}), raft_link)
 
+    def project_field_config(actor, project, *, write=False, fields=None):
+        owner = actor["ledger_key"]
+        editable = projects.manages(db(), project, owner)
+        if write:
+            if not editable:
+                raise RequestError("Only this project's manager can configure its ticket fields.", 403)
+            with tasks_storage.write(db()) as connection:
+                try:
+                    changed = ticket_fields.save_definitions(connection, project, fields)
+                except ValueError as error:
+                    raise RequestError(str(error)) from error
+                if changed:
+                    audit.record(connection, scope="private", actor=owner, operation="set-project-ticket-fields",
+                                 record_type="project", record_id=project, at=ledger.timestamp())
+                    ledger.bump_revision(connection)
+        return {"project": project, "editable": editable, "fields": ticket_fields.definitions(db(), project)}
+
+    @app.route("/api/v1/projects/<project>/ticket-fields", methods=("GET", "PUT"))
+    def project_ticket_fields(project):
+        write = request.method == "PUT"
+        actor = current_actor(required=True, write=write)
+        project = project_filter({"project": project})
+        fields = json_body({"fields"}).get("fields") if write else None
+        return project_field_config(actor, project, write=write, fields=fields)
+
+    def writing_guidance(project, actor):
+        result = agent_guidance.writing_fields(db(), project, editable=projects.manages(db(), project, actor))
+        if fields := ticket_fields.definitions(db(), project):
+            result["ticket_fields"] = fields
+        return result
+
     @app.route("/api/v1/projects/<project>/field-guidance", methods=("GET", "PUT"))
     def project_field_guidance(project):
         write = request.method == "PUT"
@@ -1995,7 +2073,7 @@ def create_app(
                     audit.record(connection, scope="private", actor=owner, operation="set-field-guidance",
                                  record_type="project", record_id=project, at=ledger.timestamp())
                     ledger.bump_revision(connection)
-        return agent_guidance.writing_fields(db(), project, editable=editable)
+        return writing_guidance(project, owner)
 
     @app.route("/api/v1/projects/<project>/stamp-reviews", methods=("GET", "POST"))
     def project_stamp_reviews(project):
@@ -2191,6 +2269,21 @@ def create_app(
     def task_details_edit(number):
         actor = current_actor(write=True)
         return edit_ticket(actor, task_number(number), json_body({"title", "brief", "reason"}))
+
+    @app.route("/api/v1/tasks/<number>/ticket-fields", methods=("GET", "PUT"))
+    def task_field_value(number):
+        write = request.method == "PUT"
+        actor = current_actor(required=True, write=write)
+        number = task_number(number)
+        if write:
+            data = json_body({"field", "method", "value", "coverage", "currency", "basis", "url", "label"})
+            return set_ticket_field(actor, number, data)
+        event = integer(request.args.get("event"), "event ID")
+        values = ticket_fields.saved_values(db(), number, event_id=event)
+        if not values:
+            raise NotFound()
+        value, = values.values()
+        return {**value, "links": query().links(value["links"])}
 
     @app.post("/api/v1/tasks/<number>/project")
     def task_project_move(number):
@@ -3307,7 +3400,14 @@ def create_app(
             return project_channel(actor, project_filter(data), data if write else None)
         if name == "field-guidance":
             project = project_filter(data, use_default=True)
-            return agent_guidance.writing_fields(db(), project, editable=projects.manages(db(), project, key))
+            return writing_guidance(project, key)
+        if name == "configure-ticket-fields":
+            project = project_filter(data)
+            try:
+                fields = json.loads(text(data, "fields", maximum=12000))
+            except ValueError as error:
+                raise RequestError("Send the complete project field list as a JSON array.") from error
+            return project_field_config(actor, project, write=True, fields=fields)
         if name in {"my-wake-subscriptions", "set-wake-subscription"}:
             return agent_wake_subscriptions(actor, data, write=write)
         if name == "idle-goal-offer":
@@ -3622,6 +3722,8 @@ def create_app(
             return close_ticket(actor, number, data)
         if name == "edit-task-details":
             return edit_ticket(actor, number, data)
+        if name == "set-ticket-field":
+            return set_ticket_field(actor, number, data)
         if name == "edit-checklist":
             return edit_ticket_checklist(actor, number, data)
         if name == "raise-attention":

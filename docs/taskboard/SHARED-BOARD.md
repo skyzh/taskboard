@@ -183,6 +183,79 @@ On rollback, save a copy of the TOML file and remove its
 versions ignore saved project wording and enforce the former title length
 on title changes. The existing ledger text stays available.
 
+### Configure optional ticket fields
+
+Project managers can configure project-specific fields and collection prompts
+under **Settings → Writing guidance → Ticket fields**. To use the API, retrieve the current definitions before updating them. A PUT replaces the
+project’s full field list. Use an empty list to hide the fields. Prior receipts
+remain available on their original ticket. Existing tickets show **Unknown**
+until ticket-linked evidence is available.
+
+```sh
+./tasks --shared --url "$BOARD" api /api/v1/projects/LAB/ticket-fields
+./tasks --shared --url "$BOARD" api /api/v1/projects/LAB/ticket-fields \
+  --method PUT --data-file fields.json
+```
+
+This fictional `fields.json` opts a project into agent hours and cost.
+
+```json
+{
+  "fields": [
+    {
+      "key": "agent_hours",
+      "label": "Agent hours",
+      "kind": "duration",
+      "source": "recorded_workers",
+      "prompt": "Use ticket-linked effort. Add each separately attributed delegated run once. Mark incomplete attribution partial."
+    },
+    {
+      "key": "agent_cost",
+      "label": "Agent cost",
+      "kind": "money",
+      "prompt": "Use a ticket-linked amount and currency. Explain any estimate and show Unknown when evidence is missing."
+    }
+  ]
+}
+```
+
+Field kinds are `duration` (whole seconds), `money` (decimal text and a
+three-letter currency), `decimal` (nonnegative decimal text), and `text`.
+The optional `recorded_workers` source supplies partial duration from finished
+or stopped runs linked to the ticket, once per recorded run. It excludes direct
+agent time and incomplete runs. An explicit value replaces that fallback.
+Use the signed `field-guidance` action or `./tasks --shared field-guidance
+--project LAB` to discover each collection prompt. Complete coverage includes
+all attributed work on the ticket. Count delegated effort separately only when
+its time was excluded from the direct agent total.
+
+Signed project writers can edit ticket values in the browser or use
+`set-ticket-field` through the signed action manifest.
+The REST equivalent is `PUT /api/v1/tasks/LAB-42/ticket-fields` with this
+fictional body.
+
+```json
+{
+  "field": "agent_cost",
+  "value": "0.045",
+  "currency": "USD",
+  "method": "estimated",
+  "coverage": "partial",
+  "basis": "One metered worker’s billed tokens at the documented rate.",
+  "url": "https://example.test/lab-42/usage-receipt"
+}
+```
+
+Use `measured` for a reported amount and `estimated` when the amount is
+calculated from a stated basis. Supply a ticket-linked evidence URL for both.
+Use `unknown` with a basis and omit `value`, `currency`, and `coverage`
+when the value cannot be recovered. A measured zero remains zero. Daily agent
+aggregates contain no ticket attribution and do not supply ticket cost.
+A correction produces a new Activity receipt. Authorized viewers can recover
+the earlier value and evidence from
+`GET /api/v1/tasks/LAB-42/ticket-fields?event=EVENT_ID`.
+The read-only portal hides field values and evidence.
+
 ### Prompt agents for progress on quiet tickets
 
 Set `TASKS_PROGRESS_PROMPT_MINUTES=10` in the Taskboard server environment

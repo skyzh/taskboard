@@ -613,6 +613,11 @@ def shared_command(args):
             if item.get("format"):
                 lines.append(f"Format · {item['format']}")
             lines.append(f"Example · {item['example']}")
+        if not args.field and (configured := result.get("ticket_fields")):
+            lines.extend(("", "Project ticket fields"))
+            for item in configured:
+                lines.extend((f"{item['label']} · {item['key']} · {item['kind']}", item["prompt"]))
+            lines.append("Use the signed set-ticket-field action with evidence and coverage.")
         return "\n".join(lines)
     if command in {"wake-subscriptions", "wake-subscribe", "wake-unsubscribe"}:
         data = {"project": projects.prefix(args.project)} if args.project else {}

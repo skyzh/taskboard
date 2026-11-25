@@ -54,8 +54,11 @@ _ACTIONS = {
     "raft-channel-set": _Action("POST", "Set or clear the project's verified Raft coordination channel.",
                                 {"project": "Taskboard project prefix.",
                                  "channel_id": "Stable Raft channel ID. Send an empty string to clear it."}),
-    "field-guidance": _Action("GET", "Read effective writing guidance, field formats, locations and examples.",
+    "field-guidance": _Action("GET", "Read writing guidance and project ticket fields with collection prompts.",
                               optional=_PROJECT),
+    "configure-ticket-fields": _Action("POST", "Replace the project ticket field list as its manager.", {
+        "project": "Tasks project prefix.", "fields": "Full field list encoded as a JSON array.",
+    }),
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE),
     "idle-goal-offer": _Action("POST", "Return a standing goal at a verified idle runner handoff.", {
         "handoff_id": "Stable runner handoff UUID. Use only after observing Idle and reuse the same ID on retry.",
@@ -212,6 +215,11 @@ _ACTIONS = {
     "close-task": _Action("POST", "Close unfinished work as its owner or project manager.", {
         **_TASK, "reason": "Short reason for closing the task.",
     }, {"related": "Optional related ticket, such as the duplicate or successor.", **_EVIDENCE}),
+    "set-ticket-field": _Action("POST", "Record a configured ticket field with ticket-linked evidence.", {
+        **_TASK, "field": "A configured field key from field-guidance.",
+        "method": "measured, estimated, or unknown.", "basis": "Source or estimation basis.",
+    }, _EVIDENCE | {"value": "Typed value as text. Use whole seconds for duration.",
+                    "currency": "Three-letter currency for money.", "coverage": "complete or partial."}),
     "edit-task-details": _Action("POST", "Edit the title or brief of a work ticket or Knowledge entry with project write access.", {
         **_TASK, "reason": "Reason for correcting the ticket.",
     }, {"title": "Short, actionable replacement title. Read field-guidance for the project’s wording and example.",

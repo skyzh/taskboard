@@ -297,6 +297,37 @@ class StorageReplayTest(unittest.TestCase):
                 "SELECT COUNT(*) FROM project_maintenance WHERE project = 'LAB'",
             ).fetchone()[0], 1)
 
+    def test_ticket_fields_keep_correction_receipts_after_postgres_import(self):
+        source = self.board.app(portal_reader=True)
+        agent, owner = self.board.login(source, "Avery")
+        self.board.cli("register-project", "T", "Tasks Board", "--dri", owner)
+        self.board.action(agent, "create-task", {"title": "Fixture", "step": "Measure effort."})
+        settings = "/api/v1/projects/T/ticket-fields"
+        definition = {"key": "agent_hours", "label": "Agent hours", "kind": "duration", "prompt": "Record seconds."}
+        self.board.call(agent, settings, method="PUT", json={"fields": [definition]})
+        value = {"id": "T-1", "field": "agent_hours", "value": "1200", "method": "measured",
+                 "coverage": "partial", "basis": "One metered worker.",
+                 "url": "https://example.test/evidence/fixture"}
+        first = self.board.action(agent, "set-ticket-field", value)
+        self.board.action(agent, "set-ticket-field", {**value, "value": "1360", "basis": "Corrected elapsed time."})
+        snapshot = self.board.database.with_name("ticket-fields-snapshot.sqlite3")
+        with closing(sqlite3.connect(self.board.database)) as current, closing(sqlite3.connect(snapshot)) as backup:
+            current.backup(backup)
+
+        dsn = self.postgres_fixture()
+        self.assertEqual(import_snapshot(snapshot, dsn)["ticket_field_receipts"], 2)
+        destination = self.postgres_app(dsn)
+        agent, _ = self.board.login(destination, "Avery")
+        self.assertEqual(self.board.call(agent, settings).json["fields"], [definition])
+        ticket_path = "/api/v1/tasks/T-1"
+        field, = self.board.call(agent, ticket_path).json["ticket_fields"]["fields"]
+        self.assertEqual((field["value"], field["basis"]), ("1360", "Corrected elapsed time."))
+        old = self.board.call(agent, ticket_path + f"/ticket-fields?event={first['event_id']}").json
+        self.assertEqual((old["value"], old["links"][0]["url"]), ("1200", value["url"]))
+        self.board.action(agent, "set-ticket-field", {**value, "value": "1400"})
+        final, = self.board.call(agent, ticket_path).json["ticket_fields"]["fields"]
+        self.assertEqual(final["value"], "1400")
+
     def test_postgres_reopens_a_populated_version_one_board(self):
         dsn = self.postgres_fixture()
         client, owner = self.board.login(self.postgres_app(dsn), "Avery")

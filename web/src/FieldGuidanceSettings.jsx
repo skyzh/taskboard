@@ -3,6 +3,7 @@ import { ChevronDown } from 'lucide-react'
 import { request } from './data.js'
 import { FieldHelp, fieldGuidancePath, useFieldGuidance } from './FieldGuidance.jsx'
 import { ResourceStatus } from './shared.jsx'
+import TicketFieldSettings from './TicketFieldSettings.jsx'
 
 const fieldLabels = { title: 'Title', brief: 'Brief', next_step: 'Next step', activity: 'Activity' }
 const sourceLabels = { project: 'Project override', board: 'Board guidance', default: 'Built-in guidance' }
@@ -85,6 +86,7 @@ export default function FieldGuidanceSettings({ project, projects, revision }) {
         {guidance.data.editable
           ? <GuidanceEditor key={`${scope}:${field}`} project={scope} field={field} entry={entry} reload={guidance.retry} />
           : <FieldHelp field={entry} />}
+        {guidance.data.editable && <TicketFieldSettings key={scope} project={scope} revision={revision} />}
       </>}
     </section>
   )
