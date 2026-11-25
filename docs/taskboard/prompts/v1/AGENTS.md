@@ -7,6 +7,16 @@ before making HTTP calls, or run `tasks --shared capabilities` for CLI commands.
 Apply my publishing instructions before sharing anything. Keep excluded work
 and evidence private.
 
+Use [Taskboard Deep Work](https://github.com/skyzh/taskboard/blob/main/skills/taskboard-deep-work/SKILL.md)
+within this mode's workflow, identity, permissions, and publishing scope.
+Before ending or pausing a session with unfinished work, or handing that work
+off, save one compact checkpoint on the ticket or ask if the recorded state
+has changed.
+Use existing Activity and keep the current next step up to date within your
+permissions. Include completed work and checks, the current working reference
+or evidence, and the next concrete action or named wait condition. Link to
+Knowledge for any reusable lesson.
+
 Find the original ticket by ID or exact GitHub issue or PR URL. Read current
 Knowledge, staged changes, and their sources before acting. Use the
 `link-github` action for new GitHub work.

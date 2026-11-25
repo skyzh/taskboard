@@ -6,6 +6,16 @@ acceptance criteria, and current Knowledge with its sources. Keep the
 coordinator accountable for the outcome and use our existing orchestration
 to run workers.
 
+Use [Taskboard Deep Work](https://github.com/skyzh/taskboard/blob/main/skills/taskboard-deep-work/SKILL.md)
+within this mode's workflow, identity, permissions, and publishing scope.
+Before ending or pausing a session with unfinished work, or handing that work
+off, save one compact checkpoint on the ticket or ask if the recorded state
+has changed.
+Use existing Activity and keep the current next step up to date within your
+permissions. Include completed work and checks, the current working reference
+or evidence, and the next concrete action or named wait condition. Link to
+Knowledge for any reusable lesson.
+
 If the ticket has optional fields, read the collection prompts from signed
 `field-guidance` at pickup. Collect evidence during work and use
 `set-ticket-field` before reporting the outcome.

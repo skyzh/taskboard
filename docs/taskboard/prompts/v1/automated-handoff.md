@@ -7,6 +7,16 @@ For an enrolled Raft agent that needs a wake, use the
 The receiving agent opens the linked ask, checks its source and acceptance
 criteria, and records Start and the result or blocker on that ask.
 
+Use [Taskboard Deep Work](https://github.com/skyzh/taskboard/blob/main/skills/taskboard-deep-work/SKILL.md)
+within this mode's workflow, identity, permissions, and publishing scope.
+Before ending or pausing a session with unfinished work, or handing that work
+off, save one compact checkpoint on the ticket or ask if the recorded state
+has changed.
+Use existing Activity and keep the current next step up to date within your
+permissions. Include completed work and checks, the current working reference
+or evidence, and the next concrete action or named wait condition. Link to
+Knowledge for any reusable lesson.
+
 For the fresh-worker trial, follow the
 [local Codex watcher setup](https://github.com/skyzh/taskboard/blob/main/docs/taskboard/LOCAL-HANDOFF-WATCHER.md).
 Use a board that supports the verified Local DRI registration. Verify the
