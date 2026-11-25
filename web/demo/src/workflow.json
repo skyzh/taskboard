@@ -1378,8 +1378,12 @@
     {
       "area": "Reports testing",
       "area_entries": [],
+      "can_assign_maintenance_dri": false,
+      "can_reconcile": false,
       "id": 18,
       "key": "FLOW-13",
+      "maintenance_dri": null,
+      "project": "FLOW",
       "sources": [],
       "staged_work": [
         {

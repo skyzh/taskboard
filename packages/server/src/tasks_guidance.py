@@ -36,6 +36,8 @@ _ACTIONS = {
     "delegate": "Give the worker the ticket link and verify that the run starts.",
     "fetch-github": "Open the task's Activity to read the imported updates.",
     "knowledge-areas": "Open an index by its ticket ID and read its current brief and linked sources.",
+    "knowledge-assign": "Open the Knowledge entry to verify its maintenance DRI.",
+    "knowledge-sweep": "Review the linked evidence. Reconcile eligible changes by project or route them to its manager.",
     "maintenance-show": "Check the next scheduled maintenance review.",
     "maintenance-update": "Read the saved maintenance schedule before the next review.",
     "my-activity": "Open a linked ticket if its activity needs action.",

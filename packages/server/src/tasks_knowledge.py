@@ -39,6 +39,13 @@ SCHEMA = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS knowledge_stage_source ON knowledge_stages (source_id)",
+    """
+    CREATE TABLE IF NOT EXISTS knowledge_maintenance_assignments (
+        task_id BIGINT PRIMARY KEY REFERENCES tasks (id),
+        dri TEXT NOT NULL REFERENCES board_principals (ledger_key)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS knowledge_maintenance_dri ON knowledge_maintenance_assignments (dri, task_id)",
 )
 
 
@@ -82,6 +89,41 @@ def maintained(db, number):
     if not is_maintained(db, task):
         raise ValueError("Choose a completed ticket tagged decision-record.")
     return task
+
+
+def maintenance_assignments(db, numbers):
+    if not numbers:
+        return {}
+    marks = ", ".join("?" for _ in numbers)
+    return {row["task_id"]: {"id": row["dri"], "name": row["name"]} for row in db.execute(
+        f"""SELECT assignment.task_id, assignment.dri,
+                   COALESCE(NULLIF(principal.name, ''), NULLIF(principal.username, ''), assignment.dri) AS name
+            FROM knowledge_maintenance_assignments AS assignment
+            JOIN board_principals AS principal ON principal.ledger_key = assignment.dri
+            WHERE assignment.task_id IN ({marks})""", numbers,
+    )}
+
+
+def set_maintenance_dri(db, note, actor, dri):
+    number = note["id"]
+    current = maintenance_assignments(db, (number,)).get(number)
+    previous = current["id"] if current else None
+    if previous == dri:
+        return {"id": projects.row_reference(note), "maintenance_dri": current,
+                "receipt": "Knowledge DRI unchanged."}
+    if dri is None:
+        db.execute("DELETE FROM knowledge_maintenance_assignments WHERE task_id = ?", (number,))
+    else:
+        db.execute(
+            """INSERT INTO knowledge_maintenance_assignments (task_id, dri) VALUES (?, ?)
+               ON CONFLICT (task_id) DO UPDATE SET dri = excluded.dri""", (number, dri),
+        )
+    current = maintenance_assignments(db, (number,)).get(number)
+    message = f"Assigned Knowledge maintenance to {current['name']}." if current else "Cleared the Knowledge DRI."
+    ledger.record(db, number, "log", actor, note["state"], message, None, [],
+                  {"previous_knowledge_dri": previous, "knowledge_dri": dri})
+    ledger.bump_revision(db)
+    return {"id": projects.row_reference(note), "maintenance_dri": current, "receipt": message}
 
 
 def place(db, number, actor, area, *, index=False):
@@ -226,7 +268,7 @@ def metadata(db, number):
     return result
 
 
-def reconcile(db, project, actor, base):
+def reconcile(db, project, actor, base, *, dri=None):
     pending = db.execute(
         """
         SELECT stage.*, source.id, source.project_prefix, source.project_number,
@@ -237,8 +279,12 @@ def reconcile(db, project, actor, base):
         JOIN tasks ON tasks.id = stage.entry_id
         JOIN tasks AS source ON source.id = stage.source_id
         WHERE tasks.project_prefix = ? AND applied_event_id IS NULL
+          AND (? IS NULL OR EXISTS (
+              SELECT 1 FROM knowledge_maintenance_assignments AS assignment
+              WHERE assignment.task_id = stage.entry_id AND assignment.dri = ?
+          ))
         ORDER BY entry_id, source_id
-        """, (project,),
+        """, (project, dri, dri),
     ).fetchall()
     entries = {}
     for row in pending:

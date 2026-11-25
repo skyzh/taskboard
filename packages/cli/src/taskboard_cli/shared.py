@@ -21,13 +21,14 @@ ADVANCES = {
     "assign-human", "redirect-decision", "withdraw-decision",
 }
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
-         "search", "knowledge-areas", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance",
+         "search", "knowledge-areas", "knowledge-sweep", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance",
          "worker-check", "projects", ledger.READ}
 WRITES = ADVANCES | {
     "confirm-blocker", "create-project",
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
     "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "raft-channel-set",
-    "wake-subscribe", "wake-unsubscribe", "knowledge-add", "knowledge-place", "knowledge-stage", "knowledge-reconcile",
+    "wake-subscribe", "wake-unsubscribe", "knowledge-add", "knowledge-assign", "knowledge-place", "knowledge-stage",
+    "knowledge-reconcile",
     "worker-check", "recurring-tick", ledger.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
 def assert_actor(value, actor):
@@ -242,6 +243,9 @@ def shared_write(board, args, *, context):
     elif command == "knowledge-add":
         action = "create-knowledge"
         data.update(project=projects.prefix(args.project), title=ledger.task_title(args.title), brief=args.brief)
+    elif command == "knowledge-assign":
+        action = command
+        data.update(id=task_ref(args.id), dri=args.dri)
     elif command == "knowledge-place":
         action = command
         data.update(id=task_ref(args.id), area=args.area, index=str(args.index).lower())
@@ -651,7 +655,31 @@ def shared_command(args):
             return "No Knowledge areas found."
         return with_guidance("\n".join(lines), "Open a listed index with `./tasks --shared show INDEX-TICKET`.")
     if command == "knowledge-reconcile":
-        return json.dumps(board.invoke(command, {"project": args.project}, write=True), ensure_ascii=False)
+        filters = {"project": projects.prefix(args.project)}
+        if args.dri is not None:
+            filters["dri"] = args.dri
+        return json.dumps(board.invoke(command, filters, write=True), ensure_ascii=False)
+    if command == "knowledge-sweep":
+        filters = {"scope": args.scope, "limit": args.limit}
+        if args.project is not None:
+            filters["project"] = projects.prefix(args.project)
+        if args.before is not None:
+            filters["before"] = args.before
+        result = board.invoke(command, filters)
+        if args.json:
+            return json.dumps(result, ensure_ascii=False)
+        lines = []
+        for entry in result["items"]:
+            owner = entry["maintenance_dri"]
+            permission = "Can reconcile" if entry["can_reconcile"] else "Route changes to the project manager"
+            lines.append(f"{entry['key']} · {entry['title']}")
+            lines.append(f"  {owner['name'] if owner else 'Unassigned'} · {permission}")
+            lines.append(f"  {url}#knowledge?entry={entry['key']}")
+        cursor = result["next_cursor"]
+        guidance = f"Use --before {cursor} with the same filters for the next page." if cursor is not None else (
+            "Open the linked entries and review their staged work and sources."
+        )
+        return with_guidance("\n".join(lines) or "No Knowledge entries in this sweep.", guidance)
     if command == "recurring-tick":
         return json.dumps(board.invoke(command, {"project": args.project}, write=True), ensure_ascii=False)
     if command in WRITES:

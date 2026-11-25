@@ -708,7 +708,7 @@ class BoardQueries:
         return result
 
     def maintained_decision_rows(self, *, search=None, entry=None, source_ticket=None, before=None, limit,
-                                 github_url=None, project=None):
+                                 github_url=None, project=None, maintenance_dri=None):
         context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
         legacy = f"""({ledger.display_state_sql(context)} = 'done'
             AND tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?))"""
@@ -718,6 +718,9 @@ class BoardQueries:
         if project is not None:
             terms.append("tasks.project_prefix = ?")
             args.append(project)
+        if maintenance_dri is not None:
+            terms.append("tasks.id IN (SELECT task_id FROM knowledge_maintenance_assignments WHERE dri = ?)")
+            args.append(maintenance_dri)
         if before is not None:
             terms.append("events.id < ?")
             args.append(before)
@@ -759,10 +762,16 @@ class BoardQueries:
             (*args, limit + 1),
         ).fetchall()
 
-    def maintained_decisions(self, *, search=None, entry=None, source_ticket=None, before=None, limit):
+    def maintained_decisions(self, *, actor, search=None, entry=None, source_ticket=None, before=None, limit,
+                             project=None, maintenance_dri=None):
         def render(rows):
+            assignments = knowledge.maintenance_assignments(self.db, [row["id"] for row in rows])
+            managed = {row["prefix"] for row in self.db.execute("SELECT prefix FROM projects WHERE dri = ?", (actor,))}
             return [{
                 "id": row["id"], "key": projects.row_reference(row), "title": row["title"],
+                "project": projects.row_project(row), "maintenance_dri": assignments.get(row["id"]),
+                "can_assign_maintenance_dri": projects.row_project(row) in managed,
+                "can_reconcile": projects.row_project(row) in managed or (not ledger.is_knowledge(row) and row["dri"] == actor),
                 "summary": row["brief"], "sources": self.decision_sources(row["id"]),
                 **knowledge.metadata(self.db, row["id"]),
             } for row in rows]
@@ -770,6 +779,7 @@ class BoardQueries:
         with tasks_storage.read(self.db):
             rows = self.maintained_decision_rows(
                 search=search, entry=entry, source_ticket=source_ticket, before=before, limit=limit,
+                project=project, maintenance_dri=maintenance_dri,
             )
             return page(rows, limit, "event_id", render)
 

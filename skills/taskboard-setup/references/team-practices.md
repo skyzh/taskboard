@@ -42,9 +42,16 @@ Reconciliation applies eligible settled changes and keeps the prior brief and so
 
 ## Recurring work
 
-**Compaction step.** Read the linked Team practices index and staged work for this project. Verify settled source decisions, run project-scoped Knowledge reconciliation, and check the applied entries and source links. Record applied changes and unresolved conflicts on the issued ticket. Route unresolved items to their owners.
+**Compaction step.** Run the selected signed inventory and follow `--before` until every page is read. For assigned mode, use the scheduled scope and optionally limit it to the selected project. For whole-board mode, omit `--project` to include assigned and unassigned entries in every accessible project.
 
-**Reflection step.** Read this project's recent completed work, decisions, recurring outcomes, and compaction receipts. Use the scheduled occurrence’s due time as the period end. For an external wake, use its recorded reporting period end. Normalize it to UTC and use a stable title such as `Project reflection — period ending 2026-12-01T04:00:00Z`. Record the period start and end, what changed, what to keep or improve, and any follow-up tickets with owners in the brief. Link exact Activity, Knowledge, or ticket sources. Search the project for that period before creating an entry. Reuse its ID on retry, including when a delayed run starts on a later date. Have the manager place it in the established reflection area or link it from the Team practices index. Verify the published entry and record its URL on the issued ticket.
+```sh
+./tasks --shared knowledge-sweep --scope assigned --project "$project" --json
+./tasks --shared knowledge-sweep --scope board --json
+```
+
+Read the selected entries and exact staged sources. In assigned mode, reconcile as an authorized project manager with `./tasks --shared knowledge-reconcile --project "$project" --dri "$maintenance_dri"`. In whole-board mode, apply each project's settled changes with the existing project-level reconciliation command. Use `can_reconcile` to identify entries that need a handoff and `./tasks --shared projects --json` to find the project manager. Share the selected entry and source links. Verify the applied entries and preserved sources. Record updates and unresolved conflicts on the issued ticket.
+
+**Reflection step.** Read recent completed work, decisions, and compaction receipts for the selected scope. Publish the summary in the agreed project, using the anchor project for a whole-board reflection. Use the scheduled occurrence’s due time as the period end. For an external wake, use its recorded reporting period end. Normalize it to UTC. Include the scope label chosen at setup in the title, such as `Board reflection — period ending 2026-12-01T04:00:00Z` or `Reflection for OPS maintenance DRI A — period ending 2026-12-01T04:00:00Z`. Keep that label stable across retries. Record the owner and period in the brief alongside what changed, what to keep or improve, and any follow-up tickets with owners. Link exact Activity, Knowledge, or ticket sources. Search the project for that scope and period before creating an entry. Reuse its ID on retry, including when a delayed run starts on a later date. Have the manager place it in the established reflection area or link it from the Team practices index. Verify the published entry and record its URL on the issued ticket.
 
 After preparing the reflection brief, use the signed project workflow and record the link on the issued ticket.
 

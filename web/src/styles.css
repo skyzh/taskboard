@@ -1293,6 +1293,7 @@ button:disabled { opacity: .57; }
 .knowledge-stages, .knowledge-area-entries { margin-block-start: .75rem; }
 
 .knowledge { max-width: 56rem; }
+.knowledge-scope { margin-block-end: .75rem; }
 .knowledge-create { margin-block-end: .75rem; }
 .knowledge-create > summary { padding-block: .55rem; font-weight: var(--weight-emphasis); }
 .knowledge-create form { display: grid; gap: .6rem; padding-block: .3rem .55rem; }
@@ -1311,6 +1312,7 @@ button:disabled { opacity: .57; }
 @media (max-width: 40rem) {
   .knowledge-search :is(input, button) { min-height: 2.75rem; }
   .knowledge-create :is(summary, input, select, button) { min-height: 2.75rem; }
+  .knowledge-maintenance :is(summary, select, button) { min-height: 2.75rem; }
 }
 .knowledge-list { display: grid; gap: .65rem; list-style: none; padding: 0; }
 .knowledge-list .markdown { margin-block: .45rem; }
