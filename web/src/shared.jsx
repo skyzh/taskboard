@@ -48,6 +48,7 @@ const activityIcons = {
 
 const activityAudits = {
   'edit-task-details': ['Ticket details edited', PencilLine],
+  'move-project': ['Ticket moved to another project', CornerUpRight],
   'checklist-add': ['Checklist step added', ListChecks],
   'checklist-start': ['Checklist step started', ListChecks],
   'checklist-complete': ['Checklist step completed', ListChecks],

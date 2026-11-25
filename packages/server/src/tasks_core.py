@@ -604,15 +604,21 @@ def ticket_blocker(task):
     return task["waiting_on"] if ticket_id_from_label(task["waiting_on"]) is not None else None
 
 
-def blocker_chain(source, blocker, lookup):
+def blocker_chain(db, source, blocker, lookup):
     tickets = []
     seen = {source}
     while blocker is not None:
         legacy = isinstance(blocker, str)
         number = ticket_id_from_label(blocker) if legacy else blocker
         task = lookup(number)
-        if task is None or (legacy and projects.row_project(task) != projects.DEFAULT):
+        if task is None:
             break
+        if legacy and projects.row_project(task) != projects.DEFAULT:
+            try:
+                if projects.resolve(db, blocker) != number:
+                    break
+            except LookupError:
+                break
         ticket = {"id": number, "state": task["state"]}
         if projects.row_project(task) != projects.DEFAULT:
             ticket["key"] = projects.row_reference(task)
@@ -640,7 +646,7 @@ def wait_details(db, task, args):
     else:
         waiting_on, context = args.on, {}
     target = linked if linked is not None else waiting_on if ticket_id_from_label(waiting_on) is not None else None
-    chain = blocker_chain(task["id"], target, lambda number: find_task(db, number))
+    chain = blocker_chain(db, task["id"], target, lambda number: find_task(db, number))
     if chain and chain["cycle"] == task["id"]:
         path = " → ".join([projects.row_reference(task)] + [blocker_key(item) for item in chain["tickets"]])
         raise ValueError(f"That would create a dependency cycle: {path}.")
@@ -1155,23 +1161,15 @@ def resolve_task_references(db, task_id, fields, board_url):
     )
     if not keys:
         return []
-    projects = "project_prefix" in tasks_storage.table_columns(db, "tasks")
+    migrated = "project_prefix" in tasks_storage.table_columns(db, "tasks")
+    aliases = migrated and tasks_storage.has_table(db, "task_project_aliases")
     result = []
     for prefix, number in keys:
         if not 1 <= number <= 2**63 - 1:
             continue
-        if projects:
-            number_column = "id" if prefix == "T" else "project_number"
-            target = db.execute(
-                f"SELECT id, title FROM tasks WHERE project_prefix = ? AND {number_column} = ?",
-                (prefix, number),
-            ).fetchone()
-        elif prefix == "T":
-            target = db.execute("SELECT id, title FROM tasks WHERE id = ?", (number,)).fetchone()
-        else:
-            continue
+        key = f"{prefix}-{number}"
+        target = projects.find_reference(db, prefix, number, migrated=migrated, aliases=aliases)
         if target is not None and target["id"] != task_id:
-            key = f"{prefix}-{number}"
             anchor = str(number) if prefix == "T" else key
             result.append({"id": target["id"], "key": key, "title": target["title"],
                            "url": f"{board_url}#task-{anchor}"})
@@ -1224,6 +1222,8 @@ def event_label(action, context=None):
     if action == "source-event":
         return "Source update"
     if action == "log":
+        if ((context or {}).get("audit") or {}).get("action") == "move-project":
+            return "Ticket moved to another project"
         return "Activity logged"
     return "Created" if action == "add" else TRANSITIONS[action][2]
 
@@ -1282,7 +1282,7 @@ def show_task(db, path, number):
         lines.extend(("", task["brief"]))
     focus, summary = current_summary(task)
     lines.extend(("", f"{focus}: {summary}"))
-    blockers = blocker_chain(number, ticket_blocker(task), lambda target: find_task(db, target))
+    blockers = blocker_chain(db, number, ticket_blocker(task), lambda target: find_task(db, target))
     if blockers:
         lines.extend(blocker_lines(blockers, board_url))
     elif task["waiting_on"]:
@@ -1649,7 +1649,7 @@ def render_board(db, path):
             task_html(
                 task, history[task["id"]], checklists.get(task["id"], ()),
                 source_links.get(task["id"], ()),
-                blocker_chain(task["id"], ticket_blocker(task), tasks_by_id.get),
+                blocker_chain(db, task["id"], ticket_blocker(task), tasks_by_id.get),
                 names,
             )
             for task in tasks
@@ -1690,7 +1690,7 @@ def display_tasks(db, path, items, *, include_evidence=False):
     for task in items:
         lines.append(headline(task))
         lines.append(f"  Priority: {task['priority'].capitalize()}")
-        blockers = blocker_chain(task["id"], ticket_blocker(task), lambda number: find_task(db, number))
+        blockers = blocker_chain(db, task["id"], ticket_blocker(task), lambda number: find_task(db, number))
         wait = f"{wait_label(task)} {task['waiting_on']} · " if task["waiting_on"] and not blockers else ""
         focus, summary = current_summary(task)
         label = f"{focus} · " if focus == "Decision" else ""

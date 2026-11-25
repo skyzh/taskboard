@@ -143,12 +143,22 @@ def matches_activity_outcome(details, ticket, receipt):
     )
 
 
-def task_for_release(db, ticket):
+def task_for_release(db, ticket, release_id, status):
     task_id = projects.resolve(db, ticket)
     task = db.execute("SELECT project_prefix FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    if not task or not projects.release_queue_enabled(task["project_prefix"]):
-        raise ValueError("Choose an existing Taskboard ticket.")
-    return task_id
+    if task is not None:
+        if projects.release_queue_enabled(task["project_prefix"]):
+            return task_id
+        replay = db.execute(
+            """SELECT 1 FROM release_batches AS batch
+               JOIN release_events AS event ON event.batch_id = batch.id
+               JOIN release_tasks AS member ON member.batch_id = batch.id
+               WHERE batch.release_id = ? AND event.status = ? AND member.task_id = ?""",
+            (release_id, status, task_id),
+        ).fetchone()
+        if replay is not None:
+            return task_id
+    raise ValueError("Choose an existing Taskboard ticket.")
 
 
 def record_changelog(db, batch_id, changelog):
@@ -159,7 +169,7 @@ def record_changelog(db, batch_id, changelog):
             raise ValueError("This batch already records a different changelog.")
         return
     for entry in changelog["entries"]:
-        task_id = task_for_release(db, entry["ticket"])
+        task_id = projects.resolve(db, entry["ticket"])
         receipt_id = entry["merge_receipt_id"]
         if merges.recorded_merges(db, task_id, [receipt_id]).get(receipt_id) != entry["merge_commit"]:
             raise ValueError("Each changelog entry must match the recorded merge on that ticket.")
@@ -170,7 +180,7 @@ def record_changelog(db, batch_id, changelog):
 def record_receipt(db, data):
     """Append one existing operator receipt inside the caller's transaction."""
     release_id, ticket, candidate, status, active, at, receipt_url, changelog = normalize_receipt(data)
-    task_id = task_for_release(db, ticket)
+    task_id = task_for_release(db, ticket, release_id, status)
 
     db.execute("INSERT INTO release_batches (release_id, candidate) VALUES (?, ?) ON CONFLICT DO NOTHING", (release_id, candidate))
     batch = db.execute(

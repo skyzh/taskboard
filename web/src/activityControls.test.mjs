@@ -19,6 +19,7 @@ let DecisionForm
 let TaskClosure
 let TaskDetailsEdit
 let TaskOwnership
+let TaskProjectMove
 let TaskTags
 let ReminderDate
 let PendingReports
@@ -49,6 +50,7 @@ before(async () => {
         export { default as TaskClosure } from './TaskClosure.jsx'
         export { default as TaskDetailsEdit } from './TaskDetailsEdit.jsx'
         export { default as TaskOwnership } from './TaskOwnership.jsx'
+        export { default as TaskProjectMove } from './TaskProjectMove.jsx'
         export { default as TaskTags } from './TaskTags.jsx'
         export { default as ReminderDate } from './ReminderDate.jsx'
         export { default as Reports, PendingReports } from './Reports.jsx'
@@ -124,7 +126,7 @@ before(async () => {
   const module = { exports: {} }
   new Function('require', 'module', result.outputFiles[0].text)(require, module)
   ;({
-    WorkLog, WorkQueue, TaskDetail, DecisionForm, TaskClosure, TaskDetailsEdit, TaskOwnership, TaskTags,
+    WorkLog, WorkQueue, TaskDetail, DecisionForm, TaskClosure, TaskDetailsEdit, TaskOwnership, TaskProjectMove, TaskTags,
     ReminderDate, PendingReports, Reports, AssigneePage, EventRow, OutcomeRow, Outcomes,
     TimeZoneContext, createTimeZoneFormatters,
     Notifications, GoalActivity, DriGoal, DriMilestones, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity, Knowledge,
@@ -892,6 +894,7 @@ test('typed provider and board work events use their distinct named marks in eve
     [{ action: 'done', context: { peer_correction: { previous_close: 12 } } }, 'Peer result corrected', 'check'],
     [{ action: 'log', context: { audit: { action: 'checklist-complete' } } }, 'Checklist step completed', 'list-checks'],
     [{ action: 'log', context: { audit: { action: 'edit-task-details' } } }, 'Ticket details edited', 'pencil-line'],
+    [{ action: 'log', context: { audit: { action: 'move-project' } } }, 'Ticket moved to another project', 'corner-up-right'],
     [{ action: 'log', label: 'Ticket reassigned', context: { ownership_action: 'reassign' } }, 'Ticket reassigned', 'corner-up-right'],
     [{ action: 'log', context: { extension: 'github-events', github_event: 'pull-merged' } }, 'Pull request merged', 'git-merge'],
     [{ action: 'log', context: { extension: 'github-events', github_event: 'deployed' } }, 'Deployed', 'rocket'],
@@ -1610,6 +1613,67 @@ test('the ticket shows its tags and enables changes in authorized Edit mode', ()
   assert.match(editable, />Add tag<\/button>/)
   assert.doesNotMatch(editable, /<dt>Tags<\/dt>/)
   assert.doesNotMatch(detail({ ...task, tags: undefined }, undefined), /<dt>Tags<\/dt>|Add tag/)
+})
+
+test('ticket move controls use permitted destinations and old ticket links return to the current project', () => {
+  const task = { id: 7, key: 'COURSE-2', title: 'Review the sample', state: 'ready', summary_label: 'Next step' }
+  const session = { data: { actor: { kind: 'human', id: 'fixture-manager' } } }
+  const destinations = [{ prefix: 'LAB', title: 'Research Lab' }]
+  const render = (moveDestinations, viewer, editing) => {
+    fixture.resources = { '/tasks/7': { data: {
+      task, checklist: [], sources: [], workers: [], move_destinations: moveDestinations,
+    } } }
+    fixture.pages = {}
+    fixture.state = [true, editing]
+    return renderToStaticMarkup(React.createElement(TaskDetail, { id: 7, session: viewer }))
+  }
+  assert.doesNotMatch(render(undefined, session, true), /Move to another project/)
+  assert.doesNotMatch(render(destinations, {}, true), /Move to another project/)
+  assert.match(render(destinations, session, false), /<div hidden=""><details class="task-ownership"><summary>Move to another project/)
+  const editing = render(destinations, session, true)
+  assert.match(editing, /href="#project=COURSE">Back to Tasks/)
+  assert.match(editing, /<summary>Move to another project<\/summary>.*<option value="LAB">Research Lab \(LAB\)<\/option>/)
+  assert.match(editing, /<button type="submit" disabled="">Move ticket<\/button>/)
+})
+
+test('project move uses the current ticket key and retains the selection when the server rejects it', async () => {
+  const task = { id: 7, key: 'COURSE-2' }
+  const destinations = [{ prefix: 'T', title: 'Main Board' }, { prefix: 'LAB', title: 'Research Lab' }]
+  const sent = []
+  const moved = []
+  const updates = []
+  const props = { task, destinations, onMoved: (...args) => moved.push(args) }
+  fixture.request = async (path, options) => {
+    sent.push({ path, ...options })
+    if (options.body.project === 'LAB') throw new Error('You can no longer move this ticket to LAB.')
+    return { key: 'T-7', previous: task.key, receipt: 'Moved to T-7.' }
+  }
+  fixture.onSetState = value => updates.push(value)
+  function form(project, moving) {
+    fixture.state = [project, moving, null]
+    return React.Children.toArray(TaskProjectMove(props).props.children).find(child => child.type === 'form')
+  }
+  const event = { preventDefault() {} }
+  try {
+    await form('NONE', false).props.onSubmit(event)
+    await form('LAB', true).props.onSubmit(event)
+    assert.deepEqual(sent, [])
+    await form('LAB', false).props.onSubmit(event)
+    assert.deepEqual(updates, [true, null, 'You can no longer move this ticket to LAB.', false])
+    assert.deepEqual(moved, [])
+    fixture.state = ['LAB', false, updates[2]]
+    const failed = renderToStaticMarkup(React.createElement(TaskProjectMove, props))
+    assert.match(failed, /value="LAB" selected="">Research Lab \(LAB\)<\/option>/)
+    assert.match(failed, /role="alert">You can no longer move this ticket to LAB\.<\/p>/)
+    await form('T', false).props.onSubmit(event)
+    assert.deepEqual(sent, ['LAB', 'T'].map(project => ({
+      path: '/tasks/COURSE-2/project', method: 'POST', body: { project },
+    })))
+    assert.deepEqual(moved, [['#task-7', 'Moved to T-7.']])
+  } finally {
+    delete fixture.request
+    delete fixture.onSetState
+  }
 })
 
 test('tag edits use the exact ticket route and retain an invalid or unsaved draft', async () => {

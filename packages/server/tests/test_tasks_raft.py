@@ -98,6 +98,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "change-ownership": ("POST", "id action reason", "owner url label"),
             "close-task": ("POST", "id reason", "related url label"),
             "edit-task-details": ("POST", "id reason", "title brief url label"),
+            "move-task": ("POST", "id project", ""),
             "edit-checklist": ("POST", "id action", "position label"),
             "set-priority": ("POST", "id priority", ""),
             "record-activity": ("POST", "id note", "details url label"),

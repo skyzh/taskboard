@@ -17,6 +17,7 @@ import TaskActivityUpdate from './TaskActivityUpdate.jsx'
 import TaskClosure from './TaskClosure.jsx'
 import TaskDetailsEdit from './TaskDetailsEdit.jsx'
 import TaskOwnership from './TaskOwnership.jsx'
+import TaskProjectMove from './TaskProjectMove.jsx'
 import TaskTags from './TaskTags.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import {
@@ -434,7 +435,8 @@ export function KnowledgeRecordTools({ id, revision, onChanged }) {
   return <KnowledgeRecordActions record={record} id={id} activity={activity} signedIn onChanged={onChanged} />
 }
 
-export function TaskDetail({ id, revision, session, onChanged, preferredProject = 'T', returnHref, fromSearch, history }) {
+export function TaskDetail({ id, revision, session, onChanged, onMoved, moveReceipt,
+  preferredProject = 'T', returnHref, fromSearch, history }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
   const [actionsOpen, setActionsOpen] = useState(false)
   useEffect(() => {
@@ -466,7 +468,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
     ? signedIn && record.can_edit_parking : ownsReturnPath
   const { data: fieldGuidance } = useFieldGuidance(signedIn && task && !knowledge ? taskProject : null, revision)
   const fields = fieldGuidance?.fields
-  const queueHref = returnHref || (project === 'T' && preferredProject === 'T' ? '#board' : `#project=${project}`)
+  const queueHref = returnHref || (taskProject === 'T' && preferredProject === 'T' ? '#board' : `#project=${taskProject}`)
   const backHref = fromSearch ? `#${new URLSearchParams({ search: fromSearch })}`
     : knowledge ? entryHref(task.key) : queueHref
   const backLabel = fromSearch ? 'Back to Search results' : knowledge ? 'Open in Knowledge' : 'Back to Tasks'
@@ -499,6 +501,7 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
           onToggle={() => setActionsOpen(open => !open)} />}
       </div>
       <h1 id={`task-heading-${id}`}><MarkdownInline text={task?.title || `Task ${taskLabel(id)}`} relatedTasks={record?.related_tasks} /></h1>
+      {moveReceipt && <p className="section-message" role="status">{moveReceipt}</p>}
       {task && !knowledge && !sidebar && <div className="ticket-primary-identity"><TicketIdentity task={task} state={state} /></div>}
       <ResourceStatus resource={detail} label="task details" />
       {knowledge ? (
@@ -573,6 +576,8 @@ export function TaskDetail({ id, revision, session, onChanged, preferredProject 
             <div hidden={!showActions}>
               <TaskOwnership task={task} actions={record.ownership_actions} project={taskProject}
                 revision={revision} onChanged={onChanged} />
+              {signedIn && record.move_destinations?.length > 0 &&
+                <TaskProjectMove key={task.key} task={task} destinations={record.move_destinations} onMoved={onMoved} />}
               {record.can_edit_details && <TaskDetailsEdit key={`details-${task.id}`} task={task} brief={record.brief}
                 onChanged={onChanged} fields={fields} />}
               {record.can_close && state !== 'closed' && state !== 'done' && (

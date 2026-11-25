@@ -409,6 +409,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None, initial_project=No
             ledger.ensure_record_kind(db)
             ledger.ensure_checklist_schema(db)
             projects.bootstrap(db, initial_project, required=require_initial)
+            projects.ensure_alias_schema(db)
             db.execute(project_admin.SCHEMA)
             db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
             local_dri.ensure_schema(db)
@@ -917,6 +918,28 @@ def create_app(
         if (local := g.get("local_dri")) is not None and local["project"] != project:
             raise RequestError("Use the Local DRI's registered project.", 403)
 
+    def movable_ticket(reference, *, knowledge, goal, peer_request):
+        return not (
+            knowledge or goal or peer_request or (not marketplace and reference == release_queue_ticket)
+        )
+
+    def move_assignment_allowed(connection, owner, destination):
+        if local_dri.registration(connection, owner) is not None:
+            return False
+        if destination != projects.DEFAULT or project_roster is None:
+            return True
+        person = profiles.get(connection, owner)
+        return person is None or person["kind"] != "agent" or person["subject"] in project_roster
+
+    def move_destinations(connection, task, actor, project):
+        return [
+            dict(row) for row in connection.execute(
+                "SELECT prefix, title FROM projects WHERE dri = ? AND prefix <> ? ORDER BY title, prefix",
+                (actor, project),
+            )
+            if move_assignment_allowed(connection, task["dri"], row["prefix"])
+        ]
+
     def project_filter(data, *, use_default=False):
         value = text(data, "project", optional=True, maximum=8)
         if value is None and (local := g.get("local_dri")) is not None:
@@ -1371,6 +1394,12 @@ def create_app(
             task["tags"] = labels
         if actor is not None and (staged := knowledge_records.links(db(), number, include_source=True)):
             result["knowledge_stages"] = staged
+        if allowed and not task.get("queued_for_release") and movable_ticket(
+            task["key"], knowledge=is_note or (task["state"] == "done" and knowledge_records.DECISION_TAG in labels),
+            goal=result["goal"], peer_request=task.get("peer_request"),
+        ):
+            if destinations := move_destinations(db(), task, key, project):
+                result["move_destinations"] = destinations
         return {
             **result, "ownership_actions": ledger.ownership_actions(task)
             if allowed and not (is_note or ask or result["goal"]) else [],
@@ -1550,6 +1579,45 @@ def create_app(
     def edit_ticket(actor, number, data):
         return mutate("edit", actor, data, id=number, note=text(data, "reason"),
                       title=data.get("title"), brief=data.get("brief"))
+
+    def move_ticket(actor, reference, data):
+        destination = project_filter({"project": text(data, "project", maximum=8)})
+        key = actor["ledger_key"]
+        with tasks_storage.write(db()) as connection:
+            number = task_number(reference)
+            task = ledger.find_task(connection, number)
+            if task is None:
+                raise NotFound()
+            submitted_project, submitted_number = projects.identifier(reference)
+            submitted_key = f"{submitted_project}-{submitted_number}"
+            previous = projects.row_reference(task)
+            if not (projects.manages(connection, submitted_project, key)
+                    and projects.manages(connection, destination, key)):
+                raise RequestError("Only a manager of both projects can move the ticket.", 403)
+            if projects.row_project(task) == destination:
+                return {"key": previous, "previous": submitted_key, "receipt": f"{previous} · Already in this project"}
+            if submitted_key != previous:
+                raise RequestError("The ticket has since moved. Open its current key before moving it.", 409)
+            if not movable_ticket(
+                previous, knowledge=knowledge_records.is_maintained(connection, task),
+                goal=ledger.task_goal_kind(connection, number), peer_request=peer_asks.find(connection, number),
+            ):
+                raise RequestError("Choose a regular work ticket to move.", 409)
+            if not move_assignment_allowed(connection, task["dri"], destination):
+                raise RequestError("The current assignee cannot work in the destination project.", 409)
+            if (projects.release_queue_enabled(submitted_project)
+                    and releases.ticket_fields(connection, [number])[number]["queued_for_release"]):
+                raise RequestError("Wait for this ticket's active release to finish before moving it.", 409)
+            try:
+                new_key = projects.move(connection, task, destination)
+            except ValueError as error:
+                raise RequestError(str(error), 409) from error
+            ledger.record(
+                connection, number, "log", key, task["state"], f"Moved from {previous} to {new_key}.", None, [],
+                {"audit": {"action": "move-project", "previous": previous, "current": new_key}},
+            )
+            ledger.bump_revision(connection)
+        return {"key": new_key, "previous": previous, "receipt": f"{new_key} · Moved from {previous}"}
 
     def edit_ticket_checklist(actor, number, data):
         change = text(data, "action", maximum=6)
@@ -2051,6 +2119,11 @@ def create_app(
     def task_details_edit(number):
         actor = current_actor(write=True)
         return edit_ticket(actor, task_number(number), json_body({"title", "brief", "reason"}))
+
+    @app.post("/api/v1/tasks/<number>/project")
+    def task_project_move(number):
+        actor = current_actor(write=True, required=True)
+        return move_ticket(actor, number, json_body({"project"}))
 
     @app.post("/api/v1/tasks/<number>/checklist")
     def task_checklist_edit(number):
@@ -3308,6 +3381,8 @@ def create_app(
                 step=text(data, "step"), brief=text(data, "brief", optional=True),
                 project=project_filter(data, use_default=True),
             )
+        if name == "move-task":
+            return move_ticket(actor, data["id"], data)
         if name in (maintenance.READ, maintenance.WRITE):
             text(data, "project", maximum=8)
             project = project_filter(data)
@@ -3413,7 +3488,7 @@ def create_app(
             if "owner_name" in data:
                 if "owner" in data:
                     raise RequestError("Use either a name or an exact ID for the new owner.")
-                project, _ = projects.identifier(data["id"])
+                project, _ = projects.identifier(projects.for_task(db(), number))
                 owner = resolve_assignee(text(data, "owner_name", maximum=101), "agent", project)
             else:
                 owner = text(data, "owner", maximum=160)
@@ -3471,7 +3546,8 @@ def create_app(
                 result["next_step"] = agent_guidance.next_step(name, data, result)
             receipt_transitions = {"advance-task": ("done",), peer_asks.COMMAND: ("result", "manual-result")}.get(name)
             if name == "handoff" or (receipt_transitions and data["transition"].strip() in receipt_transitions):
-                project, _ = projects.identifier(data["id"])
+                number = task_number(data["id"])
+                project, _ = projects.identifier(projects.for_task(db(), number))
                 result["next_action"] = next_action_after_write(current_actor(required=True)["ledger_key"], project)
             return result
 

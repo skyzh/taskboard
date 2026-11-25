@@ -61,6 +61,47 @@ def bootstrap(db, initial, *, required=False):
 
 PROJECT_FIELDS = {DEFAULT: ("queued_for_release", "release_number")}
 
+TICKET_ALIASES_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS task_project_aliases (
+        project_prefix TEXT NOT NULL REFERENCES projects (prefix),
+        project_number INTEGER NOT NULL,
+        task_id INTEGER NOT NULL REFERENCES tasks (id),
+        PRIMARY KEY (project_prefix, project_number)
+    )
+"""
+
+SQLITE_ALIAS_RESERVATION = """
+    CREATE TRIGGER IF NOT EXISTS reserve_task_project_alias
+    AFTER INSERT ON tasks
+    WHEN EXISTS (
+        SELECT 1 FROM task_project_aliases
+        WHERE project_prefix = NEW.project_prefix AND project_number = NEW.project_number
+    )
+    BEGIN
+        UPDATE tasks SET project_number = (
+            SELECT MAX(project_number) + 1 FROM task_project_aliases
+            WHERE project_prefix = NEW.project_prefix
+        ) WHERE id = NEW.id;
+    END
+"""
+
+POSTGRES_ALIAS_RESERVATION = """
+    CREATE OR REPLACE FUNCTION reserve_task_project_alias() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM task_project_aliases
+            WHERE project_prefix = NEW.project_prefix AND project_number = NEW.project_number
+        ) THEN
+            NEW.project_number := (
+                SELECT MAX(project_number) + 1 FROM task_project_aliases
+                WHERE project_prefix = NEW.project_prefix
+            );
+        END IF;
+        RETURN NEW;
+    END;
+    $$
+"""
+
 
 def release_queue_enabled(project):
     return project in PROJECT_FIELDS
@@ -133,6 +174,19 @@ def roster_profile(owner, name):
             "role": None, "description": None, "avatar_url": None}
 
 
+def ensure_alias_schema(db):
+    db.execute(TICKET_ALIASES_SCHEMA)
+    # A predecessor server computes the next number using the current tasks alone.
+    if isinstance(db, tasks_storage.Postgres):
+        db.execute(POSTGRES_ALIAS_RESERVATION)
+        db.execute(
+            """CREATE OR REPLACE TRIGGER reserve_task_project_alias BEFORE INSERT ON tasks
+               FOR EACH ROW EXECUTE FUNCTION reserve_task_project_alias()"""
+        )
+    else:
+        db.execute(SQLITE_ALIAS_RESERVATION)
+
+
 def ensure_schema(db, *, seed_legacy=True):
     db.execute(
         """
@@ -155,6 +209,7 @@ def ensure_schema(db, *, seed_legacy=True):
     db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS task_project_number ON tasks (project_prefix, project_number)"
     )
+    ensure_alias_schema(db)
 
 
 def require(db, project):
@@ -186,8 +241,31 @@ def next_number(db, project):
     if project == DEFAULT:
         return None
     return db.execute(
-        "SELECT COALESCE(MAX(project_number), 0) + 1 FROM tasks WHERE project_prefix = ?", (project,)
-    ).fetchone()[0]
+        """
+        SELECT COALESCE(MAX(last_number), 0) FROM (
+            SELECT MAX(project_number) AS last_number FROM tasks WHERE project_prefix = ?
+            UNION ALL
+            SELECT MAX(project_number) AS last_number FROM task_project_aliases WHERE project_prefix = ?
+        ) AS used_numbers
+        """, (project, project),
+    ).fetchone()[0] + 1
+
+
+def move(db, task, destination):
+    project, number = identifier(row_reference(task))
+    destination_number = next_number(db, destination)
+    if destination_number is not None and destination_number > MAX_ID:
+        raise ValueError("The destination project has no remaining ticket numbers.")
+    db.execute(
+        """INSERT INTO task_project_aliases (project_prefix, project_number, task_id)
+           VALUES (?, ?, ?) ON CONFLICT (project_prefix, project_number) DO NOTHING""",
+        (project, number, task["id"]),
+    )
+    db.execute(
+        "UPDATE tasks SET project_prefix = ?, project_number = ? WHERE id = ?",
+        (destination, destination_number, task["id"]),
+    )
+    return for_task(db, task["id"])
 
 
 def row_project(row):
@@ -209,20 +287,38 @@ def for_task(db, task_number):
     return row_reference(row) if row is not None else f"T-{task_number}"
 
 
+def find_reference(db, project, number, *, migrated, aliases=None):
+    if not migrated:
+        if project == DEFAULT:
+            return db.execute("SELECT id, title FROM tasks WHERE id = ?", (number,)).fetchone()
+        return None
+    number_column = "id" if project == DEFAULT else "project_number"
+    row = db.execute(
+        f"SELECT id, title FROM tasks WHERE project_prefix = ? AND {number_column} = ?", (project, number),
+    ).fetchone()
+    if row is not None:
+        return row
+    if aliases is None:
+        aliases = tasks_storage.has_table(db, "task_project_aliases")
+    if aliases:
+        return db.execute(
+            """SELECT tasks.id, tasks.title FROM task_project_aliases AS aliases
+               JOIN tasks ON tasks.id = aliases.task_id
+               WHERE aliases.project_prefix = ? AND aliases.project_number = ?""",
+            (project, number),
+        ).fetchone()
+    return None
+
+
 def resolve(db, value):
     project, number = identifier(value)
     migrated = "project_prefix" in tasks_storage.table_columns(db, "tasks")
-    if project == DEFAULT:
-        if not migrated or not db.execute(
-            "SELECT 1 FROM tasks WHERE id = ? AND project_prefix <> ?", (number, DEFAULT)
-        ).fetchone():
-            return number
-        raise LookupError(f"T-{number} does not exist.")
-    if not migrated:
-        raise LookupError(f"Task {project}-{number} does not exist.")
-    row = db.execute(
-        "SELECT id FROM tasks WHERE project_prefix = ? AND project_number = ?", (project, number),
-    ).fetchone()
-    if row is None:
-        raise LookupError(f"Task {project}-{number} does not exist.")
-    return row["id"]
+    if project == DEFAULT and not migrated:
+        return number
+    row = find_reference(db, project, number, migrated=migrated)
+    if row is not None:
+        return row["id"]
+    if project == DEFAULT and not db.execute("SELECT 1 FROM tasks WHERE id = ?", (number,)).fetchone():
+        return number
+    label = f"{project}-{number}" if project == DEFAULT else f"Task {project}-{number}"
+    raise LookupError(f"{label} does not exist.")

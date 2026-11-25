@@ -11,6 +11,7 @@ supported API paths. The server checks the actor’s permission on each request.
 | Project creation | `POST /api/v1/projects` and signed `create-project` | `create-project` | `taskboard_create_project` |
 | Project directory and project settings | Project list via `GET /api/v1/projects` and signed `list-projects`. Coordination channel, Summary links, writing guidance, Stamp review status and retry, maintenance read and update | `projects`, coordination channel, writing guidance read, and maintenance commands. Summary links, project guidance edits, and Stamp health actions use HTTP | `taskboard_projects` and `taskboard_field_guidance`. Other project settings tools pending |
 | Ticket changes, lifecycle, and Activity | Create, edit, checklist, priority, ownership, close, tag, Activity, Start, progress, completion, wait, reminder, parking, blocker, and evidence links | Dedicated shared commands for these actions. `show` includes recent Activity. Browser ticket history has an HTTP read path | Create, edit, log Activity, page through Activity, Start, progress, and completion. Other ticket tools pending |
+| Move a work ticket | `POST /api/v1/tasks/<key>/project` and signed `move-task` | Signed action via Raft | Use the browser |
 | Peer requests, reviews, workers, and notifications | Linked peer asks, handoff, review queues, delegation, worker transitions and checkpoints, attention requests, decisions, watches, Inbox and notification logs/preferences | Peer asks, transfer, review queues, worker commands, decision requests, watches, and next work. Human decisions, handling or deferring attention requests, and notification preference edits use HTTP | Assigned review queue. Dedicated handoff, worker, and notification tools pending |
 | Search, Knowledge, and sources | Ticket and Activity search, task suggestions, sources, Knowledge search/areas, creation, placement, staging and reconciliation | Search, tags, Knowledge areas and writes, and source/reference linking. Suggestions, standalone provider fetch, and some separate read shapes use HTTP | Dedicated tools pending |
 | Goals, schedules, and wake | Goal activity and current goals, review times and eligible cues, idle offers, recurring definitions, and wake subscriptions | Goals, goal review time, recurring and wake subscription commands. Runner cue actions use signed HTTP | Dedicated tools pending |
@@ -73,3 +74,22 @@ A browser-approved CLI connection carries the approving human’s existing creat
 permission. A Team DRI uses its own grant. Local DRI identities and tailnet-only
 reporting connections are outside this permission. The configured human manages
 grants through the signed browser. See [rollout and recovery](SHARED-BOARD.md#create-projects-and-manage-creation-permissions).
+
+## Move a work ticket
+
+If you manage both projects, open **Edit ticket**, then **Move to another
+project**, and choose a destination. Taskboard assigns the next available key
+in that project. The previous key still opens the same ticket and its History.
+Activity records the move. The current owner must be eligible to work in the
+destination project. A ticket in an active release can move once its release
+settles.
+
+Send `{project}` to `POST /api/v1/tasks/<key>/project` or call the signed
+`move-task` action with `{id, project}`. Use the current ticket key and the
+destination project prefix. The response includes the current `key`, the
+submitted `previous` key, and a `receipt`. Retrying the move after it has
+succeeded leaves Activity unchanged.
+
+An older server can still open and create tickets by their current keys after
+a rollback. The ledger reserves previous keys so that writes made during
+rollback cannot change where old links resolve after re-upgrade.
