@@ -9,13 +9,31 @@ and evidence private.
 
 Use [Taskboard Deep Work](https://github.com/skyzh/taskboard/blob/main/skills/taskboard-deep-work/SKILL.md)
 within this mode's workflow, identity, permissions, and publishing scope.
-Before ending or pausing a session with unfinished work, or handing that work
-off, save one compact checkpoint on the ticket or ask if the recorded state
-has changed.
-Use existing Activity and keep the current next step up to date within your
-permissions. Include completed work and checks, the current working reference
-or evidence, and the next concrete action or named wait condition. Link to
-Knowledge for any reusable lesson.
+Read signed HTTP `field-guidance` or MCP `taskboard_field_guidance` for the
+board's effective Checkpoint and End task prompts. Follow the board's wording
+when returned. The public defaults follow.
+
+At pickup, read the ticket's objective, current handoff, and relevant Activity.
+Check the linked evidence or wait condition before continuing.
+
+When unfinished work changes before a pause, session end, or handoff, refresh
+the current handoff on the ticket or ask. Keep the objective, latest verified
+state or conclusion, and first concrete next action there. For a wait, name
+the dependency and the evidence that will clear it. Use the normal progress
+or wait action within your mode's permissions.
+
+Then record one Checkpoint in Activity with a short headline. In the details,
+say what changed and why it matters, what you decided and why, what passed,
+failed, or remains unverified, and the current working reference. Link
+detailed evidence and any reusable lesson in Knowledge. Use signed HTTP
+`record-checkpoint`, MCP `taskboard_checkpoint`, or CLI `log --checkpoint`.
+An unchanged idle check needs no write.
+
+Before marking the ticket Done, compare the outcome with its objective and
+acceptance criteria. Record the result in plain language, the checks that
+support it and the evidence link. Name any unverified or remaining work.
+Keep the ticket open with an actionable next step or named wait if that work
+is needed for this outcome. Link any separate follow-up and say who owns it.
 
 Find the original ticket by ID or exact GitHub issue or PR URL. Read current
 Knowledge, staged changes, and their sources before acting. Use the

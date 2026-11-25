@@ -518,6 +518,37 @@ test('the directly linked event stays visible when filters return no rows', () =
   assert.doesNotMatch(markup, /No matching activity/)
 })
 
+test('the Checkpoint filter writes to the URL and restores the Activity request', () => {
+  const changes = []
+  const fragment = 'event-18-log?actor=Morgan'
+  fixture.state = []
+  fixture.pages = { '/activity': { data: { items: [selected] } } }
+  fixture.resources = {}
+
+  function ChangeFilter() {
+    const tree = WorkLog({ requested: 18, fragment, onFiltersChange: (...args) => changes.push(args) })
+    const filters = React.Children.toArray(tree.props.children).find(child => child.props.id === 'activity-filters')
+    const action = filters.props.children[1].props.children[1]
+    action.props.onChange({ target: { value: 'checkpoint' } })
+    return tree
+  }
+  const initial = renderToStaticMarkup(React.createElement(ChangeFilter))
+  assert.match(initial, /<option value="checkpoint">Checkpoint<\/option>/)
+  assert.deepEqual(changes, [['event-18-log?actor=Morgan&action=checkpoint', false]])
+  const hash = '#' + changes[0][0]
+  assert.equal(new URL(signInHref(hash), 'https://example.test/tasks/').searchParams.get('fragment'), hash)
+
+  fixture.pages = {
+    '/activity': filters => {
+      assert.deepEqual(filters, { scope: 'all', actor: 'Morgan', action: 'checkpoint', detail: 'all' })
+      return { data: { items: [] } }
+    },
+  }
+  const restored = renderToStaticMarkup(React.createElement(WorkLog, { requested: 18, fragment: changes[0][0] }))
+  assert.match(restored, /value="checkpoint" selected/)
+  assert.match(restored, /value="Morgan"/)
+})
+
 test('task rows distinguish the current wait, decision and Ready states', t => {
   t.mock.method(Date, 'now', () => Date.parse('2026-11-21T08:00:00Z'))
   fixture.state = []
@@ -996,6 +1027,7 @@ test('typed provider and board work events use their distinct named marks in eve
     [{ action: 'log', context: { extension: 'github-events', github_event: 'pull-merged' } }, 'Pull request merged', 'git-merge'],
     [{ action: 'log', context: { extension: 'github-events', github_event: 'deployed' } }, 'Deployed', 'rocket'],
     [{ action: 'done', label: 'Completed', context: { extension: 'github-events', github_event: 'deployed' } }, 'Completed', 'check'],
+    [{ action: 'log', label: 'Checkpoint', context: { checkpoint: true } }, 'Checkpoint', 'bookmark'],
     [{ action: 'log', label: 'Activity logged', headline: 'Merged pull request #17.', links: pull }, 'Activity logged', 'message-square-text'],
     [{ action: 'update', label: 'Progress' }, 'Progress', 'pencil-line'],
     [{ action: 'done', label: 'Completed', headline: 'Fixed the CSV.' }, 'Completed', 'check'],
@@ -1012,6 +1044,23 @@ test('typed provider and board work events use their distinct named marks in eve
       ), label)
     }
   }
+})
+
+test('Checkpoint Activity visibly labels the entry and keeps its rationale and evidence', () => {
+  const event = {
+    ...selected, label: 'Checkpoint', context: { checkpoint: true },
+    details: 'We kept the native CSV parser because it preserves quoted fields.',
+    links: [{ url: 'https://example.test/csv-cases', label: 'CSV fixture results' }],
+  }
+  const ticket = renderToStaticMarkup(React.createElement(EventRow, { event, ticketActivity: true }))
+  const ordinary = renderLog([selected], null)
+  for (const markup of [ticket, renderLog([event], null), renderLog([event], null, 'event-18-log?action=checkpoint')]) {
+    assert.equal((markup.match(/<span>Checkpoint<\/span>/g) || []).length, 1)
+    assert.match(markup, /The header was fixed\./)
+    assert.match(markup, /because it preserves quoted fields\./)
+    assert.match(markup, /href="https:\/\/example\.test\/csv-cases"/)
+  }
+  assert.doesNotMatch(ordinary, /<span>Checkpoint<\/span>|class="activity-mark checkpoint"/)
 })
 
 test('a single line or exactly repeated explicit details need no disclosure', () => {

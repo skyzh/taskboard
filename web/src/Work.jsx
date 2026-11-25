@@ -25,7 +25,7 @@ import TicketFields from './TicketFields.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import {
   actions, ActivityMark, addFilterName, Assignee, AssigneeAvatar, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, LoadMore, Options, OutcomeNote, PeerRequestContext, RecordedActivity, ResourceStatus, Status,
-  states, TaskLink, TaskPriority, Timestamp, WorkerAssignment, WorkerRunState, WorkerRunTiming, eventHref, profileName,
+  states, TaskLink, TaskPriority, Timestamp, WorkerAssignment, WorkerRunState, WorkerRunTiming, eventHref, isCheckpointActivity, profileName,
   taskHref, taskLabel, taskState,
 } from './shared.jsx'
 import { activityHeadline, ticketActivityCopy, waitLabel } from './workCopy.js'
@@ -262,6 +262,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
   const id = permalink ? eventHref(event.id).slice(1) : undefined
   const actor = profileName(event.actor, event.actor_profile)
   const result = activityHeadline(event)
+  const checkpoint = isCheckpointActivity(event)
   const timeLink = (
     <a href={eventHref(event.id)} aria-label={`Link to ${event.label.toLowerCase()} by ${actor} at ${formatTimestamp(event.at)}`}>
       <ReportTime at={event.at} linked />
@@ -279,6 +280,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
             {visibleResult && <MarkdownInline text={visibleResult} relatedTasks={event.related_tasks} />}
           </p>
           <p className="event-meta">
+            {checkpoint && <span>{actions.checkpoint}</span>}
             <span className="assignee"><AssigneeAvatar name={actor} url={event.actor_profile?.avatar_url} />{actor}</span>
             <ActivityWait event={event} headline={result} />
             {timeLink}
@@ -300,6 +302,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
     <li className="event-row" id={id} tabIndex={permalink ? -1 : undefined}>
       <p className="activity-result"><ActivityMark event={event} /> <MarkdownInline text={result} relatedTasks={event.related_tasks} /></p>
       <p className="event-meta">
+        {checkpoint && <span>{actions.checkpoint}</span>}
         <span>{actor}</span>
         <ActivityWait event={event} headline={result} />
         {timeLink}
@@ -663,6 +666,7 @@ export function ActivityEntry({ event, full, selected = false, exact = selected 
   const { formatTimestamp } = useTimeZone()
   const actor = profileName(event.actor, event.actor_profile)
   const result = activityHeadline(event)
+  const label = isCheckpointActivity(event) ? actions.checkpoint : full && event.label
   return (
     <li className="event-row activity-entry with-mark" id={eventHref(event.id).slice(1)}
       tabIndex={-1} aria-current={selected ? 'location' : undefined}>
@@ -678,7 +682,7 @@ export function ActivityEntry({ event, full, selected = false, exact = selected 
             <span>{actor}</span>
             {selected && <span>Linked event</span>}
             <ActivityWait event={event} headline={result} />
-            {full && <span>{event.label}</span>}
+            {label && <span>{label}</span>}
             <a href={eventHref(event.id)} aria-label={`Open activity by ${actor} at ${formatTimestamp(event.at)}`}>
               {exact ? <Timestamp at={event.at} /> : <ReportTime at={event.at} linked />}
             </a>

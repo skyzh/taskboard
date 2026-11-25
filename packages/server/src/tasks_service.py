@@ -4000,6 +4000,9 @@ def create_app(
             )
         if name == "record-activity":
             return record_activity(actor, number, data)
+        if name == "record-checkpoint":
+            fields = activity_text({"details": "", **data}, "log")
+            return mutate("log", actor, data, id=number, checkpoint=True, **fields)
         if name == "delegate":
             role = text(data, "role", maximum=30)
             if role not in ("build", "review"):
