@@ -39,6 +39,11 @@ SCHEMA = (
 HISTORY_LIMIT = 25
 
 
+def ensure_project_binding(db):
+    if "project_prefix" not in tasks_storage.table_columns(db, "recurring_definitions"):
+        db.execute("ALTER TABLE recurring_definitions ADD COLUMN project_prefix TEXT REFERENCES projects (prefix)")
+
+
 def utc(value):
     if isinstance(value, str):
         try:
@@ -68,18 +73,19 @@ def owned(db, number, actor):
     return row
 
 
-def create_definition(db, owner, key, title, step, hours, next_at, as_of, *, authored=False):
+def create_definition(db, owner, key, title, step, hours, next_at, as_of, *, authored=False,
+                      project=None, explicit_project=False):
     first = utc(next_at)
     if type(hours) is not int or hours <= 0:
         raise ValueError("Cadence must be a positive whole number of hours.")
     checked_slot(first, hours)
     fields = (title, step, hours, utc_text(first))
     current = db.execute(
-        "SELECT id, title, step, cadence_hours, first_at FROM recurring_definitions WHERE owner = ? AND schedule_key = ?",
+        "SELECT id, title, step, cadence_hours, first_at, project_prefix FROM recurring_definitions WHERE owner = ? AND schedule_key = ?",
         (owner, key),
     ).fetchone()
     if current is not None:
-        if tuple(current)[1:] != fields:
+        if tuple(current)[1:5] != fields or (explicit_project and current["project_prefix"] != project):
             raise ValueError("This owner already uses that recurrence key with different settings.")
         return current["id"], False
     if first < utc(as_of):
@@ -88,9 +94,9 @@ def create_definition(db, owner, key, title, step, hours, next_at, as_of, *, aut
         fields = (task_title(title), *fields[1:])
     number = tasks_storage.insert_id(
         db, """
-        INSERT INTO recurring_definitions (owner, schedule_key, title, step, cadence_hours, first_at, next_at, state)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
-        """, (owner, key, *fields, fields[-1]),
+        INSERT INTO recurring_definitions (owner, schedule_key, title, step, cadence_hours, first_at, next_at, state, project_prefix)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)
+        """, (owner, key, *fields, fields[-1], project),
     )
     return number, True
 
@@ -127,8 +133,11 @@ def record_due(db, definition, as_of, make_task=None):
 
 def edit(db, args, as_of):
     if args.command == "recurring-add":
+        project = getattr(args, "project", None)
         number, created = create_definition(
             db, args.dri, args.key, args.title, args.step, args.cadence_hours, args.next_at, as_of, authored=True,
+            project=projects.require(db, project) if project is not None else None,
+            explicit_project=getattr(args, "explicit_project", project is not None),
         )
         if created:
             audit.record(db, scope="private", actor=args.dri, operation="recurring-add",
@@ -170,17 +179,25 @@ def edit(db, args, as_of):
     return f"{reference} · {target.capitalize()}"
 
 
-def tick(db, as_of, make_task, *, recorded_at):
+def tick(db, as_of, make_task, *, recorded_at, project=None, actor=None):
     now = utc(as_of)
     totals = {"expected": 0, "issued": 0, "unissued": 0}
+    args = [utc_text(now)]
+    scope = ""
+    if project is not None:
+        scope = """AND COALESCE(
+            (SELECT project FROM project_maintenance WHERE definition_id = definition.id),
+            definition.project_prefix
+        ) = ?"""
+        args.append(project)
     due = db.execute(
-        "SELECT * FROM recurring_definitions WHERE state = 'active' AND next_at <= ? ORDER BY id",
-        (utc_text(now),),
+        f"""SELECT definition.* FROM recurring_definitions AS definition
+            WHERE state = 'active' AND next_at <= ? {scope} ORDER BY id""", args,
     ).fetchall()
     for definition in due:
         for field, amount in record_due(db, definition, now, make_task).items():
             totals[field] += amount
-        audit.record(db, scope="operator", actor=None, operation="recurring-tick",
+        audit.record(db, scope="private" if actor is not None else "operator", actor=actor, operation="recurring-tick",
                      record_type="recurrence", record_id=f"R-{definition['id']}", at=recorded_at)
     return {"as_of": utc_text(now), **totals}
 
@@ -227,6 +244,7 @@ def report(db, number, owner, as_of):
     return {
         "id": f"R-{number}", "title": row["title"], "key": row["schedule_key"],
         "owner": row["owner"], "state": row["state"], "cadence_hours": row["cadence_hours"],
+        **({"project": row["project_prefix"]} if "project_prefix" in row.keys() and row["project_prefix"] is not None else {}),
         "next_at": row["next_at"] if row["state"] == "active" else None,
         "as_of": cutoff, **counts, "unmaterialized": unmaterialized, "recent_occurrences": recent,
     }

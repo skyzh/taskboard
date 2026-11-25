@@ -28,7 +28,7 @@ WRITES = ADVANCES | {
     "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
     "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "raft-channel-set",
     "wake-subscribe", "wake-unsubscribe", "knowledge-add", "knowledge-place", "knowledge-stage", "knowledge-reconcile",
-    "worker-check", ledger.WRITE, PEER_ASK,
+    "worker-check", "recurring-tick", ledger.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
 def assert_actor(value, actor):
     if value is None:
@@ -266,7 +266,7 @@ def shared_write(board, args, *, context):
     elif command == "recurring-add":
         action = command
         data.update(key=args.key, title=args.title, step=args.step,
-                    cadence_hours=args.cadence_hours, next_at=args.next_at)
+                    cadence_hours=args.cadence_hours, next_at=args.next_at, project=args.project)
     elif command in ledger.EDITS:
         action = "recurring-state"
         data.update(id=f"R-{args.id}", change=command.removeprefix("recurring-"),
@@ -649,6 +649,8 @@ def shared_command(args):
             return "No Knowledge areas found."
         return with_guidance("\n".join(lines), "Open a listed index with `./tasks --shared show INDEX-TICKET`.")
     if command == "knowledge-reconcile":
+        return json.dumps(board.invoke(command, {"project": args.project}, write=True), ensure_ascii=False)
+    if command == "recurring-tick":
         return json.dumps(board.invoke(command, {"project": args.project}, write=True), ensure_ascii=False)
     if command in WRITES:
         result = shared_write(board, args, context=context)

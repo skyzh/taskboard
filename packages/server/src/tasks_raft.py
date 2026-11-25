@@ -135,12 +135,15 @@ _ACTIONS = {
     "knowledge-reconcile": _Action("POST", "Apply settled stages to Knowledge entries you own or manage.", {
         "project": "Project whose Knowledge entries to reconcile.",
     }),
-    "recurring-add": _Action("POST", "Define recurring work you own.", {
+    "recurring-add": _Action("POST", "Define recurring work you own in the selected or default project.", {
         "key": "Stable key for retrying this definition.",
         "title": "Short, actionable title for each occurrence.",
         "step": "First step for each occurrence.",
         "cadence_hours": "Number of whole hours between slots.",
         "next_at": "First slot in UTC, including seconds.",
+    }, _PROJECT),
+    "recurring-tick": _Action("POST", "Issue due recurring work in a project you manage using server time.", {
+        "project": "Project prefix whose due recurring work to issue.",
     }),
     "recurring-state": _Action("POST", "Pause, resume, or cancel recurring work you own.", {
         "id": "Definition ID, such as R-1.", "change": "Pause, resume, or cancel.",

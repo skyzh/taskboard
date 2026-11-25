@@ -409,6 +409,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None, initial_project=No
             ledger.ensure_record_kind(db)
             ledger.ensure_checklist_schema(db)
             projects.bootstrap(db, initial_project, required=require_initial)
+            tasks_recurring.ensure_project_binding(db)
             projects.ensure_alias_schema(db)
             db.execute(project_admin.SCHEMA)
             db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
@@ -3404,7 +3405,13 @@ def create_app(
                 title=text(data, "title"), step=text(data, "step"),
                 cadence_hours=integer(data.get("cadence_hours"), "Cadence hours"),
                 next_at=text(data, "next_at", maximum=40),
+                project=project_filter(data, use_default=True), explicit_project="project" in data,
             )
+        if name == "recurring-tick":
+            text(data, "project", maximum=8)
+            project = project_filter(data)
+            result = mutate("recurring-tick", actor, data, project=project)
+            return {"receipt": f"{project} · Recurring work checked", **json.loads(result["receipt"])}
         if name == "recurring-state":
             return change_recurring(actor, data, data.get("id"))
         if name == "recurring-show":

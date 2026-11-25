@@ -258,6 +258,7 @@ def arguments(argv=None):
     recurrence.add_argument("title", type=nonblank)
     recurrence.add_argument("--step", type=nonblank, required=True)
     recurrence.add_argument("--dri", type=nonblank)
+    recurrence.add_argument("--project", type=nonblank)
     recurrence.add_argument("--cadence-hours", type=int, required=True)
     recurrence.add_argument("--next-at", required=True, metavar="UTC")
     for change in ("pause", "resume", "cancel", "show"):
@@ -268,8 +269,9 @@ def arguments(argv=None):
             command.add_argument("--next-at", required=True, metavar="UTC")
         if change == "show":
             command.add_argument("--as-of", metavar="UTC", help="Set a local fixture observation time.")
-    tick = commands.add_parser("recurring-tick", help="Issue recurring tasks and release due deferrals on a local ledger.")
-    tick.add_argument("--as-of", required=True, metavar="UTC")
+    tick = commands.add_parser("recurring-tick", help="Issue due recurring work as a project manager or ledger operator.")
+    tick.add_argument("--project", type=nonblank, help="Run a signed tick for a project you manage.")
+    tick.add_argument("--as-of", metavar="UTC", help="Required observation time for an offline operator tick.")
     tick.add_argument("--deferrals-only", action="store_true",
                       help="Release exact-time ticket deferrals without issuing recurring work.")
 
@@ -584,8 +586,16 @@ def arguments(argv=None):
             parser.error("oidc-member requires a specific offline database selected with --db.")
         if args.operation == "revoke" and (args.ledger_key or args.name):
             parser.error("Revoke a member by issuer and subject.")
-    if args.command == "recurring-tick" and (args.mode != "offline" or args.db is None):
-        parser.error("recurring-tick requires an explicit local --db.")
+    if args.command == "recurring-tick":
+        if args.mode == "shared":
+            if args.as_of is not None or args.deferrals_only:
+                parser.error("An operator recurring-tick requires an explicit local --db.")
+            if args.project is None:
+                parser.error("A shared recurring-tick requires --project and uses server time.")
+        elif args.mode != "offline" or args.db is None:
+            parser.error("recurring-tick requires an explicit local --db.")
+        elif args.as_of is None or args.project is not None:
+            parser.error("An offline recurring-tick requires --as-of and runs across the ledger.")
     if args.command in (READ, WRITE) and args.mode == "offline" and args.db is None:
         parser.error(f"{args.command} requires an explicit local --db in offline mode.")
     if args.command in ("release-event", "notification-event") and (args.mode != "offline" or args.db is None):

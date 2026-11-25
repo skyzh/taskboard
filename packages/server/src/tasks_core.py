@@ -1805,6 +1805,7 @@ def ensure_schema(db, *, seed_legacy_project=True):
     ensure_record_kind(db, columns)
     ensure_checklist_schema(db)
     projects.ensure_schema(db, seed_legacy=seed_legacy_project)
+    tasks_recurring.ensure_project_binding(db)
     db.execute(maintenance.SCHEMA)
     releases.ensure_schema(db)
     for sql in merges.SCHEMA:
@@ -1926,6 +1927,8 @@ def issue_recurring_task(db, definition, due, as_of):
         if members:
             members.update((schedule["manager"], schedule["owner"]))
         args.brief, links = build(db, args.project, as_of, schedule["cadence_hours"], members or None)
+    elif definition["project_prefix"] is not None:
+        args.project = definition["project_prefix"]
     elif watches.has_table(db, "local_dris") and (local := local_dri.registration(db, definition["owner"])):
         args.project = local["project"]
     context = {"recurring": f"R-{definition['id']}", "due_at": due}
@@ -1957,15 +1960,22 @@ def save_task(db, path, args, links):
                 raise ValueError("Use maintenance-update to change a project schedule.")
             output = tasks_recurring.edit(db, args, timestamp())
         elif args.command == "recurring-tick":
-            as_of = tasks_recurring.utc_text(tasks_recurring.utc(args.as_of))
-            if args.deferrals_only:
+            project = getattr(args, "project", None)
+            now = timestamp()
+            if project is not None:
+                if not projects.manages(db, project, args.by):
+                    raise PermissionError("Only this project's manager can run its recurring work.")
+            as_of = now if project is not None else tasks_recurring.utc_text(tasks_recurring.utc(args.as_of))
+            if project is None and args.deferrals_only:
                 result = {"as_of": as_of, "released_deferrals": release_due_deferrals(db, as_of)}
             else:
                 result = tasks_recurring.tick(
                     db, as_of, lambda definition, due: issue_recurring_task(db, definition, due, as_of),
-                    recorded_at=timestamp(),
+                    recorded_at=now, project=project, actor=args.by if project is not None else None,
                 )
-                if released := release_due_deferrals(db, as_of):
+                if project is not None:
+                    result["project"] = project
+                elif released := release_due_deferrals(db, as_of):
                     result["released_deferrals"] = released
             output = json.dumps(result)
         elif args.command == peer_asks.COMMAND:

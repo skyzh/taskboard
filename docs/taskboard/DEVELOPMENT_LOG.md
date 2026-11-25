@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Project recurring work.** Managers can issue due work for their own project using the signed API or shared CLI. Upgrade the scheduler CLI before creating project-bound definitions. [Recurring work](SHARED-BOARD.md#recurring-work)
+
 - **Project agent collaboration.** An agent can correct the title or brief or hand off assigned work in a project where it can work. Activity records the signed actor and the previous values. [Local DRI workflow](LOCAL-DRI.md#work-in-the-registered-project)
 
 - **Local DRI workflow parity.** Upgrade the board and adapters to use ordinary agent actions within a Local DRI’s registered project. Verify the selected identity and scope with `context` and `capabilities`. [Local DRI workflow](LOCAL-DRI.md#work-in-the-registered-project)

@@ -2,6 +2,7 @@
 
 from tools.checkout import ROOT
 
+from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, redirect_stderr, redirect_stdout
 from io import StringIO
@@ -13,9 +14,14 @@ import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import taskboard_cli
 import tasks_core
+import tasks_maintenance
+import tasks_projects
+import tasks_recurring
+from tasks_storage import open_sqlite, write
 import test_tasks_service as service_fixture
 
 
@@ -27,11 +33,84 @@ SIXTEEN = "2026-11-20T16:00:00Z"
 TWENTY = "2026-11-20T20:00:00Z"
 
 
+def replay_project_tick(test, fixture, app, open_board):
+    manager, manager_key = fixture.login(app, "Avery")
+    cookie = manager.get_cookie(
+        "raft_board_session", domain=urlsplit(service_fixture.ORIGIN).hostname, path=service_fixture.BASE + "/",
+    )
+    duplicate = app.test_client()
+    duplicate.set_cookie(cookie.key, cookie.value, domain=cookie.domain, path=cookie.path)
+    owner, owner_key = fixture.login(app, "Blake")
+    with open_board() as db, write(db):
+        tasks_projects.register(db, "OPS", "Operations", manager_key)
+        tasks_projects.register(db, "LAB", "Lab", owner_key)
+        schedule = Namespace(maintenance_next_at=FOUR, maintenance_hours=4)
+        tasks_maintenance.seed(db, "OPS", manager_key, schedule, ZERO, live=True)
+        tasks_maintenance.seed(db, "LAB", owner_key, schedule, ZERO, live=True)
+        tasks_recurring.create_definition(
+            db, manager_key, "legacy", "Legacy review", "Read the sample.", 4, FOUR, ZERO,
+        )
+
+    definition = {
+        "key": "sample", "title": "Review the sample", "step": "Read the sample.",
+        "cadence_hours": 4, "next_at": FOUR,
+    }
+    with patch("tasks_core.timestamp", return_value=ZERO):
+        result = fixture.action(owner, "recurring-add", {**definition, "project": "OPS"})
+        bound = result["receipt"].split()[0]
+        test.assertEqual(fixture.action(owner, "recurring-show", query_string={"id": bound})["project"], "OPS")
+        fixture.action(owner, "recurring-add", {**definition, "project": "LAB"}, status=409)
+        fixture.action(owner, "recurring-add", {**definition, "key": "lab", "project": "LAB"})
+
+    def run_tick(client):
+        return fixture.action(client, "recurring-tick", {"project": "OPS"})
+
+    with patch("tasks_core.timestamp", return_value=EIGHT):
+        fixture.action(owner, "recurring-tick", {"project": "OPS"}, status=403)
+        fixture.action(manager, "recurring-tick", {"project": "LAB"}, status=403)
+        fixture.action(manager, "recurring-tick", {"project": "OPS", "as_of": TWELVE}, status=400)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = sorted(pool.map(run_tick, (manager, duplicate)), key=lambda result: result["issued"])
+        test.assertEqual(
+            [{key: result[key] for key in ("project", "as_of", "expected", "issued", "unissued")} for result in results],
+            [
+                {"project": "OPS", "as_of": EIGHT, "expected": 0, "issued": 0, "unissued": 0},
+                {"project": "OPS", "as_of": EIGHT, "expected": 4, "issued": 2, "unissued": 2},
+            ],
+        )
+        status, output, errors = fixture.shared_cli(manager, "recurring-tick", "--project", "OPS")
+        test.assertEqual((status, errors), (0, ""))
+        test.assertEqual(json.loads(output)["issued"], 0)
+
+        with open_board() as db:
+            test.assertEqual([tuple(row) for row in db.execute(
+                "SELECT project_prefix, dri FROM tasks ORDER BY id",
+            )], [("OPS", manager_key), ("OPS", owner_key)])
+            test.assertEqual([tuple(row) for row in db.execute(
+                "SELECT next_at, COUNT(*) FROM recurring_definitions GROUP BY next_at ORDER BY next_at",
+            )], [(FOUR, 3), (TWELVE, 2)])
+            test.assertEqual([tuple(row) for row in db.execute(
+                "SELECT scope, actor FROM audit_events WHERE operation = 'recurring-tick' ORDER BY id",
+            )], [("private", manager_key), ("private", manager_key)])
+            operator = Namespace(command="recurring-tick", as_of=EIGHT, deferrals_only=False)
+            test.assertEqual(json.loads(tasks_core.save_task(db, None, operator, []))["issued"], 3)
+            test.assertEqual([tuple(row) for row in db.execute(
+                "SELECT project_prefix, COUNT(*) FROM tasks GROUP BY project_prefix ORDER BY project_prefix",
+            )], [("LAB", 2), ("OPS", 2), ("T", 1)])
+
+
 class RecurringFixtureTest(unittest.TestCase):
     def setUp(self):
         directory = TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.db = Path(directory.name) / "fixture.sqlite3"
+
+    def test_sqlite_signed_project_tick(self):
+        fixture = service_fixture.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        app = fixture.app(portal_reader=True)
+        replay_project_tick(self, fixture, app, lambda: closing(open_sqlite(fixture.database)))
 
     def command(self, *args, now=ZERO, status=0):
         out, errors = StringIO(), StringIO()
