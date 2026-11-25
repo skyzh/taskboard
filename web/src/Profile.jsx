@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
+import React, { useContext, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
 import { Monitor, Moon, Sun } from 'lucide-react'
+import { isBackendError } from './boardAvailability.js'
+import { BoardOutageContext } from './BoardOutage.jsx'
 import { request, signOut } from './data.js'
 import { AssigneeAvatar, ResourceStatus, useSignInHref } from './shared.jsx'
 import { matchesBoardShortcut } from './shortcuts.js'
@@ -144,8 +146,9 @@ export default function Profile({ session, fragment, theme, freshness, settingsH
     }
   }, [open])
 
+  const outage = useContext(BoardOutageContext)
   if (session.pending && !actor) return null
-  if (session.error && session.error.status !== 401) {
+  if (session.error && session.error.status !== 401 && !(outage && actor && isBackendError(session.error))) {
     return <ResourceStatus resource={session} label="your session" />
   }
 

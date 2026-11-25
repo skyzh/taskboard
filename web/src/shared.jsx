@@ -1,4 +1,4 @@
-import React, { useId, useState } from 'react'
+import React, { useContext, useId, useState } from 'react'
 import { BoardLink, useBoardLocation } from './BoardNavigation.jsx'
 import { legacyLocation, routeAddress } from './boardRoutes.js'
 import {
@@ -12,6 +12,8 @@ import { evidenceLinkLabel, markdownHref } from './sourceLinks.js'
 import { useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
 import { DemoUnavailable } from './DemoControl.jsx'
+import { BoardOutageContext, ReadPlaceholder } from './BoardOutage.jsx'
+import { isBackendError } from './boardAvailability.js'
 
 export const states = {
   human_review: 'Assigned to human',
@@ -597,6 +599,10 @@ export function OutcomeNote({ event, headline, withEvidence = true, choiceShown 
 }
 
 export function ResourceStatus({ resource, label }) {
+  const outage = useContext(BoardOutageContext)
+  if (outage && (isBackendError(resource.error) || (!resource.error && resource.pending))) {
+    return resource.data == null ? <ReadPlaceholder label={label} /> : null
+  }
   if (resource.pending && !resource.data) return <p className="section-message" role="status">Loading {label}…</p>
   if (!resource.error) return null
   return (
@@ -608,6 +614,8 @@ export function ResourceStatus({ resource, label }) {
 }
 
 export function LoadMore({ page, label, onActivate }) {
+  const outage = useContext(BoardOutageContext)
+  if (outage && isBackendError(page.moreError)) return <ReadPlaceholder label={`More ${label}`} compact />
   if (page.data?.next_cursor == null) return null
   const action = page.moreError ? page.retry : page.loadMore
   return (

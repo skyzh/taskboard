@@ -30,7 +30,7 @@ test('keeps the previous board while disconnected and refreshes on recovery', as
     if (revision === null) throw new Error('connection lost')
     return Response.json({ revision })
   }
-  const stop = watchBoardRevision(() => { refreshes += 1 }, status => statuses.push(status))
+  const { stop } = watchBoardRevision(() => { refreshes += 1 }, status => statuses.push(status))
   try {
     await new Promise(setImmediate)
     assert.equal(refreshes, 1)
@@ -39,7 +39,7 @@ test('keeps the previous board while disconnected and refreshes on recovery', as
     assert.equal(statuses[1].source, 'poll')
     await tick()
     assert.equal(refreshes, 1)
-    assert.deepEqual(statuses.slice(-2), [{ checking: true }, { stale: true, checking: false }])
+    assert.deepEqual(statuses.slice(-2), [{ checking: true }, { stale: true, backendUnavailable: false, checking: false }])
     await tick()
     assert.equal(refreshes, 2)
     assert.equal(statuses.at(-1).stale, false)
@@ -63,6 +63,7 @@ test('revision socket refreshes on change and polling resumes while it reconnect
   let polls = 0
   let refreshes = 0
   let httpRevision = '1-1'
+  let httpStatus = 200
   class FixtureSocket {
     constructor(url) {
       assert.equal(url.href, 'wss://fixture.example.test/tasks/api/v1/revisions')
@@ -89,13 +90,15 @@ test('revision socket refreshes on change and polling resumes while it reconnect
     setInterval(next) { timer = next; return 1 }, clearInterval() {},
   }
   globalThis.fetch = async (path, { signal }) => {
+    if (path === './api/v1/reports') return new Response(null, { status: 500 })
     assert.equal(path, './api/v1/revision')
     polls += 1
     if (polls === 1) return new Promise(resolve => { initialPoll = { resolve, signal } })
+    if (httpStatus !== 200) return new Response(null, { status: httpStatus })
     if (httpRevision === null) throw new Error('connection lost')
     return Response.json({ revision: httpRevision })
   }
-  const stop = watchBoardRevision(() => { refreshes += 1 }, status => statuses.push(status), { websocket: true })
+  const { stop, retry } = watchBoardRevision(() => { refreshes += 1 }, status => statuses.push(status), { websocket: true })
   try {
     assert.deepEqual(statuses, [{ checking: true }])
     sockets[0].connect()
@@ -125,7 +128,7 @@ test('revision socket refreshes on change and polling resumes while it reconnect
     sockets[1].close()
     httpRevision = null
     await timer()
-    assert.deepEqual(statuses.at(-1), { stale: true, checking: false })
+    assert.deepEqual(statuses.at(-1), { stale: true, backendUnavailable: false, checking: false })
     assert.equal(refreshes, 3)
     sockets[2].connect()
     sockets[2].sendRevision('3-3')
@@ -133,6 +136,20 @@ test('revision socket refreshes on change and polling resumes while it reconnect
     assert.equal(statuses.at(-1).stale, false)
     assert.equal(statuses.at(-1).checking, false)
     assert.equal(refreshes, 4)
+
+    httpStatus = 503
+    await assert.rejects(request('/reports'), /Taskboard could not complete this request/)
+    await new Promise(setImmediate)
+    assert.equal(statuses.at(-1).backendUnavailable, true)
+    sockets[2].sendRevision('4-4')
+    assert.equal(statuses.at(-1).backendUnavailable, true)
+    assert.equal(refreshes, 4)
+    httpStatus = 200
+    httpRevision = '4-4'
+    await retry()
+    assert.equal(statuses.at(-1).backendUnavailable, false)
+    assert.equal(refreshes, 5)
+
     assert.equal(window.location.href, 'https://fixture.example.test/tasks/tickets/1')
   } finally {
     stop()

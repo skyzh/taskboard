@@ -41,7 +41,7 @@ export default function ProjectSettings({ revision, onProjectCreated }) {
     <section className="panel settings-panel" aria-labelledby="project-settings">
       <h2 id="project-settings">Projects</h2>
       <ResourceStatus resource={permissions} label="project permissions" />
-      {!permissions.error && canCreate && (
+      {canCreate && (
         <form className="ownership-form project-create-form" onSubmit={createProject}>
           <h3>Create project</h3>
           <label>Project name <input name="title" required disabled={disabled} /></label>

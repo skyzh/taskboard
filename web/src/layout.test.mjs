@@ -12,6 +12,8 @@ let TaskDetail
 let Assignee
 let notificationLogFilters
 let NotificationLogEntry
+let ResourceStatus
+let BoardOutageContext
 before(async () => {
   vite = await createServer({
     root: fileURLToPath(new URL('..', import.meta.url)),
@@ -24,8 +26,9 @@ before(async () => {
   const work = await vite.ssrLoadModule('/src/Work.jsx')
   WorkQueue = work.WorkQueue
   TaskDetail = work.TaskDetail
-  ;({ Assignee, notificationLogFilters } = await vite.ssrLoadModule('/src/shared.jsx'))
+  ;({ Assignee, notificationLogFilters, ResourceStatus } = await vite.ssrLoadModule('/src/shared.jsx'))
   ;({ NotificationLogEntry } = await vite.ssrLoadModule('/src/NotificationLog.jsx'))
+  ;({ BoardOutageContext } = await vite.ssrLoadModule('/src/BoardOutage.jsx'))
 })
 after(() => vite?.close())
 
@@ -48,6 +51,23 @@ test('board routes share one keyboard-focusable main scroll region beneath the h
     assert.equal((markup.match(/<main\b/g) || []).length, 1, fragment)
     assert.match(markup, /<\/header><main tabindex="0" aria-label="Taskboard content"><div class="main-content">/)
   }
+})
+
+test('a board outage reserves space for missing reads and keeps specific errors actionable', () => {
+  const unavailable = { status: 502, message: 'Upstream failed' }
+  const renderStatus = (resource, outage = true) => renderToStaticMarkup(
+    React.createElement(BoardOutageContext.Provider, { value: outage },
+      React.createElement(ResourceStatus, { resource, label: 'task activity' })),
+  )
+
+  const placeholder = renderStatus({ error: unavailable })
+  assert.match(placeholder, /class="read-placeholder"/)
+  assert.match(placeholder, /task activity could not be loaded/)
+  assert.doesNotMatch(placeholder, /Upstream failed|<button/)
+  assert.equal(renderStatus({ error: unavailable, data: { items: [] } }), '')
+  assert.match(renderStatus({ error: unavailable }, false), /Upstream failed.*<button/)
+  assert.match(renderStatus({ error: { status: 403, message: 'Sign in as the ticket owner' } }),
+    /Sign in as the ticket owner.*<button/)
 })
 
 test('Reports links to Team overview without embedding the board-wide feed', () => {

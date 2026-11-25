@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useResource } from './data.js'
-import { Timestamp } from './shared.jsx'
+import { ResourceStatus, Timestamp } from './shared.jsx'
 
 const gitCommit = /^[a-f0-9]{40}$/i
 const utcTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|\+00:00)$/
@@ -47,23 +47,18 @@ export default function About({ revision }) {
     <section className="about" aria-labelledby="about">
       <div className="page-heading"><h1 id="about">About</h1></div>
       <div className="panel about-panel">
-        {release.pending && !metadata ? <p role="status">Loading release information…</p>
-          : release.error?.status === 404 ? <p>Release information is unavailable on this installation.</p>
-          : release.error ? (
-            <div className="section-message" role="status">
-              <p>Couldn’t load release information.</p>
-              <button type="button" onClick={release.retry}>Retry</button>
-            </div>
-          ) : (
-            <dl className="about-release">
-              <dt>Git commit</dt>
-              <dd>{commit ? <ReleaseCommit key={commit} commit={commit} /> : <span className="about-unavailable">Unavailable</span>}</dd>
-              <dt>Built at</dt>
-              <dd><ReleaseTime value={metadata?.built_at} /></dd>
-              <dt>Deployed at</dt>
-              <dd><ReleaseTime value={metadata?.deployed_at} /></dd>
-            </dl>
-          )}
+        {release.error?.status === 404 ? <p>Release information is unavailable on this installation.</p>
+          : <ResourceStatus resource={release} label="release information" />}
+        {metadata && (
+          <dl className="about-release">
+            <dt>Git commit</dt>
+            <dd>{commit ? <ReleaseCommit key={commit} commit={commit} /> : <span className="about-unavailable">Unavailable</span>}</dd>
+            <dt>Built at</dt>
+            <dd><ReleaseTime value={metadata?.built_at} /></dd>
+            <dt>Deployed at</dt>
+            <dd><ReleaseTime value={metadata?.deployed_at} /></dd>
+          </dl>
+        )}
       </div>
     </section>
   )

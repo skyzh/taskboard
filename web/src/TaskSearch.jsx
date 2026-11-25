@@ -168,7 +168,8 @@ export function TaskSearch({ query, fragment }) {
 export function SearchResults({ query, revision }) {
   const page = useLoadedPages('/tasks', { q: query, scope: 'all' }, revision)
   const items = page.data?.items
-  const suggestions = useResource(items?.length === 0 && query.length >= 2
+  const checksSuggestions = items?.length === 0 && query.length >= 2
+  const suggestions = useResource(checksSuggestions
     ? queryPath('/tasks/suggestions', { q: query, scope: 'all' }) : null, revision)
   const matches = suggestions.data?.items || []
 
@@ -178,7 +179,8 @@ export function SearchResults({ query, revision }) {
         <h1 id="search-results">Results for “{query}”</h1>
       </div>
       <ResourceStatus resource={page} label="search results" />
-      {items?.length === 0 && !suggestions.pending && matches.length === 0 && (
+      {checksSuggestions && <ResourceStatus resource={suggestions} label="suggested matches" />}
+      {items?.length === 0 && (!checksSuggestions || suggestions.data) && matches.length === 0 && (
         <p className="section-message" role="status">No tasks match your search.</p>
       )}
       {matches.length > 0 && (

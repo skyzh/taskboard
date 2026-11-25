@@ -273,6 +273,8 @@ export default function Schedules({ id, project, requestedProject, projectPicker
           {resource.data && (id ? <ScheduleDetail data={resource.data} onChanged={onChanged} />
             : <ScheduleContents data={resource.data} project={project} allProjects={allProjects} onChanged={onChanged} />)}
         </>
+      ) : !session.data && (session.pending || (session.error && session.error.status !== 401)) ? (
+        <ResourceStatus resource={session} label={label} />
       ) : (
         <p>{session.data?.sign_in_available || session.error?.status === 401
           ? <a href={login}>Sign in with Raft</a>

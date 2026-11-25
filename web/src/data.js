@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { isBackendError } from './boardAvailability.js'
 
 let activeMutations = 0
 let previewRequest
+const boardReads = new EventTarget()
 
 export function configurePreviewData(readRequest) {
   previewRequest = readRequest
@@ -33,9 +35,13 @@ export async function request(path, { signal, cache, body, method = body ? 'POST
     const data = response.status === 204 ? null : await response.json().catch(() => null)
     if (!response.ok) {
       const message = data?.message || data?.error
-      const error = new Error(typeof message === 'string' ? message : `Request failed (${response.status}).`)
+      const fallback = isBackendError(response) ? 'Taskboard could not complete this request.' : `Request failed (${response.status}).`
+      const error = new Error(typeof message === 'string' ? message : fallback)
       error.status = response.status
       if (typeof data?.code === 'string') error.code = data.code
+      if (!mutation && isBackendError(error) && path !== '/revision' && path !== '/frontend-build') {
+        boardReads.dispatchEvent(new Event('backend-error'))
+      }
       throw error
     }
     if (response.status !== 204 && data === null) throw new Error('The server returned an invalid response.')
@@ -104,31 +110,37 @@ export function watchFrontendBuild(onDeferred) {
 export function watchBoardRevision(onChange, onStatus, { websocket = false } = {}) {
   let previous
   let unavailable = false
+  let backendUnavailable = false
   let timer
   let active
   let stream
 
-  function observed(revision, source) {
+  function observed(revision, source, refresh = false) {
     if (typeof revision !== 'string') throw new Error('The server did not return a revision.')
-    if (previous !== revision || unavailable) onChange()
+    if (source === 'socket' && backendUnavailable) return
+    if (previous !== revision || unavailable || refresh) onChange()
+    if (backendUnavailable || refresh) boardReads.dispatchEvent(new Event('recover'))
     previous = revision
     unavailable = false
-    onStatus?.({ stale: false, checking: false, checkedAt: new Date().toISOString(), source })
+    backendUnavailable = false
+    onStatus?.({ stale: false, backendUnavailable, checking: false, checkedAt: new Date().toISOString(), source })
   }
 
-  async function poll() {
-    if (document.visibilityState !== 'visible' || active || stream?.readyState === 1) return
+  async function poll({ probe = false, refresh = false } = {}) {
+    if (document.visibilityState !== 'visible' || active) return
+    if (stream?.readyState === 1 && !probe && !backendUnavailable) return
     const controller = new AbortController()
     active = controller
     onStatus?.({ checking: true })
     try {
       const { revision } = await request('/revision', { signal: controller.signal })
       if (controller.signal.aborted) return
-      observed(revision, 'poll')
-    } catch {
+      observed(revision, 'poll', refresh)
+    } catch (error) {
       if (!controller.signal.aborted) {
         unavailable = true
-        onStatus?.({ stale: true, checking: false })
+        backendUnavailable = isBackendError(error)
+        onStatus?.({ stale: true, backendUnavailable, checking: false })
       }
     } finally {
       if (active === controller) active = null
@@ -147,7 +159,7 @@ export function watchBoardRevision(onChange, onStatus, { websocket = false } = {
       }
       stream = next
       next.onopen = () => {
-        if (stream === next) {
+        if (stream === next && !backendUnavailable) {
           active?.abort()
           active = null
         }
@@ -184,11 +196,17 @@ export function watchBoardRevision(onChange, onStatus, { websocket = false } = {
     }
   }
 
+  const probeBackend = () => poll({ probe: true })
+  boardReads.addEventListener('backend-error', probeBackend)
   document.addEventListener('visibilitychange', visibilityChanged)
   visibilityChanged()
-  return () => {
-    document.removeEventListener('visibilitychange', visibilityChanged)
-    stop()
+  return {
+    retry: () => poll({ probe: true, refresh: true }),
+    stop() {
+      boardReads.removeEventListener('backend-error', probeBackend)
+      document.removeEventListener('visibilitychange', visibilityChanged)
+      stop()
+    },
   }
 }
 
@@ -200,7 +218,11 @@ export function useResource(path, revision = 0) {
     if (!path) return
     const controller = new AbortController()
     const complete = outcome => {
-      if (!controller.signal.aborted) setResult({ path, revision, attempt, ...outcome })
+      if (!controller.signal.aborted) setResult(previous => ({
+        path, revision, attempt,
+        ...(isBackendError(outcome.error) && previous?.path === path && { data: previous.data }),
+        ...outcome,
+      }))
     }
     request(path, { signal: controller.signal }).then(
       data => complete({ data }),
@@ -210,9 +232,18 @@ export function useResource(path, revision = 0) {
   }, [path, revision, attempt])
 
   const current = result && result.path === path && result.revision === revision && result.attempt === attempt
+  const lastError = result?.path === path ? result?.error : undefined
+  useEffect(() => {
+    if (!current || !isBackendError(lastError)) return
+    const retry = () => setAttempt(value => value + 1)
+    boardReads.addEventListener('recover', retry)
+    return () => boardReads.removeEventListener('recover', retry)
+  }, [current, lastError])
+
   return {
     data: result && result.path === path ? result.data : undefined,
     error: current ? result.error : undefined,
+    lastError,
     pending: Boolean(path && !current),
     retry: () => setAttempt(value => value + 1),
   }
