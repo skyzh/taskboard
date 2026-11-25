@@ -181,26 +181,37 @@ function ScheduleLink({ schedule, project }) {
   return <a href={scheduleHref(schedule.id, project)}>{schedule.id} · {schedule.title}</a>
 }
 
-export function ScheduleContents({ data, project, onChanged }) {
-  const { recurring, maintenance } = data
+export function ScheduleContents({ data, project, allProjects, onChanged }) {
+  const { recurring, maintenance, project_maintenance: projectMaintenance } = data
   const schedule = maintenance.schedule
   return (
     <>
       <section className="panel schedule-panel" aria-labelledby="recurring-title">
         <h2 id="recurring-title">Your recurring work</h2>
-        {recurring.length === 0 && <p>You have no recurring schedules in this project.</p>}
+        {recurring.length === 0 && <p>{allProjects
+          ? 'You have no recurring schedules.' : 'You have no recurring schedules in this project.'}</p>}
         {recurring.map(item => (
           <article key={item.id} className="schedule-item">
-            <h3><ScheduleLink schedule={item} project={project} /></h3>
+            <h3><ScheduleLink schedule={item} project={item.project || project} /></h3>
+            {allProjects && <p>{item.project}</p>}
             <ScheduleSummary schedule={item} />
             <OccurrenceHistory occurrences={item.recent_occurrences} />
-            <ScheduleControls schedule={item} onChanged={onChanged} />
+            {!allProjects && <ScheduleControls schedule={item} onChanged={onChanged} />}
           </article>
         ))}
       </section>
       <section className="panel schedule-panel" aria-labelledby="maintenance-title">
         <h2 id="maintenance-title">Project maintenance</h2>
-        {!maintenance.editable && <p>Only the project manager can view and edit this schedule.</p>}
+        {allProjects && !projectMaintenance?.length && <p>You have no project maintenance schedules.</p>}
+        {allProjects && projectMaintenance?.map(item => (
+          <article key={item.id} className="schedule-item">
+            <h3><ScheduleLink schedule={item} project={item.project} /></h3>
+            <p>{item.project}</p>
+            <ScheduleSummary schedule={item} />
+            <OccurrenceHistory occurrences={item.recent_occurrences} />
+          </article>
+        ))}
+        {!allProjects && !maintenance.editable && <p>Only the project manager can view and edit this schedule.</p>}
         {maintenance.editable && !schedule && <p>This project has no maintenance schedule.</p>}
         {schedule && (
           <>
@@ -235,8 +246,9 @@ function ScheduleDetail({ data, onChanged }) {
   )
 }
 
-export default function Schedules({ id, project, requestedProject, projectPicker, session, verified, revision, onChanged }) {
-  const path = id ? queryPath(`/schedules/${id}`, { project: requestedProject }) : queryPath('/schedules', { project })
+export default function Schedules({ id, project, requestedProject, projectPicker, session, verified, revision, onChanged, allProjects }) {
+  const path = id ? queryPath(`/schedules/${id}`, { project: requestedProject })
+    : queryPath('/schedules', allProjects ? { scope: 'all' } : { project })
   const resource = useResource(verified ? path : null, revision)
   const listProject = resource.data?.project || project
   const detailTitle = resource.data?.schedule?.title
@@ -248,7 +260,7 @@ export default function Schedules({ id, project, requestedProject, projectPicker
         <h1 id={id ? `schedule-${id}` : 'schedules'}>{heading}</h1>
         {id ? <a href={schedulesHref(listProject)}>Back to Schedules</a> : <>
           {projectPicker}
-          <a href={'#' + new URLSearchParams({ project })}>Back to Tasks</a>
+          <a href={'#' + new URLSearchParams(allProjects ? { scope: 'all' } : { project })}>Back to Tasks</a>
         </>}
       </div>
       {verified ? (
@@ -256,11 +268,11 @@ export default function Schedules({ id, project, requestedProject, projectPicker
           {id && resource.error?.status === 404 ? <p className="section-message" role="status">Schedule unavailable.</p>
             : <ResourceStatus resource={resource} label={label} />}
           {resource.data && (id ? <ScheduleDetail data={resource.data} onChanged={onChanged} />
-            : <ScheduleContents data={resource.data} project={project} onChanged={onChanged} />)}
+            : <ScheduleContents data={resource.data} project={project} allProjects={allProjects} onChanged={onChanged} />)}
         </>
       ) : (
         <p>{session.data?.sign_in_available || session.error?.status === 401
-          ? <a href={signInHref(id ? scheduleHref(id, requestedProject) : schedulesHref(project))}>Sign in with Raft</a>
+          ? <a href={signInHref(id ? scheduleHref(id, requestedProject) : schedulesHref(project, allProjects))}>Sign in with Raft</a>
           : 'Schedules are available on the signed-in board.'}</p>
       )}
     </>

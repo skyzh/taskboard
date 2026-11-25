@@ -331,20 +331,20 @@ def project_agents(db, project, roster):
     return db.execute(
         f"""
         WITH receipts AS ({RECIPIENTS}), people AS (
-            SELECT dri FROM projects WHERE prefix = ?
-            UNION SELECT dri FROM tasks WHERE project_prefix = ?
+            SELECT dri FROM projects WHERE (? IS NULL OR prefix = ?)
+            UNION SELECT dri FROM tasks WHERE (? IS NULL OR project_prefix = ?)
             UNION SELECT notices.recipient
                 FROM receipts AS notices
                 JOIN events ON events.id = notices.source_event_id
                 JOIN tasks ON tasks.id = events.task_id
-                WHERE tasks.project_prefix = ?
+                WHERE (? IS NULL OR tasks.project_prefix = ?)
         )
         SELECT principals.subject, principals.ledger_key,
                COALESCE(NULLIF(principals.name, ''), NULLIF(principals.username, ''), principals.ledger_key) AS name
         FROM board_principals AS principals
         WHERE principals.kind = 'agent' AND (principals.ledger_key IN (SELECT dri FROM people){roster_scope})
         ORDER BY LOWER(name), principals.subject
-        """, (project, project, project, *roster),
+        """, (project, project, project, project, project, project, *roster),
     ).fetchall()
 
 
@@ -355,14 +355,14 @@ def has_receipts(db, project):
         SELECT 1 FROM receipts AS notices
         JOIN events ON events.id = notices.source_event_id
         JOIN tasks ON tasks.id = events.task_id
-        WHERE tasks.project_prefix = ?
+        WHERE (? IS NULL OR tasks.project_prefix = ?)
         LIMIT 1
-        """, (project,),
+        """, (project, project),
     ).fetchone() is not None
 
 
 def listing(db, project, recipient, state, kind, *, before, limit, before_wake=False):
-    filters, bindings = ["tasks.project_prefix = ?"], [project]
+    filters, bindings = ["(? IS NULL OR tasks.project_prefix = ?)"], [project, project]
     if recipient is not None:
         filters.append("notices.recipient = ?")
         bindings.append(recipient)

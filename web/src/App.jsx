@@ -211,6 +211,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const assigneeView = requestedAssigneeView === 'idle' ? 'all'
     : ['all', 'recent'].includes(requestedAssigneeView) ? requestedAssigneeView : 'active'
   const showGoalActivity = requestedAssigneeView === 'goal-activity'
+  const allGoalActivity = showGoalActivity && reportsParams?.get('scope') === 'all'
   const goalAgent = reportsParams?.get('agent')
   const goalKey = reportsParams?.get('goal')
   const allReports = !fragment || taskAnchor === 'reports-all'
@@ -294,6 +295,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
   }
   const reportsProject = visibleProjects?.find(entry => entry.prefix === requestedReportsProject)?.prefix
     || defaultProject
+  const supportsAllProjects = ['board', 'team-overview'].includes(view) || (view === 'schedules' && !scheduleId)
+  const allProjectRead = supportsAllProjects && params.get('scope') === 'all'
   const project = view === 'reports' ? reportsProject : selected ? namedTask?.split('-')[0] || 'T'
     : logFilters?.project || scheduleProject || params.get('project') || preferredProject
   useEffect(() => {
@@ -317,7 +320,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   }, [view, fromList])
   const overview = useResource(
     !needsOidcSignIn && (!projectsPending || view === 'activity') && ['board', 'team-overview', 'activity'].includes(view)
-      ? queryPath('/overview', { project: view === 'activity' ? undefined : project })
+      ? queryPath('/overview', allProjectRead ? { scope: 'all' } : { project: view === 'activity' ? undefined : project })
       : null,
     revision,
   )
@@ -379,10 +382,23 @@ export default function App({ previewNotice, tourSteps } = {}) {
   }
   const projectPicker = hasProjectChoices && (
     <label className="project-switcher embedded-picker">
-      <select aria-label="Project" value={showAllReports ? 'all' : project} onChange={event => {
+      <select aria-label="Project" value={showAllReports || allProjectRead || allGoalActivity ? 'all' : project} onChange={event => {
         const value = event.target.value
+        if (supportsAllProjects) {
+          if (value !== 'all') chooseProject(value)
+          if (view === 'schedules') {
+            window.location.hash = schedulesHref(value === 'all' ? undefined : value, value === 'all')
+            return
+          }
+          setQueueFilters(previous => ({ ...previous, tag: undefined }))
+          const next = new URLSearchParams(value === 'all' ? { scope: 'all' } : { project: value })
+          if (view === 'team-overview') next.set('section', 'team-overview')
+          window.location.hash = next.toString()
+          return
+        }
         if (value === 'all') {
-          window.location.hash = reportFragment('all', assigneeView)
+          window.location.hash = showGoalActivity ? goalActivityFragment(null, goalAgent, goalKey)
+            : reportFragment('all', assigneeView)
           return
         }
         chooseProject(value)
@@ -393,7 +409,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
           : view === 'schedules' ? schedulesHref(value)
           : view
       }}>
-        {view === 'reports' && <option value="all">All projects</option>}
+        {(view === 'reports' || supportsAllProjects) && <option value="all">All projects</option>}
         {visibleProjects.map(entry => <option key={entry.prefix} value={entry.prefix}>{entry.title}</option>)}
       </select>
       <ChevronDown size={14} aria-hidden="true" focusable="false" />
@@ -477,8 +493,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
               <p className="section-message" role="status">Loading Reports…</p>
             </section>
             : showGoalActivity
-              ? <GoalActivity key={project} project={project} revision={revision} agent={goalAgent} goal={goalKey}
-                onFilter={(agent, goal) => writeFilterFragment(goalActivityFragment(project, agent, goal))} />
+              ? <GoalActivity key={allGoalActivity ? 'all' : project} project={allGoalActivity ? null : project}
+                revision={revision} agent={goalAgent} goal={goalKey}
+                onFilter={(agent, goal) => writeFilterFragment(goalActivityFragment(allGoalActivity ? null : project, agent, goal))} />
               : <Reports revision={revision} project={projectsPending ? undefined : project}
                 defaultProject={defaultProject} assigneeView={assigneeView}
                 onAssigneeViewChange={value => writeFilterFragment(reportFragment(allReports ? 'all' : project, value, defaultProject), false)}
@@ -517,15 +534,16 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'my-activity' && <MyActivity revision={revision} />}
           {view === 'schedules' && <Schedules key={JSON.stringify([session.data?.actor?.id, scheduleId])}
             id={scheduleId} project={project} requestedProject={scheduleProject} projectPicker={projectPicker}
-            revision={revision} session={session} verified={verified} onChanged={refresh} />}
+            allProjects={allProjectRead} revision={revision} session={session} verified={verified} onChanged={refresh} />}
           {view === 'board' && (
             <>
               {projectPicker && <div className="tasks-desktop-project">{projectPicker}</div>}
               <div className="page-heading tasks-heading"><h1 id="board">Tasks</h1>
-                {verified && <a href={schedulesHref(project)}>Schedules</a>}
+                {verified && <a href={schedulesHref(allProjectRead ? undefined : project, allProjectRead)}>Schedules</a>}
               </div>
               <WorkQueue revision={revision} overview={overview.data} filters={queueFilters} setFilters={setQueueFilters}
                 waitingLabel={waitingLabel} setWaitingLabel={setWaitingLabel}
+                allProjects={allProjectRead}
                 project={projectsPending && !params.get('project') ? undefined : project} projectPicker={projectPicker}
                 layout={queueLayout} setLayout={setQueueLayout} phoneColumn={phoneColumn} setPhoneColumn={setPhoneColumn}
                 kanbanNavigation={kanbanNavigation} listNavigation={listNavigation} listReturn={listReturn} />
@@ -543,8 +561,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'team-overview' && (
             <>
               <div className="page-heading"><h1 id="team-overview">Team overview</h1></div>
-              <Overview key={project} resource={overview} revision={revision} project={project} />
-              <Outcomes key={project} revision={revision} project={project} />
+              <Overview key={allProjectRead ? 'all' : project} resource={overview} revision={revision} project={project}
+                allProjects={allProjectRead} />
+              <Outcomes key={allProjectRead ? 'all' : project} revision={revision} project={project} allProjects={allProjectRead} />
             </>
           )}
         </div>

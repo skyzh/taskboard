@@ -15,9 +15,9 @@ const shortDay = new Intl.DateTimeFormat('en-US', { month: 'numeric', day: 'nume
 const overviewPages = { now: data => data.now, decisions: data => data.decisions }
 const outcomeDaysPage = data => ({ items: data.days, next_cursor: data.next_day, week: data.week })
 
-function ActivitySection({ id, title, field, overview, revision, empty, project }) {
+function ActivitySection({ id, title, field, overview, revision, empty, project, allProjects }) {
   const firstPage = overview.data?.[field]
-  const page = useLoadedPages('/overview', { project }, revision, {
+  const page = useLoadedPages('/overview', allProjects ? { scope: 'all' } : { project }, revision, {
     cursorParam: `${field}_before`, readPage: overviewPages[field], firstPage, enabled: Boolean(firstPage && !overview.pending),
   })
   const rows = page.data
@@ -33,16 +33,16 @@ function ActivitySection({ id, title, field, overview, revision, empty, project 
   )
 }
 
-export function Overview({ resource, revision, project }) {
+export function Overview({ resource, revision, project, allProjects }) {
   return (
     <>
       <ActivitySection
-        id="now-title" title="Now" field="now" overview={resource} revision={revision} project={project}
+        id="now-title" title="Now" field="now" overview={resource} revision={revision} project={project} allProjects={allProjects}
         empty="No active tasks."
       />
       <ActivitySection
         id="decisions-title" title="Needs a decision" field="decisions" overview={resource}
-        revision={revision} project={project} empty="No pending decisions."
+        revision={revision} project={project} allProjects={allProjects} empty="No pending decisions."
       />
     </>
   )
@@ -146,8 +146,10 @@ export function OutcomeRow({ events }) {
   )
 }
 
-function OutcomeDay({ day, owner, revision, project, timeZone, empty = false }) {
-  const page = useLoadedPages(empty ? null : '/outcomes', { dri: owner, day, project, time_zone: timeZone }, revision)
+function OutcomeDay({ day, owner, revision, project, allProjects, timeZone, empty = false }) {
+  const page = useLoadedPages(empty ? null : '/outcomes', {
+    dri: owner, day, ...(allProjects ? { scope: 'all' } : { project }), time_zone: timeZone,
+  }, revision)
   const tasks = groupOutcomes(page.data?.items || [])
   const Row = owner ? OutcomeSummary : OutcomeRow
   return (
@@ -179,12 +181,13 @@ function OutcomeWeek({ week, openDay }) {
   )
 }
 
-export function Outcomes({ revision, owner, project, showWeek = false }) {
+export function Outcomes({ revision, owner, project, allProjects, showWeek = false }) {
   const { timeZone } = useTimeZone()
   const today = useReportDay()
   const [selection, setSelection] = useState(null)
   const page = useLoadedPages('/outcomes/days', {
-    dri: owner, project, time_zone: timeZone, ...(showWeek ? { week_ending: today } : {}),
+    dri: owner, ...(allProjects ? { scope: 'all' } : { project }), time_zone: timeZone,
+    ...(showWeek ? { week_ending: today } : {}),
   }, revision, {
     limit: 2, moreLimit: 1, cursorParam: 'before_day', readPage: outcomeDaysPage,
   })
@@ -208,7 +211,7 @@ export function Outcomes({ revision, owner, project, showWeek = false }) {
       {week && <OutcomeWeek week={week} openDay={openDay} />}
       {!displayedDays.length && page.data && <p className="section-message">No outcomes yet.</p>}
       {displayedDays.map(day => (
-        <OutcomeDay key={day} day={day} owner={owner} revision={revision} project={project}
+        <OutcomeDay key={day} day={day} owner={owner} revision={revision} project={project} allProjects={allProjects}
           timeZone={timeZone} empty={day === selectedDay && selected.count === 0} />
       ))}
       <ResourceStatus resource={page} label="outcomes" />
