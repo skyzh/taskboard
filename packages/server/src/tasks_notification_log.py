@@ -7,6 +7,7 @@ import sqlite3
 
 import tasks_audit as audit
 from tasks_merges import ACCEPTED_SQUASHES
+import tasks_projects as projects
 import tasks_storage
 
 
