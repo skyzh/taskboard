@@ -1154,10 +1154,23 @@ button:disabled { opacity: .57; }
     white-space: nowrap;
   }
   .queue-toolbar { display: flex; align-items: center; gap: .35rem; margin-block: .65rem .5rem; }
-  .queue-project { display: block; flex: 1; min-width: 0; }
+  .queue-project { display: block; flex: 1; min-inline-size: 2.75rem; }
+  .queue-project select { text-overflow: ellipsis; }
   .project-switcher select { height: 2.75rem; }
   .queue-toolbar .queue-layout { margin: 0; }
   .queue-filter-toggle { display: inline-block; margin-inline-start: auto; min-height: 2.75rem; min-width: 2.75rem; white-space: nowrap; }
+  .queue-filter-toggle[data-status="true"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .2rem;
+    max-inline-size: 9.25rem;
+    padding: .15rem .25rem;
+    font-size: .875rem;
+    line-height: 1.2;
+    white-space: normal;
+  }
+  .queue-filter-toggle svg { flex: none; }
   .queue-filter-toggle:is([data-active="true"], [aria-expanded="true"]) {
     border-color: var(--green);
     color: var(--green);

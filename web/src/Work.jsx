@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { ListFilter } from 'lucide-react'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { ActivityDate } from './Overview.jsx'
 import { entryHref, StagedWork, TicketKnowledgeLinks } from './Knowledge.jsx'
@@ -103,6 +104,9 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
   const selectedOwnerProfile = visibleTasks.find(task => task.dri === filters.dri && task.dri_profile)?.dri_profile
   const otherFilterCount = [ownerSelection, filters.waiting_on, tag, filters.hide_requests].filter(Boolean).length
   const filterCount = otherFilterCount + Number(Boolean(filters.state))
+  const collapsedStatus = filtersOpen ? '' : states[filters.state]
+  const otherFiltersLabel = otherFilterCount > 0
+    ? `, ${otherFilterCount} more active ${otherFilterCount === 1 ? 'filter' : 'filters'}` : ''
   const stateCounts = otherFilterCount === 0 ? overview?.counts : undefined
   return (
     <div className="workspace">
@@ -113,9 +117,16 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
           {setLayout && <SegmentedControl className="queue-layout" label="Task view"
             value={kanban ? 'kanban' : 'list'} options={layoutOptions} onChange={setLayout} />}
           <button type="button" className="queue-filter-toggle" aria-expanded={filtersOpen} aria-controls="queue-filters"
-            data-active={filterCount > 0}
+            data-active={filterCount > 0} data-status={Boolean(collapsedStatus)}
+            aria-label={collapsedStatus ? `Filters, ${collapsedStatus}${otherFiltersLabel}` : undefined}
             onClick={() => setFiltersOpen(open => !open)}>
-            {filterCount ? `Filters (${filterCount})` : 'Filters'}
+            {collapsedStatus ? (
+              <>
+                <ListFilter size="1em" aria-hidden="true" />
+                <span>{collapsedStatus}</span>
+                {otherFilterCount > 0 && <span aria-hidden="true">+{otherFilterCount}</span>}
+              </>
+            ) : (filterCount ? `Filters (${filterCount})` : 'Filters')}
           </button>
         </div>
         {!allProjects && overview?.merge_queue && <div className="queue-tools">
