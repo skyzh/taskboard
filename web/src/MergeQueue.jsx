@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { useLoadedPages } from './data.js'
 import { Markdown } from './Markdown.jsx'
 import { LoadMore, ResourceStatus, TaskLink, eventHref, ownerHref, profileName } from './shared.jsx'
@@ -25,9 +26,9 @@ function MergeEntries({ project, revision }) {
                 {' · '}<strong>{mergeStates[entry.status]}</strong>
               </p>
               <p className="event-meta">
-                <a href={ownerHref(entry.owner, undefined, project)}>{profileName(entry.owner, entry.owner_profile)}</a>
+                <BoardLink href={ownerHref(entry.owner, undefined, project)}>{profileName(entry.owner, entry.owner_profile)}</BoardLink>
                 {' · Target '}<code>{entry.target}</code>
-                {' · '}<a href={eventHref(entry.review_event_id)}>Review receipt</a>
+                {' · '}<BoardLink href={eventHref(entry.review_event_id)}>Review receipt</BoardLink>
               </p>
               <p className="merge-candidate">Candidate <code>{entry.candidate}</code></p>
               {entry.status !== 'reviewed' && entry.note && <Markdown text={entry.note} />}

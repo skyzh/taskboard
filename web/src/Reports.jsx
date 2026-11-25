@@ -1,4 +1,5 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { useLoadedPages, useResource } from './data.js'
 import {
   ActivityMark, AssigneeAvatar, DriWorkStatus, EvidenceLinks, LoadMore, ResourceStatus, TaskLink, WorkerResult,
@@ -33,7 +34,7 @@ export function OwnerWorkLinks({ owner, counts, project, summary = false, public
   ).map(({ state, id, title }) => {
     const label = <>{title}{counts?.[state] != null && <> <strong>{counts[state]}</strong></>}</>
     return publicPreview ? <DemoUnavailable key={id}>{label}</DemoUnavailable>
-      : <a key={id} href={ownerHref(owner, id, project)}>{label}</a>
+      : <BoardLink key={id} href={ownerHref(owner, id, project)}>{label}</BoardLink>
   })
 }
 
@@ -46,7 +47,7 @@ function PendingReport({ report }) {
       </div>
       <p className="pending-report-meta">
         <span>{profileName(report.worker, report.worker_profile)}</span>
-        {report.event_id ? <a href={eventHref(report.event_id)} aria-label={`Open worker report ${label}`}>{label}</a> : <span>{label}</span>}
+        {report.event_id ? <BoardLink href={eventHref(report.event_id)} aria-label={`Open worker report ${label}`}>{label}</BoardLink> : <span>{label}</span>}
         <WorkerResult result={report.result} />
         {report.reported_at && <span>Reported <ReportTime at={report.reported_at} /></span>}
       </p>
@@ -100,7 +101,7 @@ function ReportGoals({ goals, owner, project, publicPreview, target, highlighted
       {publicPreview ? <summary>Goals</summary> : (
         <div className="report-goals-heading">
           <Heading>Goals</Heading>
-          {project && <a href={`#${goalActivityFragment(project, owner)}`}>Goal activity</a>}
+          {project && <BoardLink href={`#${goalActivityFragment(project, owner)}`}>Goal activity</BoardLink>}
         </div>
       )}
       <ul className="report-goals" role="list">
@@ -111,7 +112,7 @@ function ReportGoals({ goals, owner, project, publicPreview, target, highlighted
           return (
             <li key={ticket || kind + ':' + summary}>
               {publicPreview && !source ? <DemoUnavailable className="report-goal-text">{label}</DemoUnavailable>
-                : <a href={publicPreview ? source : ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{label}</a>}
+                : <BoardLink href={publicPreview ? source : ticket ? taskHref(ticket) : ownerHref(owner, goalSections[kind], project)}>{label}</BoardLink>}
               {kind === 'standing' && <span>Standing goal</span>}
               {deadline && <GoalDeadline deadline={deadline} />}
             </li>
@@ -125,9 +126,9 @@ function ReportGoals({ goals, owner, project, publicPreview, target, highlighted
 function ReportActivityTime({ event, label }) {
   const { formatTimestamp } = useTimeZone()
   return (
-    <a href={eventHref(event.id)} aria-label={`${label}, ${formatTimestamp(event.at)}`}>
+    <BoardLink href={eventHref(event.id)} aria-label={`${label}, ${formatTimestamp(event.at)}`}>
       <ReportTime at={event.at} linked />
-    </a>
+    </BoardLink>
   )
 }
 
@@ -188,7 +189,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
           <div className="dri-name-line">
             <OwnerHeading>
               {!owner || multipleProjects ? name : (
-                <a href={publicPreview ? entry.public_url : ownerHref(owner, undefined, ownerProject)}>{name}</a>
+                <BoardLink href={publicPreview ? entry.public_url : ownerHref(owner, undefined, ownerProject)}>{name}</BoardLink>
               )}
               {profile?.short_role && <span className="report-short-role">{' · '}{profile.short_role}</span>}
               {watchingPerson !== false && <DriWorkStatus inProgress={inProgress} compact />}
@@ -242,14 +243,14 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
       )}
       {owner && (multipleProjects || watchingPerson !== false) && (!publicPreview || entry.task_counts) && <div className="owner-links">
         {multipleProjects ? projectChoices.map(prefix => (
-          <a key={prefix} href={ownerHref(owner, undefined, prefix)}>{projectNames?.get(prefix) || prefix}</a>
+          <BoardLink key={prefix} href={ownerHref(owner, undefined, prefix)}>{projectNames?.get(prefix) || prefix}</BoardLink>
         )) : <>
           <OwnerWorkLinks owner={owner} counts={entry.task_counts} project={ownerProject} summary publicPreview={publicPreview} />
           {outcomes.size > 0 && (publicPreview ? <DemoUnavailable>All outcomes</DemoUnavailable>
-            : <a href={ownerHref(owner, 'outcomes-title', ownerProject)}>All outcomes</a>)}
-          {publicPreview ? <DemoUnavailable>All tasks</DemoUnavailable> : <a href={queueLink}>All tasks</a>}
+            : <BoardLink href={ownerHref(owner, 'outcomes-title', ownerProject)}>All outcomes</BoardLink>)}
+          {publicPreview ? <DemoUnavailable>All tasks</DemoUnavailable> : <BoardLink href={queueLink}>All tasks</BoardLink>}
         </>}
-        {!publicPreview && watchingPerson !== false && <a href={activityLink} aria-label={`Activity by ${name}`}>Activity</a>}
+        {!publicPreview && watchingPerson !== false && <BoardLink href={activityLink} aria-label={`Activity by ${name}`}>Activity</BoardLink>}
       </div>}
       {!publicPreview && reports.length > 0 && (
         <PendingReports owner={owner} project={project} projectTitle={projectTitle} name={name} initial={reports}
@@ -306,10 +307,10 @@ function ProjectLinks({ project, revision }) {
   return (
     <nav className="report-project-links" aria-label="Project links">
       {links.map(({ kind, url, name }) => (
-        <a key={kind} href={url} rel="noreferrer">
+        <BoardLink key={kind} href={url} rel="noreferrer">
           <span className="report-project-mark" data-kind={kind} aria-hidden="true" />
           <span>{projectLinkLabels[kind]}{name && <> {name}</>}</span>
-        </a>
+        </BoardLink>
       ))}
     </nav>
   )
@@ -344,7 +345,7 @@ export function NeedsYou({ project, revision, showAllAsks = false }) {
     <section className="reports-needs-you" aria-labelledby="reports-needs-you-title">
       <div className="needs-you-heading">
         <h2 id="reports-needs-you-title">Needs you</h2>
-        {showAllAsks && <a href="#notifications-needs-me">All asks</a>}
+        {showAllAsks && <BoardLink href="#notifications-needs-me">All asks</BoardLink>}
       </div>
       {error && <ResourceStatus resource={page} label="work that needs you" />}
       {items?.length > 0 && (
@@ -353,7 +354,7 @@ export function NeedsYou({ project, revision, showAllAsks = false }) {
             const requester = profileName(item.requester, item.requester_profile)
             return (
               <li key={item.id}>
-                <a href={taskHref(item.ticket)}>
+                <BoardLink href={taskHref(item.ticket)}>
                   <span className="needs-you-task">
                     <span className="ticket-id">{item.ticket}</span> <MarkdownInline text={item.title} links={false} />
                   </span>
@@ -361,7 +362,7 @@ export function NeedsYou({ project, revision, showAllAsks = false }) {
                     <span>{attentionLabels[item.kind]}{requester && <> from {requester}</>}</span>
                     {item.asked_at && <span className="needs-you-age">Asked <ReportTime at={item.asked_at} linked /></span>}
                   </span>
-                </a>
+                </BoardLink>
               </li>
             )
           })}
@@ -422,8 +423,8 @@ export default function Reports({
   return (
     <section className="reports" aria-labelledby="reports">
       <ReportsHeading headingId="reports" projectPicker={projectPicker}>
-        <a href={teamOverview}>Team overview</a>
-        {!projects && project && <a href={`#${goalActivityFragment(project)}`}>Goal activity</a>}
+        <BoardLink href={teamOverview}>Team overview</BoardLink>
+        {!projects && project && <BoardLink href={`#${goalActivityFragment(project)}`}>Goal activity</BoardLink>}
         {headerAction}
         <label className="activity-mode">
           <input type="checkbox" checked={hideRequests} onChange={event => setHideRequests(event.target.checked)} />

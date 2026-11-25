@@ -19,7 +19,7 @@ function tourFragment(route, number) {
   return `${route}${route.includes('?') ? '&' : '?'}tour=${number}`
 }
 
-export function useDemoTour(rawFragment, steps = []) {
+export function useDemoTour(rawFragment, steps = [], navigate) {
   const [, query] = rawFragment.split('?', 2)
   const value = new URLSearchParams(query).get('tour')
   const number = /^\d+$/.test(value || '') ? Number(value) : -1
@@ -34,12 +34,12 @@ export function useDemoTour(rawFragment, steps = []) {
     const route = steps[index].route
     const current = withoutTour(rawFragment)
     const destination = step?.route === route && matchesStep(current, route) ? current : route
-    window.location.hash = tourFragment(destination, index + 1)
+    navigate(tourFragment(destination, index + 1))
   }
 
   function stop() {
     restore.current = true
-    window.location.hash = withoutTour(rawFragment)
+    navigate(withoutTour(rawFragment))
   }
 
   function toggle() {
@@ -49,7 +49,7 @@ export function useDemoTour(rawFragment, steps = []) {
       launcher.current = toggleButton.current
       const route = withoutTour(rawFragment)
       const index = steps.findIndex(item => matchesStep(route, item.route))
-      window.location.hash = tourFragment(route, index + 1)
+      navigate(tourFragment(route, index + 1))
     }
   }
 
@@ -92,7 +92,7 @@ export function useDemoTour(rawFragment, steps = []) {
     start: event => {
       launcher.current = event.currentTarget
       const route = withoutTour(rawFragment)
-      if (matchesStep(route, steps[0].route)) window.location.hash = tourFragment(route, 1)
+      if (matchesStep(route, steps[0].route)) navigate(tourFragment(route, 1))
       else open()
     },
     panel: active && <aside className="board-tour demo-tour" aria-labelledby="tour-title" ref={panel} tabIndex={-1}

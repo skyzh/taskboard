@@ -64,8 +64,11 @@ test('shows authorized maintenance edits and handles a project with no schedule'
 })
 
 test('returns to both schedule pages after sign-in', () => {
-  for (const fragment of ['#schedules=&project=COURSE', '#schedule-R-2', '#schedule-R-2?project=COURSE']) {
-    assert.equal(new URL(signInHref(fragment), 'https://example.test/tasks/').searchParams.get('fragment'), fragment)
+  for (const [fragment, target] of [
+    ['#schedules=&project=COURSE', '/schedules?project=COURSE'],
+    ['#schedule-R-2', '/schedules/R-2'],
+    ['#schedule-R-2?project=COURSE', '/schedules/R-2?project=COURSE'],
+  ]) {
+    assert.equal(new URL(signInHref(fragment), 'https://example.test/tasks/').searchParams.get('return_to'), target)
   }
-  assert.equal(signInHref('#schedule-R-2?project=COURSE&other=true'), './auth/login')
 })

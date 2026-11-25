@@ -1,4 +1,5 @@
 import React from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { ChevronDown } from 'lucide-react'
 import { queryPath, useResource } from './data.js'
 import { ResourceStatus, TaskLink, Timestamp, eventHref, profileName, taskHref } from './shared.jsx'
@@ -34,14 +35,14 @@ function GoalActivityRow({ goal }) {
         <ol className="goal-activity-outcomes" aria-label={`Check outcomes for ${goal.key}`} role="list">
           {goal.outcomes.map(outcome => (
             <li key={outcome.id}>
-              <a href={eventHref(outcome.id)}><Timestamp at={outcome.at} /></a>
+              <BoardLink href={eventHref(outcome.id)}><Timestamp at={outcome.at} /></BoardLink>
               {outcome.note && <span><MarkdownInline text={outcome.note} links={false} /></span>}
             </li>
           ))}
         </ol>
       )}
       {goal.completed_checks > goal.outcomes.length && (
-        <p className="report-note">Showing the latest {goal.outcomes.length} checks. <a href={taskHref(goal.key)}>View the full goal activity</a></p>
+        <p className="report-note">Showing the latest {goal.outcomes.length} checks. <BoardLink href={taskHref(goal.key)}>View the full goal activity</BoardLink></p>
       )}
     </li>
   )
@@ -60,7 +61,7 @@ export default function GoalActivity({ project, revision, agent, goal, onFilter 
 
   return (
     <section className="reports goal-activity" aria-labelledby="reports">
-      <a className="back-link" href={back}>Back to Reports</a>
+      <BoardLink className="back-link" href={back}>Back to Reports</BoardLink>
       <h1 id="reports">Goal activity</h1>
       <p className="goal-activity-description">Taskboard records standing-goal offers here. The watcher records reminder requests. Starts and completed checks come from the goal’s activity.</p>
       <ResourceStatus resource={resource} label="goal activity" />

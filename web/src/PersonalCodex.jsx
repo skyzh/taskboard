@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { request, useResource } from './data.js'
 import { ReportTime } from './ReportTime.jsx'
-import { ResourceStatus, signInHref, taskHref } from './shared.jsx'
+import { ResourceStatus, useSignInHref, taskHref } from './shared.jsx'
 
 export const personalCodexStatus = '/personal-codex/status'
 const connectionsPath = '/personal-codex/connections'
@@ -113,6 +114,7 @@ export function SessionConnections({ connections, reload, path, tokenVariable, e
 }
 
 export default function PersonalCodex({ session, reportsHref }) {
+  const login = useSignInHref('#personal-codex')
   const actor = session.data?.actor
   const setup = useResource(actor?.kind === 'human' ? personalCodexStatus : null)
   const unavailable = [403, 404].includes(setup.error?.status)
@@ -120,13 +122,13 @@ export default function PersonalCodex({ session, reportsHref }) {
     (session.data?.sign_in_available || session.error?.status === 401))
   const pendingSession = session.pending && !actor
   const pilot = signIn || unavailable ? null : setup.data
-  const prompt = pilot && `Read ${guide} and follow it to report progress on ${pilot.ticket} using ${new URL('./', window.location.href)}`
+  const prompt = pilot && `Read ${guide} and follow it to report progress on ${pilot.ticket} using ${new URL('./', document.baseURI)}`
 
   return (
     <section className="settings personal-codex" aria-labelledby="personal-codex">
-      <a className="back-link" href={reportsHref}>Back to Reports</a>
+      <BoardLink className="back-link" href={reportsHref}>Back to Reports</BoardLink>
       <div className="page-heading"><h1 id="personal-codex" tabIndex={-1}>Personal Agents pilot</h1></div>
-      {signIn ? <a href={signInHref('#personal-codex')}>Sign in with Raft</a>
+      {signIn ? <a href={login}>Sign in with Raft</a>
         : pendingSession || (actor?.kind === 'human' && !unavailable)
           ? <ResourceStatus resource={pendingSession ? session : setup} label="Personal Codex setup" />
           : <p>Personal Codex is unavailable for this account.</p>}
@@ -134,7 +136,7 @@ export default function PersonalCodex({ session, reportsHref }) {
         <>
           <section className="panel settings-panel" aria-labelledby="codex-prompt">
             <h2 id="codex-prompt">Reporting prompt</h2>
-            <p>Codex reports appear in <a href={taskHref(pilot.ticket)}>{pilot.ticket}</a> Activity.</p>
+            <p>Codex reports appear in <BoardLink href={taskHref(pilot.ticket)}>{pilot.ticket}</BoardLink> Activity.</p>
             {pilot.reporting_auth === 'tailnet' && <p>Sessions on the tailnet can report without a token.</p>}
             <CopyPrompt prompt={prompt}>
               {pilot.reporting_auth === 'login_required' && (

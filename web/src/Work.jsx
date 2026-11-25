@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { BoardLink, useContentTitle } from './BoardNavigation.jsx'
 import { ListFilter } from 'lucide-react'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { ActivityDate } from './Overview.jsx'
@@ -42,7 +43,7 @@ const ownerOptionPrefix = 'owner:'
 const layoutOptions = [{ value: 'list', label: 'List' }, { value: 'kanban', label: 'Kanban' }]
 
 export function WorkQueue({ revision, overview, filters, setFilters, waitingLabel, setWaitingLabel, project, projectPicker, allProjects,
-  layout, setLayout, phoneColumn, setPhoneColumn, kanbanNavigation, listNavigation, listReturn }) {
+  layout, setLayout, phoneColumn, setPhoneColumn, kanbanNavigation, listNavigation, listReturn, fragment = 'board' }) {
   const kanban = layout === 'kanban'
   const closedAvailable = overview?.counts?.closed != null
   const { tag: selectedTag, ...otherFilters } = filters
@@ -59,25 +60,23 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
   const list = useRef(null)
   function rememberTicket(event) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-    const link = event.target.closest('.task-row-heading > a[href^="#task-"]')
-    if (link) listReturn.current = {
-      scope: listScope, board: window.location.hash || '#board', ticket: link.hash,
-    }
+    const link = event.target.closest('.task-row-heading > a[data-ticket-fragment]')
+    if (link) listReturn.current = { scope: listScope, board: '#' + fragment, ticket: link.dataset.ticketFragment }
   }
   useEffect(() => {
     const previous = listReturn?.current
     if (!previous) return
-    if (kanban || previous.scope !== listScope || previous.board !== window.location.hash) {
+    if (kanban || previous.scope !== listScope || previous.board !== '#' + fragment) {
       listReturn.current = null
       return
     }
     if (page.pending) return
     listReturn.current = null
     const link = [...(list.current?.querySelectorAll('.task-row-heading > a') || [])]
-      .find(link => link.hash === previous.ticket)
+      .find(link => link.dataset.ticketFragment === previous.ticket)
     link?.focus({ preventScroll: true })
     link?.scrollIntoView({ block: 'center' })
-  }, [kanban, listReturn, listScope, page.pending])
+  }, [fragment, kanban, listReturn, listScope, page.pending])
   const [columnPages, setColumnPages] = useState({})
   const [filtersOpen, setFiltersOpen] = useState(false)
   const updateColumn = useCallback((state, data) => {
@@ -195,7 +194,7 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
           <>
             <ResourceStatus resource={page} label="the queue" />
             {page.data?.items.length === 0 && <p className="section-message" role="status">No matching tasks.</p>}
-            <TaskRows items={page.data?.items} label="Work queue" compactQueue listRef={list} onClick={rememberTicket} />
+            <TaskRows items={page.data?.items} label="Work queue" compactQueue listRef={list} onClickCapture={rememberTicket} />
             <LoadMore page={page} label="tasks in the work queue" />
           </>
         )}
@@ -266,9 +265,9 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
   const result = activityHeadline(event)
   const checkpoint = isCheckpointActivity(event)
   const timeLink = (
-    <a href={eventHref(event.id)} aria-label={`Link to ${event.label.toLowerCase()} by ${actor} at ${formatTimestamp(event.at)}`}>
+    <BoardLink href={eventHref(event.id)} aria-label={`Link to ${event.label.toLowerCase()} by ${actor} at ${formatTimestamp(event.at)}`}>
       <ReportTime at={event.at} linked />
-    </a>
+    </BoardLink>
   )
   if (ticketActivity) {
     const { choice, result: visibleResult, details } = ticketActivityCopy(event, result)
@@ -385,7 +384,7 @@ function TicketReferences({ record }) {
         <h3>Related tasks</h3>
         <ul className="context-list">
           {record.related_tasks.map(item => (
-            <li key={item.key}><a href={item.url}><span className="ticket-id">{item.key}</span> {item.title}</a></li>
+            <li key={item.key}><BoardLink href={item.url}><span className="ticket-id">{item.key}</span> {item.title}</BoardLink></li>
           ))}
         </ul>
       </section>
@@ -484,6 +483,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const activity = useLoadedPages(history ? null : `/tasks/${id}/activity`, {}, revision)
   const record = detail.data
   const task = record?.task
+  useContentTitle(task?.title ? `${taskLabel(id, task.key)} · ${task.title}` : null)
   const knowledge = task?.record_kind === 'knowledge'
   const state = task && !knowledge && taskState(task)
   const summary = state === 'closed' ? 'Closure reason' : task?.summary_label
@@ -495,7 +495,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const canEditChecklist = record?.can_edit_checklist ?? record?.tag_editable
   const canEditChecklistText = record?.can_edit_checklist_text ?? canEditChecklist
   const canAnswer = task && mayAnswer(task, session)
-  const returnToDecisions = <a className="decision-return" href="#notifications-needs-me">Return to decisions</a>
+  const returnToDecisions = <BoardLink className="decision-return" href="#notifications-needs-me">Return to decisions</BoardLink>
   const ownsTicket = task && signedIn && session.data.actor.id && session.data.actor.id === task.dri
   const ownsReturnPath = ownsTicket
     && ['ready', 'in_progress', 'parked'].includes(task.state)
@@ -526,13 +526,13 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
     <article ref={article} id={anchor.slice(1)} className={`panel task-detail${sidebar ? ' has-sidebar' : ''}`}
       aria-labelledby={`task-heading-${id}`} tabIndex={-1}>
       <div className="ticket-heading-meta">
-        <a className="back-link" href={backHref}>{backLabel}</a>
+        <BoardLink className="back-link" href={backHref}>{backLabel}</BoardLink>
         <p className="detail-meta">
           <span className="ticket-id">{taskLabel(id, task?.key)}</span>
           {knowledge && <span>Knowledge</span>}
           {record?.goal && <span>{record.goal.kind === 'standing' ? 'Standing goal' : 'Milestone'}</span>}
         </p>
-        {task && <a className="history-link" href={historyHref(currentHref)}>History</a>}
+        {task && <BoardLink className="history-link" href={historyHref(currentHref)}>History</BoardLink>}
         {signedIn && task && !knowledge && <EditToggle label="Edit ticket" active={showActions}
           onToggle={() => setActionsOpen(open => !open)} />}
       </div>
@@ -692,9 +692,9 @@ export function ActivityEntry({ event, full, selected = false, exact = selected 
             {selected && <span>Linked event</span>}
             <ActivityWait event={event} headline={result} />
             {label && <span>{label}</span>}
-            <a href={eventHref(event.id)} aria-label={`Open activity by ${actor} at ${formatTimestamp(event.at)}`}>
+            <BoardLink href={eventHref(event.id)} aria-label={`Open activity by ${actor} at ${formatTimestamp(event.at)}`}>
               {exact ? <Timestamp at={event.at} /> : <ReportTime at={event.at} linked />}
-            </a>
+            </BoardLink>
           </div>
         </div>
       </div>
@@ -727,6 +727,8 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   const onPage = items.some(event => event.id === requested)
   const linked = useResource(requested && !onPage ? `/activity/${requested}` : null, revision)
   const linkedEvent = linked.data?.event || linked.data
+  const openEvent = requested && (items.find(event => event.id === requested) || linkedEvent)
+  useContentTitle(openEvent ? activityHeadline(openEvent) || openEvent.label : null)
   const days = new Map()
   for (const event of items) {
     const day = formatDay(event.at)

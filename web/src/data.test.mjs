@@ -81,9 +81,11 @@ test('revision socket refreshes on change and polling resumes while it reconnect
       this.onmessage({ data: JSON.stringify({ revision }) })
     }
   }
-  globalThis.document = { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} }
+  globalThis.document = {
+    baseURI: 'https://fixture.example.test/tasks/', visibilityState: 'visible', addEventListener() {}, removeEventListener() {},
+  }
   globalThis.window = {
-    location: { href: 'https://fixture.example.test/tasks/#task-1' }, WebSocket: FixtureSocket,
+    location: { href: 'https://fixture.example.test/tasks/tickets/1' }, WebSocket: FixtureSocket,
     setInterval(next) { timer = next; return 1 }, clearInterval() {},
   }
   globalThis.fetch = async (path, { signal }) => {
@@ -131,7 +133,7 @@ test('revision socket refreshes on change and polling resumes while it reconnect
     assert.equal(statuses.at(-1).stale, false)
     assert.equal(statuses.at(-1).checking, false)
     assert.equal(refreshes, 4)
-    assert.equal(window.location.href, 'https://fixture.example.test/tasks/#task-1')
+    assert.equal(window.location.href, 'https://fixture.example.test/tasks/tickets/1')
   } finally {
     stop()
     Object.assign(globalThis, saved)

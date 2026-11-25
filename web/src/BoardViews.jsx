@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { DemoUnavailable } from './DemoControl.jsx'
 import { projectHref } from './projectScope.js'
 
@@ -36,8 +37,8 @@ export default function BoardViews({ current, reportsHref, projectScope, isAgent
     <nav ref={nav} className="board-views" aria-label="Taskboard views">
       {links.map(([id, label]) => (
         preview && id !== current ? <DemoUnavailable key={id} className="offline-view">{label}</DemoUnavailable>
-          : <a key={id} href={id === 'reports' ? reportsHref : projectHref(`#${id}`, projectScope)}
-            aria-current={current === id ? 'page' : undefined}>{label}</a>
+          : <BoardLink key={id} href={id === 'reports' ? reportsHref : projectHref(`#${id}`, projectScope)}
+            aria-current={current === id ? 'page' : undefined}>{label}</BoardLink>
       ))}
     </nav>
   )

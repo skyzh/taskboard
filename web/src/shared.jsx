@@ -1,4 +1,6 @@
 import React, { useId, useState } from 'react'
+import { BoardLink, useBoardLocation } from './BoardNavigation.jsx'
+import { legacyLocation, routeAddress } from './boardRoutes.js'
 import {
   ArrowUpRight, Ban, Bookmark, Check, Circle, CircleQuestionMark, ClipboardList, Clock, CornerUpRight, Diamond,
   FileCheck, FileText, Flag, GitMerge, GitPullRequest, GitPullRequestClosed, Link2, ListChecks, MessageSquareText,
@@ -179,53 +181,33 @@ export function eventHref(id) {
 }
 
 export function notificationLogFilters(fragment) {
-  const match = /^notifications-log(?:\?(?:project=([A-Z][A-Z0-9]{0,7})|(scope=all))(?:&status=(pending|history))?(?:&kind=(ready|merge|wake))?(?:&agent=([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}))?)?$/.exec(fragment)
-  if (!match) return null
-  const [, project, all, state = 'all', kind = '', agent = ''] = match
-  return { project, state, kind, agent, ...(all && { allProjects: true }) }
+  const [route, query] = fragment.split('?', 2)
+  if (route !== 'notifications-log') return null
+  const entries = new URLSearchParams(query)
+  const project = entries.get('project') || undefined
+  const scope = entries.get('scope')
+  const state = entries.get('status') ?? 'all'
+  const kind = entries.get('kind') ?? ''
+  const agent = entries.get('agent') ?? ''
+  if (entries.size !== new Set(entries.keys()).size || [...entries.keys()].some(
+    key => !['project', 'scope', 'status', 'kind', 'agent'].includes(key))
+    || (project && !/^[A-Z][A-Z0-9]{0,7}$/.test(project))
+    || (scope && (scope !== 'all' || project))
+    || !['all', 'pending', 'history'].includes(state)
+    || !['', 'ready', 'merge', 'wake'].includes(kind)
+    || (agent && !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(agent))) return null
+  return { project, state, kind, agent, ...(scope === 'all' && { allProjects: true }) }
 }
 
-function scopedSignInRoute(hash) {
-  if (!hash.startsWith('#') || hash.indexOf('?') !== hash.lastIndexOf('?')) return null
-  const [route, query] = hash.split('?', 2)
-  const scope = /^(?:project=[A-Z][A-Z0-9]{0,7}|scope=all)$/
-  const fields = (query ?? (route.includes('=') ? route.slice(1) : '')).split('&')
-  const scopes = fields.filter(field => scope.test(field))
-  if (scopes.length !== 1) return null
-  const filters = fields.filter(field => !scope.test(field))
-  if (filters.some(field => field.startsWith('project=') || field.startsWith('scope=') && field !== 'scope=assigned')) return null
-  return [query === undefined && route.includes('=') ? '#board' : route, filters.join('&')]
-}
-
-export function signInHref(hash) {
+export function signInHref(target) {
   const login = './auth/login'
-  const [anchor, query] = hash.split('?', 2)
-  const taskLink = /^#task-(?:[A-Z][A-Z0-9]{0,7}-)?[1-9]\d{0,18}$/.test(anchor)
-  const history = new URLSearchParams(query).get('history')
-  const taskReturn = taskLink && /^(?:all|[1-9]\d{0,18})$/.test(history || '')
-    ? `${anchor}?history=${history}` : anchor
-  const statsLink = /^#stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/
-  const activityLink = /^#(?:activity|event-[1-9]\d{0,18}-log)(?:\?(?:actor=[A-Za-z0-9_%+.*-]{1,1920}&?)?(?:action=[a-z-]{1,30}&?)?(?:detail=all&?)?(?:hide_requests=true)?)?$/
-  const goalActivityLink = /^#reports\?view=goal-activity&(?:project=[A-Z][A-Z0-9]{0,7}|scope=all)(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})?$/.test(hash)
-  const knowledgeLink = /^#knowledge(?:\?(?:entry=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18}(?:&history=(?:all|[1-9]\d{0,18}))?|(?:scope=assigned(?:&q=[A-Za-z0-9_%+.*~-]{1,1920})?|q=[A-Za-z0-9_%+.*~-]{1,1920})(?:&order=updated)?(?:&project=[A-Z][A-Z0-9]{0,7})?|order=updated(?:&project=[A-Z][A-Z0-9]{0,7})?|project=[A-Z][A-Z0-9]{0,7}))?$/
-  const reportsLink = /^#reports(?:-all(?:\?view=(?:active|all|idle|recent|watching))?|\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&view=(?:active|all|idle|recent|watching))?|view=(?:active|all|idle|recent|watching)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/.test(hash)
-  const integrationsLink = /^#integrations(?:\?(?:cli=[a-f0-9]{64}|project=[A-Z][A-Z0-9]{0,7}))?$/.test(hash)
-  const schedulesLink = /^#(?:schedules(?:=(?:&(?:project=[A-Z][A-Z0-9]{0,7}|scope=all))?)?|schedule-R-[1-9]\d{0,18}(?:\?project=[A-Z][A-Z0-9]{0,7})?)$/.test(hash)
-  const settingsLink = /^#(?:settings|manage)(?:\?(?:section=permissions(?:&project=[A-Z][A-Z0-9]{0,7})?|project=[A-Z][A-Z0-9]{0,7}))?$/.test(hash)
-  const isReadRoute = value => statsLink.test(value) || activityLink.test(value) || knowledgeLink.test(value)
-  const [scopedRoute, scopedFilters] = scopedSignInRoute(hash) || []
-  const baseRoute = scopedFilters ? `${scopedRoute}?${scopedFilters}` : scopedRoute
-  const scopedRead = /^#(?:activity|event-[1-9]\d{0,18}-log|knowledge|stats)$/.test(scopedRoute || '') &&
-    isReadRoute(baseRoute)
-  const scopedList = /^#(?:board|team-overview|now-title|decisions-title|outcomes-title|workstreams-title|map|work-log-title|my-activity|notifications(?:-needs-me)?)$/.test(scopedRoute || '') &&
-    (!scopedFilters || (scopedRoute === '#board' && /^section=queue-heading(?:&owner=[A-Za-z0-9_%+.*-]{1,1920})?$/.test(scopedFilters)))
-  const scopedGoal = scopedRoute === '#reports' &&
-    /^view=goal-activity(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})?$/.test(scopedFilters)
-  const returnToBoard = taskLink || isReadRoute(hash) || goalActivityLink || reportsLink || integrationsLink
-    || schedulesLink || settingsLink || scopedRead || scopedList || scopedGoal
-    || /^#(?:notifications(?:-needs-me)?|about|personal-codex)$/.test(hash)
-    || (hash.startsWith('#') && notificationLogFilters(hash.slice(1)))
-  return returnToBoard ? `${login}?fragment=${encodeURIComponent(taskLink ? taskReturn : hash)}` : login
+  const returnTo = typeof target === 'string' ? legacyLocation(target) : target
+  return returnTo ? `${login}?return_to=${encodeURIComponent(routeAddress(returnTo))}` : login
+}
+
+export function useSignInHref(fallback) {
+  const board = useBoardLocation()
+  return signInHref(board && board.route !== 'not-found' ? board.location : fallback)
 }
 
 export function Timestamp({ at, showDate = true, compact = false }) {
@@ -238,7 +220,7 @@ export function RecordedActivity({ activity }) {
   if (!activity) return null
   return (
     <p className="last-activity">
-      Last activity <a href={eventHref(activity.id)}><ReportTime at={activity.at} linked /></a>
+      Last activity <BoardLink href={eventHref(activity.id)}><ReportTime at={activity.at} linked /></BoardLink>
     </p>
   )
 }
@@ -321,7 +303,7 @@ export function DriWorkStatus({ inProgress, compact = false }) {
 }
 
 export function BoardBrand({ href }) {
-  return <a className="brand" href={href}><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>Taskboard</a>
+  return <BoardLink className="brand" href={href}><span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>Taskboard</BoardLink>
 }
 
 export function TaskLink({ id, title, current, reference, searchQuery, publicHref }) {
@@ -330,7 +312,7 @@ export function TaskLink({ id, title, current, reference, searchQuery, publicHre
     ? searchQuery ? `${anchor}?${new URLSearchParams({ 'from-search': searchQuery })}` : anchor
     : publicHref
   const label = <><span className="ticket-id">{taskLabel(id, reference)}</span> <MarkdownInline text={title} links={false} /></>
-  return href ? <a href={href} aria-current={current ? 'true' : undefined}>{label}</a>
+  return href ? <BoardLink href={href} aria-current={current ? 'true' : undefined}>{label}</BoardLink>
     : <DemoUnavailable className="static-task-title">{label}</DemoUnavailable>
 }
 
@@ -392,7 +374,7 @@ export function Assignee({ task, compact = false }) {
   return (
     <span className="assignee">
       <AssigneeAvatar name={name} url={profile?.avatar_url} />
-      <span>{!compact && 'Owner '}<a href={ownerHref(task.dri, undefined, project)}>{name}</a>{!compact && profile?.role && <> · {profile.role}</>}</span>
+      <span>{!compact && 'Owner '}<BoardLink href={ownerHref(task.dri, undefined, project)}>{name}</BoardLink>{!compact && profile?.role && <> · {profile.role}</>}</span>
     </span>
   )
 }
@@ -406,7 +388,7 @@ export function Dependency({ task, publicPreview = false }) {
           <React.Fragment key={index}>
             {index > 0 && ' → '}
             {publicPreview ? <DemoUnavailable as="strong">{taskLabel(ticket.id, ticket.key)}</DemoUnavailable>
-              : <a href={taskHref(ticket.id, ticket.key)}>{taskLabel(ticket.id, ticket.key)}</a>}
+              : <BoardLink href={taskHref(ticket.id, ticket.key)}>{taskLabel(ticket.id, ticket.key)}</BoardLink>}
             {' '}({states[ticket.state]})
           </React.Fragment>
         ))}
@@ -469,7 +451,7 @@ function TicketSourceMark({ url, local }) {
 export function EvidenceLinks({ links, label = 'Evidence', ticketSources = false }) {
   const listId = useId()
   if (!links?.length) return null
-  const board = typeof window === 'undefined' ? null : new URL('./', window.location.href)
+  const board = typeof window === 'undefined' ? null : new URL('./', document.baseURI)
   return (
     <ul className={ticketSources ? 'evidence-links ticket-source-list' : 'evidence-links'} aria-label={label} role="list">
       {links.map((link, index) => {
@@ -488,7 +470,7 @@ export function EvidenceLinks({ links, label = 'Evidence', ticketSources = false
         return (
           <li key={index}>
             {ticketSources && <TicketSourceMark url={parsed} local={protocol === 'file:'} />}
-            {supported ? <a href={url} aria-describedby={statusId}>{evidenceLinkLabel(url, label, { generated: link.generated, board })}</a>
+            {supported ? <BoardLink href={url} aria-describedby={statusId}>{evidenceLinkLabel(url, label, { generated: link.generated, board })}</BoardLink>
               : <span>{label} {url}</span>}
             <GitHubSourceStatus id={statusId} snapshot={link.github} />
             {protocol === 'file:' && (
@@ -606,7 +588,7 @@ export function OutcomeNote({ event, headline, withEvidence = true, choiceShown 
       <ReminderWhen context={context} />
       <Options options={context.choices} />
       {context.request_event_id && (
-        <p><a href={eventHref(context.request_event_id)}>Decision request</a></p>
+        <p><BoardLink href={eventHref(context.request_event_id)}>Decision request</BoardLink></p>
       )}
       {evidence && <EvidenceLinks links={event.links} />}
     </div>

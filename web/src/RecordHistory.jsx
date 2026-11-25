@@ -1,4 +1,5 @@
 import React from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { useLoadedPages, useResource } from './data.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { ReportTime, ReportTimeProvider } from './ReportTime.jsx'
@@ -24,11 +25,11 @@ function VersionTimeline({ timeline, currentHref, selected }) {
         <ol>
           {events.map(event => (
             <li key={event.id}>
-              <a href={historyHref(currentHref, event.id)}
+              <BoardLink href={historyHref(currentHref, event.id)}
                 aria-current={selected?.id === event.id ? 'location' : undefined}>
                 <span>{event.label}</span>
                 <small><ReportTime at={event.at} linked /> · {profileName(event.actor, event.actor_profile)}</small>
-              </a>
+              </BoardLink>
             </li>
           ))}
         </ol>
@@ -42,12 +43,12 @@ function AdjacentVersions({ previous, next, currentHref }) {
   if (!previous && !next) return null
   return (
     <nav className="version-neighbors" aria-label="Adjacent versions">
-      {previous && <a href={historyHref(currentHref, previous.id)}>
+      {previous && <BoardLink href={historyHref(currentHref, previous.id)}>
         <span>Previous version</span><small><ReportTime at={previous.at} linked /></small>
-      </a>}
-      {next && <a href={historyHref(currentHref, next.id)}>
+      </BoardLink>}
+      {next && <BoardLink href={historyHref(currentHref, next.id)}>
         <span>Next version</span><small><ReportTime at={next.at} linked /></small>
-      </a>}
+      </BoardLink>}
     </nav>
   )
 }
@@ -63,18 +64,18 @@ export default function RecordHistory({ record, currentHref, history, revision, 
       <section className="record-history" aria-labelledby="record-history">
         <div className="page-heading">
           <h1 id="record-history">History for {record}</h1>
-          <a href={currentHref}>Back to current version</a>
+          <BoardLink href={currentHref}>Back to current version</BoardLink>
         </div>
         {history === 'all' ? versionTimeline : (
           <div className="record-history-layout">
             <div>
-              <a href={historyHref(currentHref)}>All versions</a>
+              <BoardLink href={historyHref(currentHref)}>All versions</BoardLink>
               <ResourceStatus resource={version} label="this version" />
               {past && <>
                 <AdjacentVersions previous={past.previous} next={past.next} currentHref={currentHref} />
                 <p className="event-meta">
                   Read-only version · <Timestamp at={past.event.at} /> · {profileName(past.event.actor, past.event.actor_profile)}
-                  {' · '}<a href={eventHref(past.event.id)}>{past.event.label}</a>
+                  {' · '}<BoardLink href={eventHref(past.event.id)}>{past.event.label}</BoardLink>
                 </p>
                 <h2>{past.title === null ? 'Title unavailable' : <MarkdownInline text={past.title} links={false} />}</h2>
                 {!knowledge && past.state && <p><Status state={past.state} /></p>}

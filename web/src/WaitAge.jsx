@@ -1,4 +1,5 @@
 import React from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { useTimeZone } from './timeZone.js'
 
 const zonedTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
@@ -21,7 +22,7 @@ export function WaitAge({ since, label, href }) {
   const timestamp = formatTimestamp(since)
   const age = <time className="wait-age" dateTime={since} title={timestamp}
     aria-label={`${label} for ${elapsed} (since ${timestamp})`}>{label} for {elapsed}</time>
-  return href ? <a href={href}>{age}</a> : age
+  return href ? <BoardLink href={href}>{age}</BoardLink> : age
 }
 
 export function TaskWaitAge({ task, href }) {

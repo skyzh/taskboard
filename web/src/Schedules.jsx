@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
+import { BoardLink, useContentTitle } from './BoardNavigation.jsx'
 import { queryPath, request, useResource } from './data.js'
-import { ResourceStatus, scheduleHref, schedulesHref, signInHref, taskHref, taskLabel } from './shared.jsx'
+import { ResourceStatus, scheduleHref, schedulesHref, useSignInHref, taskHref, taskLabel } from './shared.jsx'
 import { useTimeZone } from './timeZone.js'
 import { RecurringRunList } from './RecurringRuns.jsx'
 
@@ -49,7 +50,7 @@ export function OccurrenceHistory({ occurrences }) {
             <ScheduleDate value={run.due_at} />
             <span>{runStates[run.status]}</span>
             {run.task_id != null ? (
-              <a href={taskHref(run.task_id, run.task_key)}>{taskLabel(run.task_id, run.task_key)}</a>
+              <BoardLink href={taskHref(run.task_id, run.task_key)}>{taskLabel(run.task_id, run.task_key)}</BoardLink>
             ) : <span className="schedule-muted">No ticket issued</span>}
           </li>
         ))}
@@ -178,7 +179,7 @@ function ScheduleControls({ project, schedule, ownerChoices, onChanged }) {
 }
 
 function ScheduleLink({ schedule, project }) {
-  return <a href={scheduleHref(schedule.id, project)}>{schedule.id} · {schedule.title}</a>
+  return <BoardLink href={scheduleHref(schedule.id, project)}>{schedule.id} · {schedule.title}</BoardLink>
 }
 
 export function ScheduleContents({ data, project, allProjects, onChanged }) {
@@ -247,20 +248,22 @@ function ScheduleDetail({ data, onChanged }) {
 }
 
 export default function Schedules({ id, project, requestedProject, projectPicker, session, verified, revision, onChanged, allProjects }) {
+  const login = useSignInHref(id ? scheduleHref(id, requestedProject) : schedulesHref(project, allProjects))
   const path = id ? queryPath(`/schedules/${id}`, { project: requestedProject })
     : queryPath('/schedules', allProjects ? { scope: 'all' } : { project })
   const resource = useResource(verified ? path : null, revision)
   const listProject = resource.data?.project || project
   const detailTitle = resource.data?.schedule?.title
   const heading = id && detailTitle ? `${id} · ${detailTitle}` : id || 'Schedules'
+  useContentTitle(id && detailTitle ? heading : null)
   const label = id ? 'schedule' : 'schedules'
   return (
     <>
       <div className="page-heading schedule-heading">
         <h1 id={id ? `schedule-${id}` : 'schedules'}>{heading}</h1>
-        {id ? <a href={schedulesHref(listProject)}>Back to Schedules</a> : <>
+        {id ? <BoardLink href={schedulesHref(listProject)}>Back to Schedules</BoardLink> : <>
           {projectPicker}
-          <a href={'#' + new URLSearchParams(allProjects ? { scope: 'all' } : { project })}>Back to Tasks</a>
+          <BoardLink href={'#' + new URLSearchParams(allProjects ? { scope: 'all' } : { project })}>Back to Tasks</BoardLink>
         </>}
       </div>
       {verified ? (
@@ -272,7 +275,7 @@ export default function Schedules({ id, project, requestedProject, projectPicker
         </>
       ) : (
         <p>{session.data?.sign_in_available || session.error?.status === 401
-          ? <a href={signInHref(id ? scheduleHref(id, requestedProject) : schedulesHref(project, allProjects))}>Sign in with Raft</a>
+          ? <a href={login}>Sign in with Raft</a>
           : 'Schedules are available on the signed-in board.'}</p>
       )}
     </>

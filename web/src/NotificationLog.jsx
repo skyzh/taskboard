@@ -1,4 +1,5 @@
 import React from 'react'
+import { BoardLink, useBoardNavigation } from './BoardNavigation.jsx'
 import { useLoadedPages } from './data.js'
 import { ReportTime } from './ReportTime.jsx'
 import { LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref } from './shared.jsx'
@@ -53,7 +54,7 @@ function WakeEvidence({ item }) {
             <dd>
               <span>{outcome}</span>
               {at && <time dateTime={at} title={at}>{formatDay(at)} · {formatClock(at)}</time>}
-              {at && eventId && <a href={eventHref(eventId)}>{linkLabel}</a>}
+              {at && eventId && <BoardLink href={eventHref(eventId)}>{linkLabel}</BoardLink>}
             </dd>
           </div>
         ))}
@@ -71,7 +72,7 @@ export function NotificationLogEntry({ item }) {
         <span>{kinds[item.kind]} for {item.recipient}</span>
         {!isWake && <strong>{states[item.status]}</strong>}
         {!isWake && item.status === 'pending' && <span>Observed <ReportTime at={item.status_at} /></span>}
-        <a href={eventHref(item.id)}>Source activity</a>
+        <BoardLink href={eventHref(item.id)}>Source activity</BoardLink>
       </p>
       {isWake ? <WakeEvidence item={item} /> : <dl className="notification-log-times">
         {times.map(([field, label]) => (
@@ -86,6 +87,7 @@ export function NotificationLogEntry({ item }) {
 }
 
 export default function NotificationLog({ project, state, kind, agent, allProjects, projects = [], revision }) {
+  const navigate = useBoardNavigation()
   const selection = allProjects ? '' : project
   const page = useLoadedPages('/notifications/log', {
     ...(allProjects ? { scope: 'all' } : { project }), state, kind, recipient: agent,
@@ -103,7 +105,7 @@ export default function NotificationLog({ project, state, kind, agent, allProjec
     if (next.state !== 'all') params.set('status', next.state)
     if (next.kind) params.set('kind', next.kind)
     if (next.agent && (!next.project || next.project === selection)) params.set('agent', next.agent)
-    window.location.hash = `notifications-log?${params}`
+    navigate(`notifications-log?${params}`)
   }
 
   return (

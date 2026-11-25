@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import taskSessionPrompt from '../../docs/taskboard/prompts/v1/AGENTS.md?raw'
 import handoffPrompt from '../../docs/taskboard/prompts/v1/automated-handoff.md?raw'
 import factoryPrompt from '../../docs/taskboard/prompts/v1/ai-factory.md?raw'
@@ -7,7 +8,7 @@ import teamDriPrompt from '../../docs/taskboard/prompts/v1/team-dri.md?raw'
 import IntegrationDiagram from './IntegrationDiagram.jsx'
 import { request, useResource } from './data.js'
 import { CopyPrompt } from './PersonalCodex.jsx'
-import { ResourceStatus, signInHref } from './shared.jsx'
+import { ResourceStatus, useSignInHref } from './shared.jsx'
 
 const docs = 'https://github.com/skyzh/taskboard/blob/main/docs/taskboard/'
 const guide = docs + 'PERSONAL-AGENTS.md'
@@ -55,6 +56,7 @@ const workflows = [
 ]
 
 function WorkflowPrompt({ text, session }) {
+  const login = useSignInHref('#integrations')
   const human = session.data?.actor?.kind === 'human' && !session.error
   const resource = useResource(human ? instructionsPath : null)
   const [confirmed, setConfirmed] = useState(null)
@@ -110,7 +112,7 @@ function WorkflowPrompt({ text, session }) {
         {outdated ? 'Update this board to save instructions across sessions.'
           : human ? 'Saved instructions are available the next time you sign in.'
             : session.data?.sign_in_available
-              ? <><a href={signInHref(window.location.hash || '#integrations')}>Sign in</a> to save instructions across sessions.</>
+              ? <><a href={login}>Sign in</a> to save instructions across sessions.</>
               : 'Instructions entered here are included in the copied prompt for this page.'}
       </p>
       {canSave && (
@@ -304,11 +306,11 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
           <dt>Set up</dt>
           <dd>{workflow.id === 'local-dri' && registrationResource.data
             ? <>Use the approved Tasks CLI to sign in, then pass your registered ID with <code>--local-dri</code>.
-              Follow the <a href={docs + 'LOCAL-DRI.md'}>Local DRI setup and stop steps</a>.</>
+              Follow the <BoardLink href={docs + 'LOCAL-DRI.md'}>Local DRI setup and stop steps</BoardLink>.</>
             : workflow.setup}</dd>
           {workflow.id === 'automated-handoff' && registrationResource.data && <>
             <dt>Local trial</dt>
-            <dd>Install the <a href={docs + 'LOCAL-HANDOFF-WATCHER.md'}>local handoff watcher</a> and start it before sending a Ready ask.
+            <dd>Install the <BoardLink href={docs + 'LOCAL-HANDOFF-WATCHER.md'}>local handoff watcher</BoardLink> and start it before sending a Ready ask.
               Stop it when finished and check that readiness clears.</dd>
           </>}
           <dt>Verify</dt>
@@ -321,8 +323,8 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
             <p className="cli-login-command"><code>tasks --shared --url {board} login</code></p>
           </>)}
         <p className="integration-guide-link">
-          <a href={`${guide}#${workflow.id}`}>Read the setup guide</a>
-          <a href={`${docs}prompts/v1/${workflow.file}`}>Open v1 prompt file</a>
+          <BoardLink href={`${guide}#${workflow.id}`}>Read the setup guide</BoardLink>
+          <BoardLink href={`${docs}prompts/v1/${workflow.file}`}>Open v1 prompt file</BoardLink>
         </p>
         <section className="integration-prompt-section" aria-labelledby="integration-prompt">
           <h4 id="integration-prompt">What the prompt gives your agent</h4>
@@ -344,6 +346,7 @@ function CliSignIn({ challenge, session }) {
   const [approved, setApproved] = useState(false)
   const [error, setError] = useState(null)
   const human = session.data?.actor?.kind === 'human'
+  const login = useSignInHref(`#integrations?cli=${challenge}`)
   const signIn = session.data?.sign_in_available || session.error?.status === 401
 
   async function approve() {
@@ -367,7 +370,7 @@ function CliSignIn({ challenge, session }) {
         <p className="cli-sign-in-code"><code>{challenge.slice(0, 8).toUpperCase()}</code></p>
         {human ? <button type="button" disabled={pending} onClick={approve}>
           {pending ? 'Approving…' : 'Approve sign-in'}
-        </button> : signIn ? <a href={signInHref(`#integrations?cli=${challenge}`)}>Sign in to approve</a>
+        </button> : signIn ? <a href={login}>Sign in to approve</a>
           : session.pending ? <ResourceStatus resource={session} label="your session" />
             : <p>A signed-in person must approve this request.</p>}
         {error && <p role="alert">{error}</p>}
@@ -378,7 +381,7 @@ function CliSignIn({ challenge, session }) {
 
 export default function Integrations({ session, project, projects, onProjectChange, revision, challenge = null, preview = false }) {
   const access = useResource(challenge === null ? '/personal-agents/access' : null)
-  const board = preview ? 'https://board.example/tasks/' : new URL('./', window.location.href).href
+  const board = preview ? 'https://board.example/tasks/' : new URL('./', document.baseURI).href
   return (
     <section className={challenge === null ? 'settings integrations integrations-setup' : 'settings integrations'}
       aria-labelledby="integrations">

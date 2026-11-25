@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { request, useResource } from './data.js'
 import { ResourceStatus } from './shared.jsx'
 
@@ -55,9 +56,9 @@ export default function ProjectSettings({ revision, onProjectCreated }) {
         </form>
       )}
       {projectResult?.error && <p role="alert">{projectResult.message}</p>}
-      {projectResult?.project && <p role="status"><a href={`#project=${encodeURIComponent(projectResult.project.prefix)}`}>
+      {projectResult?.project && <p role="status"><BoardLink href={`#project=${encodeURIComponent(projectResult.project.prefix)}`}>
         Open {projectResult.project.title}
-      </a></p>}
+      </BoardLink></p>}
     </section>
   )
 }
