@@ -8,8 +8,18 @@ const markdown = new MarkdownIt({ html: false, linkify: true })
 const ticketReference = /(?<![\p{L}\p{N}_/-])([A-Za-z][A-Za-z0-9]{0,7})-([0-9]{1,19})(?![\p{L}\p{N}_/-])/gu
 const elements = new Set([
   'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'ul', 'ol', 'li',
-  'em', 'strong', 's', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+  'em', 'strong', 's', 'thead', 'tbody', 'tr', 'th', 'td',
 ])
+
+function scrollTableWithArrowKey(event) {
+  const region = event.currentTarget
+  if (event.target !== region || region.scrollWidth <= region.clientWidth ||
+      event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+
+  event.preventDefault()
+  region.scrollBy({ left: event.key === 'ArrowLeft' ? -40 : 40, behavior: 'instant' })
+}
 
 function linkedTickets(text, related, tokenIndex) {
   const parts = []
@@ -46,6 +56,13 @@ function tokensToElements(tokens, links, related) {
         } else {
           parent.push(...opened.children)
         }
+      } else if (tag === 'table') {
+        parent.push(
+          <div key={opened.index} className="markdown-table" role="region" aria-label="Scrollable table" tabIndex={0}
+            onKeyDown={scrollTableWithArrowKey}>
+            <table>{opened.children}</table>
+          </div>,
+        )
       } else if (!hidden && elements.has(tag)) {
         const start = tag === 'ol' ? opened.token.attrGet('start') : null
         parent.push(React.createElement(tag, { key: opened.index, ...(start ? { start } : {}) }, opened.children))
