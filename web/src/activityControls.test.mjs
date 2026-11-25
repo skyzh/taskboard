@@ -829,6 +829,20 @@ test('profile renders two dated milestones and keeps the standing edit date-free
   assert.doesNotMatch(standing, /type="date"|Related task IDs/)
 })
 
+test('standing goal summaries link the canonical ticket and preserve a legacy text fallback', () => {
+  const summary = 'Keep handoffs clear'
+  const render = (goal, editable, project) => {
+    fixture.state = []
+    return renderToStaticMarkup(React.createElement(DriGoal, { standing: true, goal, editable, project }))
+  }
+  assert.match(render({ summary, ticket: 'T-42' }, true, 'T'), /Edit standing goal.*href="#task-T-42">Keep handoffs clear<\/a>/)
+  const viewOnly = render({ summary, ticket: 'COURSE-42' }, false, 'COURSE')
+  assert.match(viewOnly, /href="#task-COURSE-42">Keep handoffs clear<\/a>/)
+  assert.doesNotMatch(viewOnly, /<button/)
+  assert.match(render({ summary }, false, 'T'), /<p>Keep handoffs clear<\/p>/)
+  assert.match(render(null, true, 'T'), /Set standing goal.*No goal set\./)
+})
+
 test('goal editors show the project title guidance and submit longer names intact', async () => {
   const project = 'COURSE'
   const title = 'Make the release evidence easy to find in every supported project view'

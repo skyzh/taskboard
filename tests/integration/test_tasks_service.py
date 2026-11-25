@@ -2007,7 +2007,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.action(blake, "my-goals")["milestones"], [])
         self.assertIn("Dated goal · 2026-11-30", self.shared_cli(avery, "goals")[1])
         profile = self.call(avery, f"/api/v1/assignee?owner={owner}").json
-        self.assertEqual(profile["standing_goal"], standing)
+        self.assertEqual({key: profile["standing_goal"][key] for key in standing}, standing)
         self.assertEqual(profile["milestones"], my_goals["milestones"])
         self.assertEqual(self.action(avery, "my-goals", query_string={"project": "COURSE"})["milestones"], [])
 
@@ -2018,6 +2018,11 @@ class TasksServiceTest(unittest.TestCase):
                 result[row["owner"]] = []
                 for goal in row["goals"]:
                     reference = goal["ticket"]
+                    if goal["kind"] == "standing":
+                        assignee = self.call(blake, "/api/v1/assignee", query_string={
+                            "project": project, "owner": row["owner"],
+                        }).json
+                        self.assertEqual(assignee["standing_goal"]["ticket"], reference)
                     detail = self.call(blake, f"/api/v1/tasks/{reference}").json
                     self.assertEqual((detail["task"]["title"], detail["task"]["state"], detail["task"]["dri"]),
                                      (goal["summary"], "parked", row["owner"]))
