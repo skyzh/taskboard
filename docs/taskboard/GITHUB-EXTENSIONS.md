@@ -57,6 +57,40 @@ Enable `ci_jobs` under `github-events` to record completed GitHub Actions jobs f
 
 For CI Work Log entries only, set `"merge": false` and `"ci_jobs": {}` alongside `repository` in `github-events`. Leaving `merge` out still records merge observations by default. An explicit deployment or activity rule retains its behavior, as does a manual GitHub refresh.
 
+## GitHub webhook intake
+
+Enable intake for a project by setting `TASKS_GITHUB_WEBHOOK_SECRETS` in the
+board service environment to a JSON object mapping that project's prefix to
+its GitHub webhook secret. The project needs a `github-events` rule for the
+same repository. Store a distinct, high-entropy secret for each project in
+the operator's existing credential configuration.
+
+In GitHub, configure the repository webhook to send JSON over HTTPS to
+the board's `/api/v1/github/webhooks/PROJECT` path, including any board path
+prefix. The board's portal authorization still applies. If the board is
+private, the operator must arrange an HTTPS forwarding route for this
+specific path through the existing portal. The portal supplies its own
+upstream credential and forwards the request body and GitHub headers
+unchanged. [GitHub webhook configuration](https://docs.github.com/en/webhooks/using-webhooks/creating-webhooks)
+
+Subscribe to branch pushes and pull request events. Taskboard verifies
+the signature against the original body and accepts a delivery ID once
+per project. A branch push queues linked pull requests for that repository
+and project. Opened, reopened, synchronized, and closed pull request
+deliveries queue only that linked pull request. Other events are ignored.
+The HTTPS handler records a cue without making a provider request.
+
+Keep the normal `taskboard-extensions` schedule running. Each pass gives
+webhook cues up to five of its ten linked-source slots and up to 15 of
+its 30 provider requests. The refresh verifies status, revisions
+and checks using the GitHub API, then applies existing project rules and
+observation receipts. If a cue overlaps a normally scheduled read, both
+use that read. Cue-only work checks the receiving project and leaves the
+ordinary poll's schedule and shared link status to the poll itself.
+Repeated deliveries or the ordinary poll do not
+duplicate a work-log entry. Remove the project's secret to stop accepting
+new deliveries. Periodic polling continues.
+
 To read an explicitly linked pull request through the installed Stamp CLI, run
 `taskboard-extensions --db "$board_db" --stamp-pull "$pull_url"`. It checks that
 the linked ticket has the matching project setting before calling Stamp. Read the

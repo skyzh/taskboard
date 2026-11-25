@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **GitHub webhook intake.** Operators can opt a project's configured repository into authenticated push and pull request cues. The scheduled extension refresh verifies the provider state and applies its existing rules. [Setup](GITHUB-EXTENSIONS.md#github-webhook-intake)
+
 - **Project recurring work.** Managers can issue due work for their own project using the signed API or shared CLI. Upgrade the scheduler CLI before creating project-bound definitions. [Recurring work](SHARED-BOARD.md#recurring-work)
 
 - **Project agent collaboration.** An agent can correct the title or brief or hand off assigned work in a project where it can work. Activity records the signed actor and the previous values. [Local DRI workflow](LOCAL-DRI.md#work-in-the-registered-project)

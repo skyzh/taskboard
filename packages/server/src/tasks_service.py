@@ -56,6 +56,7 @@ import tasks_storage
 from raft_auth import RaftAuth
 from tasks_evidence_preview import read_image
 from tasks_github import linked_source
+import tasks_github_webhooks as github_webhooks
 from tasks_queries import BoardQueries, PACIFIC, pacific_day, task_creation
 
 
@@ -355,7 +356,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     db.execute(goal_offers.INDEX)
     db.execute(profiles.IMPORT_SCHEMA)
     db.execute(INTAKE_ERRORS)
-    for statement in extensions.SCHEMA:
+    for statement in (*extensions.SCHEMA, *github_webhooks.SCHEMA):
         db.execute(statement)
     for statement in knowledge_records.SCHEMA:
         db.execute(statement)
@@ -431,7 +432,8 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None, initial_project=No
             db.execute(goal_cadence.SCHEMA)
             db.execute(goal_offers.SCHEMA)
             db.execute(goal_offers.INDEX)
-            for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA, *knowledge_records.SCHEMA):
+            for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA,
+                              *github_webhooks.SCHEMA, *knowledge_records.SCHEMA):
                 db.execute(statement)
             knowledge_records.migrate_records(db)
             db.execute(wake_subscriptions.SCHEMA)
@@ -532,6 +534,7 @@ def create_app(
     raft_channel_lookup=None,
     public_raft_channel_urls=None,
     project_extensions=None,
+    github_webhook_secrets=None,
     stamp_reader=None,
     codex_usage=None,
     agent_usage_snapshot=None,
@@ -598,6 +601,7 @@ def create_app(
         if viewer_paths.intersection(path.resolve() for _, path in upload_sources):
             raise ValueError("Keep the upload destinations separate from the viewer's snapshot files.")
     project_extensions = project_extensions or {}
+    webhook_secrets = github_webhooks.configuration(github_webhook_secrets, project_extensions)
     stamp_repositories = {project: settings[extensions.STAMP_REVIEWS]
                           for project, settings in project_extensions.items() if extensions.STAMP_REVIEWS in settings}
     stamp_reader = stamp_reader if stamp_reader is not None else tasks_stamp.StampReader()
@@ -888,7 +892,7 @@ def create_app(
             if request.endpoint == "decision_receipt":
                 current_actor("human", sync_profile=False)
             elif request.path.startswith("/api/v1/") and request.endpoint not in (
-                ("session", "frontend_build") if oidc is not None else ("session",)
+                ("session", "frontend_build", "github_webhook") if oidc is not None else ("session",)
             ):
                 current_actor(write=request.method not in ("GET", "HEAD", "OPTIONS"), required=True)
 
@@ -897,6 +901,35 @@ def create_app(
             db(), base, local_links=local_readonly, project_roster=project_roster,
             standing_exploration=agent_guidance["standing-exploration"],
         )
+
+    if webhook_secrets:
+        @app.post("/api/v1/github/webhooks/<project>")
+        def github_webhook(project):
+            secret = webhook_secrets.get(project)
+            if secret is None:
+                raise NotFound()
+            body = request.get_data()
+            if not github_webhooks.authenticated(secret, body, request.headers.get("X-Hub-Signature-256", "")):
+                raise RequestError("Could not authenticate this GitHub delivery.", 403)
+            try:
+                match = github_webhooks.target(
+                    request.headers.get("X-GitHub-Event"), request.get_json(silent=True),
+                    project_extensions[project][extensions.EVENTS].repository,
+                )
+                if match is None:
+                    return jsonify(queued=0)
+                delivery = github_webhooks.delivery_id(request.headers.get("X-GitHub-Delivery", ""))
+                url, exact = match
+                count = github_webhooks.enqueue(db(), project, delivery, url, exact=exact, timestamp=ledger.timestamp())
+            except PermissionError as error:
+                raise RequestError(str(error), 403) from error
+            except LookupError as error:
+                raise NotFound() from error
+            except ValueError as error:
+                raise RequestError(str(error)) from error
+            if count is None:
+                return jsonify(duplicate=True, queued=0)
+            return jsonify(duplicate=False, queued=count), 202
 
     def json_body(allowed):
         data = request.get_json(silent=True)
@@ -3671,6 +3704,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             agent_guidance=agent_guidance, initial_project=initial_project,
             progress_prompt_minutes=os.environ.get("TASKS_PROGRESS_PROMPT_MINUTES"),
             project_extensions=project_extensions,
+            github_webhook_secrets=os.environ.get("TASKS_GITHUB_WEBHOOK_SECRETS"),
             public_raft_channel_urls=os.environ.get("TASKS_PUBLIC_RAFT_CHANNEL_URLS"),
             creation_default_subject=os.environ.get("TASKS_NEW_TASKS_DEFAULT_SUBJECT")
             if not (local_readonly or marketplace) else None,

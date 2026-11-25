@@ -472,9 +472,9 @@ def repository(item):
     return f"{item.owner}/{item.repo}".lower()
 
 
-def observe_metadata(db, source, item, metadata, settings, checked_at):
+def observe_metadata(db, source, item, metadata, settings, checked_at, *, update_status=True):
     state, commit, merged_at = snapshot(item, metadata)
-    if any(config.get(extensions.STATUS) or config.get(extensions.EVENTS) for config in settings.values()):
+    if update_status and any(config.get(extensions.STATUS) or config.get(extensions.EVENTS) for config in settings.values()):
         extensions.save_status(db, source["id"], state, checked_at, merge_commit=commit, merged_at=merged_at)
     if commit is None:
         return set()

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import tasks_core as ledger
 import tasks_extensions as extensions
+import tasks_github_webhooks as webhooks
 from tasks_github import (
     _ReadError, _source, _time, activity_read_bound, activity_rules, link_settings, observe_metadata, repository,
     save_updates,
@@ -14,11 +15,13 @@ import tasks_storage
 
 
 _BATCH_SIZE = 10
+_WEBHOOK_BATCH_SIZE = 5
 _SOURCE_READ_BUDGET = 30
+_WEBHOOK_READ_BUDGET = 15
 _COMPARISONS_PER_REFRESH = 10
 
 
-def _metadata_sources(db, configured):
+def _metadata_sources(db, configured, *, limit):
     filters, args = [], []
     for project, config in configured.items():
         args.append(project)
@@ -40,7 +43,7 @@ def _metadata_sources(db, configured):
                 WHERE task_sources.source_id = sources.id AND ({scope})
             )
             ORDER BY COALESCE(status.attempted_at, ''), sources.id LIMIT ?""",
-        (*args, _BATCH_SIZE),
+        (*args, limit),
     ).fetchall()
 
 
@@ -140,27 +143,56 @@ def refresh(db, reader, configured, *, release_source=None, board_url):
     if not configured:
         return result
     remaining_reads = _SOURCE_READ_BUDGET
-    for source in _metadata_sources(db, configured):
+    remaining_webhook_reads = _WEBHOOK_READ_BUDGET
+    pending = webhooks.pending(db, min(_WEBHOOK_BATCH_SIZE, _BATCH_SIZE - 1))
+    routine = _metadata_sources(db, configured, limit=_BATCH_SIZE - len(pending))
+    routine_ids = {source["id"] for source in routine}
+    overlapping = {}
+    candidates = []
+    for queued in pending:
+        if queued["id"] in routine_ids:
+            overlapping.setdefault(queued["id"], []).append(queued)
+        else:
+            candidates.append((queued, queued["project"], (queued,)))
+    candidates.extend((source, None, overlapping.get(source["id"], ())) for source in routine)
+    for source, project, cues in candidates:
         checked_at = ledger.timestamp()
         try:
             item = _source(source["target"])
         except _ReadError as error:
             result["errors"].append({"source": source["source_key"], "error": str(error)})
             with tasks_storage.write(db):
-                extensions.save_status(db, source["id"], None, checked_at)
-                ledger.bump_revision(db)
+                for cue in cues:
+                    webhooks.acknowledge(db, cue)
+                if project is None:
+                    extensions.save_status(db, source["id"], None, checked_at)
+                    ledger.bump_revision(db)
             continue
-        settings = link_settings(db, source["id"], configured)
+        scope = configured
+        if project is not None:
+            options = configured.get(project, {})
+            rule = options.get(extensions.EVENTS)
+            scope = {project: options} if rule and rule.repository == repository(item) else {}
+        settings = link_settings(db, source["id"], scope)
+        if project is not None and not settings:
+            with tasks_storage.write(db):
+                webhooks.acknowledge(db, source)
+            continue
         read_ci = bool(_ci_policies(settings, item))
-        observation = _read_observations(item, reader, settings, remaining_reads - int(read_ci))
+        budget = remaining_reads if project is None else remaining_webhook_reads
+        observation = _read_observations(item, reader, settings, budget - int(read_ci))
         if observation is None:
+            if project is not None:
+                continue
             # Leave the next source unattempted so it starts the following pass.
             break
         reads, (updates, review_state, errors, metadata) = observation
-        remaining_reads -= reads
+        cost = reads + int(read_ci and metadata is not None)
+        remaining_reads -= cost
+        if project is not None:
+            remaining_webhook_reads -= cost
         checks = ()
         if read_ci and metadata is not None:
-            remaining_reads -= 1
             try:
                 checks, warning = reader.completed_ci_jobs(item, metadata)
             except _ReadError as error:
@@ -169,8 +201,11 @@ def refresh(db, reader, configured, *, release_source=None, board_url):
                 errors = (*errors, ("checks", warning))
         result["errors"].extend({"source": source["source_key"], "error": error} for _, error in errors)
         with tasks_storage.write(db):
-            settings = link_settings(db, source["id"], configured)
-            merged = observe_metadata(db, source, item, metadata, settings, checked_at)
+            settings = link_settings(db, source["id"], scope)
+            for cue in cues:
+                webhooks.acknowledge(db, cue)
+            # Keep the ordinary poll's priority based on its own attempts.
+            merged = observe_metadata(db, source, item, metadata, settings, checked_at, update_status=project is None)
             result["activity"] += save_updates(
                 db, source, item, updates, settings, activity_rules(settings, item),
                 review_state=review_state, merged=merged,
