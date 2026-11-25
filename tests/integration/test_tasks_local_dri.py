@@ -21,6 +21,61 @@ ORIGIN = {"Origin": service.ORIGIN}
 
 
 class LocalDRIRoutingTest(unittest.TestCase):
+    def test_human_and_local_dri_share_ordinary_project_writer_permissions(self):
+        fixture = service.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        roster = {fixture.provider.people["Avery"]["sub"]: "Avery"}
+        app = fixture.app(portal_reader=True, project_roster=roster)
+        manager, manager_id = fixture.login(app, "Avery")
+        human, human_id = fixture.login(app, "Sam")
+        _, recipient = fixture.login(app, "Quinn")
+        foreign_agent, _ = fixture.login(app, "Blake")
+        fixture.cli("register-project", "OPS", "Example operations", "--dri", manager_id)
+        call, action = fixture.call, fixture.action
+        client = app.test_client()
+        local_id = call(human, REGISTER, method="POST", headers=ORIGIN,
+                        json={"name": "Operations writer", "project": "OPS"}).json["local_dri"]["id"]
+        token = call(human, CONNECTIONS, method="POST", headers=ORIGIN, json={"session": "Fixture"}).json["token"]
+        personal = {**ORIGIN, "Authorization": f"Bearer {token}"}
+        local = {**personal, "X-Taskboard-Local-DRI": local_id}
+
+        for actor_id, headers in ((human_id, personal), (local_id, local)):
+            with self.subTest(actor_id=actor_id):
+                note = action(client, "create-knowledge", {"project": "OPS", "title": "Sample guidance",
+                              "brief": "Check the baseline."}, headers=headers)["id"]
+                activity = action(manager, "task-activity", query_string={"id": note})["items"]
+                self.assertEqual(activity[0]["actor"], actor_id)
+                action(client, "edit-task-details", {"id": note, "brief": "Keep the verified baseline.",
+                       "reason": "Clarify the rule."}, headers=headers)
+                action(client, "knowledge-place", {"id": note, "area": "Ops", "index": "true"},
+                       headers=headers, status=403)
+                owned = action(client, "create-task", {"project": "OPS", "title": "Check a sample",
+                               "step": "Measure the baseline."}, headers=headers)["receipt"].split()[0]
+                for transition in ("start", "update", "done"):
+                    action(client, "advance-task", {"id": owned, "transition": transition,
+                           "note": "Verified the sample."}, headers=headers)
+                action(client, "knowledge-stage", {"id": note, "source": owned}, headers=headers)
+                peer = action(manager, "create-task", {"project": "OPS", "title": "Handoff a sample",
+                              "step": "Check the result."})["receipt"].split()[0]
+                action(client, "advance-task", {"id": peer, "transition": "start", "note": "Start."},
+                       headers=headers, status=409)
+                action(client, "change-ownership", {"id": peer, "action": "reassign", "owner": recipient,
+                       "reason": "Manager action."}, headers=headers, status=403)
+                action(client, "handoff", {"id": peer, "owner_name": "@quinn", "note": "Read the result."},
+                       headers=headers)
+                self.assertEqual(call(manager, f"/api/v1/tasks/{peer}").json["task"]["dri"], recipient)
+
+        call(manager, f"/api/v1/tasks/{peer}/ownership", method="POST",
+             json={"action": "reassign", "owner": human_id, "reason": "Continue the sample."})
+        self.assertEqual(call(manager, f"/api/v1/tasks/{peer}").json["task"]["dri"], human_id)
+        core = action(manager, "create-task", {"project": "T", "title": "Outside sample",
+                      "step": "Read the sample."})["receipt"].split()[0]
+        action(client, "handoff", {"id": core, "owner": human_id, "note": "Read."}, headers=local, status=403)
+        action(foreign_agent, "handoff", {"id": core, "owner": human_id, "note": "Read."}, status=409)
+        action(foreign_agent, "create-knowledge", {"project": "T", "title": "Outside note",
+               "brief": "Use the sample."}, status=403)
+
     def test_owner_project_question_and_watcher_boundaries(self):
         fixture = service.TasksServiceTest()
         fixture.setUp()

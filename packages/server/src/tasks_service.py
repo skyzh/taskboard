@@ -1545,7 +1545,7 @@ def create_app(
             def project_collaboration(connection, task):
                 project = projects.row_project(task)
                 require_local_project(project)
-                require_person(args.dri, "agent", task_id=task["id"])
+                require_person(args.dri, task_id=task["id"])
                 return can_collaborate_on_ticket(connection, actor, task, project)
             args.project_collaboration = project_collaboration
         links = one_link(data)
@@ -1611,7 +1611,7 @@ def create_app(
                 raise RequestError("Omit owner when clearing an assignment.")
             owner = None
         else:
-            owner = require_person(text(data, "owner", maximum=160), "agent", task_id=number)
+            owner = require_person(text(data, "owner", maximum=160), task_id=number)
         return mutate(action, actor, data, id=number, note=reason, dri=owner)
 
     def close_ticket(actor, number, data):
@@ -1814,8 +1814,11 @@ def create_app(
             return local["project"] == project
         return project != projects.DEFAULT or project_roster is None or actor["subject"] in project_roster
 
+    def project_writer(actor, project):
+        return actor is not None and (actor["kind"] == "human" or project_agent(actor, project))
+
     def can_create_knowledge(actor, project, manager):
-        return actor is not None and (actor["ledger_key"] == manager or project_agent(actor, project))
+        return project_writer(actor, project) or (actor is not None and actor["ledger_key"] == manager)
 
     def can_edit_shared_content(connection, actor, task, project):
         if actor is None:
@@ -1824,11 +1827,10 @@ def create_app(
         key = actor["ledger_key"]
         if (not ledger.is_knowledge(task) and task["dri"] == key) or projects.manages(connection, project, key):
             return True
-        return ((actor["kind"] == "human" or project_agent(actor, project))
-                and not ledger.task_goal_kind(connection, task["id"]))
+        return project_writer(actor, project) and not ledger.task_goal_kind(connection, task["id"])
 
     def can_collaborate_on_ticket(connection, actor, task, project):
-        return (project_agent(actor, project) and not ledger.is_knowledge(task)
+        return (project_writer(actor, project) and not ledger.is_knowledge(task)
                 and not ledger.task_goal_kind(connection, task["id"]))
 
     def project_admin_access(connection, actor):
@@ -2443,7 +2445,7 @@ def create_app(
             with tasks_storage.write(db()) as connection:
                 manager = connection.execute("SELECT dri FROM projects WHERE prefix = ?", (project,)).fetchone()["dri"]
                 if not can_create_knowledge(actor, project, manager):
-                    raise PermissionError("Only a signed project agent or project manager can create Knowledge entries.")
+                    raise PermissionError("Only a signed project writer or project manager can create Knowledge entries.")
                 return knowledge_records.create(connection, actor["ledger_key"], project, title, brief)
         except PermissionError as error:
             raise RequestError(str(error), 403) from error
@@ -3633,7 +3635,7 @@ def create_app(
                 if "owner" in data:
                     raise RequestError("Use either a name or an exact ID for the new owner.")
                 project, _ = projects.identifier(projects.for_task(db(), number))
-                owner = resolve_assignee(text(data, "owner_name", maximum=101), "agent", project)
+                owner = resolve_assignee(text(data, "owner_name", maximum=101), None, project)
             else:
                 owner = text(data, "owner", maximum=160)
             return mutate(

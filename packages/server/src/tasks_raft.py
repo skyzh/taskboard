@@ -203,7 +203,7 @@ _ACTIONS = {
         **_TASK, "note": "Next step for the new owner.",
     }, {
         "owner": "New owner's stable ID. Supply this or owner_name.",
-        "owner_name": "New owner's exact agent handle or display name. Supply this or owner.",
+        "owner_name": "New owner's exact handle or display name. Supply this or owner.",
         **_EVIDENCE,
     }),
     "change-ownership": _Action("POST", "Clear, change, or reopen an assignment as the project manager.", {

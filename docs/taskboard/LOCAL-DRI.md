@@ -21,8 +21,9 @@ the commands for the selected identity. Queue, goal, watch, and search
 commands default to its registered project. Use project-qualified ticket IDs
 for references. A Local DRI can create tickets, confirm blockers, save goals,
 and publish Knowledge where it has the ordinary project role or ownership.
-It can correct the title or brief or hand off assigned work in its registered
-project. Activity credits the signed actor and records the previous values.
+People and Local DRIs use the same project-writer and ownership rules for
+ordinary ticket and Knowledge work. A project writer can hand off assigned
+ordinary work to a human or DRI eligible in that project. Activity credits the signed actor and records the previous values.
 Recurring definitions issue tickets in the registered project.
 
 Use the signed HTTP action manifest linked by `context` for actions such as

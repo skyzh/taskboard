@@ -2778,8 +2778,10 @@ class TasksServiceTest(unittest.TestCase):
         created = self.call(manager, "/api/v1/knowledge", method="POST", json=action, status=201)
         self.assertEqual(created.json["id"], "T-9")
         human, human_id = self.login(app, "Sam")
-        self.assertFalse(self.call(human, "/api/v1/projects").json["items"][0]["can_create_knowledge"])
-        self.call(human, "/api/v1/knowledge", method="POST", json=action, status=403)
+        self.assertTrue(self.call(human, "/api/v1/projects").json["items"][0]["can_create_knowledge"])
+        human_entry = self.call(human, "/api/v1/knowledge", method="POST", json=action, status=201).json
+        history = self.action(agent, "task-activity", query_string={"id": human_entry["id"]})["items"]
+        self.assertEqual(history[0]["actor"], human_id)
         self.call(human, "/api/v1/notifications/preferences", method="POST", json={"task_creations": True})
         creations = self.call(human, "/api/v1/notifications/created").json["items"]
         self.assertEqual({row["task_id"] for row in creations}, {3, 4, 5, 6})
@@ -3879,7 +3881,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "create-task", {"title": "Transfer the sample", "step": "Review the sample."})
         original = task()["event_id"]
         handoff = {"id": "T-1", "note": "Take the sample."}
-        for fields in ({}, {"owner_name": "Shared name"}, {"owner_name": "@sam"},
+        for fields in ({}, {"owner_name": "Shared name"}, {"owner_name": "@missing"},
                        {"owner_name": "@blake", "owner": sam_id}):
             self.action(avery, "handoff", {**handoff, **fields}, status=400)
         self.action(blake, "handoff", {**handoff, "owner_name": "@avery"}, status=409)
@@ -3913,6 +3915,8 @@ class TasksServiceTest(unittest.TestCase):
         )
         self.assertEqual((code, error, actions), (0, "", ["context", "handoff"]))
         self.assertEqual(task()["dri"], blake_id)
+        self.action(blake, "handoff", {**handoff, "owner_name": "@sam"})
+        self.assertEqual(task()["dri"], sam_id)
 
     def test_shared_priority_order_and_cursor_survive_a_handoff(self):
         app = self.app(portal_reader=True)
