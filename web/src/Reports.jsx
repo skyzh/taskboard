@@ -8,7 +8,7 @@ import './reports.css'
 
 import { TaskRows } from './WorkRow.jsx'
 import { groupOutcomes } from './Overview.jsx'
-import { ReportTime } from './ReportTime.jsx'
+import { ReportTime, useReportNow } from './ReportTime.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
 import { goalActivityFragment } from './GoalActivity.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
@@ -16,6 +16,7 @@ import { useTimeZone } from './timeZone.js'
 import { briefSourceText } from './workCopy.js'
 import QueuedAsks from './QueuedAsks.jsx'
 import StampIntegration from './StampIntegration.jsx'
+import SegmentedControl from './SegmentedControl.jsx'
 import { DemoUnavailable } from './DemoControl.jsx'
 
 export const ownerWorkSections = [
@@ -147,6 +148,8 @@ function ReportOutcome({ event, publicPreview }) {
 }
 
 export function AssigneeReport({ entry, revision, project, projectTitle, publicPreview = false, tourTargets = {}, activeTarget }) {
+  const now = useReportNow()
+  const olderWorkCutoff = Math.floor(now / 1000) * 1000 - 60 * 60_000
   const { owner, profile, tasks, task_count: taskCount,
     pending_reports: reports, pending_reports_before: before, report_count: reportCount } = entry
   const name = profileName(owner, profile)
@@ -182,7 +185,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         <div className="report-owner-section" id={tourTargets.current} data-tour-current={tourTargets.current === activeTarget && activeTarget ? true : undefined}>
           <WorkHeading>Current work</WorkHeading>
           <TaskRows items={tasks} owner={false} label={`Current work for ${name}`} report="summary" revision={revision}
-            publicPreview={publicPreview} />
+            olderWorkCutoff={olderWorkCutoff} publicPreview={publicPreview} />
           {taskCount > tasks.length && <p className="report-note">Showing {tasks.length} of {taskCount} current tasks.</p>}
         </div>
       )}
@@ -315,12 +318,15 @@ export function NeedsYou({ project, revision }) {
 }
 
 function ProjectReports({ revision, project, projectTitle, hideRequests, viewer, view }) {
+  const now = useReportNow()
+  // Recent owners can age out without creating a ledger revision.
+  const pageRevision = view === 'recent' ? `${revision}:${Math.floor(now / 60_000)}` : revision
   const page = useLoadedPages('/reports', {
     view, project, ...(hideRequests && { hide_requests: true }),
     ...(viewer?.kind === 'human' && { include_self: true }),
-  }, revision)
-  const label = view === 'all' ? 'Assignees' : 'Assignees with open work'
-  const empty = view === 'all' ? 'No assignees.' : 'No open work to report.'
+  }, pageRevision)
+  const label = view === 'all' ? 'Assignees' : view === 'recent' ? 'Recent and Team DRI reports' : 'Assignees with open work'
+  const empty = view === 'all' ? 'No assignees.' : view === 'recent' ? 'No recent or Team DRI reports.' : 'No open work to report.'
   const reports = (
     <ReportsLayout sidebar={<QueuedAsks revision={revision} project={project} grouped={Boolean(projectTitle)} viewer={viewer} />}>
       <ResourceStatus resource={page} label="reports" />
@@ -341,6 +347,12 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, viewer,
   )
 }
 
+const assigneeViews = [
+  { value: 'active', label: 'Active' },
+  { value: 'all', label: 'All' },
+  { value: 'recent', label: 'Recent + team' },
+]
+
 export default function Reports({
   revision, viewer, project, projects, defaultProject = 'T', assigneeView = 'active',
   onAssigneeViewChange, headerAction, projectPicker,
@@ -359,13 +371,8 @@ export default function Reports({
           <input type="checkbox" checked={hideRequests} onChange={event => setHideRequests(event.target.checked)} />
           Hide peer requests
         </label>
-        <label>
-          Assignees
-          <select aria-label="Assignees" value={assigneeView} onChange={event => onAssigneeViewChange(event.target.value)}>
-            <option value="active">Active</option>
-            <option value="all">All</option>
-          </select>
-        </label>
+        <SegmentedControl className="report-assignee-views" label="Assignees" value={assigneeView}
+          options={assigneeViews} onChange={onAssigneeViewChange} />
       </ReportsHeading>
       {viewer && <NeedsYou key={viewer.id} project={projects ? undefined : project} revision={revision} />}
       {projects ? projects.map(({ prefix, title }) => (

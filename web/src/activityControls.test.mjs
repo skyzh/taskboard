@@ -926,7 +926,7 @@ test('a single line or exactly repeated explicit details need no disclosure', ()
   }
 })
 
-test('Summary uses the route’s Active or All filter, including when the project has a configured roster', () => {
+test('Summary uses the route’s assignee filter, including when the project has a configured roster', () => {
   function render(project, roster, assigneeView, expectedView) {
     fixture.state = [false]
     fixture.pages = { '/reports': filters => {
@@ -940,13 +940,14 @@ test('Summary uses the route’s Active or All filter, including when the projec
     ['T', true, undefined, 'active'],
     ['T', true, 'all', 'all'],
     ['COURSE', false, 'all', 'all'],
+    ['COURSE', false, 'recent', 'recent'],
   ]) {
     const page = render(project, roster, selection, expected)
-    assert.match(page, /<select aria-label="Assignees">/)
-    assert.match(page, />Active<\/option>/)
-    assert.match(page, />All<\/option>/)
+    assert.match(page, /role="group" aria-label="Assignees"/)
+    for (const [view, label] of [['active', 'Active'], ['all', 'All'], ['recent', 'Recent + team']]) {
+      assert.ok(page.includes(`aria-pressed="${view === expected}">${label}</button>`))
+    }
     assert.doesNotMatch(page, /Other assignees/)
-    assert.match(page, new RegExp(`value="${expected}" selected`))
     assert.match(page, /Team overview/)
   }
 })
@@ -1002,9 +1003,9 @@ test('Reports retains its route filter while loading or showing an error', () =>
   const failure = { error: new Error('Try later.'), retry() {} }
   const initialError = render('T', 'active', failure)
   assert.match(initialError, /Unable to load reports.*Retry/)
-  assert.match(initialError, /<option value="active" selected/)
-  assert.match(render('COURSE', 'all', { pending: true }), /<option value="all" selected/)
-  assert.match(render('COURSE', 'all', failure), /<option value="all" selected/)
+  assert.match(initialError, /aria-pressed="true">Active<\/button>/)
+  assert.match(render('COURSE', 'all', { pending: true }), /aria-pressed="true">All<\/button>/)
+  assert.match(render('COURSE', 'recent', failure), /aria-pressed="true">Recent \+ team<\/button>/)
 })
 
 test('Reports shows linked and unlinked asks in one request log without recipient-only notices', () => {
