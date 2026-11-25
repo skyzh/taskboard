@@ -371,15 +371,15 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const reportsReturn = new URLSearchParams(preferredReportsMode.split('?', 2)[1])
   const watchingReturn = reportsReturn.get('view') === 'watching' ? `#${preferredReportsMode}` : null
   const savedProfileReturn = window.history?.state?.watchingProfileReturn
-  const profileReportsHref = watchingReturn ||
-    (savedProfileReturn?.fragment === fragment ? savedProfileReturn.href : reportsHref)
+  const savedWatchingReturn = savedProfileReturn?.fragment === fragment ? savedProfileReturn.href : null
+  const profileReportsHref = savedWatchingReturn || watchingReturn || reportsHref
   useEffect(() => {
-    if (view !== 'assignee' || !watchingReturn || preview) return
+    if (view !== 'assignee' || !watchingReturn || savedWatchingReturn || preview) return
     // Preserve the return across reload on this profile's history entry.
     window.history.replaceState({
       ...window.history.state, watchingProfileReturn: { fragment, href: watchingReturn },
     }, '')
-  }, [view, preview, fragment, watchingReturn])
+  }, [view, preview, fragment, watchingReturn, savedWatchingReturn])
   function startTour() {
     const taskRoute = scopedRoute('#section=queue-heading').slice(1)
     tourOrigin.current = fragment
