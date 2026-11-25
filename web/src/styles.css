@@ -1274,6 +1274,65 @@ button:disabled { opacity: .57; }
 .integration-registration-form label:has(select) { display: grid; justify-items: start; gap: .35rem; }
 .integration-registration-form select { max-inline-size: 100%; }
 .integration-project { margin-bottom: .85rem; }
+.integration-diagram {
+  margin: .65rem 0;
+  padding: .65rem;
+  border: 1px solid var(--line);
+  border-radius: .4rem;
+}
+.integration-flow {
+  display: flex;
+  align-items: stretch;
+  gap: .2rem;
+}
+.integration-flow-node {
+  flex: 1 1 0;
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  padding: .35rem .25rem;
+  background: var(--wash);
+  border: 1px solid var(--line);
+  border-radius: .35rem;
+  text-align: center;
+  font-size: .84rem;
+  font-weight: var(--weight-emphasis);
+  line-height: 1.2;
+}
+.integration-flow-link {
+  flex: 0 0 clamp(2.3rem, 12vw, 5.25rem);
+  align-self: center;
+  display: grid;
+  text-align: center;
+  color: var(--muted);
+  font-size: .69rem;
+  line-height: 1.12;
+}
+.integration-flow-arrow { color: var(--green); font-size: 1.45rem; line-height: 1; }
+@media (max-width: 33rem) {
+  .integration-flow:has(.integration-flow-node:nth-child(5)) { flex-direction: column; }
+  .integration-flow:has(.integration-flow-node:nth-child(5)) .integration-flow-link {
+    flex: initial;
+    width: 100%;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    column-gap: .35rem;
+    text-align: start;
+  }
+  .integration-flow:has(.integration-flow-node:nth-child(5)) .integration-flow-arrow {
+    grid-column: 2;
+    transform: rotate(90deg);
+  }
+}
+.integration-flow-note { margin-top: .35rem; color: var(--muted); font-size: .82rem; }
+.integration-flow-secondary {
+  margin-top: .55rem;
+  padding-top: .55rem;
+  border-top: 1px solid var(--line);
+}
+.integration-flow-secondary h4 { margin: 0 0 .35rem; font-size: .84rem; }
+.integration-prompt-section { margin-top: .75rem; padding-top: .55rem; border-top: 1px solid var(--line); }
+.integration-prompt-section h4 { margin: 0 0 .35rem; }
 .integration-path-details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .35rem .6rem; }
 .integration-path-details dt { font-weight: var(--weight-emphasis); }
 .integration-path-details dd { margin: 0; }

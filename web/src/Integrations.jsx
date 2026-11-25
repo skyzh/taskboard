@@ -5,6 +5,7 @@ import handoffPrompt from '../../docs/taskboard/prompts/v1/automated-handoff.md?
 import factoryPrompt from '../../docs/taskboard/prompts/v1/ai-factory.md?raw'
 import localDriPrompt from '../../docs/taskboard/prompts/v1/local-dri.md?raw'
 import teamDriPrompt from '../../docs/taskboard/prompts/v1/team-dri.md?raw'
+import IntegrationDiagram from './IntegrationDiagram.jsx'
 import { request, useResource } from './data.js'
 import { CopyPrompt } from './PersonalCodex.jsx'
 import { ResourceStatus, signInHref } from './shared.jsx'
@@ -21,30 +22,35 @@ const workflows = [
     id: 'task-session', label: 'Task sessions', file: 'AGENTS.md', prompt: taskSessionPrompt,
     description: 'Use ordinary coding sessions to report work and reuse team Knowledge under your human account.',
     setup: 'Copy the prompt for a session or add the AGENTS.md example to your repository. On an enabled trusted tailnet, use direct HTTPS. For signed access, get the Tasks CLI from your team’s approved checkout or source archive. No background process is needed.',
+    guidance: 'Verify the human profile and publishing scope, find the original ticket, and read Knowledge and report progress as you work.',
     verify: 'Check your identity and one existing ticket, then record a checkpoint. Confirm it in Activity and open its related Knowledge from a fresh session.',
   },
   {
     id: 'automated-handoff', label: 'Automated handoffs', file: 'automated-handoff.md', prompt: handoffPrompt,
     description: 'A managed Ready watcher can wake an enrolled Raft agent today. Starting a fresh worker is a trial that requires an approved runner adapter.',
     setup: 'On a Raft Computer, get Python 3.11 or later, the Raft CLI, and the reviewed Taskboard checkout. Use the managed watcher setup in the guide.',
+    guidance: 'Verify the recipient and watcher, then open the linked ask and record Start and the result or blocker there.',
     verify: 'Send one linked ask and confirm the wake, Start, result, and acknowledgment.',
   },
   {
     id: 'ai-factory', label: 'Existing AI factory', file: 'ai-factory.md', prompt: factoryPrompt,
     description: 'Keep your factory and its workers. One enrolled coordinator acts as the DRI and reports their results to Taskboard.',
     setup: 'Have the project manager and board operator enroll an eligible coordinator. Use the shared CLI or supported Raft MCP adapter in the existing factory runtime. Other identities need an external adapter.',
+    guidance: 'Verify the coordinator identity, read the assigned ticket and Knowledge, and report worker evidence under that identity.',
     verify: 'Assign the coordinator one small ticket and confirm its identity, worker evidence, and next owner in Activity.',
   },
   {
     id: 'local-dri', label: 'Local DRI', file: 'local-dri.md', prompt: localDriPrompt,
     description: 'A Local DRI works in its owner’s runtime. It asks its creator in the local session by default.',
     setup: 'Until registration is available, use Task sessions with approved human access. A registered Local DRI can start an assigned ticket locally. Incoming asks from agents require a running watcher.',
+    guidance: 'Confirm assignment, reopen unfinished work, report progress, and ask the creator at the configured destination.',
     verify: 'Check the assigned owner before Start. Reopen unfinished work in the next session and check Activity. In progress is the last reported state.',
   },
   {
     id: 'team-dri', label: 'Team DRI', file: 'team-dri.md', prompt: teamDriPrompt,
     description: 'Give an enrolled agent standing responsibility for a shared project area.',
     setup: 'Set up signed access in the agent runtime. Have a project manager confirm the agent is eligible and assign it a ticket. Project Ready wakes are optional.',
+    guidance: 'Verify the team agent identity, work assigned tickets, route decisions, and report outcomes and evidence.',
     verify: 'Check the recorded owner and have a teammate find the blocker or result, source decisions, and evidence in Reports and Activity.',
   },
 ]
@@ -287,6 +293,8 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
       <section id="agent-workflow-details" aria-labelledby="agent-workflow-path">
         <h3 id="agent-workflow-path">{workflow.label}</h3>
         <p>{workflow.description}</p>
+        <IntegrationDiagram mode={workflow.id} destination={destination}
+          localRegistrationUnavailable={registrationResource.error?.status === 404} />
         {workflow.id === 'team-dri' &&
           <p className="integration-setup-note">Raft agents register as Team DRIs when they first connect to Taskboard.</p>}
         <dl className="integration-path-details">
@@ -294,11 +302,12 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
           <dd>{workflow.id === 'local-dri' && registrationResource.data
             ? <>Use the approved Tasks CLI to sign in, then pass your registered ID with <code>--local-dri</code>.
               Follow the <a href={docs + 'LOCAL-DRI.md'}>Local DRI setup and stop steps</a>.</>
-            : workflow.id === 'automated-handoff' && registrationResource.data
-              ? <>Install the <a href={docs + 'LOCAL-HANDOFF-WATCHER.md'}>local handoff watcher</a> for one registered project,
-                one approved requester, and one authorized checkout. Start it before sending a Ready ask. The Codex worker runs read-only.
-                Stop the watcher when finished and check that readiness clears.</>
-              : workflow.setup}</dd>
+            : workflow.setup}</dd>
+          {workflow.id === 'automated-handoff' && registrationResource.data && <>
+            <dt>Local trial</dt>
+            <dd>Install the <a href={docs + 'LOCAL-HANDOFF-WATCHER.md'}>local handoff watcher</a> and start it before sending a Ready ask.
+              Stop it when finished and check that readiness clears.</dd>
+          </>}
           <dt>Verify</dt>
           <dd>{workflow.verify}</dd>
         </dl>
@@ -312,8 +321,16 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
           <a href={`${guide}#${workflow.id}`}>Read the setup guide</a>
           <a href={`${docs}prompts/v1/${workflow.file}`}>Open v1 prompt file</a>
         </p>
-        {!promptProject && !unavailableIdentity && <p>Replace <code>&lt;PROJECT&gt;</code> with your project prefix before using the prompt.</p>}
-        <WorkflowPrompt key={actor?.id ?? 'unsigned'} text={text} session={session} />
+        <section className="integration-prompt-section" aria-labelledby="integration-prompt">
+          <h4 id="integration-prompt">What the prompt gives your agent</h4>
+          <p>The copied prompt includes this board’s URL, {promptProject ? 'the selected project' : 'a project placeholder'},
+            access guidance, and any publishing instructions you enter. {workflow.guidance}</p>
+          {workflow.id === 'local-dri' && identity &&
+            <p>The prompt includes the selected Local DRI identity and its creator question destination.</p>}
+          <p>Copying the prompt supplies instructions. Complete any sign-in, enrollment, adapter, or watcher setup required for this mode separately.</p>
+          {!promptProject && !unavailableIdentity && <p>Replace <code>&lt;PROJECT&gt;</code> with your project prefix before using the prompt.</p>}
+          <WorkflowPrompt key={actor?.id ?? 'unsigned'} text={text} session={session} />
+        </section>
       </section>
     </>
   )
