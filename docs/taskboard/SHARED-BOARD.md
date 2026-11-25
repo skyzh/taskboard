@@ -188,7 +188,8 @@ on title changes. The existing ledger text stays available.
 Project managers can configure project-specific fields and collection prompts
 under **Settings → Writing guidance → Ticket fields**. To use the API, retrieve the current definitions before updating them. A PUT replaces the
 project’s full field list. Use an empty list to hide the fields. Prior receipts
-remain available on their original ticket. Existing tickets show **Unknown**
+retain the project whose definition was used. Moving tickets uses the destination
+project’s definitions and receipts. Existing tickets show **Unknown**
 until ticket-linked evidence is available.
 
 ```sh
@@ -222,8 +223,8 @@ This fictional `fields.json` opts a project into agent hours and cost.
 Field kinds are `duration` (whole seconds), `money` (decimal text and a
 three-letter currency), `decimal` (nonnegative decimal text), and `text`.
 The optional `recorded_workers` source supplies partial duration from finished
-or stopped runs linked to the ticket, once per recorded run. It excludes direct
-agent time and incomplete runs. An explicit value replaces that fallback.
+or stopped runs linked to the ticket. Overlapping intervals for the same worker
+and runtime session count once. Direct agent time and incomplete runs are excluded. An explicit value replaces that fallback.
 Use the signed `field-guidance` action or `./tasks --shared field-guidance
 --project LAB` to discover each collection prompt. Complete coverage includes
 all attributed work on the ticket. Count delegated effort separately only when

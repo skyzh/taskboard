@@ -3423,6 +3423,8 @@ class TasksServiceTest(unittest.TestCase):
                    (task_id, worker, role, brief, effort, status, assigned_at, handle, started_at, reported_at)
                    VALUES (1, ?, 'build', 'Fixture', 'Standard', ?, '2026-11-01T00:00:00Z', ?, ?, ?)""",
                 [(avery_id, "reported", "first", "2026-11-01T00:00:00Z", "2026-11-01T00:20:00Z"),
+                 (avery_id, "reported", "first", "2026-11-01T00:00:00Z", "2026-11-01T00:20:00Z"),
+                 (avery_id, "reported", "first", "2026-11-01T00:05:00Z", "2026-11-01T00:25:00Z"),
                  (avery_id, "reported", "second", "2026-11-01T00:05:00Z", "2026-11-01T00:25:00Z"),
                  (avery_id, "running", "unresolved", "2026-11-01T00:20:00Z", None)],
             )
@@ -3431,7 +3433,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.action(avery, "set-ticket-field", {"id": "T-1", **amount}), first)
         detail = self.call(sam, task_path).json
         hours, cost = detail["ticket_fields"]["fields"]
-        self.assertEqual((hours["value"], hours["method"], hours["coverage"]), ("2400", "measured", "partial"))
+        self.assertEqual((hours["value"], hours["method"], hours["coverage"]), ("2700", "measured", "partial"))
         self.assertEqual((cost["value"], cost["method"], cost["coverage"]), ("0", "measured", "complete"))
         self.assertEqual(detail["task"]["state"], "done")
         status, output, error = self.shared_cli(avery, "show", "T-1")
@@ -3452,6 +3454,24 @@ class TasksServiceTest(unittest.TestCase):
         self.call(sam, old_path.replace("T-1", "OPS-1"), status=404)
         fields_now = self.call(sam, task_path).json["ticket_fields"]["fields"]
         self.assertEqual((fields_now[1]["value"], fields_now[1]["method"]), ("0.045", "estimated"))
+
+        self.cli("register-project", "LAB", "Lab", "--dri", avery_id)
+        destination_field = {**fields[1], "label": "Parts cost", "prompt": "Record the parts invoice."}
+        self.call(avery, "/api/v1/projects/LAB/ticket-fields", method="PUT", json={"fields": [destination_field]})
+        move = self.call(avery, task_path + "/project", method="POST", json={"project": "LAB"}).json
+        moved_path = "/api/v1/tasks/" + move["key"]
+        moved, = self.call(sam, moved_path).json["ticket_fields"]["fields"]
+        self.assertEqual((moved["label"], moved["method"], moved["value"]), ("Parts cost", "unknown", None))
+        source_receipt = self.call(sam, moved_path + f"/ticket-fields?event={correction['event_id']}").json
+        self.assertEqual((source_receipt["project"], source_receipt["value"]), ("T", "0.045"))
+        destination_receipt = self.call(avery, moved_path + "/ticket-fields", method="PUT", json={
+            **amount, "value": "10", "basis": "Verified parts invoice.",
+        }).json
+        receipt = self.call(sam, moved_path + f"/ticket-fields?event={destination_receipt['event_id']}").json
+        self.assertEqual(receipt["project"], "LAB")
+        returned = self.call(avery, moved_path + "/project", method="POST", json={"project": "T"}).json
+        _, restored = self.call(sam, "/api/v1/tasks/" + returned["key"]).json["ticket_fields"]["fields"]
+        self.assertEqual((restored["project"], restored["value"]), ("T", "0.045"))
 
     def test_manager_keeps_existing_review_wait_and_park_records(self):
         app = self.app()

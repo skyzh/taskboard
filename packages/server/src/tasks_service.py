@@ -1429,7 +1429,7 @@ def create_app(
         editable = allowed or (not is_note and key is not None and task["dri"] == key)
         details_editable = can_edit_shared_content(db(), actor, task, project)
         if key is not None and not is_note and (fields := ticket_fields.definitions(db(), project)):
-            configured = ticket_fields.detail(db(), number, fields, result["workers"], editable=details_editable)
+            configured = ticket_fields.detail(db(), number, project, fields, result["workers"], editable=details_editable)
             for field in configured["fields"]:
                 if "links" in field:
                     field["links"] = query().links(field["links"], event_id=field["event_id"])
@@ -1658,7 +1658,7 @@ def create_app(
                 raise RequestError(str(error)) from error
             if method != "unknown" and not links:
                 raise RequestError("Link the ticket-level evidence for this value.")
-            prior = ticket_fields.saved_values(connection, number).get((key, field["kind"]))
+            prior = ticket_fields.saved_values(connection, number, project=project).get((key, field["kind"]))
             if (prior is not None and all(prior[name] == item for name, item in value.items())
                     and prior["links"] == [list(link) for link in links]):
                 event = prior["event_id"]
@@ -1668,7 +1668,7 @@ def create_app(
                     connection, number, "log", actor["ledger_key"], task["state"], "Recorded a ticket field.", None, [],
                     {"audit": {"action": ticket_fields.ACTION, **last}},
                 )
-                ticket_fields.save_receipt(connection, event, value, links)
+                ticket_fields.save_receipt(connection, event, project, value, links)
                 ledger.bump_revision(connection)
         return {"receipt": f"{projects.row_reference(task)} · Ticket field recorded", "event_id": event, "field": value}
 
@@ -2283,6 +2283,7 @@ def create_app(
         if not values:
             raise NotFound()
         value, = values.values()
+        require_local_project(value["project"])
         return {**value, "links": query().links(value["links"])}
 
     @app.post("/api/v1/tasks/<number>/project")

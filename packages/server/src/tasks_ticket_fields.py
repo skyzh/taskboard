@@ -1,5 +1,6 @@
 """Project-defined ticket fields and their evidence-backed Activity history."""
 
+from collections import defaultdict
 from datetime import datetime
 import json
 import re
@@ -15,6 +16,7 @@ ACTION = "set-ticket-field"
 SCHEMA = """
     CREATE TABLE IF NOT EXISTS ticket_field_receipts (
         event_id INTEGER PRIMARY KEY REFERENCES events (id),
+        project_prefix TEXT NOT NULL REFERENCES projects (prefix),
         value TEXT NOT NULL,
         links TEXT NOT NULL
     )
@@ -91,30 +93,34 @@ def validate_value(field, value, method, coverage, currency, basis):
             "coverage": coverage, "currency": currency, "basis": basis}
 
 
-def saved_values(db, number, *, event_id=None):
+def saved_values(db, number, *, project=None, event_id=None):
     rows = db.execute(
         """
-        SELECT events.id, events.actor, events.at, receipt.value, receipt.links
+        SELECT events.id, events.actor, events.at, receipt.project_prefix, receipt.value, receipt.links
         FROM events JOIN ticket_field_receipts AS receipt ON receipt.event_id = events.id
-        WHERE events.task_id = ? AND (CAST(? AS BIGINT) IS NULL OR events.id = ?) ORDER BY events.id DESC
-        """, (number, event_id, event_id),
+        WHERE events.task_id = ? AND (CAST(? AS TEXT) IS NULL OR receipt.project_prefix = ?)
+            AND (CAST(? AS BIGINT) IS NULL OR events.id = ?) ORDER BY events.id DESC
+        """, (number, project, project, event_id, event_id),
     )
     values = {}
     for row in rows:
         value = json.loads(row["value"])
         values.setdefault((value["key"], value["kind"]), {
-            **value, "event_id": row["id"], "actor": row["actor"], "at": row["at"], "links": json.loads(row["links"]),
+            **value, "event_id": row["id"], "project": row["project_prefix"],
+            "actor": row["actor"], "at": row["at"], "links": json.loads(row["links"]),
         })
     return values
 
 
-def save_receipt(db, event, value, links):
-    db.execute("INSERT INTO ticket_field_receipts VALUES (?, ?, ?)", (event, json.dumps(value), json.dumps(links)))
+def save_receipt(db, event, project, value, links):
+    db.execute(
+        "INSERT INTO ticket_field_receipts (event_id, project_prefix, value, links) VALUES (?, ?, ?, ?)",
+        (event, project, json.dumps(value), json.dumps(links)),
+    )
 
 
 def worker_duration(runs):
-    seconds = 0
-    counted = 0
+    sessions = defaultdict(list)
     for run in runs:
         ending = run["reported_at"] or (run["finalized_at"] if run["status"] == "stopped" else None)
         if not (run["started_at"] and run["handle"] and ending):
@@ -125,16 +131,24 @@ def worker_duration(runs):
         except ValueError:
             continue
         if start.tzinfo is not None and end.tzinfo is not None and end >= start:
-            seconds += int((end - start).total_seconds())
-            counted += 1
-    if not counted:
+            sessions[run["worker"], run["handle"]].append((start, end))
+    if not sessions:
         return None
-    return {"value": str(seconds), "method": "measured", "coverage": "partial", "currency": None,
-            "basis": f"Recorded elapsed time from {counted} ticket-linked worker runs. Direct agent work is unavailable."}
+    seconds = 0
+    for windows in sessions.values():
+        covered_until = None
+        for start, end in sorted(windows):
+            if covered_until is None or end > covered_until:
+                uncovered_start = max(start, covered_until) if covered_until is not None else start
+                seconds += (end - uncovered_start).total_seconds()
+                covered_until = end
+    return {"value": str(int(seconds)), "method": "measured", "coverage": "partial", "currency": None,
+            "basis": "Recorded elapsed worker time. Overlapping entries for one worker and runtime session count once. "
+                     "Direct agent work is unavailable."}
 
 
-def detail(db, number, fields, runs, *, editable):
-    values = saved_values(db, number)
+def detail(db, number, project, fields, runs, *, editable):
+    values = saved_values(db, number, project=project)
     result = []
     for definition in fields:
         value = values.get((definition["key"], definition["kind"]))
