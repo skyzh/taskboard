@@ -20,7 +20,7 @@ export function mayAnswer(task, session) {
   return actionableRequestId(task, recipient(session)) != null
 }
 
-function DecisionResult({ attempt, draft }) {
+function DecisionResult({ attempt, draft, receiptAction }) {
   if (!attempt) return null
   const { status, answer } = attempt
   if (status === 'answered') {
@@ -29,10 +29,11 @@ function DecisionResult({ attempt, draft }) {
         <p role="status">Decision recorded. <a href={eventHref(answer.event_id)}>View your answer</a></p>
         {answer.choice && <p>Selected <MarkdownInline text={answer.choice} links={false} /></p>}
         {answer.note !== answer.choice && <Markdown text={answer.note} />}
+        {receiptAction}
       </div>
     )
   }
-  if (status === 'saved') return <p role="status">Decision recorded.</p>
+  if (status === 'saved') return <><p role="status">Decision recorded.</p>{receiptAction}</>
   if (status !== 'closed' && status !== 'unavailable') return null
 
   return (
@@ -50,7 +51,7 @@ function DecisionResult({ attempt, draft }) {
   )
 }
 
-export default function DecisionForm({ task, session, onChanged, onAnswerStarted }) {
+export default function DecisionForm({ task, session, onChanged, onAnswerStarted, receiptAction }) {
   const [draft, setDraft] = useState(null)
   const [attempt, setAttempt] = useState(null)
   const posting = useRef(null)
@@ -149,7 +150,7 @@ export default function DecisionForm({ task, session, onChanged, onAnswerStarted
 
   return (
     <>
-      <DecisionResult attempt={ownAttempt} draft={draft} />
+      <DecisionResult attempt={ownAttempt} draft={draft} receiptAction={receiptAction} />
       {showForm && (
         <form className="ownership-form decision-form" onSubmit={submit}
           data-reload-blocked={Boolean(pending || choice || other || note || details)}>

@@ -494,6 +494,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const canEditChecklist = record?.can_edit_checklist ?? record?.tag_editable
   const canEditChecklistText = record?.can_edit_checklist_text ?? canEditChecklist
   const canAnswer = task && mayAnswer(task, session)
+  const returnToDecisions = <a className="decision-return" href="#notifications-needs-me">Return to decisions</a>
   const ownsTicket = task && signedIn && session.data.actor.id && session.data.actor.id === task.dri
   const ownsReturnPath = ownsTicket
     && ['ready', 'in_progress', 'parked'].includes(task.state)
@@ -551,7 +552,10 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
         <div className="ticket-detail-work">
           <section className={task ? `ticket-focus ${state}` : undefined} aria-label={summary}>
             {task && <>
-              <h2>{summary}</h2>
+              {canAnswer ? <div className="ticket-focus-heading">
+                <h2>{summary}</h2>
+                {returnToDecisions}
+              </div> : <h2>{summary}</h2>}
               <TaskWaitAge task={task} />
               {(task.waiting_on || task.blockers) && <p><Dependency task={task} /></p>}
               {task.peer_request && <PeerRequestContext task={task} />}
@@ -575,7 +579,8 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               )}
             </>}
             <DecisionForm key={`${id}:${session.data?.actor?.id ?? session.data?.actor?.name ?? ''}`}
-              task={task} session={session} onChanged={onChanged} />
+              task={task} session={session} onChanged={onChanged}
+              receiptAction={canAnswer ? undefined : returnToDecisions} />
           </section>
           {task && <>
             {signedIn && <NeedsYouSend key={`${id}:${session.data.actor.id}`} ticket={task.key || id}

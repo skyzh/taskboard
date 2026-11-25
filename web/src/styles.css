@@ -785,6 +785,17 @@ button:disabled { opacity: .57; }
   border-left: 3px solid #aeb6a9;
   border-radius: .32rem;
 }
+.ticket-focus-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .25rem .75rem;
+}
+.decision-return { display: inline-flex; align-items: center; font-size: .85rem; }
+@media (pointer: coarse) {
+  .decision-return { min-height: 2.75rem; }
+}
 .ticket-focus.human_review { background: #f5effa; border-color: #8a57a9; }
 .ticket-focus.waiting { background: #fbf4e4; border-color: #a7751d; }
 .ticket-focus.in_progress { background: #ecf3fa; border-color: #4b78a6; }
