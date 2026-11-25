@@ -1,6 +1,6 @@
 ---
 name: taskboard-setup
-description: Set up or fill gaps in a shared Taskboard project's Team practices Knowledge, shared SOPs, and recurring Knowledge compaction and reflection. Use when onboarding a project or standardizing its operating practices.
+description: Set up or fill gaps in a shared Taskboard project's Team practices Knowledge, shared SOPs, recurring Knowledge maintenance, and Waiting and Parked reviews. Use when onboarding a project or standardizing its operating practices.
 ---
 
 # Taskboard Setup
@@ -43,6 +43,10 @@ For either mode, choose a signed owner, a cadence in whole hours, and a future f
 
 For per-DRI jobs limited to the selected project, include that project in the key, such as `team-practices-OPS-assigned-compaction`. For a whole-board job, use a board-wide key such as `team-practices-board-compaction`. If distinct schedules are needed for compaction and reflection, use a distinct key for each. Create a schedule under its owner's signed identity. Use the same original settings for a creation retry and read back the R-number, state, project, and cadence. Confirm that the anchor has an operator tick or an authorized manager who can issue due tickets. For an external wake, record its owner, schedule, and verified delivery path.
 
+## Set up a Waiting and Parked review
+
+Use the [queue review guide](references/waiting-and-parked.md) to choose an owned queue or a project queue. Reuse a review that already covers it. Where coverage is missing, agree on one owner, cadence, next run, and wake. Each review verifies current evidence and return triggers on the original tickets.
+
 ## Verify the setup
 
-Read back the chosen project, index, entry links, and each recurring purpose's R-number or external wake reference. Run the selected Knowledge sweep as its owner and confirm the intended coverage before relying on it. Record the owner, cadence, first or next due time, and issuance path. Repeat discovery to confirm the project is complete and the next setup pass needs no writes. Record created, reused, and unresolved items in the setup ticket. For a demonstration or skill test, do this on a disposable project with fictional sources and schedules.
+Read back the chosen project, index, entry links, and each recurring purpose's R-number or external wake reference, including Waiting and Parked review coverage. Run the selected Knowledge sweep as its owner and confirm the intended coverage before relying on it. Record the owner, cadence, first or next due time, and issuance path. Repeat discovery to confirm the project is complete and the next setup pass needs no writes. Record created, reused, and unresolved items in the setup ticket. For a demonstration or skill test, do this on a disposable project with fictional sources and schedules.
