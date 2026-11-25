@@ -413,6 +413,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None, initial_project=No
         else:
             ledger.ensure_record_kind(db)
             ledger.ensure_checklist_schema(db)
+            profiles.ensure_principals(db)
             db.execute(ticket_fields.SCHEMA)
             projects.bootstrap(db, initial_project, required=require_initial)
             tasks_recurring.ensure_project_binding(db)

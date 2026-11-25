@@ -87,6 +87,23 @@ class StorageReplayTest(unittest.TestCase):
     def test_postgres(self):
         self.replay(self.postgres_app(self.postgres_fixture()))
 
+    def test_postgres_adopts_profiles_from_before_short_roles(self):
+        dsn = self.postgres_fixture()
+        owner, owner_id = self.board.login(self.postgres_app(dsn), "Avery")
+        action = self.board.action
+        action(owner, "set-profile", {"role": "Fictional release tester"})
+        action(owner, "create-task", {"title": "Verify the original ticket", "step": "Read the saved work."})
+        with closing(Postgres(dsn)) as db:
+            self.assertEqual(db.execute("SELECT schema_version FROM taskboard_writer WHERE id = 1").fetchone()[0], 1)
+            db.execute("ALTER TABLE board_principals DROP COLUMN short_role")
+
+        owner, signed_id = self.board.login(self.postgres_app(dsn), "Avery")
+        self.assertEqual(signed_id, owner_id)
+        profile = self.board.call(owner, "/api/v1/session").json["actor"]
+        task = action(owner, "task", query_string={"id": "T-1"})["task"]
+        self.assertEqual((profile["name"], profile["role"]), ("Avery", "Fictional release tester"))
+        self.assertEqual((task["title"], task["dri"]), ("Verify the original ticket", owner_id))
+
     def test_postgres_project_move(self):
         dsn = self.postgres_fixture()
         app = self.postgres_app(dsn, project_admin_subject=fixture.FixtureRaft().people["Sam"]["sub"])
