@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { Reply } from 'lucide-react'
 import { useResource } from './data.js'
 import { Assignee, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, PeerRequestContext, ReminderWhen, ResourceStatus, Status, TaskLink, TaskPriority, Timestamp, eventHref, profileName, taskLabel, taskState } from './shared.jsx'
@@ -51,7 +52,7 @@ function ReportReleaseResult({ receipt }) {
     <p className="event-meta">
       <strong>{label}</strong>
       <Timestamp at={receipt.at} />
-      {receipt.receipt_url && <a href={receipt.receipt_url}>Release receipt</a>}
+      {receipt.receipt_url && <BoardLink href={receipt.receipt_url}>Release receipt</BoardLink>}
     </p>
   )
 }
@@ -101,7 +102,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   const reportTime = showReportedProgress && (
     <p className="event-meta">
       {progressReport
-        ? <>Progress last reported <a href={eventHref(progressReport.id)}><ReportTime at={progressReport.at} linked /></a></>
+        ? <>Progress last reported <BoardLink href={eventHref(progressReport.id)}><ReportTime at={progressReport.at} linked /></BoardLink></>
         : 'Progress report time unknown'}
       {task.local_watcher === 'ready_only' && <> · Watcher handles Ready asks only</>}
       {task.local_watcher === 'off' && <> · Automatic follow-up off</>}
@@ -135,7 +136,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
           <summary aria-label={`Update and evidence for ${taskLabel(task.id, task.key)}`}>Update and evidence</summary>
           {detailNote && <Markdown text={detailNote} />}
           <EvidenceLinks links={task.links} />
-          {task.event_id && <a href={eventHref(task.event_id)}>Open activity entry</a>}
+          {task.event_id && <BoardLink href={eventHref(task.event_id)}>Open activity entry</BoardLink>}
         </details>
       )}
       {!report && <EvidenceLinks links={task.links} />}
@@ -182,10 +183,10 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
 }
 
 export function TaskRows({ items, owner = true, selected, label, report, ownReport, revision, compactQueue = false,
-  listRef, onClick, searchQuery, publicPreview = false, projectNames }) {
+  listRef, onClickCapture, searchQuery, publicPreview = false, projectNames }) {
   if (!items?.length) return null
   return (
-    <ol ref={listRef} onClick={onClick} className={compactQueue ? 'task-rows compact-queue-rows' : 'task-rows'}
+    <ol ref={listRef} onClickCapture={onClickCapture} className={compactQueue ? 'task-rows compact-queue-rows' : 'task-rows'}
       aria-label={label} role="list">
       {items.map(task => (
         <TaskRow key={task.id} task={task} owner={owner} selected={task.id === selected || task.key === selected}

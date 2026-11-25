@@ -137,7 +137,7 @@ export function watchBoardRevision(onChange, onStatus, { websocket = false } = {
 
   function check() {
     if (websocket && !stream && typeof window.WebSocket === 'function') {
-      const url = new URL('./api/v1/revisions', window.location.href)
+      const url = new URL('./api/v1/revisions', document.baseURI)
       url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
       let next
       try {

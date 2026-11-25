@@ -7874,6 +7874,76 @@ class TasksServiceTest(unittest.TestCase):
         )
         self.assertEqual(result.status_code, 308)
         self.assertEqual(result.location, ORIGIN + BASE + "/")
+        response = self.app().test_client().get(
+            BASE + "?project=OPS&view=watching", base_url=ORIGIN, headers={PORTAL_HEADER: PORTAL_FIXTURE},
+        )
+        self.assertEqual((response.status_code, response.location), (308, ORIGIN + BASE + "/?project=OPS&view=watching"))
+
+    def test_page_documents_resolve_assets_from_the_configured_mount(self):
+        dist = self.database.parent / "page-assets-fixture"
+        (dist / "assets").mkdir(parents=True)
+        html = b'<html><head><base href="./"><script src="./assets/fixture.js"></script></head></html>'
+        (dist / "index.html").write_bytes(html)
+        asset = b'console.log("fixture");'
+        (dist / "assets" / "fixture.js").write_bytes(asset)
+
+        client = self.app(portal_reader=True, dist=dist).test_client()
+        with closing(self.call(client, "/")) as response:
+            self.assertEqual(response.data, html)
+        pages = (
+            "/reports?project=OPS&view=watching", "/reports/agents/raft%3Aagent%3Afictional", "/tasks",
+            "/tickets/OPS-12", "/activity", "/activity/events/42", "/my-activity", "/knowledge",
+            "/knowledge/OPS-14", "/schedules", "/schedules/R-8", "/team-overview", "/stats",
+            "/notifications", "/settings", "/integrations", "/personal-codex", "/search", "/about",
+        )
+        nested_html = html.replace(b'href="./"', f'href="{BASE}/"'.encode())
+        for page in pages:
+            with self.subTest(page=page), closing(self.call(client, page)) as response:
+                self.assertEqual((response.mimetype, response.data), ("text/html", nested_html))
+        with closing(self.call(client, "/tickets/OPS-12", method="HEAD")) as response:
+            self.assertEqual(response.data, b"")
+            self.assertEqual(response.content_length, len(nested_html))
+            etag = response.headers["ETag"]
+        self.call(client, "/tickets/OPS-12", status=304, headers={"If-None-Match": etag}).close()
+
+        with closing(self.call(client, "/assets/fixture.js")) as response:
+            self.assertEqual(response.data, asset)
+        for missing in ("/reports/agents/a/b", "/tickets/no-such-id", "/about/missing", "/unknown",
+                        "/api/v1/nonexistent", "/assets/absent.js", "/auth/absent", "/ask-sw.js"):
+            self.call(client, missing, status=404).close()
+        self.call(client, "/unknown", method="POST", status=404).close()
+        self.assertEqual(client.get(BASE + "/tickets/OPS-12", base_url=ORIGIN).status_code, 403)
+
+        root_app = create_app(self.database, public_url="http://127.0.0.1", local_readonly=True, dist=dist)
+        with closing(root_app.test_client().get("/knowledge/OPS-14")) as response:
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data, html.replace(b'href="./"', b'href="/"'))
+
+    def test_raft_sign_in_preserves_a_mounted_page_destination(self):
+        app = self.app(portal_reader=True)
+        for target in ("/tickets/OPS-12?history=all#task-steps",
+                       "/reports?project=OPS&view=watching",
+                       "/reports/agents/raft%3Aagent%3Afictional?project=OPS",
+                       "/search?q=https%3A%2F%2Fexample.test"):
+            with self.subTest(target=target):
+                self.provider.issued.discard("Sam")
+                client = app.test_client()
+                login = self.call(client, "/auth/login", query_string={"return_to": target}, status=302)
+                state = parse_qs(urlsplit(login.location).query)["state"][0]
+                callback = self.call(client, "/auth/callback", query_string={"code": "Sam", "state": state}, status=302)
+                self.assertEqual(callback.location, ORIGIN + BASE + target)
+                session = self.call(client, "/api/v1/session").json
+                self.assertEqual(session["actor"]["name"], "Sam")
+
+        for target in ("//outside.example/reports", "https://outside.example/reports",
+                       "/reports/agents/%2e%2e", "/reports/agents/bad%2Fid",
+                       "/reports/agents/bad%5Cid", "/reports%2fagents%2ffictional",
+                       "/api/v1/session", "/auth/logout", "/assets/app.js", "/unknown",
+                       "/reports#//outside.example"):
+            self.call(app.test_client(), "/auth/login", query_string={"return_to": target}, status=400)
+        for params in ((("return_to", "/reports"), ("return_to", "/tasks")),
+                       (("return_to", "/reports"), ("fragment", "#task-1"))):
+            self.call(app.test_client(), "/auth/login", query_string=params, status=400)
 
     def test_frontend_build_matches_the_frozen_html_and_is_independent_of_the_ledger(self):
         dist = self.database.parent / "assets-fixture"

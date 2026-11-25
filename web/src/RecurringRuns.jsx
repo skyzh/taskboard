@@ -1,4 +1,5 @@
 import React from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { TaskLink, Timestamp, scheduleHref } from './shared.jsx'
 
 const runLabels = {
@@ -62,7 +63,7 @@ export default function RecurringRuns({ history }) {
   return (
     <>
       {history.schedule_id && (
-        <p><a href={scheduleHref(history.schedule_id, history.project)}>Recurring schedule {history.schedule_id}</a></p>
+        <p><BoardLink href={scheduleHref(history.schedule_id, history.project)}>Recurring schedule {history.schedule_id}</BoardLink></p>
       )}
       <details className="recurring-runs">
         <summary>Recent runs</summary>

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { decisionRequest, isUncertainDecision, watchDecision } from './decisionRecovery.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { eventHref, ResourceStatus, signInHref, taskHref } from './shared.jsx'
@@ -26,7 +27,7 @@ function DecisionResult({ attempt, draft, receiptAction }) {
   if (status === 'answered') {
     return (
       <div className="decision-result">
-        <p role="status">Decision recorded. <a href={eventHref(answer.event_id)}>View your answer</a></p>
+        <p role="status">Decision recorded. <BoardLink href={eventHref(answer.event_id)}>View your answer</BoardLink></p>
         {answer.choice && <p>Selected <MarkdownInline text={answer.choice} links={false} /></p>}
         {answer.note !== answer.choice && <Markdown text={answer.note} />}
         {receiptAction}

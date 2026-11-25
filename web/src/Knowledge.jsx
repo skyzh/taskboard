@@ -1,11 +1,12 @@
 import React, { useState } from 'react'
+import { BoardLink, useBoardNavigation, useContentTitle } from './BoardNavigation.jsx'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import EditToggle from './EditToggle.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import RecordHistory, { historyHref } from './RecordHistory.jsx'
 import SegmentedControl from './SegmentedControl.jsx'
 import { ReportTime } from './ReportTime.jsx'
-import { LoadMore, ResourceStatus, eventHref, signInHref, taskHref } from './shared.jsx'
+import { LoadMore, ResourceStatus, eventHref, useSignInHref, taskHref } from './shared.jsx'
 
 export function entryHref(key) {
   return '#knowledge?' + new URLSearchParams({ entry: key })
@@ -26,6 +27,7 @@ const knowledgeScopes = [
 ]
 
 function KnowledgeCreate({ projects, onCreated }) {
+  const navigate = useBoardNavigation()
   const [title, setTitle] = useState('')
   const [brief, setBrief] = useState('')
   const [pending, setPending] = useState(false)
@@ -42,7 +44,7 @@ function KnowledgeCreate({ projects, onCreated }) {
         body: { project, title: title.trim(), brief: brief.trim() },
       })
       onCreated()
-      window.location.hash = entryHref(id)
+      navigate(entryHref(id))
     } catch (failure) {
       setError(failure.message)
     } finally {
@@ -151,8 +153,8 @@ function DecisionSources({ sources }) {
     <ul className="knowledge-sources" aria-label="Decision sources" role="list">
       {sources.map(source => (
         <li key={source.event_id} data-decision-at={source.at}>
-          <a href={taskHref(source.task_key)}>{source.task_key}</a>
-          <a href={eventHref(source.event_id)}>{source.label}</a>
+          <BoardLink href={taskHref(source.task_key)}>{source.task_key}</BoardLink>
+          <BoardLink href={eventHref(source.event_id)}>{source.label}</BoardLink>
         </li>
       ))}
     </ul>
@@ -166,7 +168,7 @@ function AreaBranches({ areas, parent = '' }) {
     <ul>
       {children.map(area => (
         <li key={area.path}>
-          <a href={area.available ? entryHref(area.index) : taskHref(area.index)}>{area.path.split('/').at(-1)}</a>
+          <BoardLink href={area.available ? entryHref(area.index) : taskHref(area.index)}>{area.path.split('/').at(-1)}</BoardLink>
           {!area.available && <span className="knowledge-stage-state">Index under review</span>}
           <AreaBranches areas={areas} parent={area.path} />
         </li>
@@ -211,12 +213,12 @@ export function StagedWork({ changes }) {
       <ul className="context-list" role="list">
         {changes.map(change => (
           <li key={change.source} data-staged-at={change.staged_at} data-source-at={change.source_at}>
-            <a href={taskHref(change.source)}>{change.source}</a> <MarkdownInline text={change.source_title} links={false} />
+            <BoardLink href={taskHref(change.source)}>{change.source}</BoardLink> <MarkdownInline text={change.source_title} links={false} />
             <span className="knowledge-stage-state">
-              {change.applied_event_id ? <a href={eventHref(change.applied_event_id)}>Applied</a>
+              {change.applied_event_id ? <BoardLink href={eventHref(change.applied_event_id)}>Applied</BoardLink>
                 : change.conflict ? change.conflict : 'Staged'}
             </span>
-            {change.source_event_id && <a href={eventHref(change.source_event_id)}>Source event</a>}
+            {change.source_event_id && <BoardLink href={eventHref(change.source_event_id)}>Source event</BoardLink>}
           </li>
         ))}
       </ul>
@@ -236,7 +238,10 @@ export default function Knowledge({ session, verified, revision, projects, searc
   const directory = useResource(verified && showDirectory ? queryPath('/knowledge/areas', { project }) : null, revision)
   const signIn = session.data?.sign_in_available || session.error?.status === 401
   const fragment = entry ? entryHref(entry) : knowledgeListHref(scope, search, { order, project })
+  const login = useSignInHref(history && entry ? historyHref(fragment, history) : fragment)
   const writableProjects = projects?.filter(project => project.can_create_knowledge === true) || []
+  const entryTitle = verified && entry && page.data?.items[0]?.title
+  useContentTitle(entryTitle ? `${entry} · ${entryTitle}` : null)
   if (history && entry && verified && page.data?.items.length > 0) {
     return (
       <article className="panel task-detail" id="knowledge" tabIndex={-1} aria-label="Knowledge history">
@@ -247,7 +252,7 @@ export default function Knowledge({ session, verified, revision, projects, searc
   return (
     <section className="knowledge" aria-labelledby="knowledge">
       <div className="page-heading"><h1 id="knowledge" tabIndex={-1}>Knowledge</h1>
-        {entry ? <a href={knowledgeListHref('board', '', { project })}>All entries</a> : projectPicker}
+        {entry ? <BoardLink href={knowledgeListHref('board', '', { project })}>All entries</BoardLink> : projectPicker}
         {verified && !entry && writableProjects.length > 0 &&
           <EditToggle label="Edit Knowledge" active={editing} onToggle={() => setEditing(value => !value)} />}
       </div>
@@ -276,12 +281,12 @@ export default function Knowledge({ session, verified, revision, projects, searc
           <ol className="knowledge-list" aria-label="Knowledge entries" role="list">
             {page.data.items.map(item => (
               <li className="panel" key={item.id}>
-                <h2><a href={entryHref(item.key)}><MarkdownInline text={item.title} links={false} /></a></h2>
-                <a className="ticket-id" href={taskHref(item.key)}>{item.key}</a>
-                {entry && <a className="history-link" href={historyHref(entryHref(item.key))}>History</a>}
+                <h2><BoardLink href={entryHref(item.key)}><MarkdownInline text={item.title} links={false} /></BoardLink></h2>
+                <BoardLink className="ticket-id" href={taskHref(item.key)}>{item.key}</BoardLink>
+                {entry && <BoardLink className="history-link" href={historyHref(entryHref(item.key))}>History</BoardLink>}
                 {!entry && item.last_activity && <p className="last-activity knowledge-last-activity">
                   Last activity {item.last_activity.label && <span>· {item.last_activity.label} </span>}
-                  <a href={eventHref(item.last_activity.id)}><ReportTime at={item.last_activity.at} linked /></a>
+                  <BoardLink href={eventHref(item.last_activity.id)}><ReportTime at={item.last_activity.at} linked /></BoardLink>
                 </p>}
                 {item.area && <p className="knowledge-area-label">{item.area}</p>}
                 {item.maintenance_dri !== undefined && <p className="knowledge-area-label">
@@ -297,9 +302,9 @@ export default function Knowledge({ session, verified, revision, projects, searc
                     <h3 id={`knowledge-area-entries-${item.id}`}>Entries in this area</h3>
                     <ul className="context-list" aria-labelledby={`knowledge-area-entries-${item.id}`} role="list">
                       {item.area_entries.map(note => (
-                        <li key={note.key}><a href={entryHref(note.key)}>
+                        <li key={note.key}><BoardLink href={entryHref(note.key)}>
                           <MarkdownInline text={note.title} links={false} />
-                        </a></li>
+                        </BoardLink></li>
                       ))}
                     </ul>
                   </section>
@@ -310,7 +315,7 @@ export default function Knowledge({ session, verified, revision, projects, searc
           </ol>
         )}
         <LoadMore page={page} label="Knowledge entries" />
-      </> : signIn ? <a href={signInHref(history && entry ? historyHref(fragment, history) : fragment)}>Sign in to view Knowledge</a>
+      </> : signIn ? <a href={login}>Sign in to view Knowledge</a>
         : <ResourceStatus resource={session} label="your session" />}
     </section>
   )
@@ -328,7 +333,7 @@ export function TicketKnowledgeLinks({ ticket, revision }) {
           const stage = item.staged_work?.find(change => change.source === ticket)
           return (
             <li key={item.id}>
-              <a href={entryHref(item.key)}><MarkdownInline text={item.title} links={false} /></a>
+              <BoardLink href={entryHref(item.key)}><MarkdownInline text={item.title} links={false} /></BoardLink>
               {stage && <span className="knowledge-stage-state">
                 {stage.applied_event_id ? 'Applied' : stage.conflict ? 'Needs review' : 'Staged work'}
               </span>}

@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { BoardLink, useBoardLocation, useContentTitle } from './BoardNavigation.jsx'
+import { legacyLocation, routeAddress } from './boardRoutes.js'
 import { ArrowUpRight, ChevronDown, X } from 'lucide-react'
 import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from './data.js'
 import About from './About.jsx'
@@ -21,7 +23,7 @@ import Schedules from './Schedules.jsx'
 import Settings from './Settings.jsx'
 import Stats from './Stats.jsx'
 import { watchBoardSections } from './sectionIndex.js'
-import { BoardBrand, notificationLogFilters, ResourceStatus, schedulesHref, signInHref } from './shared.jsx'
+import { BoardBrand, notificationLogFilters, ResourceStatus, schedulesHref, useSignInHref } from './shared.jsx'
 import { SearchResults, TaskSearch } from './TaskSearch.jsx'
 import { KnowledgeRecordTools, TaskDetail, WorkLog, WorkQueue } from './Work.jsx'
 import { useTheme } from './theme.js'
@@ -65,22 +67,13 @@ function fragmentId(fragment, pattern) {
 const scheduleAnchor = /^schedule-(R-[1-9]\d{0,18})$/
 
 function useFragment(preview) {
-  const [{ fragment: rawFragment, reveal }, setLocation] = useState(() => ({ fragment: window.location.hash.slice(1), reveal: true }))
+  const board = useBoardLocation()
+  const rawFragment = board?.rawFragment ?? window.location.hash.slice(1)
   const fragment = preview ? withoutTour(rawFragment) : rawFragment
+  const reveal = board?.reveal ?? true
+  const explicitAnchor = board?.location.hash.slice(1)
   useEffect(() => {
-    function changed() {
-      const fragment = window.location.hash.slice(1)
-      setLocation(previous => ({
-        fragment,
-        reveal: !preview || withoutTour(previous.fragment) !== withoutTour(fragment),
-      }))
-    }
-    window.addEventListener('hashchange', changed)
-    return () => window.removeEventListener('hashchange', changed)
-  }, [preview])
-
-  useEffect(() => {
-    if (!fragment || !reveal || rawFragment !== fragment) return
+    if ((!fragment && !explicitAnchor) || !reveal || rawFragment !== fragment) return
     const [base, query] = fragment.split('?', 2)
     const params = new URLSearchParams(query ?? fragment)
     const section = base === 'settings' ? new URLSearchParams(query).get('section') : params.get('section')
@@ -89,8 +82,8 @@ function useFragment(preview) {
     if (base === 'reports-all' || base === 'reports') anchor = 'reports'
     if (['board', 'stats', 'knowledge', 'integrations', 'settings', 'notifications', 'my-activity', 'team-overview'].includes(base)) anchor = base
     if (['map', 'workstreams-title', 'now-title', 'decisions-title', 'outcomes-title', 'work-log-title', 'queue-heading'].includes(base)) anchor = base === 'map' || base === 'workstreams-title' ? 'team-overview' : base
-    const id = params.get('dri') ? section || 'assignee-title'
-      : params.get('search')?.trim() ? 'search-results' : params.has('schedules') ? 'schedules' : section || anchor
+    const id = explicitAnchor || (params.get('dri') ? section || 'assignee-title'
+      : params.get('search')?.trim() ? 'search-results' : params.has('schedules') ? 'schedules' : section || anchor)
     function revealAnchor() {
       const target = document.getElementById(id)
       if (!target) return false
@@ -106,15 +99,8 @@ function useFragment(preview) {
     })
     observer.observe(document.getElementById('root'), { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [fragment, reveal, rawFragment])
-  const writeFilterFragment = useCallback((next, replace) => {
-    const hash = `#${next}`
-    if (window.location.hash === hash) return
-    if (replace) window.history.replaceState(window.history.state, '', hash)
-    else window.history.pushState(window.history.state, '', hash)
-    setLocation({ fragment: next, reveal: false })
-  }, [])
-  return [fragment, writeFilterFragment, rawFragment]
+  }, [fragment, reveal, rawFragment, explicitAnchor])
+  return [fragment, rawFragment]
 }
 
 function SectionIndex({ overview, scope }) {
@@ -132,9 +118,9 @@ function SectionIndex({ overview, scope }) {
   return (
     <nav ref={nav} className="section-index" aria-label="Board sections">
       {links.map(([id, label, count]) => (
-        <a key={id} href={projectHref(`#${id}`, scope)} aria-current={current === id ? 'location' : undefined}>
+        <BoardLink key={id} href={projectHref(`#${id}`, scope)} aria-current={current === id ? 'location' : undefined}>
           {label}{count != null && <span className="index-count">{count}</span>}
-        </a>
+        </BoardLink>
       ))}
     </nav>
   )
@@ -165,26 +151,33 @@ function BoardConnection({ checkedAt, checking, stale, source }) {
 
 export default function App({ previewNotice, tourSteps } = {}) {
   const preview = Boolean(previewNotice)
-  const [fragment, writeFilterFragment, rawFragment] = useFragment(preview)
-  const demoTour = useDemoTour(rawFragment, tourSteps)
+  const board = useBoardLocation()
+  const [fragment, rawFragment] = useFragment(preview)
+  const navigate = board?.navigate
+  const login = useSignInHref(`#${fragment}`)
+  const writeFilterFragment = (next, replace) => navigate?.(next, { replace, reveal: false })
+  const demoTour = useDemoTour(rawFragment, tourSteps, navigate)
   const theme = useTheme()
   const main = useRef(null)
   const tourTrigger = useRef(null)
   const tourOrigin = useRef('')
   const restoreTourFocus = useRef(false)
   const [tour, setTour] = useState(null)
-  const tourIndex = tour?.findIndex(step => step.route === fragment) ?? -1
+  const tourLocation = tour && legacyLocation(fragment)
+  const tourIndex = tourLocation ? tour.findIndex(step =>
+    routeAddress(legacyLocation(step.route)) === routeAddress(tourLocation)) : -1
   const tourStep = tour?.[tourIndex]
   useEffect(() => {
     if (tour && !tourStep) setTour(null)
   }, [tour, tourStep])
   useLayoutEffect(() => {
-    if (restoreTourFocus.current && !tour) {
-      restoreTourFocus.current = false
-      const trigger = tourTrigger.current || main.current
-      trigger?.focus({ preventScroll: true })
-    }
-  }, [tour])
+    if (!restoreTourFocus.current || tour) return
+    const current = legacyLocation(fragment)
+    if (!current || routeAddress(current) !== routeAddress(legacyLocation(tourOrigin.current))) return
+    restoreTourFocus.current = false
+    const trigger = tourTrigger.current || main.current
+    trigger?.focus({ preventScroll: true })
+  }, [fragment, tour])
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(readWelcomeBannerPreference)
   const [welcomeExpanded, setWelcomeExpanded] = useState(false)
   function chooseWelcomeBanner(show) {
@@ -275,24 +268,30 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const owner = params.get('dri')
   const search = selected ? '' : params.get('search')?.trim() || ''
   let view = 'board'
-  if (owner) view = 'assignee'
-  else if (search) view = 'search'
-  else if (!fragment || taskAnchor === 'reports' || allReports) view = 'reports'
-  else if (taskAnchor === 'settings' || taskAnchor === 'manage') view = 'settings'
-  else if (taskAnchor === 'integrations') view = 'integrations'
-  else if (fragment === 'personal-codex') view = 'personal-codex'
-  else if (fragment === 'about') view = 'about'
-  else if (taskAnchor === 'knowledge') view = 'knowledge'
-  else if (scheduleId || params.has('schedules')) view = 'schedules'
-  else if (taskAnchor === 'stats') view = 'stats'
-  else if (logFilters || ['notifications', 'notifications-needs-me'].includes(taskAnchor)) view = 'notifications'
-  else if (taskAnchor === 'my-activity' && isAgent) view = 'my-activity'
-  else if (linkedEvent || taskAnchor === 'activity' || taskAnchor === 'work-log-title') view = 'activity'
-  else if (selected) view = 'task'
-  else if (params.get('section') === 'team-overview' ||
-    ['team-overview', 'now-title', 'decisions-title', 'outcomes-title', 'workstreams-title', 'map'].includes(taskAnchor)) {
-    view = 'team-overview'
+  if (board) {
+    const recordViews = { home: 'reports', event: 'activity', entry: 'knowledge', schedule: 'schedules' }
+    view = recordViews[board.route] || board.route
+  } else {
+    if (owner) view = 'assignee'
+    else if (search) view = 'search'
+    else if (!fragment || taskAnchor === 'reports' || allReports) view = 'reports'
+    else if (taskAnchor === 'settings' || taskAnchor === 'manage') view = 'settings'
+    else if (taskAnchor === 'integrations') view = 'integrations'
+    else if (fragment === 'personal-codex') view = 'personal-codex'
+    else if (fragment === 'about') view = 'about'
+    else if (taskAnchor === 'knowledge') view = 'knowledge'
+    else if (scheduleId || params.has('schedules')) view = 'schedules'
+    else if (taskAnchor === 'stats') view = 'stats'
+    else if (logFilters || ['notifications', 'notifications-needs-me'].includes(taskAnchor)) view = 'notifications'
+    else if (taskAnchor === 'my-activity' && isAgent) view = 'my-activity'
+    else if (linkedEvent || taskAnchor === 'activity' || taskAnchor === 'work-log-title') view = 'activity'
+    else if (selected) view = 'task'
+    else if (params.get('section') === 'team-overview' ||
+      ['team-overview', 'now-title', 'decisions-title', 'outcomes-title', 'workstreams-title', 'map'].includes(taskAnchor)) {
+      view = 'team-overview'
+    }
   }
+  useContentTitle(view === 'reports' && (showGoalActivity ? 'Goal activity' : assigneeView === 'watching' ? 'Watching' : null))
   const supportsAllProjects = ['reports', 'board', 'activity', 'team-overview', 'knowledge', 'stats', 'notifications', 'my-activity'].includes(view) ||
     (view === 'schedules' && !scheduleId)
   const scopedView = supportsAllProjects || ['assignee', 'task', 'schedules'].includes(view)
@@ -321,12 +320,6 @@ export default function App({ previewNotice, tourSteps } = {}) {
     if (scope && !scopePending && (visibleProjects || scope === 'all')) rememberScope(scope)
     else if (!scopedView && requestedProject && !projectUnavailable && visibleProjects) rememberScope(requestedProject)
   }, [scope, scopePending, scopedView, requestedProject, projectUnavailable, visibleProjects])
-  useEffect(() => {
-    if (taskAnchor === 'manage') {
-      const linkedProject = /^[A-Z][A-Z0-9]{0,7}$/.test(project) ? project : null
-      window.location.replace(settingsFragment(linkedProject, 'permissions'))
-    }
-  }, [taskAnchor, project])
   useEffect(() => {
     setQueueFilters(previous => previous.tag && previous.tag.project !== project
       ? { ...previous, tag: undefined }
@@ -357,7 +350,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const integrationsHref = allProjectRead ? '#integrations' : projectHref('#integrations', project)
   const reportsScopeReady = allReports || !requestedReportsProject || Boolean(visibleProjects)
   const personalAgentsLink = reportsScopeReady && session.data?.actor?.kind === 'human'
-    ? <a href={integrationsHref}>Personal Agents</a> : null
+    ? <BoardLink href={integrationsHref}>Personal Agents</BoardLink> : null
   const showAllReports = view === 'reports' && hasProjectChoices && allProjectRead
   const reportsPending = Boolean((allReports || requestedReportsProject) && projectsPending)
   const reportsMode = reportsPending ? (fragment || 'reports-all')
@@ -425,9 +418,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
         const value = event.target.value
         if (view === 'board') setQueueFilters(previous => ({ ...previous, tag: undefined }))
         const route = fragment ? `#${fragment}` : '#reports-all'
-        window.location.hash = view === 'schedules'
+        navigate(view === 'schedules'
           ? schedulesHref(value === 'all' ? undefined : value, value === 'all')
-          : projectHref(route, value, { replace: true })
+          : projectHref(route, value, { replace: true }))
       }}>
         {supportsAllProjects && <option value="all">All projects</option>}
         {visibleProjects.map(entry => <option key={entry.prefix} value={entry.prefix}>{entry.title}</option>)}
@@ -440,7 +433,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
       <main aria-label="Taskboard content">
         <div className="main-content">
           <h1>Taskboard</h1>
-          <a href={signInHref(`#${fragment}`)}>Sign in with OpenID Connect</a>
+          <a href={login}>Sign in with OpenID Connect</a>
         </div>
       </main>
     )
@@ -475,9 +468,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {updateDeferred && <p className="board-connection" role="status">Taskboard will refresh when you finish your changes.</p>}
           {projectUnavailable ? <section aria-label="Project">
             <p className="section-message" role="status">Project unavailable.</p>
-            <a href={projectHref(`#${fragment}`, supportsAllProjects ? 'all' : defaultProject, { replace: true })}>
+            <BoardLink href={projectHref(`#${fragment}`, supportsAllProjects ? 'all' : defaultProject, { replace: true })}>
               {supportsAllProjects ? 'All projects' : 'Open the default project'}
-            </a>
+            </BoardLink>
           </section> : scopePending ? <ResourceStatus resource={sessionResource.pending ? sessionResource : projectList} label="projects" /> : <>
           {view === 'reports' && !showGoalActivity && showWelcomeBanner && (
             <aside className="reports-welcome" aria-labelledby="reports-welcome-title" data-expanded={welcomeExpanded || undefined}>
@@ -499,7 +492,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
                       aria-label="See the demo (opens the public example in a new tab)">
                       See the demo <ArrowUpRight size={16} aria-hidden="true" />
                     </a>}
-                    {reportsScopeReady && <a href={integrationsHref}>Set up an agent</a>}
+                    {reportsScopeReady && <BoardLink href={integrationsHref}>Set up an agent</BoardLink>}
                   </div>
                   {reportsScopeReady && <p className="report-note">Raft agents register as Team DRIs when they first connect.
                     Use agent setup for personal agents or external AI factories.</p>}
@@ -563,7 +556,12 @@ export default function App({ previewNotice, tourSteps } = {}) {
             onChanged={refresh} fragment={fragment} project={projectRead} projectPicker={projectPicker} projects={visibleProjects} />}
           {view === 'activity' && <WorkLog requested={linkedEvent} revision={revision} ownerProfiles={overview.data?.owner_profiles}
             fragment={fragment} project={projectRead} projectPicker={projectPicker} onFiltersChange={writeFilterFragment} />}
-          {view === 'my-activity' && <MyActivity revision={revision} project={projectRead} projectPicker={projectPicker} />}
+          {view === 'my-activity' && (isAgent
+            ? <MyActivity revision={revision} project={projectRead} projectPicker={projectPicker} />
+            : <p className="section-message">My activity is available to signed-in agents.</p>)}
+          {view === 'not-found' && <section className="page-heading">
+            <h1>Page unavailable</h1><BoardLink href="#reports-all">Open Reports</BoardLink>
+          </section>}
           {view === 'schedules' && <Schedules key={JSON.stringify([session.data?.actor?.id, scheduleId])}
             id={scheduleId} project={project} requestedProject={scheduleProject} projectPicker={projectPicker}
             allProjects={allProjectRead} revision={revision} session={session} verified={verified} onChanged={refresh} />}
@@ -571,14 +569,14 @@ export default function App({ previewNotice, tourSteps } = {}) {
             <>
               {projectPicker && <div className="tasks-desktop-project">{projectPicker}</div>}
               <div className="page-heading tasks-heading"><h1 id="board">Tasks</h1>
-                {verified && <a href={schedulesHref(allProjectRead ? undefined : project, allProjectRead)}>Schedules</a>}
+                {verified && <BoardLink href={schedulesHref(allProjectRead ? undefined : project, allProjectRead)}>Schedules</BoardLink>}
               </div>
               <WorkQueue revision={revision} overview={overview.data} filters={queueFilters} setFilters={setQueueFilters}
                 waitingLabel={waitingLabel} setWaitingLabel={setWaitingLabel}
                 allProjects={allProjectRead}
                 project={projectsPending && !requestedProject ? undefined : project} projectPicker={projectPicker}
                 layout={queueLayout} setLayout={setQueueLayout} phoneColumn={phoneColumn} setPhoneColumn={setPhoneColumn}
-                kanbanNavigation={kanbanNavigation} listNavigation={listNavigation} listReturn={listReturn} />
+                kanbanNavigation={kanbanNavigation} listNavigation={listNavigation} listReturn={listReturn} fragment={fragment} />
             </>
           )}
           {view === 'task' && <TaskDetail key={selected} id={selected} revision={revision} session={session}
@@ -587,7 +585,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
             moveReceipt={ticketMove?.href === `#${taskAnchor}` ? ticketMove.receipt : undefined}
             onMoved={(href, receipt) => {
               setTicketMove({ href, receipt })
-              window.location.hash = fromSearch ? `${href}?${new URLSearchParams({ 'from-search': fromSearch })}` : href
+              navigate(fromSearch ? `${href}?${new URLSearchParams({ 'from-search': fromSearch })}` : href)
               refresh()
             }} />}
           {view === 'team-overview' && (

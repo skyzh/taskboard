@@ -253,6 +253,20 @@ class OIDCTest(unittest.TestCase):
         self.call(second, tag_path, 403, method="POST", json={"tag": "decision-record", "action": "add"})
         self.call(legacy, tag_path, **options)
 
+    def test_login_returns_to_a_mounted_page_destination(self):
+        client = self.app.test_client()
+        target = "/knowledge/OPS-14?project=OPS&history=all#entry-title"
+        login = self.call(client, "/auth/login", 302, query_string={"return_to": target})
+        query = {name: fields[0] for name, fields in parse_qs(urlsplit(login.location).query).items()}
+        callback = self.call(client, "/auth/callback", 302, query_string={
+            "code": self.provider.issue_code(query), "state": query["state"], "iss": self.provider.url,
+        })
+        self.assertEqual(callback.location, PUBLIC + target)
+        self.assertEqual(self.actor(client)["kind"], "human")
+        self.call(self.app.test_client(), "/auth/login", 400, query_string={"return_to": "//outside.example"})
+        self.call(self.app.test_client(), "/auth/login", 400,
+                  query_string={"return_to": "/reports", "fragment": "#task-1"})
+
     def test_login_returns_to_watching_reports_scope(self):
         for fragment in ("#reports?view=watching", "#reports?project=OPS&view=watching", "#reports-all?view=watching"):
             with self.subTest(fragment=fragment):

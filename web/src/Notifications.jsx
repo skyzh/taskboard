@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
-import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificationLogFilters, ownerHref, profileName, signInHref, taskHref } from './shared.jsx'
+import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificationLogFilters, ownerHref, profileName, useSignInHref, taskHref } from './shared.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import NotificationLog from './NotificationLog.jsx'
 import DecisionForm from './DecisionForm.jsx'
@@ -23,9 +24,9 @@ function Creation({ event }) {
       <p className="event-ticket"><TaskLink reference={event.task_key} id={event.task_id} title={event.task_title} /></p>
       <p className="event-meta">
         <span>Created by {creator}</span>
-        <a href={eventHref(event.id)} aria-label={`View task creation by ${creator} at ${timestamp}`}>
+        <BoardLink href={eventHref(event.id)} aria-label={`View task creation by ${creator} at ${timestamp}`}>
           <ReportTime at={event.at} linked />
-        </a>
+        </BoardLink>
       </p>
     </li>
   )
@@ -61,7 +62,7 @@ function InboxReadiness({ item }) {
       <p>{item.criteria}</p>
       <p className="event-meta">
         <TaskLink reference={item.source_key} id={item.source_id} title={item.source_title} />
-        <a href={eventHref(item.event_id)}>{readinessEventLabels[item.event_kind] || 'Dependency updated'}</a>
+        <BoardLink href={eventHref(item.event_id)}>{readinessEventLabels[item.event_kind] || 'Dependency updated'}</BoardLink>
       </p>
     </li>
   )
@@ -109,7 +110,7 @@ function InboxStandingGoals({ goals, owner }) {
     <ul className="event-list" aria-label="Standing goals" role="list">
       {goals.map(goal => (
         <li className="event-row dri-goal" key={goal.project}>
-          <p className="event-ticket"><a href={goal.ticket ? taskHref(goal.ticket) : ownerHref(owner, 'dri-standing-goal-title', goal.project)}>Standing goal</a></p>
+          <p className="event-ticket"><BoardLink href={goal.ticket ? taskHref(goal.ticket) : ownerHref(owner, 'dri-standing-goal-title', goal.project)}>Standing goal</BoardLink></p>
           <p>{goal.summary}</p>
         </li>
       ))}
@@ -201,7 +202,7 @@ function FollowThrough({ revision, project }) {
           <li className="event-row" key={task.id}>
             <p><TaskLink reference={task.key} id={task.id} title={task.title} /></p>
             <Markdown text={task.note} />
-            <p><a href={eventHref(task.event_id)}>Recorded decision</a></p>
+            <p><BoardLink href={eventHref(task.event_id)}>Recorded decision</BoardLink></p>
             <EvidenceLinks links={task.links} />
           </li>
         ))}
@@ -292,11 +293,11 @@ function PersonalNotifications({ revision, session, onChanged, fragment, project
   return (
     <>
       <nav className="notification-views" aria-label="Notification views">
-        <a href={projectHref('#notifications', scope)} aria-current={route === 'notifications' ? 'page' : undefined}>Inbox</a>
-        <a href={projectHref('#notifications-needs-me', scope)} aria-current={needsMe ? 'page' : undefined}>
+        <BoardLink href={projectHref('#notifications', scope)} aria-current={route === 'notifications' ? 'page' : undefined}>Inbox</BoardLink>
+        <BoardLink href={projectHref('#notifications-needs-me', scope)} aria-current={needsMe ? 'page' : undefined}>
           Needs me{data && <span aria-live="polite"> ({data.count})</span>}
-        </a>
-        <a href={logFilters ? `#${fragment}` : projectHref('#notifications-log', scope)} aria-current={logFilters ? 'page' : undefined}>Project log</a>
+        </BoardLink>
+        <BoardLink href={logFilters ? `#${fragment}` : projectHref('#notifications-log', scope)} aria-current={logFilters ? 'page' : undefined}>Project log</BoardLink>
       </nav>
       {logFilters ? <NotificationLog project={project} state={logFilters.state} kind={logFilters.kind} agent={logFilters.agent}
         allProjects={logFilters.allProjects} projects={projects} revision={revision} /> : (
@@ -312,6 +313,7 @@ function PersonalNotifications({ revision, session, onChanged, fragment, project
 }
 
 export default function Notifications({ session, verified, revision, onChanged, fragment = 'notifications', project, projectPicker, projects }) {
+  const login = useSignInHref(`#${fragment}`)
   const sessionFailed = session.error && session.error.status !== 401
   return (
     <>
@@ -324,7 +326,7 @@ export default function Notifications({ session, verified, revision, onChanged, 
       {!verified && !session.pending && !sessionFailed && (
         <p className="section-message">
           {session.data?.sign_in_available || session.error?.status === 401
-            ? <a href={signInHref(`#${fragment}`)}>Sign in with Raft to view your notifications</a>
+            ? <a href={login}>Sign in with Raft to view your notifications</a>
             : 'Notifications require a verified Raft account.'}
         </p>
       )}

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { Monitor, Moon, Sun } from 'lucide-react'
 import { request, signOut } from './data.js'
-import { AssigneeAvatar, ResourceStatus, signInHref } from './shared.jsx'
+import { AssigneeAvatar, ResourceStatus, useSignInHref } from './shared.jsx'
 import { matchesBoardShortcut } from './shortcuts.js'
 
 export function ProfileForm({ actor, onSaved }) {
@@ -69,9 +70,10 @@ export function ProfileForm({ actor, onSaved }) {
 }
 
 export function ProfileSignIn({ session, fragment }) {
+  const login = useSignInHref(fragment)
   const unauthorized = session.error?.status === 401
   if (!unauthorized && !session.data?.sign_in_available) return null
-  return <a href={signInHref(fragment)}>Sign in with Raft</a>
+  return <a href={login}>Sign in with Raft</a>
 }
 
 const themeActions = [
@@ -182,9 +184,9 @@ export default function Profile({ session, fragment, theme, freshness, settingsH
             </button>
           ))}
         </div>
-        <a href={settingsHref} onClick={closeAndFocus}>Settings</a>
-        {actor?.kind === 'human' && <a href="#integrations" onClick={closeAndFocus}>Integrations</a>}
-        <a href="#about" onClick={closeAndFocus}>About</a>
+        <BoardLink href={settingsHref} onClick={closeAndFocus}>Settings</BoardLink>
+        {actor?.kind === 'human' && <BoardLink href="#integrations" onClick={closeAndFocus}>Integrations</BoardLink>}
+        <BoardLink href="#about" onClick={closeAndFocus}>About</BoardLink>
         <button type="button" aria-keyshortcuts="Alt+Shift+H" onClick={() => showShortcuts(true)}>Keyboard shortcuts</button>
         <ProfileSignIn session={session} fragment={fragment} />
         {verified && !preview && <button type="button" onClick={handleSignOut} disabled={signingOut}>

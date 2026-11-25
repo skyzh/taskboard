@@ -1,4 +1,5 @@
 import React from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import MarkdownIt from 'markdown-it'
 import MermaidDiagram from './MermaidDiagram.jsx'
 import { markdownHref, sourceLinkLabel } from './sourceLinks.js'
@@ -17,7 +18,7 @@ function linkedTickets(text, related, tokenIndex) {
     const key = match[1].toUpperCase() + '-' + match[2].replace(/^0+/, '')
     const href = markdownHref(related.get(key)?.url)
     if (!href) continue
-    parts.push(text.slice(end, match.index), <a key={`${tokenIndex}-${match.index}`} href={href}>{match[0]}</a>)
+    parts.push(text.slice(end, match.index), <BoardLink key={`${tokenIndex}-${match.index}`} href={href}>{match[0]}</BoardLink>)
     end = match.index + match[0].length
   }
   parts.push(text.slice(end))
@@ -41,7 +42,7 @@ function tokensToElements(tokens, links, related) {
         if (href) {
           const task = automatic && [...related.values()].find(item => item.url === href)
           const label = automatic ? task?.key || sourceLinkLabel(href) : opened.children
-          parent.push(<a key={opened.index} href={href} title={opened.token.attrGet('title') || undefined}>{label}</a>)
+          parent.push(<BoardLink key={opened.index} href={href} title={opened.token.attrGet('title') || undefined}>{label}</BoardLink>)
         } else {
           parent.push(...opened.children)
         }
@@ -72,7 +73,7 @@ function tokensToElements(tokens, links, related) {
         case 'image': {
           const href = links && !current.inLink && markdownHref(token.attrGet('src'))
           const label = token.content || (href && sourceLinkLabel(href))
-          if (href) current.children.push(<a key={index} href={href}>{label}</a>)
+          if (href) current.children.push(<BoardLink key={index} href={href}>{label}</BoardLink>)
           else current.children.push(token.content)
           break
         }

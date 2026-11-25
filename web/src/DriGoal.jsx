@@ -1,4 +1,5 @@
 import React, { useId, useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { queryPath, request } from './data.js'
 import { FieldHelp, useFieldGuidance } from './FieldGuidance.jsx'
 import { taskHref, TaskLink } from './shared.jsx'
@@ -115,7 +116,7 @@ export default function DriGoal({ goal, project, standing = false, editable, onC
       </div>
       {goal ? (
         <>
-          <p>{standing && goal.ticket ? <a href={taskHref(goal.ticket)}>{goal.summary}</a> : goal.summary}</p>
+          <p>{standing && goal.ticket ? <BoardLink href={taskHref(goal.ticket)}>{goal.summary}</BoardLink> : goal.summary}</p>
           {!standing && <GoalDetails goal={goal} />}
         </>
       ) : <p className="section-message">No goal set.</p>}
@@ -144,7 +145,7 @@ export function DriMilestones({ milestones, project, editable, onChanged }) {
       {milestones.map(goal => (
         <div className="dri-milestone" key={goal.ticket || goal.summary}>
           <div className="dri-goal-actions">
-            <h3>{goal.ticket ? <a href={taskHref(goal.ticket)}>{goal.summary}</a> : goal.summary}</h3>
+            <h3>{goal.ticket ? <BoardLink href={taskHref(goal.ticket)}>{goal.summary}</BoardLink> : goal.summary}</h3>
             {editable && editing === null && (
               <button type="button" aria-label={`Edit ${goal.summary}`} onClick={() => setEditing(goal.summary)}>Edit</button>
             )}

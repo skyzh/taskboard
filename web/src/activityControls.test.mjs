@@ -200,31 +200,39 @@ test('Knowledge scope and search survive sign-in alongside existing history link
   assert.equal(fragment, '#knowledge?scope=assigned&q=Team+practices')
   const sorted = knowledgeListHref('assigned', 'Team practices', { order: 'updated', project: 'OPS' })
   assert.equal(sorted, '#knowledge?scope=assigned&q=Team+practices&order=updated&project=OPS')
-  for (const hash of [fragment, sorted, '#knowledge?scope=assigned', '#knowledge?q=Team+practices', '#knowledge?entry=OPS-1&history=2']) {
-    assert.equal(new URL(signInHref(hash), 'https://example.test/tasks/').searchParams.get('fragment'), hash)
-  }
-  assert.equal(signInHref('#knowledge?scope=assigned&project=OPS&project=T'), './auth/login')
+  const returns = [
+    [fragment, '/knowledge?scope=assigned&q=Team+practices'],
+    [sorted, '/knowledge?scope=assigned&q=Team+practices&order=updated&project=OPS'],
+    ['#knowledge?scope=assigned', '/knowledge?scope=assigned'],
+    ['#knowledge?q=Team+practices', '/knowledge?q=Team+practices'],
+    ['#knowledge?entry=OPS-1&history=2', '/knowledge/OPS-1?history=2'],
+  ]
+  for (const [hash, target] of returns) assert.equal(signInReturn(hash), target)
 })
 
+function signInReturn(hash) {
+  return new URL(signInHref(hash), 'https://example.test/tasks/').searchParams.get('return_to')
+}
+
 test('sign-in preserves supported scoped routes and their filters', () => {
-  for (const hash of [
-    '#board?project=LAB', '#project=LAB&section=queue-heading&owner=Avery',
-    '#activity?detail=all&project=LAB', '#stats?period=week&scope=all',
-    '#notifications-needs-me?project=LAB', '#team-overview?scope=all',
-    '#knowledge?project=LAB&scope=assigned&q=glass',
-  ]) {
-    assert.equal(new URL(signInHref(hash), 'https://example.test/tasks/').searchParams.get('fragment'), hash)
-  }
-  assert.equal(signInHref('#board?project=LAB&scope=all'), './auth/login')
-  assert.equal(signInHref('#activity?project=LAB&next=https://example.test/'), './auth/login')
+  for (const [hash, target] of [
+    ['#board?project=LAB', '/tasks?project=LAB'],
+    ['#project=LAB&section=queue-heading&owner=Avery', '/tasks?project=LAB&owner=Avery#queue-heading'],
+    ['#activity?detail=all&project=LAB', '/activity?detail=all&project=LAB'],
+    ['#stats?period=week&scope=all', '/stats?period=week&scope=all'],
+    ['#notifications-needs-me?project=LAB', '/notifications?project=LAB&view=needs-me'],
+    ['#team-overview?scope=all', '/team-overview?scope=all'],
+    ['#knowledge?project=LAB&scope=assigned&q=glass', '/knowledge?project=LAB&scope=assigned&q=glass'],
+  ]) assert.equal(signInReturn(hash), target)
+  assert.equal(signInHref('#unknown'), './auth/login')
 })
 
 test('Watching sign-in preserves the selected Reports scope', () => {
-  for (const hash of ['#reports?view=watching', '#reports?project=OPS&view=watching',
-    '#reports?view=watching&project=OPS', '#reports-all?view=watching']) {
-    assert.equal(new URL(signInHref(hash), 'https://example.test/tasks/').searchParams.get('fragment'), hash)
-  }
-  assert.equal(signInHref('#reports?view=watching&project=OPS&project=T'), './auth/login')
+  for (const [hash, target] of [
+    ['#reports?view=watching', '/reports?view=watching'],
+    ['#reports?project=OPS&view=watching', '/reports?project=OPS&view=watching'],
+    ['#reports-all?view=watching', '/reports?view=watching&scope=all'],
+  ]) assert.equal(signInReturn(hash), target)
 })
 
 test('history anchors the previous version and offers a return to the same record', () => {
@@ -565,7 +573,7 @@ test('the Checkpoint filter writes to the URL and restores the Activity request'
   assert.match(initial, /<option value="checkpoint">Checkpoint<\/option>/)
   assert.deepEqual(changes, [['event-18-log?actor=Morgan&action=checkpoint', false]])
   const hash = '#' + changes[0][0]
-  assert.equal(new URL(signInHref(hash), 'https://example.test/tasks/').searchParams.get('fragment'), hash)
+  assert.equal(signInReturn(hash), '/activity/events/18?actor=Morgan&action=checkpoint')
 
   fixture.pages = {
     '/activity': filters => {

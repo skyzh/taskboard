@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { useLoadedPages } from './data.js'
 import {
   ActivityMark, EvidenceLinks, LoadMore, OutcomeNote, ResourceStatus, TaskLink, Timestamp,
@@ -76,7 +77,7 @@ export function OutcomeSummary({ events }) {
         </div>
         <span className="outcome-meta outcome-time">
           {profileName(latest.actor, latest.actor_profile)}
-          <a href={eventHref(latest.id)}><ReportTime at={latest.at} linked /></a>
+          <BoardLink href={eventHref(latest.id)}><ReportTime at={latest.at} linked /></BoardLink>
         </span>
       </div>
       <details className="outcome-details">
@@ -87,7 +88,7 @@ export function OutcomeSummary({ events }) {
               <p className="event-meta">
                 <strong>{event.label}</strong>
                 <span>{profileName(event.actor, event.actor_profile)}</span>
-                <a href={eventHref(event.id)}><Timestamp at={event.at} /></a>
+                <BoardLink href={eventHref(event.id)}><Timestamp at={event.at} /></BoardLink>
               </p>
               <OutcomeNote event={event} choiceShown={event.id === latest.id && Boolean(choice)} />
             </li>
@@ -121,7 +122,7 @@ export function OutcomeRow({ events }) {
         </div>
         <span className="outcome-meta outcome-time">
           {profileName(latest.actor, latest.actor_profile)}
-          <a href={eventHref(latest.id)}><ReportTime at={latest.at} linked /></a>
+          <BoardLink href={eventHref(latest.id)}><ReportTime at={latest.at} linked /></BoardLink>
         </span>
       </div>
       {events.length === 1 ? (
@@ -134,7 +135,7 @@ export function OutcomeRow({ events }) {
               <p className="event-meta">
                 <strong>{event.label}</strong>
                 <span>{profileName(event.actor, event.actor_profile)}</span>
-                <a href={eventHref(event.id)}><Timestamp at={event.at} /></a>
+                <BoardLink href={eventHref(event.id)}><Timestamp at={event.at} /></BoardLink>
               </p>
               <OutcomeNote event={event} headline={event.id === latest.id ? result : undefined}
                 choiceShown={event.id === latest.id} withEvidence={false} />

@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { BoardLink, useContentTitle } from './BoardNavigation.jsx'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { ActivityDate, Outcomes } from './Overview.jsx'
 import { NeedsYou, OwnerWorkLinks, PendingReports, ownerWorkSections } from './Reports.jsx'
@@ -49,7 +50,7 @@ function AssigneeActivity({ owner, project, revision }) {
               const headline = recorded && recorded !== event.label ? recorded : event.task_title || event.label
               return (
                 <li key={event.id}>
-                  <a href={eventHref(event.id)}>
+                  <BoardLink href={eventHref(event.id)}>
                     <ActivityMark event={event} />
                     <span>
                       <span className="assignee-activity-headline"><MarkdownInline text={headline} links={false} /></span>
@@ -57,7 +58,7 @@ function AssigneeActivity({ owner, project, revision }) {
                         {taskLabel(event.task_id, event.task_key)} · <Timestamp at={event.at} showDate={false} />
                       </span>
                     </span>
-                  </a>
+                  </BoardLink>
                 </li>
               )
             })}
@@ -100,6 +101,7 @@ function AssigneeWatch({ owner, project, watching, onChanged }) {
 export default function AssigneePage({ owner, section, revision, project, reportsHref = '#reports', canEditGoal, viewer, onWatchChanged }) {
   const resource = useResource(queryPath('/assignee', { owner, project }), revision)
   const entry = resource.data
+  useContentTitle(entry?.profile ? `${profileName(owner, entry.profile)} · Report` : null)
   if (!entry) return <ResourceStatus resource={resource} label="assignee profile" />
   const profile = entry.profile
   const agentReport = profile?.kind === 'agent'
@@ -118,7 +120,7 @@ export default function AssigneePage({ owner, section, revision, project, report
   const ready = sections.find(({ state }) => state === 'ready')
   return (
     <>
-      <a className="back-link" href={reportsHref}>Back to Reports</a>
+      <BoardLink className="back-link" href={reportsHref}>Back to Reports</BoardLink>
       <header id="assignee-title" className="assignee-page-heading">
         <AssigneeAvatar name={name} url={profile?.avatar_url} large />
         <div>
@@ -142,14 +144,14 @@ export default function AssigneePage({ owner, section, revision, project, report
       {viewer?.kind === 'human' && viewer.id === owner && <NeedsYou project={project} revision={revision} />}
       {(showStandingGoal || showMilestones || entry.goal || hasWork || hasOutcomeLink || reports.length > 0) && (
         <nav className="owner-links profile-index" aria-label={`${name}’s work sections`}>
-          {showStandingGoal && <a href={ownerHref(owner, 'dri-standing-goal-title', project)}>Standing goal</a>}
-          {entry.goal && <a href={ownerHref(owner, 'dri-goal-title', project)}>Original dated goal</a>}
-          {showMilestones && <a href={ownerHref(owner, 'dri-milestones-title', project)}>Dated milestones</a>}
+          {showStandingGoal && <BoardLink href={ownerHref(owner, 'dri-standing-goal-title', project)}>Standing goal</BoardLink>}
+          {entry.goal && <BoardLink href={ownerHref(owner, 'dri-goal-title', project)}>Original dated goal</BoardLink>}
+          {showMilestones && <BoardLink href={ownerHref(owner, 'dri-milestones-title', project)}>Dated milestones</BoardLink>}
           <OwnerWorkLinks owner={owner} project={project} counts={counts} />
-          {hasOutcomeLink && <a href={ownerHref(owner, 'outcomes-title', project)}>Recent outcomes</a>}
-          {agentReport && <a href={ownerHref(owner, 'assignee-activity-title', project)}>What was done</a>}
+          {hasOutcomeLink && <BoardLink href={ownerHref(owner, 'outcomes-title', project)}>Recent outcomes</BoardLink>}
+          {agentReport && <BoardLink href={ownerHref(owner, 'assignee-activity-title', project)}>What was done</BoardLink>}
           {reports.length > 0 && (
-            <a href={ownerHref(owner, 'reports-pending-title', project)}>Worker reports <strong>{entry.report_count}</strong></a>
+            <BoardLink href={ownerHref(owner, 'reports-pending-title', project)}>Worker reports <strong>{entry.report_count}</strong></BoardLink>
           )}
         </nav>
       )}

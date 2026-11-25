@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { ArrowRight, Check, CircleX, Clock, MessageSquare, Play, Reply } from 'lucide-react'
 import { useLoadedPages } from './data.js'
 import { AssigneeAvatar, eventHref, LoadMore, peerRequestLabels, profileName, ResourceStatus, taskHref, TaskLink } from './shared.jsx'
@@ -55,9 +56,9 @@ function RequestRow({ item, viewer, publicPreview, verbose, projectLabel }) {
           </div>
           {item.request_key && (
             <div className="request-row-line">
-              <a href={taskHref(item.request_key, item.request_key)}>
+              <BoardLink href={taskHref(item.request_key, item.request_key)}>
                 <span className="ticket-id">{item.request_key}</span>{item.request_title && ` ${item.request_title}`}
-              </a>
+              </BoardLink>
             </div>
           )}
           <div className="request-row-line">
@@ -70,12 +71,12 @@ function RequestRow({ item, viewer, publicPreview, verbose, projectLabel }) {
           {(pulls.length > 0 || responseHref || item.resolution) && (
             <div className="request-row-line">
               {pulls.map(url => (
-                <a key={url} href={url}>
+                <BoardLink key={url} href={url}>
                   {pulls.length === 1 ? 'Pull request' : url.replace('https://github.com/', '').replace('/pull/', '#')}
-                </a>
+                </BoardLink>
               ))}
-              {responseHref && <a href={responseHref}>{canReviewResponse ? 'Review response' : 'Response'}</a>}
-              {item.resolution && <a href={eventHref(item.resolution.id)}>{canceled ? 'Cancellation record' : `${status} record`}</a>}
+              {responseHref && <BoardLink href={responseHref}>{canReviewResponse ? 'Review response' : 'Response'}</BoardLink>}
+              {item.resolution && <BoardLink href={eventHref(item.resolution.id)}>{canceled ? 'Cancellation record' : `${status} record`}</BoardLink>}
             </div>
           )}
         </div>
@@ -96,7 +97,7 @@ function RequestRow({ item, viewer, publicPreview, verbose, projectLabel }) {
         <Icon size={14} aria-hidden="true" />
         <div className="request-summary-copy">
           {requestHref
-            ? <a className="request-summary-text" href={requestHref} title={summary}>{label}</a>
+            ? <BoardLink className="request-summary-text" href={requestHref} title={summary}>{label}</BoardLink>
             : <span className="request-summary-text">{label}</span>}
           {projectLabel && <span className="report-project-label">{projectLabel}</span>}
         </div>
@@ -106,7 +107,7 @@ function RequestRow({ item, viewer, publicPreview, verbose, projectLabel }) {
           <span className="relative-time-accessible">{item.next_owner ? `Next for ${ownerName}` : ownerName}</span>
         </span>}
       </div>
-      {canReviewResponse && responseHref && <a className="request-action" href={responseHref}>Review response</a>}
+      {canReviewResponse && responseHref && <BoardLink className="request-action" href={responseHref}>Review response</BoardLink>}
     </li>
   )
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
+import { BoardLink, useBoardNavigation } from './BoardNavigation.jsx'
 import { Search } from 'lucide-react'
 import { queryPath, useLoadedPages, useResource } from './data.js'
 import { LoadMore, ResourceStatus, TaskLink, taskHref } from './shared.jsx'
@@ -7,6 +8,7 @@ import { TaskRows } from './WorkRow.jsx'
 import { matchesBoardShortcut } from './shortcuts.js'
 
 export function TaskSearch({ query, fragment }) {
+  const navigate = useBoardNavigation()
   const [draft, setDraft] = useState(query)
   const [openedOn, setOpenedOn] = useState(null)
   const expanded = openedOn === fragment
@@ -80,7 +82,7 @@ export function TaskSearch({ query, fragment }) {
     const href = suggestionHref(match)
     hideSuggestions()
     if (expanded) closeSearch()
-    window.location.hash = href
+    navigate(href)
   }
 
   function dismissSearch() {
@@ -96,7 +98,7 @@ export function TaskSearch({ query, fragment }) {
       hideSuggestions()
       setDraft(search)
       if (expanded) closeSearch()
-      window.location.hash = new URLSearchParams({ search }).toString()
+      navigate(new URLSearchParams({ search }).toString())
     }
   }
 
@@ -144,7 +146,7 @@ export function TaskSearch({ query, fragment }) {
           <ul id={listId} className="search-suggestions" role="listbox" aria-label="Matching tickets">
             {matches.map((match, index) => (
               <li key={match.id} role="presentation">
-                <a id={`${listId}-${index}`} role="option" aria-selected={index === active} tabIndex={-1}
+                <BoardLink id={`${listId}-${index}`} role="option" aria-selected={index === active} tabIndex={-1}
                   href={suggestionHref(match)}
                   onClick={event => {
                     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
@@ -152,7 +154,7 @@ export function TaskSearch({ query, fragment }) {
                     openSuggestion(match)
                   }}>
                   <span className="ticket-id">{match.key}</span> <MarkdownInline text={match.title} links={false} />
-                </a>
+                </BoardLink>
               </li>
             ))}
           </ul>

@@ -1,4 +1,5 @@
 import React, { useLayoutEffect, useRef, useState } from 'react'
+import { BoardLink } from './BoardNavigation.jsx'
 import { request, useLoadedPages } from './data.js'
 import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref, profileName, taskLabel } from './shared.jsx'
 import { Markdown } from './Markdown.jsx'
@@ -13,7 +14,7 @@ export function AttentionReceipt({ receipt }) {
       {receipt.unblocked_task_id && (
         <> · Moved <TaskLink reference={receipt.unblocked_task_key} id={receipt.unblocked_task_id}
           title={receipt.unblocked_task_title} /> to Ready
-          {receipt.ready_event_id && <> · <a href={eventHref(receipt.ready_event_id)}>View Ready event</a></>}
+          {receipt.ready_event_id && <> · <BoardLink href={eventHref(receipt.ready_event_id)}>View Ready event</BoardLink></>}
         </>
       )}
     </p>
@@ -28,7 +29,7 @@ export function AttentionImpact({ item }) {
   return (
     <p className="event-meta">
       {item.handled_at
-        ? <>Moved {link} to Ready · <a href={eventHref(task.ready_event_id)}>View Ready event</a></>
+        ? <>Moved {link} to Ready · <BoardLink href={eventHref(task.ready_event_id)}>View Ready event</BoardLink></>
         : <>Unblocks {link}</>}
     </p>
   )

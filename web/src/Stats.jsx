@@ -1,4 +1,5 @@
 import React from 'react'
+import { BoardLink, useBoardNavigation } from './BoardNavigation.jsx'
 import { queryPath, useResource } from './data.js'
 import { AssigneeAvatar, ResourceStatus, Status, TaskLink, Timestamp, eventHref, taskState } from './shared.jsx'
 import { useTimeZone } from './timeZone.js'
@@ -130,8 +131,8 @@ function TimingExamples({ examples }) {
       <summary>View source examples</summary>
       <ul className="stats-evidence">
         {examples.map(({ task, start_event: start, end_event: end }) => (
-          <li key={end}>{task} · <a href={eventHref(start)} aria-label={`Open ${task} first event`}>First event</a>
-            {' · '}<a href={eventHref(end)} aria-label={`Open ${task} last event`}>Last event</a></li>
+          <li key={end}>{task} · <BoardLink href={eventHref(start)} aria-label={`Open ${task} first event`}>First event</BoardLink>
+            {' · '}<BoardLink href={eventHref(end)} aria-label={`Open ${task} last event`}>Last event</BoardLink></li>
         ))}
       </ul>
     </details>
@@ -332,13 +333,14 @@ function IntegrationActivity({ integrations }) {
 }
 
 export default function Stats({ revision, period = 'day', project, projects }) {
+  const navigate = useBoardNavigation()
   const resource = useResource(queryPath('/stats', { period, project }), revision)
   const data = resource.data
   function changeScope(nextProject, nextPeriod) {
     const filters = new URLSearchParams({
       ...(nextProject && { project: nextProject }), ...(nextPeriod !== 'day' && { period: nextPeriod }),
     })
-    window.location.hash = filters.size ? `stats?${filters}` : 'stats'
+    navigate(filters.size ? `stats?${filters}` : 'stats')
   }
   return (
     <div className="stats-page">
