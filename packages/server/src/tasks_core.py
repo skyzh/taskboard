@@ -1076,6 +1076,7 @@ def change_subscription(db, args, links):
 
 def change_worker_run(db, args, links):
     operation = args.command.removeprefix("worker-")
+    subagent = operation == "start" and getattr(args, "subagent", False)
     if operation == "delegate":
         task = get_work_task(db, args.id)
         if task["display_state"] == "closed":
@@ -1086,6 +1087,10 @@ def change_worker_run(db, args, links):
         task = get_work_task(db, previous["task_id"])
         if operation == "start" and task["display_state"] == "closed":
             raise ValueError("Reopen the ticket before starting a worker.")
+        if subagent and (
+            args.by != task["dri"] or args.by != previous["worker"] or peer_asks.review_links(db, [previous["id"]])
+        ):
+            raise ValueError("Mark a runtime subagent only for your own ticket and worker record.")
         run = workers.transition_worker(
             db, previous, operation, args.by, dri=task["dri"], note=getattr(args, "note", None),
             handle=getattr(args, "handle", None), result=getattr(args, "result", None),
@@ -1103,6 +1108,8 @@ def change_worker_run(db, args, links):
             detail = f"Started · {run['handle']}"
         note = workers.activity_note(run, detail)
         context = {"audit": {"action": f"worker-{operation}", "run_id": run["id"], "status": run["status"]}}
+        if subagent:
+            context["audit"]["subagent"] = True
     record(db, task["id"], "log", args.by, task["state"], note, None, links, context)
     if operation != "delegate" and run["role"] == "review":
         peer_asks.sync_worker(db, run, operation, args.by, links, getattr(args, "related", None),

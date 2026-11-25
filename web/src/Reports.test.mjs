@@ -190,15 +190,15 @@ test('Reports leave legacy receipts and preceding narratives on the ticket while
   assert.doesNotMatch(html, /https:\/\/example\.test\/proof/)
 })
 
-test('Reports leaves the recorded worker count on the DRI view', () => {
+test('Reports leaves the subagent run count on the DRI view', () => {
   const counts = { recorded: 3, running: 1, running_reviews: 1, launched: 1, launched_reviews: 2 }
   const entry = { owner: 'Avery', tasks: [], task_count: 0, pending_reports: [], report_count: 0, worker_counts: counts }
   const reports = renderToStaticMarkup(React.createElement(AssigneeReport, { entry }))
-  assert.doesNotMatch(reports, /Recorded worker runs|2 running|3 started/)
+  assert.doesNotMatch(reports, /Subagent runs|2 running|3 started/)
   assert.doesNotMatch(reports, /aria-label="Tasks in progress"/)
 
   const workers = renderToStaticMarkup(React.createElement(DriWorkers, { owner: 'Avery', counts }))
-  assert.match(workers, /Recorded worker runs · 2 running · 3 started/)
+  assert.match(workers, /Subagent runs · 2 running · 3 started/)
 })
 
 test('Reports shows the green work marker when in-progress tickets are outside the visible slice', () => {

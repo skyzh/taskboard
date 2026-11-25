@@ -41,9 +41,9 @@ class ClosureTest(unittest.TestCase):
         })
         self.assertEqual(len(f.action(self.blake, "my-reviews")["items"]), 1)
         f.action(self.avery, "delegate", {
-            "id": "T-1", "role": "build", "worker": self.manager, "brief": "Read the sample.",
+            "id": "T-1", "role": "build", "worker": self.owner, "brief": "Read the sample.",
         })
-        f.action(self.avery, "worker-handoff", {"run": "W-2", "transition": "start", "handle": "fixture"})
+        f.action(self.avery, "worker-handoff", {"run": "W-2", "transition": "start", "handle": "fixture", "subagent": True})
         def assignee():
             return f.call(self.avery, "/api/v1/assignee", query_string={"owner": self.owner}).json
 
@@ -68,14 +68,14 @@ class ClosureTest(unittest.TestCase):
         self.assertEqual(f.call(self.avery, merge_queue).json["items"], [])
         self.assertNotIn(self.owner, active_owners())
         self.assertEqual(assignee()["worker_counts"]["running"], 0)
-        self.assertEqual(assignee()["worker_counts"]["recorded"], 2)
+        self.assertEqual(assignee()["worker_counts"]["recorded"], 1)
         f.merge_activity(self.avery, "T-1", "submit", candidate="b" * 40, status=409)
         f.action(self.avery, "delegate", {
             "id": "T-1", "role": "review", "worker": self.manager, "brief": "Review after reopening.",
         }, status=409)
         f.action(self.blake, "worker-handoff",
                  {"run": "W-1", "transition": "start", "handle": "fixture"}, status=409)
-        f.action(self.blake, "worker-handoff", {
+        f.action(self.avery, "worker-handoff", {
             "run": "W-2", "transition": "report", "result": "completed", "note": "Saved the prior work.",
         })
         self.assertNotIn(self.owner, active_owners())
