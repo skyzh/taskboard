@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **PostgreSQL profile upgrade.** Existing PostgreSQL boards add missing profile columns during startup, preserving signed-in profiles and ticket assignments. This fixes a signed request failure after upgrading a board created before short roles.
+
 - **Project coordination channel in MCP.** Update and reconnect the adapter to use `taskboard_raft_channel`. Project managers can read the same channel setting as in the signed CLI. [MCP tool guide](MCP.md#available-tools)
 
 - **Seven-day human sign-in.** New human sessions in fixed-server durable mode last up to seven days. Existing sessions keep their expiry and continue to use live checks and sign-out. [Session policy](SHARED-BOARD.md#enable-durable-human-browser-sessions)
