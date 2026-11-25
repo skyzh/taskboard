@@ -1233,6 +1233,9 @@ button:disabled { opacity: .57; }
 
 .detail-owner, .request-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem; }
 .task-watch button, .attention-row button { font-size: .84rem; }
+.browser-push-settings { margin-bottom: .85rem; }
+.browser-push-settings summary { cursor: pointer; font-weight: var(--weight-emphasis); }
+.browser-push-settings p { margin-block: .4rem; }
 .notification-views {
   display: flex;
   gap: .65rem;

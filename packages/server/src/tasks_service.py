@@ -29,6 +29,7 @@ import tasks_agent_usage
 import tasks_ticket_fields as ticket_fields
 import tasks_codex_usage
 import tasks_core as ledger
+import tasks_browser_push as browser_push
 import tasks_maintenance as maintenance
 import tasks_goal_cadence as goal_cadence
 import tasks_goals as goals
@@ -562,6 +563,7 @@ def create_app(
     agent_guidance=None,
     progress_prompt_minutes=None,
     initial_project=None,
+    browser_push_config=None,
 ):
     """Configure the board; injected identity providers are used by isolated tests."""
     if initial_project is None:
@@ -764,6 +766,15 @@ def create_app(
                 if personal_api_enabled:
                     pilot_db.execute(personal_agents.SCHEMA)
                     pilot_db.execute(personal_agents.CLI_SCHEMA)
+        if browser_push_config is not None:
+            if raft is None or not raft_config.get("server_id") or local_readonly:
+                raise ValueError("Browser push requires a fixed-server shared board with Raft sign-in.")
+            push_db = tasks_storage.Postgres(postgres_dsn) if postgres_dsn else connect(path)
+            with closing(push_db), tasks_storage.write(push_db):
+                for statement in browser_push.SCHEMA:
+                    push_db.execute(statement)
+    elif browser_push_config is not None:
+        raise ValueError("Browser push requires a fixed-server shared board with Raft sign-in.")
 
     @app.errorhandler(RequestError)
     def invalid(error):
@@ -803,6 +814,8 @@ def create_app(
                 raise RequestError("This Server's board is unavailable.", 503)
             g.database = connection
         return g.database
+
+    push_delivery = browser_push.Delivery(app, db, raft, browser_push_config) if browser_push_config else None
 
     def personal_agent_tailnet():
         # The portal middleware authenticates the forwarding portal before Flask.
@@ -1614,6 +1627,8 @@ def create_app(
                 return can_collaborate_on_ticket(connection, actor, task, project)
             args.project_collaboration = project_collaboration
         links = one_link(data)
+        push_decision = push_delivery and (command in ("assign-human", "redirect-decision") or fields.get("human_wait"))
+        previous = ledger.find_task(db(), args.id) if push_decision else None
         try:
             receipt = ledger.save_task(db(), database_path(), args, links)
         except (RequestError, ledger.TransitionConfirmationRequired):
@@ -1622,6 +1637,10 @@ def create_app(
             raise RequestError(str(error), 403) from error
         except ValueError as error:
             raise RequestError(str(error), 409) from error
+        if push_decision and previous:
+            current = ledger.find_task(db(), args.id)
+            if current and current["state"] == "human_review" and current["event_id"] != previous["event_id"]:
+                push_delivery.submit("decision", args.id, current["event_id"])
         return {"receipt": receipt}
 
     def change_maintenance(actor, data, project, *, encoded_members=False):
@@ -1828,6 +1847,12 @@ def create_app(
     @app.get("/assets/<path:asset>")
     def assets(asset):
         return send_from_directory(dist / "assets", asset)
+
+    @app.get("/ask-sw.js")
+    def ask_service_worker():
+        if push_delivery is None:
+            raise NotFound()
+        return send_from_directory(dist, "ask-sw.js", max_age=0)
 
     @app.get("/healthz")
     def health():
@@ -3030,6 +3055,34 @@ def create_app(
                 reviews_only=kind == "review",
             )
 
+    @app.route("/api/v1/notifications/browser-push", methods=["GET", "PUT", "DELETE"])
+    def browser_push_settings():
+        if push_delivery is None:
+            if request.method == "GET":
+                return {"available": False}
+            raise NotFound()
+        actor = current_actor("human", write=request.method != "GET", required=True, sync_profile=False)
+        binding = raft.browser_session_binding()
+        if binding is None:
+            raise RequestError("Sign in from this browser to manage browser notifications.", 401)
+        session, _ = binding
+        if request.method != "GET":
+            if request.headers.get("Origin") != origin:
+                raise RequestError("Send changes from the board origin.", 403)
+            with tasks_storage.write(db()) as connection:
+                if request.method == "PUT":
+                    try:
+                        browser_push.save(connection, actor["ledger_key"], session,
+                                          json_body({"endpoint", "keys", "expirationTime"}))
+                    except ValueError as error:
+                        raise RequestError(str(error)) from None
+                else:
+                    browser_push.remove(connection, session)
+        return {
+            "available": True, "public_key": browser_push_config.public_key,
+            "enrollment": browser_push.enrollment(db(), session),
+        }
+
     @app.get("/api/v1/notifications/decisions")
     def decision_notifications():
         actor = current_actor(required=True)
@@ -3211,6 +3264,8 @@ def create_app(
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (number, sender, recipient, reason, links, raised_at, unblocks, request_key),
             )
             ledger.bump_revision(connection)
+        if push_delivery:
+            push_delivery.submit("attention", number, identifier)
         return {"id": identifier, "task_id": number, "raised_at": raised_at, "receipt": receipt}
 
     @app.get("/api/v1/tasks/<number>/decision/<int:request_id>")
@@ -4227,6 +4282,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             personal_agent_tailnet_subject=os.environ.get("TASKS_PERSONAL_AGENTS_TAILNET_SUBJECT"),
             agent_guidance=agent_guidance, initial_project=initial_project,
             progress_prompt_minutes=os.environ.get("TASKS_PROGRESS_PROMPT_MINUTES"),
+            browser_push_config=browser_push.operator_configuration(os.environ) if config and not marketplace else None,
             project_extensions=project_extensions,
             github_webhook_secrets=os.environ.get("TASKS_GITHUB_WEBHOOK_SECRETS"),
             public_raft_channel_urls=os.environ.get("TASKS_PUBLIC_RAFT_CHANNEL_URLS"),

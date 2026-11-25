@@ -118,6 +118,25 @@ Agent sessions keep their 30-minute cap. [Raft sign-in contract](https://docs.ra
 
 <a id="enable-24-hour-human-browser-sessions"></a>
 
+### Enable browser notifications for human asks
+
+On a fixed-server HTTPS board with Raft sign-in, install the optional `webpush`
+extra. Add it to the service’s existing extras. Give the service a private P-256
+VAPID key in PEM format through `TASKS_WEB_PUSH_VAPID_KEY_FILE`, and set
+`TASKS_WEB_PUSH_CONTACT` to the operator’s `mailto:` contact URI. Keep the
+key private and stable across upgrades. The board exposes only the public key
+to the browser. Without a usable configuration, the in-app workflow still works.
+
+Signed-in humans can enable or turn off alerts in **Notifications → Browser
+notifications**. Each browser opts in separately. On iPhone or iPad, add
+Taskboard to the Home Screen and open it there first.
+
+An alert says there is a new request and opens the signed **Needs me** list.
+The browser session must still be active. Signing out, replacing the session,
+expiry, or turning the setting off stops future alerts for that enrollment.
+Sign in and opt in again when a session expires. Delivery is best effort. The
+decision or attention request is always recorded on the board.
+
 ### Enable durable human browser sessions
 
 Have a Raft Server admin save **Server** under the Taskboard app's

@@ -743,6 +743,95 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((task["state"], task["dri"]), ("ready", owner_id))
         self.assertTrue(task["links"][0]["url"].endswith("/#task-2"))
 
+    def test_browser_push_delivers_committed_asks_to_enrolled_human_sessions(self):
+        self.replay_browser_push(lambda config: self.app(portal_reader=True, browser_push_config=config))
+
+    def replay_browser_push(self, make_app):
+        from base64 import urlsafe_b64encode
+        from time import time
+        from tasks_browser_push import Configuration, Delivery
+
+        delivered = []
+        statuses = {}
+
+        def send(row, ttl):
+            self.assertTrue(0 < ttl <= 300)
+            delivered.append((row["endpoint"], row["enrollment"]))
+            return statuses.get(row["endpoint"], 201)
+
+        app = make_app(Configuration("fixture-public-key", send))
+        author, _ = self.login(app, "Avery")
+        sam, sam_id = self.login(app, "Sam")
+        self.provider.issued.discard("Sam")  # A separate authorization code for a second browser.
+        second, _ = self.login(app, "Sam")
+        quinn, quinn_id = self.login(app, "Quinn")
+        settings = "/api/v1/notifications/browser-push"
+        headers = {"Origin": ORIGIN}
+        keys = {"p256dh": urlsafe_b64encode(b"\x04" + bytes(64)).decode(),
+                "auth": urlsafe_b64encode(bytes(16)).decode()}
+        first_endpoint = "https://fcm.googleapis.com/fcm/send/fictional-first"
+        second_endpoint = "https://updates.push.services.mozilla.com/wpush/v2/fictional-second"
+        other_endpoint = "https://web.push.apple.com/fictional-third"
+
+        def enroll(client, endpoint, **fields):
+            return self.call(client, settings, method="PUT", headers=headers,
+                             json={"endpoint": endpoint, "keys": keys, **fields}).json["enrollment"]
+
+        self.call(app.test_client(), settings, status=401)
+        self.call(author, settings, status=403)
+        self.call(sam, settings, method="PUT", status=403, json={"endpoint": first_endpoint, "keys": keys})
+        self.call(sam, settings, method="PUT", headers=headers, status=400,
+                  json={"endpoint": "https://fcm.googleapis.com.example.test/path", "keys": keys})
+        self.assertIsNone(self.call(sam, settings).json["enrollment"])
+        first_enrollment = enroll(sam, first_endpoint)
+        second_enrollment = enroll(second, second_endpoint, expirationTime=int(time() * 1000) + 300_000)
+        other_enrollment = enroll(quinn, other_endpoint)
+        self.assertEqual(self.call(sam, settings).json["enrollment"], first_enrollment)
+
+        ticket = self.action(author, "create-task", {"title": "Fictional decision", "step": "Choose a sample."})[
+            "receipt"
+        ].split()[0]
+
+        def advance(transition, **fields):
+            return self.action(author, "advance-task", {
+                "id": ticket, "transition": transition, "note": "Check the sample.", **fields,
+            })
+
+        def attention(key, recipient=sam_id):
+            return self.action(author, "raise-attention", {
+                "id": ticket, "recipient": recipient, "reason": "Check the sample.", "request_key": key,
+            })
+
+        with patch.object(Delivery, "submit", Delivery.deliver):
+            advance("start")
+            advance("assign-human", on=sam_id)
+            self.assertCountEqual(delivered, [(first_endpoint, first_enrollment), (second_endpoint, second_enrollment)])
+            delivered.clear()
+            advance("redirect-decision", on=quinn_id)
+            self.assertEqual(delivered, [(other_endpoint, other_enrollment)])
+            delivered.clear()
+            first = attention("fictional-original")
+            self.assertEqual(attention("fictional-original"), first)
+            self.assertCountEqual(delivered, [(first_endpoint, first_enrollment), (second_endpoint, second_enrollment)])
+
+            delivered.clear()
+            with patch("tasks_browser_push.time", return_value=time() + 301):
+                attention("fictional-after-expiry")
+            self.assertEqual(delivered, [(first_endpoint, first_enrollment)])
+            delivered.clear()
+            self.call(sam, settings, method="DELETE", headers=headers)
+            self.call(second, "/auth/logout", method="POST", headers=headers, status=204)
+            attention("fictional-after-opt-out")
+            self.assertEqual(delivered, [])
+
+            replacement = enroll(quinn, first_endpoint)
+            self.assertNotEqual(replacement, first_enrollment)
+            self.assertIsNone(self.call(sam, settings).json["enrollment"])
+            statuses[first_endpoint] = 410
+            attention("fictional-replacement", quinn_id)
+            self.assertEqual(delivered, [(first_endpoint, replacement)])
+            self.assertIsNone(self.call(quinn, settings).json["enrollment"])
+
     def test_summary_needs_you_shows_only_actionable_work_for_the_signed_recipient(self):
         app = self.app(portal_reader=True, project_extensions={"T": {"stamp-reviews": "example/board"}})
         avery, avery_key = self.login(app, "Avery")

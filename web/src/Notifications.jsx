@@ -4,6 +4,7 @@ import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificat
 import AttentionRequests from './AttentionRequests.jsx'
 import NotificationLog from './NotificationLog.jsx'
 import DecisionForm from './DecisionForm.jsx'
+import BrowserPush from './BrowserPush.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
 import { Markdown } from './Markdown.jsx'
 import { TaskRows } from './WorkRow.jsx'
@@ -297,6 +298,7 @@ function PersonalNotifications({ revision, session, onChanged, fragment, project
       {logFilters ? <NotificationLog project={project} state={logFilters.state} kind={logFilters.kind} agent={logFilters.agent}
         allProjects={logFilters.allProjects} projects={projects} revision={revision} /> : (
         <>
+          {session.data?.actor?.kind === 'human' && <BrowserPush />}
           <TaskReminders revision={revision} />
           {needsMe ? <NeedsMe revision={revision} session={session} onChanged={onChanged} />
             : <Inbox revision={revision} owner={session.data?.actor?.id} />}

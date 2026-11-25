@@ -1,0 +1,8 @@
+{
+  "id": "../",
+  "name": "Taskboard",
+  "short_name": "Taskboard",
+  "start_url": "../",
+  "scope": "../",
+  "display": "standalone"
+}
