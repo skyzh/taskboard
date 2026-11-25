@@ -6511,6 +6511,37 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Build the CSV."})
         self.assertEqual(self.call(sam, follow_through).json["items"], [])
 
+    def test_listed_decision_choice_can_be_recorded_without_explanatory_text(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        recipient, recipient_id = self.login(app, "Sam")
+        outsider, _ = self.login(app, "Quinn")
+        self.action(owner, "create-task", {"title": "Choose a report format", "step": "Review examples."})
+        path = "/api/v1/tasks/T-1/decision"
+        for answer_fields in ({}, {"note": " \n ", "details": "Preview first."}):
+            with self.subTest(answer_fields=answer_fields):
+                self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Review examples."})
+                self.action(owner, "advance-task", {
+                    "id": "T-1", "transition": "assign-human", "on": recipient_id, "note": "Which format?",
+                    "options": json.dumps(["PDF", "**CSV**"]),
+                })
+                request, = self.call(recipient, "/api/v1/notifications/decisions").json["items"]
+                request_id = request["event_id"]
+                answer = {"request_id": request_id, "choice": "**CSV**", **answer_fields}
+                self.call(outsider, path, method="POST", json=answer, status=409)
+                self.call(recipient, path, method="POST", json={**answer, "request_id": request_id + 1}, status=409)
+                self.call(recipient, path, method="POST", json={**answer, "choice": "JSON"}, status=409)
+                self.call(recipient, path, method="POST", json={**answer, "note": False}, status=400)
+                self.call(recipient, path, method="POST", json={"request_id": request_id, "other": True}, status=400)
+                self.call(recipient, path, method="POST", json={"request_id": request_id}, status=400)
+                self.call(recipient, path, method="POST", json=answer)
+                receipt = self.call(recipient, f"{path}/{request_id}").json["answer"]
+                self.assertEqual((receipt["choice"], receipt["note"]), ("**CSV**", "**CSV**"))
+                event = self.call(recipient, f"/api/v1/activity/{receipt['event_id']}").json
+                self.assertEqual(event["context"]["choice"], "**CSV**")
+                self.assertEqual(event["context"]["request_event_id"], request_id)
+                self.assertEqual(event.get("details"), answer_fields.get("details"))
+
     def test_recipient_can_send_a_written_other_answer_to_a_choice_request(self):
         app = self.app(portal_reader=True)
         owner, _ = self.login(app, "Avery")
@@ -6596,6 +6627,8 @@ class TasksServiceTest(unittest.TestCase):
         advance("start", "Build the CSV.")
         advance("assign-human", "Which delimiter?", on=sam_id)
         second = current_request(sam)
+        self.call(sam, "/api/v1/tasks/T-1/decision", method="POST", json={"request_id": second}, status=400)
+        self.call(sam, "/api/v1/tasks/T-1/decision", method="POST", json={"request_id": second, "choice": "CSV"}, status=409)
         self.assertNotEqual(second, first)
         before = self.call(sam, "/api/v1/revision").json
         self.assertEqual(receipt(sam, first), answer)

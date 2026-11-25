@@ -1892,7 +1892,7 @@ test('Needs me shares the decision form with the exact recipient and keeps the r
   assert.match(open, /name="decision-choice" value="CSV"/)
   assert.match(open, /name="decision-choice" value="Other"/)
   assert.match(open, /Other \(write an answer\)/)
-  assert.match(open, /<textarea rows="4" aria-describedby="decision-answer-format-41" required=""><\/textarea>/)
+  assert.match(open, /<textarea rows="4" aria-describedby="decision-answer-format-41"><\/textarea>/)
   assert.match(open, /<button type="submit" disabled="">Record decision<\/button>/)
   assert.doesNotMatch(render({ kind: 'human', id: 'other' }), /Record decision/)
   assert.doesNotMatch(render({ kind: 'agent', id: 'sam' }), /Record decision/)
@@ -1999,7 +1999,7 @@ test('a lost decision response checks the same request and unlocks a retry only 
         const newMarkup = renderToStaticMarkup(render(newRequest, closed))
         assert.match(newMarkup, /closed elsewhere/)
         assert.match(newMarkup, /My draft details/)
-        assert.match(newMarkup, /<textarea rows="4" aria-describedby="decision-answer-format-44" required=""><\/textarea>/)
+        assert.match(newMarkup, /<textarea rows="4" aria-describedby="decision-answer-format-44"><\/textarea>/)
         assert.doesNotMatch(newMarkup, /Retry recording/)
         assert.equal(changes, 1)
       } else if (status === 'open') {
