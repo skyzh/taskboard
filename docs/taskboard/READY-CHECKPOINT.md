@@ -68,6 +68,13 @@ process exit code, whether the reply was structured, and recognized error and
 fault categories. An unknown code is recorded as `other`. These records omit raw
 output, response bodies, and request identifiers.
 
+On a terminal error, the repeat watcher requests one recovery wake from its
+verified Raft account using the existing channel and message anchor. The wake
+identifies the failed read and points to the job log. An identical scheduled
+wake is reused. Once it fires, a later failure can schedule a new wake. Check the log for
+`ready-recovery-wake` if delivery could not be requested. A deliberate stop
+does not send a recovery wake. Check the cause before restarting the watcher.
+
 The new record appears when the managed watcher runs the updated checkout. Use
 the existing job's options and reminder anchor when replacing it. Confirm the
 shared app and signed-in account with `./tasks --shared context`, keep one job

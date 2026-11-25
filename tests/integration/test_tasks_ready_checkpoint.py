@@ -1,13 +1,14 @@
 from contextlib import closing
+from io import StringIO
 import json
 import subprocess
 import sys
 import unittest
 from unittest.mock import patch
 
-from taskboard_client import SharedBoard
+from taskboard_client import SharedBoard, SharedReadError
 from taskboard_cli.ready_checkpoint import (
-    checkpoint, measured_idle, raft_idle, raft_ready_count, raft_stalled_work, raft_status, raft_wake,
+    checkpoint, main, measured_idle, raft_idle, raft_ready_count, raft_stalled_work, raft_status, raft_wake,
     run_handler, watch_idle, watch_ready_count, watch_two_pickups,
 )
 from tasks_goal_offers import idle_offer_counts
@@ -806,6 +807,82 @@ class ReadyCheckpointTest(unittest.TestCase):
                     "reason": reason, "retryable": False, "carrier": diagnostic,
                 })
                 self.assertNotRegex(repr(observations) + str(outcome), r"(?i)private[_ -]fixture")
+
+    def test_repeat_checker_sends_an_anchored_recovery_wake_only_on_terminal_failure(self):
+        argv = ["ready-checkpoint", "--watch-idle", "--repeat", "--by", "Avery",
+                "--channel", "#example", "--message-id", "12345678", "--idle-delay-seconds", "0"]
+        auth = {"ok": True, "data": {"serverConfirmed": True, "agentId": "fixture-agent",
+                                     "agent": {"id": "fixture-agent", "name": "Avery"}}}
+        title = (
+            "Taskboard Ready watcher stopped during eligible queue (http-401). Check its Raft job log. "
+            "Sign in to the registered Tasks app and verify your session with `./tasks --shared context` before restarting."
+        )
+        expected_schedule = ("reminder", "schedule", "--title", title, "--delay-seconds", "1",
+                             "--channel", "#example", "--message-id", "12345678")
+        for replies, outcome, commands in (
+            ([json.dumps(auth), "", "Scheduled"], "wake-requested",
+             [("auth", "whoami"), ("reminder", "list", "--status", "scheduled"), expected_schedule]),
+            ([json.dumps(auth), f'#12345678 [scheduled] "{title}" ref=#example'], "already-queued",
+             [("auth", "whoami"), ("reminder", "list", "--status", "scheduled")]),
+            ([json.dumps(auth), "", RuntimeError("private diagnostic")], "wake-failed",
+             [("auth", "whoami"), ("reminder", "list", "--status", "scheduled"), expected_schedule]),
+            ([json.dumps({"ok": True, "data": {**auth["data"], "agent": {**auth["data"]["agent"], "name": "Blake"}}})],
+             "owner-unconfirmed", [("auth", "whoami")]),
+        ):
+            with (
+                self.subTest(outcome=outcome),
+                patch.object(sys, "argv", argv),
+                patch.object(sys, "stdout", new_callable=StringIO) as log,
+                patch.object(sys, "stderr", new_callable=StringIO) as errors,
+                patch.object(self.avery, "pages", side_effect=SharedReadError("private diagnostic", reason="http-401")),
+                patch("taskboard_cli.ready_checkpoint.SharedBoard", return_value=self.avery),
+                patch("taskboard_cli.ready_checkpoint.raft_idle", return_value=True),
+                patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=replies) as raft,
+            ):
+                self.assertEqual(main(), 1)
+                self.assertEqual([call.args for call in raft.call_args_list], commands)
+                events = [json.loads(line) for line in log.getvalue().splitlines()]
+                self.assertEqual([event["kind"] for event in events], ["ready-read-stopped", "ready-recovery-wake"])
+                self.assertEqual(events[-1]["outcome"], outcome)
+                self.assertNotIn("private diagnostic", log.getvalue() + errors.getvalue())
+
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(sys, "stdout", new_callable=StringIO) as log,
+            patch.object(self.avery, "pages", side_effect=[
+                SharedReadError("temporary", reason="http-503", retryable=True), iter(()), KeyboardInterrupt,
+            ]),
+            patch("taskboard_cli.ready_checkpoint.SharedBoard", return_value=self.avery),
+            patch("taskboard_cli.ready_checkpoint.raft_idle", return_value=True),
+            patch("taskboard_cli.ready_checkpoint.sleep"),
+            patch("taskboard_cli.ready_checkpoint.raft_cli") as raft,
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                main()
+            raft.assert_not_called()
+            self.assertEqual([json.loads(line)["kind"] for line in log.getvalue().splitlines()],
+                             ["ready-read-retry", "ready-read-recovered"])
+
+    def test_interrupting_a_signed_carrier_read_exits_without_recovery_wake(self):
+        argv = ["ready-checkpoint", "--watch-idle", "--repeat", "--by", "Avery",
+                "--channel", "#example", "--message-id", "12345678", "--idle-delay-seconds", "0"]
+        context = self.avery.invoke("context")
+        reply = json.dumps({"ok": True, "data": {"result": context}})
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(sys, "stdout", new_callable=StringIO) as log,
+            patch.object(sys, "stderr", new_callable=StringIO),
+            patch("taskboard_client.connection.subprocess.run", side_effect=[
+                subprocess.CompletedProcess([], 0, reply, ""), KeyboardInterrupt,
+            ]) as carrier,
+            patch("taskboard_cli.ready_checkpoint.raft_idle", return_value=True),
+            patch("taskboard_cli.ready_checkpoint.raft_cli") as raft,
+        ):
+            self.assertEqual(main(), 1)
+            self.assertEqual(carrier.call_count, 2)
+            raft.assert_not_called()
+            stopped, = [json.loads(line) for line in log.getvalue().splitlines()]
+            self.assertEqual((stopped["kind"], stopped["reason"]), ("ready-read-stopped", "interrupted"))
 
     def test_count_wake_uses_only_the_owned_queue_size(self):
         title = f"You have 2 Ready tickets. {COUNT_WAKE_GUIDANCE}"

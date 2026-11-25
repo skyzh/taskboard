@@ -241,6 +241,17 @@ STALLED_READ = "stalled work"
 GOAL_READ = "goal cues"
 
 
+class ReadyReadStopped(RuntimeError):
+    def __init__(self, stage, reason):
+        self.stage = stage
+        self.reason = reason
+        self.guidance = (
+            "Sign in to the registered Tasks app and verify your session with `./tasks --shared context` before restarting."
+            if reason == "http-401" else "Verify the registered app, shared session, and queue access before restarting."
+        )
+        super().__init__(f"Ready watcher stopped during {stage} read ({reason}). {self.guidance}")
+
+
 def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_delay=10, *, observe_status=None,
                       notify_stalled=None, goal_state=None, notify_goal=None):
     """Wake for new Ready work, then check opted-in recovery paths during Idle."""
@@ -413,11 +424,7 @@ def recover_ready_read(read, stage, error, emit, interval, *, count_ready=False)
     if error.carrier is not None:
         stopped["carrier"] = error.carrier
     emit(stopped)
-    guidance = (
-        "Sign in to the registered Tasks app and verify your session with `./tasks --shared context` before restarting."
-        if error.reason == "http-401" else "Verify the registered app, shared session, and queue access before restarting."
-    )
-    raise RuntimeError(f"Ready watcher stopped during {stage} read ({error.reason}). {guidance}") from None
+    raise ReadyReadStopped(stage, error.reason) from None
 
 
 def observation_time():
@@ -549,6 +556,29 @@ def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fire
     return "wake-requested"
 
 
+def recovery_wake(owner, channel, message_id, error, emit):
+    if isinstance(error, ReadyReadStopped):
+        title = f"Taskboard Ready watcher stopped during {error.stage} ({error.reason}). Check its Raft job log. {error.guidance}"
+    else:
+        title = "Taskboard Ready watcher stopped on a checker error. Check its Raft job log and verify the signed queue before restarting."
+    event = {"kind": "ready-recovery-wake", "at": observation_time()}
+    try:
+        reply = json.loads(raft_cli("auth", "whoami"))
+        data = reply["data"]
+        agent = data["agent"]
+        actor_id = data["agentId"]
+        names = (agent["name"], actor_id, f"raft:agent:{actor_id}")
+        if (reply.get("ok") is True and data.get("serverConfirmed") is True and actor_id
+                and agent.get("id") == actor_id
+                and owner.removeprefix("@").casefold() in {name.casefold() for name in names if isinstance(name, str)}):
+            event["outcome"] = wake_with_title(title, channel, message_id, lambda: True, status="scheduled")
+        else:
+            event["outcome"] = "owner-unconfirmed"
+    except (KeyError, TypeError, AttributeError, RuntimeError, ValueError):
+        event["outcome"] = "wake-failed"
+    emit(event)
+
+
 def main():
     duration = 300
     parser = argparse.ArgumentParser(description=__doc__)
@@ -613,13 +643,19 @@ def main():
                     return wake_with_title(reminder_title(offer), args.channel, args.message_id, can_wake,
                                            record_wake=record_wake)
 
-                watch_ready_count(
-                    board, args.by, raft_idle, notify_count, emit,
-                    idle_delay=10 if args.idle_delay_seconds is None else args.idle_delay_seconds,
-                    observe_status=raft_status if args.measure else None,
-                    notify_stalled=notify_stalled if args.wake_stalled else None,
-                    goal_state=args.goal_state, notify_goal=notify_goal,
-                )
+                try:
+                    watch_ready_count(
+                        board, args.by, raft_idle, notify_count, emit,
+                        idle_delay=10 if args.idle_delay_seconds is None else args.idle_delay_seconds,
+                        observe_status=raft_status if args.measure else None,
+                        notify_stalled=notify_stalled if args.wake_stalled else None,
+                        goal_state=args.goal_state, notify_goal=notify_goal,
+                    )
+                except (KeyError, RuntimeError, ValueError) as error:
+                    # SharedBoard preserves an interrupted signed read as a read error.
+                    if not (isinstance(error, ReadyReadStopped) and error.reason == "interrupted"):
+                        recovery_wake(args.by, args.channel, args.message_id, error, emit)
+                    raise
             else:
                 watch = watch_two_pickups if args.two_pickups else watch_idle
                 result = watch(
