@@ -6485,17 +6485,22 @@ class TasksServiceTest(unittest.TestCase):
         path = "/api/v1/tasks/T-1/decision"
         answer = {
             "request_id": request["event_id"], "other": True,
-            "note": "Provide a written summary with a link to the spreadsheet. Include sample rows and a note for readers who need to download the original.",
+            "note": "Use a **written summary**.\n\n- Include headers.\n- Include samples.\n\n" + "Example row. " * 330 + "End.",
+            "details": "Add context.\n\n" + "Example detail. " * 260 + "End.",
         }
         self.call(outsider, path, method="POST", json=answer, status=409)
         self.call(recipient, path, method="POST", json={**answer, "choice": "PDF"}, status=409)
         self.call(recipient, path, method="POST", json={**answer, "other": "true"}, status=400)
+        self.call(recipient, path, method="POST", json={**answer, "note": " \n "}, status=400)
+        self.call(recipient, path, method="POST", json={**answer, "details": []}, status=400)
+        self.call(recipient, path, method="POST", json={**answer, "note": "x" * app.config["MAX_CONTENT_LENGTH"]}, status=413)
         self.call(recipient, path, method="POST", json=answer)
         receipt = self.call(recipient, f"{path}/{request['event_id']}").json
         self.assertEqual(receipt["status"], "answered")
         self.assertEqual((receipt["answer"]["choice"], receipt["answer"]["note"]), ("Other", answer["note"]))
         item = self.call(recipient, f"/api/v1/activity/{receipt['answer']['event_id']}").json
         self.assertTrue(item["context"]["other_answer"])
+        self.assertEqual((item["note"], item["details"]), (answer["note"], answer["details"]))
         self.call(recipient, path, method="POST", json=answer, status=409)
 
     def test_decision_receipt_follows_the_exact_request_for_its_original_recipient(self):

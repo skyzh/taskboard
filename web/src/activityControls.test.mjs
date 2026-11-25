@@ -1162,16 +1162,16 @@ test('the named decision recipient can answer from ticket reading mode', () => {
   const assigned = render(sam, 41)
   assert.match(assigned, /Sam Example/)
   assert.match(assigned, /aria-label="Edit ticket" aria-pressed="false"/)
-  assert.match(assigned, /<form class="decision-form"/)
+  assert.match(assigned, /<form class="ownership-form decision-form"/)
   assert.match(assigned, /name="decision-choice" value="CSV"/)
-  assert.match(assigned, /aria-describedby="decision-answer-format-41".*One line with inline Markdown\./)
+  assert.match(assigned, /aria-describedby="decision-answer-format-41".*Supports multiline text and Markdown\./)
   assert.match(assigned, /aria-describedby="decision-details-format-41".*Block Markdown, including fenced Mermaid diagrams\./)
   assert.match(assigned, /Record decision/)
   assert.doesNotMatch(assigned, /Select Edit to answer/)
   for (const readOnly of [render(sam, null), render({ kind: 'human', id: 'other' }, null),
     render({ kind: 'agent', id: 'sam' }, null)]) {
     assert.match(readOnly, /CSV/)
-    assert.doesNotMatch(readOnly, /class="decision-form"|Record decision/)
+    assert.doesNotMatch(readOnly, /class="ownership-form decision-form"|Record decision/)
   }
 })
 
@@ -1865,7 +1865,7 @@ test('Needs me shares the decision form with the exact recipient and keeps the r
   assert.match(open, /name="decision-choice" value="CSV"/)
   assert.match(open, /name="decision-choice" value="Other"/)
   assert.match(open, /Other \(write an answer\)/)
-  assert.match(open, /<textarea rows="3" maxLength="180" aria-describedby="decision-answer-format-41" required=""><\/textarea>/)
+  assert.match(open, /<textarea rows="4" aria-describedby="decision-answer-format-41" required=""><\/textarea>/)
   assert.match(open, /<button type="submit" disabled="">Record decision<\/button>/)
   assert.doesNotMatch(render({ kind: 'human', id: 'other' }), /Record decision/)
   assert.doesNotMatch(render({ kind: 'agent', id: 'sam' }), /Record decision/)
@@ -1972,7 +1972,7 @@ test('a lost decision response checks the same request and unlocks a retry only 
         const newMarkup = renderToStaticMarkup(render(newRequest, closed))
         assert.match(newMarkup, /closed elsewhere/)
         assert.match(newMarkup, /My draft details/)
-        assert.match(newMarkup, /<textarea rows="3" maxLength="180" aria-describedby="decision-answer-format-44" required=""><\/textarea>/)
+        assert.match(newMarkup, /<textarea rows="4" aria-describedby="decision-answer-format-44" required=""><\/textarea>/)
         assert.doesNotMatch(newMarkup, /Retry recording/)
         assert.equal(changes, 1)
       } else if (status === 'open') {

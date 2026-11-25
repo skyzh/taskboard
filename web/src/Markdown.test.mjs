@@ -210,3 +210,12 @@ test('links known ticket text without altering existing links or code', () => {
   })
   assert.match(details, /See <a href="https:\/\/board\.example\/tasks\/#task-2">T-2<\/a>/)
 })
+
+
+test('decision answers and details are separate Markdown blocks with or without a summary', () => {
+  const event = { action: 'decide', note: '~~~text\nExample answer', details: '- Check the export' }
+  for (const headline of [undefined, 'Decision recorded']) {
+    const body = render(shared.OutcomeNote, { event, headline })
+    assert.match(body, /<pre><code>Example answer<\/code><\/pre><\/div><div class="prose markdown"><ul><li>Check the export<\/li><\/ul>/)
+  }
+})

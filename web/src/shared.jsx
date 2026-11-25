@@ -4,7 +4,7 @@ import {
   FileCheck, FileText, Flag, GitMerge, GitPullRequest, GitPullRequestClosed, Link2, ListChecks, MessageSquareText,
   MessagesSquare, Pause, PencilLine, Play, Plus, Rocket, RotateCcw, Tags, TriangleAlert, Undo2, Users, X,
 } from 'lucide-react'
-import { activityExtraText, waitLabel } from './workCopy.js'
+import { activityExtraText, hasExpandedDecisionText, waitLabel } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { evidenceLinkLabel, markdownHref } from './sourceLinks.js'
 import { useTimeZone } from './timeZone.js'
@@ -552,15 +552,19 @@ export function ReminderWhen({ context, className }) {
 export function OutcomeNote({ event, headline, withEvidence = true, choiceShown = false,
   waitShown = false, disclosure, disclosureLabel = 'Details' }) {
   const context = event.context || {}
-  const text = headline == null ? event.details ?? event.note : activityExtraText(event, headline)
+  const expandedDecision = hasExpandedDecisionText(event)
+  const answer = expandedDecision ? event.note : null
+  const text = expandedDecision ? event.details
+    : headline == null ? event.details ?? event.note : activityExtraText(event, headline)
   const dependency = (event.waiting_on || event.blockers) && !waitShown
   const choice = !choiceShown && context.choice
   const evidence = withEvidence && event.links?.length > 0
-  if (!text && !dependency && !choice && !evidence && !context.decision_reason &&
+  if (!answer && !text && !dependency && !choice && !evidence && !context.decision_reason &&
     !context.review_after && !context.defer_until && !context.choices?.length && !context.request_event_id) return null
 
   const body = (
     <div className="event-body">
+      {answer && <Markdown text={answer} relatedTasks={event.related_tasks} />}
       {text && <Markdown text={text} relatedTasks={event.related_tasks} />}
       {dependency && <p><Dependency task={event} /></p>}
       {choice && <p>Selected <strong><MarkdownInline text={choice} /></strong></p>}

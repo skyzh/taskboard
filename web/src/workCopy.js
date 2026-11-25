@@ -76,6 +76,10 @@ function waitHeadline(event) {
   return owner ? waitLabel(event) + ' ' + owner : 'Waiting'
 }
 
+export function hasExpandedDecisionText(event) {
+  return event.action === 'decide' && (event.note.length > 180 || /[\r\n]/.test(event.note))
+}
+
 export function activityHeadline(event) {
   const context = event.context
   if (context?.ownership_action === 'reassign' || (
@@ -89,6 +93,7 @@ export function activityHeadline(event) {
     if (titleChanged) return 'Title updated'
     if (briefChanged) return 'Brief updated'
   }
+  if (hasExpandedDecisionText(event)) return event.label || 'Decision recorded'
   if (event.headline) {
     if (event.action !== 'wait') return event.headline
     const prior = 'Waiting on ' + (event.waiting_profile?.name || event.waiting_on)
@@ -126,6 +131,8 @@ export function ticketActivityCopy(event, headline) {
   const withoutPunctuation = text => text.trim().replace(/[.!?]+$/, '')
   const comparable = text => withoutPunctuation(text).toLowerCase()
   const result = choice && (comparable(choice) === comparable(headline) || headline === event.label) ? '' : headline
+  if (hasExpandedDecisionText(event)) return { choice, result, details: event.details }
+
   const waitPrefix = waitHeadline(event) + ' · '
   const shownResult = event.action === 'wait' && result.startsWith(waitPrefix) ? result.slice(waitPrefix.length) : result
   const shown = [shownResult, choice].filter(Boolean)
