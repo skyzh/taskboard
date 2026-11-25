@@ -260,7 +260,11 @@ test('Needs you reads only the selected project on the signed-in human’s own r
   const scopes = []
   fixture.pages[attentionPath] = filters => {
     scopes.push(filters)
-    return { data: { items: [{ id: 'decision:1', ticket: 'COURSE-1', title: 'Choose a date', kind: 'decision' }] } }
+    return { data: { items: [
+      { id: 'decision:1', ticket: 'COURSE-1', title: 'Choose a date', kind: 'decision' },
+      { id: 'request:2', ticket: 'COURSE-2', title: 'Check the outline', kind: 'request',
+        asked_at: '2025-11-21T17:15:00Z' },
+    ] } }
   }
   const render = viewer => renderToStaticMarkup(React.createElement(AssigneePage, { ...props, viewer }))
 
@@ -274,7 +278,11 @@ test('Needs you reads only the selected project on the signed-in human’s own r
 
     const ownReport = render({ id: owner, name: 'Sam', kind: 'human' })
     assert.match(ownReport, /Needs you/)
-    assert.match(ownReport, /href="#task-COURSE-1".*Choose a date/)
+    const [legacy, dated] = ownReport.match(/<a href="#task-COURSE-[12]"[^>]*>.*?<\/a>/g)
+    assert.match(legacy, /Choose a date/)
+    assert.doesNotMatch(legacy, /Asked|<time/)
+    assert.match(dated, /Check the outline.*Asked <time dateTime="2025-11-21T17:15:00Z" title="[^"]+"/)
+    assert.doesNotMatch(dated, /<button/)
     assert.deepEqual(scopes, [{ project }])
   } finally {
     delete fixture.resources[path]

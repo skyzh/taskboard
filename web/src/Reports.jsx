@@ -333,7 +333,10 @@ export function NeedsYou({ project, revision }) {
                   <span className="needs-you-task">
                     <span className="ticket-id">{item.ticket}</span> <MarkdownInline text={item.title} links={false} />
                   </span>
-                  <span className="needs-you-action">{attentionLabels[item.kind]}{requester && <> from {requester}</>}</span>
+                  <span className="needs-you-action">
+                    <span>{attentionLabels[item.kind]}{requester && <> from {requester}</>}</span>
+                    {item.asked_at && <span className="needs-you-age">Asked <ReportTime at={item.asked_at} linked /></span>}
+                  </span>
                 </a>
               </li>
             )

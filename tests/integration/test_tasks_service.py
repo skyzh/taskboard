@@ -766,15 +766,21 @@ class TasksServiceTest(unittest.TestCase):
             payload = self.call(client, path, query_string=filters).json
             return [(row["kind"], row["ticket"], row["requester_profile"]["name"]) for row in payload["items"]]
 
+        def asked_times(client):
+            rows = self.call(client, path, query_string={"project": "T", "limit": 10}).json["items"]
+            return {row["ticket"]: row["asked_at"] for row in rows}
+
         self.call(app.test_client(), path, status=401)
         self.assertEqual(view(sam), [])
         decision = add("Decide the export format")
         self.action(avery, "advance-task", {"id": decision, "transition": "start", "note": "Prepare the choices."})
-        self.action(avery, "advance-task", {
-            "id": decision, "transition": "assign-human", "on": sam_key, "note": "Choose the format.",
-        })
+        with patch("tasks_core.timestamp", return_value="2025-11-21T17:00:00Z"):
+            self.action(avery, "advance-task", {
+                "id": decision, "transition": "assign-human", "on": sam_key, "note": "Choose the format.",
+            })
         request = add("Check the first draft")
-        ask(request, sam_key)
+        with patch("tasks_core.timestamp", return_value="2025-11-21T17:15:00Z"):
+            ask(request, sam_key)
         ask(add("Another recipient"), quinn_key)
         deferred = ask(add("Deferred request"), sam_key)
         self.call(sam, f"/api/v1/notifications/requests/{deferred}/reminder",
@@ -785,16 +791,18 @@ class TasksServiceTest(unittest.TestCase):
         ask(course, sam_key)
 
         worker_source = add("Review the test results")
-        self.action(avery, "delegate", {
-            "id": worker_source, "worker": blake_key, "role": "review", "brief": "Review the fixture.",
-        })
+        with patch("workers.timestamp", return_value="2025-11-21T19:00:00Z"):
+            self.action(avery, "delegate", {
+                "id": worker_source, "worker": blake_key, "role": "review", "brief": "Review the fixture.",
+            })
         stamp_source = add("Review the proposed patch")
         pull = "https://github.com/example/board/pull/14"
         self.action(avery, "link-reference", {"id": stamp_source, "label": "Pull request", "url": pull})
-        stamp = self.action(avery, "peer-ask", {
-            "id": stamp_source, "transition": "create", "recipient": blake_key, "note": "Review the patch.",
-            "review_pr": pull, "review_head": "a" * 40, "review_base": "b" * 40,
-        })["receipt"].split()[0]
+        with patch("tasks_core.timestamp", return_value="2025-11-21T19:15:00Z"):
+            stamp = self.action(avery, "peer-ask", {
+                "id": stamp_source, "transition": "create", "recipient": blake_key, "note": "Review the patch.",
+                "review_pr": pull, "review_head": "a" * 40, "review_base": "b" * 40,
+            })["receipt"].split()[0]
         self.action(avery, "peer-ask", {
             "id": worker_source, "transition": "create", "recipient": blake_key, "note": "Provide the sample.",
         })
@@ -820,6 +828,24 @@ class TasksServiceTest(unittest.TestCase):
         self.assertCountEqual(view(blake, project="T"), [
             ("review", worker_source, "Avery"), ("review", stamp, "Avery"),
         ])
+        human_times = {decision: "2025-11-21T17:00:00Z", request: "2025-11-21T17:15:00Z"}
+        review_times = {worker_source: "2025-11-21T19:00:00Z", stamp: "2025-11-21T19:15:00Z"}
+        self.assertEqual(asked_times(sam), human_times)
+        self.assertEqual(asked_times(blake), review_times)
+        with patch("tasks_core.timestamp", return_value="2025-11-21T20:00:00Z"):
+            for ticket in (decision, request, worker_source, stamp_source):
+                self.action(avery, "edit-task-details", {
+                    "id": ticket, "brief": "Clarify the sample.", "reason": "Add unrelated context.",
+                })
+        self.assertEqual(asked_times(sam), human_times)
+        self.assertEqual(asked_times(blake), review_times)
+        with patch("tasks_core.timestamp", return_value="2025-11-21T21:00:00Z"):
+            self.action(avery, "advance-task", {
+                "id": decision, "transition": "redirect-decision", "on": quinn_key, "note": "Ask Quinn.",
+            })
+        self.assertNotIn(decision, asked_times(sam))
+        self.assertEqual(asked_times(quinn)[decision], "2025-11-21T21:00:00Z")
+
         extra = add("Review the onboarding example")
         extra_run = self.action(avery, "delegate", {
             "id": extra, "worker": blake_key, "role": "review", "brief": "Check the example.",
