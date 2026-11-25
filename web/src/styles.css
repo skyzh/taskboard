@@ -1267,6 +1267,7 @@ button:disabled { opacity: .57; }
   .integration-paths { grid-template-columns: 1fr; gap: .9rem; }
   .integration-path-arrow { inset-inline-start: calc(50% - 7px); top: -.9rem; transform: rotate(90deg); }
 }
+.integration-mode-example { margin-block: .45rem .8rem; }
 .integration-identity { display: grid; justify-items: start; gap: .45rem; margin-bottom: .95rem; }
 .integration-setup-note { color: var(--muted); font-size: .88rem; }
 .integration-dri-id { overflow-wrap: anywhere; }

@@ -20,35 +20,35 @@ const instructionLimit = 8000
 const workflows = [
   {
     id: 'task-session', label: 'Task sessions', file: 'AGENTS.md', prompt: taskSessionPrompt,
-    description: 'Use ordinary coding sessions to report work and reuse team Knowledge under your human account.',
+    description: 'Choose this for work you start and own. The session reads the ticket and Knowledge and reports under your name. You start each session.',
     setup: 'Copy the prompt for a session or add the AGENTS.md example to your repository. On an enabled trusted tailnet, use direct HTTPS. For signed access, get the Tasks CLI from your team’s approved checkout or source archive. No background process is needed.',
     guidance: 'Verify the human profile and publishing scope, find the original ticket, and read Knowledge and report progress as you work.',
     verify: 'Check your identity and one existing ticket, then record a checkpoint. Confirm it in Activity and open its related Knowledge from a fresh session.',
   },
   {
     id: 'automated-handoff', label: 'Automated handoffs', file: 'automated-handoff.md', prompt: handoffPrompt,
-    description: 'A managed Ready watcher can wake an enrolled Raft agent today. Starting a fresh worker is a trial that requires an approved runner adapter.',
+    description: 'Choose this to send a Ready ask to an agent without starting its session yourself. The managed watcher wakes the enrolled Raft agent, which reports on the ask under its own identity.',
     setup: 'On a Raft Computer, get Python 3.11 or later, the Raft CLI, and the reviewed Taskboard checkout. Use the managed watcher setup in the guide.',
     guidance: 'Verify the recipient and watcher, then open the linked ask and record Start and the result or blocker there.',
     verify: 'Send one linked ask and confirm the wake, Start, result, and acknowledgment.',
   },
   {
     id: 'ai-factory', label: 'Existing AI factory', file: 'ai-factory.md', prompt: factoryPrompt,
-    description: 'Keep your factory and its workers. One enrolled coordinator acts as the DRI and reports their results to Taskboard.',
+    description: 'Choose this if you already have a coordinator and workers. The coordinator owns the ticket and reports their results under its enrolled identity. Add a watcher if it needs to pick up work unattended.',
     setup: 'Have the project manager and board operator enroll an eligible coordinator. Use the shared CLI or supported Raft MCP adapter in the existing factory runtime. Other identities need an external adapter.',
     guidance: 'Verify the coordinator identity, read the assigned ticket and Knowledge, and report worker evidence under that identity.',
     verify: 'Assign the coordinator one small ticket and confirm its identity, worker evidence, and next owner in Activity.',
   },
   {
     id: 'local-dri', label: 'Local DRI', file: 'local-dri.md', prompt: localDriPrompt,
-    description: 'A Local DRI works in its owner’s runtime. It asks its creator in the local session by default.',
+    description: 'Choose this for a named delegate with its own queue. It owns and reports work under its own name in your runtime. Start assigned work yourself, or run a watcher to receive asks from other agents.',
     setup: 'Until registration is available, use Task sessions with approved human access. A registered Local DRI can start an assigned ticket locally. Incoming asks from agents require a running watcher.',
     guidance: 'Confirm assignment, reopen unfinished work, report progress, and use the configured question route.',
     verify: 'Check the assigned owner before Start. Reopen unfinished work in the next session and check Activity. In progress is the last reported state.',
   },
   {
     id: 'team-dri', label: 'Team DRI', file: 'team-dri.md', prompt: teamDriPrompt,
-    description: 'Give an enrolled agent standing responsibility for a shared project area.',
+    description: 'Choose this for ongoing ownership of a shared project area. A project manager assigns work to an eligible Team DRI, which reports under its own identity. Ready wakes can notify it about new work.',
     setup: 'Set up signed access in the agent runtime. Have a project manager confirm the agent is eligible and assign it a ticket. Project Ready wakes are optional.',
     guidance: 'Verify the team agent identity, work assigned tickets, route decisions, and report outcomes and evidence.',
     verify: 'Check the recorded owner and have a teammate find the blocker or result, source decisions, and evidence in Reports and Activity.',
@@ -218,6 +218,11 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
   }
   return (
     <>
+      <p className="integration-mode-example">
+        For example, use <strong>Task sessions</strong> to fix a bug on your ticket and report it under your name.
+        Choose <strong>Local DRI</strong> if you want a named code review delegate with its own queue.
+        You can start the delegate yourself or set up a watcher for unattended handoffs.
+      </p>
       {human && (
         <div className="integration-identity">
           <label className="settings-preference">
