@@ -10,8 +10,10 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
     "taskboard-client==0.1.0",
+    "alembic>=1.20.1,<2",
     "flask>=3.1,<4",
     "pillow>=12,<13",
+    "sqlalchemy>=2,<3",
     "waitress>=3,<4",
 ]
 
@@ -37,6 +39,7 @@ webpush = [
 
 [project.scripts]
 taskboard-serve = "taskboard_server:main"
+taskboard-migrate = "taskboard_server.migrate:main"
 taskboard-extensions = "taskboard_server.extension_tick:main"
 taskboard-codex-snapshot = "taskboard_server.codex_snapshot:main"
 

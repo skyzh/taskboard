@@ -7,6 +7,9 @@ import sqlite3
 import unittest
 from uuid import uuid4
 
+from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
+
 from tools.checkout import add_packages, add_tests
 
 add_packages("client", "cli", "server")
@@ -15,6 +18,7 @@ add_tests()
 import test_tasks_service as fixture
 import test_tasks_github_webhooks as webhook_fixture
 from test_tasks_knowledge_sweeps import replay_knowledge_sweeps
+from test_tasks_migrations import replay_versioned_profiles
 from test_tasks_project_move import replay_move
 from test_tasks_recurring import replay_project_tick
 import test_tasks_ring1 as ring1_fixture
@@ -92,6 +96,16 @@ class StorageReplayTest(unittest.TestCase):
     def test_postgres_browser_push(self):
         dsn = self.postgres_fixture()
         self.board.replay_browser_push(lambda config: self.postgres_app(dsn, browser_push_config=config))
+
+    def test_postgres_versioned_profiles_rollback_and_signed_readback(self):
+        dsn = self.postgres_fixture()
+        engine = create_engine(dsn.replace("postgresql://", "postgresql+psycopg://", 1), poolclass=NullPool)
+        self.addCleanup(engine.dispose)
+
+        def restart():
+            return self.postgres_app(dsn)
+
+        replay_versioned_profiles(self, self.board, restart(), restart, engine)
 
     def test_postgres_adopts_profiles_from_before_short_roles(self):
         dsn = self.postgres_fixture()

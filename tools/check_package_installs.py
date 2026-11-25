@@ -6,6 +6,7 @@ import os
 import re
 from pathlib import Path
 import socket
+import sqlite3
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -116,6 +117,14 @@ print(json.dumps({{"ok": True, "data": {{"result": {{"actor": actor, "board": "h
             if process.poll() is None:
                 process.terminate()
                 process.wait(timeout=5)
+    checked = run([server / "taskboard-migrate", "--db", database, "check"], cwd=directory,
+                  environment=environment, capture_output=True, text=True)
+    assert json.loads(checked.stdout)["recorded_revision"] is None
+    with closing(sqlite3.connect(database)) as ledger:
+        ledger.execute("ALTER TABLE board_principals DROP COLUMN short_role")
+    upgraded = run([server / "taskboard-migrate", "--db", database, "upgrade"], cwd=directory,
+                   environment=environment, capture_output=True, text=True)
+    assert json.loads(upgraded.stdout)["applied_revision"] == "0002_profile_short_role"
 
 
 if __name__ == "__main__":
