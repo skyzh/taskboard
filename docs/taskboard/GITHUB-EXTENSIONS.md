@@ -57,6 +57,12 @@ Enable `ci_jobs` under `github-events` to record completed GitHub Actions jobs f
 
 For CI Work Log entries only, set `"merge": false` and `"ci_jobs": {}` alongside `repository` in `github-events`. Leaving `merge` out still records merge observations by default. An explicit deployment or activity rule retains its behavior, as does a manual GitHub refresh.
 
+## Record a verified merge
+
+For a ticket you own or watch, first attach the pull request as a GitHub source. Then run `tasks --shared record-merge TICKET PR_URL MERGE_SHA` with the GitHub or Stamp pull request URL and the full landed merge SHA. Taskboard checks the saved GitHub merge receipt or reads the exact pull request from GitHub. Activity shows **Pull request merged** with the merge icon and the GitHub link.
+
+The command and automatic GitHub refresh share one receipt per ticket and merge. The project's configured merge rules apply to a newly recorded receipt. For the signed HTTP action, send `id`, `merge_url`, and `merge_commit` to `fetch-github`. Use `log` for notes, including notes that reference an open pull request.
+
 ## GitHub webhook intake
 
 Enable intake for a project by setting `TASKS_GITHUB_WEBHOOK_SECRETS` in the

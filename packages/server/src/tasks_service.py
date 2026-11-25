@@ -3286,14 +3286,64 @@ def create_app(
             **activity_text(data, command),
         )
 
-    def fetch_github(actor, number):
-        from tasks_github import ingest_linked_github
-
-        task = detail(number, actor)["task"]
-        if task["dri"] != actor["ledger_key"] and db().execute(
+    def github_task(connection, actor, number):
+        task = ledger.find_task(connection, number)
+        if task is None:
+            raise NotFound()
+        require_local_project(projects.row_project(task))
+        if task["dri"] != actor["ledger_key"] and connection.execute(
             "SELECT 1 FROM task_watches WHERE task_id = ? AND watcher = ?", (number, actor["ledger_key"]),
         ).fetchone() is None:
             raise RequestError("Link a watch or own this task to fetch its GitHub updates.", 403)
+        return task
+
+    def github_merge_source(connection, number, url):
+        source = next((source for source in watches.linked_sources(connection, number)
+                       if source["kind"] == "github" and source["target"].lower().rstrip("/") == url), None)
+        if source is None:
+            raise RequestError("Attach this pull request as a GitHub source on the ticket first.", 409)
+        return source["id"]
+
+    def record_github_merge(actor, number, data):
+        from tasks_github import merge_pull, record_pull_merge, repository, verified_merge
+
+        target = text(data, "merge_url", maximum=400)
+        commit = text(data, "merge_commit", maximum=40)
+        if not extensions.COMMIT.fullmatch(commit):
+            raise RequestError("Use the full lowercase SHA of the GitHub merge commit.")
+        try:
+            item = merge_pull(target)
+        except ValueError as error:
+            raise RequestError(str(error)) from error
+        connection = db()
+        task = github_task(connection, actor, number)
+        source = github_merge_source(connection, number, item.url)
+        reference = projects.row_reference(task)
+        if extensions.already_recorded(connection, number, source, f"merged:{commit}"):
+            return {"receipt": f"{reference} · Pull request merge already recorded"}
+        try:
+            at = verified_merge(connection, source, item, commit, github_reader)
+        except LookupError as error:
+            raise RequestError(str(error), 503) from error
+        except ValueError as error:
+            raise RequestError(str(error), 409) from error
+        with tasks_storage.write(connection):
+            task = github_task(connection, actor, number)
+            source = github_merge_source(connection, number, item.url)
+            rule = project_extensions.get(projects.row_project(task), {}).get(extensions.EVENTS)
+            actions = rule.merge if rule and rule.repository == repository(item) else None
+            recorded = record_pull_merge(connection, number, source, item, commit, at, actions or extensions.Actions())
+            if recorded:
+                ledger.bump_revision(connection)
+        status = "recorded" if recorded else "already recorded"
+        return {"receipt": f"{projects.row_reference(task)} · Pull request merge {status}"}
+
+    def fetch_github(actor, number, data):
+        from tasks_github import ingest_linked_github
+
+        if "merge_url" in data or "merge_commit" in data:
+            return record_github_merge(actor, number, data)
+        github_task(db(), actor, number)
         if github_reader is None:
             raise RequestError("GitHub fetching is disabled for this board.", 503)
         result = ingest_linked_github(db(), number, github_reader, project_extensions=project_extensions)
@@ -3786,7 +3836,7 @@ def create_app(
                 url=text(data, "url", maximum=ledger.SOURCE_URL_LIMIT),
             )
         if name == "fetch-github":
-            return fetch_github(actor, number)
+            return fetch_github(actor, number, data)
         raise RequestError("Unknown Tasks action.", 404)
 
     if raft_config:

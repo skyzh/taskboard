@@ -984,7 +984,7 @@ test('typed provider and board work events use their distinct named marks in eve
     [{ action: 'log', context: { extension: 'github-events', github_event: 'pull-merged' } }, 'Pull request merged', 'git-merge'],
     [{ action: 'log', context: { extension: 'github-events', github_event: 'deployed' } }, 'Deployed', 'rocket'],
     [{ action: 'done', label: 'Completed', context: { extension: 'github-events', github_event: 'deployed' } }, 'Completed', 'check'],
-    [{ action: 'log', label: 'Activity logged', headline: 'Closed and deployed a fix.' }, 'Activity logged', 'message-square-text'],
+    [{ action: 'log', label: 'Activity logged', headline: 'Merged pull request #17.', links: pull }, 'Activity logged', 'message-square-text'],
     [{ action: 'update', label: 'Progress' }, 'Progress', 'pencil-line'],
     [{ action: 'done', label: 'Completed', headline: 'Fixed the CSV.' }, 'Completed', 'check'],
     [{ action: 'legacy', label: 'Legacy record' }, 'Legacy record', 'file-text'],

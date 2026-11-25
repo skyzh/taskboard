@@ -268,7 +268,10 @@ _ACTIONS = {
     "link-reference": _Action("POST", "Attach or relabel an ordinary web link with project write access. GitHub sources require separate permission.", {
         **_TASK, "label": "Label shown in the task's Sources.", "url": "Full HTTP(S) URL, such as a Raft permalink.",
     }),
-    "fetch-github": _Action("POST", "Fetch and record recent GitHub updates for a linked task.", _TASK),
+    "fetch-github": _Action("POST", "Fetch linked GitHub updates or record one verified pull request merge.", _TASK, {
+        "merge_url": "Linked GitHub or Stamp pull request URL. Supply with merge_commit to record just that merge.",
+        "merge_commit": "Full lowercase SHA of the landed GitHub merge commit.",
+    }),
     "set-profile": _Action("POST", "Edit your board role, short role, description, or photo.", optional={
         "role": "Optional role shown on the board. Pass an empty string to clear it.",
         "short_role": "Optional Reports Summary role, ideally two or three words and up to 60 printable characters. Send an empty string to clear it.",

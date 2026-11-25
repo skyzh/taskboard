@@ -10070,6 +10070,68 @@ class TasksServiceTest(unittest.TestCase):
         self.assertTrue(note_change["links"][0]["unavailable"])
         self.assertEqual(blake_activity["source_errors"][0]["source_key"], "example/tasks#2")
 
+    def test_record_merge_checks_exact_linked_pull_and_reuses_provider_receipt(self):
+        from tasks_extensions import configuration
+        from tasks_github_extensions import refresh
+
+        at = "2026-11-25T07:00:00Z"
+        commit = "a" * 40
+        pull = "https://github.com/example/board/pull/17"
+        stamp = "https://stamp.build/s/fixture/github/example/board/pull/17"
+        metadata = {"state": "open", "merged": False}
+        paths = []
+
+        def transport(request):
+            path = urlsplit(request.full_url).path
+            paths.append(path)
+            return 200, {}, metadata if path == "/repos/example/board/pulls/17" else []
+
+        reader = GitHubReader(transport=transport)
+        configured = configuration('{"T":{"github-events":{"repository":"example/board"}}}')
+        app = self.app(reader, project_extensions=configured)
+        avery, _ = self.login(app, "Avery")
+        blake, _ = self.login(app, "Blake")
+        for number in (1, 2):
+            self.action(avery, "create-task", {"title": f"Sample {number}", "step": "Check evidence."})
+
+        report = {"id": "T-1", "merge_url": stamp, "merge_commit": commit}
+        self.action(avery, "fetch-github", {"id": "T-1", "merge_url": stamp}, status=400)
+        self.action(avery, "fetch-github", {**report, "merge_url": "https://github.com/example/board/issues/17"}, status=400)
+        self.action(avery, "fetch-github", report, status=409)
+        self.action(avery, "link-github", {"id": "T-1", "github_url": pull})
+        self.action(blake, "fetch-github", report, status=403)
+        self.assertEqual(paths, [])
+        self.action(avery, "fetch-github", report, status=409)
+        metadata.update(state="closed", merged=True, merge_commit_sha=commit, merged_at=at)
+        self.action(avery, "fetch-github", {**report, "merge_commit": "b" * 40}, status=409)
+        self.assertEqual(paths, ["/repos/example/board/pulls/17"] * 2)
+
+        self.action(avery, "record-activity", {"id": "T-1", "note": "Sample log.", "url": pull, "label": "Pull request"})
+        code, output, errors = self.shared_cli(avery, "record-merge", "T-1", stamp, commit)
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("T-1 · Pull request merge recorded", output)
+        self.assertIn("already recorded", self.action(avery, "fetch-github", report)["receipt"])
+        self.assertEqual(paths, ["/repos/example/board/pulls/17"] * 3)
+        events = self.action(avery, "task-activity", query_string={"id": "T-1"})["items"]
+        merge, = (entry for entry in events if entry["context"].get("github_event") == "pull-merged")
+        self.assertEqual(merge["context"]["merge_commit"], commit)
+        self.assertEqual([link["url"] for link in merge["links"]], [pull])
+        self.assertEqual(next(row for row in events if row["note"] == "Sample log.")["context"], {})
+
+        self.action(avery, "link-github", {"id": "T-2", "github_url": pull})
+        with closing(open_sqlite(self.database)) as db:
+            for _ in range(2):
+                self.assertEqual(refresh(db, reader, configured, board_url=ORIGIN + BASE)["errors"], [])
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM extension_deliveries WHERE observation = ?",
+                                        (f"merged:{commit}",)).fetchone()[0], 2)
+
+        self.action(avery, "create-task", {"title": "Another ticket", "step": "Check evidence."})
+        self.action(avery, "link-github", {"id": "T-3", "github_url": pull})
+        self.action(blake, "watch-task", {"id": "T-3"})
+        before = paths[:]
+        self.assertIn("merge recorded", self.action(blake, "fetch-github", {**report, "id": "T-3"})["receipt"])
+        self.assertEqual(paths, before)
+
     def test_github_extensions_project_policy_status_staleness_and_verified_pi_deployments(self):
         from hashlib import sha256
 
