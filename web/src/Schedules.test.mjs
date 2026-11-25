@@ -7,6 +7,7 @@ import { createServer } from 'vite'
 
 let vite
 let ScheduleContents
+let signInHref
 
 before(async () => {
   vite = await createServer({
@@ -16,6 +17,7 @@ before(async () => {
     server: { middlewareMode: true, ws: false, hmr: false, watch: null },
   })
   ;({ ScheduleContents } = await vite.ssrLoadModule('/src/Schedules.jsx'))
+  ;({ signInHref } = await vite.ssrLoadModule('/src/shared.jsx'))
 })
 
 after(() => vite?.close())
@@ -36,8 +38,9 @@ function content(project, recurring, maintenance) {
 }
 
 test('renders only own recurring work and contextual links to issued tickets', () => {
-  const html = content('T', [schedule], { editable: false, schedule: null })
+  const html = content('COURSE', [schedule], { editable: false, schedule: null })
   assert.match(html, /Review samples/)
+  assert.match(html, /href="#schedule-R-1\?project=COURSE">R-1 · Review samples<\/a>/)
   assert.match(html, />River<\/dd>/)
   assert.match(html, /dateTime="2026-11-23T10:00:00Z"/)
   assert.match(html, /href="#task-COURSE-1">COURSE-1<\/a>/)
@@ -56,6 +59,13 @@ test('shows authorized maintenance edits and handles a project with no schedule'
   assert.match(html, /Edit maintenance schedule/)
   assert.match(html, /Cadence in hours/)
   assert.match(html, /href="#task-COURSE-1"/)
-  assert.doesNotMatch(html, /Your recurring work/)
+  assert.match(html, /You have no recurring schedules in this project/)
   assert.match(content('COURSE', [], { editable: true, schedule: null }), /This project has no maintenance schedule/)
+})
+
+test('returns to both schedule pages after sign-in', () => {
+  for (const fragment of ['#schedules=&project=COURSE', '#schedule-R-2', '#schedule-R-2?project=COURSE']) {
+    assert.equal(new URL(signInHref(fragment), 'https://example.test/tasks/').searchParams.get('fragment'), fragment)
+  }
+  assert.equal(signInHref('#schedule-R-2?project=COURSE&other=true'), './auth/login')
 })
