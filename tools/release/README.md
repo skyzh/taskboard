@@ -338,3 +338,50 @@ The default run uses synthetic local fixtures. Release operators can enable addi
 | `TASKS_PROFILE_FIXTURE` | Built Taskboard source snapshot for signed-in service checks |
 
 Supply all four release artifact settings together and both legacy CLI settings together when enabling their respective replays. Tests use disposable ledger data and loopback HTTP.
+
+## Replay a foreground release wake
+
+The first foreground pilot uses one approved revision, automation wait, and
+opted-in recipient. The normal protected deploy supplies a fresh saved result
+and current `active-release.json`. Agree on the exact adapter and sender
+revisions, operator and recipient, and UTC window before using live inputs.
+
+The approved plan is an owner-only JSON file with schema
+`taskboard-foreground-release-plan/v1`. Set `board` to the exact HTTPS mount
+without the trailing slash, `ticket` to the disposable Project T ticket, and
+`release_ticket` to the normal operator's source ticket. Record the exact
+`wait_event` and UTC `wait_at` from the signed task detail and the full expected
+`commit`. Include the stable Taskboard `operator` and `recipient` IDs, the
+approved Raft `server_id` and `recipient_id` UUIDs, and UTC `opens_at` and
+`closes_at`.
+
+On the signed publisher's machine, use the saved verified result from the
+normal release operator and the matching active release metadata. The
+publisher checks the exact live mount and health, records the scoped receipt
+on the disposable ticket, then confirms that wait. The handoff records the
+accepted Ready event. The normal release queue keeps its existing receipt.
+
+```sh
+python -B tools/release/foreground_release_wake.py --plan "$pilot_plan" publish \
+  --receipt "$saved_release_receipt" --active-release "$active_release_metadata" \
+  --handoff "$pilot_handoff" --service "$approved_taskboard_service"
+```
+
+On Pi, use the approved plan and the exact owner-only handoff. Select the same
+ledger and artifact as the serving board. Pass the approved short-lived
+recipient token through the operator's private file descriptor. The adapter
+rechecks the mounted release and the signed Activity, then invokes the existing
+Ready sender for that one event.
+
+```sh
+python -B tools/release/foreground_release_wake.py --plan "$pilot_plan" send \
+  --handoff "$pilot_handoff" --db "$ready_ledger" --release-dir "$current_release" \
+  --token-fd 3 3<"$approved_ready_token_file"
+```
+
+For an unconfirmed result, reconcile the current receipt and retry only with
+the same saved result and plan inside the approved window. A changed receipt
+or stale wait stops the pilot. Record Raft acceptance, the recipient's
+observation and signed Start separately. Follow the existing pilot cleanup
+procedure for the temporary credential and prior subscription. The normal
+deploy timer and recovery stay available during this foreground test.
