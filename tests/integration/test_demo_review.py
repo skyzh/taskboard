@@ -35,7 +35,8 @@ class Provider:
 
     def add(self, status, run, attempt=1, **fields):
         result = {
-            "id": run, "run_attempt": attempt, "head_sha": HEAD, "status": "completed",
+            "id": run, "run_number": run, "run_attempt": attempt, "head_sha": HEAD,
+            "head_repository": {"id": 111}, "head_branch": "test-branch", "status": "completed",
             "conclusion": "success", "event": "pull_request", "path": review.WORKFLOW,
             "repository": {"full_name": REPO}, "pull_requests": [{"number": 42}],
         }

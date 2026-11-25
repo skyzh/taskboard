@@ -123,6 +123,14 @@ def identity(run):
     return run["id"], run["run_attempt"]
 
 
+def sequence(run):
+    return run["run_number"], run["run_attempt"]
+
+
+def attempt_scope(run):
+    return ((run.get("head_repository") or {}).get("id"), run["head_branch"], run["head_sha"])
+
+
 def from_workflow(run, repo):
     return (
         run.get("path") == WORKFLOW
@@ -193,7 +201,8 @@ def previous_ticket(db, project, url):
 def apply(db, config, run, pull, attachment, labels, *, dry_run=False):
     repo = config.repository
     url = f"https://github.com/{repo}/pull/{pull}"
-    run_id, attempt = identity(run)
+    run_id, _ = identity(run)
+    order = sequence(run)
     run_url = f"https://github.com/{repo}/actions/runs/{run_id}"
     links = [("GitHub pull request", url)]
     if labels:
@@ -205,7 +214,7 @@ def apply(db, config, run, pull, attachment, labels, *, dry_run=False):
         note = "The current demo comparison passed."
         brief = "Review the passing result and close the demo follow-up if it is resolved."
     context = {
-        "demo_comparison": {"pull": url, "attempt": [run_id, attempt]},
+        "demo_comparison": {"pull": url, "attempt": list(order)},
         "activity_details": f"GitHub PR #{pull}, head {run['head_sha']}. {brief}",
     }
     with storage.write(db):
@@ -213,7 +222,7 @@ def apply(db, config, run, pull, attachment, labels, *, dry_run=False):
         if not ledger.live_board_url(db) or not projects.manages(db, project, config.actor):
             raise PermissionError("The route needs an initialized board and an existing project manager.")
         ticket, seen = previous_ticket(db, project, url)
-        if (run_id, attempt) <= seen:
+        if order <= seen:
             return "duplicate"
         if not labels and ticket is None:
             return "pass"
@@ -246,7 +255,7 @@ def apply(db, config, run, pull, attachment, labels, *, dry_run=False):
 
 
 def route(db, provider, config, run, newest, *, dry_run):
-    if identity(run) != newest[run["head_sha"]]:
+    if sequence(run) != newest[attempt_scope(run)]:
         return "superseded"
     if run["status"] != "completed":
         return "pending"
@@ -276,8 +285,8 @@ def poll(db, provider, config, *, since, dry_run):
     runs = [run for run in provider.runs(created=">=" + since) if from_workflow(run, config.repository)]
     newest = {}
     for run in runs:
-        head = run["head_sha"]
-        newest[head] = max(newest.get(head, ()), identity(run))
+        scope = attempt_scope(run)
+        newest[scope] = max(newest.get(scope, ()), sequence(run))
     results = Counter()
     for run in runs:
         try:
