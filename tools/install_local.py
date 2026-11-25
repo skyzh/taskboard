@@ -43,6 +43,8 @@ def copy_source(source, destination):
         shutil.copy2(source / "web" / name, web / name)
     for name in ("public", "src"):
         shutil.copytree(source / "web" / name, web / name)
+    prompts = Path("docs/taskboard/prompts/v1")
+    shutil.copytree(source / prompts, destination / prompts)
 
 
 def install(root, *, offline):
