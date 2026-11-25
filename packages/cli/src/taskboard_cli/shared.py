@@ -323,6 +323,8 @@ def shared_write(board, args, *, context):
         data.update(run=f"W-{args.run}", transition=command.removeprefix("worker-"),
                     note=getattr(args, "note", None), handle=getattr(args, "handle", None),
                     result=getattr(args, "result", None))
+        if getattr(args, "subagent", False):
+            data["subagent"] = True
     else:
         data.update(id=task_ref(args.id), note=args.note)
         if getattr(args, "details", None) is not None:

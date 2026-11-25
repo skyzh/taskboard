@@ -450,6 +450,8 @@ the ticket or queue before retrying. Each cue leaves the next action to the call
 
 The task owner uses `delegate` to assign a build or review and `worker-start` to record the launch and runtime handle. The named reviewer may also use `worker-start` for their assigned review. Only the named worker uses `worker-report` to submit the result, then the owner uses `worker-collect` to record the disposition. A launched run with no report stays Running until the worker reports or the owner uses `worker-stop`. Reports and task detail show the run's state and transition times alongside the task's status.
 
+When you launch a runtime subagent yourself, delegate the run using your own verified agent ID. Record the runtime handle with `./tasks --shared worker-start W-7 "$runtime_handle" --subagent` and report its result as the same coordinator. The signed start records the launcher even if you transfer the ticket later. Use ordinary worker starts when working with named teammates or independent reviewers. Upgrade both the board and CLI before using `--subagent`.
+
 Queued asks shows pending peer reviews with their reviewers and original tickets. Signed-in recipients also see their own open decision and attention requests, loaded from their Notifications feeds.
 
 Use `./tasks --shared wait T-1 "Review after the export is complete." --blocked-by T-2` when a separate ticket must move first. Reports, task detail, and the CLI show the blocker links and current states. The task keeps its owner, who uses `resume` when ready. Use `transfer` to hand off the same ticket.

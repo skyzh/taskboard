@@ -3809,6 +3809,11 @@ def create_app(
             if transition not in WORKER_TRANSITIONS:
                 raise RequestError("Choose start, report, collect, or stop.")
             run = record_id(data.get("run"), "W-", "run ID")
+            subagent = str(data.get("subagent", "false")).lower()
+            if subagent not in ("true", "false"):
+                raise RequestError("subagent must be true or false.")
+            if subagent == "true" and (transition != "start" or actor["kind"] != "agent"):
+                raise RequestError("Only a signed agent can mark its worker start as a subagent.")
             if profile is not None:
                 ticket = db().execute(
                     "SELECT tasks.project_prefix FROM worker_runs JOIN tasks ON tasks.id = worker_runs.task_id "
@@ -3817,7 +3822,7 @@ def create_app(
                 if ticket is not None:
                     require_local_project(ticket["project_prefix"])
             return mutate(
-                f"worker-{transition}", actor, data, run=run,
+                f"worker-{transition}", actor, data, run=run, subagent=subagent == "true",
                 note=text(data, "note", optional=transition == "start"),
                 handle=text(data, "handle", optional=transition != "start", maximum=200),
                 result=text(data, "result", optional=transition != "report", maximum=30),
