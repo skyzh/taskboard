@@ -8,7 +8,7 @@ import './reports.css'
 
 import { TaskRows } from './WorkRow.jsx'
 import { groupOutcomes } from './Overview.jsx'
-import { ReportTime } from './ReportTime.jsx'
+import { ReportTime, useReportNow } from './ReportTime.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
 import { goalActivityFragment } from './GoalActivity.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
@@ -147,6 +147,8 @@ function ReportOutcome({ event, publicPreview }) {
 }
 
 export function AssigneeReport({ entry, revision, project, projectTitle, publicPreview = false, tourTargets = {}, activeTarget }) {
+  const now = useReportNow()
+  const olderWorkCutoff = Math.floor(now / 1000) * 1000 - 60 * 60_000
   const { owner, profile, tasks, task_count: taskCount,
     pending_reports: reports, pending_reports_before: before, report_count: reportCount } = entry
   const name = profileName(owner, profile)
@@ -182,7 +184,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         <div className="report-owner-section" id={tourTargets.current} data-tour-current={tourTargets.current === activeTarget && activeTarget ? true : undefined}>
           <WorkHeading>Current work</WorkHeading>
           <TaskRows items={tasks} owner={false} label={`Current work for ${name}`} report="summary" revision={revision}
-            publicPreview={publicPreview} />
+            olderWorkCutoff={olderWorkCutoff} publicPreview={publicPreview} />
           {taskCount > tasks.length && <p className="report-note">Showing {tasks.length} of {taskCount} current tasks.</p>}
         </div>
       )}
@@ -319,8 +321,8 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, viewer,
     view, project, ...(hideRequests && { hide_requests: true }),
     ...(viewer?.kind === 'human' && { include_self: true }),
   }, revision)
-  const label = view === 'all' ? 'Assignees' : 'Assignees with open work'
-  const empty = view === 'all' ? 'No assignees.' : 'No open work to report.'
+  const label = view === 'all' ? 'Assignees' : view === 'recent' ? 'Recent and Team DRI reports' : 'Assignees with open work'
+  const empty = view === 'all' ? 'No assignees.' : view === 'recent' ? 'No recent or Team DRI reports.' : 'No open work to report.'
   const reports = (
     <ReportsLayout sidebar={<QueuedAsks revision={revision} project={project} grouped={Boolean(projectTitle)} viewer={viewer} />}>
       <ResourceStatus resource={page} label="reports" />
@@ -341,6 +343,8 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, viewer,
   )
 }
 
+const assigneeViews = [['active', 'Active'], ['all', 'All'], ['recent', 'Recent + team']]
+
 export default function Reports({
   revision, viewer, project, projects, defaultProject = 'T', assigneeView = 'active',
   onAssigneeViewChange, headerAction, projectPicker,
@@ -359,13 +363,12 @@ export default function Reports({
           <input type="checkbox" checked={hideRequests} onChange={event => setHideRequests(event.target.checked)} />
           Hide peer requests
         </label>
-        <label>
-          Assignees
-          <select aria-label="Assignees" value={assigneeView} onChange={event => onAssigneeViewChange(event.target.value)}>
-            <option value="active">Active</option>
-            <option value="all">All</option>
-          </select>
-        </label>
+        <div className="report-assignee-views" role="group" aria-label="Assignees">
+          {assigneeViews.map(([value, label]) => (
+            <button key={value} type="button" aria-pressed={assigneeView === value}
+              onClick={() => onAssigneeViewChange(value)}>{label}</button>
+          ))}
+        </div>
       </ReportsHeading>
       {viewer && <NeedsYou key={viewer.id} project={projects ? undefined : project} revision={revision} />}
       {projects ? projects.map(({ prefix, title }) => (

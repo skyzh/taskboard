@@ -71,6 +71,38 @@ test('Reports read status, ticket and step in order, with waiting context after 
   assert.match(render(task, 'summary'), /class="report-priority-accessible">Priority Normal<\/span>/)
 })
 
+test('Summary collapses only current human and Local DRI work reported more than one hour ago', () => {
+  const olderWorkCutoff = Date.parse('2026-11-24T22:00:00Z')
+  const old = '2026-11-24T21:59:59Z'
+  const human = { kind: 'human' }
+  const local = { kind: 'agent', dri_kind: 'local' }
+  const team = { kind: 'agent', dri_kind: 'team' }
+  const render = (profile, at, state = 'in_progress', report = 'summary') => renderToStaticMarkup(
+    React.createElement(TaskRow, {
+      task: { ...task, state, dri_profile: profile, reported_progress: at && { id: 71, at } },
+      owner: false, report, olderWorkCutoff,
+    }),
+  )
+  for (const [profile, state] of [[human, 'in_progress'], [local, 'waiting']]) {
+    const row = render(profile, old, state)
+    assert.match(row, /class="report-work-status"/)
+    assert.match(row, /href="#task-COURSE-4"/)
+    assert.match(row, /Progress last reported.*href="#event-71-log".*dateTime="2026-11-24T21:59:59Z"/)
+    assert.match(row, /<details class="report-older-work"><summary aria-label="Current step and context for COURSE-4">.*Check the rollback plan/)
+  }
+  for (const row of [
+    render(human, '2026-11-24T22:00:00Z'),
+    render(local, '2026-11-24T22:00:01Z'),
+    render(human, null),
+    render(undefined, old),
+    render(team, old),
+    render(human, old, 'in_progress', true),
+  ]) {
+    assert.doesNotMatch(row, /report-older-work/)
+    assert.match(row, /Check the rollback plan/)
+  }
+})
+
 test('a source row links to a peer request using its stored ticket reference', () => {
   for (const key of ['T-31', 'COURSE-12']) {
     const row = renderToStaticMarkup(React.createElement(TaskRow, {

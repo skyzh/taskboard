@@ -36,10 +36,14 @@ export function ReportTimeProvider({ children, capturedAt }) {
   return <ReportClock.Provider value={capturedAt ? Date.parse(capturedAt) : now}>{children}</ReportClock.Provider>
 }
 
+export function useReportNow() {
+  return useContext(ReportClock) ?? Date.now()
+}
+
 export function useReportDay() {
-  const now = useContext(ReportClock)
+  const now = useReportNow()
   const { formatDay } = useTimeZone()
-  return formatDay(now ?? Date.now())
+  return formatDay(now)
 }
 
 function ExactTimeDisclosure({ at, age, exact }) {
@@ -58,9 +62,9 @@ function ExactTimeDisclosure({ at, age, exact }) {
 }
 
 export function ReportTime({ at, linked = false }) {
-  const now = useContext(ReportClock)
+  const now = useReportNow()
   const { formatTimestamp } = useTimeZone()
-  const age = relativeAge(at, now ?? Date.now())
+  const age = relativeAge(at, now)
   if (age === at) return <time dateTime={at}>{at}</time>
   const exact = formatTimestamp(at)
   if (linked) {

@@ -1,4 +1,28 @@
 .report-controls { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; font-size: .84rem; }
+.report-assignee-views {
+  display: inline-flex;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: .35rem;
+}
+.report-assignee-views button {
+  min-height: 2.25rem;
+  padding: .35rem .65rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--paper);
+  font: inherit;
+  white-space: nowrap;
+}
+.report-assignee-views button:first-child { border-radius: .3rem 0 0 .3rem; }
+.report-assignee-views button:last-child { border-radius: 0 .3rem .3rem 0; }
+.report-assignee-views button + button { border-inline-start: 1px solid var(--line); }
+.report-assignee-views button[aria-pressed="true"] { background: var(--green); color: var(--paper); }
+.report-assignee-views button:focus-visible { z-index: 1; }
+@media (pointer: coarse), (max-width: 44rem) {
+  .report-assignee-views button { min-height: 2.75rem; }
+}
+
 .reports-heading { display: contents; }
 .reports-needs-you {
   margin-bottom: .85rem;
@@ -165,7 +189,7 @@
     align-items: center;
     min-height: 2.75rem;
   }
-  .reports-heading .report-controls select { min-height: 2.75rem; }
+  .reports-heading .report-assignee-views { margin-block: .2rem; }
 }
 .board-tour {
   width: min(82rem, 100% - 1.8rem);
@@ -309,6 +333,16 @@
 .report-task-cue { overflow-wrap: anywhere; }
 .report-peer-request { margin-bottom: .15rem; color: var(--muted); font-size: .81rem; }
 .report-peer-request svg { margin-inline-end: .32rem; vertical-align: -.17em; }
+.report-older-work > summary {
+  width: fit-content;
+  max-width: 100%;
+  font-size: .84rem;
+  padding-block: .2rem;
+}
+.report-older-work[open] > summary { margin-bottom: .25rem; }
+@media (pointer: coarse), (max-width: 44rem) {
+  .report-older-work > summary { min-height: 2.75rem; align-content: center; }
+}
 .report-details { margin-top: .14rem; font-size: .8rem; }
 .report-details > summary { width: fit-content; max-width: 100%; }
 .report-details[open] { padding-bottom: .2rem; }

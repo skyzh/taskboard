@@ -200,7 +200,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const reportsParams = ['reports', 'reports-all'].includes(taskAnchor) ? new URLSearchParams(taskContext) : null
   const requestedReportsProject = reportsParams?.get('project')
   const requestedAssigneeView = reportsParams?.get('view')
-  const assigneeView = ['all', 'idle'].includes(requestedAssigneeView) ? 'all' : 'active'
+  const assigneeView = requestedAssigneeView === 'idle' ? 'all'
+    : ['all', 'recent'].includes(requestedAssigneeView) ? requestedAssigneeView : 'active'
   const showGoalActivity = requestedAssigneeView === 'goal-activity'
   const goalAgent = reportsParams?.get('agent')
   const goalKey = reportsParams?.get('goal')
@@ -321,7 +322,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const reportsPending = Boolean((allReports || requestedReportsProject) && projectsPending)
   const reportsMode = reportsPending ? (fragment || 'reports-all')
     : reportFragment(allReports ? 'all' : reportsProject,
-      ['active', 'all', 'idle'].includes(requestedAssigneeView) ? assigneeView : undefined, defaultProject)
+      ['active', 'all', 'idle', 'recent'].includes(requestedAssigneeView) ? assigneeView : undefined, defaultProject)
   const reportsHref = `#${view === 'reports' ? reportsMode : preferredReportsMode}`
   function startTour() {
     const taskRoute = new URLSearchParams({ project: reportsProject, section: 'queue-heading' }).toString()

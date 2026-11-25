@@ -68,7 +68,7 @@ function ReportPeerRequester({ ask, parked }) {
 }
 
 export function TaskRow({ task, owner = true, selected = false, report = false, ownReport = false, revision,
-  compactQueue = false, searchQuery, publicPreview = false }) {
+  compactQueue = false, searchQuery, publicPreview = false, olderWorkCutoff = null }) {
   const [showChecklist, setShowChecklist] = useState(false)
   const checklistId = `row-checklist-${task.id}`
   const reportSummary = report === 'summary'
@@ -83,8 +83,12 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   const dependency = task.waiting_on || task.blockers
   const exceptionalPriority = task.priority === 'high' || task.priority === 'low'
   const activityAt = task.last_activity_at || task.at
-  const showReportedProgress = report && !publicPreview && task.reported_progress !== undefined
+  const showReportedProgress = report && !publicPreview
+    && (reportSummary || state === 'in_progress') && task.reported_progress !== undefined
   const progressReport = task.reported_progress
+  const selfReported = task.dri_profile?.kind === 'human' || task.dri_profile?.dri_kind === 'local'
+  const olderWork = reportSummary && currentWork && showReportedProgress && selfReported
+    && olderWorkCutoff !== null && Date.parse(progressReport?.at) < olderWorkCutoff
   const detailNote = detailedReport && (cue ? cue.details : task.note)
   const showDetails = detailedReport && (detailNote || task.links?.length > 0 || task.event_id)
   const cueLabel = publicPreview ? task.summary_label : detailedReport && cue?.label
@@ -97,6 +101,47 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   )
   const lastActivity = detailedReport && activityAt && !showReportedProgress &&
     <span>Last activity <ReportTime at={activityAt} /></span>
+  const reportTime = showReportedProgress && (
+    <p className="event-meta">
+      {progressReport
+        ? <>Progress last reported <a href={eventHref(progressReport.id)}><ReportTime at={progressReport.at} linked /></a></>
+        : 'Progress report time unknown'}
+      {task.local_watcher === 'ready_only' && <> · Watcher handles Ready asks only</>}
+      {task.local_watcher === 'off' && <> · Automatic follow-up off</>}
+    </p>
+  )
+  const context = (
+    <>
+      {currentWork && step}
+      {showRequester && currentWork && <ReportPeerRequester ask={ask} parked={parkedRequest} />}
+      {!publicPreview && <PeerRequestContext task={task} showState={!showRequester} />}
+      {currentWork && lastActivity && <p className="event-meta">{lastActivity}</p>}
+      {currentWork && !reportSummary && <TaskWaitAge task={task} />}
+      {!olderWork && reportTime}
+      {dependency && (
+        <p className="task-dependency"><Dependency task={task} publicPreview={publicPreview} /></p>
+      )}
+      {!currentWork && step}
+      {detailedReport && task.release_result && <ReportReleaseResult receipt={task.release_result} />}
+      {detailedReport && cue?.text && ownReport && task.release_after_step && (
+        <p className="report-note">Review your next step after this release result.</p>
+      )}
+      {!report && task.note && <p className="task-row-note"><MarkdownInline text={task.note} /></p>}
+      {!publicPreview && <>
+        <ClosureReference context={task.context} />
+        <ReminderWhen context={task.context} className="task-dependency" />
+      </>}
+      {showDetails && (
+        <details className="report-details">
+          <summary aria-label={`Update and evidence for ${taskLabel(task.id, task.key)}`}>Update and evidence</summary>
+          {detailNote && <Markdown text={detailNote} />}
+          <EvidenceLinks links={task.links} />
+          {task.event_id && <a href={eventHref(task.event_id)}>Open activity entry</a>}
+        </details>
+      )}
+      {!report && <EvidenceLinks links={task.links} />}
+    </>
+  )
   return (
     <li className={`task-row${selected ? ' selected' : ''}${report ? ' report-task' : ''}${reportSummary ? ' report-task-summary' : ''}${currentWork ? ' report-current-work' : ''}`}>
       {currentWork && <div className="report-work-status"><Status state={state} /></div>}
@@ -120,42 +165,15 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
         </div>
       </div>
       <div className="task-row-context">
-        {currentWork && step}
-        {showRequester && currentWork && <ReportPeerRequester ask={ask} parked={parkedRequest} />}
-        {!publicPreview && <PeerRequestContext task={task} showState={!showRequester} />}
-        {currentWork && lastActivity && <p className="event-meta">{lastActivity}</p>}
-        {currentWork && !reportSummary && <TaskWaitAge task={task} />}
-        {showReportedProgress && (
-          <p className="event-meta">
-            {progressReport
-              ? <>Progress last reported <a href={eventHref(progressReport.id)}><ReportTime at={progressReport.at} linked /></a></>
-              : 'Progress report time unknown'}
-            {task.local_watcher === 'ready_only' && <> · Watcher handles Ready asks only</>}
-            {task.local_watcher === 'off' && <> · Automatic follow-up off</>}
-          </p>
-        )}
-        {dependency && (
-          <p className="task-dependency"><Dependency task={task} publicPreview={publicPreview} /></p>
-        )}
-        {!currentWork && step}
-        {detailedReport && task.release_result && <ReportReleaseResult receipt={task.release_result} />}
-        {detailedReport && cue?.text && ownReport && task.release_after_step && (
-          <p className="report-note">Review your next step after this release result.</p>
-        )}
-        {!report && task.note && <p className="task-row-note"><MarkdownInline text={task.note} /></p>}
-        {!publicPreview && <>
-          <ClosureReference context={task.context} />
-          <ReminderWhen context={task.context} className="task-dependency" />
-        </>}
-        {showDetails && (
-          <details className="report-details">
-            <summary aria-label={`Update and evidence for ${taskLabel(task.id, task.key)}`}>Update and evidence</summary>
-            {detailNote && <Markdown text={detailNote} />}
-            <EvidenceLinks links={task.links} />
-            {task.event_id && <a href={eventHref(task.event_id)}>Open activity entry</a>}
-          </details>
-        )}
-        {!report && <EvidenceLinks links={task.links} />}
+        {olderWork ? (
+          <>
+            {reportTime}
+            <details className="report-older-work">
+              <summary aria-label={`Current step and context for ${taskLabel(task.id, task.key)}`}>Current step and context</summary>
+              {context}
+            </details>
+          </>
+        ) : context}
       </div>
       {report && !publicPreview && task.checklist_total > 0 ? (
         <>
@@ -174,7 +192,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
 }
 
 export function TaskRows({ items, owner = true, selected, label, report, ownReport, revision, compactQueue = false,
-  listRef, onClick, searchQuery, publicPreview = false }) {
+  listRef, onClick, searchQuery, publicPreview = false, olderWorkCutoff = null }) {
   if (!items?.length) return null
   return (
     <ol ref={listRef} onClick={onClick} className={compactQueue ? 'task-rows compact-queue-rows' : 'task-rows'}
@@ -182,7 +200,7 @@ export function TaskRows({ items, owner = true, selected, label, report, ownRepo
       {items.map(task => (
         <TaskRow key={task.id} task={task} owner={owner} selected={task.id === selected || task.key === selected}
           report={report} ownReport={ownReport} revision={revision} compactQueue={compactQueue} searchQuery={searchQuery}
-          publicPreview={publicPreview} />
+          olderWorkCutoff={olderWorkCutoff} publicPreview={publicPreview} />
       ))}
     </ol>
   )
