@@ -536,6 +536,10 @@ def arguments(argv=None):
     source.add_argument("key", type=nonblank)
     source.add_argument("target", type=nonblank, help="Full provider URL.")
     source.add_argument("--by", required=True, type=nonblank)
+    merge = commands.add_parser("record-merge", help="Verify a linked GitHub or Stamp PR merge and record it in Activity.")
+    merge.add_argument("id", type=task_id)
+    merge.add_argument("pull_url", type=nonblank, help="GitHub or Stamp pull request URL.")
+    merge.add_argument("merge_commit", type=nonblank, help="Full SHA of the landed GitHub merge commit.")
     reference = commands.add_parser(
         "link-reference", help="Attach or relabel a web reference on a ticket or Knowledge entry.",
         description="Attach or relabel a web reference. Shared project writers can edit plain links. "
@@ -605,7 +609,7 @@ def arguments(argv=None):
     if args.command in {
         "raft-channel-show", "raft-channel-set", "wake-subscriptions", "wake-subscribe", "wake-unsubscribe",
         "knowledge-add", "knowledge-areas", "knowledge-assign", "knowledge-sweep", "knowledge-place",
-        "knowledge-stage", "knowledge-reconcile",
+        "knowledge-stage", "knowledge-reconcile", "record-merge",
     } and args.mode != "shared":
         parser.error(f"{args.command} requires --shared.")
 

@@ -17,6 +17,7 @@ import watches
 _API_ORIGIN = "https://api.github.com"
 _SOURCE = re.compile(r"https://github\.com/([A-Za-z0-9-]{1,39})/([A-Za-z0-9._-]{1,100})"
                      r"/(issues|pull)/([1-9][0-9]{0,18})/?")
+_STAMP_PULL = re.compile(r"https://stamp\.build/(?:s/[A-Za-z0-9][A-Za-z0-9_-]*/)?github/(.+)")
 _PAGE_SIZE = 20
 _MAX_RECENT_PAGE_READS = 3
 _SOURCE_LIMIT = 10
@@ -472,6 +473,44 @@ def repository(item):
     return f"{item.owner}/{item.repo}".lower()
 
 
+def merge_pull(target):
+    if match := _STAMP_PULL.fullmatch(target):
+        target = f"https://github.com/{match[1]}"
+    _, canonical = linked_source(target)
+    item = _source(canonical)
+    if item.kind != "pull":
+        raise ValueError("Choose the GitHub or Stamp pull request URL.")
+    return item
+
+
+def verified_merge(db, source_id, item, expected, client):
+    saved = db.execute(
+        "SELECT merged_at FROM github_source_status WHERE source_id = ? AND state = 'merged' AND merge_commit = ?",
+        (source_id, expected),
+    ).fetchone()
+    if saved and saved["merged_at"]:
+        return saved["merged_at"]
+    if client is None:
+        raise LookupError("GitHub fetching is disabled and this merge has no saved confirmation.")
+    try:
+        _, commit, at = snapshot(item, client.read_metadata(item))
+    except _ReadError as error:
+        raise LookupError(f"GitHub could not confirm the merge ({error}).") from error
+    if commit != expected:
+        raise ValueError("GitHub has not confirmed this pull request with that merge SHA.")
+    return at
+
+
+def record_pull_merge(db, task_id, source_id, item, commit, at, actions):
+    evidence = {
+        "kind": "pull-merged", "at": at, "note": f"GitHub merged pull request #{item.number}.",
+        "links": [("GitHub pull request", item.url)],
+        "context": {"merge_commit": commit, "github_source": item.url,
+                    "github_repository": repository(item), "github_activity_id": f"github:pull-merged:{item.number}"},
+    }
+    return extensions.record(db, task_id, source_id, f"merged:{commit}", evidence, actions)
+
+
 def observe_metadata(db, source, item, metadata, settings, checked_at, *, update_status=True):
     state, commit, merged_at = snapshot(item, metadata)
     if update_status and any(config.get(extensions.STATUS) or config.get(extensions.EVENTS) for config in settings.values()):
@@ -479,16 +518,10 @@ def observe_metadata(db, source, item, metadata, settings, checked_at, *, update
     if commit is None:
         return set()
     recorded = set()
-    evidence = {
-        "kind": "pull-merged", "at": merged_at, "note": f"GitHub merged pull request #{item.number}.",
-        "links": [("GitHub pull request", item.url)],
-        "context": {"merge_commit": commit, "github_source": item.url,
-                    "github_repository": repository(item), "github_activity_id": f"github:pull-merged:{item.number}"},
-    }
     for number, config in settings.items():
         rule = config.get(extensions.EVENTS)
         if rule and rule.merge is not None and rule.repository == repository(item):
-            extensions.record(db, number, source["id"], f"merged:{commit}", evidence, rule.merge)
+            record_pull_merge(db, number, source["id"], item, commit, merged_at, rule.merge)
             recorded.add(number)
     return recorded
 

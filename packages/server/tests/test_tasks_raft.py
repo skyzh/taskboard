@@ -118,7 +118,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "raise-attention": ("POST", "id reason", "recipient unblocks url label"),
             "link-github": ("POST", "id github_url", ""),
             "link-reference": ("POST", "id label url", ""),
-            "fetch-github": ("POST", "id", ""),
+            "fetch-github": ("POST", "id", "merge_url merge_commit"),
             "set-profile": ("POST", "", "role short_role description photo_base64"),
         }
         actions = manifest["actions"]

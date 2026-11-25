@@ -25,7 +25,7 @@ READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watc
          "worker-check", "projects", ledger.READ}
 WRITES = ADVANCES | {
     "confirm-blocker", "create-project",
-    "add", "transfer", "log", "priority", "watch", "unwatch", "link-source", "link-reference",
+    "add", "transfer", "log", "record-merge", "priority", "watch", "unwatch", "link-source", "link-reference",
     "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "raft-channel-set",
     "wake-subscribe", "wake-unsubscribe", "knowledge-add", "knowledge-assign", "knowledge-place", "knowledge-stage",
     "knowledge-reconcile",
@@ -299,6 +299,9 @@ def shared_write(board, args, *, context):
     elif command == "link-reference":
         action = "link-reference"
         data.update(id=task_ref(args.id), label=args.label, url=args.url)
+    elif command == "record-merge":
+        action = "fetch-github"
+        data.update(id=task_ref(args.id), merge_url=args.pull_url, merge_commit=args.merge_commit)
     elif command == "link-source":
         from tasks_github import linked_source
         if args.kind != "github":
