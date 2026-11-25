@@ -20,7 +20,9 @@ approved demo at the full commit in the repository variable
 `SUMMARY_DEMO_BASELINE`. It compares the proposed merge build with the approved
 build on the same runner, including the tour's target visibility and highlight,
 navigation, focus and matching screenshots at phone and desktop sizes. A
-changed result includes the step or screen and matching evidence. Missing
+one-level RGB rounding variation is treated as equal. Changes to dimensions
+or larger channel differences must reproduce on a second capture. A changed
+result includes the step or screen and matching evidence. Missing
 baselines, build errors and privacy audit failures have their own outcomes.
 
 After Taskboard CI passes for a push to protected main, **Publish Summary

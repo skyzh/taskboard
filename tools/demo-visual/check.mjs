@@ -18,11 +18,15 @@ const views = [
   { name: 'phone', engine: webkit, viewport: { width: 390, height: 850 }, isMobile: true, hasTouch: true },
   { name: 'desktop', engine: chromium, viewport: { width: 1280, height: 900 } },
 ]
-const tourRoutes = [
-  '/reports', '/reports', '/tickets/T-1406',
-  ...Array(4).fill('/activity?detail=all'),
-  ...Array(2).fill('/reports?project=FLOW'),
-  ...Array(2).fill('/integrations?project=T'),
+const tourTargets = [
+  ['/reports', '.report-owner-heading'],
+  ['/reports', '.request-log'],
+  ['/tickets/T-1406', '.detail-brief'],
+  ...[2, 3, 4, 5].map(number => ['/activity?detail=all', `#event-${number}-log`]),
+  ['/reports?project=FLOW', '.task-row:has(.task-row-heading a[href="#/tickets/FLOW-4"])'],
+  ['/reports?project=FLOW', '[aria-label="Current work for Blake"]'],
+  ['/integrations?project=T', '.integration-identity'],
+  ['/integrations?project=T', '.integration-paths li:nth-child(4) button'],
 ]
 const contentTypes = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -162,7 +166,7 @@ async function capture(pageURL, directory) {
         const heading = panel.getByRole('heading')
         await heading.waitFor()
         const count = Number((await heading.innerText()).match(/\b1 of (\d+)$/)?.[1])
-        assert.equal(count, tourRoutes.length, 'Tour step count changed')
+        assert.equal(count, tourTargets.length, 'Tour step count changed')
         for (let index = 1; index <= count; index++) {
           step = `tour step ${index}`
           await panel.getByRole('heading', { name: new RegExp(` ${index} of ${count}$`) }).waitFor()
@@ -170,8 +174,11 @@ async function capture(pageURL, directory) {
           const [route, query] = active.split('?', 2)
           const filters = new URLSearchParams(query)
           filters.delete('tour')
-          assert.equal(route + (filters.size ? '?' + filters : ''), tourRoutes[index - 1], 'Unexpected tour route')
+          const [expectedRoute, expectedTarget] = tourTargets[index - 1]
+          assert.equal(route + (filters.size ? '?' + filters : ''), expectedRoute, 'Unexpected tour route')
           await highlighted.waitFor()
+          assert.ok(await highlighted.evaluate((node, selector) => node.matches(selector), expectedTarget),
+            `The highlight moved away from ${expectedTarget}`)
           const outline = await highlighted.evaluate(node => {
             const style = getComputedStyle(node)
             return style.outlineStyle !== 'none' && Number.parseFloat(style.outlineWidth) > 0
@@ -188,6 +195,13 @@ async function capture(pageURL, directory) {
 
         step = 'focus after Finish'
         await returnedFocus()
+
+        step = 'Local DRI workflow control'
+        const localDri = page.locator('.integration-paths').getByRole('button', { name: 'Local DRI', exact: true })
+        await localDri.click()
+        await page.locator('#agent-workflow-details').getByRole('heading', { name: 'Local DRI', exact: true }).waitFor()
+        assert.equal(await localDri.getAttribute('aria-pressed'), 'true')
+        await screenshot('local-dri-workflow')
 
         for (const exit of ['Escape', 'Close tour']) {
           step = 'focus after ' + exit
@@ -233,9 +247,51 @@ async function baselineAt(directory) {
   return baseline
 }
 
-function compare(candidate, baseline) {
-  const candidates = new Set([...Object.keys(candidate.screens), ...Object.keys(baseline.screens)])
-  return [...candidates].filter(file => candidate.screens[file] !== baseline.screens[file]).sort()
+async function compare(candidate, candidateDirectory, baseline, baselineDirectory) {
+  const files = new Set([...Object.keys(candidate.screens), ...Object.keys(baseline.screens)])
+  const mismatches = [...files].filter(file => candidate.screens[file] !== baseline.screens[file]).sort()
+  if (!mismatches.length) return []
+
+  const browser = await chromium.launch()
+  try {
+    const page = await browser.newPage({ serviceWorkers: 'block' })
+    const changed = []
+    for (const file of mismatches) {
+      if (!candidate.screens[file] || !baseline.screens[file]) {
+        changed.push(file)
+        continue
+      }
+      const images = await Promise.all([candidateDirectory, baselineDirectory].map(async directory => {
+        const png = await readFile(resolve(directory, file))
+        return 'data:image/png;base64,' + png.toString('base64')
+      }))
+      const different = await page.evaluate(async sources => {
+        const [current, approved] = await Promise.all(sources.map(async source => {
+          const image = new Image()
+          image.src = source
+          await image.decode()
+          return image
+        }))
+        const { width, height } = current
+        if (width !== approved.width || height !== approved.height) return true
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const context = canvas.getContext('2d', { willReadFrequently: true })
+        context.drawImage(current, 0, 0)
+        const pixels = context.getImageData(0, 0, width, height).data
+        context.clearRect(0, 0, width, height)
+        context.drawImage(approved, 0, 0)
+        const reference = context.getImageData(0, 0, width, height).data
+        // Headless Chromium can round individual antialiased channels differently on identical builds.
+        return pixels.some((channel, index) => Math.abs(channel - reference[index]) > 1)
+      }, images)
+      if (different) changed.push(file)
+    }
+    return changed
+  } finally {
+    await browser.close()
+  }
 }
 
 const { values } = parseArgs({ options })
@@ -254,15 +310,16 @@ try {
   if (baseline) {
     assert.equal(candidate.clock, baseline.clock, 'Fixed clock differs from the baseline')
     assert.deepEqual(candidate.browsers, baseline.browsers, 'Browser runtime differs from the baseline')
-    if (!candidate.interaction_failures.length) result.changed_screens = compare(candidate, baseline)
+    if (!candidate.interaction_failures.length) result.changed_screens = await compare(candidate, output, baseline, values.baseline)
     result.status = 'pass'
   }
   if (result.changed_screens.length || candidate.interaction_failures.length) {
-    const repeat = await capture(published.pageURL, resolve(output, 'repeat'))
+    const repeatDirectory = resolve(output, 'repeat')
+    const repeat = await capture(published.pageURL, repeatDirectory)
     const stability = evidence => JSON.stringify(evidence.interaction_failures.map(({ view, step, route }) => ({ view, step, route })))
     assert.ok(stability(candidate) === stability(repeat), 'Interactions varied between the two runs')
     if (!candidate.interaction_failures.length) {
-      const unstable = compare(candidate, repeat)
+      const unstable = await compare(candidate, output, repeat, repeatDirectory)
       assert.ok(!unstable.length, `Screenshots varied between the two runs: ${unstable.join(', ')}`)
     }
     result.status = 'changed'
