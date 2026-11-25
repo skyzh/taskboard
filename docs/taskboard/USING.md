@@ -54,7 +54,7 @@ Use plain text when formatting adds nothing. Inline Markdown supports emphasis, 
 | First step, current step, waiting or parking note, and outcome | Block Markdown and Mermaid on the ticket and in full-text report sections. Compact task rows use inline Markdown for ordinary notes. |
 | Decision question | Block Markdown and Mermaid in ticket details, the **Decision needed** task row, and **Needs me**. Put choices in the separate options field. |
 | Decision options | Inline Markdown. Option labels keep the exact stored value when selected. |
-| Decision answer | Multiline text and Markdown. Long or multiline answers appear in the Activity entry’s details. |
+| Decision answer | Optional for listed choices. “Other” and free-text decisions require an answer. Supports multiline text and Markdown. Long or multiline answers appear in the Activity entry’s details. |
 | Decision answer details and redirect or withdrawal reason | Block Markdown and Mermaid in the Activity entry. |
 | Activity headline | Inline Markdown. Write one line that stands on its own. |
 | Activity details, worker brief and report, and attention request reason | Block Markdown and Mermaid where the full text appears. |

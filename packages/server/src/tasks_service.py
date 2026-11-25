@@ -2824,11 +2824,14 @@ def create_app(
         details = data.get("details", "")
         if not isinstance(details, str):
             raise RequestError("Provide details as text.")
+        choice = text(data, "choice", optional=True)
+        note = data.get("note", "")
+        if choice is not None and not other and isinstance(note, str) and not note.strip():
+            note = choice
         return mutate(
             "decide", actor, data, id=task_number(number),
-            request_id=integer(data.get("request_id"), "request_id"),
-            choice=text(data, "choice", optional=True), other=other,
-            note=text(data, "note", maximum=None), details=details.strip() if "details" in data else None,
+            request_id=integer(data.get("request_id"), "request_id"), choice=choice, other=other,
+            note=text({"note": note}, "note", maximum=None), details=details.strip() if "details" in data else None,
         )
 
     @app.patch("/api/v1/profile")

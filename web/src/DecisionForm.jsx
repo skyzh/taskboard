@@ -28,7 +28,7 @@ function DecisionResult({ attempt, draft }) {
       <div className="decision-result">
         <p role="status">Decision recorded. <a href={eventHref(answer.event_id)}>View your answer</a></p>
         {answer.choice && <p>Selected <MarkdownInline text={answer.choice} links={false} /></p>}
-        <Markdown text={answer.note} />
+        {answer.note !== answer.choice && <Markdown text={answer.note} />}
       </div>
     )
   }
@@ -104,7 +104,10 @@ export default function DecisionForm({ task, session, onChanged, onAnswerStarted
   const pending = formAttempt?.status === 'saving' || Boolean(checking)
   const retry = formAttempt?.status === 'open' && !checking
   const error = formAttempt?.error
-  const incomplete = !note.trim() || Boolean(request?.choices.length && !choice && !other)
+  const hasChoices = Boolean(request?.choices.length)
+  const requiresAnswer = other || !hasChoices
+  const answerText = note.trim()
+  const incomplete = (hasChoices && !choice && !other) || (requiresAnswer && !answerText)
 
   function edit(field, value) {
     setDraft({ id: request.id, choice, other, note, details, [field]: value })
@@ -126,7 +129,7 @@ export default function DecisionForm({ task, session, onChanged, onAnswerStarted
     onAnswerStarted?.()
     try {
       await decisionRequest(request.path, active, { body: {
-        request_id: request.id, note: note.trim(), details: details.trim(),
+        request_id: request.id, note: answerText, details: details.trim(),
         ...(other ? { other: true } : request.choices.length && { choice }),
       } })
       if (posting.current !== active) return
@@ -150,7 +153,7 @@ export default function DecisionForm({ task, session, onChanged, onAnswerStarted
       {showForm && (
         <form className="ownership-form decision-form" onSubmit={submit}
           data-reload-blocked={Boolean(pending || choice || other || note || details)}>
-          {request.choices.length > 0 && (
+          {hasChoices && (
             <fieldset disabled={pending}>
               <legend>Choose an option</legend>
               {request.choices.map(option => (
@@ -168,9 +171,9 @@ export default function DecisionForm({ task, session, onChanged, onAnswerStarted
             </fieldset>
           )}
           <label>
-            Answer
+            {requiresAnswer ? 'Answer' : 'Answer (optional)'}
             <textarea rows={4} value={note} aria-describedby={`decision-answer-format-${request.id}`}
-              onChange={event => edit('note', event.target.value)} disabled={pending} required />
+              onChange={event => edit('note', event.target.value)} disabled={pending} required={requiresAnswer} />
           </label>
           <p className="field-guidance-help" id={`decision-answer-format-${request.id}`}>Supports multiline text and Markdown.</p>
           <label>
