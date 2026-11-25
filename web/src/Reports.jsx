@@ -60,9 +60,9 @@ function PendingReport({ report }) {
   )
 }
 
-export function PendingReports({ owner, name, initial, total, cursor, project, projectTitle, heading = true }) {
+export function PendingReports({ owner, name, initial, total, cursor, project, projectTitle, heading = true, reportFilters }) {
   const firstPage = useMemo(() => ({ items: initial, next_cursor: cursor }), [initial, cursor])
-  const page = useLoadedPages('/reports/pending', { owner, project }, 0, { limit: 10, firstPage })
+  const page = useLoadedPages('/reports/pending', { owner, ...(reportFilters || { project }) }, 0, { limit: 10, firstPage })
   const reports = new Map()
   for (const report of page.data?.items || initial) {
     if (!reports.has(report.run_id)) reports.set(report.run_id, report)
@@ -147,7 +147,8 @@ function ReportOutcome({ event, publicPreview }) {
   )
 }
 
-export function AssigneeReport({ entry, revision, project, projectTitle, publicPreview = false, tourTargets = {}, activeTarget }) {
+export function AssigneeReport({ entry, revision, project, projectTitle, publicPreview = false, tourTargets = {}, activeTarget,
+  projectNames, reportFilters }) {
   const { owner, profile, tasks, task_count: taskCount,
     pending_reports: reports, pending_reports_before: before, report_count: reportCount } = entry
   const name = profileName(owner, profile)
@@ -156,8 +157,11 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
   const inProgress = progressCount == null ? tasks.some(task => task.state === 'in_progress') : progressCount > 0
   const OwnerHeading = projectTitle ? 'h3' : 'h2'
   const WorkHeading = projectTitle ? 'h4' : 'h3'
+  const projectChoices = entry.projects || []
+  const multipleProjects = projectChoices.length > 1
+  const ownerProject = project || projectChoices[0]
   const activityLink = `#activity?${new URLSearchParams({ actor: owner, detail: 'all' })}`
-  const queueLink = `#${new URLSearchParams({ ...(project && { project }), section: 'queue-heading', owner })}`
+  const queueLink = `#${new URLSearchParams({ ...(ownerProject && { project: ownerProject }), section: 'queue-heading', owner })}`
   return (
     <li className="report-owner">
       <div className="report-owner-heading" id={tourTargets.owner}
@@ -166,7 +170,9 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         <div>
           <div className="dri-name-line">
             <OwnerHeading>
-              <a href={publicPreview ? entry.public_url : ownerHref(owner, undefined, project)}>{name}</a>
+              {multipleProjects ? name : (
+                <a href={publicPreview ? entry.public_url : ownerHref(owner, undefined, ownerProject)}>{name}</a>
+              )}
               {profile?.short_role && <span className="report-short-role">{' · '}{profile.short_role}</span>}
               <DriWorkStatus inProgress={inProgress} compact />
             </OwnerHeading>
@@ -184,7 +190,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         <div className="report-owner-section" id={tourTargets.current} data-tour-current={tourTargets.current === activeTarget && activeTarget ? true : undefined}>
           <WorkHeading>Current work</WorkHeading>
           <TaskRows items={tasks} owner={false} label={`Current work for ${name}`} report="summary" revision={revision}
-            publicPreview={publicPreview} />
+            publicPreview={publicPreview} projectNames={projectNames} />
           {taskCount > tasks.length && <p className="report-note">Showing {tasks.length} of {taskCount} current tasks.</p>}
         </div>
       )}
@@ -202,7 +208,8 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
           </ul>
         </div>
       )}
-      {entry.goals?.length > 0 && <ReportGoals goals={entry.goals} owner={owner} project={project} publicPreview={publicPreview}
+      {entry.goals?.length > 0 && <ReportGoals goals={entry.goals} owner={owner}
+        project={multipleProjects ? undefined : ownerProject} publicPreview={publicPreview}
         target={tourTargets.goals} heading={WorkHeading} highlighted={tourTargets.goals === activeTarget && Boolean(activeTarget)} />}
       {outcomes.size > 0 && (
         <div className="report-owner-section" id={tourTargets.outcomes} data-tour-current={tourTargets.outcomes === activeTarget && activeTarget ? true : undefined}>
@@ -213,15 +220,19 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         </div>
       )}
       {(!publicPreview || entry.task_counts) && <div className="owner-links">
-        <OwnerWorkLinks owner={owner} counts={entry.task_counts} project={project} summary publicPreview={publicPreview} />
-        {outcomes.size > 0 && (publicPreview ? <DemoUnavailable>All outcomes</DemoUnavailable>
-          : <a href={ownerHref(owner, 'outcomes-title', project)}>All outcomes</a>)}
-        {publicPreview ? <DemoUnavailable>All tasks</DemoUnavailable> : <a href={queueLink}>All tasks</a>}
+        {multipleProjects ? projectChoices.map(prefix => (
+          <a key={prefix} href={ownerHref(owner, undefined, prefix)}>{projectNames?.get(prefix) || prefix}</a>
+        )) : <>
+          <OwnerWorkLinks owner={owner} counts={entry.task_counts} project={ownerProject} summary publicPreview={publicPreview} />
+          {outcomes.size > 0 && (publicPreview ? <DemoUnavailable>All outcomes</DemoUnavailable>
+            : <a href={ownerHref(owner, 'outcomes-title', ownerProject)}>All outcomes</a>)}
+          {publicPreview ? <DemoUnavailable>All tasks</DemoUnavailable> : <a href={queueLink}>All tasks</a>}
+        </>}
         {!publicPreview && <a href={activityLink} aria-label={`Activity by ${name}`}>Activity</a>}
       </div>}
       {!publicPreview && reports.length > 0 && (
         <PendingReports owner={owner} project={project} projectTitle={projectTitle} name={name} initial={reports}
-          total={reportCount} cursor={before} />
+          total={reportCount} cursor={before} reportFilters={reportFilters} />
       )}
     </li>
   )
@@ -237,12 +248,13 @@ export function ReportsLayout({ children, sidebar }) {
 }
 
 export function AssigneeReportList({ entries, label, revision, project, projectTitle, publicPreview,
-  tourOwner, tourTargets, activeTarget }) {
+  tourOwner, tourTargets, activeTarget, projectNames, reportFilters }) {
   if (!entries?.length) return null
   return (
     <ol className="report-list" aria-label={label} role="list">
       {entries.map(entry => (
         <AssigneeReport key={entry.owner} entry={entry} revision={revision} project={project} projectTitle={projectTitle}
+          projectNames={projectNames} reportFilters={reportFilters}
           publicPreview={publicPreview} tourTargets={entry.owner === tourOwner ? tourTargets : undefined} activeTarget={activeTarget} />
       ))}
     </ol>
@@ -316,33 +328,25 @@ export function NeedsYou({ project, revision }) {
   )
 }
 
-function ProjectReports({ revision, project, projectTitle, hideRequests, viewer, view }) {
+function ProjectReports({ revision, project, projectNames, hideRequests, viewer, view }) {
   const now = useReportNow()
   // Recent owners can age out without creating a ledger revision.
   const pageRevision = view === 'recent' ? `${revision}:${Math.floor(now / 60_000)}` : revision
-  const page = useLoadedPages('/reports', {
-    view, project, ...(hideRequests && { hide_requests: true }),
+  const filters = {
+    view, ...(projectNames ? { scope: 'all' } : { project }), ...(hideRequests && { hide_requests: true }),
     ...(viewer?.kind === 'human' && { include_self: true }),
-  }, pageRevision)
+  }
+  const page = useLoadedPages('/reports', filters, pageRevision)
   const label = view === 'all' ? 'Assignees' : view === 'recent' ? 'Recent and Team DRI reports' : 'Assignees with open work'
   const empty = view === 'all' ? 'No assignees.' : view === 'recent' ? 'No recent or Team DRI reports.' : 'No open work to report.'
-  const reports = (
-    <ReportsLayout sidebar={<QueuedAsks revision={revision} project={project} grouped={Boolean(projectTitle)} viewer={viewer} />}>
+  return (
+    <ReportsLayout sidebar={<QueuedAsks revision={revision} project={project} projectNames={projectNames} viewer={viewer} />}>
       <ResourceStatus resource={page} label="reports" />
       {page.data?.items.length === 0 && <p className="section-message" role="status">{empty}</p>}
-      <AssigneeReportList entries={page.data?.items} label={label} revision={revision} project={project} projectTitle={projectTitle} />
-      <LoadMore page={page} label={projectTitle ? `assignees in ${projectTitle}` : 'assignees'} />
+      <AssigneeReportList entries={page.data?.items} label={label} revision={revision} project={project}
+        projectNames={projectNames} reportFilters={projectNames ? filters : undefined} />
+      <LoadMore page={page} label="assignees" />
     </ReportsLayout>
-  )
-  if (!projectTitle) return reports
-  const headingId = `reports-${project}`
-  return (
-    <section className="project-reports" aria-labelledby={headingId}>
-      <ReportsHeading headingId={headingId} projectTitle={projectTitle}>
-        <a href={`#${goalActivityFragment(project)}`}>Goal activity</a>
-      </ReportsHeading>
-      {reports}
-    </section>
   )
 }
 
@@ -358,6 +362,7 @@ export default function Reports({
 }) {
   const [hideRequests, setHideRequests] = useState(false)
   const reportProps = { revision, viewer, view: assigneeView, hideRequests }
+  const projectNames = useMemo(() => projects && new Map(projects.map(({ prefix, title }) => [prefix, title])), [projects])
   const teamOverview = project && project !== defaultProject
     ? `#${new URLSearchParams({ project, section: 'team-overview' })}` : '#team-overview'
   return (
@@ -374,10 +379,9 @@ export default function Reports({
           options={assigneeViews} onChange={onAssigneeViewChange} />
       </ReportsHeading>
       {viewer && <NeedsYou key={viewer.id} project={projects ? undefined : project} revision={revision} />}
-      {projects ? projects.map(({ prefix, title }) => (
-        <ProjectReports key={prefix} {...reportProps} project={prefix} projectTitle={title} />
-      )) : <>
-        <ProjectReports {...reportProps} project={project} />
+      <ProjectReports key={projects ? 'all' : project} {...reportProps}
+        project={projects ? undefined : project} projectNames={projectNames} />
+      {!projects && <>
         <ProjectLinks project={project} revision={revision} />
         <StampIntegration key={project} project={project} revision={revision} />
       </>}

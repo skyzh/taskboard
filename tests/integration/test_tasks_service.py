@@ -8218,6 +8218,9 @@ class TasksServiceTest(unittest.TestCase):
             self.assertEqual(own["tasks"][0]["reported_progress"]["at"], old)
             course = self.call(sam, route, query_string={"view": "recent", "project": "COURSE"}).json
             self.assertEqual({row["owner"] for row in course["items"]}, {team, stale})
+            combined = self.call(sam, route, query_string={"view": "recent", "scope": "all"}).json
+            combined_human = next(row for row in combined["items"] if row["owner"] == human)
+            self.assertEqual(combined_human["tasks"][0]["id"], fresh)
 
             self.call(quinn, f"/api/v1/tasks/T-{stale_wait}/activity", method="POST", headers={"Origin": ORIGIN},
                       json={"note": "Checked the sample while waiting."})
@@ -8319,6 +8322,97 @@ class TasksServiceTest(unittest.TestCase):
         self.assertNotIn("activity_details", wait["context"])
         idle = self.call(avery, "/api/v1/reports?view=idle").get_json()["items"]
         self.assertEqual([person["owner"] for person in idle], ["Idle"])
+
+    def test_all_project_reports_merge_visible_owners_and_page_requests_globally(self):
+        roster = {self.provider.people[name]["sub"]: name for name in ("Avery", "Blake")}
+        app = self.app(portal_reader=True, project_roster=roster)
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        sam, sam_id = self.login(app, "Sam")
+        self.cli("register-project", "OPS", "Example operations", "--dri", avery_id)
+        self.cli("register-project", "EMPTY", "Example empty project", "--dri", avery_id)
+        local = self.call(sam, "/api/v1/personal-agents/local-dris", method="POST", headers={"Origin": ORIGIN},
+                          json={"name": "Avery", "project": "OPS"}).json["local_dri"]["id"]
+
+        def add(client, title, project):
+            key = self.action(client, "create-task", {
+                "title": title, "project": project, "step": "Check the sample.",
+            })["receipt"].split()[0]
+            self.action(client, "advance-task", {"id": key, "transition": "start", "note": "Check the sample."})
+            return key
+
+        first_work = add(avery, "First project work", "T")
+        second_work = add(avery, "Second project work", "OPS")
+        hidden = self.cli("add", "Outside the selected roster", "--project", "T", "--dri", sam_id,
+                          "--step", "Check the sample.").split()[0]
+        visible = self.cli("add", "Visible operations work", "--project", "OPS", "--dri", sam_id,
+                           "--step", "Check the sample.").split()[0]
+        for key in (hidden, visible):
+            self.cli("start", key, "Check the sample.", "--by", sam_id)
+
+        reports = "/api/v1/reports"
+        asks = "/api/v1/reports/request-log"
+        unsigned = app.test_client()
+        self.call(unsigned, reports, query_string={"scope": "all"}, status=401)
+        self.call(unsigned, asks, query_string={"scope": "all"}, status=401)
+        self.call(avery, reports, query_string={"scope": "all", "project": "T"}, status=400)
+
+        def pages(path, **options):
+            cursor = None
+            results = []
+            while True:
+                query = {**options, "limit": 1}
+                if cursor is not None:
+                    query["before"] = cursor
+                response = self.call(avery, path, query_string=query).json
+                results.extend(response["items"])
+                cursor = response["next_cursor"]
+                if cursor is None:
+                    return results
+
+        rows = pages(reports, scope="all", view="all")
+        self.assertEqual(len(rows), len({row["owner"] for row in rows}))
+        owners = {row["owner"]: row for row in rows}
+        self.assertEqual({row["owner"] for row in rows if row["profile"]["name"] == "Avery"}, {avery_id, local})
+        self.assertEqual(set(owners[avery_id]["projects"]), {"T", "OPS", "EMPTY"})
+        self.assertEqual({task["key"] for task in owners[avery_id]["tasks"]}, {first_work, second_work})
+        self.assertEqual(owners[avery_id]["task_counts"]["in_progress"], 2)
+        self.assertEqual([task["key"] for task in owners[sam_id]["tasks"]], [visible])
+        self.assertNotIn(hidden, {task["key"] for row in rows for task in row["tasks"]})
+        active = {row["owner"]: row for row in pages(reports, scope="all", view="active")}
+        self.assertEqual(active[avery_id]["projects"], owners[avery_id]["projects"])
+        self.assertNotIn(avery_id, {row["owner"] for row in pages(reports, scope="all", view="idle")})
+
+        requests = []
+        for source in (first_work, second_work):
+            requests.append(self.action(avery, "peer-ask", {
+                "id": source, "transition": "create", "recipient": blake_id, "note": "Check the fixture.",
+            })["receipt"].split()[0])
+        request_rows = pages(asks, scope="all")
+        self.assertEqual([row["source_key"] for row in request_rows], [second_work, first_work])
+        self.assertEqual([row["source_key"] for row in pages(asks, project="T")], [first_work])
+        single = {row["owner"]: row for row in pages(reports, project="T", view="all")}
+        self.assertNotIn(sam_id, single)
+        self.assertEqual([task["key"] for task in single[avery_id]["tasks"]], [first_work])
+
+        def report_work(ticket):
+            run = self.action(blake, "delegate", {
+                "id": ticket, "worker": avery_id, "role": "build", "brief": "Check the sample.",
+            })["receipt"].split()[0]
+            self.action(blake, "worker-handoff", {"run": run, "transition": "start", "handle": "fixture"})
+            self.action(avery, "worker-handoff", {
+                "run": run, "transition": "report", "result": "completed", "note": "Checked.",
+            })
+            return int(run.removeprefix("W-"))
+
+        expected_run = report_work(add(blake, "Visible build work", "OPS"))
+        report_work(requests[1])
+        filters = {"scope": "all", "view": "all", "hide_requests": "true"}
+        row = next(row for row in pages(reports, **filters) if row["owner"] == blake_id)
+        self.assertEqual(row["report_count"], 1)
+        self.assertEqual([result["run_id"] for result in row["pending_reports"]], [expected_run])
+        more = pages("/api/v1/reports/pending", owner=blake_id, **filters)
+        self.assertEqual([result["run_id"] for result in more], [expected_run])
 
     def test_reports_keep_the_latest_mixed_outcomes_in_the_requested_project(self):
         app = self.app()

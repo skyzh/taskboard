@@ -1621,6 +1621,79 @@ class BoardQueries:
         return self.event_rows(rows)
 
     def reports(self, *, view, before, limit, project=projects.DEFAULT, hide_requests=False, personal_owner=None):
+        if project is None:
+            return self.all_project_reports(view, before, limit, hide_requests, personal_owner)
+        rows, order, render = self.project_reports(view, before, limit, project, hide_requests, personal_owner)
+        return page(rows, limit, order, render)
+
+    def report_projects(self):
+        return [row["prefix"] for row in self.db.execute("SELECT prefix FROM projects ORDER BY prefix")]
+
+    def all_project_reports(self, view, before, limit, hide_requests, personal_owner):
+        scopes = {}
+        owners = {}
+        scoped_view = "recent" if view == "recent" else "all"
+        for project in self.report_projects():
+            rows, _, render = self.project_reports(scoped_view, None, None, project, hide_requests, personal_owner)
+            scopes[project] = render
+            for row in rows:
+                owners.setdefault(row["dri"], {})[project] = row
+
+        def cursor(owner, rows):
+            if personal_owner == owner:
+                return "0:" + owner
+            if view == "all" or personal_owner:
+                rank = int(not any(row["is_active"] for row in rows.values())) + int(bool(personal_owner))
+                return f"{rank}:{owner}"
+            return owner
+
+        ordered = sorted(
+            (cursor(owner, rows), owner) for owner, rows in owners.items()
+            if self.report_owner_visible(owner, rows, view, personal_owner)
+        )
+        remaining = [(key, owner) for key, owner in ordered if before is None or key > before]
+        items = []
+        for _, owner in remaining[:limit]:
+            project_rows = owners[owner]
+            entries = [scopes[project]([row], combining=True)[0] for project, row in project_rows.items()]
+            items.append(self.combine_project_reports(owner, project_rows, entries, hide_requests))
+        return {
+            "items": items,
+            "next_cursor": remaining[limit - 1][0] if len(remaining) > limit else None,
+        }
+
+    def combine_project_reports(self, owner, project_rows, entries, hide_requests):
+        work = sorted((row for entry in entries for row in entry["ranked_work"]), key=lambda row: row[:2])
+        outcomes = sorted((event for entry in entries for event in entry["recent_outcomes"]),
+                          key=lambda event: event["id"], reverse=True)
+        waits = sorted((wait for entry in entries for wait in entry["legacy_peer_waits"]),
+                       key=lambda wait: wait["id"], reverse=True)
+        activity = [entry["last_activity"] for entry in entries if entry["last_activity"]]
+        as_of = [entry["as_of"] for entry in entries if entry["as_of"]]
+        report_count = sum(entry["report_count"] for entry in entries)
+        pending = self.pending_reports(
+            owner, project_prefixes=project_rows, unlinked=True, hide_requests=hide_requests,
+        ) if report_count else {"items": [], "next_cursor": None}
+        return {
+            "owner": owner,
+            "projects": list(project_rows),
+            "profile": next((entry["profile"] for entry in entries if entry["profile"]), None),
+            "goals": [goal for entry in entries for goal in entry["goals"]],
+            "as_of": max(as_of, default=None),
+            "last_activity": max(activity, key=lambda event: event["id"], default=None),
+            "tasks": [task for _, _, task in work[:10]],
+            "legacy_peer_waits": waits[:10],
+            "task_count": sum(entry["task_count"] for entry in entries),
+            "task_counts": {state: sum(entry["task_counts"][state] for entry in entries) for state in WORK_STATES},
+            "recent_outcomes": outcomes[:3],
+            "worker_counts": {key: sum(entry["worker_counts"][key] for entry in entries)
+                              for key in entries[0]["worker_counts"]},
+            "pending_reports": pending["items"],
+            "pending_reports_before": pending["next_cursor"],
+            "report_count": report_count,
+        }
+
+    def project_reports(self, view, before, limit, project, hide_requests, personal_owner, *, owner=None):
         current = ledger.current_tasks_sql(self.db) + " WHERE tasks.project_prefix = ?"
         peer_work = watches.has_table(self.db, "peer_asks")
         exclude_requests = ""
@@ -1628,19 +1701,14 @@ class BoardQueries:
             exclude_requests = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE peer_asks.task_id = tasks.id)"
             current += " " + exclude_requests
         active_state = f"state IN ({ACTIVE_STATES})"
-        active_event = f"events.state IN ({ACTIVE_STATES})"
         unlinked_reports = ""
         if peer_work:
             unlinked_reports = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)"
             if not hide_requests:
                 active_state += " OR (state = 'ready' AND id IN (SELECT task_id FROM peer_asks))"
-                active_event += " OR (events.state = 'ready' AND tasks.id IN (SELECT task_id FROM peer_asks))"
                 active_state += """ OR (state = 'parked' AND EXISTS (
                     SELECT 1 FROM peer_asks WHERE task_id = current.id
                       AND recipient = current.dri AND result_event_id IS NULL))"""
-                active_event += """ OR (events.state = 'parked' AND EXISTS (
-                    SELECT 1 FROM peer_asks WHERE task_id = tasks.id
-                      AND recipient = tasks.dri AND result_event_id IS NULL))"""
         work_columns = ", ".join(f"COALESCE(work.{state}, 0) AS {state}" for state in WORK_STATES)
         roster = project == projects.DEFAULT and self.project_roster is not None
         names = projects.roster_owners(self.db, self.project_roster) if roster else {}
@@ -1664,7 +1732,7 @@ class BoardQueries:
             if personal_owner and personal_owner not in names:
                 owner_args += (personal_owner,)
             if not owner_args and view != "recent":
-                return {"items": [], "next_cursor": None}
+                return [], "dri", lambda visible: []
             owner_source = ("VALUES " + ", ".join("(?)" for _ in owner_args)
                             if owner_args else "SELECT CAST(NULL AS TEXT) WHERE FALSE")
         elif personal_owner:
@@ -1728,6 +1796,10 @@ class BoardQueries:
                 )""")
             view_filter = " AND (" + " OR ".join(eligible) + ")"
             filter_args = ()
+        owner_filter = "" if owner is None else " AND dri = ?"
+        owner_filter_args = () if owner is None else (owner,)
+        paging = "" if limit is None else "LIMIT ?"
+        paging_args = () if limit is None else (limit + 1,)
         rows = self.db.execute(
             f"""
             WITH current AS ({current}),
@@ -1787,12 +1859,13 @@ class BoardQueries:
                      SELECT summary.*, ({rank}) || dri AS cursor
                      FROM summary
                  )
-            SELECT * FROM ordered WHERE {order} > ?{view_filter}
-            ORDER BY {order} LIMIT ?
-            """, (project, project, *owner_args, *recent_args, *rank_args, before or "", *filter_args, limit + 1),
+            SELECT * FROM ordered WHERE {order} > ?{view_filter}{owner_filter}
+            ORDER BY {order} {paging}
+            """, (project, project, *owner_args, *recent_args, *rank_args, before or "", *filter_args,
+                  *owner_filter_args, *paging_args),
         ).fetchall()
 
-        def render(visible):
+        def render(visible, *, combining=False):
             people = [row["dri"] for row in visible]
             directory = profiles.visible_by_keys(self.db, people, self.base)
             goal_summaries = goals.report_summaries(self.db, project, people)
@@ -1802,22 +1875,26 @@ class BoardQueries:
                 profile = directory.get(person)
                 active = []
                 if row["task_count"]:
-                    work_order = "CASE events.state WHEN 'human_review' THEN 0 WHEN 'waiting' THEN 1 WHEN 'parked' THEN 1 ELSE 2 END"
+                    work_order = "CASE state WHEN 'human_review' THEN 0 WHEN 'waiting' THEN 1 WHEN 'parked' THEN 1 ELSE 2 END"
                     work_args = ()
                     if recent_cutoff and profile and (profile["kind"] == "human" or profile.get("dri_kind") == "local"):
-                        work_order = f"""CASE WHEN events.state = 'human_review' THEN 0
-                            WHEN events.state IN ('waiting', 'in_progress') AND (
+                        work_order = f"""CASE WHEN state = 'human_review' THEN 0
+                            WHEN state IN ('waiting', 'in_progress') AND (
                                 SELECT at FROM events AS progress
-                                WHERE progress.id = ({self.owner_progress_event('tasks')})
+                                WHERE progress.id = ({self.owner_progress_event('current')})
                             ) >= ? THEN 1
-                            WHEN events.state IN ('waiting', 'parked') THEN 2 ELSE 3 END"""
+                            WHEN state IN ('waiting', 'parked') THEN 2 ELSE 3 END"""
                         work_args = (recent_cutoff,)
                     active = self.db.execute(
-                        current + f" AND tasks.dri = ? AND ({active_event}) "
-                        f"ORDER BY {work_order}, events.id DESC LIMIT 10",
-                        (project, person, *work_args),
+                        f"""WITH current AS ({current})
+                            SELECT current.*, {work_order} AS report_rank
+                            FROM current WHERE dri = ? AND ({active_state})
+                            ORDER BY report_rank, event_id DESC LIMIT 10""",
+                        (project, *work_args, person),
                     ).fetchall()
-                pending = self.pending_reports(person, project=project, unlinked=True) if row["report_count"] else {"items": [], "next_cursor": None}
+                pending = self.pending_reports(person, project=project, unlinked=True) if (
+                    not combining and row["report_count"]
+                ) else {"items": [], "next_cursor": None}
                 if profile is None and person in names:
                     profile = projects.roster_profile(person, names[person])
                 owned = self.task_rows(active, include_report_fields=True, include_release_results=True)
@@ -1843,10 +1920,27 @@ class BoardQueries:
                     "pending_reports": pending["items"],
                     "pending_reports_before": pending["next_cursor"],
                     "report_count": row["report_count"],
+                    **({"ranked_work": [
+                        (source["report_rank"], -source["event_id"], task)
+                        for source, task in zip(active, owned, strict=True)
+                    ]} if combining else {}),
                 })
             return results
 
-        return page(rows, limit, order, render)
+        return rows, order, render
+
+    def report_project_prefixes(self, owner, view, hide_requests, personal_owner):
+        scoped_view = "recent" if view == "recent" else "all"
+        scopes = {}
+        for project in self.report_projects():
+            rows, _, _ = self.project_reports(scoped_view, None, 1, project, hide_requests, personal_owner, owner=owner)
+            if rows:
+                scopes[project] = rows[0]
+        return list(scopes) if self.report_owner_visible(owner, scopes, view, personal_owner) else []
+
+    def report_owner_visible(self, owner, rows, view, personal_owner):
+        return (view in ("all", "recent") or owner == personal_owner
+                or any(row["is_active"] for row in rows.values()) == (view == "active"))
 
     def goal_activity(self, project):
         """Summarize observed goal starts, outcomes and idle offers in one project."""
@@ -1951,10 +2045,22 @@ class BoardQueries:
             "worker_counts": worker_counts(counts),
         }
 
-    def pending_reports(self, person, *, before=None, limit=10, project=None, unlinked=False):
+    def pending_reports(self, person, *, before=None, limit=10, project=None, project_prefixes=None, unlinked=False,
+                        hide_requests=False):
+        if project_prefixes is not None and not project_prefixes:
+            return {"items": [], "next_cursor": None}
+        scope = "(? IS NULL OR tasks.project_prefix = ?)"
+        scope_args = (project, project)
+        if project_prefixes is not None:
+            marks = ", ".join("?" for _ in project_prefixes)
+            scope = f"tasks.project_prefix IN ({marks})"
+            scope_args = tuple(project_prefixes)
         unlinked_filter = ""
-        if unlinked and watches.has_table(self.db, "peer_asks"):
-            unlinked_filter = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)"
+        if (unlinked or hide_requests) and watches.has_table(self.db, "peer_asks"):
+            if unlinked:
+                unlinked_filter = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)"
+            if hide_requests:
+                unlinked_filter += " AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE peer_asks.task_id = tasks.id)"
         runs = self.db.execute(
             f"""
             WITH current AS ({ledger.current_tasks_sql(self.db)})
@@ -1963,10 +2069,10 @@ class BoardQueries:
             JOIN current ON current.id = tasks.id
             WHERE tasks.dri = ? AND worker_runs.status = 'reported'
                 AND current.display_state <> 'closed'
-                AND worker_runs.id < ? AND (? IS NULL OR tasks.project_prefix = ?)
+                AND worker_runs.id < ? AND {scope}
             {unlinked_filter}
             ORDER BY worker_runs.id DESC LIMIT ?
-            """, (person, before or 2**63 - 1, project, project, limit + 1),
+            """, (person, before or 2**63 - 1, *scope_args, limit + 1),
         ).fetchall()
 
         return page(runs, limit, "id", self.report_rows)
