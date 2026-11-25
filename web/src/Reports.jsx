@@ -296,7 +296,7 @@ function ProjectLinks({ project, revision }) {
 
 const attentionLabels = { decision: 'Decision', request: 'Request', review: 'Review' }
 
-export function NeedsYou({ project, revision }) {
+export function NeedsYou({ project, revision, showAllAsks = false }) {
   const page = useLoadedPages('/notifications/needs-you', project ? { project } : { scope: 'all' }, revision, { limit: 10 })
   const items = page.data?.items
   const error = page.error && page.error.status !== 404
@@ -321,7 +321,10 @@ export function NeedsYou({ project, revision }) {
 
   return (
     <section className="reports-needs-you" aria-labelledby="reports-needs-you-title">
-      <h2 id="reports-needs-you-title">Needs you</h2>
+      <div className="needs-you-heading">
+        <h2 id="reports-needs-you-title">Needs you</h2>
+        {showAllAsks && <a href="#notifications-needs-me">All asks</a>}
+      </div>
       {error && <ResourceStatus resource={page} label="work that needs you" />}
       {items?.length > 0 && (
         <ul ref={list} role="list">
@@ -402,7 +405,7 @@ export default function Reports({
         <SegmentedControl className="report-assignee-views" label="Assignees" value={assigneeView}
           options={assigneeViews} onChange={onAssigneeViewChange} />
       </ReportsHeading>
-      {viewer && <NeedsYou key={viewer.id} project={projects ? undefined : project} revision={revision} />}
+      {viewer && <NeedsYou key={viewer.id} project={projects ? undefined : project} revision={revision} showAllAsks />}
       <ProjectReports key={projects ? 'all' : project} {...reportProps}
         project={projects ? undefined : project} projectNames={projectNames} />
       {!projects && <>

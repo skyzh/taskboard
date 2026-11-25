@@ -36,7 +36,12 @@
   border: 1px solid var(--line);
   border-radius: .45rem;
 }
-.reports-needs-you h2 { margin: 0 0 .15rem; }
+.needs-you-heading { display: flex; align-items: center; flex-wrap: wrap; column-gap: .75rem; }
+.needs-you-heading h2 { margin: 0 .25rem 0 0; }
+.needs-you-heading a { display: inline-flex; align-items: center; font-size: .875rem; }
+@media (pointer: coarse), (max-width: 44rem) {
+  .needs-you-heading a { min-height: 2.75rem; }
+}
 .reports-needs-you ul { list-style: none; margin: 0; padding: 0; }
 .reports-needs-you li a {
   display: grid;
