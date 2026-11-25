@@ -8840,14 +8840,14 @@ class TasksServiceTest(unittest.TestCase):
 
     def test_summary_public_raft_link_works_without_a_posting_channel(self):
         url = f"https://app.raft.build/s/fixture/channel/{UUID(int=65)}"
-        configured = json.dumps({"t": url})
+        configured = json.dumps({"t": {"url": url, "channel": "proj-fixture"}})
         app = self.app(portal_reader=True, public_raft_channel_urls=configured)
         manager, identity = self.login(app, "Avery")
         reader = app.test_client()
         self.cli("register-project", "T", "Tasks Board", "--dri", identity)
         self.cli("register-project", "COURSE", "Fixture course", "--dri", identity)
         path = "/api/v1/projects/T/links"
-        raft = {"kind": "raft", "url": url}
+        raft = {"kind": "raft", "url": url, "name": "fixture/proj-fixture"}
         github = {"kind": "github", "url": "https://github.com/example/board", "name": "example/board"}
         stamp = {"kind": "stamp", "url": "https://stamp.build/github/example/board", "name": "example/board"}
         saved = self.call(manager, path, method="PUT", json={"github": "example/board", "stamp": "example/board"})
@@ -8872,16 +8872,20 @@ class TasksServiceTest(unittest.TestCase):
             url = origin + route
             self.assertEqual(public_raft_links(json.dumps({"T": url})), {"T": {"kind": "raft", "url": url}})
 
-        for url in (
+        for value in (
             "http://app.raft.build" + route,
             "https://app.raft.build@other.example" + route,
             "https://app.raft.build.other.example" + route,
             "https://app.raft.build" + route + "?msg=secret",
             "https://app.raft.build" + route + "#thread",
             "https://app.raft.build/s/fixture/channel/unknown",
+            {"url": "http://app.raft.build" + route, "channel": "proj-fixture"},
+            {"url": "https://app.raft.build" + route, "channel": "#proj-fixture"},
+            {"url": "https://app.raft.build" + route, "channel": "private/thread"},
+            {"url": "https://app.raft.build" + route},
         ):
-            with self.subTest(url=url), self.assertRaisesRegex(ValueError, "Invalid TASKS_PUBLIC_RAFT_CHANNEL_URLS"):
-                public_raft_links(json.dumps({"T": url}))
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "Invalid TASKS_PUBLIC_RAFT_CHANNEL_URLS"):
+                public_raft_links(json.dumps({"T": value}))
 
     def test_long_ticket_titles_are_preserved_through_creates_and_edits(self):
         app = self.app(portal_reader=True)

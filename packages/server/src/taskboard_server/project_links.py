@@ -14,9 +14,10 @@ REPOSITORY_LINKS = {
 
 
 _PUBLIC_RAFT_CHANNEL = re.compile(
-    r"https://(?:app\.)?raft\.build/s/[A-Za-z0-9][A-Za-z0-9_-]*/channel/"
+    r"https://(?:app\.)?raft\.build/s/(?P<server>[A-Za-z0-9][A-Za-z0-9_-]*)/channel/"
     r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"
 )
+_RAFT_CHANNEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 
 
 def public_raft_links(raw):
@@ -28,11 +29,22 @@ def public_raft_links(raw):
         if not isinstance(values, dict):
             raise ValueError("Map project prefixes to public Raft channel URLs.")
         links = {}
-        for project, url in values.items():
+        for project, value in values.items():
             project = prefix(project)
-            if project in links or not isinstance(url, str) or not _PUBLIC_RAFT_CHANNEL.fullmatch(url):
+            channel = None
+            if isinstance(value, dict):
+                if (value.keys() != {"url", "channel"} or not isinstance(value["channel"], str)
+                        or not _RAFT_CHANNEL_NAME.fullmatch(value["channel"])):
+                    raise ValueError("A named entry needs an HTTPS Raft channel URL and channel name.")
+                url, channel = value["url"], value["channel"]
+            else:
+                url = value
+            route = _PUBLIC_RAFT_CHANNEL.fullmatch(url) if isinstance(url, str) else None
+            if project in links or route is None:
                 raise ValueError("Configure each project once with an HTTPS Raft channel URL.")
             links[project] = {"kind": "raft", "url": url}
+            if channel is not None:
+                links[project]["name"] = f"{route['server']}/{channel}"
         return links
     except ValueError as error:
         raise ValueError(f"Invalid TASKS_PUBLIC_RAFT_CHANNEL_URLS. {error}") from None
