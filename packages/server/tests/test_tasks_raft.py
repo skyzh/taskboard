@@ -116,7 +116,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "link-github": ("POST", "id github_url", ""),
             "link-reference": ("POST", "id label url", ""),
             "fetch-github": ("POST", "id", ""),
-            "set-profile": ("POST", "", "role description photo_base64"),
+            "set-profile": ("POST", "", "role short_role description photo_base64"),
         }
         actions = manifest["actions"]
         self.assertEqual(len(actions), len(expected))
