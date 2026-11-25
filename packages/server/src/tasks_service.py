@@ -2464,11 +2464,7 @@ def create_app(
         current_actor()
         return query().milestones(project=project_scope(request.args), **page_args(request.args))
 
-    @app.get("/api/v1/reports")
-    def report_overview():
-        actor = current_actor()
-        args = request.args
-        project = project_filter(args, use_default=True)
+    def report_filters(args, actor, project):
         has_roster = project == projects.DEFAULT and project_roster is not None
         view = args.get("view", "all" if has_roster else "active")
         if view not in ("all", "active", "idle", "recent"):
@@ -2476,11 +2472,18 @@ def create_app(
         personal_owner = (actor["ledger_key"]
                           if actor and actor["kind"] == "human" and args.get("include_self") == "true"
                           else None)
+        return has_roster, view, args.get("hide_requests") == "true", personal_owner
+
+    @app.get("/api/v1/reports")
+    def report_overview():
+        args = request.args
+        actor = current_actor(required="scope" in args)
+        project = project_scope(args)
+        has_roster, view, hide_requests, personal_owner = report_filters(args, actor, project)
         before = text(args, "before", optional=True, maximum=162 if view == "all" or personal_owner else 160)
         result = query().reports(
             view=view, before=before, limit=integer(args.get("limit", 10), "limit", maximum=20), project=project,
-            hide_requests=args.get("hide_requests") == "true",
-            personal_owner=personal_owner,
+            hide_requests=hide_requests, personal_owner=personal_owner,
         )
         return {**result, "roster": True} if has_roster else result
 
@@ -2627,10 +2630,10 @@ def create_app(
 
     @app.get("/api/v1/reports/request-log")
     def report_request_log():
-        actor = current_actor()
         args = request.args
+        actor = current_actor(required="scope" in args)
         return query().request_log(
-            project=project_filter(args, use_default=True),
+            project=project_scope(args),
             before=ordered_feed_cursor(args, ("peer", "review", "wait"), "the request log"),
             limit=integer(args.get("limit", 20), "limit", maximum=100),
             recover_title=actor is not None,
@@ -2638,13 +2641,19 @@ def create_app(
 
     @app.get("/api/v1/reports/pending")
     def more_reports():
-        current_actor()
         args = request.args
-        return query().pending_reports(
-            text(args, "owner", maximum=160),
-            before=integer(args["before"], "before") if "before" in args else None,
-            limit=integer(args.get("limit", 10), "limit", maximum=20),
-            project=project_filter(args, use_default=True),
+        actor = current_actor(required="scope" in args)
+        project = project_scope(args)
+        owner = text(args, "owner", maximum=160)
+        before = integer(args["before"], "before") if "before" in args else None
+        limit = integer(args.get("limit", 10), "limit", maximum=20)
+        reports = query()
+        if project is not None:
+            return reports.pending_reports(owner, before=before, limit=limit, project=project)
+        _, view, hide_requests, personal_owner = report_filters(args, actor, project)
+        prefixes = reports.report_project_prefixes(owner, view, hide_requests, personal_owner)
+        return reports.pending_reports(
+            owner, before=before, limit=limit, project_prefixes=prefixes, unlinked=True, hide_requests=hide_requests,
         )
 
     @app.get("/api/v1/my-activity")

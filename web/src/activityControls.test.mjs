@@ -1040,7 +1040,7 @@ test('Summary uses the route’s assignee filter, including when the project has
   }
 })
 
-test('All projects keeps the same assignee and pending reports scoped to their own project', () => {
+test('All projects shows one assignee and one request log with project-specific links', () => {
   const projects = [
     { prefix: 'T', title: 'Tasks Board' },
     { prefix: 'DEMO', title: 'Demo project' },
@@ -1053,29 +1053,43 @@ test('All projects keeps the same assignee and pending reports scoped to their o
     pending_reports_before: run, report_count: 2,
   })
   const pendingScopes = []
+  const requestScopes = []
   fixture.state = []
+  const primary = report('T', 1, 8)
+  const secondary = report('DEMO', 2, 9)
   fixture.pages = {
-    '/reports': ({ project }) => ({
-      data: { items: project === 'EMPTY' ? [] : [report(project, project === 'T' ? 1 : 2, project === 'T' ? 8 : 9)] },
-    }),
+    '/reports': filters => {
+      assert.deepEqual(filters, { view: 'active', scope: 'all' })
+      return { data: { items: [{ ...primary, projects: ['T', 'DEMO'],
+        tasks: [...primary.tasks, ...secondary.tasks], task_count: 2,
+        pending_reports: [...secondary.pending_reports, ...primary.pending_reports], report_count: 3,
+      }] } }
+    },
     '/reports/pending': (filters, options) => {
-      pendingScopes.push([filters.owner, filters.project, options.firstPage.next_cursor])
+      pendingScopes.push([filters.owner, filters.scope, filters.view, options.firstPage.next_cursor])
       return { data: options.firstPage, loadMore() {} }
+    },
+    '/reports/request-log': filters => {
+      requestScopes.push(filters)
+      return { data: { items: [{
+        id: 'peer:1', phase: 'asked', source_key: 'DEMO-1', request_key: 'DEMO-2', request_title: 'Review the sample',
+      }] } }
     },
   }
   const markup = renderToStaticMarkup(React.createElement(Reports, { project: 'DEMO', projects }))
-  assert.deepEqual(pendingScopes, [['Avery', 'T', 8], ['Avery', 'DEMO', 9]])
+  assert.deepEqual(pendingScopes, [['Avery', 'all', 'active', 8]])
+  assert.deepEqual(requestScopes, [{ scope: 'all' }])
+  assert.equal((markup.match(/class="report-owner"/g) || []).length, 1)
+  assert.equal((markup.match(/id="request-log-title"/g) || []).length, 1)
   assert.equal((markup.match(/<h1 id="reports">Reports<\/h1>/g) || []).length, 1)
   assert.match(markup, /class="report-project-label">Tasks Board<\/span>/)
   assert.match(markup, /class="report-project-label">Demo project<\/span>/)
-  assert.match(markup, /href="#dri=Avery&amp;project=T">Avery/)
-  assert.match(markup, /href="#dri=Avery&amp;project=DEMO">Avery/)
-  assert.match(markup, /href="#project=T&amp;section=queue-heading&amp;owner=Avery">All tasks/)
-  assert.match(markup, /href="#project=DEMO&amp;section=queue-heading&amp;owner=Avery">All tasks/)
+  assert.match(markup, /href="#dri=Avery&amp;project=T">Tasks Board/)
+  assert.match(markup, /href="#dri=Avery&amp;project=DEMO">Demo project/)
   assert.match(markup, /href="#task-DEMO-1"/)
-  assert.match(markup, /More reports for Avery in Tasks Board/)
-  assert.match(markup, /More reports for Avery in Demo project/)
-  assert.match(markup, /id="reports-EMPTY">Empty project.*No open work to report\./)
+  assert.match(markup, /href="#task-DEMO-2"[^>]*>Review the sample/)
+  assert.match(markup, /More reports for Avery/)
+  assert.doesNotMatch(markup, /Empty project/)
 })
 
 test('Reports retains its route filter while loading or showing an error', () => {

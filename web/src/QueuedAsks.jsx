@@ -28,7 +28,7 @@ function Person({ name, profile }) {
   return <span className="request-person"><AssigneeAvatar name={label} url={profile?.avatar_url} />{label}</span>
 }
 
-function RequestRow({ item, viewer, publicPreview, verbose }) {
+function RequestRow({ item, viewer, publicPreview, verbose, projectLabel }) {
   const [status, Icon, terminal] = phases[item.phase] || ['Status unavailable', MessageSquare]
   const responseHref = item.response ? eventHref(item.response.id) : null
   const canReviewResponse = item.phase === 'acknowledgment' && item.next_owner && viewer?.id === item.next_owner
@@ -42,6 +42,7 @@ function RequestRow({ item, viewer, publicPreview, verbose }) {
         <div className="request-details">
           <div className="request-state">
             <span className="request-status"><Icon size={14} aria-hidden="true" />{statusLabel}</span>
+            {projectLabel && <span className="report-project-label">{projectLabel}</span>}
             {item.at && <ReportTime at={item.at} />}
           </div>
           <div className="request-row-line">
@@ -93,9 +94,12 @@ function RequestRow({ item, viewer, publicPreview, verbose }) {
     <li className={rowClass}>
       <div className="request-summary">
         <Icon size={14} aria-hidden="true" />
-        {requestHref
-          ? <a className="request-summary-text" href={requestHref} title={summary}>{label}</a>
-          : <span className="request-summary-text">{label}</span>}
+        <div className="request-summary-copy">
+          {requestHref
+            ? <a className="request-summary-text" href={requestHref} title={summary}>{label}</a>
+            : <span className="request-summary-text">{label}</span>}
+          {projectLabel && <span className="report-project-label">{projectLabel}</span>}
+        </div>
         <span className="relative-time-accessible">{status}</span>
         {owner && <span className="request-summary-avatar" title={ownerName}>
           <AssigneeAvatar name={ownerName} url={ownerProfile?.avatar_url} />
@@ -137,7 +141,7 @@ function snapshotRows({ reviews, waits, responses }, profiles) {
   }).sort((left, right) => (right.at || '').localeCompare(left.at || ''))
 }
 
-export function QueuedAsksContent({ project, grouped, page, snapshot, snapshotProfiles, viewer }) {
+export function QueuedAsksContent({ project, grouped, page, snapshot, snapshotProfiles, viewer, projectNames }) {
   const [mode, setMode] = useState('compact')
   const items = snapshot ? snapshotRows(snapshot, snapshotProfiles) : page?.data?.items
   if (items?.length === 0 && (snapshot || (!page.pending && !page.error))) return null
@@ -156,7 +160,8 @@ export function QueuedAsksContent({ project, grouped, page, snapshot, snapshotPr
       {items?.length > 0 && (
         <ul className="report-outcomes request-log" aria-label="Requests" role="list" data-mode={mode}>
           {items.map(item => <RequestRow key={item.id} item={item} viewer={viewer}
-            publicPreview={Boolean(snapshot)} verbose={mode === 'verbose'} />)}
+            publicPreview={Boolean(snapshot)} verbose={mode === 'verbose'}
+            projectLabel={projectNames?.get(item.source_key?.split('-')[0])} />)}
         </ul>
       )}
       {page && <LoadMore page={page} label="requests" />}
@@ -164,7 +169,7 @@ export function QueuedAsksContent({ project, grouped, page, snapshot, snapshotPr
   )
 }
 
-export default function QueuedAsks({ revision, project, grouped, viewer }) {
-  const page = useLoadedPages('/reports/request-log', { project }, revision, { limit: 10 })
-  return <QueuedAsksContent project={project} grouped={grouped} page={page} viewer={viewer} />
+export default function QueuedAsks({ revision, project, grouped, viewer, projectNames }) {
+  const page = useLoadedPages('/reports/request-log', projectNames ? { scope: 'all' } : { project }, revision, { limit: 10 })
+  return <QueuedAsksContent project={project} grouped={grouped} page={page} viewer={viewer} projectNames={projectNames} />
 }

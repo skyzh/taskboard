@@ -217,8 +217,6 @@
   border-radius: .15rem;
 }
 .reports-layout { display: grid; gap: 1.25rem; }
-.project-reports + .project-reports { margin-top: 1.15rem; padding-top: .85rem; border-top: 1px solid var(--line); }
-.project-reports .page-heading { min-height: 0; }
 .reports-owners, .queued-asks { min-width: 0; }
 .queued-asks { border-top: 1px solid var(--line); padding-top: .85rem; overflow-wrap: anywhere; }
 .request-log-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; }
@@ -228,7 +226,8 @@
 .request-row + .request-row { border-top: 1px solid var(--line); }
 .request-summary { display: flex; align-items: center; gap: .4rem; min-height: 2.5rem; }
 .request-summary svg { flex: none; }
-.request-summary-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.request-summary-copy { display: grid; flex: 1; min-width: 0; }
+.request-summary-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .request-summary-avatar { display: inline-flex; flex: none; }
 .request-details { grid-column: 1 / -1; display: grid; gap: .25rem; padding-block: .55rem; padding-inline: .25rem; }
 .request-details :is(.relative-time, time) { color: var(--muted); font-size: .79rem; }
