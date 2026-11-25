@@ -8833,6 +8833,36 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("/repos/Example/Tasks/issues/1/timeline", inspected)
         self.assertIn("/repos/example/tasks/issues/2/timeline", inspected)
 
+    def test_signed_subagent_start_keeps_launcher_after_ticket_transfer(self):
+        app = self.app(portal_reader=True)
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        self.action(avery, "create-task", {"title": "Fixture launch", "step": "Run the local worker."})
+        self.action(avery, "delegate", {"id": "T-1", "worker": avery_id, "role": "build", "brief": "Run the fixture."})
+        self.action(avery, "delegate", {"id": "T-1", "worker": blake_id, "role": "review", "brief": "Review fixtures."})
+        start = {"run": "W-1", "transition": "start", "handle": "fixture-subagent", "subagent": True}
+        self.action(blake, "worker-handoff", start, status=409)
+        self.action(avery, "worker-handoff", {**start, "run": "W-2"}, status=409)
+        self.action(blake, "worker-handoff", {**start, "run": "W-2"}, status=409)
+        self.action(avery, "worker-handoff", {**start, "subagent": "invalid"}, status=400)
+        self.action(avery, "worker-handoff", {
+            "run": "W-1", "transition": "collect", "note": "Not a start.", "subagent": True,
+        }, status=400)
+        status, _, errors = self.shared_cli(avery, "worker-start", "W-1", "fixture-subagent", "--subagent")
+        self.assertEqual((status, errors), (0, ""))
+        self.action(avery, "worker-handoff", start, status=409)
+        self.action(blake, "worker-handoff", {"run": "W-2", "transition": "start", "handle": "peer-review"})
+        status, _, errors = self.shared_cli(avery, "transfer", "T-1", "Follow up.", "--dri", blake_id)
+        self.assertEqual((status, errors), (0, ""))
+        self.assertEqual(self.call(blake, "/api/v1/tasks/T-1").json["task"]["dri"], blake_id)
+        history = self.call(blake, "/api/v1/tasks/T-1/activity").json["items"]
+        started = [(event["actor"], event["context"]["audit"]) for event in history
+                   if event["context"].get("audit", {}).get("action") == "worker-start"]
+        self.assertEqual(started, [
+            (blake_id, {"action": "worker-start", "run_id": 2, "status": "running"}),
+            (avery_id, {"action": "worker-start", "run_id": 1, "status": "running", "subagent": True}),
+        ])
+
     def test_reports_separate_recorded_worker_execution_from_task_state(self):
         app = self.app(portal_reader=True)
         avery, avery_id = self.login(app, "Avery")

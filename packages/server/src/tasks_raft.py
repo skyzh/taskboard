@@ -245,7 +245,9 @@ _ACTIONS = {
         "run": "Worker run ID, such as W-15.", "transition": "Worker run transition, such as report.",
     }, {
         "note": _NOTE, "handle": "Runtime handle for the worker run.",
-        "result": "Worker report outcome, completed or blocked.", **_EVIDENCE,
+        "result": "Worker report outcome, completed or blocked.",
+        "subagent": "Pass true when starting a runtime subagent recorded under your own agent ID.",
+        **_EVIDENCE,
     }),
     "watch-task": _Action("POST", "Follow or unfollow task activity.", _TASK, {
         "watch": "Pass true to follow (the default) or false to unfollow.",

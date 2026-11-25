@@ -505,6 +505,8 @@ def arguments(argv=None):
             command.add_argument("run", type=worker_run_id)
             if action == "worker-start":
                 command.add_argument("handle", type=nonblank)
+                command.add_argument("--subagent", action="store_true",
+                                     help="Record your own runtime subagent launch through the signed shared board.")
             else:
                 command.add_argument("note", type=nonblank)
         if action == "worker-report":
@@ -604,6 +606,8 @@ def arguments(argv=None):
             parser.error("Use --stamp-review when creating or refreshing a peer request.")
         if args.manual_review is not None and args.change not in ("create", "result"):
             parser.error("Use --manual-review when opening, refreshing, or returning a manual PR review.")
+    if args.command == "worker-start" and args.subagent and args.mode != "shared":
+        parser.error("Use --shared worker-start --subagent to verify the launcher.")
     if args.command == "capabilities" and args.mode != "shared":
         parser.error("Use --shared capabilities for shared agent commands.")
     if args.command in {
