@@ -3004,6 +3004,9 @@ def create_app(
     def needs_you():
         actor = current_actor(required=True)
         project = project_scope(request.args)
+        kind = request.args.get("kind")
+        if kind not in (None, "review"):
+            raise RequestError("Provide review as the Needs you kind.")
         limit = integer(request.args["limit"], "limit", maximum=100) if "limit" in request.args else None
         before = None
         if cursor := text(request.args, "before", optional=True, maximum=160):
@@ -3022,7 +3025,10 @@ def create_app(
                 ),
             )
         with tasks_storage.read(db()):
-            return query().needs_you(actor, today=pacific_day(ledger.timestamp()), project=project, before=before, limit=limit)
+            return query().needs_you(
+                actor, today=pacific_day(ledger.timestamp()), project=project, before=before, limit=limit,
+                reviews_only=kind == "review",
+            )
 
     @app.get("/api/v1/notifications/decisions")
     def decision_notifications():

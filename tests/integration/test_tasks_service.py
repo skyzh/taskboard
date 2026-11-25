@@ -828,6 +828,18 @@ class TasksServiceTest(unittest.TestCase):
         self.assertCountEqual(view(blake, project="T"), [
             ("review", worker_source, "Avery"), ("review", stamp, "Avery"),
         ])
+        review_filters = {"scope": "all", "kind": "review", "limit": 1}
+        review_page = self.call(blake, path, query_string=review_filters).json
+        self.assertEqual([(item["kind"], item["ticket"]) for item in review_page["items"]], [("review", stamp)])
+        review_next = self.call(blake, path, query_string={**review_filters, "before": review_page["next_cursor"]}).json
+        self.assertEqual([(item["kind"], item["ticket"]) for item in review_next["items"]], [("review", worker_source)])
+        self.assertIsNone(review_next["next_cursor"])
+        self.assertEqual(view(sam, scope="all", kind="review"), [])
+        self.call(app.test_client(), path, query_string=review_filters, status=401)
+        count_path = "/api/v1/notifications/open-count"
+        self.assertEqual(self.call(blake, count_path, query_string={"scope": "all"}).json, {"count": 2})
+        self.assertEqual(self.call(blake, count_path, query_string={"project": "COURSE"}).json, {"count": 0})
+        self.assertEqual(self.call(sam, count_path, query_string={"scope": "all"}).json, {"count": 3})
         human_times = {decision: "2025-11-21T17:00:00Z", request: "2025-11-21T17:15:00Z"}
         review_times = {worker_source: "2025-11-21T19:00:00Z", stamp: "2025-11-21T19:15:00Z"}
         self.assertEqual(asked_times(sam), human_times)

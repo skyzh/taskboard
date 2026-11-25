@@ -1570,7 +1570,7 @@ class BoardQueries:
 
         return page(rows, limit, "id", render)
 
-    def request_log(self, *, project, before=None, limit=20, actionable_reviewer=None, recover_title=False):
+    def request_log(self, *, project, before=None, limit=20, actionable_reviewer=None, recover_title=False, count_only=False):
         project_filter = "WHERE tasks.project_prefix = ?" if project is not None else ""
         filters, args = [], [project] if project is not None else []
         if actionable_reviewer is not None:
@@ -1586,9 +1586,14 @@ class BoardQueries:
             args.extend(before)
         where = "WHERE " + " AND ".join(filters) if filters else ""
         requester = f"({REVIEW_REQUESTER})" if ledger.has_event_context(self.db) else "NULL"
+        if count_only:
+            select = f"SELECT COUNT(*) AS total FROM requests {where}"
+        else:
+            select = f"SELECT * FROM requests {where} ORDER BY at DESC, kind DESC, id DESC LIMIT ?"
+            args.append(limit + 1)
         # Filter within each task's history so SQLite can use the task index
         # instead of scanning all events with a given action for every request.
-        rows = self.db.execute(
+        result = self.db.execute(
             f"""
             WITH current AS ({ledger.current_tasks_sql(self.db)} {project_filter}),
             requests AS (
@@ -1644,10 +1649,12 @@ class BoardQueries:
                 WHERE worker_runs.role = 'review'
                   AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)
             )
-            SELECT * FROM requests {where}
-            ORDER BY at DESC, kind DESC, id DESC LIMIT ?
-            """, (*args, limit + 1),
-        ).fetchall()
+            {select}
+            """, args,
+        )
+        if count_only:
+            return result.fetchone()["total"]
+        rows = result.fetchall()
         visible = rows[:limit]
         keys = {row[person] for row in visible for person in ("requester", "recipient", "source_owner") if row[person]}
         people = profiles.visible_by_keys(self.db, keys, self.base)
@@ -2158,7 +2165,7 @@ class BoardQueries:
         return results
 
     def open_notification_count(self, recipient, *, today, project=None):
-        return self.db.execute(
+        decisions_and_requests = self.db.execute(
             f"""
             WITH current_tasks AS ({ledger.current_tasks_sql(self.db)}),
             visible_tasks AS (SELECT id FROM tasks WHERE ? IS NULL OR project_prefix = ?)
@@ -2170,6 +2177,8 @@ class BoardQueries:
                  WHERE recipient = ? AND handled_at IS NULL AND {ATTENTION_DUE}) AS open_count
             """, (project, project, recipient, recipient, today),
         ).fetchone()["open_count"]
+        reviews = self.request_log(project=project, actionable_reviewer=recipient, count_only=True)
+        return decisions_and_requests + reviews
 
     def inbox(self, recipient, *, creations, today, before, limit, project=None, include_actions=True):
         current_tasks = ledger.current_tasks_sql(self.db)
@@ -2284,7 +2293,7 @@ class BoardQueries:
                     "title": item.get("task_title") or item["title"],
                 }
 
-    def needs_you(self, actor, *, today, project, before, limit):
+    def needs_you(self, actor, *, today, project, before, limit, reviews_only=False):
         owner = actor["ledger_key"]
         decision_before, request_before, review_before = before or (NEEDS_YOU_START,) * 3
         remaining = limit
@@ -2304,7 +2313,7 @@ class BoardQueries:
             return result
 
         decisions = requests = reviews = {"items": [], "next_cursor": None}
-        if actor["kind"] == "human":
+        if actor["kind"] == "human" and not reviews_only:
             decisions = take(self.tasks, decision_before, state="human_review", waiting_on=owner)
             requests = take(self.attention, request_before, recipient=owner, state="open", today=today)
         reviews = take(self.request_log, review_before, actionable_reviewer=owner, recover_title=True)

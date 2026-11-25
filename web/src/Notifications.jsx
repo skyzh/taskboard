@@ -209,6 +209,32 @@ function FollowThrough({ revision }) {
   )
 }
 
+function ReviewRequests({ revision }) {
+  const page = useLoadedPages('/notifications/needs-you', { scope: 'all', kind: 'review' }, revision)
+  const reviews = page.data?.items
+  if ((!page.pending && !page.error && !reviews?.length) || page.error?.status === 404) return null
+  return (
+    <section aria-labelledby="review-requests-title">
+      <h3 className="notification-subhead" id="review-requests-title">Review requests</h3>
+      <ResourceStatus resource={page} label="your review requests" />
+      {reviews?.length > 0 && (
+        <ul className="event-list" aria-label="Review requests for you" role="list">
+          {reviews.map(item => (
+            <li className="event-row" key={item.id}>
+              <p className="event-ticket"><TaskLink reference={item.ticket} title={item.title} /></p>
+              <p className="event-meta">
+                <span>{profileName(item.requester, item.requester_profile)}</span>
+                {item.asked_at && <span>Asked <ReportTime at={item.asked_at} linked /></span>}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+      <LoadMore page={page} label="review requests" />
+    </section>
+  )
+}
+
 function NeedsMe({ revision, session, onChanged }) {
   const decisions = useLoadedPages('/notifications/decisions', { scope: 'all' }, revision)
   const [submitted, setSubmitted] = useState([])
@@ -235,6 +261,7 @@ function NeedsMe({ revision, session, onChanged }) {
       {decisions.data && items.length === 0 && <p className="section-message">No open decision requests.</p>}
       <LoadMore page={decisions} label="open decision requests" />
       <AttentionRequests revision={revision} onChanged={onChanged} />
+      <ReviewRequests revision={revision} />
       <FollowThrough revision={revision} />
     </section>
   )
