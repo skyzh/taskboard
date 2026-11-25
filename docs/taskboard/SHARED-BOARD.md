@@ -409,13 +409,15 @@ have read access only.
 | Action | Permission |
 | --- | --- |
 | Edit goal content | Goal owner, or project manager through ticket details. |
-| Start, update or finish work, set priority, or change parking | Ticket owner under the current workflow rules. A project writer can hand off assigned regular work to an eligible human or DRI in its project. |
+| Start, update, wait, resume, finish, park, remind, or return work to Ready | The ticket owner can use the ordinary workflow. A project writer can perform these transitions on a teammate’s regular ticket after confirming the change. A project writer can also hand off assigned regular work to an eligible human or DRI in its project. |
+| Set priority | Ticket owner or project manager. |
 | Add or rename checklist steps | Project writers can edit wording. The current work and each step's completion record stay in place. |
 | Start or complete a checklist step, reopen one, or remove one | The ticket owner records progress. The owner or project manager can reopen or remove steps, which changes the checklist's status or membership. |
 | Add or remove ordinary labels | Project writers can edit tags on tickets and Knowledge. The `decision-record` tag controls legacy record classification. Changing it on work requires the owner or manager, and Knowledge entries retain it. |
 | Add or relabel ordinary references | Project writers can use `tasks --shared link-reference` for plain web links. Exact GitHub issue and pull request links attach a provider source and use the existing ticket owner or Knowledge manager permission because they can drive intake and automation. |
 | Answer a decision | Human named on the current decision request. |
-| Close unfinished work, reassign or reopen | Ticket owner or project manager can close ordinary unfinished work. Reassignment, unassignment, and reopening use the project manager path. Linked requests use their own requester and workflow rules. |
+| Close unfinished work or reopen | The ticket owner or project manager can close or reopen ordinary work. Project writers can close or reopen teammates’ tickets after confirming. Reopening keeps the current assignee by default. |
+| Reassign or unassign | Project manager. A manager can also select a different assignee while reopening. |
 | Move a ticket to another project | Manager of both projects, subject to the ticket and assignee rules. |
 | Create or organize Knowledge | A signed project writer or project manager can create entries. Placement of Knowledge entries and applying staged changes use project management permissions. |
 | Change project settings or creation grants | Project settings use project management permissions. Creating projects needs the separate creation grant, managed by the configured permission manager. |
@@ -424,6 +426,18 @@ The shared board preserves prior Activity as history and records changes as new
 events. Closing a record preserves that history. The content permissions need no
 ledger migration. A prior service version can read the same content and history
 after rollback and applies its own edit eligibility.
+
+When a transition on a teammate’s ticket needs confirmation, the board leaves
+the ticket unchanged. In the browser, read the warning, enter the reason, and
+confirm the change. In the shared CLI, retry with both flags.
+
+```sh
+./tasks --shared reopen T-42 'Review the corrected result.' --force --force-reason 'The source export was amended.'
+```
+
+Signed actions accept `force: true` and `force_reason`. Activity records the
+signed actor and their reason. The same project access, valid source states,
+blocker evidence, and human decision or named peer request rules apply.
 
 ## Use the shared CLI
 

@@ -260,10 +260,11 @@ other web API surfaces.
 | Find work and Knowledge | GET `search-tasks` with `project` and `q`, `search-with-decisions` with `q`, or `knowledge-areas` with optional `project` |
 | Read current work | GET `task` or `task-activity` with `id` |
 | Create or record Activity | POST `create-task` with `project`, `title`, and `step`, or `record-activity` with `id`, `note`, optional `details`, and optional evidence `url` and `label` |
-| Update an owned In progress ticket | POST `advance-task` with `id`, `transition: update`, and `note` |
+| Update an In progress ticket | POST `advance-task` with `id`, `transition: update`, and `note`. A peer transition may call for `force: true` and `force_reason`. |
 | Attach GitHub sources and other evidence | POST `link-github` with `id` and `github_url`. Use `link-reference` with `id`, `label`, and `url` for a TaskNote or another authorized HTTPS source. |
 | Maintain the brief and Knowledge | POST `edit-task-details`, `create-knowledge`, or `knowledge-stage`, within the actor's project permissions |
-| Ask or hand off | GET `assignees`. POST `peer-ask`, `raise-attention`, or `advance-task` with the `assign-human` transition. Use `handoff` or manager-only `change-ownership` for ownership. |
+| Ask or hand off | GET `assignees`. POST `peer-ask`, `raise-attention`, or `advance-task` with the `assign-human` transition. Use `handoff` for ordinary transfers or `change-ownership` for manager reassignment. |
+| Reopen ordinary work | POST `change-ownership` with `id`, `action: reopen`, and `reason`. Leave out the owner to keep the assignment. Supply `force: true` and `force_reason` if the board requests confirmation. |
 | Read Reports | GET `/api/v1/reports?project=PROJECT` under the board mount |
 
 ### Record configured ticket fields

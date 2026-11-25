@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 from taskboard_client.work import (
     CHECKLIST_EDITS, STATES, PRIORITIES, DEFAULT_PRIORITY, WORKER_WRITES, OWNERSHIP_ACTIONS, STRUCTURED_ACTIVITY,
+    PROJECT_WRITER_TRANSITIONS,
     parse_eta, local_eta, activity_details, task_title,
     review_after_text, tag_name, blocker_key, blocker_lines, related_task_lines, readiness_line,
 )
@@ -454,6 +455,20 @@ def ownership_actions(task):
     return ["unassign", "reassign"] if task["dri"] else ["reassign"]
 
 
+class TransitionConfirmationRequired(ValueError):
+    pass
+
+
+def transition_override(task, action, force_reason):
+    if force_reason is None:
+        raise TransitionConfirmationRequired(
+            f"{projects.row_reference(task)} belongs to another owner. "
+            f"Confirm {action} only if you intend to act on their behalf. "
+            "Retry with --force and --force-reason in the CLI, or force=true and force_reason in signed tools."
+        )
+    return {"transition_override": {"action": action, "reason": force_reason, "previous_dri": task["dri"]}}
+
+
 def edit_task_details(db, args, links):
     task = get_task(db, args.id)
     if not can_edit_content(db, task, args):
@@ -504,7 +519,9 @@ def close_task(db, args, links):
     if ask := peer_asks.find(db, task["id"]):
         args.change = "cancel"
         return peer_asks.cancel(db, args, links, ask, task)
-    if args.by != task["dri"] and not projects.manages(db, projects.row_project(task), args.by):
+    collaborator = getattr(args, "can_transition", None)
+    authorized = args.by == task["dri"] or projects.manages(db, projects.row_project(task), args.by)
+    if not authorized and not (collaborator and collaborator(db, task)):
         raise PermissionError("Only the ticket owner or project manager can close it.")
     if task["state"] == "done":
         raise ValueError("Choose an open ticket to close.")
@@ -520,10 +537,11 @@ def close_task(db, args, links):
         if number == task["id"]:
             raise ValueError("Choose a different ticket to link.")
         closure["related"] = projects.row_reference(get_task(db, number))
+    override = {} if authorized or not task["dri"] else transition_override(task, "close", args.force_reason)
     peer_asks.withdraw_named_wait(db, task, args.by, "The source ticket was closed.")
     # Legacy readers recognize a terminal Done row. The closure metadata
     # distinguishes it from a completion in newer readers and statistics.
-    record(db, task["id"], "update", args.by, "done", reason, None, links, {"closure": closure})
+    record(db, task["id"], "update", args.by, "done", reason, None, links, {"closure": closure, **override})
     return f"{projects.row_reference(task)} · Closed"
 
 
@@ -532,20 +550,27 @@ def change_ownership(db, args, links):
     action, reference = args.command, projects.row_reference(task)
     if peer_asks.find(db, task["id"]):
         raise ValueError("Use the peer-request actions to change who acts next.")
-    if not projects.manages(db, projects.row_project(task), args.by):
+    manager = projects.manages(db, projects.row_project(task), args.by)
+    collaborator = getattr(args, "can_transition", None)
+    if not manager and not (action == "reopen" and collaborator and collaborator(db, task)):
         raise PermissionError("Only this project's manager can change task ownership.")
     if task_goal_kind(db, args.id):
         raise ValueError("A goal belongs to its owner. Use the owner's goal settings to manage it.")
     if action not in ownership_actions(task):
         raise ValueError(f"Cannot {action} {reference} in its current state.")
-    owner = "" if action == "unassign" else args.dri
+    owner = "" if action == "unassign" else task["dri"] if args.dri is None else args.dri
+    if not manager and owner != task["dri"]:
+        raise PermissionError("Only this project's manager can choose a different owner when reopening.")
     if action == "reassign" and owner == task["dri"]:
         raise ValueError("Choose a different owner.")
+    override = {}
+    if action == "reopen" and not manager and args.by != task["dri"] and task["dri"]:
+        override = transition_override(task, action, args.force_reason)
     peer_asks.withdraw_named_wait(db, task, args.by, "The source ticket changed owners.")
     task = get_task(db, task["id"])
     db.execute("UPDATE tasks SET dri = ? WHERE id = ?", (owner, args.id))
     label = OWNERSHIP_ACTIONS[action]
-    change = {"ownership_action": action, "previous_dri": task["dri"], "next_dri": owner}
+    change = {"ownership_action": action, "previous_dri": task["dri"], "next_dri": owner, **override}
     if task["state"] in ("waiting", "human_review", "parked"):
         # Keep the original wait, request ID, or reminder as the current event.
         record(db, args.id, "log", args.by, task["state"], args.note, None, links, change)
@@ -881,12 +906,19 @@ def change_task(db, args, links, *, automation=None):
     actor = task["waiting_on"] if args.command == "decide" else task["dri"]
     collaboration = getattr(args, "project_collaboration", None) if args.command == "transfer" else None
     permitted = collaboration(db, task) if collaboration else False
+    override = {}
     if args.by != actor and not (actor and permitted):
         if args.command == "decide":
             raise ValueError(f"{projects.row_reference(task)} is assigned to {actor} for a decision.")
         if not actor:
             raise ValueError(f"{projects.row_reference(task)} is unassigned.")
-        raise ValueError(f"{projects.row_reference(task)} is owned by {actor}.")
+        collaborator = getattr(args, "can_transition", None)
+        if (args.command not in PROJECT_WRITER_TRANSITIONS or getattr(args, "peer_recipient", None)
+                or not collaborator or not collaborator(db, task)):
+            raise ValueError(f"{projects.row_reference(task)} is owned by {actor}.")
+        if getattr(args, "start_check", None) or getattr(args, "check", None):
+            raise ValueError("Only the ticket owner can start or complete its checklist steps.")
+        override = transition_override(task, args.command, args.force_reason)
     if args.command in ("start", "update"):
         change_checklist(db, args.id, args.checklist_step, args.start_check, args.check, actor=args.by, state=state)
     elif args.command == "done" and args.check:
@@ -980,6 +1012,7 @@ def change_task(db, args, links, *, automation=None):
     if automation is not None:
         attribution, evidence = automation
         context.update(evidence)
+    context.update(override)
     event_id = record(db, args.id, action, attribution, state, note, waiting_on, links, context)
     if request_id is not None:
         link_attention_wait(db, args, event_id, request_id, task["event_id"])
@@ -2076,6 +2109,8 @@ def run_local(args):
         or args.command in tasks_recurring.EDITS or args.command in ("recurring-tick", maintenance.WRITE)
     )
     try:
+        if getattr(args, "force", False) or getattr(args, "force_reason", None) is not None:
+            raise ValueError("Use --shared for a project-writer override.")
         if args.command in ("goals", "save-goal"):
             raise ValueError("Use --shared and sign in to set or read your project goals.")
         if args.mode == "postgres":

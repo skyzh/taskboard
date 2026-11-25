@@ -1681,12 +1681,13 @@
     "FLOW-1": {
       "detail": {
         "brief": "Keep the board scope in the URL when a user opens Reports from a saved link.",
-        "can_close": false,
+        "can_assign_on_reopen": false,
+        "can_close": true,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
         "can_edit_checklist_text": true,
         "can_edit_details": true,
-        "can_edit_parking": false,
+        "can_edit_parking": true,
         "can_tag_decision_record": false,
         "checklist": [
           {
@@ -1768,6 +1769,11 @@
           "waiting_on": null,
           "waiting_profile": null
         },
+        "transition_actions": [
+          "update",
+          "wait",
+          "done"
+        ],
         "workers": []
       },
       "events": [
@@ -1970,6 +1976,7 @@
     "FLOW-10": {
       "detail": {
         "brief": "",
+        "can_assign_on_reopen": false,
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
@@ -1983,7 +1990,9 @@
           "at": "2026-11-24T05:52:40+00:00",
           "id": 31
         },
-        "ownership_actions": [],
+        "ownership_actions": [
+          "reopen"
+        ],
         "related_tasks": [],
         "sources": [],
         "tag_editable": true,
@@ -2020,6 +2029,7 @@
           "waiting_on": null,
           "waiting_profile": null
         },
+        "transition_actions": [],
         "workers": []
       },
       "events": [
@@ -2123,6 +2133,7 @@
     "FLOW-11": {
       "detail": {
         "brief": "",
+        "can_assign_on_reopen": false,
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
@@ -2136,7 +2147,9 @@
           "at": "2026-11-24T05:58:00+00:00",
           "id": 42
         },
-        "ownership_actions": [],
+        "ownership_actions": [
+          "reopen"
+        ],
         "related_tasks": [
           {
             "id": 17,
@@ -2180,6 +2193,7 @@
           "waiting_on": null,
           "waiting_profile": null
         },
+        "transition_actions": [],
         "workers": []
       },
       "events": [
@@ -2415,6 +2429,7 @@
     "FLOW-12": {
       "detail": {
         "brief": "",
+        "can_assign_on_reopen": false,
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
@@ -2472,6 +2487,7 @@
           "waiting_on": null,
           "waiting_profile": null
         },
+        "transition_actions": [],
         "workers": []
       },
       "events": [
@@ -2608,6 +2624,7 @@
     "FLOW-13": {
       "detail": {
         "brief": "Use explicit links when checking project scope.",
+        "can_assign_on_reopen": false,
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
@@ -2666,6 +2683,7 @@
           "waiting_on": null,
           "waiting_profile": null
         },
+        "transition_actions": [],
         "workers": []
       },
       "events": [
@@ -2736,6 +2754,7 @@
     "FLOW-14": {
       "detail": {
         "brief": "",
+        "can_assign_on_reopen": false,
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
@@ -2807,6 +2826,7 @@
           },
           "waiting_since": "2026-11-24T06:01:20+00:00"
         },
+        "transition_actions": [],
         "workers": []
       },
       "events": [
@@ -2910,6 +2930,7 @@
     "FLOW-15": {
       "detail": {
         "brief": "",
+        "can_assign_on_reopen": false,
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
@@ -2967,6 +2988,7 @@
           "waiting_on": null,
           "waiting_profile": null
         },
+        "transition_actions": [],
         "workers": []
       },
       "events": [
@@ -3037,6 +3059,7 @@
     "FLOW-2": {
       "detail": {
         "brief": "",
+        "can_assign_on_reopen": false,
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
@@ -3102,6 +3125,7 @@
           },
           "waiting_since": "2026-11-24T05:45:40+00:00"
         },
+        "transition_actions": [],
         "workers": []
       },
       "events": [
@@ -3205,6 +3229,7 @@
     "FLOW-3": {
       "detail": {
         "brief": "",
+        "can_assign_on_reopen": false,
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
@@ -3262,6 +3287,7 @@
           "waiting_on": null,
           "waiting_profile": null
         },
+        "transition_actions": [],
         "workers": []
       },
       "events": [
@@ -3299,8 +3325,9 @@
     "FLOW-4": {
       "detail": {
         "brief": "",
-        "can_close": false,
-        "can_confirm_blocker": false,
+        "can_assign_on_reopen": false,
+        "can_close": true,
+        "can_confirm_blocker": true,
         "can_edit_checklist": false,
         "can_edit_checklist_text": true,
         "can_edit_details": true,
@@ -3363,6 +3390,10 @@
           "waiting_profile": null,
           "waiting_since": "2026-11-24T05:47:00+00:00"
         },
+        "transition_actions": [
+          "wait",
+          "resume"
+        ],
         "workers": []
       },
       "events": [
@@ -3466,8 +3497,9 @@
     "FLOW-5": {
       "detail": {
         "brief": "",
-        "can_close": false,
-        "can_confirm_blocker": false,
+        "can_assign_on_reopen": false,
+        "can_close": true,
+        "can_confirm_blocker": true,
         "can_edit_checklist": false,
         "can_edit_checklist_text": true,
         "can_edit_details": true,
@@ -3520,6 +3552,10 @@
           "waiting_profile": null,
           "waiting_since": "2026-11-24T05:48:20+00:00"
         },
+        "transition_actions": [
+          "wait",
+          "resume"
+        ],
         "workers": []
       },
       "events": [
@@ -3623,6 +3659,7 @@
     "FLOW-6": {
       "detail": {
         "brief": "",
+        "can_assign_on_reopen": false,
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
@@ -3688,6 +3725,7 @@
             "username": "sam"
           }
         },
+        "transition_actions": [],
         "workers": []
       },
       "events": [
@@ -3791,12 +3829,13 @@
     "FLOW-7": {
       "detail": {
         "brief": "",
-        "can_close": false,
+        "can_assign_on_reopen": false,
+        "can_close": true,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
         "can_edit_checklist_text": true,
         "can_edit_details": true,
-        "can_edit_parking": false,
+        "can_edit_parking": true,
         "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
@@ -3841,6 +3880,9 @@
           "waiting_on": null,
           "waiting_profile": null
         },
+        "transition_actions": [
+          "start"
+        ],
         "workers": []
       },
       "events": [
@@ -3878,12 +3920,13 @@
     "FLOW-8": {
       "detail": {
         "brief": "",
-        "can_close": false,
+        "can_assign_on_reopen": false,
+        "can_close": true,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
         "can_edit_checklist_text": true,
         "can_edit_details": true,
-        "can_edit_parking": false,
+        "can_edit_parking": true,
         "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
@@ -3930,6 +3973,9 @@
           "waiting_on": null,
           "waiting_profile": null
         },
+        "transition_actions": [
+          "unpark"
+        ],
         "workers": []
       },
       "events": [
@@ -4000,6 +4046,7 @@
     "FLOW-9": {
       "detail": {
         "brief": "",
+        "can_assign_on_reopen": false,
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
@@ -4013,7 +4060,9 @@
           "at": "2026-11-24T05:51:20+00:00",
           "id": 28
         },
-        "ownership_actions": [],
+        "ownership_actions": [
+          "reopen"
+        ],
         "related_tasks": [],
         "sources": [],
         "tag_editable": true,
@@ -4053,6 +4102,7 @@
           "waiting_on": null,
           "waiting_profile": null
         },
+        "transition_actions": [],
         "workers": []
       },
       "events": [

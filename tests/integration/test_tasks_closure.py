@@ -31,8 +31,9 @@ class ClosureTest(unittest.TestCase):
         task = "/api/v1/tasks/T-1"
         reason = {"reason": "Continue on the existing ticket.", "related": "COURSE-1"}
         self.assertTrue(f.call(self.avery, task).json["can_close"])
-        self.assertFalse(f.call(self.quinn, task).json["can_close"])
-        f.call(self.quinn, task + "/closure", method="POST", json=reason, status=403)
+        self.assertTrue(f.call(self.quinn, task).json["can_close"])
+        warning = f.call(self.quinn, task + "/closure", method="POST", json=reason, status=409).json
+        self.assertEqual(warning["code"], "TRANSITION_CONFIRMATION_REQUIRED")
         f.call(self.avery, task + "/closure", method="POST", json={**reason, "related": "T-1"}, status=409)
         f.call(self.avery, task + "/closure", method="POST", json={**reason, "related": "T-42"}, status=409)
         self.assertEqual(f.call(self.avery, task).json["task"]["state"], "ready")
@@ -95,7 +96,7 @@ class ClosureTest(unittest.TestCase):
         self.assertEqual((item["state"], item["display_state"], item["completions"]), ("done", "closed", 0))
 
         f.action(self.avery, "change-ownership", {
-            "id": "T-1", "action": "reopen", "owner": self.owner, "reason": "Return the task to Ready.",
+            "id": "T-1", "action": "reopen", "owner": self.manager, "reason": "Return the task to Ready.",
         }, status=403)
         f.action(self.blake, "change-ownership", {
             "id": "T-1", "action": "reopen", "owner": self.owner, "reason": "Return the task to Ready.",
@@ -109,6 +110,47 @@ class ClosureTest(unittest.TestCase):
         closed_event = next(event for event in history if event["label"] == "Closed")
         self.assertEqual(closed_event["context"]["closure"], {"related": "COURSE-1"})
 
+    def test_project_writer_reopens_a_peer_ticket_through_browser_and_cli(self):
+        f = self.fixture
+        task = "/api/v1/tasks/T-1"
+        f.call(self.avery, task + "/closure", method="POST", json={"reason": "The sample was superseded."})
+        detail = f.call(self.quinn, task).json
+        self.assertEqual(detail["ownership_actions"], ["reopen"])
+        self.assertFalse(detail["can_assign_on_reopen"])
+        payload = {"action": "reopen", "reason": "Review the corrected sample."}
+        revision = f.call(self.quinn, "/api/v1/revision").json
+        response = f.call(self.quinn, task + "/ownership", method="POST", json=payload, status=409).json
+        self.assertEqual(response["code"], "TRANSITION_CONFIRMATION_REQUIRED")
+        self.assertIn("force_reason", response["error"])
+        f.call(self.quinn, task + "/ownership", method="POST", status=400, json={**payload, "force": True})
+        f.call(self.quinn, task + "/ownership", method="POST", status=400,
+               json={**payload, "force": True, "force_reason": " "})
+        f.call(self.app.test_client(), task + "/ownership", method="POST", status=401,
+               json={**payload, "force": True, "force_reason": "The source was corrected."})
+        self.assertEqual(f.call(self.quinn, "/api/v1/revision").json, revision)
+        f.call(self.quinn, task + "/ownership", method="POST",
+               json={**payload, "force": True, "force_reason": "The source was corrected."})
+        self.assertEqual(f.call(self.quinn, task).json["task"]["dri"], self.owner)
+        self.assertEqual(f.call(self.quinn, task).json["task"]["state"], "ready")
+        activity = f.call(self.quinn, task + "/activity").json["items"]
+        actor = f.call(self.quinn, "/api/v1/session").json["actor"]["id"]
+        self.assertEqual(activity[0]["actor"], actor)
+        self.assertEqual(activity[0]["context"]["transition_override"], {
+            "action": "reopen", "reason": "The source was corrected.", "previous_dri": self.owner,
+        })
+        self.assertEqual(activity[1]["label"], "Closed")
+        f.cli("register-project", "LAB", "Fixture lab", "--dri", self.owner)
+        cli_ticket = f.cli("add", "Check the lab sample", "--step", "Verify the export.",
+                           "--project", "LAB", "--dri", actor).split()[0]
+        cli_task = f"/api/v1/tasks/{cli_ticket}"
+        f.call(self.quinn, cli_task + "/closure", method="POST", json={"reason": "The sample was superseded."})
+        result, output, error = f.shared_cli(
+            self.blake, "reopen", cli_ticket, payload["reason"], "--force", "--force-reason", "Use corrected data.",
+        )
+        self.assertEqual((result, error), (0, ""))
+        self.assertIn("Reopened", output)
+        self.assertEqual(f.call(self.avery, cli_task).json["task"]["dri"], actor)
+
     def test_manager_can_close_with_the_shared_cli(self):
         result, output, error = self.fixture.shared_cli(
             self.blake, "close", "T-1", "Remove the duplicate.", "--related", "COURSE-1",
@@ -118,6 +160,54 @@ class ClosureTest(unittest.TestCase):
         result, output, error = self.fixture.shared_cli(self.avery, "list", "--status", "closed")
         self.assertEqual((result, error), (0, ""))
         self.assertIn("T-1 · Closed", output)
+
+    def test_a_peer_ask_or_decision_cannot_be_overridden_by_a_writer(self):
+        f = self.fixture
+        task = "/api/v1/tasks/T-1"
+        f.action(self.avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Check the sample."})
+        peer_ask = f.action(self.avery, "peer-ask", {
+            "id": "T-1", "transition": "create", "recipient": self.manager, "note": "Please review the sample.",
+        })["receipt"].split()[0]
+        actor = f.call(self.quinn, "/api/v1/session").json["actor"]["id"]
+        force = {"force": True, "force_reason": "I checked the sample."}
+        waiting = f.call(self.quinn, task).json
+        self.assertEqual(waiting["task"]["state"], "waiting")
+        self.assertTrue(waiting["task"]["context"]["peer_ask_ticket"])
+        self.assertEqual(waiting["transition_actions"], [])
+        self.assertFalse(waiting["can_close"])
+        f.call(self.quinn, task + "/transition", method="POST", status=409,
+               json={"transition": "resume", "note": "Continue the work.", **force})
+        f.call(self.quinn, task + "/closure", method="POST", status=403,
+               json={"reason": "Close the work.", **force})
+        self.assertEqual(f.call(self.quinn, task).json["task"], waiting["task"])
+        f.action(self.avery, "peer-ask", {"id": peer_ask, "transition": "cancel", "note": "Review is covered."})
+        self.assertEqual(f.call(self.quinn, task).json["transition_actions"], ["start"])
+
+        separate = f.action(self.avery, "create-task", {
+            "title": "Review another sample", "step": "Get the review.",
+        })["receipt"].split()[0]
+        f.action(self.avery, "advance-task", {"id": separate, "transition": "start", "note": "Get the review."})
+        f.action(self.avery, "advance-task", {
+            "id": separate, "transition": "assign-human", "note": "Is the sample ready?", "on": actor,
+        })
+        decision = f.call(self.quinn, f"/api/v1/tasks/{separate}").json
+        self.assertEqual(decision["task"]["state"], "human_review")
+        self.assertFalse(decision["can_close"])
+        f.call(self.quinn, f"/api/v1/tasks/{separate}/closure", method="POST", status=403,
+               json={"reason": "Close the decision.", **force})
+        self.assertEqual(f.call(self.quinn, f"/api/v1/tasks/{separate}").json["task"], decision["task"])
+
+    def test_legacy_published_knowledge_cannot_be_reopened_by_a_peer_writer(self):
+        f = self.fixture
+        task = "/api/v1/tasks/T-1"
+        for transition in ("start", "done"):
+            f.action(self.avery, "advance-task", {"id": "T-1", "transition": transition, "note": "Read the sample."})
+        f.action(self.avery, "task-tag", {"id": "T-1", "tag": "decision-record", "action": "add"})
+        self.assertEqual(f.call(self.quinn, task).json["ownership_actions"], [])
+        f.call(self.quinn, task + "/ownership", method="POST", status=403, json={
+            "action": "reopen", "reason": "Repeat the check.", "force": True, "force_reason": "Recheck the sample.",
+        })
+        self.assertEqual(f.call(self.quinn, task).json["task"]["state"], "done")
 
     def test_offline_cli_closes_with_a_related_ticket(self):
         result = self.fixture.cli("close", "T-1", "Keep the original.", "--by", self.owner, "--related", "COURSE-1")

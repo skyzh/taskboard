@@ -19,6 +19,7 @@ import TaskDetailsEdit from './TaskDetailsEdit.jsx'
 import TaskOwnership from './TaskOwnership.jsx'
 import TaskProjectMove from './TaskProjectMove.jsx'
 import TaskTags from './TaskTags.jsx'
+import TaskTransition from './TaskTransition.jsx'
 import TicketFields from './TicketFields.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import {
@@ -199,6 +200,14 @@ function ActivityWait({ event, headline }) {
 
 function ActivityChanges({ event }) {
   const context = event.context || {}
+  if (context.transition_override?.reason) {
+    return (
+      <details className="event-disclosure">
+        <summary>Override reason</summary>
+        <p>{context.transition_override.reason}</p>
+      </details>
+    )
+  }
   if (context.previous_dri !== undefined && context.next_dri !== undefined && context.previous_dri !== context.next_dri) {
     const previous = context.previous_dri ? profileName(context.previous_dri, event.previous_dri_profile) : 'Unassigned'
     const current = context.next_dri ? profileName(context.next_dri, event.next_dri_profile) : 'Unassigned'
@@ -470,7 +479,8 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const canEditChecklist = record?.can_edit_checklist ?? record?.tag_editable
   const canEditChecklistText = record?.can_edit_checklist_text ?? canEditChecklist
   const canAnswer = task && mayAnswer(task, session)
-  const ownsReturnPath = task && session.data?.actor?.id && session.data.actor.id === task.dri
+  const ownsTicket = task && signedIn && session.data.actor.id && session.data.actor.id === task.dri
+  const ownsReturnPath = ownsTicket
     && ['ready', 'in_progress', 'parked'].includes(task.state)
   const showReturnPath = !record?.goal && typeof record?.can_edit_parking === 'boolean'
     ? signedIn && record.can_edit_parking : ownsReturnPath
@@ -582,8 +592,10 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               </details>
             )}
             <div hidden={!showActions}>
-              <TaskOwnership task={task} actions={record.ownership_actions} project={taskProject}
-                revision={revision} onChanged={onChanged} />
+              <TaskTransition key={task.event_id} task={task} actions={record.transition_actions}
+                ownsTicket={ownsTicket} onChanged={onChanged} />
+              <TaskOwnership key={task.event_id} task={task} actions={record.ownership_actions} project={taskProject}
+                revision={revision} canAssignOnReopen={record.can_assign_on_reopen} onChanged={onChanged} />
               {signedIn && record.move_destinations?.length > 0 &&
                 <TaskProjectMove key={task.key} task={task} destinations={record.move_destinations} onMoved={onMoved} />}
               {record.can_edit_details && <TaskDetailsEdit key={`details-${task.id}`} task={task} brief={record.brief}

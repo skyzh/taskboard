@@ -35,10 +35,11 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_create_ticket` | Create a Ready ticket under your signed identity. |
 | `taskboard_edit_ticket` | Correct a work ticket or Knowledge entry's title or brief and record the reason. |
 | `taskboard_log` | Record a contribution without advancing the ticket. |
-| `taskboard_start` | Start an owned Ready ticket and describe the step. |
-| `taskboard_update` | Record progress and the next step on your active ticket. |
+| `taskboard_start` | Start a Ready ticket and describe the step. |
+| `taskboard_update` | Record progress and the next step on an active ticket. |
 | `taskboard_create_project` | Create a shared project when your signed identity has the project creation grant. |
-| `taskboard_done` | Complete your ticket and record the checked outcome. |
+| `taskboard_done` | Complete an active ticket and record the checked outcome. |
+| `taskboard_reopen` | Return completed or closed work to Ready and keep its assignee. |
 
 For ETA, checklist changes, named waits, reminders, handoffs, and goals, run
 `./tasks --shared capabilities` and see the
@@ -58,6 +59,10 @@ For ETA, checklist changes, named waits, reminders, handoffs, and goals, run
 5. Read the returned `receipt` and the board's `next_step` when present. If the
    write outcome is unknown, read the ticket or queue before deciding whether
    to retry.
+
+If the board asks for confirmation on a teammate’s ticket, retry the transition
+with `force: true` and a nonempty `force_reason`. Reopening requires `ticket`
+and `reason` describing the work to revisit.
 
 With no project filter, the queue and review tools follow the shared CLI's
 cross-project scope. With a project, they return only work from that project.

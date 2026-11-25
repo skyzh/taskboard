@@ -19,6 +19,9 @@ let DecisionForm
 let TaskClosure
 let TaskDetailsEdit
 let TaskOwnership
+let TaskTransition
+let TaskActivityUpdate
+let TransitionFeedback
 let TaskProjectMove
 let TaskTags
 let ReminderDate
@@ -52,6 +55,9 @@ before(async () => {
         export { default as TaskClosure } from './TaskClosure.jsx'
         export { default as TaskDetailsEdit } from './TaskDetailsEdit.jsx'
         export { default as TaskOwnership } from './TaskOwnership.jsx'
+        export { default as TaskTransition } from './TaskTransition.jsx'
+        export { default as TaskActivityUpdate } from './TaskActivityUpdate.jsx'
+        export { default as TransitionFeedback } from './TransitionFeedback.jsx'
         export { default as TaskProjectMove } from './TaskProjectMove.jsx'
         export { default as TaskTags } from './TaskTags.jsx'
         export { default as ReminderDate } from './ReminderDate.jsx'
@@ -130,6 +136,7 @@ before(async () => {
   new Function('require', 'module', result.outputFiles[0].text)(require, module)
   ;({
     WorkLog, WorkQueue, TaskDetail, DecisionForm, TaskClosure, TaskDetailsEdit, TaskOwnership, TaskProjectMove, TaskTags,
+    TaskTransition, TaskActivityUpdate, TransitionFeedback,
     ReminderDate, PendingReports, Reports, AssigneePage, EventRow, OutcomeRow, Outcomes,
     TimeZoneContext, createTimeZoneFormatters,
     Notifications, GoalActivity, DriGoal, DriMilestones, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity, Knowledge,
@@ -296,7 +303,7 @@ test('task reminders show the selected local time and reopen the exact instant i
   assert.doesNotMatch(dateOnly, /Exact time|datetime-local/)
 })
 
-test('only the owner can park ordinary work, and a parked task needs a return path', () => {
+test('parking follows ticket capabilities and parked work needs a return path', () => {
   const task = { id: 1, key: 'T-1', event_id: 1, title: 'Check the export', state: 'ready',
     summary_label: 'Next step', dri: 'Avery', note: 'Inspect the export.', links: [] }
   const session = { data: { actor: { id: 'Avery', kind: 'agent' } } }
@@ -318,6 +325,9 @@ test('only the owner can park ordinary work, and a parked task needs a return pa
   assert.doesNotMatch(detail({}, null, session, false), /<summary>Park work<\/summary>/)
   assert.match(detail({ state: 'waiting' }, null, session, true), /<summary>Park work<\/summary>/)
   assert.doesNotMatch(detail({}, null, {}, true), /<summary>Park work<\/summary>/)
+  const teammate = { data: { actor: { id: 'Blake', kind: 'agent' } } }
+  assert.match(detail({}, null, teammate, true), /<summary>Park work<\/summary>/)
+  assert.doesNotMatch(detail({}, null, teammate), /<summary>Park work<\/summary>/)
 
   const parked = { state: 'parked' }
   const legacy = detail(parked)
@@ -1594,7 +1604,7 @@ test('closed tickets show their reason and related ticket and retain the manager
   ]) {
     fixture.resources = { '/tasks/COURSE-7': { data: {
       task: { ...task, state, display_state: displayState, context: displayState ? context : {} },
-      can_close: canClose, ownership_actions: actions, checklist: [], sources: [], workers: [],
+      can_close: canClose, ownership_actions: actions, can_assign_on_reopen: true, checklist: [], sources: [], workers: [],
     } } }
     fixture.pages = {}
     fixture.state = []
@@ -1602,7 +1612,8 @@ test('closed tickets show their reason and related ticket and retain the manager
     if (displayState) {
       assert.match(detail, /aria-label="Closure reason"><h2>Closure reason<\/h2>/)
       assert.match(detail, /href="#task-COURSE-2"/)
-      assert.match(detail, /<option value="reopen" selected="">Reopen<\/option>/)
+      assert.match(detail, /<summary>Reopen ticket<\/summary>/)
+      assert.match(detail, /Keep (?:current owner|unassigned)/)
     }
     if (state === 'ready' && canClose) assert.match(detail, /<summary>Close task<\/summary>/)
     else assert.doesNotMatch(detail, /<summary>Close task<\/summary>/)
@@ -1647,7 +1658,7 @@ test('closing a task submits its reason and optional related ticket and retains 
       { path: '/tasks/COURSE-7/closure', method: 'POST', body: { reason: 'Duplicate work.', related: 'COURSE-1' } },
     ])
     assert.equal(changed, 1)
-    assert.deepEqual(updates, [true, null, 'The related ticket could not be found.', false])
+    assert.deepEqual(updates, [true, null, { error: true, text: 'The related ticket could not be found.' }, false])
     fixture.state = ['Duplicate work.', ' COURSE-1 ', false, updates[2]]
     const failed = renderToStaticMarkup(React.createElement(TaskClosure, props))
     assert.match(failed, /data-reload-blocked="true"/)
@@ -1954,6 +1965,129 @@ test('ownership forms post allowed changes and keep the reason and owner after f
     assert.match(failed, /Sample Reviewer \(Person\)<\/option>/)
     assert.doesNotMatch(failed, /Original Owner|raft:agent:missing-name|>raft:/)
   } finally {
+    delete fixture.request
+    delete fixture.onSetState
+  }
+})
+
+test('a writer reopens with the current owner and explicitly retries a warning with a reason', async () => {
+  const task = { id: 7, key: 'COURSE-7', state: 'done', dri: 'raft:agent:fixture-owner' }
+  const props = { task, actions: ['reopen'], project: 'COURSE', canAssignOnReopen: false, onChanged() {} }
+  const event = { preventDefault() {} }
+  const expected = { path: '/tasks/COURSE-7/ownership', method: 'POST', body: { action: 'reopen', reason: 'The work needs another pass.' } }
+  const sent = []
+  const updates = []
+  fixture.pages = { '/assignees': () => assert.fail('Peer reopen should not load the owner picker') }
+  fixture.request = async (path, options) => {
+    sent.push({ path, ...options })
+    if (sent.length === 1) throw Object.assign(new Error('This ticket belongs to another DRI.'), {
+      status: 409, code: 'TRANSITION_CONFIRMATION_REQUIRED',
+    })
+  }
+  fixture.onSetState = value => updates.push(value)
+  function draft(feedback = null, forceReason = '') {
+    fixture.state = [true, '', '', 'The work needs another pass.', false, feedback, forceReason]
+    return React.createElement(TaskOwnership, props)
+  }
+  try {
+    const initial = draft()
+    const html = renderToStaticMarkup(initial)
+    assert.match(html, /<summary>Reopen ticket<\/summary>/)
+    assert.doesNotMatch(html, /New owner|Apply override/)
+
+    function form(feedback, reason) {
+      return React.Children.toArray(TaskOwnership(draft(feedback, reason).props).props.children)
+        .find(child => child.type === 'form')
+    }
+    function controls(currentForm) {
+      const feedback = React.Children.toArray(currentForm.props.children).find(child => child.type === TransitionFeedback)
+      return React.Children.toArray(TransitionFeedback(feedback.props).props.children)
+        .flatMap(child => child.type === React.Fragment ? React.Children.toArray(child.props.children) : child)
+    }
+
+    await form().props.onSubmit(event)
+    assert.deepEqual(sent, [expected])
+    const warning = updates[2]
+    const warned = renderToStaticMarkup(draft(warning))
+    assert.match(warned, /role="alert">This ticket belongs to another DRI\./)
+    assert.match(warned, /Reason for overriding the warning/)
+    assert.match(warned, /type="button" disabled="">Apply override<\/button>/)
+
+    const missingReason = form(warning, '  ')
+    await missingReason.props.onSubmit(event)
+    await controls(missingReason).find(child => child.props.children === 'Apply override').props.onClick()
+    assert.deepEqual(sent, [expected])
+
+    const retry = controls(form(warning, '  Verified the regression in review.  '))
+      .find(child => child.props.children === 'Apply override')
+    assert.equal(retry.props.disabled, false)
+    await retry.props.onClick()
+    assert.deepEqual(sent, [expected, { ...expected,
+      body: { ...expected.body, force: true, force_reason: 'Verified the regression in review.' },
+    }])
+  } finally {
+    delete fixture.request
+    delete fixture.onSetState
+  }
+})
+
+test('ticket status controls submit the chosen transition and require an unblock condition and target when waiting', async () => {
+  const props = { task: { id: 7, key: 'COURSE-7' }, actions: ['wait', 'update'], onChanged() {} }
+  const sent = []
+  const event = { preventDefault() {} }
+  fixture.request = async (path, options) => { sent.push({ path, ...options }) }
+  function form(action, note, waitKind, target) {
+    fixture.state = [action, note, waitKind, target]
+    return React.Children.toArray(TaskTransition(props).props.children).find(child => child.type === 'form')
+  }
+  try {
+    fixture.state = ['wait']
+    const waiting = renderToStaticMarkup(React.createElement(TaskTransition, props))
+    assert.match(waiting, /<option value="wait" selected="">Record a wait<\/option>/)
+    assert.match(waiting, /Unblock condition/)
+    assert.doesNotMatch(waiting, /Start work|Complete ticket|Return to Ready|Person or DRI/)
+    fixture.state = ['wait']
+    assert.match(renderToStaticMarkup(React.createElement(TaskTransition, { ...props, ownsTicket: true })), /Person or DRI/)
+    await form('wait', '  ', 'ticket', 'COURSE-2').props.onSubmit(event)
+    await form('wait', 'Confirm the export.', 'ticket', '  ').props.onSubmit(event)
+    assert.equal(sent.length, 0)
+
+    await form('update', ' Check the sample. ', 'ticket', '').props.onSubmit(event)
+    await form('wait', ' Confirm the export. ', 'ticket', ' COURSE-2 ').props.onSubmit(event)
+    await form('wait', ' Wait for the nightly check. ', 'automation', ' nightly export ').props.onSubmit(event)
+    assert.deepEqual(sent, [
+      { path: '/tasks/COURSE-7/transition', method: 'POST', body: { transition: 'update', note: 'Check the sample.' } },
+      { path: '/tasks/COURSE-7/transition', method: 'POST', body: { transition: 'wait', note: 'Confirm the export.', blocked_by: 'COURSE-2' } },
+      { path: '/tasks/COURSE-7/transition', method: 'POST', body: { transition: 'wait', note: 'Wait for the nightly check.', on: 'nightly export', automation: true } },
+    ])
+  } finally {
+    delete fixture.request
+  }
+})
+
+test('confirming a blocker retains the exact waiting event and offers no override for an access denial', async () => {
+  const props = { task: { id: 7, key: 'COURSE-7', event_id: 41 }, confirmBlocker: true, onChanged() {} }
+  const sent = []
+  const updates = []
+  fixture.request = async (path, options) => {
+    sent.push({ path, ...options })
+    throw Object.assign(new Error('Project write access is required.'), { status: 403 })
+  }
+  fixture.onSetState = value => updates.push(value)
+  try {
+    fixture.directIds = ['evidence']
+    fixture.state = [' Export verified. ', ' https://example.test/check ']
+    const form = React.Children.toArray(TaskActivityUpdate(props).props.children).find(child => child.type === 'form')
+    await form.props.onSubmit({ preventDefault() {} })
+    assert.deepEqual(sent, [{ path: '/tasks/COURSE-7/confirm-blocker', method: 'POST',
+      body: { note: 'Export verified.', wait_event: 41, url: 'https://example.test/check' },
+    }])
+    fixture.state = [' Export verified. ', ' https://example.test/check ', false, updates[2]]
+    const denied = renderToStaticMarkup(React.createElement(TaskActivityUpdate, props))
+    assert.match(denied, /role="alert">Project write access is required\./)
+    assert.doesNotMatch(denied, /Apply override/)
+  } finally {
+    delete fixture.directIds
     delete fixture.request
     delete fixture.onSetState
   }

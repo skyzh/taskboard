@@ -1,49 +1,40 @@
 import React, { useState } from 'react'
-import { request } from './data.js'
+import TransitionFeedback, { useTransitionRequest } from './TransitionFeedback.jsx'
 
 export default function TaskClosure({ task, onChanged }) {
   const [reason, setReason] = useState('')
   const [related, setRelated] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [failure, setFailure] = useState(null)
+  const mutation = useTransitionRequest(() => {
+    setReason('')
+    setRelated('')
+    onChanged()
+  })
 
-  async function submit(event) {
+  function submit(event) {
     event.preventDefault()
-    if (saving || !reason.trim()) return
-    setSaving(true)
-    setFailure(null)
-    try {
-      await request(`/tasks/${encodeURIComponent(task.key || task.id)}/closure`, {
-        method: 'POST',
-        body: { reason: reason.trim(), ...(related.trim() && { related: related.trim() }) },
-      })
-      setReason('')
-      setRelated('')
-      onChanged()
-    } catch (error) {
-      setFailure(error.message)
-    } finally {
-      setSaving(false)
-    }
+    if (!reason.trim()) return
+    return mutation.submit(`/tasks/${encodeURIComponent(task.key || task.id)}/closure`, {
+      reason: reason.trim(), ...(related.trim() && { related: related.trim() }),
+    })
   }
 
   return (
     <details className="task-ownership">
       <summary>Close task</summary>
       <form className="ownership-form" onSubmit={submit}
-        data-reload-blocked={Boolean(saving || reason || related)}>
+        data-reload-blocked={Boolean(mutation.blocked || reason || related)}>
         <label>
           Closure reason
           <textarea value={reason} rows={2} maxLength={180} onChange={event => setReason(event.target.value)}
-            disabled={saving} required />
+            disabled={mutation.blocked} required />
         </label>
         <label>
           Related ticket (optional)
           <input type="text" value={related} maxLength={28} onChange={event => setRelated(event.target.value)}
-            disabled={saving} />
+            disabled={mutation.blocked} />
         </label>
-        {failure && <p role="alert">{failure}</p>}
-        <button type="submit" disabled={saving || !reason.trim()}>{saving ? 'Closing…' : 'Close task'}</button>
+        <button type="submit" disabled={mutation.blocked || !reason.trim()}>{mutation.saving ? 'Closing…' : 'Close task'}</button>
+        <TransitionFeedback mutation={mutation} />
       </form>
     </details>
   )

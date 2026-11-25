@@ -61,8 +61,29 @@ class LocalDRIRoutingTest(unittest.TestCase):
                 action(client, "knowledge-stage", {"id": note, "source": owned}, headers=headers)
                 peer = action(manager, "create-task", {"project": "OPS", "title": "Handoff a sample",
                               "step": "Check the result."})["receipt"].split()[0]
-                action(client, "advance-task", {"id": peer, "transition": "start", "note": "Start."},
-                       headers=headers, status=409)
+                forced = {"force": True, "force_reason": "I verified the sample with the owner."}
+                action(manager, "edit-checklist", {"id": peer, "action": "add", "label": "Read the sample."})
+                denied = action(client, "advance-task", {"id": peer, "transition": "start", "note": "Read the sample.",
+                                "checked": "[1]", **forced}, headers=headers, status=409)
+                self.assertNotIn("code", denied)
+                wait = {"on": "fixture automation", "automation": True}
+                for transition, fields in (
+                    ("start", {}), ("update", {}), ("wait", wait), ("resume", {}),
+                    ("park", {"review_after": "2099-06-01"}), ("remind", {"review_after": "2099-06-02"}),
+                    ("unpark", {}), ("start", {}), ("done", {}),
+                ):
+                    payload = {"id": peer, "transition": transition, "note": "Verify the sample.", **fields}
+                    warning = action(client, "advance-task", payload, headers=headers, status=409)
+                    self.assertEqual(warning.get("code"), "TRANSITION_CONFIRMATION_REQUIRED", (transition, warning))
+                    action(client, "advance-task", {**payload, **forced}, headers=headers)
+                reopen = {"id": peer, "action": "reopen", "reason": "Read the corrected sample."}
+                warning = action(client, "change-ownership", reopen, headers=headers, status=409)
+                self.assertEqual(warning["code"], "TRANSITION_CONFIRMATION_REQUIRED")
+                action(client, "change-ownership", {**reopen, **forced}, headers=headers)
+                self.assertEqual(call(manager, f"/api/v1/tasks/{peer}").json["task"]["dri"], manager_id)
+                activity = action(manager, "task-activity", query_string={"id": peer})["items"]
+                self.assertEqual(activity[0]["actor"], actor_id)
+                self.assertEqual(activity[0]["context"]["transition_override"]["reason"], forced["force_reason"])
                 action(client, "change-ownership", {"id": peer, "action": "reassign", "owner": recipient,
                        "reason": "Manager action."}, headers=headers, status=403)
                 action(client, "handoff", {"id": peer, "owner_name": "@quinn", "note": "Read the result."},
@@ -75,6 +96,8 @@ class LocalDRIRoutingTest(unittest.TestCase):
         core = action(manager, "create-task", {"project": "T", "title": "Outside sample",
                       "step": "Read the sample."})["receipt"].split()[0]
         action(client, "handoff", {"id": core, "owner": human_id, "note": "Read."}, headers=local, status=403)
+        action(client, "advance-task", {"id": core, "transition": "start", "note": "Read.", **forced},
+               headers=local, status=403)
         action(foreign_agent, "handoff", {"id": core, "owner": human_id, "note": "Read."}, status=409)
         action(foreign_agent, "create-knowledge", {"project": "T", "title": "Outside note",
                "brief": "Use the sample."}, status=403)
