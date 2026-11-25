@@ -30,6 +30,12 @@ oidc = [
 postgres = [
     "psycopg[binary]>=3.2,<4",
 ]
+webpush = [
+    "cryptography>=46,<51",
+    "py-vapid>=1.9,<2",
+    "pywebpush>=2.5,<3",
+    "requests>=2,<3",
+]
 
 [tool.ruff.lint]
 select = ["F821", "F822", "F823"]

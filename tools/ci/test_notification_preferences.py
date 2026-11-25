@@ -87,6 +87,10 @@ class StorageReplayTest(unittest.TestCase):
     def test_postgres(self):
         self.replay(self.postgres_app(self.postgres_fixture()))
 
+    def test_postgres_browser_push(self):
+        dsn = self.postgres_fixture()
+        self.board.replay_browser_push(lambda config: self.postgres_app(dsn, browser_push_config=config))
+
     def test_postgres_adopts_profiles_from_before_short_roles(self):
         dsn = self.postgres_fixture()
         owner, owner_id = self.board.login(self.postgres_app(dsn), "Avery")
