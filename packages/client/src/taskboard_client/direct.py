@@ -14,7 +14,7 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 import webbrowser
 
-from .connection import APP_REJECTION, SharedBoard, SharedReadError, TEMPORARY_READ_STATUS, reply_json
+from .connection import APP_REJECTION, SharedBoard, SharedReadError, TEMPORARY_READ_STATUS, attention_retry_hint, reply_json
 
 
 TOKEN = re.compile(r"tbpa_[A-Za-z0-9_-]{43}")
@@ -157,7 +157,13 @@ class DirectBoard(SharedBoard):
             raise ValueError("Provide an /api/v1/ path and an optional encoded query.")
         if parsed.path.startswith("/api/v1/personal-agents/cli-"):
             raise ValueError("Use the Taskboard login or logout command for CLI sign-in.")
-        status, result = self.request(path, method, body)
+        retry_hint = attention_retry_hint(body) if parsed.path == "/api/v1/raft/raise-attention" and method == "POST" else None
+        try:
+            status, result = self.request(path, method, body)
+        except RuntimeError as error:
+            if retry_hint:
+                raise RuntimeError(retry_hint) from error
+            raise
         if not 200 <= status < 300:
             if status == 401:
                 message = "Sign in with `tasks --shared --url BOARD login`, or use trusted tailnet access."
@@ -167,7 +173,7 @@ class DirectBoard(SharedBoard):
             if method == "GET":
                 raise SharedReadError(message, reason=f"http-{status}", retryable=status in TEMPORARY_READ_STATUS)
             if status not in APP_REJECTION:
-                raise RuntimeError("Shared write outcome unknown. Read the record before retrying.")
+                raise RuntimeError(retry_hint or "Shared write outcome unknown. Read the record before retrying.")
             raise RuntimeError(message)
         return result
 
@@ -176,7 +182,8 @@ class DirectBoard(SharedBoard):
         if write:
             response = self.api(path, "POST", params or {})
             if not isinstance(response.get("receipt"), str) or not response["receipt"].strip():
-                raise RuntimeError("Shared write outcome unknown. Read the record before retrying.")
+                retry_hint = attention_retry_hint(params) if action == "raise-attention" else None
+                raise RuntimeError(retry_hint or "Shared write outcome unknown. Read the record before retrying.")
             return response
         query = urlencode(params or {})
         return self.api(f"{path}?{query}" if query else path, "GET")

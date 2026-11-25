@@ -15,6 +15,7 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(tools), {
             "taskboard_context", "taskboard_queue", "taskboard_ticket", "taskboard_reviews",
             "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_reopen", "taskboard_create_project",
+            "taskboard_assign_human", "taskboard_raise_attention",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
             "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel", "taskboard_checkpoint",
         })

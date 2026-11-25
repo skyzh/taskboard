@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Needs You sends across interfaces.** Use `assign-human` for a blocking Decision or `raise-attention` for a nonblocking request. MCP exposes both actions. Upgrade the board and clients together, and reconnect MCP to discover the tools. [Sending guide](INTERFACE-PARITY.md#send-a-needs-you-ask)
+
 - **Project coordination channel in MCP.** Update and reconnect the adapter to use `taskboard_raft_channel`. Project managers can read the same channel setting as in the signed CLI. [MCP tool guide](MCP.md#available-tools)
 
 - **Seven-day human sign-in.** New human sessions in fixed-server durable mode last up to seven days. Existing sessions keep their expiry and continue to use live checks and sign-out. [Session policy](SHARED-BOARD.md#enable-durable-human-browser-sessions)

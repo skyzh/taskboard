@@ -97,7 +97,8 @@ ATTENTION_SCHEMA = """
         raised_at TEXT NOT NULL,
         handled_at TEXT,
         remind_on TEXT,
-        unblocks_task_id INTEGER REFERENCES tasks (id)
+        unblocks_task_id INTEGER REFERENCES tasks (id),
+        request_key TEXT
     )
 """
 
@@ -371,6 +372,9 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
         db.execute("ALTER TABLE attention_requests ADD COLUMN remind_on TEXT")
     if "unblocks_task_id" not in attention_columns:
         db.execute("ALTER TABLE attention_requests ADD COLUMN unblocks_task_id INTEGER REFERENCES tasks (id)")
+    if "request_key" not in attention_columns:
+        db.execute("ALTER TABLE attention_requests ADD COLUMN request_key TEXT")
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS attention_request_key ON attention_requests (task_id, sender, request_key)")
     db.execute(NOTIFICATION_PREFERENCES)
     db.execute(wake_subscriptions.SCHEMA)
     for statement in notification_log.SCHEMA:
@@ -1464,10 +1468,17 @@ def create_app(
             step for step in ledger.PROJECT_WRITER_TRANSITIONS
             if step not in ("park", "remind") and task["state"] in ledger.TRANSITIONS[step][0]
         ] if ordinary and task["dri"] and (owns or collaborator) else []
+        needs_you_actions = []
+        local = g.get("local_dri")
+        if owns and not is_note and (local is None or local["human_questions"] == local_dri.TASKBOARD):
+            needs_you_actions.append("attention")
+            if task["state"] in ledger.TRANSITIONS["assign-human"][0]:
+                needs_you_actions.append("decision")
         return {
             **result, "ownership_actions": ownership,
             "can_assign_on_reopen": allowed,
             "transition_actions": transition_actions,
+            "needs_you_actions": needs_you_actions,
             "tag_editable": details_editable,
             "can_tag_decision_record": not is_note and editable,
             "can_edit_checklist": not is_note and editable,
@@ -2432,6 +2443,19 @@ def create_app(
             raise RequestError("Choose an ordinary task transition.")
         return advance(actor, data, task_number(number))
 
+    @app.post("/api/v1/tasks/<number>/needs-you")
+    def task_needs_you(number):
+        actor = current_actor(write=True, required=True)
+        data = json_body({"kind", "note", "on", "options", "reason", "recipient", "request_key"})
+        kind = data.pop("kind", None)
+        if kind == "decision" and data.keys() <= {"note", "on", "options"}:
+            if "options" in data:
+                data["options"] = json.dumps(data["options"])
+            return advance(actor, {**data, "transition": "assign-human"}, task_number(number))
+        if kind == "attention" and data.keys() <= {"reason", "recipient", "request_key"}:
+            return raise_attention(actor, task_number(number), data)
+        raise RequestError("Choose a Decision or attention request and send its documented fields.")
+
     @app.post("/api/v1/tasks/<number>/closure")
     def task_closure(number):
         actor = current_actor(write=True)
@@ -3125,10 +3149,19 @@ def create_app(
     def raise_attention(actor, number, data):
         local = g.get("local_dri")
         sender = actor["ledger_key"]
-        recipient = text(data, "recipient", optional=local is not None and "recipient" not in data, maximum=160)
+        if "recipient_name" in data:
+            if "recipient" in data:
+                raise RequestError("Use either a name or an exact ID for the attention recipient.")
+            project, _ = projects.identifier(projects.for_task(db(), number))
+            recipient = resolve_assignee(text(data, "recipient_name", maximum=101), "human", project)
+        else:
+            recipient = text(data, "recipient", optional=local is not None and "recipient" not in data, maximum=160)
         recipient = local_question_recipient(local, recipient) if local else require_person(recipient, "human")
         reason = text(data, "reason")
-        links = one_link(data)
+        links = json.dumps(one_link(data))
+        request_key = text(data, "request_key", optional=True, maximum=100)
+        if request_key is not None and not re.fullmatch(r"[A-Za-z0-9_-]+", request_key):
+            raise RequestError("Use letters, digits, hyphens or underscores in the request key.")
         unblocks = task_number(data["unblocks"]) if "unblocks" in data else None
         with tasks_storage.write(db()) as connection:
             task = ledger.find_task(connection, number)
@@ -3138,17 +3171,30 @@ def create_app(
                 raise RequestError("Raise attention from a linked work ticket.", 409)
             if task["dri"] != sender:
                 raise RequestError("Only the task owner can raise an attention request.", 403)
+            receipt = f"{projects.row_reference(task)} · Attention requested"
+            if request_key is not None:
+                previous = connection.execute(
+                    "SELECT id, recipient, reason, links, raised_at, unblocks_task_id FROM attention_requests "
+                    "WHERE task_id = ? AND sender = ? AND request_key = ?", (number, sender, request_key),
+                ).fetchone()
+                if previous is not None:
+                    if (previous["recipient"], previous["reason"], previous["links"], previous["unblocks_task_id"]) != (
+                        recipient, reason, links, unblocks,
+                    ):
+                        raise RequestError("This request key was already used for a different attention request.", 409)
+                    return {"id": previous["id"], "task_id": number, "raised_at": previous["raised_at"], "receipt": receipt}
             if unblocks is not None and connection.execute(
                 "SELECT 1 FROM tasks WHERE id = ?", (unblocks,),
             ).fetchone() is None:
                 raise RequestError("Choose an existing ticket for this request to unblock.", 404)
             raised_at = ledger.timestamp()
             identifier = tasks_storage.insert_id(
-                connection, "INSERT INTO attention_requests (task_id, sender, recipient, reason, links, raised_at, unblocks_task_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)", (number, sender, recipient, reason, json.dumps(links), raised_at, unblocks),
+                connection, "INSERT INTO attention_requests "
+                "(task_id, sender, recipient, reason, links, raised_at, unblocks_task_id, request_key) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (number, sender, recipient, reason, links, raised_at, unblocks, request_key),
             )
             ledger.bump_revision(connection)
-        return {"id": identifier, "task_id": number, "raised_at": raised_at}
+        return {"id": identifier, "task_id": number, "raised_at": raised_at, "receipt": receipt}
 
     @app.get("/api/v1/tasks/<number>/decision/<int:request_id>")
     def decision_receipt(number, request_id):

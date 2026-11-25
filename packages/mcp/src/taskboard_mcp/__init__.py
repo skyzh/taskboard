@@ -1,5 +1,6 @@
 """Expose shared Taskboard operations as local MCP tools."""
 
+import json
 import os
 from typing import Annotated, Any, Literal
 
@@ -8,6 +9,7 @@ from mcp_types import ToolAnnotations
 from pydantic import Field
 
 from taskboard_client import SharedBoard
+from taskboard_client.connection import is_stable_person_id
 from taskboard_client.direct import DirectBoard
 
 
@@ -19,6 +21,7 @@ Note = Annotated[str, Field(description="Current step or result to record on the
 Details = Annotated[str, Field(description="Additional evidence or handoff details. Keep the note to one line.")]
 EvidenceUrl = Annotated[str, Field(description="HTTP or HTTPS link to supporting evidence.")]
 EvidenceLabel = Annotated[str, Field(description="Display label for the evidence link.")]
+HumanRecipient = Annotated[str, Field(description="Signed-in human's exact handle, name, or stable ID.")]
 State = Literal["ready", "in_progress", "waiting", "human_review", "parked", "done", "closed"]
 
 
@@ -150,6 +153,36 @@ def build_server(board: SharedBoard) -> MCPServer:
     ) -> dict[str, Any]:
         """Record a Checkpoint in Activity. Use field guidance for the prompt and example."""
         return ticket_write("record-checkpoint", id=ticket, note=note, details=details, url=url, label=label)
+
+    @server.tool(annotations=write)
+    def taskboard_assign_human(
+        ticket: Ticket,
+        question: Annotated[str, Field(description="Question the recipient must answer to unblock the ticket.")],
+        recipient: HumanRecipient | None = None,
+        options: Annotated[list[str], Field(description="Optional labels for the decision choices.")] | None = None,
+        url: EvidenceUrl | None = None,
+        label: EvidenceLabel | None = None,
+    ) -> dict[str, Any]:
+        """Ask for a Decision on an owned In progress ticket. A Taskboard-mode Local DRI defaults to its creator."""
+        fields = {}
+        if recipient is not None:
+            fields["on" if is_stable_person_id(recipient, "human") else "on_name"] = recipient
+        return ticket_write("advance-task", id=ticket, transition="assign-human", note=question,
+                            options=json.dumps(options) if options is not None else None, url=url, label=label, **fields)
+
+    @server.tool(annotations=write)
+    def taskboard_raise_attention(
+        ticket: Ticket,
+        reason: Annotated[str, Field(description="What needs the recipient's attention.")],
+        recipient: HumanRecipient | None = None,
+        unblocks: Ticket | None = None,
+        request_key: Annotated[str, Field(description="Reuse the same key and fields when retrying a send.")] | None = None,
+        url: EvidenceUrl | None = None,
+        label: EvidenceLabel | None = None,
+    ) -> dict[str, Any]:
+        """Send a nonblocking ask from an owned ticket. A Taskboard-mode Local DRI defaults to its creator."""
+        return board.raise_attention(ticket, reason, recipient=recipient, request_key=request_key,
+                                     unblocks=unblocks, url=url, label=label)
 
     def taskboard_create_project(
         prefix: Project,

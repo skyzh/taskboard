@@ -69,15 +69,19 @@ The signed HTTP equivalent is `advance-task` with `transition: assign-human`,
 exact handle or name. Use `redirect-decision` with an explicit new recipient
 to redirect an open Decision on a ticket you own.
 
-For a nonblocking request, use signed `raise-attention` with the ticket `id`
-and `reason`, plus the optional `recipient` ID. This keeps the ticket’s state
-and owner in place. The selected human is the only recipient who can handle it.
+For a nonblocking request, use `tasks --shared --url BOARD --local-dri LOCAL_DRI_ID raise-attention TICKET "Review the sample."`.
+Use `--on` to select another eligible human. The signed `raise-attention`
+action takes the ticket `id` and `reason`, with optional `recipient` ID or
+`recipient_name`. This keeps the ticket’s state and owner in place. The
+selected human handles it from Needs You. Both ask types are also available in
+the [MCP adapter](MCP.md#available-tools).
 
 Choose a human who has signed in to the same board. The ticket stays in the
 Local DRI’s registered project. Boards with the Raft installation role check
 verify a different recipient’s current access when sending. The recipient
-signs in to handle the request. If the receipt is missing, read the ticket and
-its Activity before trying again. Changing the question mode affects new
+signs in to handle the request. If a Decision receipt is missing, read the ticket
+and its Activity before trying again. For an attention request with an unknown
+outcome, retry with the same `--request-key` and fields. Changing the question mode affects new
 questions. The current recipient can still answer an existing Decision.
 
 ## Accept unattended asks

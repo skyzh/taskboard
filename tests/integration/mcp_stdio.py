@@ -10,6 +10,7 @@ import sys
 from tempfile import TemporaryDirectory
 import unittest
 from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlsplit
 
 from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -77,6 +78,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                     await self.verify_project_creation(owner, reviewer, python, origin, cookie, database, avery_environment)
                     await self.verify_ticket_tools(owner, reviewer, python, origin, cookie, blake_cookie,
                                                    avery_environment)
+                    await self.verify_needs_you(owner, reviewer, python, origin, cookie, avery_environment)
                 async with connect(with_lost_receipt(folder, avery_environment)) as owner:
                     lost = await owner.call_tool("taskboard_start", {"ticket": "T-1", "note": "Start the spare fixture."})
                     self.assertTrue(lost.is_error)
@@ -108,6 +110,52 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     {field["source"] for field in signed["fields"].values()}, {"default"},
                 )
+
+    async def verify_needs_you(self, owner, reviewer, python, origin, cookie, environment):
+        with request(origin, MOUNT + "/auth/login", follow_redirects=False) as response:
+            pending = response.headers["Set-Cookie"].split(";", 1)[0]
+            state = parse_qs(urlsplit(response.headers["Location"]).query)["state"][0]
+        with request(origin, MOUNT + "/auth/callback", cookie=pending, query={"code": "Sam", "state": state},
+                     follow_redirects=False) as response:
+            sam_cookie = response.headers["Set-Cookie"].split(";", 1)[0]
+        created = io_action(origin, "create-task", cookie=cookie, data={
+            "title": "Needs You fixture", "step": "Ask about the export.",
+        })
+        ticket = created["receipt"].split()[0]
+        opened = {"ticket": ticket, "reason": "Review the export.", "recipient": "@Sam", "request_key": "one-ask"}
+        rejected = await reviewer.call_tool("taskboard_raise_attention", opened)
+        self.assertTrue(rejected.is_error)
+        self.assertIn("Only the task owner", rejected.content[0].text)
+        attention = await owner.call_tool("taskboard_raise_attention", opened)
+        self.assertFalse(attention.is_error, attention.content)
+        receipt = attention.structured_content
+        self.assertIn(f"Attention request ID: {receipt['id']}", cli_success(
+            python, ROOT, environment, "raise-attention", ticket, opened["reason"], "--on", "@Sam",
+            "--request-key", "one-ask",
+        ))
+        signed = io_action(origin, "raise-attention", cookie=cookie, data={
+            "id": ticket, "reason": opened["reason"], "recipient_name": "Sam", "request_key": "one-ask",
+        })
+        self.assertEqual(signed, receipt)
+        with request(origin, MOUNT + "/api/v1/notifications/requests", cookie=sam_cookie) as response:
+            requests = json.load(response)["items"]
+        self.assertEqual([row["id"] for row in requests], [receipt["id"]])
+        detail = io_action(origin, "task", cookie=cookie, query={"id": ticket})
+        self.assertEqual(detail["task"]["state"], "ready")
+
+        cli_success(python, ROOT, environment, "start", ticket, "Ask about the export.")
+        question = {"ticket": ticket, "question": "Which format?", "recipient": "Sam", "options": ["CSV", "JSON"]}
+        denied = await reviewer.call_tool("taskboard_assign_human", question)
+        self.assertTrue(denied.is_error)
+        sent = await owner.call_tool("taskboard_assign_human", question)
+        self.assertFalse(sent.is_error, sent.content)
+        repeated = await owner.call_tool("taskboard_assign_human", question)
+        self.assertTrue(repeated.is_error)
+        history = io_action(origin, "task-activity", cookie=cookie, query={"id": ticket})["items"]
+        self.assertEqual([row["action"] for row in history].count("assign-human"), 1)
+        with request(origin, MOUNT + "/api/v1/notifications/decisions", cookie=sam_cookie) as response:
+            decision, = json.load(response)["items"]
+        self.assertEqual((decision["note"], decision["context"]["choices"]), (question["question"], ["CSV", "JSON"]))
 
     async def verify_field_guidance(self, owner, reviewer, python, origin, cookie, blake_cookie, environment):
         async def compare(project=None):
@@ -331,6 +379,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(tools), {
             "taskboard_context", "taskboard_queue", "taskboard_reviews", "taskboard_ticket",
             "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_reopen", "taskboard_create_project",
+            "taskboard_assign_human", "taskboard_raise_attention",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
             "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel", "taskboard_checkpoint",
         })

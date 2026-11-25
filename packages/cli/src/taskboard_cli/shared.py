@@ -24,7 +24,7 @@ READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watc
          "search", "knowledge-areas", "knowledge-sweep", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance",
          "worker-check", "projects", ledger.READ}
 WRITES = ADVANCES | {
-    "confirm-blocker", "create-project",
+    "confirm-blocker", "create-project", "raise-attention",
     "add", "transfer", "log", "record-merge", "priority", "watch", "unwatch", "link-source", "link-reference",
     "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "raft-channel-set",
     "wake-subscribe", "wake-unsubscribe", "knowledge-add", "knowledge-assign", "knowledge-place", "knowledge-stage",
@@ -214,6 +214,11 @@ def with_guidance(output, guidance):
 def shared_write(board, args, *, context):
     command = args.command
     data = evidence(args)
+    if command == "raise-attention":
+        return board.raise_attention(
+            task_ref(args.id), args.reason, recipient=args.on, request_key=args.request_key,
+            unblocks=task_ref(args.unblocks) if args.unblocks is not None else None, **data,
+        )
     if command == "save-goal":
         action = command
         data.update(kind=args.kind, summary=args.summary, deadline=args.deadline, project=args.project, milestone=args.milestone,
@@ -533,10 +538,11 @@ def shared_command(args):
                 "wake-unsubscribe": "set-wake-subscription",
                 "worker-check": "worker-check",
                 "create-project": "create-project",
+                "raise-attention": "raise-attention",
             }
             excluded = {command for command, action in action_names.items() if action in limits}
             if context.get("human_questions") != "taskboard":
-                excluded.update(("assign-human", "redirect-decision"))
+                excluded.update(("assign-human", "redirect-decision", "raise-attention"))
             elif context.get("local_question_recipients") is not True:
                 excluded.add("redirect-decision")
             reads, writes = reads - excluded, writes - excluded
@@ -737,6 +743,8 @@ def shared_command(args):
     if command in WRITES:
         result = shared_write(board, args, context=context)
         output = "Committed · " + result["receipt"]
+        if command == "raise-attention":
+            output += f"\nAttention request ID: {result['id']}"
         guidance = result.get("next_step")
         if command in {"done", "transfer"} or (command == PEER_ASK and args.change == "result"):
             fallback = prompts.get("completion") or guidance
