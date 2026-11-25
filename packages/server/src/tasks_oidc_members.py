@@ -106,13 +106,19 @@ def set_membership(db, issuer, subject, *, admitted, ledger_key=None, name=None)
     return account, True
 
 
-def admit(db, issuer, subject, name):
+def admit(db, issuer, subject, name, *, photo=None):
     actor = member(db, issuer, subject)
     if actor is None:
         return False
+    changed = False
     if isinstance(name, str):
         name = name.strip()
         if 0 < len(name) <= 120 and name.isprintable() and name != actor["name"]:
             db.execute("UPDATE board_principals SET name = ? WHERE ledger_key = ?", (name, actor["ledger_key"]))
-            ledger.bump_revision(db)
+            changed = True
+    if photo is not None:
+        key = (actor["server_id"], actor["kind"], actor["subject"])
+        changed = bool(profiles.save_provider_avatar(db, key, *photo)) or changed
+    if changed:
+        ledger.bump_revision(db)
     return True

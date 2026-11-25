@@ -712,9 +712,13 @@ def create_app(
     def oidc_member(subject):
         return oidc_members.member(db(), oidc.issuer, subject)
 
-    def admit_oidc_member(subject, name):
+    def admit_oidc_member(subject, name, picture):
+        actor = oidc_member(subject)
+        if actor is None:
+            return False
+        photo = oidc.profile_photo(actor, picture)
         with tasks_storage.changes(db()) as connection:
-            return oidc_members.admit(connection, oidc.issuer, subject, name)
+            return oidc_members.admit(connection, oidc.issuer, subject, name, photo=photo)
 
     oidc = None
     if oidc_config is not None:

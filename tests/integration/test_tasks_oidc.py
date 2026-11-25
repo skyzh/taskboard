@@ -5,6 +5,7 @@ from tools.checkout import ROOT
 from contextlib import closing
 from hashlib import sha256
 from importlib.util import find_spec
+from io import BytesIO
 from pathlib import Path
 import os
 import sqlite3
@@ -20,6 +21,7 @@ import unittest
 from unittest.mock import patch
 
 from flask import Flask, redirect, request
+from PIL import Image
 from werkzeug.serving import WSGIRequestHandler, make_server
 
 from tasks_service import create_app, set_oidc_member
@@ -52,6 +54,8 @@ class Issuer:
         self.invalid_signature = False
         self.include_id_token = True
         self.metadata_issuer = None
+        self.photos = {}
+        self.photo_requests = []
 
         directory = Path(directory)
         cert = self.certificate = directory / "issuer.pem"
@@ -71,6 +75,7 @@ class Issuer:
         app.add_url_rule("/provider/auth", view_func=self.authorize)
         app.add_url_rule("/provider/token", view_func=self.token, methods=["POST"])
         app.add_url_rule("/provider/jwks", view_func=self.jwks)
+        app.add_url_rule("/photos/<name>", view_func=self.photo)
         self.thread.start()
 
     def close(self):
@@ -85,6 +90,12 @@ class Issuer:
 
     def jwks(self):
         return {"keys": [self.key.as_dict()]}
+
+    def photo(self, name):
+        self.photo_requests.append((name, request.headers.get("Authorization"), request.headers.get("Cookie")))
+        if name == "redirect.png":
+            return redirect(self.origin + "/photos/member.png")
+        return self.photos.get(name, (b"", 503))
 
     def issue_code(self, query):
         assert query["client_id"] == CLIENT
@@ -127,7 +138,10 @@ class OIDCTest(unittest.TestCase):
         self.root = Path(folder.name)
         self.provider = Issuer(self.root)
         self.addCleanup(self.provider.close)
-        self.enterContext(patch.dict(os.environ, {"REQUESTS_CA_BUNDLE": str(self.provider.certificate)}))
+        self.enterContext(patch.dict(os.environ, {
+            "REQUESTS_CA_BUNDLE": str(self.provider.certificate),
+            "SSL_CERT_FILE": str(self.provider.certificate),
+        }))
         self.database = self.root / "tasks.sqlite3"
         self.settings = {"issuer": self.provider.url, "client_id": CLIENT, "client_secret": "synthetic-only",
                          "session_dir": self.root / "sessions"}
@@ -275,10 +289,102 @@ class OIDCTest(unittest.TestCase):
             self.board(portal_reader=True)
         with self.assertRaisesRegex(ValueError, "issuer, client ID"):
             configuration({"TASKS_IDENTITY_PROVIDER": "oidc"})
+        environment = {"TASKS_IDENTITY_PROVIDER": "oidc", "TASKS_OIDC_ISSUER": self.provider.url,
+                       "TASKS_OIDC_CLIENT_ID": CLIENT, "TASKS_OIDC_CLIENT_SECRET": "synthetic-only",
+                       "TASKS_OIDC_SESSION_DIR": str(self.settings["session_dir"]),
+                       "TASKS_OIDC_PHOTO_ORIGIN": self.provider.origin}
+        self.assertEqual(configuration(environment)["photo_origin"], self.provider.origin)
 
     def test_discovery_rejects_a_different_issuer_before_redirect(self):
         self.provider.metadata_issuer = "https://other.example.test"
         self.call(self.app.test_client(), "/auth/login", 503)
+
+    def test_photo_import_requires_configuration_and_admitted_verified_claims(self):
+        photo_url = self.provider.origin + "/photos/member.png"
+        self.provider.claims = {"picture": photo_url}
+        unconfigured = self.app.test_client()
+        self.sign_in(unconfigured)
+        self.assertIsNone(self.actor(unconfigured)["avatar_url"])
+        self.assertEqual(self.provider.photo_requests, [])
+
+        for value in ("http://photos.example.test", "https://photos.example.test/gallery",
+                      "https://photos.example.test?x=1", "https://user@photos.example.test"):
+            self.settings["photo_origin"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "TASKS_OIDC_PHOTO_ORIGIN"):
+                self.board()
+        self.settings["photo_origin"] = self.provider.origin + "/"
+        client = self.board().test_client()
+        self.provider.subject = "unknown"
+        self.sign_in(client, status=403)
+        self.provider.subject = "fixture-one"
+        self.provider.invalid_signature = True
+        self.sign_in(client, status=401)
+        self.provider.invalid_signature = False
+        for claim in ("https://photos.example.test/photo.png", photo_url + "#preview", {"url": photo_url}):
+            self.provider.claims = {"picture": claim}
+            self.sign_in(client)
+            self.assertIsNone(self.actor(client)["avatar_url"])
+        self.assertEqual(self.provider.photo_requests, [])
+
+    def test_photo_is_local_and_manual_override_wins_after_provider_failures(self):
+        image = BytesIO()
+        Image.new("RGB", (300, 150), "blue").save(image, "PNG")
+        self.provider.photos["member.png"] = image.getvalue()
+        self.provider.photos["invalid.png"] = b"<svg xmlns='http://www.w3.org/2000/svg'/>"
+        self.provider.photos["oversized.png"] = bytes(1024 * 1024 + 1)
+        self.settings["photo_origin"] = self.provider.origin
+        client = self.board().test_client()
+        photo_url = self.provider.origin + "/photos/member.png?signature=synthetic"
+        self.provider.claims = {"picture": photo_url}
+        self.sign_in(client)
+        actor = self.actor(client)
+        self.assertEqual(actor["id"], self.one)
+        avatar = actor["avatar_url"].removeprefix(PUBLIC)
+        self.assertTrue(avatar.startswith("/api/v1/avatars/"), avatar)
+        self.call(self.board().test_client(), avatar, 401)
+        result = self.call(client, avatar)
+        self.assertEqual(result.mimetype, "image/png")
+        with Image.open(BytesIO(result.data)) as resized:
+            self.assertEqual(resized.size, (256, 128))
+        with closing(sqlite3.connect(self.database)) as db:
+            source, = db.execute("SELECT provider_avatar_source FROM board_principals WHERE ledger_key = ?",
+                                 (self.one,)).fetchone()
+        self.assertEqual(source, sha256(photo_url.encode()).hexdigest())
+        self.sign_in(client)
+        self.assertEqual(self.provider.photo_requests, [("member.png", None, None)])
+
+        for name in ("unavailable.png", "invalid.png", "oversized.png", "redirect.png"):
+            self.provider.claims = {"picture": self.provider.origin + "/photos/" + name}
+            self.sign_in(client)
+            self.assertEqual(self.actor(client)["avatar_url"], actor["avatar_url"])
+        self.provider.claims = {}
+        self.sign_in(client)
+        self.assertEqual(self.actor(client)["avatar_url"], actor["avatar_url"])
+        self.assertEqual([name for name, _, _ in self.provider.photo_requests],
+                         ["member.png", "unavailable.png", "invalid.png", "oversized.png", "redirect.png"])
+
+        recovered = BytesIO()
+        Image.new("RGB", (40, 40), "yellow").save(recovered, "PNG")
+        self.provider.photos["unavailable.png"] = recovered.getvalue()
+        self.provider.claims = {"picture": self.provider.origin + "/photos/unavailable.png"}
+        self.sign_in(client)
+        refreshed = self.actor(client)["avatar_url"]
+        self.assertNotEqual(refreshed, actor["avatar_url"])
+        self.assertEqual(self.provider.photo_requests[-1], ("unavailable.png", None, None))
+
+        manual = BytesIO()
+        Image.new("RGB", (48, 48), "green").save(manual, "PNG")
+        manual.seek(0)
+        self.call(client, "/api/v1/profile/avatar", method="POST", data={"avatar": (manual, "custom.png")})
+        saved = self.actor(client)["avatar_url"]
+        self.assertNotEqual(saved, refreshed)
+        self.provider.claims = {"picture": self.provider.origin + "/photos/member.png?revision=2"}
+        self.provider.name = "Updated Member"
+        self.sign_in(client)
+        updated = self.actor(client)
+        self.assertEqual((updated["id"], updated["name"], updated["avatar_url"]),
+                         (self.one, "Updated Member", saved))
+        self.assertEqual(len(self.provider.photo_requests), 6)
 
 
 if __name__ == "__main__":
