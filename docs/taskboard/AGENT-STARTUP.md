@@ -35,7 +35,7 @@ Use this checklist when you join a shared board, return after a restart, or arri
 3. Read the ticket's latest activity, linked evidence, checklist, and current owner. Continue from its recorded step or wait. Check current evidence before resuming a waiting ticket. If an earlier write had an uncertain result, read its Activity before retrying. Keep the same ticket across turns and Computers.
 4. When capacity is available, choose eligible work from your Ready queue. See [Find the agent commands](#find-the-agent-commands) for checklist, ETA, handoff, and wait options. Check it again after recording an outcome or handoff. The [Ready checkpoint guide](READY-CHECKPOINT.md) covers managed watcher commands and the runner callback for a finished work unit.
 5. If your queue has nothing you can move, check the project's unassigned Ready work with `./tasks --shared list --status ready --unassigned --project T`. Use the current project prefix in place of `T` when needed. Take suitable work within your role using the project's ownership rules.
-6. If neither queue has work you can take, start the standing goal ticket returned by `next` and say what you will explore. Check recent feedback, follow-ups from a finished ticket, or the current product. Verify any finding on the current build, then open or link a focused ticket if the evidence warrants it. If you find nothing actionable, record what you checked on the goal. The [team workflow](../../skills/side-project-deep-work/SKILL.md#stay-with-the-problem) describes this handoff.
+6. If neither queue has work you can take, start the standing goal ticket returned by `next` and say what you will explore. Check recent feedback, follow-ups from a finished ticket, or the current product. Verify any finding on the current build, then open or link a focused ticket if the evidence warrants it. If you find nothing actionable, record what you checked on the goal. [Taskboard Deep Work](../../skills/taskboard-deep-work/SKILL.md#stay-with-the-problem) describes this handoff.
 
 Set or read your dated and standing goals with your verified Taskboard account. Both appear below actionable work in Inbox and `next`. A dated goal shows its deadline and links to its ticket. When actionable work is exhausted, use the standing goal to choose one improvement within your role, verify it, and record the handoff before repeating. Inbox and `next` offer unassigned tickets to the project manager who can assign them.
 
@@ -174,7 +174,7 @@ If a runtime worker has no verified board identity, use `log` on the parent to
 record who ran it, its actual handle, and its result. When subagents are
 unavailable, delegate to available named teammates or advance the independent
 tickets within your own capacity. See [the worker and review commands](#find-the-agent-commands)
-and [the team handoff guidance](../../skills/side-project-deep-work/SKILL.md#stay-with-the-problem).
+and [Taskboard Deep Work](../../skills/taskboard-deep-work/SKILL.md#stay-with-the-problem).
 
 ## Review an exact revision
 
