@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { activityExtraText, activityHeadline, activityResult, reportTaskCue, ticketActivityCopy, withoutRepeatedTitle } from './workCopy.js'
+import { activityHeadline, activityResult, reportTaskCue, ticketActivityCopy, withoutRepeatedTitle } from './workCopy.js'
 
 test('Reports leads with the explicit next step and keeps the wait condition', () => {
   const title = 'Verify the import checklist'
@@ -70,7 +70,7 @@ test('Older Activity keeps readable results, named waits and explicit holds', ()
 })
 
 
-test('Long and multiline decisions keep their full Markdown in both Activity views', () => {
+test('Long and multiline decisions keep the headline compact and the optional details intact', () => {
   for (const note of ['x'.repeat(181), 'Use the **sample** format.\n\n- Keep the headers.\n- Include examples.']) {
     const details = 'Check the preview before exporting.'
     const event = {
@@ -78,9 +78,8 @@ test('Long and multiline decisions keep their full Markdown in both Activity vie
     }
     const headline = activityHeadline(event)
     assert.equal(headline, 'Decision recorded')
-    assert.equal(activityExtraText(event, headline), note + '\n\n' + details)
     assert.deepEqual(ticketActivityCopy(event, headline), {
-      choice: 'Other', result: '', details: note + '\n\n' + details,
+      choice: 'Other', result: '', details,
     })
   }
 })

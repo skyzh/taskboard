@@ -76,12 +76,8 @@ function waitHeadline(event) {
   return owner ? waitLabel(event) + ' ' + owner : 'Waiting'
 }
 
-function hasExpandedDecisionText(event) {
+export function hasExpandedDecisionText(event) {
   return event.action === 'decide' && (event.note.length > 180 || /[\r\n]/.test(event.note))
-}
-
-function expandedDecisionText(event) {
-  return [event.note, event.details].filter(Boolean).join('\n\n')
 }
 
 export function activityHeadline(event) {
@@ -123,7 +119,6 @@ export function activityHeadline(event) {
 }
 
 export function activityExtraText(event, headline) {
-  if (hasExpandedDecisionText(event)) return expandedDecisionText(event)
   const detail = (event.details ?? event.note).trim()
   const summary = headline.trim()
   if (!summary || !detail.startsWith(summary)) return detail
@@ -136,11 +131,12 @@ export function ticketActivityCopy(event, headline) {
   const withoutPunctuation = text => text.trim().replace(/[.!?]+$/, '')
   const comparable = text => withoutPunctuation(text).toLowerCase()
   const result = choice && (comparable(choice) === comparable(headline) || headline === event.label) ? '' : headline
+  if (hasExpandedDecisionText(event)) return { choice, result, details: event.details }
+
   const waitPrefix = waitHeadline(event) + ' · '
   const shownResult = event.action === 'wait' && result.startsWith(waitPrefix) ? result.slice(waitPrefix.length) : result
   const shown = [shownResult, choice].filter(Boolean)
 
-  if (hasExpandedDecisionText(event)) return { choice, result, details: expandedDecisionText(event) }
   if (event.details != null) {
     const details = shown.reduce((text, item) => withoutRepeatedTitle(text, withoutPunctuation(item)), event.details)
     return { choice, result, details }
