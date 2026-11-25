@@ -163,6 +163,10 @@ test('Jira issue links identify Jira and the issue key while preserving labels a
     'https://example.atlassian.net/issues/?selectedIssue=OPS-12',
     'https://example.atlassian.net/browse/OPS-12/extra',
     'https://user@example.atlassian.net/browse/OPS-12',
+    'https://github.com/jira/tool/blob/main/docs/browse/OPS-12',
+    'https://github.com/jira/browse/OPS-12',
+    'https://example.atlassian.net/wiki/browse/OPS-12',
+    'https://example.atlassian.net/wiki/spaces/DOC/browse/OPS-12',
   ]) {
     assert.equal(evidenceLinkLabel(url, 'Tracking link'), 'Tracking link', url)
   }

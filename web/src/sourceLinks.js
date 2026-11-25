@@ -3,7 +3,7 @@ const activityFragment = /^#event-([1-9]\d*)-log$/
 const githubIssueOrPull = /^\/([\w.-]+\/[\w.-]+)\/(pull|issues)\/([1-9]\d*)(?:\/|$)/
 const githubCommit = /^\/([\w.-]+\/[\w.-]+)\/commit\/([a-f\d]{7,40})(?:\/|$)/i
 const stampPull = /^\/(?:s\/[\w.-]+\/)?github\/([\w.-]+\/[\w.-]+)\/pull\/([1-9]\d*)(?:\/|$)/
-const jiraIssue = /\/browse\/([A-Z][A-Z0-9_]*-[1-9]\d*)\/?$/
+const jiraIssue = /^\/(?:([A-Za-z0-9][A-Za-z0-9._-]*)\/)?browse\/([A-Z][A-Z0-9_]*-[1-9]\d*)\/?$/
 const jiraServer = /^jira(?:[-\d][a-z\d-]*)?(?:\.|$)/
 const fragmentRoute = fragment => fragment.split('?', 1)[0]
 
@@ -41,21 +41,27 @@ function sourceRecord(href, board) {
   if (activity) return { kind: 'Activity', reference: `Activity #${activity[1]}` }
 
   if (url?.protocol !== 'https:' || url.username || url.password) return null
-  if (!url.port && url.hostname === 'github.com') {
+  if (url.hostname === 'github.com') {
+    if (url.port) return null
     const issueOrPull = githubIssueOrPull.exec(url.pathname)
     if (issueOrPull) return { kind: issueOrPull[2] === 'pull' ? 'Pull request' : 'Issue', reference: `${issueOrPull[1]}#${issueOrPull[3]}` }
     const commit = githubCommit.exec(url.pathname)
     if (commit) return { kind: 'Commit', reference: `${commit[1]}@${commit[2].slice(0, 7)}` }
+    return null
   }
-  if (!url.port && url.hostname === 'stamp.build') {
+  if (url.hostname === 'stamp.build') {
+    if (url.port) return null
     const pull = stampPull.exec(url.pathname)
     if (pull) return { kind: 'Stamp review', reference: `${pull[1]}#${pull[2]}` }
+    return null
   }
-  if (url.hostname.endsWith('.atlassian.net') || jiraServer.test(url.hostname) || url.pathname.startsWith('/jira/')) {
-    const issue = jiraIssue.exec(url.pathname)
-    if (issue) return { kind: 'Jira', reference: issue[1] }
-  }
-  return null
+  const issue = jiraIssue.exec(url.pathname)
+  if (!issue) return null
+  const [, context, reference] = issue
+  const knownRoute = url.hostname.endsWith('.atlassian.net')
+    ? !context || context === 'jira'
+    : context === 'jira' || jiraServer.test(url.hostname)
+  return knownRoute ? { kind: 'Jira', reference } : null
 }
 
 export function evidenceLinkLabel(href, label, { generated, board } = {}) {
