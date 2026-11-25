@@ -142,7 +142,7 @@ To roll back, unset the installation ID and restart the service. The
 previous one-hour mode resumes and existing agent sessions still work.
 Before enabling the option again, move
 `raft-human-day-sessions.sqlite3` out of the session directory while the
-service is stopped so previously issued day-long cookies cannot return.
+service is stopped so previously issued durable cookies cannot return.
 The one-hour and agent session database is separate.
 
 Raft does not issue a refresh token for human sign-in. In an ordinary browser,
