@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -9,6 +10,29 @@ const viewports = {
   desktop: { viewport: { width: 1280, height: 850 } },
   compact: phone,
   wide: { ...phone, viewport: { ...phone.viewport, width: 768 } },
+}
+
+async function checkTableKeyboard(page) {
+  const fixtures = JSON.parse(await readFile(new URL('synthetic-api.json', import.meta.url), 'utf8'))
+  const reports = fixtures['/tasks/api/v1/reports?project=T&limit=20']
+  const task = reports.items.flatMap(report => report.tasks).find(item => item.key === 'T-1')
+  task.note = '| First column | Environment | Verification | Last column |\n' +
+    '| --- | --- | --- | --- |\n' +
+    '| Start here | Fictional | LONG_UNBROKEN_REFERENCE_FOR_THE_COMPACT_TABLE_TEST | End here |'
+  await page.route(url => url.pathname === '/tasks/api/v1/reports', route => route.fulfill({ json: reports }))
+  await page.goto(`${url}#reports?project=T`)
+
+  const region = page.getByRole('region', { name: 'Scrollable table' })
+  await region.focus()
+  const max = await region.evaluate(node => node.scrollWidth - node.clientWidth)
+  assert.ok(max > 0)
+  const lastColumn = region.getByRole('cell', { name: 'End here' })
+  const showsLastColumn = () => lastColumn.evaluate(node =>
+    node.getBoundingClientRect().right <= node.closest('.markdown-table').getBoundingClientRect().right + 1)
+  assert.equal(await showsLastColumn(), false)
+  for (let press = 0; press < Math.ceil(max / 40); press++) await region.press('ArrowRight')
+  assert.equal(await showsLastColumn(), true)
+  assert.ok(await region.evaluate(node => document.activeElement === node))
 }
 
 for (const engine of [chromium, webkit]) {
@@ -26,6 +50,7 @@ for (const engine of [chromium, webkit]) {
         ])
         assert.ok(rendered.ok())
         await page.screenshot({ path: join(evidence, `${layout}.png`) })
+        if (layout === 'compact') await checkTableKeyboard(page)
       } finally {
         await page.close()
       }

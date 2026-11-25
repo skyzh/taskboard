@@ -11,6 +11,16 @@ const elements = new Set([
   'em', 'strong', 's', 'thead', 'tbody', 'tr', 'th', 'td',
 ])
 
+function scrollTableWithArrowKey(event) {
+  const region = event.currentTarget
+  if (event.target !== region || region.scrollWidth <= region.clientWidth ||
+      event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+
+  event.preventDefault()
+  region.scrollBy({ left: event.key === 'ArrowLeft' ? -40 : 40, behavior: 'instant' })
+}
+
 function linkedTickets(text, related, tokenIndex) {
   const parts = []
   let end = 0
@@ -48,7 +58,8 @@ function tokensToElements(tokens, links, related) {
         }
       } else if (tag === 'table') {
         parent.push(
-          <div key={opened.index} className="markdown-table" role="region" aria-label="Scrollable table" tabIndex={0}>
+          <div key={opened.index} className="markdown-table" role="region" aria-label="Scrollable table" tabIndex={0}
+            onKeyDown={scrollTableWithArrowKey}>
             <table>{opened.children}</table>
           </div>,
         )
