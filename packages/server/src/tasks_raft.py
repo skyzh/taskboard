@@ -18,6 +18,11 @@ _EVIDENCE = {"url": "HTTP(S) evidence link.", "label": "Display label for the ev
 _NOTE = "Activity or decision to record."
 _DETAILS = "Optional handoff details. Send an empty string for a headline alone. With this field, note is a one-line headline."
 CODEX_SNAPSHOT_ACTION = "install-codex-snapshot"
+STANDING_RAFT_ACTIONS = {
+    "my-wake-subscriptions", "set-wake-subscription", "idle-goal-offer",
+    "my-wake-workers", "worker-check", "worker-check-show",
+}
+STANDING_RAFT_REQUIRED = "This action requires a standing Raft agent."
 
 
 @dataclass(frozen=True)
@@ -34,7 +39,8 @@ class _Action:
         }
         return {
             "name": name,
-            "description": self.description,
+            "description": (f"{self.description} {STANDING_RAFT_REQUIRED}"
+                            if name in STANDING_RAFT_ACTIONS else self.description),
             "endpoint": {"method": self.method, "path": f"{mount}{_ACTION_PREFIX}/{name}"},
             "parameters": parameters,
         }
@@ -42,7 +48,7 @@ class _Action:
 
 _ACTIONS = {
     "context": _Action("GET", "Identify your signed-in Raft principal and board profile."),
-    "list-projects": _Action("GET", "List projects and the default project on the signed-in board."),
+    "list-projects": _Action("GET", "List projects on the signed-in board. A Local DRI sees its registered project."),
     "raft-channel-show": _Action("GET", "Show the selected project's Raft coordination channel.",
                                  {"project": "Taskboard project prefix."}),
     "raft-channel-set": _Action("POST", "Set or clear the project's verified Raft coordination channel.",
@@ -108,7 +114,7 @@ _ACTIONS = {
     "assignees": _Action("GET", "Find board assignees and their stable IDs.", optional={
         "query": "Search by name or handle.", **_PROJECT, **_PAGINATION,
     }),
-    "create-project": _Action("POST", "Create a Taskboard project using the signed actor's project creation grant.", {
+    "create-project": _Action("POST", "Create a project using a human or Team DRI's project creation grant.", {
         "prefix": "Unique project prefix of one to eight letters or digits, starting with a letter.",
         "title": "Project display title.",
     }, {"dri": "Exact verified project owner ID. Defaults to the signed creator."}),
@@ -230,7 +236,7 @@ _ACTIONS = {
     }, {"at": "Whole-second UTC timestamp for an at checkpoint."}),
     "my-watches": _Action("GET", "Read recent activity on tasks you follow.", optional=_PROJECT | _SCOPE | _PAGINATION),
     "my-activity": _Action("GET", "Read the activity of tasks you own or follow.", optional=_PROJECT | _SCOPE | _PAGINATION),
-    "raise-attention": _Action("POST", "Ask a verified human to look at a task you own.", {
+    "raise-attention": _Action("POST", "Ask a verified human to look at a task you own. A Local DRI uses its configured question route.", {
         **_TASK, "recipient": "Human's stable ID from assignees.", "reason": "What needs their attention.",
     }, {"unblocks": "Optional ticket ID whose owner can link its wait to this request.", **_EVIDENCE}),
     "link-github": _Action("POST", "Link a GitHub issue or pull request to a task you own.", {
@@ -324,7 +330,8 @@ def register_actions(app: Flask, *, public_url: str, client_id: str,
     manifest = {
         "schema": "raft-agent-manifest.v0",
         "name": "Tasks Board",
-        "description": "Manage your tasks, worker runs, watches, and assignee profile.",
+        "description": ("Manage your tasks, worker runs, watches, and assignee profile. "
+                        "Local DRI context reports its project and identity-specific action limits."),
         "service": client_id,
         "app_origin": origin,
         "execution": {"mode": "http_api", "base_url": origin},

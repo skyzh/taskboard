@@ -484,12 +484,36 @@ def shared_command(args):
             require_local_dri_context(board.invoke("context"), local_dri)
         return json.dumps(board.api(args.path, args.method, body), ensure_ascii=False)
     if command == "capabilities":
+        reads, writes = READS | {"capabilities"}, WRITES
+        heading = "Taskboard commands for signed-in shared agents"
+        guidance = ("Run `./tasks --shared <command> --help` for options and see "
+                    "docs/taskboard/AGENT-STARTUP.md for when to use them.")
+        if local_dri is not None:
+            context = DirectBoard(direct_url, **direct_options).invoke("context")
+            require_local_dri_context(context, local_dri)
+            limits = context.get("unavailable_actions")
+            if not isinstance(limits, dict):
+                raise ValueError("This board does not advertise Local DRI action limits. Update the board before continuing.")
+            action_names = {
+                "wake-subscriptions": "my-wake-subscriptions",
+                "wake-subscribe": "set-wake-subscription",
+                "wake-unsubscribe": "set-wake-subscription",
+                "worker-check": "worker-check",
+                "create-project": "create-project",
+            }
+            excluded = {command for command, action in action_names.items() if action in limits}
+            excluded.add("redirect-decision")
+            if context.get("human_questions") != "taskboard":
+                excluded.add("assign-human")
+            reads, writes = reads - excluded, writes - excluded
+            heading = f"Taskboard commands for Local DRI · {context['project']}"
+            guidance = ("Actions use your registered project and normal role and ownership checks. "
+                        "Read context for your question route and the signed HTTP manifest.")
         return "\n".join((
-            "Taskboard commands for signed-in shared agents",
-            "Read: " + ", ".join(sorted(READS | {"capabilities"})),
-            "Write: " + ", ".join(sorted(WRITES)),
-            "Run `./tasks --shared <command> --help` for options and see "
-            "docs/taskboard/AGENT-STARTUP.md for when to use them.",
+            heading,
+            "Read: " + ", ".join(sorted(reads)),
+            "Write: " + ", ".join(sorted(writes)),
+            guidance,
         ))
     if command == "inbox":
         raise ValueError(
@@ -635,7 +659,8 @@ def shared_command(args):
             guidance = completion_guidance(board, args.id, fallback, cue=result.get("next_action"))
         return with_guidance(output, guidance or "Check the updated record or your Inbox.")
     if command == "readiness":
-        filters = {"project": args.project} if args.project else {"scope": "all"}
+        project = args.project or context.get("project")
+        filters = {"project": project} if project else {"scope": "all"}
         items = board.pages("my-readiness", filters)
         output = "\n".join(ledger.readiness_line(item, url) for item in items)
         if output:
@@ -714,8 +739,9 @@ def shared_command(args):
                             guidance=prompts.get("workers") if workers_only else None)
     if command == "watched":
         assert_actor(args.person, actor)
+        filters = {"project": context["project"]} if local_dri is not None else {"scope": "all"}
         output = "\n".join(
-            line for event in board.pages("my-watches", {"scope": "all"}) for line in event_lines(event, url)
+            line for event in board.pages("my-watches", filters) for line in event_lines(event, url)
         )
         if output:
             return with_guidance(output, prompts.get("watched", "Open the linked ticket if an update needs action."))
@@ -735,7 +761,10 @@ def shared_command(args):
             "reviews-empty", f"Check for other work with `./tasks --shared next{flag}`.",
         ))
     if not args.project:
-        filters["scope"] = "all"
+        if local_dri is not None:
+            filters["project"] = context["project"]
+        else:
+            filters["scope"] = "all"
     if command == "next":
         return shared_next(board, url, filters, actor)
     if args.status:

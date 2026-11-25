@@ -638,13 +638,16 @@ class BoardQueries:
         return result
 
     def maintained_decision_rows(self, *, search=None, entry=None, source_ticket=None, before=None, limit,
-                                 github_url=None):
+                                 github_url=None, project=None):
         context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
         legacy = f"""({ledger.display_state_sql(context)} = 'done'
             AND tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?))"""
         typed = "tasks.record_kind = 'knowledge' OR " if "record_kind" in ledger.task_columns(self.db) else ""
         terms = [f"({typed}{legacy})"]
         args = [DECISION_RECORD_TAG]
+        if project is not None:
+            terms.append("tasks.project_prefix = ?")
+            args.append(project)
         if before is not None:
             terms.append("events.id < ?")
             args.append(before)
@@ -700,12 +703,12 @@ class BoardQueries:
             )
             return page(rows, limit, "event_id", render)
 
-    def search_with_decisions(self, *, before, limit, search=None, github_url=None):
+    def search_with_decisions(self, *, before, limit, search=None, github_url=None, project=None):
         """Search ordinary T tickets and maintained decisions on the verified board."""
         filters = {"search": search, "github_url": github_url, "before": before}
         with tasks_storage.read(self.db):
-            tickets = self.tasks(project=projects.DEFAULT, limit=limit + 1, **filters)["items"]
-            records = self.maintained_decision_rows(limit=limit, **filters)
+            tickets = self.tasks(project=project or projects.DEFAULT, limit=limit + 1, **filters)["items"]
+            records = self.maintained_decision_rows(limit=limit, project=project, **filters)
             mixed = {task["id"]: {
                 "id": task["id"], "event_id": task["event_id"], "key": task["key"], "title": task["title"],
                 "state": task.get("display_state", task["state"]),

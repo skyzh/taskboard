@@ -36,6 +36,7 @@ import watches
 import workers
 import tasks_storage
 
+from taskboard_server import local_dri
 from taskboard_server.paths import CHECKOUT, DATA, PACKAGE
 
 DEFAULT_DB = DATA / "tasks.sqlite3"
@@ -1921,6 +1922,8 @@ def issue_recurring_task(db, definition, due, as_of):
         if members:
             members.update((schedule["manager"], schedule["owner"]))
         args.brief, links = build(db, args.project, as_of, schedule["cadence_hours"], members or None)
+    elif watches.has_table(db, "local_dris") and (local := local_dri.registration(db, definition["owner"])):
+        args.project = local["project"]
     context = {"recurring": f"R-{definition['id']}", "due_at": due}
     return create_task_record(db, args, links, context=context, at=as_of)
 
