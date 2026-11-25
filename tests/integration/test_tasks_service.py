@@ -5504,6 +5504,66 @@ class TasksServiceTest(unittest.TestCase):
         self.call(manager, path, method="PUT", json={**override, "guidance": None})
         self.assertEqual(self.call(agent, path).json, baseline)
 
+    def test_agent_prompt_overrides_preserve_inheritance_and_writing_fields(self):
+        from tasks_guidance import MAX_PROJECT_PROMPT, load
+
+        configuration = self.database.with_name("agent-guidance.toml")
+        configuration.write_text(
+            '[agent_guidance.prompts]\ncheckpoint = "Record the checked board fixture."\n'
+            'knowledge = "Link the board evidence."\n', encoding="utf-8",
+        )
+        app = self.app(portal_reader=True, agent_guidance=load(configuration))
+        manager, manager_id = self.login(app, "Sam")
+        reader, _ = self.login(app, "Avery")
+        self.cli("register-project", "T", "Tasks Board", "--dri", manager_id)
+        self.cli("register-project", "LAB", "Sample lab", "--dri", manager_id)
+        path = "/api/v1/projects/T/field-guidance"
+        baseline = self.call(reader, path).json
+        inherited = baseline["prompts"]
+        self.assertFalse(baseline["editable"])
+        self.assertEqual(inherited["checkpoint"]["source"], "board")
+        self.assertEqual(inherited["end-task"]["source"], "default")
+        self.assertEqual(inherited["knowledge"], {"prompt": "Link the board evidence.", "source": "board"})
+        revision = self.call(reader, "/api/v1/revision").json
+        override = {"prompt": "checkpoint", "guidance": "Verify the sample.\n\nLink the signed receipt."}
+        self.call(reader, path, method="PUT", json=override, status=403)
+        self.call(app.test_client(), path, method="PUT", json=override, status=401)
+        for invalid in (
+            {"prompt": "unknown", "guidance": "Example."},
+            {"prompt": "checkpoint"},
+            {**override, "field": "title"},
+            {**override, "guidance": " \n "},
+            {**override, "guidance": "a" * (MAX_PROJECT_PROMPT + 1)},
+        ):
+            with self.subTest(invalid=list(invalid)):
+                self.call(manager, path, method="PUT", json=invalid, status=400)
+        self.assertEqual(self.call(reader, "/api/v1/revision").json, revision)
+
+        for name in inherited:
+            saved = self.call(manager, path, method="PUT", json={**override, "prompt": name}).json
+            self.assertEqual(saved["prompts"][name], {
+                **inherited[name], "prompt": override["guidance"], "source": "project",
+            })
+        self.assertEqual(saved["fields"], baseline["fields"])
+        signed = self.action(reader, "field-guidance", query_string={"project": "T"})
+        self.assertEqual(signed["prompts"], saved["prompts"])
+        self.assertEqual(self.action(reader, "field-guidance", query_string={"project": "LAB"})["prompts"], inherited)
+        code, output, error = self.shared_cli(reader, "field-guidance", "knowledge", "--project", "T")
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn(override["guidance"], output)
+
+        revision = self.call(reader, "/api/v1/revision").json
+        self.assertEqual(self.call(manager, path, method="PUT", json=override).json, saved)
+        self.assertEqual(self.call(reader, "/api/v1/revision").json, revision)
+        for name in inherited:
+            self.call(manager, path, method="PUT", json={"prompt": name, "guidance": None})
+        self.assertEqual(self.call(reader, path).json, baseline)
+        with closing(open_sqlite(self.database)) as db:
+            edits = db.execute(
+                "SELECT scope, actor, record_type, record_id FROM audit_events WHERE operation = 'set-agent-prompt'"
+            ).fetchall()
+        self.assertEqual([tuple(event) for event in edits], [("private", manager_id, "project", "T")] * 6)
+
     def test_next_guides_an_assigned_review_even_on_a_completed_ticket(self):
         app = self.app()
         owner, _ = self.login(app, "Avery")

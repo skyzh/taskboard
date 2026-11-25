@@ -93,8 +93,10 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             guidance = folder / "agent-guidance.toml"
             checkpoint = "Keep a backed-up fixture and record the reason it is representative."
             end_task = "Read back the published artifact before closing the ticket."
+            knowledge = "Link the checked source before editing the handbook."
             guidance.write_text(
-                f'[agent_guidance.prompts]\ncheckpoint = "{checkpoint}"\nend-task = "{end_task}"\n',
+                f'[agent_guidance.prompts]\ncheckpoint = "{checkpoint}"\nend-task = "{end_task}"\n'
+                f'knowledge = "{knowledge}"\n',
                 encoding="utf-8",
             )
             with fixture_server(python, ROOT, folder / "service", *certificate(folder), guidance=guidance) as mounted:
@@ -106,6 +108,8 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(result.structured_content, signed)
                 self.assertEqual(signed["prompts"]["checkpoint"]["prompt"], checkpoint)
                 self.assertEqual(signed["prompts"]["end-task"]["prompt"], end_task)
+                self.assertEqual(signed["prompts"]["knowledge"], {"prompt": knowledge, "source": "board"})
+                self.assertEqual({entry["source"] for entry in signed["prompts"].values()}, {"board"})
                 self.assertIn("current_handoff", signed["prompts"]["checkpoint"]["example"])
                 self.assertEqual(
                     {field["source"] for field in signed["fields"].values()}, {"default"},
@@ -184,6 +188,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("An unchanged idle check needs no write.", default["prompts"]["checkpoint"]["prompt"])
         self.assertIn("current_handoff", default["prompts"]["checkpoint"]["example"])
         self.assertIn("Before marking the ticket Done", default["prompts"]["end-task"]["prompt"])
+        self.assertIn("linked sources", default["prompts"]["knowledge"]["prompt"])
         course = await compare("COURSE")
         self.assertTrue(course["editable"])
         self.assertEqual(course["fields"], default["fields"])
@@ -198,6 +203,15 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         })
         self.assertEqual(await compare(), default)
 
+        prompt = "Keep the evidence and the follow-up in the course handbook."
+        with request(origin, path, method="PUT", cookie=cookie,
+                     data={"prompt": "knowledge", "guidance": prompt}) as response:
+            self.assertEqual(response.status, 200)
+        with_prompt = await compare("COURSE")
+        self.assertEqual(with_prompt["prompts"], {
+            **updated["prompts"], "knowledge": {"prompt": prompt, "source": "project"},
+        })
+        self.assertEqual(await compare(), default)
         other = await reviewer.call_tool("taskboard_field_guidance", {"project": "COURSE"})
         self.assertFalse(other.is_error, other.content)
         self.assertEqual(other.structured_content, io_action(
@@ -205,6 +219,11 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         ))
         self.assertFalse(other.structured_content["editable"])
         self.assertEqual(other.structured_content["fields"], updated["fields"])
+        self.assertEqual(other.structured_content["prompts"], with_prompt["prompts"])
+        with request(origin, path, method="PUT", cookie=cookie,
+                     data={"prompt": "knowledge", "guidance": None}) as response:
+            self.assertEqual(response.status, 200)
+        self.assertEqual(await compare("COURSE"), updated)
 
         unsigned_env = {**environment, "TASKBOARD_COMPAT_COOKIE": ""}
         async with connect(unsigned_env) as unsigned:

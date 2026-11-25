@@ -194,17 +194,29 @@ Each value is a string. Use an empty string for `ready-review` to omit the extra
 | `agent_guidance` | Other signed action responses | Prefix the action with `action-`. Supported actions include `context`, `create-task`, `delegate`, `save-goal`, and `worker-handoff`. See the [full list](../../packages/server/src/tasks_guidance.py). |
 | `agent_guidance.cli` | Guidance printed by the shared CLI for selected commands | `context`, `raft-channel`, `goals-existing`, `goals-missing`, `workers`, `completion`, `list`, `list-empty`, `list-unassigned-empty`, `readiness`, `readiness-empty`, `reviews`, `reviews-empty`, `search`, `search-empty`, `tagged`, `tagged-empty`, `watched`, `watched-empty` |
 | `agent_guidance.fields` | Signed writing guidance for the CLI and web editor | `title`, `brief`, `next_step`, `activity` |
-| `agent_guidance.prompts` | Prompts to read before recording a checkpoint or marking a ticket Done | `checkpoint`, `end-task` |
+| `agent_guidance.prompts` | Prompts for checkpoints, completion, and Knowledge | `checkpoint`, `end-task`, `knowledge` |
 
-Signed HTTP `field-guidance` and MCP `taskboard_field_guidance` return these
-effective prompts under `prompts`, including an example for Checkpoint.
-Use a nonempty string to override a public default. For example:
+Signed HTTP `field-guidance` and MCP `taskboard_field_guidance` return the
+effective text and source under `prompts`, including an example for Checkpoint.
+Project managers can edit the text in **Settings → Agent prompts**. Select the
+project and prompt, then choose **Save prompt**. **Use inherited prompt**
+restores the board's TOML text when configured and the built-in text otherwise.
+Readers see the active prompt and its source. The Knowledge page links to the
+Knowledge prompt for the selected project.
+
+Use a nonempty string in TOML to change the inherited wording for the board.
 
 ```toml
 [agent_guidance.prompts]
 checkpoint = "Update the current handoff. Record the decision, reason, and fixture evidence in a Checkpoint."
 end-task = "Compare the result with the acceptance criteria and link the verified outcome before marking Done."
+knowledge = "Find the existing entry, verify the source, and link it when updating the guidance."
 ```
+
+Use `./tasks --shared field-guidance knowledge --project T` to print the
+effective Knowledge prompt. For project edits via HTTP, send a PUT to
+`/api/v1/projects/T/field-guidance` with the `prompt` key and `guidance` text.
+Send `null` for `guidance` to restore the inherited text.
 
 The shared CLI displays the server's selected guidance for Ready pickup, standing goals, task details, and shared writes. After a completed task or handoff it shows an actionable next ticket or standing goal when one exists. Use the `cli` table to customize the other command messages listed above, including the completion message when there is no next item.
 

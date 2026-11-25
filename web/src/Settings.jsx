@@ -1,6 +1,6 @@
 import React, { useId } from 'react'
 import CodexUsage from './CodexUsage.jsx'
-import FieldGuidanceSettings from './FieldGuidanceSettings.jsx'
+import FieldGuidanceSettings, { AgentPromptSettings } from './FieldGuidanceSettings.jsx'
 import { ProfileForm, ProfileSignIn } from './Profile.jsx'
 import ProjectSettings from './ProjectSettings.jsx'
 import PermissionSettings from './PermissionSettings.jsx'
@@ -51,6 +51,7 @@ export default function Settings({
 }) {
   const actor = session.data?.actor
   const canEdit = actor?.kind === 'agent' || actor?.kind === 'human'
+  const prompt = new URLSearchParams(fragment.split('?', 2)[1]).get('prompt')
   return (
     <section className="settings" aria-labelledby="settings">
       <div className="page-heading"><h1 id="settings">Settings</h1></div>
@@ -75,6 +76,8 @@ export default function Settings({
       {canEdit && <ProjectSettings key={actor.id ?? actor.name} revision={revision} onProjectCreated={onProjectCreated} />}
       {canEdit && <PermissionSettings actor={actor} project={project} projects={projects} revision={revision}
         onProjectChange={onPermissionProjectChange} onChanged={onProjectCreated} />}
+      {canEdit && <AgentPromptSettings key={`${project}:${prompt}`} project={project} projects={projects} revision={revision}
+        initialPrompt={prompt} />}
       {canEdit && <FieldGuidanceSettings project={project} projects={projects} revision={revision} />}
       {actor?.kind === 'human' && <CodexUsage key={actor.id} />}
     </section>

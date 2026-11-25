@@ -240,6 +240,9 @@ export default function Knowledge({ session, verified, revision, projects, searc
   const fragment = entry ? entryHref(entry) : knowledgeListHref(scope, search, { order, project })
   const login = useSignInHref(history && entry ? historyHref(fragment, history) : fragment)
   const writableProjects = projects?.filter(project => project.can_create_knowledge === true) || []
+  const promptSettings = '#settings?' + new URLSearchParams({
+    section: 'agent-prompts', prompt: 'knowledge', ...(project && { project }),
+  })
   const entryTitle = verified && entry && page.data?.items[0]?.title
   useContentTitle(entryTitle ? `${entry} · ${entryTitle}` : null)
   if (history && entry && verified && page.data?.items.length > 0) {
@@ -264,6 +267,7 @@ export default function Knowledge({ session, verified, revision, projects, searc
           value={scope} options={knowledgeScopes} onChange={onScope} />}
         <div className="knowledge-browse-controls">
           <KnowledgeSearch key={search} search={search} onSearch={onSearch} />
+          {!preview && <BoardLink href={promptSettings}>Knowledge prompt</BoardLink>}
           {!entry && !preview && onOrder && <label className="knowledge-order">
             Sort by
             <select value={order} onChange={event => onOrder(event.currentTarget.value)}>

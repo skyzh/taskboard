@@ -32,7 +32,7 @@ def build_server(board: SharedBoard) -> MCPServer:
         instructions=(
             "Check taskboard_context for your signed identity, then choose work with "
             "taskboard_queue or taskboard_reviews where your workflow uses a queue. "
-            "Read taskboard_field_guidance for the board's Checkpoint and End task prompts. "
+            "Read taskboard_field_guidance for the project's Checkpoint, End task and Knowledge prompts. "
             "Local DRI context includes its registered project and identity-specific action limits. "
             "Run ./tasks --shared capabilities for additional shared CLI actions."
         ),
@@ -58,7 +58,7 @@ def build_server(board: SharedBoard) -> MCPServer:
 
     @server.tool(annotations=read_only)
     def taskboard_field_guidance(project: Project | None = None) -> dict[str, Any]:
-        """Read project writing guidance, effective Checkpoint and End task prompts, and a Checkpoint example."""
+        """Read project writing guidance, Checkpoint, End task and Knowledge prompts, and a Checkpoint example."""
         return board.invoke("field-guidance", {"project": project} if project is not None else {})
 
     @server.tool(annotations=read_only)

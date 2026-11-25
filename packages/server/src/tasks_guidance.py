@@ -172,7 +172,35 @@ _PROMPTS = {
             is needed for this outcome. Link any separate follow-up and say who owns it.
         """).strip(),
     },
+    "knowledge": {
+        "prompt": dedent("""
+            Before adding or changing Knowledge, search the project for the existing
+            entry and read its brief and linked sources. Check the exact ticket or
+            Activity that supports the decision. Update the existing entry when it
+            covers the same subject, and link the source for what changed.
+
+            If evidence is incomplete or conflicting, keep the current guidance.
+            Stage the proposed change or leave a linked follow-up with the owner,
+            the open question, and the evidence needed to settle it.
+        """).strip(),
+    },
 }
+
+MAX_PROJECT_PROMPT = 8000
+
+
+def project_values(db, project, group):
+    prefix = f"{group}:{project}:"
+    return {
+        row["key"][len(prefix):]: row["value"]
+        for row in db.execute("SELECT key, value FROM board_settings WHERE key LIKE ?", (prefix + "%",))
+    }
+
+
+def guidance_source(name, project, board):
+    if name in project:
+        return "project"
+    return "board" if name in board else "default"
 
 
 class AgentGuidance:
@@ -186,16 +214,17 @@ class AgentGuidance:
         return self.overrides.get(key, _DEFAULTS[key])
 
     def writing_fields(self, db, project, *, editable):
-        prefix = f"field-guidance:{project}:"
-        project_fields = {
-            row["key"][len(prefix):]: row["value"]
-            for row in db.execute("SELECT key, value FROM board_settings WHERE key LIKE ?", (prefix + "%",))
-        }
+        project_fields = project_values(db, project, "field-guidance")
+        project_prompts = project_values(db, project, "agent-prompt")
         return {
             "project": project,
             "editable": editable,
             "prompts": {
-                name: {**default, "prompt": self.prompts.get(name, default["prompt"])}
+                name: {
+                    **default,
+                    "prompt": project_prompts.get(name, self.prompts.get(name, default["prompt"])),
+                    "source": guidance_source(name, project_prompts, self.prompts),
+                }
                 for name, default in _PROMPTS.items()
             },
             "fields": {
@@ -204,7 +233,7 @@ class AgentGuidance:
                     "where": where,
                     "example": example,
                     "format": field_format,
-                    "source": "project" if name in project_fields else "board" if name in self.fields else "default",
+                    "source": guidance_source(name, project_fields, self.fields),
                 }
                 for name, (guidance, where, example, field_format) in _FIELDS.items()
             },
@@ -267,7 +296,16 @@ def _validate(values, keys, table, *, optional_empty=()):
 def set_writing_field(db, project, field, value):
     if field not in _FIELDS:
         raise ValueError("Choose title, brief, next_step, or activity.")
-    key = f"field-guidance:{project}:{field}"
+    return set_project_value(db, f"field-guidance:{project}:{field}", value)
+
+
+def set_agent_prompt(db, project, prompt, value):
+    if prompt not in _PROMPTS:
+        raise ValueError("Choose checkpoint, end-task, or knowledge.")
+    return set_project_value(db, f"agent-prompt:{project}:{prompt}", value)
+
+
+def set_project_value(db, key, value):
     if value is None:
         return bool(db.execute("DELETE FROM board_settings WHERE key = ? RETURNING key", (key,)).fetchone())
     return bool(db.execute(

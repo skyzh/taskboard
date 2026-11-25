@@ -6,9 +6,10 @@ import { ResourceStatus } from './shared.jsx'
 import TicketFieldSettings from './TicketFieldSettings.jsx'
 
 const fieldLabels = { title: 'Title', brief: 'Brief', next_step: 'Next step', activity: 'Activity' }
+const promptLabels = { checkpoint: 'Checkpoint', 'end-task': 'End task', knowledge: 'Knowledge' }
 const sourceLabels = { project: 'Project override', board: 'Board guidance', default: 'Built-in guidance' }
 
-function GuidanceEditor({ project, field, entry, reload }) {
+function GuidanceEditor({ project, field, entry, reload, prompt = false }) {
   const helpId = useId()
   const [draft, setDraft] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -20,10 +21,12 @@ function GuidanceEditor({ project, field, entry, reload }) {
     setSaving(true)
     setResult(null)
     try {
-      await request(fieldGuidancePath(project), { method: 'PUT', body: { field, guidance } })
+      const body = prompt ? { prompt: field, guidance } : { field, guidance }
+      await request(fieldGuidancePath(project), { method: 'PUT', body })
       setDraft(null)
       reload()
-      setResult({ message: guidance === null ? 'Inherited guidance restored.' : 'Guidance saved.' })
+      const label = prompt ? 'Prompt' : 'Guidance'
+      setResult({ message: guidance === null ? `Inherited ${label.toLowerCase()} restored.` : `${label} saved.` })
     } catch (error) {
       setResult({ error: true, message: error.message })
     } finally {
@@ -37,17 +40,61 @@ function GuidanceEditor({ project, field, entry, reload }) {
       if (canSave) save(text.trim())
     }}>
       <label>
-        Guidance
-        <textarea rows={3} value={text} disabled={saving} aria-describedby={helpId}
+        {prompt ? `${promptLabels[field]} prompt` : 'Guidance'}
+        <textarea rows={prompt ? 9 : 3} maxLength={prompt ? 8000 : undefined} value={text} disabled={saving}
+          aria-describedby={prompt ? undefined : helpId}
           onChange={event => { setDraft(event.target.value); setResult(null) }} />
       </label>
-      <FieldHelp field={{ ...entry, guidance: null }} id={helpId} />
+      {!prompt && <FieldHelp field={{ ...entry, guidance: null }} id={helpId} />}
       <div className="field-guidance-actions">
-        <button type="submit" disabled={!canSave}>Save guidance</button>
-        {entry.source === 'project' && <button type="button" disabled={saving} onClick={() => save(null)}>Use inherited guidance</button>}
+        <button type="submit" disabled={!canSave}>{prompt ? 'Save prompt' : 'Save guidance'}</button>
+        {entry.source === 'project' && <button type="button" disabled={saving} onClick={() => save(null)}>
+          {prompt ? 'Use inherited prompt' : 'Use inherited guidance'}
+        </button>}
       </div>
       {result && <p role={result.error ? 'alert' : 'status'}>{result.message}</p>}
     </form>
+  )
+}
+
+function GuidancePicker({ label, value, choices, onChange }) {
+  return (
+    <label className="settings-preference field-guidance-selector">
+      {label}
+      <span className="embedded-picker">
+        <select value={value} onChange={event => onChange(event.target.value)}>
+          {choices.map(([key, title]) => <option key={key} value={key}>{title}</option>)}
+        </select>
+        <ChevronDown size={14} aria-hidden="true" focusable="false" />
+      </span>
+    </label>
+  )
+}
+
+export function AgentPromptSettings({ project, projects, revision, initialPrompt }) {
+  const [selectedProject, setSelectedProject] = useState(null)
+  const [prompt, setPrompt] = useState(Object.hasOwn(promptLabels, initialPrompt) ? initialPrompt : 'checkpoint')
+  const scope = projects?.some(item => item.prefix === selectedProject) ? selectedProject : project
+  const guidance = useFieldGuidance(scope, revision)
+  const entry = guidance.data?.prompts?.[prompt]
+  if (!scope || guidance.error?.status === 404) return null
+
+  return (
+    <section className="panel settings-panel" aria-labelledby="agent-prompts">
+      <h2 id="agent-prompts" tabIndex={-1}>Agent prompts</h2>
+      {projects?.length > 1 && <GuidancePicker label="Project for agent prompts" value={scope}
+        choices={projects.map(item => [item.prefix, item.title])} onChange={setSelectedProject} />}
+      <ResourceStatus resource={guidance} label="agent prompts" />
+      {guidance.data?.prompts && <GuidancePicker label="Prompt" value={prompt}
+        choices={Object.entries(promptLabels).filter(([name]) => guidance.data.prompts[name])} onChange={setPrompt} />}
+      {entry && <>
+        <p className="report-note">{sourceLabels[entry.source]}</p>
+        {guidance.data.editable && entry.source
+          ? <GuidanceEditor key={`${scope}:${prompt}`} project={scope} field={prompt} prompt
+            entry={{ ...entry, guidance: entry.prompt }} reload={guidance.retry} />
+          : <FieldHelp field={{ guidance: entry.prompt }} />}
+      </>}
+    </section>
   )
 }
 
@@ -62,26 +109,11 @@ export default function FieldGuidanceSettings({ project, projects, revision }) {
   return (
     <section className="panel settings-panel" aria-labelledby="writing-guidance-heading">
       <h2 id="writing-guidance-heading">Writing guidance</h2>
-      {projects?.length > 1 && <label className="settings-preference field-guidance-selector">
-        Project for writing guidance
-        <span className="embedded-picker">
-          <select value={scope} onChange={event => setSelectedProject(event.target.value)}>
-            {projects.map(item => <option key={item.prefix} value={item.prefix}>{item.title}</option>)}
-          </select>
-          <ChevronDown size={14} aria-hidden="true" focusable="false" />
-        </span>
-      </label>}
+      {projects?.length > 1 && <GuidancePicker label="Project for writing guidance" value={scope}
+        choices={projects.map(item => [item.prefix, item.title])} onChange={setSelectedProject} />}
       <ResourceStatus resource={guidance} label="writing guidance" />
       {entry && <>
-        <label className="settings-preference field-guidance-selector">
-          Field
-          <span className="embedded-picker">
-            <select value={field} onChange={event => setField(event.target.value)}>
-              {Object.entries(fieldLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-            </select>
-            <ChevronDown size={14} aria-hidden="true" focusable="false" />
-          </span>
-        </label>
+        <GuidancePicker label="Field" value={field} choices={Object.entries(fieldLabels)} onChange={setField} />
         <p className="report-note">{sourceLabels[entry.source]}</p>
         {guidance.data.editable
           ? <GuidanceEditor key={`${scope}:${field}`} project={scope} field={field} entry={entry} reload={guidance.retry} />
