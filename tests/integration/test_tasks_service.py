@@ -802,6 +802,18 @@ class TasksServiceTest(unittest.TestCase):
         self.assertCountEqual(view(sam, scope="all"), [
             ("decision", decision, "Avery"), ("request", course, "Avery"), ("request", request, "Avery"),
         ])
+        first_page = self.call(sam, path, query_string={"project": "T", "limit": 1}).json
+        self.assertEqual([item["ticket"] for item in first_page["items"]], [decision])
+        self.assertTrue(first_page["next_cursor"])
+        second_page = self.call(sam, path, query_string={
+            "project": "T", "limit": 1, "before": first_page["next_cursor"],
+        }).json
+        self.assertEqual([item["ticket"] for item in second_page["items"]], [request])
+        self.assertIsNone(second_page["next_cursor"])
+        exact_page = self.call(sam, path, query_string={"project": "T", "limit": 2}).json
+        self.assertEqual([item["ticket"] for item in exact_page["items"]], [decision, request])
+        self.assertIsNone(exact_page["next_cursor"])
+        self.call(sam, path, query_string={"limit": 101}, status=400)
         self.assertEqual(view(avery), [])
         self.assertEqual(view(blake, project="COURSE"), [])
         self.assertCountEqual(view(blake, project="T"), [

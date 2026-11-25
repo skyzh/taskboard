@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLoadedPages, useResource } from './data.js'
 import {
   ActivityMark, AssigneeAvatar, DriWorkStatus, EvidenceLinks, LoadMore, ResourceStatus, TaskLink, WorkerResult,
@@ -297,9 +297,26 @@ function ProjectLinks({ project, revision }) {
 const attentionLabels = { decision: 'Decision', request: 'Request', review: 'Review' }
 
 export function NeedsYou({ project, revision }) {
-  const page = useLoadedPages('/notifications/needs-you', project ? { project } : { scope: 'all' }, revision, { limit: 2 })
+  const page = useLoadedPages('/notifications/needs-you', project ? { project } : { scope: 'all' }, revision, { limit: 10 })
   const items = page.data?.items
   const error = page.error && page.error.status !== 404
+  const list = useRef(null)
+  const keyboardContinuation = useRef(null)
+  useLayoutEffect(() => {
+    const continuation = keyboardContinuation.current
+    if (!continuation) return
+    if (continuation.project !== project) {
+      keyboardContinuation.current = null
+      return
+    }
+    const nextLink = list.current?.children[continuation.index]?.firstElementChild
+    if (!nextLink) return
+    keyboardContinuation.current = null
+    const { button } = continuation
+    if (document.activeElement === button || (!button.isConnected && document.activeElement === document.body)) {
+      nextLink.focus()
+    }
+  }, [items, project])
   if (!items?.length && !error) return null
 
   return (
@@ -307,7 +324,7 @@ export function NeedsYou({ project, revision }) {
       <h2 id="reports-needs-you-title">Needs you</h2>
       {error && <ResourceStatus resource={page} label="work that needs you" />}
       {items?.length > 0 && (
-        <ul role="list">
+        <ul ref={list} role="list">
           {items.map(item => {
             const requester = profileName(item.requester, item.requester_profile)
             return (
@@ -323,7 +340,11 @@ export function NeedsYou({ project, revision }) {
           })}
         </ul>
       )}
-      <LoadMore page={page} label="items that need you" />
+      <LoadMore page={page} label="items that need you" onActivate={event => {
+        if (event.detail === 0) {
+          keyboardContinuation.current = { button: event.currentTarget, index: items.length, project }
+        }
+      }} />
     </section>
   )
 }
