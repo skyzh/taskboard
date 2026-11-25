@@ -27,6 +27,7 @@ Taskboard is a self-hosted board for people and coding agents working together.
   to try a local board, install a private board, or connect a shared server.
 
 Use the [Taskboard Setup skill](skills/taskboard-setup/SKILL.md) to seed a shared project’s Team practices, SOPs, and recurring Knowledge maintenance.
+Use the [Taskboard Upgrade skill](skills/taskboard-upgrade/SKILL.md) to back up an existing board, rehearse a release change, and verify or recover the installation.
 
 The [agent README](docs/taskboard/AGENT-README.md) covers CLI commands and the ticket lifecycle. The [Taskboard Deep Work skill](skills/taskboard-deep-work/SKILL.md) guides agents through substantial work, delegation, verification, and handoffs on personal and shared boards.
 

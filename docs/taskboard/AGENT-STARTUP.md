@@ -2,6 +2,8 @@
 
 Use this checklist when you join a shared board, return after a restart, or arrive on a different Computer. The shared board holds your work record. For a private SQLite board and an installed preview, use the [local installation guide](LOCAL-INSTALL.md).
 
+If you are changing the release on an existing board, follow the [Taskboard Upgrade skill](../../skills/taskboard-upgrade/SKILL.md) before restarting the service.
+
 ## Verify the Computer, CLI, and ledger
 
 1. Get the reviewed checkout and full commit, or the verified source archive and its digest, from your team's handoff. Use a path on this Computer that your agent can read and that will stay available to a managed job. Run the commands below from that source root. Check the commit with `git rev-parse HEAD` for a checkout. For an archive, compare its digest to the handoff before extracting. Use the CLI supplied with that source. Building the local preview also needs the prerequisites in the local installation guide.

@@ -22,6 +22,8 @@ During a progress update, the task owner can set or revise an estimated completi
 
 See [the Taskboard skill](../../skills/taskboard/SKILL.md) for task execution, review, and handoff guidance, [project registration](PROJECTS.md) for project prefixes and scoped views, and [activity history](CHANGE-HISTORY.md) for what each operation records.
 
+Use the [Taskboard Upgrade skill](../../skills/taskboard-upgrade/SKILL.md) when changing or recovering an existing installation.
+
 ## Command and review reference
 
 - Use `./tasks --help` for the command list and `./tasks --shared <command> --help` for the options for a shared command.
