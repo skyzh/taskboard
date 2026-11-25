@@ -148,6 +148,11 @@ main [id] { scroll-margin-top: .8rem; }
 }
 .profile-actions > :is(button, a):hover { background: var(--wash); }
 .profile-actions > a.profile-manage { display: flex; align-items: center; min-height: 2.75rem; }
+.profile-sign-out-error:not(:empty) {
+  padding: 0 .25rem .35rem;
+  color: var(--field-error);
+  font-size: .85rem;
+}
 .profile-freshness { display: none; }
 .shortcuts-dialog {
   width: min(22rem, calc(100% - 2rem));

@@ -176,8 +176,10 @@ export default function Profile({ session, fragment, theme, freshness, canManage
           {signingOut ? 'Signing out…' : 'Sign out'}
         </button>}
         {freshness}
-        {signOutFailed && <p role="alert">Couldn’t sign out. Try again.</p>}
       </div>
+      {verified && !preview && <p className="profile-sign-out-error" role="alert">
+        {signOutFailed ? 'Couldn’t sign out. Try again.' : ''}
+      </p>}
       <dialog ref={shortcuts} className="shortcuts-dialog" aria-labelledby={shortcutsTitle}
         onClose={restoreShortcutFocus}>
         <h2 id={shortcutsTitle}>Keyboard shortcuts</h2>
