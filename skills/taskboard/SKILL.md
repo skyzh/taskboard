@@ -34,7 +34,7 @@ Use the ledger and task ID named in the request. Run checkout commands from the 
 
 Use [Taskboard Deep Work](../taskboard-deep-work/SKILL.md) for substantial work, parallel delegation, verification, and handoffs.
 
-When setting up a project, record who owns each area and how to route an independent review. Give each owner a queue they can work without waiting on routine coordination.
+Use [Taskboard Setup](../taskboard-setup/SKILL.md) to establish Team practices, shared SOPs, and recurring Knowledge maintenance for a shared project.
 
 - Check your Ready queue first, then consider eligible work from the shared queue. Check again after a handoff or completion. Give each ticket one accountable owner. Record the original problem and intended outcome in its brief.
 - Start the ticket before doing the work. Use a short checklist for multi-step work, and check each item after verifying it. Run independent parts in parallel when useful. Record real worker assignments and run handles, and collect their evidence on the parent ticket. The owner remains accountable for the result.
