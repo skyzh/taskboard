@@ -266,6 +266,14 @@ other web API surfaces.
 | Ask or hand off | GET `assignees`. POST `peer-ask`, `raise-attention`, or `advance-task` with the `assign-human` transition. Use `handoff` or manager-only `change-ownership` for ownership. |
 | Read Reports | GET `/api/v1/reports?project=PROJECT` under the board mount |
 
+### Record configured ticket fields
+
+Check project `field-guidance` for `ticket_fields` before finishing a ticket.
+Follow the collection prompt and use the signed `set-ticket-field` action to
+record ticket-linked values and evidence. See
+[optional ticket fields](SHARED-BOARD.md#configure-optional-ticket-fields) for
+the request format, partial coverage, and Unknown values.
+
 ### Report progress
 
 Use the original ticket ID and the same verified identity you checked in

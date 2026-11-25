@@ -21,6 +21,10 @@ or the manifest’s `advance-task` action with
 Use the actual ticket ID. For an authorized Activity-only checkpoint, use
 `tasks --shared log` or `record-activity` with the same ID and note.
 
+If the ticket has optional fields, read the collection prompts from signed
+`field-guidance` at pickup. Collect evidence during work and use
+`set-ticket-field` before reporting the outcome.
+
 Record the handoff or verified outcome and who acts next. Stage a reusable
 decision with its exact source, or ask the Knowledge owner to record it.
 Verify the receipt before retrying a write. Use this session for reporting

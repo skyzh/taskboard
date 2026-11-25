@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Optional project ticket fields.** Managers can configure typed fields and collection prompts. Signed project writers can attach ticket-linked values and evidence, including partial effort and cost estimates. Upgrade the board and CLI, then opt in each project. [Configure fields](SHARED-BOARD.md#configure-optional-ticket-fields)
+
 - **Local DRI ask recipients.** A Local DRI using Taskboard can choose another eligible human for a blocking Decision or nonblocking attention request. Omitting the recipient uses the registration creator. Upgrade the board and CLI to select a recipient with `--on`. [Setup and verification](LOCAL-DRI.md#choose-where-the-dri-asks-you)
 
 - **GitHub webhook intake.** Operators can opt a project's configured repository into authenticated push and pull request cues. The scheduled extension refresh verifies the provider state and applies its existing rules. [Setup](GITHUB-EXTENSIONS.md#github-webhook-intake)

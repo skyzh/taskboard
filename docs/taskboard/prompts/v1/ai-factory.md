@@ -6,6 +6,10 @@ acceptance criteria, and current Knowledge with its sources. Keep the
 coordinator accountable for the outcome and use our existing orchestration
 to run workers.
 
+If the ticket has optional fields, read the collection prompts from signed
+`field-guidance` at pickup. Collect evidence during work and use
+`set-ticket-field` before reporting the outcome.
+
 Collect worker evidence under the coordinator's verified Taskboard identity.
 Record meaningful checkpoints, settled decisions and sources, actual
 blockers, and a verified outcome or handoff on the original ticket or linked

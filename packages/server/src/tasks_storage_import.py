@@ -14,7 +14,7 @@ from tasks_storage import Postgres, write
 
 # Parents precede their dependents. Operator and ledger settings are data too.
 TABLES = (
-    "projects", "board_settings", "tasks", "task_project_aliases", "events", "task_steps", "milestones",
+    "projects", "board_settings", "tasks", "task_project_aliases", "events", "ticket_field_receipts", "task_steps", "milestones",
     "task_tags", "tasknote_snapshots", "sources", "source_deliveries", "task_sources",
     "task_references", "task_watches", "worker_runs", "peer_asks", "recurring_definitions",
     "recurring_occurrences", "project_maintenance", "release_batches", "release_events",

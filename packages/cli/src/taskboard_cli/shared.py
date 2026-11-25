@@ -150,6 +150,21 @@ def task_details(board, url, number, *, workers_only=False, guidance=None, conte
         guidance = detail.get("peer_request_next") or guidance
     if detail["brief"]:
         text.append(detail["brief"])
+    if not workers_only and (configuration := detail.get("ticket_fields")):
+        text.extend(("", "Project ticket fields"))
+        for field in configuration["fields"]:
+            value = field["value"]
+            if value is None:
+                summary = "Unknown"
+            else:
+                unit = field.get("currency") or ("seconds" if field["kind"] == "duration" else "")
+                summary = f"{value} {unit}".rstrip()
+                summary += f" · {field['method'].capitalize()} · {field['coverage'].capitalize()}"
+            text.append(f"  {field['label']} · {summary}")
+            if configuration["editable"]:
+                text.append(f"    {field['key']} · {field['prompt']}")
+        if configuration["editable"]:
+            text.append("Record supported values with set-ticket-field before reporting the outcome.")
     if not workers_only and (stages := detail.get("knowledge_stages")):
         text.extend(("", "Knowledge stages", *knowledge_stage_lines(stages, url)))
     if not workers_only and detail["checklist"]:
@@ -613,6 +628,11 @@ def shared_command(args):
             if item.get("format"):
                 lines.append(f"Format · {item['format']}")
             lines.append(f"Example · {item['example']}")
+        if not args.field and (configured := result.get("ticket_fields")):
+            lines.extend(("", "Project ticket fields"))
+            for item in configured:
+                lines.extend((f"{item['label']} · {item['key']} · {item['kind']}", item["prompt"]))
+            lines.append("Use the signed set-ticket-field action with evidence and coverage.")
         return "\n".join(lines)
     if command in {"wake-subscriptions", "wake-subscribe", "wake-unsubscribe"}:
         data = {"project": projects.prefix(args.project)} if args.project else {}

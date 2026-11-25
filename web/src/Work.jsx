@@ -19,6 +19,7 @@ import TaskDetailsEdit from './TaskDetailsEdit.jsx'
 import TaskOwnership from './TaskOwnership.jsx'
 import TaskProjectMove from './TaskProjectMove.jsx'
 import TaskTags from './TaskTags.jsx'
+import TicketFields from './TicketFields.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import {
   actions, ActivityMark, addFilterName, Assignee, AssigneeAvatar, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, LoadMore, Options, OutcomeNote, PeerRequestContext, RecordedActivity, ResourceStatus, Status,
@@ -559,6 +560,8 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               <h2 id={`task-description-${id}`}>Description</h2>
               <Markdown text={record.brief} className="prose" relatedTasks={record.related_tasks} />
             </section>}
+            <TicketFields configuration={record.ticket_fields} ticket={task.key || id}
+              editing={showActions} onChanged={onChanged} />
             {signedIn && <TicketKnowledgeLinks ticket={task.key || id} revision={revision} />}
             {(record.checklist.length > 0 || canEditChecklistText) && (
               <details className="detail-checklist" open={checklistOpen}

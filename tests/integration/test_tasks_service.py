@@ -3379,6 +3379,100 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIsNone(history[4]["next_dri_profile"])
         self.assertEqual(history[3]["next_dri_profile"]["name"], "Blake")
 
+    def test_project_ticket_fields_keep_unknown_zero_partial_and_correction_evidence(self):
+        app = self.app(portal_reader=True, project_roster={self.provider.people["Avery"]["sub"]: "Avery"})
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        sam, _ = self.login(app, "Sam")
+        observer = app.test_client()
+        self.cli("register-project", "T", "Taskboard", "--dri", avery_id)
+        self.cli("register-project", "OPS", "Operations", "--dri", blake_id)
+        self.action(avery, "create-task", {"title": "Verify equipment", "step": "Read reports."})
+        self.action(blake, "create-task", {"title": "Check OPS", "step": "Verify logs.", "project": "OPS"})
+        route = "/api/v1/projects/T/ticket-fields"
+        fields = [
+            {"key": "agent_hours", "label": "Agent hours", "kind": "duration",
+             "prompt": "Count verified worker effort once.", "source": "recorded_workers"},
+            {"key": "agent_cost", "label": "Agent cost", "kind": "money",
+             "prompt": "Use only a ticket-linked usage receipt."},
+        ]
+        self.call(blake, route, method="PUT", json={"fields": fields}, status=403)
+        self.call(observer, route, status=401)
+        self.call(avery, route, method="PUT", json={"fields": fields + fields}, status=400)
+        self.action(blake, "configure-ticket-fields", {"project": "T", "fields": json.dumps(fields)}, status=403)
+        configuration = self.action(avery, "configure-ticket-fields", {"project": "T", "fields": json.dumps(fields)})
+        self.assertEqual(configuration["fields"], fields)
+        direct = self.call(avery, route, method="PUT", json={"fields": fields}).json
+        self.assertEqual(direct, {key: configuration[key] for key in ("project", "editable", "fields")})
+        self.assertEqual(self.action(avery, "field-guidance")["ticket_fields"], fields)
+        self.assertNotIn("ticket_fields", self.call(avery, "/api/v1/tasks/OPS-1").json)
+        task_path = "/api/v1/tasks/T-1"
+        detail = self.call(sam, task_path).json["ticket_fields"]["fields"]
+        self.assertEqual([item["method"] for item in detail], ["unknown", "unknown"])
+        amount = {"field": "agent_cost", "method": "measured", "coverage": "complete",
+                  "value": "0", "currency": "USD", "basis": "Provider waived the entire run charge.",
+                  "url": "https://example.test/project-receipt"}
+        self.action(blake, "set-ticket-field", {"id": "T-1", **amount}, status=403)
+        self.action(avery, "set-ticket-field", {"id": "OPS-1", **amount}, status=404)
+        self.action(avery, "set-ticket-field", {"id": "T-1", **{**amount, "currency": "usd"}}, status=400)
+        self.action(avery, "set-ticket-field", {"id": "T-1", **{**amount, "url": None}}, status=400)
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Starting."})
+        with closing(open_sqlite(self.database)) as db, db:
+            db.executemany(
+                """INSERT INTO worker_runs
+                   (task_id, worker, role, brief, effort, status, assigned_at, handle, started_at, reported_at)
+                   VALUES (1, ?, 'build', 'Fixture', 'Standard', ?, '2026-11-01T00:00:00Z', ?, ?, ?)""",
+                [(avery_id, "reported", "first", "2026-11-01T00:00:00Z", "2026-11-01T00:20:00Z"),
+                 (avery_id, "reported", "first", "2026-11-01T00:00:00Z", "2026-11-01T00:20:00Z"),
+                 (avery_id, "reported", "first", "2026-11-01T00:05:00Z", "2026-11-01T00:25:00Z"),
+                 (avery_id, "reported", "second", "2026-11-01T00:05:00Z", "2026-11-01T00:25:00Z"),
+                 (avery_id, "running", "unresolved", "2026-11-01T00:20:00Z", None)],
+            )
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "done", "note": "Complete."})
+        first = self.action(avery, "set-ticket-field", {"id": "T-1", **amount})
+        self.assertEqual(self.action(avery, "set-ticket-field", {"id": "T-1", **amount}), first)
+        detail = self.call(sam, task_path).json
+        hours, cost = detail["ticket_fields"]["fields"]
+        self.assertEqual((hours["value"], hours["method"], hours["coverage"]), ("2700", "measured", "partial"))
+        self.assertEqual((cost["value"], cost["method"], cost["coverage"]), ("0", "measured", "complete"))
+        self.assertEqual(detail["task"]["state"], "done")
+        status, output, error = self.shared_cli(avery, "show", "T-1")
+        self.assertEqual(status, 0, error)
+        self.assertIn("Agent cost · 0 USD · Measured · Complete", output)
+        self.assertIn("agent_cost · Use only a ticket-linked usage receipt.", output)
+        self.assertNotIn("ticket_fields", self.call(observer, task_path).json)
+        self.assertNotIn(amount["url"], self.call(observer, task_path + "/activity").get_data(as_text=True))
+        old_path = task_path + f"/ticket-fields?event={first['event_id']}"
+        self.call(observer, old_path, status=401)
+        correction = self.call(sam, task_path + "/ticket-fields", method="PUT", json={
+            **amount, "value": "0.045", "method": "estimated", "coverage": "partial",
+            "basis": "Corrected estimate for the one metered worker.",
+        }).json
+        self.assertNotEqual(first["event_id"], correction["event_id"])
+        old = self.call(sam, old_path).json
+        self.assertEqual((old["value"], old["actor"], old["links"][0]["url"]), ("0", avery_id, amount["url"]))
+        self.call(sam, old_path.replace("T-1", "OPS-1"), status=404)
+        fields_now = self.call(sam, task_path).json["ticket_fields"]["fields"]
+        self.assertEqual((fields_now[1]["value"], fields_now[1]["method"]), ("0.045", "estimated"))
+
+        self.cli("register-project", "LAB", "Lab", "--dri", avery_id)
+        destination_field = {**fields[1], "label": "Parts cost", "prompt": "Record the parts invoice."}
+        self.call(avery, "/api/v1/projects/LAB/ticket-fields", method="PUT", json={"fields": [destination_field]})
+        move = self.call(avery, task_path + "/project", method="POST", json={"project": "LAB"}).json
+        moved_path = "/api/v1/tasks/" + move["key"]
+        moved, = self.call(sam, moved_path).json["ticket_fields"]["fields"]
+        self.assertEqual((moved["label"], moved["method"], moved["value"]), ("Parts cost", "unknown", None))
+        source_receipt = self.call(sam, moved_path + f"/ticket-fields?event={correction['event_id']}").json
+        self.assertEqual((source_receipt["project"], source_receipt["value"]), ("T", "0.045"))
+        destination_receipt = self.call(avery, moved_path + "/ticket-fields", method="PUT", json={
+            **amount, "value": "10", "basis": "Verified parts invoice.",
+        }).json
+        receipt = self.call(sam, moved_path + f"/ticket-fields?event={destination_receipt['event_id']}").json
+        self.assertEqual(receipt["project"], "LAB")
+        returned = self.call(avery, moved_path + "/project", method="POST", json={"project": "T"}).json
+        _, restored = self.call(sam, "/api/v1/tasks/" + returned["key"]).json["ticket_fields"]["fields"]
+        self.assertEqual((restored["project"], restored["value"]), ("T", "0.045"))
+
     def test_manager_keeps_existing_review_wait_and_park_records(self):
         app = self.app()
         avery, avery_id = self.login(app, "Avery")
