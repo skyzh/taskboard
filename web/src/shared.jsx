@@ -1,6 +1,6 @@
 import React, { useId, useState } from 'react'
 import {
-  ArrowUpRight, Ban, Check, Circle, CircleQuestionMark, ClipboardList, Clock, CornerUpRight, Diamond,
+  ArrowUpRight, Ban, Bookmark, Check, Circle, CircleQuestionMark, ClipboardList, Clock, CornerUpRight, Diamond,
   FileCheck, FileText, Flag, GitMerge, GitPullRequest, GitPullRequestClosed, Link2, ListChecks, MessageSquareText,
   MessagesSquare, Pause, PencilLine, Play, Plus, Rocket, RotateCcw, Tags, TriangleAlert, Undo2, Users, X,
 } from 'lucide-react'
@@ -25,6 +25,7 @@ export const actions = {
   add: 'Task created',
   update: 'Progress',
   log: 'Activity logged',
+  checkpoint: 'Checkpoint',
   wait: 'Wait recorded',
   resume: 'Resumed',
   'assign-human': 'Decision requested',
@@ -94,6 +95,10 @@ function pullActivityKind(event) {
   return null
 }
 
+export function isCheckpointActivity(event) {
+  return event.action === 'log' && event.context?.checkpoint === true
+}
+
 export function ActivityMark({ event }) {
   const context = event.context
   let kind = event.action
@@ -112,6 +117,10 @@ export function ActivityMark({ event }) {
     kind = 'report'
     label = 'Worker report disposition'
     Icon = ClipboardList
+  } else if (isCheckpointActivity(event)) {
+    kind = 'checkpoint'
+    label = actions.checkpoint
+    Icon = Bookmark
   } else {
     const workKind = context?.work_kind || pullActivityKind(event)
     if (Object.hasOwn(workMarks, workKind)) {

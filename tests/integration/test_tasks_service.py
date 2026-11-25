@@ -3711,6 +3711,82 @@ class TasksServiceTest(unittest.TestCase):
         self.assertTrue(evidence["at"])
         self.assertEqual(evidence["links"], [{"label": "Sample", "url": "https://example.test/sample", "unavailable": False}])
 
+    def test_checkpoint_recovers_current_handoff_and_reasoning_from_the_same_ticket(self):
+        app = self.app(portal_reader=True)
+        author, author_id = self.login(app, "Avery")
+        self.action(author, "create-task", {
+            "title": "Prevent duplicate sample exports",
+            "brief": "Allow interrupted exports to be retried without adding extra rows.",
+            "step": "Reproduce the duplicate.",
+        })
+        self.action(author, "advance-task", {"id": "T-1", "transition": "start", "note": "Reproduce the duplicate."})
+        self.action(author, "advance-task", {
+            "id": "T-1", "transition": "update", "note": "Replay implementation and the sample check are done. Run the remaining checks.",
+        })
+        self.action(author, "record-activity", {"id": "T-1", "note": "The sample check passed."})
+        earlier_reader, _ = self.login(app, "Sam")
+        earlier = self.call(earlier_reader, "/api/v1/tasks/T-1").json
+        self.assertEqual(earlier["brief"], "Allow interrupted exports to be retried without adding extra rows.")
+        self.assertIn("Run the remaining checks.", earlier["task"]["note"])
+        earlier_activity = self.call(earlier_reader, "/api/v1/tasks/T-1/activity").json["items"]
+        self.assertFalse(any("export ID" in item["note"] for item in earlier_activity))
+        self.assertFalse(any(item["links"] for item in earlier_activity))
+
+        example = self.action(author, "field-guidance")["prompts"]["checkpoint"]["example"]
+        self.action(author, "advance-task", {
+            "id": "T-1", "transition": "update", "note": example["current_handoff"],
+            "url": example["url"], "label": example["label"],
+        })
+        payload = {"id": "T-1", **{key: example[key] for key in ("note", "details", "url", "label")}}
+        self.action(app.test_client(), "record-checkpoint", payload, status=401)
+        self.action(author, "record-checkpoint", {**payload, "note": "Two\nlines"}, status=400)
+        receipt = self.action(author, "record-checkpoint", payload)["receipt"]
+        self.assertEqual(receipt, "T-1 · Checkpoint")
+
+        fresh, _ = self.login(app, "Blake")
+        current = self.action(fresh, "task", query_string={"id": "T-1"})["task"]
+        self.assertEqual((current["state"], current["dri"], current["action"]), ("in_progress", author_id, "update"))
+        self.assertEqual(current["note"], example["current_handoff"])
+        self.assertIn("Next, run the interrupted-export fixture", current["note"])
+        activity = self.action(fresh, "task-activity", query_string={"id": "T-1"})["items"]
+        entry = activity[0]
+        self.assertEqual((entry["action"], entry["label"], entry["actor"]), ("log", "Checkpoint", author_id))
+        self.assertIs(entry["context"]["checkpoint"], True)
+        self.assertEqual(entry["headline"], example["note"])
+        self.assertIn("export ID as the row key because filenames can repeat", entry["details"])
+        self.assertIn("still needs verification", entry["details"])
+        self.assertEqual(entry["links"], [{"url": example["url"], "label": example["label"], "unavailable": False}])
+        self.assertEqual(self.call(fresh, "/api/v1/activity", query_string={"action": "checkpoint"}).json["items"], [entry])
+        self.assertIn(activity[0]["id"], [
+            item["id"] for item in self.call(fresh, "/api/v1/activity", query_string={"action": "log"}).json["items"]
+        ])
+        self.assertIn("Activity logged", [item["label"] for item in activity])
+        self.assertEqual(
+            self.call(fresh, f"/api/v1/tasks/T-1/history/{entry['id']}").json["event"]["label"], "Checkpoint",
+        )
+
+        revision = self.call(fresh, "/api/v1/revision").json
+        self.action(fresh, "field-guidance")
+        self.action(fresh, "task-activity", query_string={"id": "T-1"})
+        self.assertEqual(self.call(fresh, "/api/v1/revision").json, revision)
+        code, output, error = self.shared_cli(author, "log", "T-1", "Paused after the fixture.",
+                                              "--checkpoint", "--details", "Continue with the checked example.")
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("T-1 · Checkpoint", output)
+
+    def test_default_prompts_match_every_standalone_integration_template(self):
+        app = self.app(portal_reader=True)
+        author, _ = self.login(app, "Avery")
+        prompts = self.action(author, "field-guidance")["prompts"]
+        templates = sorted((ROOT / "docs/taskboard/prompts/v1").glob("*.md"))
+        self.assertEqual(len(templates), 5)
+        for template in templates:
+            with self.subTest(template=template.name):
+                content = template.read_text(encoding="utf-8")
+                self.assertIn("taskboard_field_guidance", content)
+                for name, prompt in prompts.items():
+                    self.assertIn(prompt["prompt"], content, name)
+
     def test_checklist_edits_keep_step_numbers_and_historical_wording(self):
         app = self.app(portal_reader=True)
         avery, avery_id = self.login(app, "Avery")

@@ -1293,6 +1293,8 @@ def event_label(action, context=None):
     if action == "source-event":
         return "Source update"
     if action == "log":
+        if (context or {}).get("checkpoint") is True:
+            return "Checkpoint"
         if ((context or {}).get("audit") or {}).get("action") == "move-project":
             return "Ticket moved to another project"
         return "Activity logged"
@@ -2072,14 +2074,17 @@ def save_task(db, path, args, links):
                 raise PermissionError("Only the project manager can update Knowledge Activity.")
             details = getattr(args, "details", None)
             context = {"activity_details": details} if details is not None else {}
+            checkpoint = getattr(args, "checkpoint", False)
+            if checkpoint:
+                context["checkpoint"] = True
             if (measurements := getattr(args, "watcher_measurements", None)) is not None:
                 if args.by != task["dri"]:
                     raise PermissionError("Only the task owner can record watcher measurements.")
                 context["watcher_measurements"] = measurements
             event_id = record(db, args.id, "log", args.by, task["state"], args.note, None, links, context)
-            if not is_knowledge(task):
+            if not checkpoint and not is_knowledge(task):
                 merges.apply_activity(db, task, args.by, event_id, details)
-            output = f"{projects.row_reference(task)} · {event_label('log')}"
+            output = f"{projects.row_reference(task)} · {event_label('log', context)}"
         elif args.command == "milestone":
             output = save_milestone(db, args)
         elif args.command in WORKER_WRITES:

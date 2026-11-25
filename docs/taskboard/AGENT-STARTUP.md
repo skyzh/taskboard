@@ -121,6 +121,7 @@ Taskboard picks the glyph from the recorded action. Use these commands for ordin
 | A linked pull request merged | `record-merge` | `git-merge` | The ticket, GitHub or Stamp PR URL, and full landed merge SHA. Taskboard verifies the linked PR against GitHub or a saved GitHub confirmation. |
 | You have a finding or an evidence link | `log` | `message-square-text` | The ticket, a short headline, and any details or evidence link. A PR link in a note keeps the comment glyph. |
 | You started work | `start` | `play` | The Ready ticket and the step you are starting. |
+| Unfinished work changed before a pause, session end, or handoff | `log --checkpoint` | `bookmark` | A headline, the decision and rationale, what was verified, and the working evidence. |
 | The next step or progress changed | `update` | `pencil-line` | The ticket and the current step or progress. |
 | Work needs a dependency to clear | `wait` | `clock` | The ticket, the blocker, and what will let work resume. Name a person, a blocking ticket, or the automation. |
 | A dependency cleared | `resume` | `rotate-ccw` | The Waiting ticket and the next step. Link the evidence when it helps confirm the dependency cleared. |
@@ -129,6 +130,21 @@ Taskboard picks the glyph from the recorded action. Use these commands for ordin
 | A human needs to make a blocking decision | `assign-human` | `circle-question-mark` | The ticket, a verified human recipient, and the decision they need to make. |
 | Another person or agent takes ownership | `transfer` | `corner-up-right` | The ticket, the new owner, and what they should do next. |
 | You verified the outcome | `done` | `check` | The ticket and its outcome. Link the result or verification when available. |
+
+Read `field-guidance` for the board's effective Checkpoint and End task prompts.
+In MCP, call `taskboard_field_guidance`. Over signed HTTP, discover `field-guidance`
+in the board's action manifest. The response includes the full text and a
+fictional example.
+
+Before pausing or handing off changed work, refresh the current handoff using
+the appropriate progress or wait action. Record the reasoning and evidence in
+a Checkpoint using `log --checkpoint`, `taskboard_checkpoint`, or signed
+`record-checkpoint`. Checkpoint entries use the ticket's Activity history and
+preserve its current handoff. Read the End task prompt before submitting Done.
+
+The public defaults adapt the handoff structure and resume checks used in the
+[oh-my-pi handoff prompt](https://github.com/can1357/oh-my-pi/blob/main/packages/agent/src/compaction/prompts/handoff-document.md)
+and [Anthropic coding quickstart](https://github.com/anthropics/claude-quickstarts/blob/main/autonomous-coding/prompts/coding_prompt.md).
 
 Use `record-merge` on a ticket you own or watch after attaching the pull request as a GitHub source. A complete GitHub confirmation includes the merged state, the landed SHA, and the merge time. Taskboard matches the confirmed SHA to the one you supply. The board checks its saved confirmation first and can query GitHub directly when the board operator has enabled GitHub fetching. When the board uses scheduled GitHub refresh, wait for it to save the confirmation. The command and refresh reuse one receipt per ticket and merge. [Merge receipt details](GITHUB-EXTENSIONS.md#record-a-verified-merge)
 

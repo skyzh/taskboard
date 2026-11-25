@@ -16,7 +16,7 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_context", "taskboard_queue", "taskboard_ticket", "taskboard_reviews",
             "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_reopen", "taskboard_create_project",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
-            "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel",
+            "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel", "taskboard_checkpoint",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_context"].annotations.read_only_hint)
@@ -26,6 +26,8 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(tools["taskboard_raft_channel"].annotations.read_only_hint)
         self.assertEqual(tools["taskboard_raft_channel"].input_schema["required"], ["project"])
         self.assertFalse(tools["taskboard_done"].annotations.idempotent_hint)
+        self.assertFalse(tools["taskboard_checkpoint"].annotations.idempotent_hint)
+        self.assertEqual(tools["taskboard_checkpoint"].input_schema["required"], ["ticket", "note"])
         self.assertFalse(tools["taskboard_create_ticket"].annotations.idempotent_hint)
 
     async def test_local_dri_tools_respect_project_creation_boundary(self):

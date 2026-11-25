@@ -16,8 +16,8 @@ def main(argv=None):
                 raise ValueError("--review-criteria requires --review-on.")
             raise ValueError("--review-on requires --review-criteria.")
         if args.command in STRUCTURED_ACTIVITY:
-            if args.details is not None:
-                args.details = activity_details(args.note, args.details)
+            if args.details is not None or getattr(args, "checkpoint", False):
+                args.details = activity_details(args.note, args.details or "")
             elif is_activity_headline(args.note) and not ACTIVITY_TECHNICAL.search(args.note):
                 # Keep long or technical note-only input compatible with existing commands.
                 args.details = ""

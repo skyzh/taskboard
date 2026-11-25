@@ -2,6 +2,7 @@
 
 import tomllib
 from pathlib import Path
+from textwrap import dedent
 
 import tasks_goals as goals
 import tasks_peer_asks as peer_asks
@@ -43,6 +44,7 @@ _ACTIONS = {
     "my-activity": "Open a linked ticket if its activity needs action.",
     "my-watches": "Open a linked ticket if an update needs action.",
     "raise-attention": "Check other work while the recipient handles the request.",
+    "record-checkpoint": "Read the ticket Activity to verify the checkpoint receipt before retrying.",
     "recurring-add": "Check the next occurrence with recurring-show.",
     "recurring-show": "Review the next scheduled occurrence and any open tickets.",
     "recurring-state": "Check the saved recurring definition with recurring-show.",
@@ -127,11 +129,58 @@ _FIELDS = {
 }
 
 
+_PROMPTS = {
+    "checkpoint": {
+        "prompt": dedent("""
+            At pickup, read the ticket's objective, current handoff, and relevant Activity.
+            Check the linked evidence or wait condition before continuing.
+
+            When unfinished work changes before a pause, session end, or handoff, refresh
+            the current handoff on the ticket or ask. Keep the objective, latest verified
+            state or conclusion, and first concrete next action there. For a wait, name
+            the dependency and the evidence that will clear it. Use the normal progress
+            or wait action within your mode's permissions.
+
+            Then record one Checkpoint in Activity with a short headline. In the details,
+            say what changed and why it matters, what you decided and why, what passed,
+            failed, or remains unverified, and the current working reference. Link
+            detailed evidence and any reusable lesson in Knowledge. Use signed HTTP
+            `record-checkpoint`, MCP `taskboard_checkpoint`, or CLI `log --checkpoint`.
+            An unchanged idle check needs no write.
+        """).strip(),
+        "example": {
+            "current_handoff": (
+                "Prevent duplicate rows in the sample export. Replaying the sample twice kept one row. "
+                "Next, run the interrupted-export fixture on the linked branch."
+            ),
+            "note": "The sample export can replay without duplicating rows.",
+            "details": (
+                "Use the export ID as the row key because filenames can repeat. "
+                "The two-run fixture passed. Recovery after interruption still needs verification. "
+                "Run the interrupted-export fixture on the linked branch."
+            ),
+            "url": "https://example.com/fictional-export/compare/replay",
+            "label": "Fictional branch and fixture results",
+        },
+    },
+    "end-task": {
+        "prompt": dedent("""
+            Before marking the ticket Done, compare the outcome with its objective and
+            acceptance criteria. Record the result in plain language, the checks that
+            support it and the evidence link. Name any unverified or remaining work.
+            Keep the ticket open with an actionable next step or named wait if that work
+            is needed for this outcome. Link any separate follow-up and say who owns it.
+        """).strip(),
+    },
+}
+
+
 class AgentGuidance:
-    def __init__(self, overrides=None, cli=None, fields=None):
+    def __init__(self, overrides=None, cli=None, fields=None, *, prompts=None):
         self.overrides = overrides or {}
         self.cli = cli or {}
         self.fields = fields or {}
+        self.prompts = prompts or {}
 
     def __getitem__(self, key):
         return self.overrides.get(key, _DEFAULTS[key])
@@ -145,6 +194,10 @@ class AgentGuidance:
         return {
             "project": project,
             "editable": editable,
+            "prompts": {
+                name: {**default, "prompt": self.prompts.get(name, default["prompt"])}
+                for name, default in _PROMPTS.items()
+            },
             "fields": {
                 name: {
                     "guidance": project_fields.get(name, self.fields.get(name, guidance)),
@@ -242,4 +295,6 @@ def load(path):
         raise ValueError("[agent_guidance] must be a TOML table.")
     cli = _validate(messages.pop("cli", {}), _CLI_KEYS, "agent_guidance.cli")
     fields = _validate(messages.pop("fields", {}), _FIELDS, "agent_guidance.fields")
-    return AgentGuidance(_validate(messages, _DEFAULTS, "agent_guidance", optional_empty={"ready-review"}), cli, fields)
+    prompts = _validate(messages.pop("prompts", {}), _PROMPTS, "agent_guidance.prompts")
+    return AgentGuidance(_validate(messages, _DEFAULTS, "agent_guidance", optional_empty={"ready-review"}),
+                         cli, fields, prompts=prompts)

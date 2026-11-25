@@ -127,6 +127,10 @@ def serve_fixture(source, database, certificate, key, browser):
         options["initial_project"] = ("T", "Tasks Board")
     if os.environ.get("TASKBOARD_COMPAT_PROJECT_ADMIN") == "1":
         options["project_admin_subject"] = provider.people["Sam"]["sub"]
+    if guidance_path := os.environ.get("TASKBOARD_COMPAT_GUIDANCE"):
+        from tasks_guidance import load
+
+        options["agent_guidance"] = load(guidance_path)
     server.app = create_app(
         database, public_url=origin + MOUNT, portal_reader=True,
         portal_upstream_token=PORTAL["X-Portal-Upstream-Token"],
@@ -141,14 +145,18 @@ def serve_fixture(source, database, certificate, key, browser):
 
 
 @contextmanager
-def fixture_server(python, source, directory, certificate, key, *, browser=None, database=None, project_admin=False):
+def fixture_server(python, source, directory, certificate, key, *, browser=None, database=None,
+                   project_admin=False, guidance=None):
     directory.mkdir()
     database = database if database is not None else directory / "fixture.sqlite3"
     command = [python, "-B", SCRIPT, "serve", source, database, certificate, key]
     if browser:
         command.append(browser)
     with (directory / "service.log").open("w") as log:
-        env = {**os.environ, "TASKBOARD_COMPAT_PROJECT_ADMIN": "1" if project_admin else "0"}
+        env = {
+            **os.environ, "TASKBOARD_COMPAT_PROJECT_ADMIN": "1" if project_admin else "0",
+            "TASKBOARD_COMPAT_GUIDANCE": str(guidance) if guidance else "",
+        }
         with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=log, text=True, env=env) as process:
             try:
                 with selectors.DefaultSelector() as selector:

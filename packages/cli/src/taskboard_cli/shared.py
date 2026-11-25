@@ -330,7 +330,7 @@ def shared_write(board, args, *, context):
         if getattr(args, "details", None) is not None:
             data["details"] = args.details
         if command == "log":
-            action = "record-activity"
+            action = "record-checkpoint" if args.checkpoint else "record-activity"
         elif command == "transfer":
             action = "handoff"
             if context.get("handoff_recipient_lookup") is True and not is_stable_person_id(args.dri, None):
@@ -558,7 +558,7 @@ def shared_command(args):
         raise ValueError("Open the task on the shared board and sign in as the assigned human.")
     if command not in READS | WRITES:
         raise ValueError(f"{command} is unavailable in shared mode. Use the appropriate offline or board workflow.")
-    if command == "log":
+    if command == "log" and not args.checkpoint:
         merge_details(args.details)
     service = os.environ.get("TASKS_RAFT_SERVICE", "tasks-board")
     board = DirectBoard(direct_url, **direct_options) if direct_url else SharedBoard(service)
@@ -633,12 +633,27 @@ def shared_command(args):
         result = board.invoke(command, query)
         fields = result["fields"]
         lines = [f"{result['project']} · Writing guidance"]
-        for field in (args.field,) if args.field else ("title", "brief", "next_step", "activity"):
+        ordinary_fields = ("title", "brief", "next_step", "activity")
+        for field in ordinary_fields if args.field is None else (args.field,):
+            if field not in ordinary_fields:
+                continue
             item = fields[field]
             lines.extend(("", field.replace("_", " ").capitalize(), item["guidance"], f"Appears in {item['where']}"))
             if item.get("format"):
                 lines.append(f"Format · {item['format']}")
             lines.append(f"Example · {item['example']}")
+        for name, label in (("checkpoint", "Checkpoint"), ("end-task", "End task")):
+            if args.field not in (None, name):
+                continue
+            prompt = result.get("prompts", {}).get(name)
+            if prompt is None:
+                if args.field == name:
+                    raise ValueError(f"This board does not return {label} guidance. Update the board first.")
+                continue
+            lines.extend(("", label, prompt["prompt"]))
+            if example := prompt.get("example"):
+                lines.extend(("", "Fictional example", example["current_handoff"], example["note"],
+                              example["details"], f"{example['label']} · {example['url']}"))
         if not args.field and (configured := result.get("ticket_fields")):
             lines.extend(("", "Project ticket fields"))
             for item in configured:

@@ -170,6 +170,17 @@ Each value is a string. Use an empty string for `ready-review` to omit the extra
 | `agent_guidance` | Other signed action responses | Prefix the action with `action-`. Supported actions include `context`, `create-task`, `delegate`, `save-goal`, and `worker-handoff`. See the [full list](../../packages/server/src/tasks_guidance.py). |
 | `agent_guidance.cli` | Guidance printed by the shared CLI for selected commands | `context`, `raft-channel`, `goals-existing`, `goals-missing`, `workers`, `completion`, `list`, `list-empty`, `list-unassigned-empty`, `readiness`, `readiness-empty`, `reviews`, `reviews-empty`, `search`, `search-empty`, `tagged`, `tagged-empty`, `watched`, `watched-empty` |
 | `agent_guidance.fields` | Signed writing guidance for the CLI and web editor | `title`, `brief`, `next_step`, `activity` |
+| `agent_guidance.prompts` | Prompts to read before recording a checkpoint or marking a ticket Done | `checkpoint`, `end-task` |
+
+Signed HTTP `field-guidance` and MCP `taskboard_field_guidance` return these
+effective prompts under `prompts`, including an example for Checkpoint.
+Use a nonempty string to override a public default. For example:
+
+```toml
+[agent_guidance.prompts]
+checkpoint = "Update the current handoff. Record the decision, reason, and fixture evidence in a Checkpoint."
+end-task = "Compare the result with the acceptance criteria and link the verified outcome before marking Done."
+```
 
 The shared CLI displays the server's selected guidance for Ready pickup, standing goals, task details, and shared writes. After a completed task or handoff it shows an actionable next ticket or standing goal when one exists. Use the `cli` table to customize the other command messages listed above, including the completion message when there is no next item.
 

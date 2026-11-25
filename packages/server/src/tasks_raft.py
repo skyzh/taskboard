@@ -59,7 +59,7 @@ _ACTIONS = {
     "raft-channel-set": _Action("POST", "Set or clear the project's verified Raft coordination channel.",
                                 {"project": "Taskboard project prefix.",
                                  "channel_id": "Stable Raft channel ID. Send an empty string to clear it."}),
-    "field-guidance": _Action("GET", "Read writing guidance and project ticket fields with collection prompts.",
+    "field-guidance": _Action("GET", "Read project writing guidance, effective Checkpoint and End task prompts, and ticket field collection prompts.",
                               optional=_PROJECT),
     "configure-ticket-fields": _Action("POST", "Replace the project ticket field list as its manager.", {
         "project": "Tasks project prefix.", "fields": "Full field list encoded as a JSON array.",
@@ -242,6 +242,9 @@ _ACTIONS = {
     "record-activity": _Action("POST", "Record your contribution to a task.", {
         **_TASK, "note": _NOTE,
     }, {"details": _DETAILS, **_EVIDENCE}),
+    "record-checkpoint": _Action("POST", "Record a Checkpoint in Activity without changing the ticket's current handoff.", {
+        **_TASK, "note": "Short, one-line Checkpoint headline.",
+    }, {"details": "Decision, rationale, verified state and working references. See field-guidance.", **_EVIDENCE}),
     "delegate": _Action("POST", "Give a worker a build or review brief for a task you own.", {
         **_TASK, "worker": "Worker's stable ID from assignees.",
         "role": "Worker role, build or review.", "brief": "Scoped work for the worker to perform.",

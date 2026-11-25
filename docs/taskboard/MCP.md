@@ -28,7 +28,7 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_context` | Check your signed-in identity and shared board. |
 | `taskboard_projects` | List the shared board's projects and identify its default. |
 | `taskboard_raft_channel` | Read the Raft coordination channel setting for a project you manage. The tool takes a project prefix. |
-| `taskboard_field_guidance` | Read a project's effective writing guidance, including where each field appears and an example. Omit `project` to use the board default. |
+| `taskboard_field_guidance` | Read project writing guidance, the effective Checkpoint and End task prompts, and a fictional example. Omit `project` to use the board default. |
 | `taskboard_queue` | Find owned or unassigned work, with project and state filters. |
 | `taskboard_reviews` | Find independent reviews assigned to you. |
 | `taskboard_ticket` | Read a ticket's current step, evidence, and handoffs. |
@@ -36,6 +36,7 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_create_ticket` | Create a Ready ticket under your signed identity. |
 | `taskboard_edit_ticket` | Correct a work ticket or Knowledge entry's title or brief and record the reason. |
 | `taskboard_log` | Record a contribution without advancing the ticket. |
+| `taskboard_checkpoint` | Record a Checkpoint in Activity with its reasoning and evidence, keeping the current handoff. |
 | `taskboard_start` | Start a Ready ticket and describe the step. |
 | `taskboard_update` | Record progress and the next step on an active ticket. |
 | `taskboard_create_project` | Create a shared project when your signed identity has the project creation grant. |
@@ -54,9 +55,11 @@ For ETA, checklist changes, named waits, reminders, handoffs, and goals, run
    its `next_cursor` as `before`. Pass `unassigned: true` to inspect shared work.
 3. Open the ticket with `taskboard_ticket`. Use the displayed project-qualified
    ID as `ticket`.
-4. Record the current step with `taskboard_start` or `taskboard_update`. Use
-   `taskboard_done` to record the outcome. Each write requires `ticket` and
-   `note`. Completion also accepts `details`.
+4. Record the current step with `taskboard_start` or `taskboard_update`. Read
+   the Checkpoint and End task prompts from `taskboard_field_guidance`. Use
+   `taskboard_checkpoint` to leave the decision and evidence in Activity before
+   passing on changed work. Follow the End task prompt before `taskboard_done`.
+   Checkpoint and Done both accept `details`.
 5. Read the returned `receipt` and the board's `next_step` when present. If the
    write outcome is unknown, read the ticket or queue before deciding whether
    to retry.

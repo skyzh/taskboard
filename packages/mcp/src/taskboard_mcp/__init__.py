@@ -28,7 +28,8 @@ def build_server(board: SharedBoard) -> MCPServer:
         "Taskboard",
         instructions=(
             "Check taskboard_context for your signed identity, then choose work with "
-            "taskboard_queue or taskboard_reviews. See docs/taskboard/MCP.md for the adapter's full tool list. "
+            "taskboard_queue or taskboard_reviews where your workflow uses a queue. "
+            "Read taskboard_field_guidance for the board's Checkpoint and End task prompts. "
             "Local DRI context includes its registered project and identity-specific action limits. "
             "Run ./tasks --shared capabilities for additional shared CLI actions."
         ),
@@ -54,7 +55,7 @@ def build_server(board: SharedBoard) -> MCPServer:
 
     @server.tool(annotations=read_only)
     def taskboard_field_guidance(project: Project | None = None) -> dict[str, Any]:
-        """Read effective writing guidance, locations and examples for ticket fields. Omit project for the board default."""
+        """Read project writing guidance, effective Checkpoint and End task prompts, and a Checkpoint example."""
         return board.invoke("field-guidance", {"project": project} if project is not None else {})
 
     @server.tool(annotations=read_only)
@@ -141,6 +142,14 @@ def build_server(board: SharedBoard) -> MCPServer:
     ) -> dict[str, Any]:
         """Record a contribution on a ticket without advancing its state."""
         return ticket_write("record-activity", id=ticket, note=note, details=details, url=url, label=label)
+
+    @server.tool(annotations=write)
+    def taskboard_checkpoint(
+        ticket: Ticket, note: Note, details: Details | None = None,
+        url: EvidenceUrl | None = None, label: EvidenceLabel | None = None,
+    ) -> dict[str, Any]:
+        """Record a Checkpoint in Activity. Use field guidance for the prompt and example."""
+        return ticket_write("record-checkpoint", id=ticket, note=note, details=details, url=url, label=label)
 
     def taskboard_create_project(
         prefix: Project,

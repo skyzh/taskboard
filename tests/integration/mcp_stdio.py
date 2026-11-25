@@ -84,6 +84,31 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                 history = io_action(origin, "task-activity", cookie=cookie, query={"id": "T-1"})
                 self.assertEqual([event["action"] for event in history["items"]].count("start"), 1)
 
+    async def test_configured_named_prompts_match_signed_http(self):
+        python = Path(os.environ["TASKBOARD_MCP_FIXTURE_PYTHON"]).absolute()
+        with TemporaryDirectory(prefix="taskboard-mcp-prompts-") as temporary:
+            folder = Path(temporary)
+            guidance = folder / "agent-guidance.toml"
+            checkpoint = "Keep a backed-up fixture and record the reason it is representative."
+            end_task = "Read back the published artifact before closing the ticket."
+            guidance.write_text(
+                f'[agent_guidance.prompts]\ncheckpoint = "{checkpoint}"\nend-task = "{end_task}"\n',
+                encoding="utf-8",
+            )
+            with fixture_server(python, ROOT, folder / "service", *certificate(folder), guidance=guidance) as mounted:
+                origin, cookie, _, environment = mounted
+                signed = io_action(origin, "field-guidance", cookie=cookie)
+                async with connect(environment) as owner:
+                    result = await owner.call_tool("taskboard_field_guidance", {})
+                    self.assertFalse(result.is_error, result.content)
+                    self.assertEqual(result.structured_content, signed)
+                self.assertEqual(signed["prompts"]["checkpoint"]["prompt"], checkpoint)
+                self.assertEqual(signed["prompts"]["end-task"]["prompt"], end_task)
+                self.assertIn("current_handoff", signed["prompts"]["checkpoint"]["example"])
+                self.assertEqual(
+                    {field["source"] for field in signed["fields"].values()}, {"default"},
+                )
+
     async def verify_field_guidance(self, owner, reviewer, python, origin, cookie, blake_cookie, environment):
         async def compare(project=None):
             params = {"project": project} if project is not None else {}
@@ -95,7 +120,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(signed["project"], prefix)
             with request(origin, MOUNT + f"/api/v1/projects/{prefix}/field-guidance", cookie=cookie) as response:
                 browser = json.load(response)
-            self.assertEqual(browser, {key: signed[key] for key in ("project", "editable", "fields")})
+            self.assertEqual(browser, {key: signed[key] for key in ("project", "editable", "fields", "prompts")})
             cli_args = ("--project", project) if project is not None else ()
             printed = cli_success(python, ROOT, environment, "field-guidance", *cli_args)
             self.assertIn(f"{prefix} · Writing guidance", printed)
@@ -106,6 +131,9 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
 
         default = await compare()
         self.assertEqual({field["source"] for field in default["fields"].values()}, {"default"})
+        self.assertIn("An unchanged idle check needs no write.", default["prompts"]["checkpoint"]["prompt"])
+        self.assertIn("current_handoff", default["prompts"]["checkpoint"]["example"])
+        self.assertIn("Before marking the ticket Done", default["prompts"]["end-task"]["prompt"])
         course = await compare("COURSE")
         self.assertTrue(course["editable"])
         self.assertEqual(course["fields"], default["fields"])
@@ -264,6 +292,19 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         shown = cli_success(python, ROOT, environment, "show", ticket)
         self.assertIn("Compare fixture responses", shown)
         self.assertIn("https://example.test/readback", shown)
+        checkpoint = await reviewer.call_tool("taskboard_checkpoint", {
+            "ticket": ticket, "note": "Resume on the signed fixture.", "details": "Use the checked fixture because it is repeatable.",
+            "label": "Fixture evidence", "url": "https://example.test/fixture",
+        })
+        self.assertFalse(checkpoint.is_error, checkpoint.content)
+        self.assertEqual(checkpoint.structured_content["receipt"], f"{ticket} · Checkpoint")
+        view = await owner.call_tool("taskboard_activity", {"ticket": ticket, "limit": 1})
+        self.assertFalse(view.is_error, view.content)
+        event, = view.structured_content["items"]
+        self.assertEqual((event["action"], event["label"], event["actor"]), ("log", "Checkpoint", expected_actor))
+        self.assertIs(event["context"]["checkpoint"], True)
+        self.assertEqual(event["details"], "Use the checked fixture because it is repeatable.")
+        self.assertEqual(io_action(origin, "task", cookie=cookie, query={"id": ticket})["task"], stored["task"])
 
         entry = io_action(origin, "create-knowledge", cookie=cookie, data={
             "project": "COURSE", "title": "Fixture guidance", "brief": "Review the planned outcome.",
@@ -291,7 +332,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_context", "taskboard_queue", "taskboard_reviews", "taskboard_ticket",
             "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_reopen", "taskboard_create_project",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
-            "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel",
+            "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel", "taskboard_checkpoint",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_queue"].annotations.read_only_hint)

@@ -243,6 +243,7 @@ def arguments(argv=None):
     log.add_argument("id", type=task_id)
     log.add_argument("note", type=nonblank)
     log.add_argument("--by", type=nonblank, help="Actor in offline mode or an identity check in shared mode.")
+    log.add_argument("--checkpoint", action="store_true", help="Record a Checkpoint without changing the current handoff.")
     add_details_flag(log)
     add_link_flag(log)
 
@@ -426,7 +427,7 @@ def arguments(argv=None):
     channel_value.add_argument("--channel-id", type=nonblank, help="Stable Raft channel ID.")
     channel_value.add_argument("--clear", action="store_true", help="Clear the project's saved Raft channel.")
     guidance = commands.add_parser("field-guidance", help="Read effective writing guidance for a project.")
-    guidance.add_argument("field", nargs="?", choices=("title", "brief", "next_step", "activity"),
+    guidance.add_argument("field", nargs="?", choices=("title", "brief", "next_step", "activity", "checkpoint", "end-task"),
                           help="Omit to see every field.")
     guidance.add_argument("--project", type=nonblank, help="Project prefix. Defaults to the board’s default project.")
     project_directory = commands.add_parser("projects", help="List projects on the signed shared board.")
