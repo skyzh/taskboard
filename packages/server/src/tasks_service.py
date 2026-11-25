@@ -2008,6 +2008,17 @@ def create_app(
         with tasks_storage.read(db()) as connection:
             return query().schedules(project, actor["ledger_key"] if actor else None)
 
+    @app.get("/api/v1/schedules/<identifier>")
+    def recurring_schedule(identifier):
+        actor = current_actor(required=True)
+        number = record_id(identifier, "R-", "Recurring ID")
+        with tasks_storage.read(db()):
+            project = project_filter(request.args)
+            schedule = query().schedule_detail(number, actor["ledger_key"], project)
+        if schedule is None:
+            raise NotFound()
+        return schedule
+
     @app.post("/api/v1/schedules/<number>/state")
     def recurring_schedule_state(number):
         actor = current_actor(write=True)
