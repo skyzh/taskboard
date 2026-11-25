@@ -10,13 +10,27 @@
   list-style: none;
 }
 .assignee-activity-list a {
-  display: block;
+  display: grid;
+  grid-template-columns: 1.05rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: .5rem;
   padding: .4rem 0;
   border-bottom: 1px solid var(--line);
   font-size: .875rem;
   overflow-wrap: anywhere;
+  text-decoration: none;
 }
-.assignee-activity-list time { white-space: nowrap; }
+.assignee-activity-headline {
+  text-decoration: underline;
+  text-underline-offset: .12em;
+}
+.assignee-activity-meta {
+  display: inline-block;
+  margin-inline-start: .3rem;
+  color: var(--muted);
+  font-size: .8rem;
+  white-space: nowrap;
+}
 .reports-needs-you {
   margin-bottom: .85rem;
   padding-inline: .85rem;

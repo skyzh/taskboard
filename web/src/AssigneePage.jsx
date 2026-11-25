@@ -3,7 +3,8 @@ import { queryPath, useLoadedPages, useResource } from './data.js'
 import { ActivityDate, Outcomes } from './Overview.jsx'
 import { NeedsYou, OwnerWorkLinks, PendingReports, ownerWorkSections } from './Reports.jsx'
 import {
-  AssigneeAvatar, DriWorkStatus, LoadMore, ResourceStatus, Timestamp, eventHref, ownerHref, profileName, taskLabel,
+  ActivityMark, AssigneeAvatar, DriWorkStatus, LoadMore, ResourceStatus, Timestamp, eventHref, ownerHref, profileName,
+  taskLabel,
 } from './shared.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import DriWorkers from './DriWorkers.jsx'
@@ -25,15 +26,6 @@ function OwnerWork({ owner, state, id, title, label, revision, project }) {
   )
 }
 
-function reportAction(event) {
-  if (event.context?.stamp_verdict || event.context?.manual_review_result || event.context?.work_kind === 'merge-review') {
-    return 'Review'
-  }
-  if (event.context?.worker_report_id) return 'Worker report'
-  if (event.action === 'transfer') return 'Peer result'
-  return event.label
-}
-
 function AssigneeActivity({ owner, project, revision }) {
   const { formatDay } = useTimeZone()
   const page = useLoadedPages('/activity', { actor: owner, project, detail: 'reports' }, revision, { limit: 10 })
@@ -53,15 +45,18 @@ function AssigneeActivity({ owner, project, revision }) {
           <h3><ActivityDate day={day} /></h3>
           <ul className="assignee-activity-list" role="list">
             {events.map(event => {
-              const action = reportAction(event)
               const recorded = activityHeadline(event)
-              const headline = recorded && recorded !== event.label ? recorded : event.task_title
+              const headline = recorded && recorded !== event.label ? recorded : event.task_title || event.label
               return (
                 <li key={event.id}>
                   <a href={eventHref(event.id)}>
-                    <strong>{taskLabel(event.task_id, event.task_key)}</strong>
-                    {' · '}{action}{' · '}<Timestamp at={event.at} showDate={false} />
-                    {headline && <> · <MarkdownInline text={headline} links={false} /></>}
+                    <ActivityMark event={event} />
+                    <span>
+                      <span className="assignee-activity-headline"><MarkdownInline text={headline} links={false} /></span>
+                      {' '}<span className="assignee-activity-meta">
+                        {taskLabel(event.task_id, event.task_key)} · <Timestamp at={event.at} showDate={false} />
+                      </span>
+                    </span>
                   </a>
                 </li>
               )
