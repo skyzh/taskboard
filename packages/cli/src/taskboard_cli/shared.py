@@ -239,7 +239,7 @@ def shared_write(board, args, *, context):
         reference = task_ref(args.id)
         data.update(id=reference, action=command, reason=args.note)
         if command != "unassign":
-            data["owner"] = board.person(args.dri, "agent", reference)
+            data["owner"] = board.person(args.dri, None, reference)
     elif command == "knowledge-add":
         action = "create-knowledge"
         data.update(project=projects.prefix(args.project), title=ledger.task_title(args.title), brief=args.brief)
@@ -313,10 +313,10 @@ def shared_write(board, args, *, context):
             action = "record-activity"
         elif command == "transfer":
             action = "handoff"
-            if context.get("handoff_recipient_lookup") is True and not is_stable_person_id(args.dri, "agent"):
+            if context.get("handoff_recipient_lookup") is True and not is_stable_person_id(args.dri, None):
                 data["owner_name"] = args.dri
             else:
-                data["owner"] = board.person(args.dri, "agent", data["id"])
+                data["owner"] = board.person(args.dri, None, data["id"])
         else:
             action = "advance-task"
             data["transition"] = command

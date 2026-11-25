@@ -23,19 +23,21 @@ def reply_json(text):
 
 
 def is_stable_person_id(value, kind):
+    if kind is None:
+        return value.startswith(("raft:human:", "raft:agent:", "local-dri:"))
     return value.startswith(f"raft:{kind}:") or (kind == "agent" and value.startswith("local-dri:"))
 
 
 def exact_person_id(people, value, kind):
     name = value.removeprefix("@").casefold()
-    people = [person for person in people if person["kind"] == kind]
+    people = [person for person in people if kind is None or person["kind"] == kind]
     for field in ("id", "username", "name"):
         matches = [person["id"] for person in people if person.get(field, "").casefold() == name]
         if len(matches) == 1:
             return matches[0]
         if matches:
             break
-    raise ValueError(f"Choose one signed-in {kind} by exact handle or stable ID: {value}.")
+    raise ValueError(f"Choose one signed-in {kind or 'person'} by exact handle or stable ID: {value}.")
 
 
 class SharedActionUnavailable(RuntimeError):

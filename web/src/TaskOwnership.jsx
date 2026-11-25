@@ -18,12 +18,12 @@ export default function TaskOwnership({ task, actions, project, revision, onChan
   const assignees = useLoadedPages(open && needsOwner ? '/assignees' : null, { project }, revision)
   if (!allowed.length) return null
 
-  const agents = (assignees.data?.items || []).flatMap(person => {
-    if (person.kind !== 'agent' || !person.id || (action === 'reassign' && person.id === task.dri)) return []
+  const people = (assignees.data?.items || []).flatMap(person => {
+    if (!person.id || (action === 'reassign' && person.id === task.dri)) return []
     const name = [person.name, person.username].find(value => value && !value.startsWith('raft:'))
-    return name ? [{ id: person.id, name }] : []
+    return name ? [{ id: person.id, name, kind: person.kind }] : []
   })
-  const canSave = Boolean(action && reason.trim() && (!needsOwner || agents.some(agent => agent.id === owner)))
+  const canSave = Boolean(action && reason.trim() && (!needsOwner || people.some(person => person.id === owner)))
 
   async function submit(event) {
     event.preventDefault()
@@ -68,16 +68,20 @@ export default function TaskOwnership({ task, actions, project, revision, onChan
             <label>
               New owner
               <select value={owner} onChange={event => setOwner(event.target.value)}
-                disabled={saving || !agents.length} required>
-                <option value="">Choose an agent</option>
-                {agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+                disabled={saving || !people.length} required>
+                <option value="">Choose a person or DRI</option>
+                {people.map(person => (
+                  <option key={person.id} value={person.id}>
+                    {person.name} ({person.kind === 'human' ? 'Person' : 'DRI'})
+                  </option>
+                ))}
               </select>
             </label>
-            <ResourceStatus resource={assignees} label="eligible agents" />
-            {assignees.data && !agents.length && assignees.data.next_cursor == null && (
-              <p className="section-message">No eligible agents are available.</p>
+            <ResourceStatus resource={assignees} label="eligible owners" />
+            {assignees.data && !people.length && assignees.data.next_cursor == null && (
+              <p className="section-message">No eligible owners are available.</p>
             )}
-            <LoadMore page={assignees} label="eligible agents" />
+            <LoadMore page={assignees} label="eligible owners" />
           </>
         )}
         <label>

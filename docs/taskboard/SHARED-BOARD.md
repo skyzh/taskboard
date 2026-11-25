@@ -303,7 +303,7 @@ have read access only.
 | Action | Permission |
 | --- | --- |
 | Edit goal content | Goal owner, or project manager through ticket details. |
-| Start, update or finish work, set priority, or change parking | Ticket owner under the current workflow rules. An eligible agent can hand off assigned regular work to a valid recipient in its project. |
+| Start, update or finish work, set priority, or change parking | Ticket owner under the current workflow rules. A project writer can hand off assigned regular work to an eligible human or DRI in its project. |
 | Add or rename checklist steps | Project writers can edit wording. The current work and each step's completion record stay in place. |
 | Start or complete a checklist step, reopen one, or remove one | The ticket owner records progress. The owner or project manager can reopen or remove steps, which changes the checklist's status or membership. |
 | Add or remove ordinary labels | Project writers can edit tags on tickets and Knowledge. The `decision-record` tag controls legacy record classification. Changing it on work requires the owner or manager, and Knowledge entries retain it. |
@@ -311,7 +311,7 @@ have read access only.
 | Answer a decision | Human named on the current decision request. |
 | Close unfinished work, reassign or reopen | Ticket owner or project manager can close ordinary unfinished work. Reassignment, unassignment, and reopening use the project manager path. Linked requests use their own requester and workflow rules. |
 | Move a ticket to another project | Manager of both projects, subject to the ticket and assignee rules. |
-| Create or organize Knowledge | A signed project agent or project manager can create entries. Placement of Knowledge entries and applying staged changes use project management permissions. |
+| Create or organize Knowledge | A signed project writer or project manager can create entries. Placement of Knowledge entries and applying staged changes use project management permissions. |
 | Change project settings or creation grants | Project settings use project management permissions. Creating projects needs the separate creation grant, managed by the configured permission manager. |
 
 The shared board preserves prior Activity as history and records changes as new
@@ -645,7 +645,7 @@ exact-time reminders.
 
 ## Organize and maintain Knowledge
 
-Knowledge entries are project records with a ticket ID, brief, links, and Activity. Create an entry directly and use its brief to record the current guidance. A signed project agent or project manager can create an entry. Project writers can edit its title and brief. The project manager organizes entries in an area. Use linked work tickets for proposed changes, assignments, and reviews.
+Knowledge entries are project records with a ticket ID, brief, links, and Activity. Create an entry directly and use its brief to record the current guidance. A signed project writer or project manager can create an entry. Project writers can edit its title and brief. The project manager organizes entries in an area. Use linked work tickets for proposed changes, assignments, and reviews.
 
 ```sh
 ./tasks --shared knowledge-add 'Storage performance index' --project OPS --brief 'Link the current findings here.'

@@ -1875,6 +1875,7 @@ test('tag edits use the exact ticket route and retain an invalid or unsaved draf
 
 test('ownership forms post allowed changes and keep the reason and owner after failure', async () => {
   const owner = 'raft:agent:fixture-target'
+  const human = 'raft:human:fixture-human'
   const task = { id: 7, key: 'COURSE-7', state: 'in_progress', dri: 'raft:agent:fixture-owner' }
   const reason = '  Hand off the sample review.  '
   const sent = []
@@ -1889,7 +1890,7 @@ test('ownership forms post allowed changes and keep the reason and owner after f
       { kind: 'agent', name: 'Sample Reviewer', id: owner },
       { kind: 'agent', name: 'Original Owner', id: task.dri },
       { kind: 'agent', name: 'raft:agent:missing-name', id: 'raft:agent:missing-name' },
-      { kind: 'human', name: 'Sample Human', id: 'raft:human:fixture-human' },
+      { kind: 'human', name: 'Sample Reviewer', id: human },
     ] } }
   } }
   fixture.request = async (path, request) => {
@@ -1912,7 +1913,8 @@ test('ownership forms post allowed changes and keep the reason and owner after f
 
     await form('unassign', owner, reason).props.onSubmit(event)
     await form('reopen', owner, reason).props.onSubmit(event)
-    assert.equal(changed, 2)
+    await form('reassign', human, reason).props.onSubmit(event)
+    assert.equal(changed, 3)
 
     fail = true
     updates.length = 0
@@ -1920,17 +1922,19 @@ test('ownership forms post allowed changes and keep the reason and owner after f
     assert.deepEqual(sent, [
       { path: '/tasks/COURSE-7/ownership', method: 'POST', body: { action: 'unassign', reason: reason.trim() } },
       { path: '/tasks/COURSE-7/ownership', method: 'POST', body: { action: 'reopen', reason: reason.trim(), owner } },
+      { path: '/tasks/COURSE-7/ownership', method: 'POST', body: { action: 'reassign', reason: reason.trim(), owner: human } },
       { path: '/tasks/COURSE-7/ownership', method: 'POST', body: { action: 'reassign', reason: reason.trim(), owner } },
     ])
-    assert.equal(changed, 2)
+    assert.equal(changed, 3)
     assert.deepEqual(updates, [true, null, { error: true, text: 'The task changed. Try again.' }, false])
     fixture.state = [true, '', owner, reason, false, updates[2]]
     const failed = renderToStaticMarkup(React.createElement(TaskOwnership, props('reassign')))
     assert.match(failed, /data-reload-blocked="true"/)
     assert.match(failed, /role="alert">The task changed\. Try again\./)
     assert.ok(failed.includes(reason))
-    assert.match(failed, /selected="">Sample Reviewer<\/option>/)
-    assert.doesNotMatch(failed, /Sample Human|Original Owner|raft:agent:missing-name|>raft:/)
+    assert.match(failed, /selected="">Sample Reviewer \(DRI\)<\/option>/)
+    assert.match(failed, /Sample Reviewer \(Person\)<\/option>/)
+    assert.doesNotMatch(failed, /Original Owner|raft:agent:missing-name|>raft:/)
   } finally {
     delete fixture.request
     delete fixture.onSetState

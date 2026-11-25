@@ -186,7 +186,7 @@ offering unattended work.
 5. **Promote reusable guidance.** Record the decision, decision maker,
    rationale, scope, and exact source in Activity. Stage it against an
    existing Knowledge entry with the proposed brief and source event if
-   permitted. For a new entry, a signed project agent or manager can use
+   permitted. For a new entry, a signed project writer or manager can use
    `create-knowledge`. A human session with no Knowledge write access
    leaves the source-linked proposal on the work ticket for the project
    manager. Use [organize and maintain Knowledge](SHARED-BOARD.md#organize-and-maintain-knowledge)
