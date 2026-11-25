@@ -7,7 +7,8 @@ import tasks_core as ledger
 import tasks_extensions as extensions
 import tasks_github_webhooks as webhooks
 from tasks_github import (
-    _ReadError, _source, _time, activity_read_bound, activity_rules, link_settings, observe_metadata, repository,
+    RefreshDeferred, _ReadError, _source, _time, activity_read_bound, activity_rules, link_settings, observe_metadata,
+    repository,
     save_updates,
 )
 from tasks_release_info import release_info
@@ -58,8 +59,10 @@ def _deployment_candidates(db, project):
     ).fetchall()
 
 
-def _deployed(db, reader, compare, project, rule, running_release, board_url, result):
+def _deployed(db, reader, compare, project, rule, running_release, board_url, result, require_reads):
     if rule.deployment.provider == "github":
+        if require_reads is not None:
+            require_reads(2)
         deployed = reader.deployed_commit(rule)
     else:
         commit, at = running_release.get("commit"), _time(running_release.get("deployed_at"))
@@ -109,17 +112,18 @@ def _deployed(db, reader, compare, project, rule, running_release, board_url, re
                 result["deployments"] += 1
 
 
-def _read_observations(item, reader, settings, remaining):
+def _read_observations(item, reader, settings, remaining, *, read_ci, require_reads):
     rules = activity_rules(settings, item)
-    if rules:
-        issue_status = any(options.get(extensions.STATUS) for options in settings.values())
-        review_comments = any("review_comment" in policies for policies in rules.values())
-        bound = activity_read_bound(item, issue_status=issue_status, review_comments=review_comments)
-        if bound > remaining:
-            return None
-        return bound, reader._read_item(item, issue_status=issue_status, review_comments=review_comments)
-    if remaining < 1:
+    issue_status = any(options.get(extensions.STATUS) for options in settings.values())
+    review_comments = any("review_comment" in policies for policies in rules.values())
+    bound = activity_read_bound(item, issue_status=issue_status, review_comments=review_comments) if rules else 1
+    total = bound + int(read_ci)
+    if total > remaining:
         return None
+    if require_reads is not None:
+        require_reads(total)
+    if rules:
+        return bound, reader._read_item(item, issue_status=issue_status, review_comments=review_comments)
     try:
         return 1, ((), None, (), reader.read_metadata(item))
     except _ReadError as error:
@@ -135,13 +139,21 @@ def _ci_policies(settings, item):
     }
 
 
-def refresh(db, reader, configured, *, release_source=None, board_url):
+def refresh(db, reader, configured, *, release_source=None, board_url, require_reads=None):
     """Run one bounded provider read and project rule pass outside service requests."""
     configured = {key: value for key, value in configured.items()
                   if value.get(extensions.STATUS) or value.get(extensions.EVENTS)}
     result = {"sources": 0, "activity": 0, "deployments": 0, "errors": []}
+    try:
+        _refresh(db, reader, configured, release_source, board_url, require_reads, result)
+    except RefreshDeferred as deferred:
+        result["deferred"] = {"reason": deferred.reason, "retry_at": deferred.retry_at}
+    return result
+
+
+def _refresh(db, reader, configured, release_source, board_url, require_reads, result):
     if not configured:
-        return result
+        return
     remaining_reads = _SOURCE_READ_BUDGET
     remaining_webhook_reads = _WEBHOOK_READ_BUDGET
     pending = webhooks.pending(db, min(_WEBHOOK_BATCH_SIZE, _BATCH_SIZE - 1))
@@ -180,7 +192,7 @@ def refresh(db, reader, configured, *, release_source=None, board_url):
             continue
         read_ci = bool(_ci_policies(settings, item))
         budget = remaining_reads if project is None else remaining_webhook_reads
-        observation = _read_observations(item, reader, settings, budget - int(read_ci))
+        observation = _read_observations(item, reader, settings, budget, read_ci=read_ci, require_reads=require_reads)
         if observation is None:
             if project is not None:
                 continue
@@ -200,6 +212,8 @@ def refresh(db, reader, configured, *, release_source=None, board_url):
             if warning:
                 errors = (*errors, ("checks", warning))
         result["errors"].extend({"source": source["source_key"], "error": error} for _, error in errors)
+        if any(error == "github_rate_limited" for _, error in errors):
+            return
         with tasks_storage.write(db):
             settings = link_settings(db, source["id"], scope)
             for cue in cues:
@@ -215,8 +229,6 @@ def refresh(db, reader, configured, *, release_source=None, board_url):
                     result["activity"] += int(extensions.record(db, number, source["id"], key, evidence, policy))
             ledger.bump_revision(db)
         result["sources"] += 1
-        if any(error == "github_rate_limited" for _, error in errors):
-            return result
     running_release = release_info(Path(release_source)) if release_source is not None else {}
     remaining = _COMPARISONS_PER_REFRESH
 
@@ -233,9 +245,8 @@ def refresh(db, reader, configured, *, release_source=None, board_url):
         rule = options.get(extensions.EVENTS)
         if rule and rule.deployment:
             try:
-                _deployed(db, reader, compare, project, rule, running_release, board_url, result)
+                _deployed(db, reader, compare, project, rule, running_release, board_url, result, require_reads)
             except _ReadError as error:
                 result["errors"].append({"project": project, "error": str(error)})
                 if str(error) == "github_rate_limited":
                     break
-    return result

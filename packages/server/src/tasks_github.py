@@ -60,12 +60,29 @@ class _ReadError(Exception):
     pass
 
 
+class RefreshDeferred(RuntimeError):
+    """An optional scheduled read cannot proceed without spending deploy headroom."""
+
+    def __init__(self, reason, retry_at=None):
+        super().__init__(reason)
+        self.reason = reason
+        self.retry_at = retry_at
+
+
+def github_request(path):
+    return Request(f"{_API_ORIGIN}{path}", method="GET", headers={
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2026-03-10",
+        "User-Agent": "raft-tasks-board",
+    })
+
+
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 
-def _send(upstream):
+def _send(upstream, *, read_forbidden=False):
     opener = build_opener(_NoRedirect())
     try:
         result = opener.open(upstream, timeout=5)
@@ -73,7 +90,7 @@ def _send(upstream):
         result = error
     with result:
         status, headers = result.getcode(), dict(result.headers)
-        if status != 200:
+        if status != 200 and (status != 403 or not read_forbidden):
             return status, headers, None
         raw = result.read(_MAX_RESPONSE + 1)
         if len(raw) > _MAX_RESPONSE:
@@ -252,13 +269,10 @@ class GitHubReader:
         self._transport = transport or _send
 
     def _get(self, path, expected):
-        upstream = Request(f"{_API_ORIGIN}{path}", method="GET", headers={
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2026-03-10",
-            "User-Agent": "raft-tasks-board",
-        })
         try:
-            status, headers, document = self._transport(upstream)
+            status, headers, document = self._transport(github_request(path))
+        except RefreshDeferred:
+            raise
         except Exception:
             raise _ReadError("github_unavailable") from None
         headers = {name.lower(): value for name, value in headers.items()}
