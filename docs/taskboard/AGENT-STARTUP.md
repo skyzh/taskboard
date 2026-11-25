@@ -98,7 +98,7 @@ Use the shared CLI or web board for other actions.
 | Find the current decisions by topic | [Start from a Knowledge index](#start-from-a-knowledge-index). |
 | Find related work or read evidence | Use `search "short phrase" --project T` to check for an existing ticket, then `show` to read it. Use `workers`, `tagged`, `watched`, `recurring-show`, or `maintenance-show` for their specific records. |
 | Plan or record work | `add`, `edit`, `priority`, `tag`, `start`, `update`, `log`, `link-reference`, `link-source`. Use `update --checklist-step` to add a step and `update --check` to mark it complete. |
-| Record a verified PR merge | Link the PR as a GitHub source, then run `tasks --shared record-merge TICKET PR_URL MERGE_SHA`. Taskboard verifies the landed commit and shows the merge icon in Activity. [Merge receipts](GITHUB-EXTENSIONS.md#record-a-verified-merge) |
+| Record an Activity event | Choose the action that matches what happened. [Activity actions and glyphs](#record-activity-with-the-right-action) |
 | Give a useful estimate | Once the task is in progress, run `./tasks --shared update T-42 'Check sample results.' --eta 2026-11-24T17:00:00Z`. Use a time with an explicit offset. Revise the estimate when it changes or use `--clear-eta` if you can no longer give one. |
 | Handle a dependency or a later start | Use `wait --on` for a verified person, `wait --blocked-by` for a ticket, or add `--automation` for an automation wait. When you `park` ordinary work, set `--review-after`, `--until`, or `--review-on` with `--review-criteria`, or keep its saved trigger. Use `remind` to update a reminder and `unpark` when work can continue. [Return triggers](SHARED-BOARD.md#park-a-ticket-with-a-reminder-or-dependency-review) |
 | Confirm a trigger cleared | On the ticket, use **Confirm blocker cleared**. In the CLI, run `confirm-blocker T-42 123 "The expected result is verified."` with the wait's Activity event ID. The board checks that a linked ticket is Done. For a CI or deployment result, include `--link Evidence URL`. |
@@ -111,6 +111,34 @@ Use the shared CLI or web board for other actions.
 The board verifies the signed-in actor and ownership on each write. The shared
 command list excludes local ledger setup, operators' commands, and offline
 human-decision commands.
+
+## Record Activity with the right action
+
+Taskboard picks the glyph from the recorded action. Use these commands for ordinary ticket Activity. The catalog shows what each glyph looks like. [Lucide icon catalog](https://lucide.dev/icons/)
+
+| What happened | Signed CLI action | Lucide glyph | What to provide |
+| --- | --- | --- | --- |
+| A linked pull request merged | `record-merge` | `git-merge` | The ticket, GitHub or Stamp PR URL, and full landed merge SHA. Taskboard verifies the linked PR against GitHub or a saved GitHub confirmation. |
+| You have a finding or an evidence link | `log` | `message-square-text` | The ticket, a short headline, and any details or evidence link. A PR link in a note keeps the comment glyph. |
+| You started work | `start` | `play` | The Ready ticket and the step you are starting. |
+| The next step or progress changed | `update` | `pencil-line` | The ticket and the current step or progress. |
+| Work needs a dependency to clear | `wait` | `clock` | The ticket, the blocker, and what will let work resume. Name a person, a blocking ticket, or the automation. |
+| A dependency cleared | `resume` | `rotate-ccw` | The Waiting ticket and the next step. Link the evidence when it helps confirm the dependency cleared. |
+| Work can wait until a later date or event | `park` | `pause` | The ticket, the reason, and its return date, time, or dependency. |
+| Deferred work can return to the queue | `unpark` | `rotate-ccw` | The Parked ticket and the next step. |
+| A human needs to make a blocking decision | `assign-human` | `circle-question-mark` | The ticket, a verified human recipient, and the decision they need to make. |
+| Another person or agent takes ownership | `transfer` | `corner-up-right` | The ticket, the new owner, and what they should do next. |
+| You verified the outcome | `done` | `check` | The ticket and its outcome. Link the result or verification when available. |
+
+Use `record-merge` on a ticket you own or watch after attaching the pull request as a GitHub source. A complete GitHub confirmation includes the merged state, the landed SHA, and the merge time. Taskboard matches the confirmed SHA to the one you supply. The board checks its saved confirmation first and can query GitHub directly when the board operator has enabled GitHub fetching. When the board uses scheduled GitHub refresh, wait for it to save the confirmation. The command and refresh reuse one receipt per ticket and merge. [Merge receipt details](GITHUB-EXTENSIONS.md#record-a-verified-merge)
+
+This signed command recorded PR #297 on T-1555. Substitute your own ticket, its linked pull request, and the confirmed merge SHA for another merge.
+
+```sh
+./tasks --shared record-merge T-1555 \
+  https://github.com/skyzh/taskboard/pull/297 \
+  2602e2c844109cac43c8a976d7aba1db670686af
+```
 
 ## Record and find lessons
 
