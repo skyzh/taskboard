@@ -41,10 +41,10 @@ For your own work, select the project and read Waiting, Parked, and the current 
 
 - For an exact-time deferral, verify the saved time and current state. The operator tick returns the same ticket to Ready when due. If it is still parked after the expected tick, check the operator run and route any delivery or scheduling gap to its owner. Keep the saved trigger and wake while it is investigated.
 - A date-only reminder is a review prompt. Once the date is due, decide whether the recorded next step can begin. A dependency offer also calls for a review. Read the accepted source event and compare it with the saved criteria. Routine Activity alone leaves a dependency review parked.
-- The ticket owner can unpark when the verified trigger or review warrants it. Leave the ticket parked if it still needs a later trigger. Update the existing ticket with an agreed date, exact time, or dependency when the follow-up needs to change. Use Waiting or the decision workflow if work now depends on a specific blocker. Keep valid saved triggers and evidence.
+- The ticket owner can unpark when the verified trigger or review warrants it. Record the verified result and the next action as the new step. Leave the ticket parked if it still needs a later trigger. Update the existing ticket with an agreed date, exact time, or dependency when the follow-up needs to change. Use Waiting or the decision workflow if work now depends on a specific blocker. Keep valid saved triggers and evidence.
 
 ```sh
-./tasks --shared unpark "$ticket" 'The recorded review criteria are met.'
+./tasks --shared unpark "$ticket" 'The export passed verification. Compare the new sample with the baseline.'
 ./tasks --shared park "$ticket" 'Review the published export.' --review-after "$review_date"
 ./tasks --shared park "$ticket" 'Verify the source result.' \
   --review-on "$dependency" --review-criteria 'The source publishes and verifies the export.'
