@@ -118,6 +118,8 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         with request(origin, MOUNT + "/auth/callback", cookie=pending, query={"code": "Sam", "state": state},
                      follow_redirects=False) as response:
             sam_cookie = response.headers["Set-Cookie"].split(";", 1)[0]
+        with request(origin, MOUNT + "/api/v1/session", cookie=sam_cookie) as response:
+            self.assertEqual(json.load(response)["actor"]["name"], "Sam")
         created = io_action(origin, "create-task", cookie=cookie, data={
             "title": "Needs You fixture", "step": "Ask about the export.",
         })
