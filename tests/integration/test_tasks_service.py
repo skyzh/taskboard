@@ -55,6 +55,7 @@ class FixtureRaft:
         self.people = {}
         self.issued = set()
         self.userinfo_failure = None
+        self.callback_url = ORIGIN + BASE + "/auth/callback"
         for number, (name, kind) in enumerate(
             (("Avery", "agent"), ("Blake", "agent"), ("Sam", "human"), ("Quinn", "human")), 40,
         ):
@@ -77,7 +78,7 @@ class FixtureRaft:
             name = fields["code"]
             if name not in self.people or name in self.issued:
                 return 400, {"error": "invalid_grant"}
-            if self.people[name]["type"] == "human" and fields.get("redirect_uri") != ORIGIN + BASE + "/auth/callback":
+            if self.people[name]["type"] == "human" and fields.get("redirect_uri") != self.callback_url:
                 return 400, {"error": "invalid_grant"}
             self.issued.add(name)
             return 200, {

@@ -135,6 +135,8 @@ def serve_fixture(source, database, certificate, key, browser):
                          ssl_context=(certificate, key))
     origin = f"https://127.0.0.1:{server.server_port}"
     provider = FixtureRaft()
+    if hasattr(provider, "callback_url"):
+        provider.callback_url = origin + MOUNT + "/auth/callback"
     options = {"dist": Path(browser) / "web" / "dist"} if browser else {}
     if "initial_project" in signature(create_app).parameters:
         options["initial_project"] = ("T", "Tasks Board")
