@@ -23,6 +23,7 @@ TABLES = (
     "goal_review_times",
     "oidc_members", "audit_events",
     "github_source_status", "extension_deliveries", "extension_notifications", "stamp_review_health",
+    "github_webhook_deliveries", "github_webhook_refresh",
     "intake_errors", "attention_requests", "attention_wait_links", "notification_preferences", "notification_log",
     "wake_subscriptions", "wake_log", "goal_idle_offers",
     "knowledge_areas", "knowledge_entries", "knowledge_stages",

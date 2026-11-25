@@ -13,6 +13,7 @@ add_packages("client", "cli", "server")
 add_tests()
 
 import test_tasks_service as fixture
+import test_tasks_github_webhooks as webhook_fixture
 from test_tasks_project_move import replay_move
 from test_tasks_recurring import replay_project_tick
 from tasks_core import import_notification_on
@@ -93,6 +94,12 @@ class StorageReplayTest(unittest.TestCase):
     def test_postgres_signed_project_tick(self):
         dsn = self.postgres_fixture()
         replay_project_tick(self, self.board, self.postgres_app(dsn), lambda: closing(Postgres(dsn)))
+
+    def test_postgres_github_webhook(self):
+        dsn = self.postgres_fixture()
+        app = self.postgres_app(dsn, project_extensions=webhook_fixture.CONFIGURATION,
+                               github_webhook_secrets=webhook_fixture.SECRETS)
+        webhook_fixture.replay_github_webhook(self, self.board, app, lambda: closing(Postgres(dsn)))
 
     def test_project_aliases_survive_sqlite_import(self):
         app = self.board.app(portal_reader=True)
