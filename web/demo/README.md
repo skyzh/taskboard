@@ -19,7 +19,7 @@ Before publishing, check the tour and direct links on phone and desktop, includi
 approved demo at the full commit in the repository variable
 `SUMMARY_DEMO_BASELINE`. It compares the proposed merge build with the approved
 build on the same runner, including the tour's target visibility and highlight,
-navigation, focus and matching screenshots at phone and desktop sizes. A
+navigation, focus, the Watching empty state, and matching screenshots at phone and desktop sizes. A
 one-level RGB rounding variation is treated as equal. Changes to dimensions
 or larger channel differences must reproduce on a second capture. A changed
 result includes the step or screen and matching evidence. Missing
@@ -41,8 +41,13 @@ leaving the checked manual publish available.
 
 ## Review ticket routing
 
-A Taskboard operator can read the GitHub workflow receipts from the trusted
-shared-board host. The comparison workflow does not need Taskboard access.
+**Verify Taskboard demo comparison** runs from the default branch after the
+PR check. It resolves the current PR revision through GitHub, builds it in a
+separate read-only job, then compares the static output with the reviewed
+browser harness. Only a verified result from that workflow can create or
+update a review ticket. Neither GitHub job needs Taskboard access.
+
+A Taskboard operator reads these receipts on the shared-board host.
 Use an existing repository-scoped read credential with GitHub Actions and
 pull-request read access. Set it as `TASKS_DEMO_ACTIONS_TOKEN` in the operator
 environment. Set `TASKS_DEMO_REVIEW` to a JSON object with:

@@ -5,9 +5,11 @@ import os
 import sys
 from urllib.parse import urlencode
 
+from github_read import read as read_github
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "release"))
 
-from github_main import protected_tip, read_github, repository_path, verify_required_checks  # noqa: E402
+from github_main import protected_tip, repository_path, verify_required_checks  # noqa: E402
 
 CHECKS = {"Portable checks": 15368, "SQLite and PostgreSQL preference replay": 15368}
 

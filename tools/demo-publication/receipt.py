@@ -20,6 +20,12 @@ def write_receipt(evidence, status, baseline):
         "run": int(os.environ["GITHUB_RUN_ID"]),
         "attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
     }
+    if os.environ.get("VERIFIED_PULL"):
+        receipt.update(
+            pull=int(os.environ["VERIFIED_PULL"]), head=os.environ["VERIFIED_HEAD"],
+            base=os.environ["VERIFIED_BASE"], candidate=os.environ["VERIFIED_CANDIDATE"],
+            source_run=int(os.environ["VERIFIED_SOURCE_RUN"]), verifier=os.environ["GITHUB_SHA"],
+        )
     (evidence / "receipt.json").write_text(json.dumps(receipt) + "\n")
 
 

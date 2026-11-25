@@ -20,8 +20,11 @@ if [[ ! "$BASELINE" =~ ^[0-9a-f]{40}$ ]]; then
 fi
 
 npm --prefix web ci --no-audit --no-fund
-npm --prefix web run build:demo
-if ! python3 tools/check_summary_demo.py web/dist-demo; then
+if [[ -z "${CANDIDATE_DIST:-}" ]]; then
+    npm --prefix web run build:demo
+    CANDIDATE_DIST=web/dist-demo
+fi
+if ! python3 tools/check_summary_demo.py "$CANDIDATE_DIST"; then
     status=privacy_failed
     exit 1
 fi
@@ -36,7 +39,7 @@ python3 tools/check_summary_demo.py "$baseline_source/web/dist-demo"
 web/node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
 node tools/demo-visual/check.mjs --dist "$baseline_source/web/dist-demo" --output "$EVIDENCE/baseline"
 result=0
-node tools/demo-visual/check.mjs --dist web/dist-demo --baseline "$EVIDENCE/baseline" --output "$EVIDENCE/candidate" || result=$?
+node tools/demo-visual/check.mjs --dist "$CANDIDATE_DIST" --baseline "$EVIDENCE/baseline" --output "$EVIDENCE/candidate" || result=$?
 case "$result" in
     0) status=pass ;;
     2) status=changed ;;

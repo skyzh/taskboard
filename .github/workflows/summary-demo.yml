@@ -24,6 +24,10 @@ jobs:
        github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      contents: read
+      checks: read
+      deployments: read
     outputs:
       publish: ${{ steps.publish.outputs.ready }}
       revision: ${{ steps.publish.outputs.revision }}
@@ -35,6 +39,8 @@ jobs:
           ref: ${{ env.REVISION }}
           persist-credentials: false
       - id: checked
+        env:
+          DEMO_GITHUB_READ_TOKEN: ${{ github.token }}
         run: python3 tools/demo-publication/checked_main.py
       - if: steps.checked.outputs.current == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -68,6 +74,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
@@ -77,8 +84,10 @@ jobs:
       - id: fresh
         env:
           REVISION: ${{ needs.build.outputs.revision }}
+          DEMO_GITHUB_READ_TOKEN: ${{ github.token }}
         run: |
           branch=$(curl --fail --silent --show-error --max-time 15 \
+              --header "Authorization: Bearer $DEMO_GITHUB_READ_TOKEN" \
               "https://api.github.com/repos/$GITHUB_REPOSITORY/branches/main")
           if jq -e --arg revision "$REVISION" \
               '.name == "main" and .protected == true and .commit.sha == $revision' <<< "$branch"; then

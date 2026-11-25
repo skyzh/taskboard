@@ -17,6 +17,7 @@ REPO = "example/board"
 BASE = "a" * 40
 HEAD = "b" * 40
 MERGE = "c" * 40
+VERIFIER = "d" * 40
 PULL = {
     "number": 42, "state": "open", "head": {"sha": HEAD}, "merge_commit_sha": MERGE,
     "base": {"sha": BASE, "ref": "main", "repo": {"full_name": REPO}},
@@ -35,15 +36,15 @@ class Provider:
 
     def add(self, status, run, attempt=1, **fields):
         result = {
-            "id": run, "run_number": run, "run_attempt": attempt, "head_sha": HEAD,
-            "head_repository": {"id": 111}, "head_branch": "test-branch", "status": "completed",
-            "conclusion": "success", "event": "pull_request", "path": review.WORKFLOW,
+            "id": run, "run_number": run, "run_attempt": attempt, "head_sha": VERIFIER,
+            "head_repository": {"id": 111, "full_name": REPO}, "head_branch": "main", "status": "completed",
+            "conclusion": "success", "event": "workflow_run", "path": review.WORKFLOW,
             "repository": {"full_name": REPO}, "pull_requests": [{"number": 42}],
         }
         report = {
             "run": run, "attempt": attempt, "baseline": BASE, "repository": REPO,
             "candidate": MERGE, "head": HEAD, "base": BASE, "pull": 42, "status": status,
-            "evidence": 123, "details": DETAILS, **fields,
+            "evidence": 123, "details": DETAILS, "source_run": 50, "verifier": VERIFIER, **fields,
         }
         self.history.append((result, report))
 
@@ -128,7 +129,7 @@ class DemoReviewTest(unittest.TestCase):
         self.provider.add("changed", 101)
         self.provider.add("pass", 101, attempt=2)
         self.assertEqual(self.poll(), {"superseded": 1, "pass": 1})
-        self.assertEqual(self.provider.artifact_reads, [(101, 2)])
+        self.assertEqual(self.provider.artifact_reads, [(101, 1), (101, 2)])
         self.assertEqual(self.tickets(), [])
         self.provider.history.clear()
         self.provider.add("privacy_failed", 102)
@@ -150,6 +151,18 @@ class DemoReviewTest(unittest.TestCase):
         self.assertEqual(self.poll(), {"created": 1})
         row, = self.tickets()
         self.assertEqual(tasks_core.get_task(self.db, row["id"])["state"], "ready")
+
+    def test_pr_authored_verdict_has_no_board_write_authority(self):
+        self.provider.add("changed", 101)
+        run, _ = self.provider.history[0]
+        run["event"] = "pull_request"
+        self.assertEqual(self.poll(), {})
+        self.assertEqual(self.provider.artifact_reads, [])
+        self.assertEqual(self.tickets(), [])
+        run["event"] = "workflow_run"
+        run["head_sha"] = "e" * 40
+        self.assertEqual(self.poll(), {"invalid": 1})
+        self.assertEqual(self.tickets(), [])
 
     def test_data_are_read_from_the_archive_without_extracting_other_entries(self):
         raw = BytesIO()

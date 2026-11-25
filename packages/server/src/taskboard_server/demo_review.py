@@ -22,7 +22,7 @@ import tasks_storage as storage
 import watches
 
 
-WORKFLOW = ".github/workflows/summary-demo-check.yml"
+WORKFLOW = ".github/workflows/summary-demo-verify.yml"
 COMMIT = re.compile(r"[0-9a-f]{40}")
 REPO = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9_.-]+")
 LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9 .:_/()-]{0,119}")
@@ -68,7 +68,7 @@ class Provider:
         """Read all pages for the explicitly bounded recent workflow window."""
         path = f"/actions/workflows/{WORKFLOW.rsplit('/', 1)[1]}/runs"
         for page in range(1, 11):
-            query = urlencode({"event": "pull_request", "per_page": 100, "page": page, **filters})
+            query = urlencode({"event": "workflow_run", "per_page": 100, "page": page, **filters})
             response = self.read(f"{path}?{query}")
             if response["total_count"] > 1000:
                 raise ValueError("Narrow the demo workflow lookup window.")
@@ -127,15 +127,12 @@ def sequence(run):
     return run["run_number"], run["run_attempt"]
 
 
-def attempt_scope(run):
-    return ((run.get("head_repository") or {}).get("id"), run["head_branch"], run["head_sha"])
-
-
 def from_workflow(run, repo):
     return (
         run.get("path") == WORKFLOW
-        and run.get("event") == "pull_request"
-        and (run.get("repository") or {}).get("full_name", "").lower() == repo.lower()
+        and run.get("event") == "workflow_run" and run.get("head_branch") == "main"
+        and all((run.get(field) or {}).get("full_name", "").lower() == repo.lower()
+                for field in ("repository", "head_repository"))
     )
 
 
@@ -144,10 +141,10 @@ def matches_receipt(run, report, repo):
         (report.get("run"), report.get("attempt")) == identity(run)
         and report.get("repository", "").lower() == repo.lower()
         and type(report.get("pull")) is int and report["pull"] > 0
-        and (not run["pull_requests"] or any(item["number"] == report["pull"] for item in run["pull_requests"]))
-        and report.get("head") == run["head_sha"]
-        and isinstance(report.get("candidate"), str) and COMMIT.fullmatch(report["candidate"])
-        and isinstance(report.get("base"), str) and COMMIT.fullmatch(report["base"])
+        and type(report.get("source_run")) is int and report["source_run"] > 0
+        and report.get("verifier") == run["head_sha"]
+        and all(isinstance(report.get(key), str) and COMMIT.fullmatch(report[key])
+                for key in ("verifier", "candidate", "head", "base"))
         and report.get("status") in RESULTS
     )
 
@@ -198,8 +195,8 @@ def previous_ticket(db, project, url):
     return None, ()
 
 
-def apply(db, config, run, pull, attachment, labels, *, dry_run=False):
-    repo = config.repository
+def apply(db, config, run, report, attachment, labels, *, dry_run=False):
+    repo, pull = config.repository, report["pull"]
     url = f"https://github.com/{repo}/pull/{pull}"
     run_id, _ = identity(run)
     order = sequence(run)
@@ -215,9 +212,10 @@ def apply(db, config, run, pull, attachment, labels, *, dry_run=False):
         brief = "Review the passing result and close the demo follow-up if it is resolved."
     context = {
         "demo_comparison": {"pull": url, "attempt": list(order)},
-        "activity_details": f"GitHub PR #{pull}, head {run['head_sha']}. {brief}",
+        "activity_details": f"GitHub PR #{pull}, head {report['head']}. {brief}",
     }
-    with storage.write(db):
+    transaction = storage.read if dry_run else storage.write
+    with transaction(db):
         project = projects.require(db, config.project)
         if not ledger.live_board_url(db) or not projects.manages(db, project, config.actor):
             raise PermissionError("The route needs an initialized board and an existing project manager.")
@@ -254,21 +252,22 @@ def apply(db, config, run, pull, attachment, labels, *, dry_run=False):
         return action
 
 
-def route(db, provider, config, run, newest, *, dry_run):
-    if sequence(run) != newest[attempt_scope(run)]:
-        return "superseded"
+def read_verdict(provider, config, run):
     if run["status"] != "completed":
-        return "pending"
-    artifact = provider.artifact(run)
-    if not artifact:
-        return "missing"
-    report = artifact
+        return "pending", None
+    report = provider.artifact(run)
+    if report is None:
+        return "missing", None
     if not matches_receipt(run, report, config.repository):
-        raise ValueError("The comparison receipt does not match its GitHub run.")
+        raise ValueError("The comparison receipt does not match its protected workflow run.")
     if report["status"] not in ("pass", "changed"):
-        return report["status"]
+        return report["status"], None
     if run["conclusion"] != "success" or report["baseline"] != config.baseline:
-        return "unverified"
+        return "unverified", None
+    return "verified", report
+
+
+def route(db, provider, config, run, report, *, dry_run):
     pull = provider.read(f"/pulls/{report['pull']}")
     if not current_pull(report, pull, config.repository):
         return "superseded"
@@ -278,22 +277,34 @@ def route(db, provider, config, run, newest, *, dry_run):
         if type(evidence) is not int or not 0 < evidence < 10**19 or not provider.has_evidence(run, evidence):
             raise ValueError("The changed comparison must identify screenshots from its own attempt.")
         labels = surface_labels(report["details"])
-    return apply(db, config, run, report["pull"], evidence, labels, dry_run=dry_run)
+    return apply(db, config, run, report, evidence, labels, dry_run=dry_run)
 
 
 def poll(db, provider, config, *, since, dry_run):
-    runs = [run for run in provider.runs(created=">=" + since) if from_workflow(run, config.repository)]
-    newest = {}
-    for run in runs:
-        scope = attempt_scope(run)
-        newest[scope] = max(newest.get(scope, ()), sequence(run))
     results = Counter()
-    for run in runs:
+    current = {}
+    for run in provider.runs(created=">=" + since):
+        if not from_workflow(run, config.repository):
+            continue
         try:
-            result = route(db, provider, config, run, newest, dry_run=dry_run)
+            outcome, report = read_verdict(provider, config, run)
         except (ValueError, KeyError, TypeError, BadZipFile):
-            result = "invalid"
-        results[result] += 1
+            outcome, report = "invalid", None
+        if report is None:
+            results[outcome] += 1
+            continue
+        key = report["pull"], report["head"]
+        previous = current.get(key)
+        if previous is not None:
+            results["superseded"] += 1
+        if previous is None or sequence(run) > sequence(previous[0]):
+            current[key] = (run, report)
+    for run, report in current.values():
+        try:
+            outcome = route(db, provider, config, run, report, dry_run=dry_run)
+        except (ValueError, KeyError, TypeError):
+            outcome = "invalid"
+        results[outcome] += 1
     return dict(results)
 
 
@@ -312,7 +323,7 @@ def main():
             raise ValueError("Use a full reviewed baseline commit and a window from 1 to 168 hours.")
         provider = Provider(config.repository, os.environ["TASKS_DEMO_ACTIONS_TOKEN"])
         db = storage.Postgres(os.environ["TASKS_POSTGRES_DSN"]) if args.postgres else storage.open_sqlite(
-            args.db.expanduser().resolve()
+            args.db.expanduser().resolve(), write_existing=args.commit
         )
         since = (datetime.now(timezone.utc) - timedelta(hours=args.hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
         with closing(db):
