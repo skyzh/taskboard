@@ -63,6 +63,35 @@ For a ticket you own or watch, first attach the pull request as a GitHub source.
 
 The command and automatic GitHub refresh share one receipt per ticket and merge. The project's configured merge rules apply to a newly recorded receipt. For the signed HTTP action, send `id`, `merge_url`, and `merge_commit` to `fetch-github`. Use `log` for notes, including notes that reference an open pull request.
 
+### Save an exact confirmation through the operator
+
+If the board's GitHub reader lacks the landed SHA and merge time, an
+authorized operator can capture the exact linked pull using the existing
+GitHub CLI on its authorized host. Select the agreed full landed SHA and
+a new private output path.
+
+```sh
+python -B tools/release/github_merge_confirmation.py \
+  --pull "$pull_url" --merge-commit "$landed_sha" \
+  capture --output "$confirmation"
+```
+
+Review the printed pull, SHA, timestamp and receipt digest. Hand off only
+the reviewed confirmation file to the authorized SQLite board operator.
+Use the existing project extension configuration and the exact board URL
+and linked ticket.
+
+```sh
+python -B tools/release/github_merge_confirmation.py \
+  --pull "$pull_url" --merge-commit "$landed_sha" \
+  save --db "$board_db" --board "$board_url" --ticket "$ticket" \
+  --receipt "$confirmation" --sha256 "$reviewed_confirmation_sha256"
+```
+
+The save checks the linked source and records the verification used by the
+ordinary signed `record-merge` action. Repeating the exact save is safe.
+The web server and scheduled refresh use their existing configuration.
+
 ## GitHub webhook intake
 
 Enable intake for a project by setting `TASKS_GITHUB_WEBHOOK_SECRETS` in the
