@@ -270,6 +270,8 @@ _ACTIONS = {
         **_TASK, "reason": "What needs their attention.",
     }, {
         "recipient": "Human's stable ID from assignees. A Taskboard-mode Local DRI defaults to its creator.",
+        "recipient_name": "Exact handle or display name of a signed-in human, instead of recipient.",
+        "request_key": "Optional unique key for this send. Reuse the same key and fields when retrying.",
         "unblocks": "Optional ticket ID whose owner can link its wait to this request.", **_EVIDENCE,
     }),
     "link-github": _Action("POST", "Link a GitHub issue or pull request to a task you own.", {

@@ -12,7 +12,7 @@ import subprocess
 import sys
 from urllib.error import HTTPError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener, urlopen
 
 
 MOUNT = "/tasks"
@@ -33,7 +33,12 @@ def expect(condition, message):
         raise CompatibilityFailure(message)
 
 
-def request(origin, path, *, data=None, cookie=None, query=None, method=None):
+class NoRedirects(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def request(origin, path, *, data=None, cookie=None, query=None, method=None, follow_redirects=True):
     expect(path.startswith(MOUNT + "/") and not path.startswith("//"), "The fixture action must use the mounted service.")
     headers = dict(PORTAL)
     if cookie:
@@ -44,8 +49,16 @@ def request(origin, path, *, data=None, cookie=None, query=None, method=None):
         headers["Content-Type"] = "application/json"
     if query:
         path += "?" + urlencode(query)
-    return urlopen(Request(origin + path, body, headers, method=method), timeout=10,
-                   context=ssl._create_unverified_context())
+    call = Request(origin + path, body, headers, method=method)
+    context = ssl._create_unverified_context()
+    if follow_redirects:
+        return urlopen(call, timeout=10, context=context)
+    try:
+        return build_opener(HTTPSHandler(context=context), NoRedirects()).open(call, timeout=10)
+    except HTTPError as response:
+        if 300 <= response.code < 400:
+            return response
+        raise
 
 
 def read_json(origin, path, **options):
@@ -122,6 +135,8 @@ def serve_fixture(source, database, certificate, key, browser):
                          ssl_context=(certificate, key))
     origin = f"https://127.0.0.1:{server.server_port}"
     provider = FixtureRaft()
+    if hasattr(provider, "callback_url"):
+        provider.callback_url = origin + MOUNT + "/auth/callback"
     options = {"dist": Path(browser) / "web" / "dist"} if browser else {}
     if "initial_project" in signature(create_app).parameters:
         options["initial_project"] = ("T", "Tasks Board")

@@ -885,6 +885,11 @@ button:disabled { opacity: .57; }
 .profile-form label { width: 100%; }
 .profile-form :is(input, textarea) { display: block; width: 100%; }
 .task-ownership { margin-block: .55rem; }
+.needs-you-send .ownership-form { max-width: 34rem; }
+@media (pointer: coarse), (max-width: 40rem) {
+  .needs-you-send > summary { min-height: 2.75rem; padding-block: .55rem; }
+  .needs-you-send :is(select, button) { min-height: 2.75rem; }
+}
 .task-tags { display: grid; gap: .4rem; margin-block: .55rem; font-size: .88rem; }
 .task-tag-list { display: flex; flex-wrap: wrap; gap: .35rem; list-style: none; margin: 0; padding: 0; }
 .task-tag-list li {

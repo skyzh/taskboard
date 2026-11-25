@@ -118,6 +118,16 @@ def arguments(argv=None):
     add_transition_override(reminder)
     reminder.set_defaults(note="Update the task reminder.")
 
+    attention = commands.add_parser("raise-attention", help="Send a nonblocking attention request from an owned ticket.")
+    attention.add_argument("id", type=task_id)
+    attention.add_argument("reason", type=nonblank)
+    attention.add_argument("--on", type=nonblank,
+                           help="Exact human handle, name, or ID. A Taskboard-mode Local DRI defaults to its creator.")
+    attention.add_argument("--by", type=nonblank)
+    attention.add_argument("--unblocks", type=task_id, help="Separate ticket whose owner can wait on this request.")
+    attention.add_argument("--request-key", type=nonblank, help="Reuse this key and the same fields when retrying a send.")
+    add_link_flag(attention, SHARED_EVIDENCE_HELP)
+
     actions = {
         "start": "Start a ready task and record the current step.",
         "update": "Log progress and the current step.",
