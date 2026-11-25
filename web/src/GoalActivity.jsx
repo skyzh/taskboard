@@ -5,7 +5,7 @@ import { ResourceStatus, TaskLink, Timestamp, eventHref, profileName, taskHref }
 import { MarkdownInline } from './Markdown.jsx'
 
 export function goalActivityFragment(project, agent, goal) {
-  const params = new URLSearchParams({ view: 'goal-activity', project })
+  const params = new URLSearchParams({ view: 'goal-activity', ...(project === null ? { scope: 'all' } : { project }) })
   if (agent) params.set('agent', agent)
   if (goal) params.set('goal', goal)
   return `reports?${params}`
@@ -48,7 +48,7 @@ function GoalActivityRow({ goal }) {
 }
 
 export default function GoalActivity({ project, revision, agent, goal, onFilter }) {
-  const resource = useResource(queryPath('/reports/goal-activity', { project }), revision)
+  const resource = useResource(queryPath('/reports/goal-activity', project === null ? { scope: 'all' } : { project }), revision)
   const items = resource.data?.items ?? []
   const agents = [...new Map(items.map(item => [item.owner, profileName(item.owner, item.profile)]))]
     .sort((left, right) => left[1].localeCompare(right[1]))
@@ -56,7 +56,7 @@ export default function GoalActivity({ project, revision, agent, goal, onFilter 
   const matchingAgent = items.filter(item => !selectedAgent || item.owner === selectedAgent)
   const selectedGoal = matchingAgent.some(item => item.key === goal) ? goal : ''
   const matchingGoals = matchingAgent.filter(item => !selectedGoal || item.key === selectedGoal)
-  const back = `#reports?${new URLSearchParams({ project })}`
+  const back = project === null ? '#reports-all' : `#reports?${new URLSearchParams({ project })}`
 
   return (
     <section className="reports goal-activity" aria-labelledby="reports">
@@ -88,7 +88,7 @@ export default function GoalActivity({ project, revision, agent, goal, onFilter 
         </>
       )}
       {resource.data && !resource.pending && !resource.error && items.length === 0 && (
-        <p className="section-message" role="status">No goals in this project.</p>
+        <p className="section-message" role="status">{project === null ? 'No goals in these projects.' : 'No goals in this project.'}</p>
       )}
     </section>
   )

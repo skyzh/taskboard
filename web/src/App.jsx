@@ -211,6 +211,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const assigneeView = requestedAssigneeView === 'idle' ? 'all'
     : ['all', 'recent'].includes(requestedAssigneeView) ? requestedAssigneeView : 'active'
   const showGoalActivity = requestedAssigneeView === 'goal-activity'
+  const allGoalActivity = showGoalActivity && reportsParams?.get('scope') === 'all'
   const goalAgent = reportsParams?.get('agent')
   const goalKey = reportsParams?.get('goal')
   const allReports = !fragment || taskAnchor === 'reports-all'
@@ -381,7 +382,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   }
   const projectPicker = hasProjectChoices && (
     <label className="project-switcher embedded-picker">
-      <select aria-label="Project" value={showAllReports || allProjectRead ? 'all' : project} onChange={event => {
+      <select aria-label="Project" value={showAllReports || allProjectRead || allGoalActivity ? 'all' : project} onChange={event => {
         const value = event.target.value
         if (supportsAllProjects) {
           if (value !== 'all') chooseProject(value)
@@ -396,7 +397,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
           return
         }
         if (value === 'all') {
-          window.location.hash = reportFragment('all', assigneeView)
+          window.location.hash = showGoalActivity ? goalActivityFragment(null, goalAgent, goalKey)
+            : reportFragment('all', assigneeView)
           return
         }
         chooseProject(value)
@@ -491,8 +493,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
               <p className="section-message" role="status">Loading Reports…</p>
             </section>
             : showGoalActivity
-              ? <GoalActivity key={project} project={project} revision={revision} agent={goalAgent} goal={goalKey}
-                onFilter={(agent, goal) => writeFilterFragment(goalActivityFragment(project, agent, goal))} />
+              ? <GoalActivity key={allGoalActivity ? 'all' : project} project={allGoalActivity ? null : project}
+                revision={revision} agent={goalAgent} goal={goalKey}
+                onFilter={(agent, goal) => writeFilterFragment(goalActivityFragment(allGoalActivity ? null : project, agent, goal))} />
               : <Reports revision={revision} project={projectsPending ? undefined : project}
                 defaultProject={defaultProject} assigneeView={assigneeView}
                 onAssigneeViewChange={value => writeFilterFragment(reportFragment(allReports ? 'all' : project, value, defaultProject), false)}

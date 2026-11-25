@@ -42,7 +42,7 @@ BOARD_FRAGMENT = re.compile(
     r"(?:&agent=[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})?)?)?"
     r"|reports(?:-all(?:\?view=(?:active|all|idle|recent))?"
     r"|\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&view=(?:active|all|idle|recent))?|view=(?:active|all|idle|recent)(?:&project=[A-Z][A-Z0-9]{0,7})?"
-    r"|view=goal-activity&project=[A-Z][A-Z0-9]{0,7}(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?"
+    r"|view=goal-activity&(?:project=[A-Z][A-Z0-9]{0,7}|scope=all)(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?"
     r"(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9][0-9]{0,18})?))?"
     r"|knowledge(?:\?(?:entry=[A-Z][A-Z0-9]{0,7}-[1-9][0-9]{0,18}"
     r"(?:&history=(?:all|[1-9][0-9]{0,18}))?|q=[A-Za-z0-9_%+.*~-]{1,1920}"

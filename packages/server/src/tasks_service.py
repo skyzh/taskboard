@@ -2583,9 +2583,13 @@ def create_app(
     @app.get("/api/v1/reports/goal-activity")
     def report_goal_activity():
         current_actor()
-        project = project_filter(request.args, use_default=True)
-        with tasks_storage.read(db()):
-            return query().goal_activity(project)
+        project = project_scope(request.args)
+        with tasks_storage.read(db()) as connection:
+            summaries = query()
+            if project is not None:
+                return summaries.goal_activity(project)
+            prefixes = connection.execute("SELECT prefix FROM projects ORDER BY prefix")
+            return {"items": [item for row in prefixes for item in summaries.goal_activity(row["prefix"])["items"]]}
 
     @app.get("/api/v1/reports/workers")
     def report_workers():

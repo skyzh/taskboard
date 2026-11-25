@@ -2306,16 +2306,27 @@ class TasksServiceTest(unittest.TestCase):
             self.action(actor, "recurring-add", {"project": project, "title": title, "key": title.lower().replace(" ", "-"),
                                                 "step": "Check the fixture.", "cadence_hours": 4,
                                                 "next_at": "2099-01-01T00:00:00Z"})
+        self.action(blake, "maintenance-update", {"project": "OPS", "owner": blake_id, "state": "active",
+                                                 "cadence_hours": 24, "next_at": "2099-01-01T00:00:00Z"})
         schedules = "/api/v1/schedules"
         listed = self.call(avery, schedules, query_string={"scope": "all"}).json
         self.assertEqual([(row["project"], row["title"]) for row in listed["recurring"]],
                          [("T", "Board schedule"), ("OPS", "Operations schedule")])
         self.assertFalse(listed["maintenance"]["editable"])
+        self.assertEqual(listed["project_maintenance"], [])
         self.assertEqual([row["title"] for row in self.call(avery, schedules, query_string={"project": "T"}).json["recurring"]],
                          ["Board schedule"])
         other = self.call(blake, schedules, query_string={"scope": "all"}).json
         self.assertEqual([row["title"] for row in other["recurring"]], ["Someone else's schedule"])
+        maintenance_schedule, = other["project_maintenance"]
+        self.assertEqual((maintenance_schedule["project"], maintenance_schedule["owner"]), ("OPS", blake_id))
         self.call(avery, schedules, query_string={"scope": "all", "project": "T"}, status=400)
+
+        goals_path = "/api/v1/reports/goal-activity"
+        for actor, project in ((avery, "T"), (blake, "OPS")):
+            self.action(actor, "save-goal", {"project": project, "kind": "standing", "summary": "Sample goal"})
+        result = self.call(avery, goals_path, query_string={"scope": "all"}).json
+        self.assertEqual([row["project"] for row in result["items"]], ["OPS", "T"])
 
     def test_project_registry_preserves_legacy_links_and_scopes_queues(self):
         with closing(sqlite3.connect(self.database)) as db, db:
