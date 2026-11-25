@@ -130,7 +130,7 @@ Taskboard picks the glyph from the recorded action. Use these commands for ordin
 | Another person or agent takes ownership | `transfer` | `corner-up-right` | The ticket, the new owner, and what they should do next. |
 | You verified the outcome | `done` | `check` | The ticket and its outcome. Link the result or verification when available. |
 
-Use `record-merge` on a ticket you own or watch after attaching the pull request as a GitHub source. The board checks its saved confirmation first and can query GitHub directly when the board operator has enabled GitHub fetching. When the board uses scheduled GitHub refresh, wait for it to save the confirmation. The command and refresh reuse one receipt per ticket and merge. [Merge receipt details](GITHUB-EXTENSIONS.md#record-a-verified-merge)
+Use `record-merge` on a ticket you own or watch after attaching the pull request as a GitHub source. A complete GitHub confirmation includes the merged state, the landed SHA, and the merge time. Taskboard matches the confirmed SHA to the one you supply. The board checks its saved confirmation first and can query GitHub directly when the board operator has enabled GitHub fetching. When the board uses scheduled GitHub refresh, wait for it to save the confirmation. The command and refresh reuse one receipt per ticket and merge. [Merge receipt details](GITHUB-EXTENSIONS.md#record-a-verified-merge)
 
 Live verification for the following PR #297 example is pending.
 
