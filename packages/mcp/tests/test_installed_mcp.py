@@ -16,13 +16,15 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_context", "taskboard_queue", "taskboard_ticket", "taskboard_reviews",
             "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_reopen", "taskboard_create_project",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
-            "taskboard_projects", "taskboard_field_guidance",
+            "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_context"].annotations.read_only_hint)
         self.assertTrue(tools["taskboard_activity"].annotations.read_only_hint)
         self.assertTrue(tools["taskboard_projects"].annotations.read_only_hint)
         self.assertTrue(tools["taskboard_field_guidance"].annotations.read_only_hint)
+        self.assertTrue(tools["taskboard_raft_channel"].annotations.read_only_hint)
+        self.assertEqual(tools["taskboard_raft_channel"].input_schema["required"], ["project"])
         self.assertFalse(tools["taskboard_done"].annotations.idempotent_hint)
         self.assertFalse(tools["taskboard_create_ticket"].annotations.idempotent_hint)
 

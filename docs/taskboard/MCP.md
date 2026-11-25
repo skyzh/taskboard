@@ -27,6 +27,7 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | --- | --- |
 | `taskboard_context` | Check your signed-in identity and shared board. |
 | `taskboard_projects` | List the shared board's projects and identify its default. |
+| `taskboard_raft_channel` | Read the Raft coordination channel setting for a project you manage. The tool takes a project prefix. |
 | `taskboard_field_guidance` | Read a project's effective writing guidance, including where each field appears and an example. Omit `project` to use the board default. |
 | `taskboard_queue` | Find owned or unassigned work, with project and state filters. |
 | `taskboard_reviews` | Find independent reviews assigned to you. |
@@ -86,7 +87,7 @@ uv run --locked python -B tools/check_package_installs.py
 
 The test starts the adapter with the documented locked command. Its two
 synthetic agents and two projects verify schema discovery, queue and review
-scope, default and customized project writing guidance, state transitions,
+scope, default and customized project writing guidance, the manager-only Raft channel read, state transitions,
 ticket creation, detail edits, and Activity. It checks
 CLI readback, HTTP authorization, and a lost receipt without a duplicate write.
 The installed-package fixture also sends the same project creation through
