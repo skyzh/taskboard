@@ -9,7 +9,15 @@ import tasks_storage
 
 
 LOCAL_FILE = "Local file"
+ASSIGNEE_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS assignee_watches (
+        watcher TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        PRIMARY KEY (watcher, owner)
+    )
+"""
 SCHEMA = (
+    ASSIGNEE_SCHEMA,
     """
     CREATE TABLE IF NOT EXISTS sources (
         id INTEGER PRIMARY KEY,
@@ -205,6 +213,18 @@ def unwatch(db, task_id, watcher):
         "DELETE FROM task_watches WHERE task_id = ? AND watcher = ?", (task_id, watcher)
     )
     return bool(result.rowcount)
+
+
+def watches_assignee(db, watcher, owner):
+    return db.execute(
+        "SELECT 1 FROM assignee_watches WHERE watcher = ? AND owner = ?", (watcher, owner),
+    ).fetchone() is not None
+
+
+def set_assignee_watch(db, watcher, owner, selected):
+    sql = ("INSERT INTO assignee_watches (watcher, owner) VALUES (?, ?) ON CONFLICT DO NOTHING"
+           if selected else "DELETE FROM assignee_watches WHERE watcher = ? AND owner = ?")
+    return bool(db.execute(sql, (watcher, owner)).rowcount)
 
 
 def updates(db, watcher):

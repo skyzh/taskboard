@@ -163,8 +163,8 @@ class OIDCTest(unittest.TestCase):
         self.assertEqual(response.status_code, expected, response.get_data()[:180])
         return response
 
-    def start(self, client):
-        response = self.call(client, "/auth/login", 302, query_string={"fragment": "#task-1"})
+    def start(self, client, fragment="#task-1"):
+        response = self.call(client, "/auth/login", 302, query_string={"fragment": fragment})
         parsed = urlsplit(response.location)
         self.assertEqual(parsed.path, "/provider/auth")
         return {name: fields[0] for name, fields in parse_qs(parsed.query).items()}
@@ -179,13 +179,13 @@ class OIDCTest(unittest.TestCase):
         })
         self.assertEqual(callback.location, PUBLIC + "/" + fragment)
 
-    def sign_in(self, client, *, status=302, state=None):
-        query = self.start(client)
+    def sign_in(self, client, *, status=302, state=None, fragment="#task-1"):
+        query = self.start(client, fragment)
         response = self.call(client, "/auth/callback", status, query_string={
             "code": self.provider.issue_code(query), "state": state or query["state"], "iss": self.provider.url,
         })
         if status == 302:
-            self.assertEqual(response.location, PUBLIC + "/#task-1")
+            self.assertEqual(response.location, PUBLIC + "/" + fragment)
         return response
 
     def actor(self, client):
@@ -252,6 +252,11 @@ class OIDCTest(unittest.TestCase):
         self.assertEqual((event["actor"], event["context"]["audit"]["label"]), (self.two, "test"))
         self.call(second, tag_path, 403, method="POST", json={"tag": "decision-record", "action": "add"})
         self.call(legacy, tag_path, **options)
+
+    def test_login_returns_to_watching_reports_scope(self):
+        for fragment in ("#reports?view=watching", "#reports?project=OPS&view=watching", "#reports-all?view=watching"):
+            with self.subTest(fragment=fragment):
+                self.sign_in(self.app.test_client(), fragment=fragment)
 
     def test_wrong_context_state_or_token_cannot_create_a_session(self):
         client = self.app.test_client()

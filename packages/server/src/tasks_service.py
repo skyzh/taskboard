@@ -455,6 +455,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None, initial_project=No
                 db.execute(statement)
             knowledge_records.migrate_records(db)
             db.execute(wake_subscriptions.SCHEMA)
+            db.execute(watches.ASSIGNEE_SCHEMA)
             peer_asks.refresh_generated_titles(db)
 
 
@@ -2707,8 +2708,8 @@ def create_app(
     def report_filters(args, actor, project):
         has_roster = project == projects.DEFAULT and project_roster is not None
         view = args.get("view", "all" if has_roster else "active")
-        if view not in ("all", "active", "idle", "recent"):
-            raise RequestError("Choose all assignees, open work, other assignees, or recent reports and team DRIs.")
+        if view not in ("all", "active", "idle", "recent", "watching"):
+            raise RequestError("Choose all assignees, open work, other assignees, recent reports and team DRIs, or Watching.")
         personal_owner = (actor["ledger_key"]
                           if actor and actor["kind"] == "human" and args.get("include_self") == "true"
                           else None)
@@ -2717,15 +2718,31 @@ def create_app(
     @app.get("/api/v1/reports")
     def report_overview():
         args = request.args
-        actor = current_actor(required="scope" in args)
+        watching = args.get("view") == "watching"
+        actor = current_actor(required="scope" in args or watching)
         project = project_scope(args)
         has_roster, view, hide_requests, personal_owner = report_filters(args, actor, project)
-        before = text(args, "before", optional=True, maximum=162 if view == "all" or personal_owner else 160)
-        result = query().reports(
-            view=view, before=before, limit=integer(args.get("limit", 10), "limit", maximum=20), project=project,
+        before = text(args, "before", optional=True, maximum=162 if view == "all" or personal_owner or watching else 160)
+        limit = integer(args.get("limit", 10), "limit", maximum=20)
+        board = query()
+        if watching:
+            return board.watching_reports(
+                actor["ledger_key"], project=project, before=before, limit=limit, hide_requests=hide_requests,
+            )
+        result = board.reports(
+            view=view, before=before, limit=limit, project=project,
             hide_requests=hide_requests, personal_owner=personal_owner,
         )
         return {**result, "roster": True} if has_roster else result
+
+    @app.get("/api/v1/reports/watched-tickets")
+    def report_watched_tickets():
+        actor = current_actor(required=True)
+        args = request.args
+        return query().watched_tickets(
+            actor["ledger_key"], text(args, "owner", optional=True, maximum=160) or "",
+            project_scope(args), hide_requests=args.get("hide_requests") == "true", **page_args(args),
+        )
 
     def knowledge_page(actor, data):
         scope = text(data, "scope", optional=True, maximum=8) or "board"
@@ -2893,7 +2910,8 @@ def create_app(
     @app.get("/api/v1/reports/pending")
     def more_reports():
         args = request.args
-        actor = current_actor(required="scope" in args)
+        watching = args.get("view") == "watching"
+        actor = current_actor(required="scope" in args or watching)
         project = project_scope(args)
         owner = text(args, "owner", maximum=160)
         before = integer(args["before"], "before") if "before" in args else None
@@ -2902,7 +2920,10 @@ def create_app(
         if project is not None:
             return reports.pending_reports(owner, before=before, limit=limit, project=project)
         _, view, hide_requests, personal_owner = report_filters(args, actor, project)
-        prefixes = reports.report_project_prefixes(owner, view, hide_requests, personal_owner)
+        prefixes = reports.report_project_prefixes(
+            owner, view, hide_requests, personal_owner,
+            watcher=actor["ledger_key"] if watching else None,
+        )
         return reports.pending_reports(
             owner, before=before, limit=limit, project_prefixes=prefixes, unlinked=True, hide_requests=hide_requests,
         )
@@ -3424,12 +3445,35 @@ def create_app(
 
     @app.get("/api/v1/assignee")
     def assignee():
-        current_actor()
+        actor = current_actor()
         owner = text(request.args, "owner", maximum=160)
-        info = query().assignee(owner, project=project_filter(request.args, use_default=True))
+        project = project_filter(request.args, use_default=True)
+        board = query()
+        info = board.assignee(owner, project=project)
         if info is None:
             raise RequestError("Assignee not found.", 404)
+        if actor and board.watchable_assignee(owner, project):
+            info["watching"] = watches.watches_assignee(db(), actor["ledger_key"], owner)
         return info
+
+    @app.post("/api/v1/assignee/watch")
+    def assignee_watch():
+        actor = current_actor(write=True, required=True)
+        args = request.args
+        owner = text(args, "owner", maximum=160)
+        project = project_filter(args, use_default=True)
+        selected = json_body({"watch"}).get("watch")
+        if type(selected) is not bool:
+            raise RequestError("Choose whether to watch this person or DRI.")
+        if not query().watchable_assignee(owner, project):
+            raise RequestError("Assignee not found.", 404)
+        viewer = actor["ledger_key"]
+        with tasks_storage.write(db()) as connection:
+            if watches.set_assignee_watch(connection, viewer, owner, selected):
+                ledger.bump_revision(connection)
+                audit.record(connection, scope="private", actor=viewer, operation="watch" if selected else "unwatch",
+                             record_type="assignee_watch", record_id=owner, at=ledger.timestamp())
+        return {"watching": selected}
 
     @app.get("/api/v1/assignee-avatar/<subject>/<digest>")
     def assignee_avatar(subject, digest):

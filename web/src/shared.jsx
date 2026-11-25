@@ -208,7 +208,7 @@ export function signInHref(hash) {
   const activityLink = /^#(?:activity|event-[1-9]\d{0,18}-log)(?:\?(?:actor=[A-Za-z0-9_%+.*-]{1,1920}&?)?(?:action=[a-z-]{1,30}&?)?(?:detail=all&?)?(?:hide_requests=true)?)?$/
   const goalActivityLink = /^#reports\?view=goal-activity&(?:project=[A-Z][A-Z0-9]{0,7}|scope=all)(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})?$/.test(hash)
   const knowledgeLink = /^#knowledge(?:\?(?:entry=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18}(?:&history=(?:all|[1-9]\d{0,18}))?|(?:scope=assigned(?:&q=[A-Za-z0-9_%+.*~-]{1,1920})?|q=[A-Za-z0-9_%+.*~-]{1,1920})(?:&order=updated)?(?:&project=[A-Z][A-Z0-9]{0,7})?|order=updated(?:&project=[A-Z][A-Z0-9]{0,7})?|project=[A-Z][A-Z0-9]{0,7}))?$/
-  const reportsLink = /^#reports(?:-all(?:\?view=(?:active|all|idle|recent))?|\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&view=(?:active|all|idle|recent))?|view=(?:active|all|idle|recent)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/.test(hash)
+  const reportsLink = /^#reports(?:-all(?:\?view=(?:active|all|idle|recent|watching))?|\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&view=(?:active|all|idle|recent|watching))?|view=(?:active|all|idle|recent|watching)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/.test(hash)
   const integrationsLink = /^#integrations(?:\?(?:cli=[a-f0-9]{64}|project=[A-Z][A-Z0-9]{0,7}))?$/.test(hash)
   const schedulesLink = /^#(?:schedules(?:=(?:&(?:project=[A-Z][A-Z0-9]{0,7}|scope=all))?)?|schedule-R-[1-9]\d{0,18}(?:\?project=[A-Z][A-Z0-9]{0,7})?)$/.test(hash)
   const settingsLink = /^#(?:settings|manage)(?:\?(?:section=permissions(?:&project=[A-Z][A-Z0-9]{0,7})?|project=[A-Z][A-Z0-9]{0,7}))?$/.test(hash)
