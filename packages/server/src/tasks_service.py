@@ -2296,18 +2296,29 @@ def create_app(
         if write:
             if not editable:
                 raise RequestError("Only this project's manager can update its writing guidance.", 403)
-            data = json_body({"field", "guidance"})
+            data = json_body({"field", "prompt", "guidance"})
             if "guidance" not in data:
-                raise RequestError("Provide guidance or null to restore the default.")
-            field = text(data, "field", maximum=20)
-            value = text(data, "guidance", optional=True, maximum=1000)
+                raise RequestError("Provide guidance or null to restore the inherited text.")
+            if "prompt" in data:
+                if "field" in data:
+                    raise RequestError("Choose a field or a prompt for each update.")
+                name = text(data, "prompt", maximum=20)
+                maximum = tasks_guidance.MAX_PROJECT_PROMPT
+                setter = tasks_guidance.set_agent_prompt
+                operation = "set-agent-prompt"
+            else:
+                name = text(data, "field", maximum=20)
+                maximum = 1000
+                setter = tasks_guidance.set_writing_field
+                operation = "set-field-guidance"
+            value = text(data, "guidance", optional=True, maximum=maximum)
             with tasks_storage.write(db()) as connection:
                 try:
-                    changed = tasks_guidance.set_writing_field(connection, project, field, value)
+                    changed = setter(connection, project, name, value)
                 except ValueError as error:
                     raise RequestError(str(error)) from error
                 if changed:
-                    audit.record(connection, scope="private", actor=owner, operation="set-field-guidance",
+                    audit.record(connection, scope="private", actor=owner, operation=operation,
                                  record_type="project", record_id=project, at=ledger.timestamp())
                     ledger.bump_revision(connection)
         return writing_guidance(project, owner)

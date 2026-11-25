@@ -28,7 +28,7 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_context` | Check your signed-in identity and shared board. |
 | `taskboard_projects` | List the shared board's projects and identify its default. |
 | `taskboard_raft_channel` | Read the Raft coordination channel setting for a project you manage. The tool takes a project prefix. |
-| `taskboard_field_guidance` | Read project writing guidance, the effective Checkpoint and End task prompts, and a fictional example. Omit `project` to use the board default. |
+| `taskboard_field_guidance` | Read project writing guidance, the effective Checkpoint, End task, and Knowledge prompts, and a fictional Checkpoint example. Omit `project` to use the board's default project or your registered Local DRI project. |
 | `taskboard_queue` | Find owned or unassigned work, with project and state filters. |
 | `taskboard_reviews` | Find independent reviews assigned to you. |
 | `taskboard_ticket` | Read a ticket's current step, evidence, and handoffs. |

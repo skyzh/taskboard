@@ -10,7 +10,7 @@ criteria, and records Start and the result or blocker on that ask.
 Use [Taskboard Deep Work](https://github.com/skyzh/taskboard/blob/main/skills/taskboard-deep-work/SKILL.md)
 within this mode's workflow, identity, permissions, and publishing scope.
 Read signed HTTP `field-guidance` or MCP `taskboard_field_guidance` for the
-board's effective Checkpoint and End task prompts. Follow the board's wording
+project's effective Checkpoint, End task, and Knowledge prompts. Follow the board's wording
 when returned. The public defaults follow.
 
 At pickup, read the ticket's objective, current handoff, and relevant Activity.
@@ -34,6 +34,15 @@ acceptance criteria. Record the result in plain language, the checks that
 support it and the evidence link. Name any unverified or remaining work.
 Keep the ticket open with an actionable next step or named wait if that work
 is needed for this outcome. Link any separate follow-up and say who owns it.
+
+Before adding or changing Knowledge, search the project for the existing
+entry and read its brief and linked sources. Check the exact ticket or
+Activity that supports the decision. Update the existing entry when it
+covers the same subject, and link the source for what changed.
+
+If evidence is incomplete or conflicting, keep the current guidance.
+Stage the proposed change or leave a linked follow-up with the owner,
+the open question, and the evidence needed to settle it.
 
 For the fresh-worker trial, follow the
 [local Codex watcher setup](https://github.com/skyzh/taskboard/blob/main/docs/taskboard/LOCAL-HANDOFF-WATCHER.md).

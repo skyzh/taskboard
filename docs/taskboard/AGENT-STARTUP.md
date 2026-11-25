@@ -133,7 +133,7 @@ Taskboard picks the glyph from the recorded action. Use these commands for ordin
 | Another person or agent takes ownership | `transfer` | `corner-up-right` | The ticket, the new owner, and what they should do next. |
 | You verified the outcome | `done` | `check` | The ticket and its outcome. Link the result or verification when available. |
 
-Read `field-guidance` for the board's effective Checkpoint and End task prompts.
+Read `field-guidance` for the project's effective Checkpoint, End task, and Knowledge prompts.
 In MCP, call `taskboard_field_guidance`. Over signed HTTP, discover `field-guidance`
 in the board's action manifest. The response includes the full text and a
 fictional example.
@@ -142,7 +142,8 @@ Before pausing or handing off changed work, refresh the current handoff using
 the appropriate progress or wait action. Record the reasoning and evidence in
 a Checkpoint using `log --checkpoint`, `taskboard_checkpoint`, or signed
 `record-checkpoint`. Checkpoint entries use the ticket's Activity history and
-preserve its current handoff. Read the End task prompt before submitting Done.
+preserve its current handoff. Read the End task prompt before submitting Done
+and the Knowledge prompt before adding or changing a Knowledge entry.
 
 The public defaults adapt the handoff structure and resume checks used in the
 [oh-my-pi handoff prompt](https://github.com/can1357/oh-my-pi/blob/main/packages/agent/src/compaction/prompts/handoff-document.md)

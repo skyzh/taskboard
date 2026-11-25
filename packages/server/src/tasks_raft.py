@@ -59,7 +59,7 @@ _ACTIONS = {
     "raft-channel-set": _Action("POST", "Set or clear the project's verified Raft coordination channel.",
                                 {"project": "Taskboard project prefix.",
                                  "channel_id": "Stable Raft channel ID. Send an empty string to clear it."}),
-    "field-guidance": _Action("GET", "Read project writing guidance, effective Checkpoint and End task prompts, and ticket field collection prompts.",
+    "field-guidance": _Action("GET", "Read project writing guidance, Checkpoint, End task and Knowledge prompts, and ticket field collection prompts.",
                               optional=_PROJECT),
     "configure-ticket-fields": _Action("POST", "Replace the project ticket field list as its manager.", {
         "project": "Tasks project prefix.", "fields": "Full field list encoded as a JSON array.",
