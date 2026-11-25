@@ -508,11 +508,13 @@ separately. The chart and duration estimates describe ledger evidence.
 
 Use a stable owner key to define a cadence in whole hours and the first
 slot in UTC. In shared mode the signed-in agent owns the definition.
-A retry with the same key and definition returns the existing ID.
+New shared definitions use `--project` or the signed-in agent's default
+project. A Local DRI uses its registered project. A retry with the same
+key and settings returns the existing ID.
 
 ```sh
 ./tasks --shared recurring-add sample-check 'Check the sample' \
-  --cadence-hours 4 --next-at 2026-11-21T12:00:00Z --step 'Verify the sample.'
+  --project T --cadence-hours 4 --next-at 2026-11-21T12:00:00Z --step 'Verify the sample.'
 ./tasks --shared recurring-show R-1
 ./tasks --shared recurring-pause R-1
 ./tasks --shared recurring-resume R-1 --next-at 2026-11-22T12:00:00Z
@@ -521,6 +523,14 @@ A retry with the same key and definition returns the existing ID.
 
 Choose future UTC times for a new definition or resume. Offline, add
 `--dri NAME` when defining work and `--by NAME` when viewing or changing it.
+Use `--project PREFIX` to bind a new offline definition to a project.
+
+A project manager can run `./tasks --shared recurring-tick --project T`
+or call the signed POST `recurring-tick` action with `{"project":"T"}`.
+It uses server time and issues work for active definitions bound to that
+project, including its maintenance schedule. The operator tick continues
+to handle unbound definitions and timed deferrals.
+
 An explicit local operator tick uses `./tasks --offline --db FILE
 recurring-tick --as-of UTC`. It issues an ordinary Ready task for the
 latest due slot in each active series. Earlier skipped slots are recorded
@@ -563,7 +573,11 @@ Both jobs use the same SQLite write transaction rules, so each ticket's
 deferral is released once.
 
 Before enabling the recurring timer, confirm that the environment points to
-the active SQLite ledger and a maintenance-aware CLI. Check for an existing
+the active SQLite ledger and a CLI that understands maintenance and
+recurrence project bindings. Upgrade an independently installed scheduler
+CLI before creating project-bound definitions. When rolling back the board,
+keep that CLI in place or pause the recurring timer until it can route
+occurrences to their projects. Check for an existing
 recurring scheduler and review due slots with the project and recurrence
 owners. The first full tick can issue work for every active series already
 due. If an earlier review was completed manually, link it from its issued

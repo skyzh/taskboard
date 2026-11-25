@@ -14,6 +14,7 @@ add_tests()
 
 import test_tasks_service as fixture
 from test_tasks_project_move import replay_move
+from test_tasks_recurring import replay_project_tick
 from tasks_core import import_notification_on
 from tasks_service import create_app
 from tasks_storage import Postgres
@@ -88,6 +89,10 @@ class StorageReplayTest(unittest.TestCase):
         dsn = self.postgres_fixture()
         app = self.postgres_app(dsn, project_admin_subject=fixture.FixtureRaft().people["Sam"]["sub"])
         replay_move(self, self.board, app, lambda: closing(Postgres(dsn)))
+
+    def test_postgres_signed_project_tick(self):
+        dsn = self.postgres_fixture()
+        replay_project_tick(self, self.board, self.postgres_app(dsn), lambda: closing(Postgres(dsn)))
 
     def test_project_aliases_survive_sqlite_import(self):
         app = self.board.app(portal_reader=True)
