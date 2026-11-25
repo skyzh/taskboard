@@ -1,6 +1,6 @@
 .report-controls { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; font-size: .84rem; }
 @media (pointer: coarse), (max-width: 44rem) {
-  .report-assignee-views > button { min-block-size: 2.75rem; }
+  .report-controls .report-assignee-views > button { min-block-size: 2.75rem; }
 }
 
 .reports-heading { display: contents; }
