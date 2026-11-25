@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { BoardLink, useBoardLocation, useContentTitle } from './BoardNavigation.jsx'
+import { legacyLocation, routeAddress } from './boardRoutes.js'
 import { ArrowUpRight, ChevronDown, X } from 'lucide-react'
 import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from './data.js'
 import About from './About.jsx'
@@ -162,7 +163,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const tourOrigin = useRef('')
   const restoreTourFocus = useRef(false)
   const [tour, setTour] = useState(null)
-  const tourIndex = tour?.findIndex(step => step.route === fragment) ?? -1
+  const tourLocation = tour && legacyLocation(fragment)
+  const tourIndex = tourLocation ? tour.findIndex(step =>
+    routeAddress(legacyLocation(step.route)) === routeAddress(tourLocation)) : -1
   const tourStep = tour?.[tourIndex]
   useEffect(() => {
     if (tour && !tourStep) setTour(null)

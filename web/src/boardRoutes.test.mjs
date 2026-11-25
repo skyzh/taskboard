@@ -18,6 +18,8 @@ test('published page and record links retain their meaning at canonical paths', 
     ['#map?project=LAB', '/team-overview?project=LAB#team-overview'],
     ['#manage?project=LAB', '/settings?project=LAB&section=permissions'],
   ]) assert.equal(routeAddress(legacyLocation(fragment)), path, fragment)
+  assert.deepEqual(legacyLocation('#section=queue-heading&project=LAB'),
+    legacyLocation('#board?project=LAB&section=queue-heading'))
   assert.equal(legacyLocation('#checklist-title'), null)
 })
 
