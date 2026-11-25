@@ -1299,6 +1299,12 @@ button:disabled { opacity: .57; }
   font-weight: var(--weight-emphasis);
   line-height: 1.2;
 }
+.integration-flow-node small {
+  margin-top: .18rem;
+  color: var(--muted);
+  font-size: .73rem;
+  font-weight: normal;
+}
 .integration-flow-link {
   flex: 0 0 clamp(2.3rem, 12vw, 5.25rem);
   align-self: center;
