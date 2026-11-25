@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Project coordination channel in MCP.** Update and reconnect the adapter to use `taskboard_raft_channel`. Project managers can read the same channel setting as in the signed CLI. [MCP tool guide](MCP.md#available-tools)
+
 - **Seven-day human sign-in.** New human sessions in fixed-server durable mode last up to seven days. Existing sessions keep their expiry and continue to use live checks and sign-out. [Session policy](SHARED-BOARD.md#enable-durable-human-browser-sessions)
 
 - **Project owners.** Add eligible people and Team DRIs in Settings, and inspect effective permissions in Manage. Existing owners and assignments carry forward. [Ownership and permissions](SHARED-BOARD.md#manage-project-owners)

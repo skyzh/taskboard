@@ -72,6 +72,8 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                     await self.verify_workflow(owner, reviewer, python, origin, cookie, avery_environment, blake)
                     await self.verify_field_guidance(owner, reviewer, python, origin, cookie, blake_cookie,
                                                      avery_environment)
+                    await self.verify_raft_channel(owner, reviewer, python, origin, cookie, blake_cookie,
+                                                   avery_environment, blake_environment)
                     await self.verify_project_creation(owner, reviewer, python, origin, cookie, database, avery_environment)
                     await self.verify_ticket_tools(owner, reviewer, python, origin, cookie, blake_cookie,
                                                    avery_environment)
@@ -146,6 +148,32 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                 denied = cli(python, ROOT, env, "field-guidance", "--project", project)
                 self.assertNotEqual(denied.returncode, 0)
                 self.assertIn(error, denied.stderr)
+
+    async def verify_raft_channel(self, owner, reviewer, python, origin, cookie, blake_cookie,
+                                  environment, blake_environment):
+        params = {"project": "COURSE"}
+        result = await owner.call_tool("taskboard_raft_channel", params)
+        self.assertFalse(result.is_error, result.content)
+        signed = io_action(origin, "raft-channel-show", cookie=cookie, query=params)
+        self.assertEqual(result.structured_content, signed)
+        value = {"project": "COURSE", "state": "unavailable", "channel": None}
+        self.assertEqual({key: signed[key] for key in value}, value)
+        with request(origin, MOUNT + "/api/v1/projects/COURSE/raft-channel", cookie=cookie) as response:
+            self.assertEqual(json.load(response), value)
+        output = cli_success(python, ROOT, environment, "raft-channel-show", "COURSE")
+        self.assertIn("COURSE · Raft channel · Unavailable", output)
+
+        with self.assertRaises(HTTPError) as blocked:
+            io_action(origin, "raft-channel-show", cookie=blake_cookie, query=params)
+        with blocked.exception as response:
+            self.assertEqual(response.code, 403)
+            error = json.load(response)["error"]
+        rejected = await reviewer.call_tool("taskboard_raft_channel", params)
+        self.assertTrue(rejected.is_error)
+        self.assertIn(error, rejected.content[0].text)
+        denied = cli(python, ROOT, blake_environment, "raft-channel-show", "COURSE")
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn(error, denied.stderr)
 
     async def verify_project_creation(self, owner, reviewer, python, origin, cookie, database, environment):
         actor = io_action(origin, "context", cookie=cookie)["actor"]
@@ -263,7 +291,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_context", "taskboard_queue", "taskboard_reviews", "taskboard_ticket",
             "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_reopen", "taskboard_create_project",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
-            "taskboard_projects", "taskboard_field_guidance",
+            "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_queue"].annotations.read_only_hint)
