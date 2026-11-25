@@ -1300,6 +1300,19 @@ class BoardQueries:
         )
         return {**result, "source_errors": [dict(error) for error in failures]}
 
+    def subagent_launch_join(self):
+        context = "launch.context" if ledger.has_event_context(self.db) else "'{}'"
+        exclude_peer = ""
+        if watches.has_table(self.db, "peer_asks"):
+            exclude_peer = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)"
+        return f"""
+            JOIN events AS launch ON launch.task_id = worker_runs.task_id
+              AND launch.action = 'log' AND json_extract({context}, '$.audit.action') = 'worker-start'
+              AND CAST(json_extract({context}, '$.audit.run_id') AS BIGINT) = worker_runs.id
+              AND CAST(json_extract({context}, '$.audit.subagent') AS TEXT) IN ('1', 'true')
+              {exclude_peer}
+        """
+
     def owner_workers(self, owner, *, before, limit, order_execution=False, project=None):
         order = "worker_runs.id DESC"
         cursor, parameters = "worker_runs.id < ?", (before or 2**63 - 1,)
@@ -1321,7 +1334,8 @@ class BoardQueries:
                             worker_runs.started_at, worker_runs.assigned_at) AS updated_at,
                    tasks.id AS task_id, tasks.title AS task_title, {TASK_REFERENCE} AS task_key
             FROM worker_runs JOIN tasks ON tasks.id = worker_runs.task_id
-            WHERE tasks.dri = ? AND (? IS NULL OR tasks.project_prefix = ?)
+            {self.subagent_launch_join()}
+            WHERE launch.actor = ? AND (? IS NULL OR tasks.project_prefix = ?)
                 AND {ledger.work_records_sql(self.db)}{where}
             ORDER BY {order} LIMIT ?
             """, (owner, project, project, *parameters, limit + 1),
@@ -1754,7 +1768,8 @@ class BoardQueries:
         owner_source = f"""SELECT dri FROM project_tasks WHERE dri <> ''
                            UNION SELECT ledger_key FROM board_principals WHERE kind = 'agent' AND ? = 'T' {team_only}
                            UNION {projects.PROJECT_OWNERS}
-                           UNION SELECT recipient FROM legacy_waits"""
+                           UNION SELECT recipient FROM legacy_waits
+                           UNION SELECT dri FROM runs"""
         owner_args = (project, project, project)
         local_owners = ()
         if local_dris:
@@ -1864,9 +1879,10 @@ class BoardQueries:
                      GROUP BY current.dri
                  ),
                  runs AS (
-                     SELECT current.dri, {WORKER_COUNTS}
+                     SELECT launch.actor AS dri, {WORKER_COUNTS}
                      FROM worker_runs JOIN current ON current.id = worker_runs.task_id
-                     GROUP BY current.dri
+                     {self.subagent_launch_join()}
+                     GROUP BY launch.actor
                  ),
                  owners(dri) AS ({owner_source}),
                  {recent_cte}
@@ -2039,11 +2055,20 @@ class BoardQueries:
             name = projects.roster_owners(self.db, self.project_roster).get(owner)
             if name:
                 profile = projects.roster_profile(owner, name)
-        if profile is None and not self.db.execute(
+        current = ledger.current_tasks_sql(self.db)
+        counts = self.db.execute(
+            f"""
+            WITH current AS ({current})
+            SELECT {WORKER_COUNTS}
+            FROM worker_runs JOIN current ON current.id = worker_runs.task_id
+            {self.subagent_launch_join()}
+            WHERE launch.actor = ? AND current.project_prefix = ?
+            """, (owner, project),
+        ).fetchone()
+        if profile is None and not counts["recorded_runs"] and not self.db.execute(
             f"SELECT 1 FROM tasks WHERE dri = ? AND {ledger.work_records_sql(self.db)} LIMIT 1", (owner,),
         ).fetchone():
             return None
-        current = ledger.current_tasks_sql(self.db)
         count = self.db.execute(
             f"""
             WITH current AS ({current})
@@ -2053,14 +2078,6 @@ class BoardQueries:
             """, (owner, project),
         ).fetchone()[0]
         reports = self.pending_reports(owner, project=project)
-        counts = self.db.execute(
-            f"""
-            WITH current AS ({current})
-            SELECT {WORKER_COUNTS}
-            FROM worker_runs JOIN current ON current.id = worker_runs.task_id
-            WHERE current.dri = ? AND current.project_prefix = ?
-            """, (owner, project),
-        ).fetchone()
         task_counts = dict(self.db.execute(
             f"SELECT {WORK_COUNTS} FROM ({current} WHERE tasks.dri = ? AND tasks.project_prefix = ?)",
             (owner, project),

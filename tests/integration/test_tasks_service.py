@@ -8672,50 +8672,54 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((status, errors, actions), (0, "", ["context", "handoff"]))
         self.assertEqual(self.call(reader, "/api/v1/tasks/COURSE-1").json["task"]["dri"], blake_key)
 
-    def test_worker_counts_and_details_distinguish_launches_from_assignments(self):
+    def test_subagent_reports_follow_the_launcher_after_a_ticket_transfer(self):
         app = self.app()
         avery, avery_id = self.login(app, "Avery")
         blake, blake_id = self.login(app, "Blake")
         sam, _ = self.login(app, "Sam")
-        for client in (avery, blake):
-            self.action(client, "create-task", {"title": "Check export", "step": "Read the rows."})
-        for role in ("build", "build", "review", "build", "build"):
-            self.action(avery, "delegate", {"id": "1", "worker": blake_id, "role": role, "brief": "Check rows.",
-                                           "effort": "medium" if role == "review" else "high"})
-        self.action(blake, "delegate", {"id": "2", "worker": avery_id, "role": "build", "brief": "Other owner's work."})
-        for run in ("1", "2", "3"):
-            self.action(avery, "worker-handoff", {"run": run, "transition": "start", "handle": "fixture-handle"})
-        self.action(blake, "worker-handoff", {"run": "2", "transition": "report", "note": "Done.", "result": "completed"})
+        self.action(avery, "create-task", {"title": "Check export", "step": "Read the rows."})
+        assignments = ((avery_id, "build"), (avery_id, "build"), (avery_id, "review"),
+                       (blake_id, "review"), (avery_id, "build"), (blake_id, "build"))
+        for worker, role in assignments:
+            self.action(avery, "delegate", {"id": "T-1", "worker": worker, "role": role, "brief": "Check rows."})
+        for run in (1, 2, 3):
+            status, output, errors = self.shared_cli(avery, "worker-start", f"W-{run}", "fixture-handle", "--subagent")
+            self.assertEqual((status, errors), (0, ""))
+            self.assertIn("Committed", output)
+        self.action(avery, "worker-handoff", {"run": "2", "transition": "report", "note": "Done.", "result": "completed"})
         self.action(avery, "worker-handoff", {"run": "2", "transition": "collect", "note": "Read result."})
-        self.action(avery, "worker-handoff", {"run": "5", "transition": "stop", "note": "Canceled before launch."})
+        self.action(blake, "worker-handoff", {"run": "4", "transition": "start", "handle": "peer-fixture"})
+        for run in ("5", "6"):
+            self.action(avery, "worker-handoff", {"run": run, "transition": "start", "handle": "unmarked-fixture"})
+        self.action(avery, "handoff", {"id": "T-1", "owner": blake_id, "note": "Continue the export."})
 
-        counts = {"recorded": 5, "running": 1, "launched": 2, "running_reviews": 1, "launched_reviews": 1}
-        report = self.call(sam, "/api/v1/reports").get_json()["items"][0]
-        self.assertEqual(report["owner"], avery_id)
-        self.assertEqual(report["worker_counts"], counts)
-        profile = self.call(sam, "/api/v1/assignee", query_string={"owner": avery_id}).get_json()
-        self.assertEqual(profile["worker_counts"], counts)
+        counts = {"recorded": 3, "running": 1, "launched": 2, "running_reviews": 1, "launched_reviews": 1}
+        zero = dict.fromkeys(counts, 0)
+        reports = self.call(sam, "/api/v1/reports?view=all").json["items"]
+        self.assertEqual(next(report for report in reports if report["owner"] == avery_id)["worker_counts"], counts)
+        self.assertEqual(next(report for report in reports if report["owner"] == blake_id)["worker_counts"], zero)
+        for owner, expected in ((avery_id, counts), (blake_id, zero)):
+            profile = self.call(sam, "/api/v1/assignee", query_string={"owner": owner}).json
+            self.assertEqual(profile["worker_counts"], expected)
 
         path = "/api/v1/reports/workers"
-        first = self.call(sam, path, query_string={"owner": avery_id, "limit": 3}).get_json()
-        self.assertEqual(first["next_cursor"], 3)
-        last = self.call(sam, path, query_string={"owner": avery_id, "before": 3}).get_json()
+        filters = {"owner": avery_id, "order": "execution", "limit": 2}
+        first = self.call(sam, path, query_string=filters).json
+        self.assertEqual(first["next_cursor"], "0:1")
+        last = self.call(sam, path, query_string={**filters, "before": first["next_cursor"]}).json
         self.assertIsNone(last["next_cursor"])
         runs = first["items"] + last["items"]
         self.assertEqual([(row["id"], row["role"], row["status"]) for row in runs], [
-            (5, "build", "stopped"), (4, "build", "planned"), (3, "review", "running"),
-            (2, "build", "collected"), (1, "build", "running"),
+            (3, "review", "running"), (1, "build", "running"), (2, "build", "collected"),
         ])
-        with closing(sqlite3.connect(self.database)) as db:
-            times = dict(db.execute(
-                "SELECT id, COALESCE(finalized_at, reported_at, started_at, assigned_at) FROM worker_runs"
-            ))
         for row in runs:
-            self.assertEqual(row["worker_profile"]["name"], "Blake")
             self.assertEqual((row["task_id"], row["task_title"]), (1, "Check export"))
-            self.assertEqual(row["updated_at"], times[row["id"]])
-            self.assertEqual(row["effort"], "medium" if row["role"] == "review" else "high")
+            self.assertTrue(row["updated_at"])
             self.assertNotIn("handle", row)
+        self.assertEqual(self.call(sam, path, query_string={"owner": blake_id}).json["items"], [])
+        detail = self.call(sam, "/api/v1/tasks/T-1").json
+        self.assertEqual(detail["task"]["dri"], blake_id)
+        self.assertEqual({row["id"] for row in detail["workers"]}, set(range(1, 7)))
         self.assertEqual(app.test_client().get(BASE + path, base_url=ORIGIN).status_code, 403)
         self.call(app.test_client(), path, query_string={"owner": avery_id}, status=401)
 
@@ -8853,30 +8857,17 @@ class TasksServiceTest(unittest.TestCase):
         reports = self.call(viewer, "/api/v1/reports").json["items"]
         report = next(row for row in reports if row["owner"] == avery_id)
         self.assertEqual(report["worker_counts"], {
-            "recorded": 5, "running": 0, "launched": 0, "running_reviews": 1, "launched_reviews": 2,
+            "recorded": 0, "running": 0, "launched": 0, "running_reviews": 0, "launched_reviews": 0,
         })
         self.assertEqual(report["tasks"], [])
         pending = report["pending_reports"][0]
         self.assertEqual((pending["run_id"], pending["result"]), (3, "blocked"))
         self.assertTrue(pending["reported_at"])
 
-        path = "/api/v1/reports/workers"
-        filters = {"owner": avery_id, "order": "execution", "limit": "2"}
-        runs = []
-        for _ in range(3):
-            page = self.call(viewer, path, query_string=filters).json
-            runs.extend(page["items"])
-            if page["next_cursor"] is None:
-                break
-            filters["before"] = page["next_cursor"]
-        self.assertIsNone(page["next_cursor"])
-        order = [(1, "running"), (3, "reported"), (4, "planned"), (2, "planned"), (5, "start_unconfirmed")]
-        self.assertEqual([(run["id"], run["execution_state"]) for run in runs], order)
-        self.assertTrue(all("handle" not in run for run in runs))
-        self.assertTrue(runs[0]["started_at"])
-        self.assertEqual(runs[1]["result"], "blocked")
-        self.assertEqual(runs[1]["reported_at"], pending["reported_at"])
+        workers = self.call(viewer, "/api/v1/reports/workers", query_string={"owner": avery_id}).json
+        self.assertEqual(workers, {"items": [], "next_cursor": None})
 
+        order = [(1, "running"), (3, "reported"), (4, "planned"), (2, "planned"), (5, "start_unconfirmed")]
         detail = self.call(viewer, "/api/v1/tasks/1").json
         self.assertEqual((detail["task"]["dri"], detail["task"]["state"]), (avery_id, "ready"))
         self.assertEqual([(run["id"], run["execution_state"]) for run in detail["workers"]], order)
@@ -8884,7 +8875,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(detail["last_activity"], {"id": recent["id"], "at": recent["at"]})
         self.assertEqual(report["last_activity"], detail["last_activity"])
         self.action(avery, "worker-handoff", {"run": "3", "transition": "collect", "note": "Will request the sample."})
-        report = next(row for row in self.call(viewer, "/api/v1/reports").json["items"] if row["owner"] == avery_id)
+        report = next(row for row in self.call(viewer, "/api/v1/reports?view=all").json["items"] if row["owner"] == avery_id)
         self.assertEqual(report["pending_reports"], [])
         collected = next(run for run in self.call(viewer, "/api/v1/tasks/1").json["workers"] if run["id"] == 3)
         self.assertEqual((collected["execution_state"], collected["result"]), ("collected", "blocked"))
@@ -8945,7 +8936,7 @@ class TasksServiceTest(unittest.TestCase):
         report = self.call(reader, "/api/v1/reports").json["items"][0]
         self.assertEqual(report["owner"], avery_id)
         self.assertEqual(report["task_count"], 1)
-        self.assertEqual(report["worker_counts"], {"recorded": 5, "running": 0, "launched": 0, "running_reviews": 1, "launched_reviews": 2})
+        self.assertEqual(report["worker_counts"], {"recorded": 0, "running": 0, "launched": 0, "running_reviews": 0, "launched_reviews": 0})
         self.assertEqual(report["report_count"], 1)
         self.action(avery, "worker-handoff", {"run": "4", "transition": "collect", "note": "Collected."})
         self.assertEqual([row["id"] for row in self.call(reader, route).json["items"]], [2, 1])

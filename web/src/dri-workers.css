@@ -29,13 +29,8 @@
   padding: .4rem 0;
   border-top: 1px solid var(--line);
 }
-.dri-runs-note, .dri-run-meta {
-  color: var(--muted);
-}
-.dri-runs-note {
-  margin-bottom: .35rem;
-}
 .dri-run-meta {
+  color: var(--muted);
   display: flex;
   flex-wrap: wrap;
   gap: .12rem .6rem;
