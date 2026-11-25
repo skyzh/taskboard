@@ -82,10 +82,11 @@ class StampExtensionTest(unittest.TestCase):
         fixture = fixtures.TasksServiceTest()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
-        configured = configuration('{"T":{"stamp-reviews":"example/board"}}')
+        configured = configuration('{"T":{"stamp-reviews":"example/board"},"SAMPLE":{"stamp-reviews":"example/board"}}')
         app = fixture.app(portal_reader=True, project_extensions=configured)
         owner, owner_key = fixture.login(app, "Avery")
-        _, reviewer = fixture.login(app, "Blake")
+        reviewer_client, reviewer = fixture.login(app, "Blake")
+        fixture.cli("register-project", "SAMPLE", "Other sample", "--dri", owner_key)
         pull = "https://github.com/example/board/pull/8"
         head, base = "a" * 40, "b" * 40
         evidence_id = "c" * 32
@@ -99,13 +100,6 @@ class StampExtensionTest(unittest.TestCase):
         reader.approvals.assert_not_called()
 
         fixture.action(owner, "link-reference", {"id": "T-1", "label": "Pull request", "url": pull})
-        status, output, error = fixture.shared_cli(
-            owner, "peer-ask", "create", "T-1", "Review this change.", "--to", "Blake",
-            "--stamp-review", pull, head, base,
-        )
-        self.assertEqual((status, error), (0, ""))
-        self.assertIn("T-2", output)
-
         with closing(open_sqlite(fixture.database)) as db:
             self.assertEqual(refresh_approvals(db, reader, {}, pull),
                              {"recorded": 0, "ready_for_acknowledgment": 0})
@@ -114,6 +108,18 @@ class StampExtensionTest(unittest.TestCase):
             reader.approvals.return_value = [Approval(evidence_id, evidence_url, subject, fixtures.SERVER, head, base, False)]
             self.assertEqual(refresh_approvals(db, reader, configured, pull),
                              {"recorded": 1, "ready_for_acknowledgment": 0})
+        report_filters = {"project": "T", "actor": reviewer, "detail": "reports"}
+        receipt, = fixture.call(owner, "/api/v1/activity", query_string=report_filters).json["items"]
+        self.assertEqual((receipt["task_key"], receipt["context"]["stamp_verdict"]["id"]), ("T-1", evidence_id))
+
+        status, output, error = fixture.shared_cli(
+            owner, "peer-ask", "create", "T-1", "Review this change.", "--to", "Blake",
+            "--stamp-review", pull, head, base,
+        )
+        self.assertEqual((status, error), (0, ""))
+        self.assertIn("T-2", output)
+
+        with closing(open_sqlite(fixture.database)) as db:
             reader.approvals.return_value = [
                 Approval(evidence_id, evidence_url, subject, fixtures.SERVER, head, base,
                          ready_to_merge=not merged, merged_with_checks=merged),
@@ -123,6 +129,7 @@ class StampExtensionTest(unittest.TestCase):
             self.assertEqual(refresh_approvals(db, reader, configured, pull),
                              {"recorded": 0, "ready_for_acknowledgment": 0})
 
+        self.assertEqual(fixture.call(owner, "/api/v1/activity", query_string=report_filters).json["items"], [receipt])
         source = fixture.call(owner, "/api/v1/tasks/1").json["task"]
         self.assertEqual((source["dri"], source["state"]), (owner_key, "waiting"))
         self.assertEqual(fixture.action(owner, "my-next")["work"]["key"], "T-2")
@@ -135,3 +142,22 @@ class StampExtensionTest(unittest.TestCase):
         self.assertEqual(request["dri"], owner_key)
         if merged:
             self.assertEqual(request["note"], "Stamp approved the merged revision and all required checks passed.")
+
+        fixture.action(reviewer_client, "record-activity", {"id": "T-1", "note": "Checked a second sample."})
+        for project in ("T", "SAMPLE"):
+            duplicate = fixture.action(owner, "create-task", {
+                "project": project, "title": "Another ticket with the same PR", "step": "Read the sample.",
+            })["receipt"].split()[0]
+            fixture.action(owner, "link-reference", {"id": duplicate, "label": "Pull request", "url": pull})
+        with closing(open_sqlite(fixture.database)) as db:
+            self.assertEqual(refresh_approvals(db, reader, configured, pull),
+                             {"recorded": 2, "ready_for_acknowledgment": 0})
+
+        report = "/api/v1/activity"
+        filters = {**report_filters, "limit": 1}
+        first = fixture.call(owner, report, query_string=filters).json
+        self.assertEqual([event["note"] for event in first["items"]], ["Checked a second sample."])
+        second = fixture.call(owner, report, query_string={**filters, "before": first["next_cursor"]}).json
+        self.assertEqual(second, {"items": [receipt], "next_cursor": None})
+        other, = fixture.call(owner, report, query_string={**filters, "project": "SAMPLE"}).json["items"]
+        self.assertEqual(other["task_key"], "SAMPLE-1")

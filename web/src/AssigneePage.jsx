@@ -1,13 +1,16 @@
 import React from 'react'
 import { queryPath, useLoadedPages, useResource } from './data.js'
-import { Outcomes } from './Overview.jsx'
+import { ActivityDate, Outcomes } from './Overview.jsx'
 import { NeedsYou, OwnerWorkLinks, PendingReports, ownerWorkSections } from './Reports.jsx'
-import { AssigneeAvatar, DriWorkStatus, LoadMore, ResourceStatus, ownerHref, profileName } from './shared.jsx'
+import {
+  AssigneeAvatar, DriWorkStatus, LoadMore, ResourceStatus, Timestamp, eventHref, ownerHref, profileName, taskLabel,
+} from './shared.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import DriWorkers from './DriWorkers.jsx'
 import DriGoal, { DriMilestones } from './DriGoal.jsx'
-import { Markdown } from './Markdown.jsx'
-import { briefSourceText } from './workCopy.js'
+import { Markdown, MarkdownInline } from './Markdown.jsx'
+import { useTimeZone } from './timeZone.js'
+import { activityHeadline, briefSourceText } from './workCopy.js'
 
 function OwnerWork({ owner, state, id, title, label, revision, project }) {
   const page = useLoadedPages('/tasks', { dri: owner, state, project, order: state === 'ready' ? 'priority' : undefined }, revision)
@@ -22,14 +25,63 @@ function OwnerWork({ owner, state, id, title, label, revision, project }) {
   )
 }
 
+function reportAction(event) {
+  if (event.context?.stamp_verdict || event.context?.manual_review_result || event.context?.work_kind === 'merge-review') {
+    return 'Review'
+  }
+  if (event.context?.worker_report_id) return 'Worker report'
+  if (event.action === 'transfer') return 'Peer result'
+  return event.label
+}
+
+function AssigneeActivity({ owner, project, revision }) {
+  const { formatDay } = useTimeZone()
+  const page = useLoadedPages('/activity', { actor: owner, project, detail: 'reports' }, revision, { limit: 10 })
+  const days = new Map()
+  for (const event of page.data?.items || []) {
+    const day = formatDay(event.at)
+    if (!days.has(day)) days.set(day, [])
+    days.get(day).push(event)
+  }
+  return (
+    <section className="feed-section" aria-labelledby="assignee-activity-title">
+      <h2 id="assignee-activity-title" tabIndex={-1}>What was done</h2>
+      <ResourceStatus resource={page} label="reported activity" />
+      {page.data?.items.length === 0 && <p className="section-message">No reported activity in this project.</p>}
+      {[...days].sort(([left], [right]) => right.localeCompare(left)).map(([day, events]) => (
+        <div className="outcome-day" key={day}>
+          <h3><ActivityDate day={day} /></h3>
+          <ul className="assignee-activity-list" role="list">
+            {events.map(event => {
+              const action = reportAction(event)
+              const recorded = activityHeadline(event)
+              const headline = recorded && recorded !== event.label ? recorded : event.task_title
+              return (
+                <li key={event.id}>
+                  <a href={eventHref(event.id)}>
+                    <strong>{taskLabel(event.task_id, event.task_key)}</strong>
+                    {' · '}{action}{' · '}<Timestamp at={event.at} showDate={false} />
+                    {headline && <> · <MarkdownInline text={headline} links={false} /></>}
+                  </a>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ))}
+      <LoadMore page={page} label="reported activity" />
+    </section>
+  )
+}
+
 export default function AssigneePage({ owner, section, revision, project, reportsHref = '#reports', canEditGoal, viewer }) {
   const resource = useResource(queryPath('/assignee', { owner, project }), revision)
   const entry = resource.data
   if (!entry) return <ResourceStatus resource={resource} label="assignee profile" />
   const profile = entry.profile
-  const showOutcomeWeek = profile?.kind === 'agent'
-  const showOutcomes = showOutcomeWeek || entry.has_outcomes !== false || section === 'outcomes-title'
-  const hasOutcomeLink = showOutcomeWeek || entry.has_outcomes
+  const agentReport = profile?.kind === 'agent'
+  const showOutcomes = agentReport || entry.has_outcomes !== false || section === 'outcomes-title'
+  const hasOutcomeLink = agentReport || entry.has_outcomes
   const name = profileName(owner, profile)
   const role = briefSourceText(profile?.role)
   const about = [!role && profile?.role, profile?.description].filter(Boolean).join('\n\n')
@@ -68,6 +120,7 @@ export default function AssigneePage({ owner, section, revision, project, report
           {showMilestones && <a href={ownerHref(owner, 'dri-milestones-title', project)}>Dated milestones</a>}
           <OwnerWorkLinks owner={owner} project={project} counts={counts} />
           {hasOutcomeLink && <a href={ownerHref(owner, 'outcomes-title', project)}>Recent outcomes</a>}
+          {agentReport && <a href={ownerHref(owner, 'assignee-activity-title', project)}>What was done</a>}
           {reports.length > 0 && (
             <a href={ownerHref(owner, 'reports-pending-title', project)}>Worker reports <strong>{entry.report_count}</strong></a>
           )}
@@ -78,7 +131,8 @@ export default function AssigneePage({ owner, section, revision, project, report
       {showMilestones && <DriMilestones milestones={milestones} project={project} editable={canEditGoal} onChanged={resource.retry} />}
       {sections.filter(item => item.state !== 'ready').map(item =>
         <OwnerWork key={item.state} owner={owner} project={project} revision={revision} {...item} />)}
-      {showOutcomes && <Outcomes revision={revision} owner={owner} project={project} showWeek={showOutcomeWeek} />}
+      {showOutcomes && <Outcomes revision={revision} owner={owner} project={project} showWeek={agentReport} />}
+      {agentReport && <AssigneeActivity owner={owner} project={project} revision={revision} />}
       {ready && <OwnerWork owner={owner} project={project} revision={revision} {...ready} />}
       {(reports.length > 0 || section === 'reports-pending-title') && (
         <section className="feed-section" aria-labelledby="reports-pending-title">
