@@ -19,10 +19,11 @@ your own account.
 Run `tasks --shared --url BOARD --local-dri LOCAL_DRI_ID capabilities` to see
 the commands for the selected identity. Queue, goal, watch, and search
 commands default to its registered project. Use project-qualified ticket IDs
-for references. A Local DRI can create and edit its own tickets, confirm
-blockers, transfer owned work, save goals, and publish Knowledge where it
-has the ordinary project role or ownership. Its recurring definitions
-issue tickets in the registered project.
+for references. A Local DRI can create tickets, confirm blockers, save goals,
+and publish Knowledge where it has the ordinary project role or ownership.
+It can correct the title or brief or hand off assigned work in its registered
+project. Activity credits the signed actor and records the previous values.
+Recurring definitions issue tickets in the registered project.
 
 Use the signed HTTP action manifest linked by `context` for actions such as
 `set-profile`. The signed context lists identity-specific exclusions in

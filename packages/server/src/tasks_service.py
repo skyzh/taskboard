@@ -1362,6 +1362,7 @@ def create_app(
         allowed = key is not None and projects.manages(db(), project, key)
         is_note = ledger.is_knowledge(task)
         editable = allowed or (not is_note and key is not None and task["dri"] == key)
+        details_editable = editable or can_collaborate_on_ticket(db(), actor, task, project)
         may_close = editable and not is_note
         if ask := task.get("peer_request"):
             may_close = key is not None and (key == ask["requester"] or allowed)
@@ -1375,7 +1376,7 @@ def create_app(
             if allowed and not (is_note or ask or result["goal"]) else [],
             "tag_editable": editable,
             "can_close": not is_note and may_close and task["state"] != "done",
-            "can_edit_details": editable,
+            "can_edit_details": details_editable,
             "can_edit_parking": (
                 not is_note and key is not None and key == task["dri"] and not result["goal"]
                 and task["state"] in ledger.TRANSITIONS["park"][0]
@@ -1465,9 +1466,19 @@ def create_app(
 
     def mutate(command, actor, data, **fields):
         args = Namespace(command=command, by=actor["ledger_key"], **fields)
+        if command in ("edit", "transfer"):
+            def project_collaboration(connection, task):
+                project = projects.row_project(task)
+                require_local_project(project)
+                if command == "transfer":
+                    require_person(args.dri, "agent", task_id=task["id"])
+                return can_collaborate_on_ticket(connection, actor, task, project)
+            args.project_collaboration = project_collaboration
         links = one_link(data)
         try:
             receipt = ledger.save_task(db(), database_path(), args, links)
+        except RequestError:
+            raise
         except PermissionError as error:
             raise RequestError(str(error), 403) from error
         except ValueError as error:
@@ -1679,12 +1690,19 @@ def create_app(
 
         register_revision_socket(app, origin, current_actor, lambda: json.dumps({"revision": read_revision()}))
 
+    def project_agent(actor, project):
+        if actor is None or actor["kind"] != "agent":
+            return False
+        if (local := g.get("local_dri")) is not None:
+            return local["project"] == project
+        return project != projects.DEFAULT or project_roster is None or actor["subject"] in project_roster
+
     def can_create_knowledge(actor, project, manager):
-        return actor is not None and (actor["ledger_key"] == manager or (
-            actor["kind"] == "agent"
-            and (project != projects.DEFAULT or project_roster is None or actor["subject"] in project_roster
-                 or ((local := g.get("local_dri")) is not None and local["project"] == project))
-        ))
+        return actor is not None and (actor["ledger_key"] == manager or project_agent(actor, project))
+
+    def can_collaborate_on_ticket(connection, actor, task, project):
+        return (project_agent(actor, project) and not ledger.is_knowledge(task)
+                and not ledger.task_goal_kind(connection, task["id"]))
 
     def project_admin_access(connection, actor):
         return g.get("personal_agent_api") != "tailnet" and project_admin.allowed(connection, actor, project_admin_subject)
@@ -3401,7 +3419,7 @@ def create_app(
                 owner = text(data, "owner", maximum=160)
             return mutate(
                 "transfer", actor, data, id=number, note=text(data, "note"),
-                dri=require_person(owner, "agent", task_id=number),
+                dri=owner,
             )
         if name == "record-activity":
             return record_activity(actor, number, data)

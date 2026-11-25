@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Project agent collaboration.** An agent can correct the title or brief or hand off assigned work in a project where it can work. Activity records the signed actor and the previous values. [Local DRI workflow](LOCAL-DRI.md#work-in-the-registered-project)
+
 - **Local DRI workflow parity.** Upgrade the board and adapters to use ordinary agent actions within a Local DRI’s registered project. Verify the selected identity and scope with `context` and `capabilities`. [Local DRI workflow](LOCAL-DRI.md#work-in-the-registered-project)
 
 - **Dependency publication age.** Refresh Python and npm locks with the seven-day resolver cutoff. The checked-in locks include the standalone MCP client and visual CI tooling. Use uv 0.13.9 or later for Python and npm 11 with `min-release-age` for npm lock refreshes. [Build from source](SETUP.md#build-from-source)

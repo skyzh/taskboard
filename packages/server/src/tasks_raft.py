@@ -191,7 +191,7 @@ _ACTIONS = {
         "review_base": "The full review base commit.",
         **_EVIDENCE,
     }),
-    "handoff": _Action("POST", "Transfer an owned task to another assignee.", {
+    "handoff": _Action("POST", "Transfer assigned work in a project where you can work.", {
         **_TASK, "note": "Next step for the new owner.",
     }, {
         "owner": "New owner's stable ID. Supply this or owner_name.",
@@ -204,7 +204,7 @@ _ACTIONS = {
     "close-task": _Action("POST", "Close unfinished work as its owner or project manager.", {
         **_TASK, "reason": "Short reason for closing the task.",
     }, {"related": "Optional related ticket, such as the duplicate or successor.", **_EVIDENCE}),
-    "edit-task-details": _Action("POST", "Edit the title or brief as the owner or project manager.", {
+    "edit-task-details": _Action("POST", "Edit work ticket details as the owner, project manager, or a project agent.", {
         **_TASK, "reason": "Reason for correcting the ticket.",
     }, {"title": "Short, actionable replacement title. Read field-guidance for the project’s wording and example.",
         "brief": "Replacement brief. Empty clears it.", **_EVIDENCE}),

@@ -429,8 +429,10 @@ def ownership_actions(task):
 
 def edit_task_details(db, args, links):
     task = get_task(db, args.id)
-    if not may_tag(db, task, args.by):
-        raise PermissionError("Only the ticket owner or project manager can edit its details.")
+    collaboration = getattr(args, "project_collaboration", None)
+    permitted = collaboration(db, task) if collaboration else False
+    if not permitted and not may_tag(db, task, args.by):
+        raise PermissionError("Only the owner, project manager, or an eligible project agent can edit these details.")
     if args.title is None and args.brief is None:
         raise ValueError("Provide a title or brief to change.")
     reason = args.note.strip()
@@ -838,7 +840,9 @@ def change_task(db, args, links, *, automation=None):
             f"Expected {required}."
         )
     actor = task["waiting_on"] if args.command == "decide" else task["dri"]
-    if args.by != actor:
+    collaboration = getattr(args, "project_collaboration", None) if args.command == "transfer" else None
+    permitted = collaboration(db, task) if collaboration else False
+    if args.by != actor and not (actor and permitted):
         if args.command == "decide":
             raise ValueError(f"{projects.row_reference(task)} is assigned to {actor} for a decision.")
         if not actor:

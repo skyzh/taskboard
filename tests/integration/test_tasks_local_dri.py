@@ -219,8 +219,15 @@ class LocalDRIRoutingTest(unittest.TestCase):
         history = local("task-activity", query_string={"id": own})["items"]
         self.assertEqual((history[0]["id"], history[0]["actor"], history[0]["state"]),
                          (confirmed["event_id"], registered["OPS"], "ready"))
-        local("edit-task-details", {"id": peer_owned, "title": "Other work", "reason": "Check ownership."}, status=403)
-        local("handoff", {"id": peer_owned, "note": "Check ownership.", "owner": registered["OPS"]}, status=409)
+        self.assertTrue(local("task", query_string={"id": peer_owned})["can_edit_details"])
+        local("edit-task-details", {"id": peer_owned, "brief": "Add the import evidence.", "reason": "Clarify the scope."})
+        local("handoff", {"id": peer_owned, "note": "Check ownership.", "owner": registered["OPS"]})
+        transferred, edited, _ = local("task-activity", query_string={"id": peer_owned})["items"]
+        self.assertEqual((transferred["actor"], edited["actor"]), (registered["OPS"], registered["OPS"]))
+        self.assertEqual((transferred["context"]["previous_dri"], transferred["context"]["next_dri"]),
+                         (team_id, registered["OPS"]))
+        local("edit-task-details", {"id": foreign, "brief": "Wrong project.", "reason": "Check the scope."}, status=403)
+        local("handoff", {"id": foreign, "note": "Check the scope.", "owner": registered["OPS"]}, status=403)
         local("handoff", {"id": own, "note": "Use the imported rows.", "owner": registered["T"]}, status=403)
         local("handoff", {"id": own, "note": "Use the imported rows.", "owner": team_id})
         transferred = local("task", query_string={"id": own})["task"]
