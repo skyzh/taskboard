@@ -9,7 +9,7 @@ import BoardViews from './BoardViews.jsx'
 import AssigneePage from './AssigneePage.jsx'
 import GoalActivity, { goalActivityFragment } from './GoalActivity.jsx'
 import Integrations from './Integrations.jsx'
-import Knowledge from './Knowledge.jsx'
+import Knowledge, { knowledgeListHref } from './Knowledge.jsx'
 import Notifications from './Notifications.jsx'
 import MyActivity from './MyActivity.jsx'
 import { ReportTime } from './ReportTime.jsx'
@@ -264,6 +264,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const projectsPending = !visibleProjects && !projectList.error && (sessionResource.pending || hasSession)
   const hasProjectChoices = visibleProjects?.length > 1
   const knowledgeFilters = taskAnchor === 'knowledge' ? new URLSearchParams(taskContext) : null
+  const knowledgeScope = !preview && knowledgeFilters?.get('scope') === 'assigned' ? 'assigned' : 'board'
   const statsFilters = taskAnchor === 'stats' ? new URLSearchParams(taskContext) : null
   const requestedStatsPeriod = statsFilters?.get('period')
   const statsPeriod = ['hour', 'week'].includes(requestedStatsPeriod) ? requestedStatsPeriod : 'day'
@@ -489,10 +490,12 @@ export default function App({ previewNotice, tourSteps } = {}) {
             onProjectChange={value => writeFilterFragment(value ? `integrations?project=${value}` : 'integrations', true)}
             challenge={integrationsParams.get('cli')} preview={preview} />}
           {view === 'knowledge' && <Knowledge key={knowledgeFilters.get('entry') || 'index'}
-            session={session} verified={verified} revision={revision} projects={visibleProjects}
+            session={session} verified={verified} revision={revision} projects={visibleProjects} preview={preview}
             onChanged={refresh} RecordTools={KnowledgeRecordTools}
-            search={knowledgeFilters.get('q') || ''} entry={knowledgeFilters.get('entry')} history={knowledgeFilters.get('history')}
-            onSearch={value => writeFilterFragment(value ? `knowledge?${new URLSearchParams({ q: value })}` : 'knowledge', false)} />}
+            scope={knowledgeScope} search={knowledgeFilters.get('q') || ''}
+            entry={knowledgeFilters.get('entry')} history={knowledgeFilters.get('history')}
+            onSearch={value => writeFilterFragment(knowledgeListHref(knowledgeScope, value).slice(1), false)}
+            onScope={value => writeFilterFragment(knowledgeListHref(value, knowledgeFilters.get('q')).slice(1), false)} />}
           {view === 'personal-codex' && <PersonalCodex key={session.data?.actor?.id} session={session}
             reportsHref={reportsHref} />}
           {view === 'search' && <SearchResults query={search} revision={revision} />}

@@ -40,6 +40,8 @@ let Stats
 let QueuedAsks
 let MyActivity
 let Knowledge
+let knowledgeListHref
+let signInHref
 let RecordHistory
 before(async () => {
   const result = await build({
@@ -65,7 +67,8 @@ before(async () => {
         export { default as Stats } from './Stats.jsx'
         export { default as QueuedAsks } from './QueuedAsks.jsx'
         export { default as MyActivity } from './MyActivity.jsx'
-        export { default as Knowledge } from './Knowledge.jsx'
+        export { default as Knowledge, knowledgeListHref } from './Knowledge.jsx'
+        export { signInHref } from './shared.jsx'
         export { default as RecordHistory } from './RecordHistory.jsx'
       `,
       resolveDir: fileURLToPath(new URL('.', import.meta.url)),
@@ -130,7 +133,7 @@ before(async () => {
     ReminderDate, PendingReports, Reports, AssigneePage, EventRow, OutcomeRow, Outcomes,
     TimeZoneContext, createTimeZoneFormatters,
     Notifications, GoalActivity, DriGoal, DriMilestones, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity, Knowledge,
-    RecordHistory,
+    knowledgeListHref, signInHref, RecordHistory,
   } = module.exports)
 })
 
@@ -152,6 +155,46 @@ test('Knowledge areas show configured project names and preserve their index lin
   } finally {
     delete fixture.resources[path]
   }
+})
+
+test('Knowledge scope follows the signed viewer, while detail links and maintenance controls keep their original scope', () => {
+  const assigned = { id: 1, key: 'OPS-1', project: 'OPS', title: 'Runbook', sources: [],
+    maintenance_dri: { id: 'owner-id', name: 'River' } }
+  const unassigned = { id: 2, key: 'T-2', project: 'T', title: 'Guidance', sources: [], maintenance_dri: null }
+  const props = { session: {}, verified: true, search: '', onChanged() {} }
+  fixture.pages['/knowledge'] = filters => ({ data: { items: filters.entry
+    ? [{ ...assigned, can_assign_maintenance_dri: true }]
+    : filters.scope === 'assigned' ? [assigned] : [assigned, unassigned] } })
+  try {
+    const all = renderToStaticMarkup(React.createElement(Knowledge, props))
+    assert.match(all, /aria-pressed="true">All entries<\/button>/)
+    assert.match(all, /Maintenance DRI <strong>River<\/strong>/)
+    assert.match(all, /Maintenance DRI <strong>Unassigned<\/strong>/)
+    const own = renderToStaticMarkup(React.createElement(Knowledge, { ...props, scope: 'assigned' }))
+    assert.match(own, /aria-pressed="true">Assigned to me<\/button>/)
+    assert.match(own, /href="#knowledge\?entry=OPS-1">Runbook/)
+    assert.doesNotMatch(own, /Guidance|Unassigned|Change maintenance DRI|owner-id/)
+    const detail = renderToStaticMarkup(React.createElement(Knowledge, { ...props, entry: 'OPS-1' }))
+    assert.match(detail, /Change maintenance DRI/)
+    assert.match(detail, /Save maintenance DRI/)
+    const preview = renderToStaticMarkup(React.createElement(Knowledge, { ...props, preview: true, entry: 'OPS-1' }))
+    assert.doesNotMatch(preview, /Change maintenance DRI/)
+    fixture.pages['/knowledge'] = { data: { items: [assigned] } }
+    const writer = renderToStaticMarkup(React.createElement(Knowledge, { ...props, entry: 'OPS-1' }))
+    assert.match(writer, /Maintenance DRI <strong>River<\/strong>/)
+    assert.doesNotMatch(writer, /Change maintenance DRI/)
+  } finally {
+    delete fixture.pages['/knowledge']
+  }
+})
+
+test('Knowledge scope and search survive sign-in alongside existing history links', () => {
+  const fragment = knowledgeListHref('assigned', 'Team practices')
+  assert.equal(fragment, '#knowledge?scope=assigned&q=Team+practices')
+  for (const hash of [fragment, '#knowledge?scope=assigned', '#knowledge?q=Team+practices', '#knowledge?entry=OPS-1&history=2']) {
+    assert.equal(new URL(signInHref(hash), 'https://example.test/tasks/').searchParams.get('fragment'), hash)
+  }
+  assert.equal(signInHref('#knowledge?scope=assigned&project=OPS'), './auth/login')
 })
 
 test('history anchors the previous version and offers a return to the same record', () => {

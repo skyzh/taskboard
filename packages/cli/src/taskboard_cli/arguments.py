@@ -300,6 +300,18 @@ def arguments(argv=None):
     knowledge_add.add_argument("--brief", type=nonblank, required=True)
     areas = commands.add_parser("knowledge-areas", help="List Knowledge area indexes on the shared board.")
     areas.add_argument("--project", type=nonblank, help="Show one project. Omit to list all projects on the board.")
+    sweep = commands.add_parser("knowledge-sweep", help="List Knowledge for one maintenance sweep.")
+    sweep.add_argument("--scope", choices=("assigned", "board"), required=True,
+                       help="Read your assigned entries or list all entries you can access.")
+    sweep.add_argument("--project", type=nonblank, help="Limit the sweep to one project.")
+    sweep.add_argument("--limit", type=int, default=20, help="Maximum entries on this page (1–100).")
+    sweep.add_argument("--before", type=int, help="Cursor from the previous result page.")
+    sweep.add_argument("--json", action="store_true", help="Print entries, permissions and the next cursor as JSON.")
+    assign = commands.add_parser("knowledge-assign", help="Set or clear a Knowledge maintenance DRI as project manager.")
+    assign.add_argument("id", type=task_id)
+    maintenance_dri = assign.add_mutually_exclusive_group(required=True)
+    maintenance_dri.add_argument("--dri", type=nonblank, help="Exact board identity key of the maintainer.")
+    maintenance_dri.add_argument("--clear", action="store_true", help="Leave the entry unassigned.")
     place = commands.add_parser("knowledge-place", help="Place a maintained Knowledge entry in an area.")
     place.add_argument("id", type=task_id)
     place.add_argument("area", type=nonblank)
@@ -311,6 +323,7 @@ def arguments(argv=None):
     stage.add_argument("--source-event", type=int, help="Exact accepted decision or correction Activity event.")
     reconcile = commands.add_parser("knowledge-reconcile", help="Apply settled Knowledge stages you own or manage.")
     reconcile.add_argument("--project", type=nonblank, required=True)
+    reconcile.add_argument("--dri", type=nonblank, help="Apply only stages on entries assigned to this exact maintenance DRI key.")
     search = commands.add_parser("search", help="Find tickets or Activity on the signed-in shared board.")
     search.add_argument("query", type=search_query, metavar="QUERY",
                         help="Ticket ID, linked GitHub URL, title, summary, or Activity text.")
@@ -591,7 +604,8 @@ def arguments(argv=None):
         parser.error("Use --shared capabilities for shared agent commands.")
     if args.command in {
         "raft-channel-show", "raft-channel-set", "wake-subscriptions", "wake-subscribe", "wake-unsubscribe",
-        "knowledge-add", "knowledge-areas", "knowledge-place", "knowledge-stage", "knowledge-reconcile",
+        "knowledge-add", "knowledge-areas", "knowledge-assign", "knowledge-sweep", "knowledge-place",
+        "knowledge-stage", "knowledge-reconcile",
     } and args.mode != "shared":
         parser.error(f"{args.command} requires --shared.")
 

@@ -123,6 +123,11 @@ _ACTIONS = {
         "step": "First step for the owner.",
     }, {"brief": "Background and scope of the work.", **_PROJECT, **_EVIDENCE}),
     "knowledge-areas": _Action("GET", "List Knowledge area indexes on the signed-in board.", optional=_PROJECT),
+    "knowledge-sweep": _Action("GET", "List all accessible Knowledge or entries assigned to you for maintenance.",
+                              optional={"scope": "Choose board (default) or assigned.", **_PROJECT, **_PAGINATION}),
+    "knowledge-assign": _Action("POST", "Set or clear an entry's maintenance DRI as project manager.", _TASK, {
+        "dri": "Exact verified ledger key of a DRI. Omit to clear the assignment.",
+    }),
     "create-knowledge": _Action("POST", "Create an unassigned Knowledge entry in a project where you can publish.", {
         "project": "Project prefix.", "title": "Knowledge entry title.", "brief": "Current note and source links.",
     }),
@@ -134,7 +139,7 @@ _ACTIONS = {
     }, {"brief": "Proposed replacement brief.", "source_event": "Exact decision or correction Activity event on the work ticket."}),
     "knowledge-reconcile": _Action("POST", "Apply settled stages to Knowledge entries you own or manage.", {
         "project": "Project whose Knowledge entries to reconcile.",
-    }),
+    }, {"dri": "Limit the pass to entries assigned to this exact maintenance DRI key."}),
     "recurring-add": _Action("POST", "Define recurring work you own in the selected or default project.", {
         "key": "Stable key for retrying this definition.",
         "title": "Short, actionable title for each occurrence.",

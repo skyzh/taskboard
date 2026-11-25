@@ -658,6 +658,27 @@ Create the area’s index before placing other entries there. A nested area has 
 
 The **Knowledge** tab links each directory to its index and the index to its entries. Open the source ticket or use signed search to see the stage alongside the current brief. Read the newest linked work and the exact decision or correction before applying an older rule.
 
+A project's manager can optionally assign a maintenance DRI on a Knowledge
+entry. This is the person responsible for reviewing the entry. Editing and
+applying staged changes follow the project's existing permissions.
+
+```sh
+./tasks --shared knowledge-assign OPS-2 --dri "$identity"
+./tasks --shared knowledge-assign OPS-2 --clear
+./tasks --shared knowledge-sweep --scope assigned --project OPS
+./tasks --shared knowledge-sweep --scope board --json
+```
+
+Find the exact identity key in the board's assignee directory. The signed
+Knowledge view can show all entries or the entries assigned to the current
+identity. A board sweep includes unassigned entries in accessible projects.
+Omit `--project` for those projects and follow `--before` or the JSON
+`next_cursor` for additional pages. A Local DRI remains in its registered
+project. The JSON result indicates whether the signed actor can reconcile
+an entry. Route the other changes to the project's manager with their exact
+sources. See [Taskboard Setup](../../skills/taskboard-setup/SKILL.md) for
+choosing and reusing recurring sweeps.
+
 After recording the settled conclusion in the work ticket's Activity, supply its event ID and the complete proposed brief. The pass considers only completed source tickets with both fields supplied.
 
 ```sh
@@ -665,10 +686,11 @@ After recording the settled conclusion in the work ticket's Activity, supply its
   --brief 'Use the revised baseline and collect twenty samples.' --source-event 17
 ```
 
-In the existing nightly reflection, run the signed reconciliation for each project whose entries you own or manage.
+During maintenance, run the signed reconciliation for each project whose entries you can manage. Limit a per-DRI pass to entries assigned to the given exact identity key.
 
 ```sh
 ./tasks --shared knowledge-reconcile --project OPS
+./tasks --shared knowledge-reconcile --project OPS --dri "$identity"
 ```
 
 Use the returned unresolved sources and owners for follow-up. Open work stays staged. If a source reopens, stage its current conclusion before applying it. Conflicting settled proposals leave the current brief readable and need the owner's judgment. An applied change keeps the prior brief in Activity and links the exact source. Repeating a pass leaves already applied stages alone.

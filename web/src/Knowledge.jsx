@@ -3,11 +3,24 @@ import { request, useLoadedPages, useResource } from './data.js'
 import EditToggle from './EditToggle.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import RecordHistory, { historyHref } from './RecordHistory.jsx'
+import SegmentedControl from './SegmentedControl.jsx'
 import { LoadMore, ResourceStatus, eventHref, signInHref, taskHref } from './shared.jsx'
 
 export function entryHref(key) {
   return '#knowledge?' + new URLSearchParams({ entry: key })
 }
+
+export function knowledgeListHref(scope, search) {
+  const params = new URLSearchParams()
+  if (scope === 'assigned') params.set('scope', scope)
+  if (search) params.set('q', search)
+  return params.size ? `#knowledge?${params}` : '#knowledge'
+}
+
+const knowledgeScopes = [
+  { value: 'board', label: 'All entries' },
+  { value: 'assigned', label: 'Assigned to me' },
+]
 
 function KnowledgeCreate({ projects, onCreated }) {
   const [title, setTitle] = useState('')
@@ -55,6 +68,59 @@ function KnowledgeCreate({ projects, onCreated }) {
         <button type="submit" disabled={pending || !title.trim() || !brief.trim()}>
           {pending ? 'Creating…' : 'Create entry'}
         </button>
+      </form>
+    </details>
+  )
+}
+
+function MaintenanceDriForm({ item, revision, onChanged }) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState(null)
+  const people = useLoadedPages(open ? '/assignees' : null, { project: item.project }, revision)
+  const current = item.maintenance_dri
+  const currentId = current?.id || ''
+  const selection = draft ?? currentId
+  const choices = (people.data?.items || []).filter(person => person.id && person.id !== currentId)
+
+  async function submit(event) {
+    event.preventDefault()
+    if (saving || selection === currentId) return
+    setSaving(true)
+    setNotice(null)
+    try {
+      await request(`/knowledge/${encodeURIComponent(item.key)}/maintenance-dri`, {
+        body: { dri: selection || null },
+      })
+      setDraft(null)
+      setNotice({ text: 'Maintenance DRI updated.' })
+      onChanged()
+    } catch (error) {
+      setNotice({ error: true, text: error.message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <details className="task-ownership knowledge-maintenance" onToggle={event => setOpen(event.currentTarget.open)}>
+      <summary>Change maintenance DRI</summary>
+      <form className="ownership-form" onSubmit={submit} data-reload-blocked={saving || selection !== currentId}>
+        <label>Maintenance DRI
+          <select value={selection} disabled={saving} onChange={event => {
+            setDraft(event.target.value)
+            setNotice(null)
+          }}>
+            <option value="">Unassigned</option>
+            {current && <option value={currentId}>{current.name}</option>}
+            {choices.map(person => <option key={person.id} value={person.id}>{person.name || person.username}</option>)}
+          </select>
+        </label>
+        <ResourceStatus resource={people} label="eligible people" />
+        <LoadMore page={people} label="eligible people" />
+        <button type="submit" disabled={saving || selection === currentId}>{saving ? 'Saving…' : 'Save maintenance DRI'}</button>
+        {notice && <p role={notice.error ? 'alert' : 'status'}>{notice.text}</p>}
       </form>
     </details>
   )
@@ -155,12 +221,17 @@ export function StagedWork({ changes }) {
   )
 }
 
-export default function Knowledge({ session, verified, revision, projects, search, entry, history, onSearch, onChanged, RecordTools }) {
+export default function Knowledge({ session, verified, revision, projects, search, entry, history, scope = 'board',
+  preview, onSearch, onScope, onChanged, RecordTools }) {
   const [editing, setEditing] = useState(false)
-  const page = useLoadedPages(verified ? '/knowledge' : null, { q: entry ? undefined : search, entry }, revision)
-  const directory = useResource(verified && !entry && !search ? '/knowledge/areas' : null, revision)
+  const assigned = !entry && scope === 'assigned'
+  const page = useLoadedPages(verified ? '/knowledge' : null, {
+    q: entry ? undefined : search, entry, scope: assigned ? 'assigned' : undefined,
+  }, revision)
+  const showDirectory = !entry && !search && !assigned
+  const directory = useResource(verified && showDirectory ? '/knowledge/areas' : null, revision)
   const signIn = session.data?.sign_in_available || session.error?.status === 401
-  const fragment = entry ? entryHref(entry) : search ? '#knowledge?' + new URLSearchParams({ q: search }) : '#knowledge'
+  const fragment = entry ? entryHref(entry) : knowledgeListHref(scope, search)
   const writableProjects = projects?.filter(project => project.can_create_knowledge === true) || []
   if (history && entry && verified && page.data?.items.length > 0) {
     return (
@@ -180,11 +251,13 @@ export default function Knowledge({ session, verified, revision, projects, searc
         {!entry && writableProjects.length > 0 && <div hidden={!editing}>
           <KnowledgeCreate key={session.data?.actor?.id} projects={writableProjects} onCreated={onChanged} />
         </div>}
+        {!entry && !preview && <SegmentedControl className="knowledge-scope" label="Knowledge entries to show"
+          value={scope} options={knowledgeScopes} onChange={onScope} />}
         <KnowledgeSearch key={search} search={search} onSearch={onSearch} />
-        {!entry && !search && <KnowledgeDirectory directory={directory} projects={projects} />}
+        {showDirectory && <KnowledgeDirectory directory={directory} projects={projects} />}
         <ResourceStatus resource={page} label="Knowledge entries" />
         {page.data?.items.length === 0 && <p className="section-message">
-          {search || entry ? 'No matching entries.' : 'No Knowledge entries yet.'}
+          {search || entry ? 'No matching entries.' : assigned ? 'No Knowledge entries assigned to you.' : 'No Knowledge entries yet.'}
         </p>}
         {page.data?.items.length > 0 && (
           <ol className="knowledge-list" aria-label="Knowledge entries" role="list">
@@ -194,6 +267,11 @@ export default function Knowledge({ session, verified, revision, projects, searc
                 <a className="ticket-id" href={taskHref(item.key)}>{item.key}</a>
                 {entry && <a className="history-link" href={historyHref(entryHref(item.key))}>History</a>}
                 {item.area && <p className="knowledge-area-label">{item.area}</p>}
+                {item.maintenance_dri !== undefined && <p className="knowledge-area-label">
+                  Maintenance DRI <strong>{item.maintenance_dri?.name || 'Unassigned'}</strong>
+                </p>}
+                {entry && item.can_assign_maintenance_dri && !preview && <MaintenanceDriForm
+                  key={`${session.data?.actor?.id}:${item.key}`} item={item} revision={revision} onChanged={onChanged} />}
                 {item.summary && <Markdown text={item.summary} />}
                 <DecisionSources sources={item.sources} />
                 <StagedWork changes={item.staged_work} />

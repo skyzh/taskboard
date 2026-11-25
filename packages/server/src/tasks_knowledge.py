@@ -39,6 +39,13 @@ SCHEMA = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS knowledge_stage_source ON knowledge_stages (source_id)",
+    """
+    CREATE TABLE IF NOT EXISTS knowledge_maintenance_assignments (
+        task_id BIGINT PRIMARY KEY REFERENCES tasks (id),
+        dri TEXT NOT NULL REFERENCES board_principals (ledger_key)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS knowledge_maintenance_dri ON knowledge_maintenance_assignments (dri, task_id)",
 )
 
 
@@ -84,6 +91,41 @@ def maintained(db, number):
     return task
 
 
+def maintenance_assignments(db, numbers):
+    if not numbers:
+        return {}
+    marks = ", ".join("?" for _ in numbers)
+    return {row["task_id"]: {"id": row["dri"], "name": row["name"]} for row in db.execute(
+        f"""SELECT assignment.task_id, assignment.dri,
+                   COALESCE(NULLIF(principal.name, ''), NULLIF(principal.username, ''), assignment.dri) AS name
+            FROM knowledge_maintenance_assignments AS assignment
+            JOIN board_principals AS principal ON principal.ledger_key = assignment.dri
+            WHERE assignment.task_id IN ({marks})""", numbers,
+    )}
+
+
+def set_maintenance_dri(db, note, actor, dri):
+    number = note["id"]
+    current = maintenance_assignments(db, (number,)).get(number)
+    previous = current["id"] if current else None
+    if previous == dri:
+        return {"id": projects.row_reference(note), "maintenance_dri": current,
+                "receipt": "Knowledge DRI unchanged."}
+    if dri is None:
+        db.execute("DELETE FROM knowledge_maintenance_assignments WHERE task_id = ?", (number,))
+    else:
+        db.execute(
+            """INSERT INTO knowledge_maintenance_assignments (task_id, dri) VALUES (?, ?)
+               ON CONFLICT (task_id) DO UPDATE SET dri = excluded.dri""", (number, dri),
+        )
+    current = maintenance_assignments(db, (number,)).get(number)
+    message = f"Assigned Knowledge maintenance to {current['name']}." if current else "Cleared the Knowledge DRI."
+    ledger.record(db, number, "log", actor, note["state"], message, None, [],
+                  {"previous_knowledge_dri": previous, "knowledge_dri": dri})
+    ledger.bump_revision(db)
+    return {"id": projects.row_reference(note), "maintenance_dri": current, "receipt": message}
+
+
 def place(db, number, actor, area, *, index=False):
     note = maintained(db, number)
     if not ledger.may_tag(db, note, actor):
@@ -99,7 +141,8 @@ def place(db, number, actor, area, *, index=False):
     if index_area and index_area["path"] != path:
         raise ValueError("This entry is the index of another area.")
     if index and existing and existing["index_id"] != number:
-        if is_maintained(db, ledger.get_task(db, existing["index_id"])):
+        previous = ledger.get_task(db, existing["index_id"])
+        if projects.row_project(previous) == project and is_maintained(db, previous):
             raise ValueError("This area already has an index entry.")
         if not projects.manages(db, project, actor):
             raise PermissionError("Only the project manager can replace an inactive area index.")
@@ -175,14 +218,19 @@ def directory(db, *, project=None):
                 (current.record_kind = 'knowledge' OR (current.display_state = 'done' AND EXISTS (
                     SELECT 1 FROM task_tags WHERE task_id = current.id AND tag = ?
                 ))) AS available
-            FROM knowledge_areas AS areas JOIN current ON current.id = areas.index_id
+            FROM knowledge_areas AS areas
+            JOIN current ON current.id = areas.index_id AND current.project_prefix = areas.project
             WHERE (? IS NULL OR areas.project = ?)
             ORDER BY areas.project, areas.path""", (DECISION_TAG, project, project),
     )]
 
 
-def links(db, number, *, include_source=False):
-    where = "stage.entry_id = ? OR stage.source_id = ?" if include_source else "stage.entry_id = ?"
+def links(db, number, *, include_source=False, source_project=None):
+    where = "(stage.entry_id = ? OR stage.source_id = ?)" if include_source else "stage.entry_id = ?"
+    args = (number, number) if include_source else (number,)
+    if source_project is not None:
+        where += " AND source.project_prefix = ?"
+        args += (source_project,)
     records = db.execute(f"""
         SELECT stage.*, source.id, source.title AS source_title, source.project_prefix, source.project_number,
                source_event.at AS source_at, entry.title AS entry_title,
@@ -192,7 +240,7 @@ def links(db, number, *, include_source=False):
         JOIN tasks AS entry ON entry.id = stage.entry_id
         LEFT JOIN events AS source_event ON source_event.id = stage.source_event_id
         WHERE {where} ORDER BY stage.staged_at DESC, stage.source_id DESC
-        """, (number, number) if include_source else (number,)).fetchall()
+    """, args).fetchall()
     return [{
         "source": projects.row_reference(row), "source_title": row["source_title"],
         "entry": f"{row['entry_project']}-{row['entry_number']}", "entry_title": row["entry_title"],
@@ -201,9 +249,10 @@ def links(db, number, *, include_source=False):
     } for row in records]
 
 
-def metadata(db, number):
+def metadata(db, number, *, source_project=None):
     area = db.execute(
         """SELECT entries.project, entries.path, areas.index_id FROM knowledge_entries AS entries
+           JOIN tasks AS note ON note.id = entries.task_id AND note.project_prefix = entries.project
            JOIN knowledge_areas AS areas ON areas.project = entries.project AND areas.path = entries.path
            WHERE entries.task_id = ?""", (number,),
     ).fetchone()
@@ -214,19 +263,19 @@ def metadata(db, number):
             for row in db.execute(
                 ledger.current_tasks_sql(db, include_knowledge=True) + """
                 WHERE tasks.id IN (SELECT task_id FROM knowledge_entries WHERE project = ? AND path = ?)
-                  AND tasks.id <> ? AND (
+                  AND tasks.project_prefix = ? AND tasks.id <> ? AND (
                       tasks.record_kind = 'knowledge' OR tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?)
                   )
                 ORDER BY tasks.title, tasks.id
-                """, (area["project"], area["path"], number, DECISION_TAG),
+                """, (area["project"], area["path"], area["project"], number, DECISION_TAG),
             ) if ledger.is_knowledge(row) or row["display_state"] == "done"
         ]
-    if staged := links(db, number):
+    if staged := links(db, number, source_project=source_project):
         result["staged_work"] = staged
     return result
 
 
-def reconcile(db, project, actor, base):
+def reconcile(db, project, actor, base, *, dri=None):
     pending = db.execute(
         """
         SELECT stage.*, source.id, source.project_prefix, source.project_number,
@@ -237,8 +286,12 @@ def reconcile(db, project, actor, base):
         JOIN tasks ON tasks.id = stage.entry_id
         JOIN tasks AS source ON source.id = stage.source_id
         WHERE tasks.project_prefix = ? AND applied_event_id IS NULL
+          AND (? IS NULL OR EXISTS (
+              SELECT 1 FROM knowledge_maintenance_assignments AS assignment
+              WHERE assignment.task_id = stage.entry_id AND assignment.dri = ?
+          ))
         ORDER BY entry_id, source_id
-        """, (project,),
+        """, (project, dri, dri),
     ).fetchall()
     entries = {}
     for row in pending:

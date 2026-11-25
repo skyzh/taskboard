@@ -26,7 +26,7 @@ TABLES = (
     "github_webhook_deliveries", "github_webhook_refresh",
     "intake_errors", "attention_requests", "attention_wait_links", "notification_preferences", "notification_log",
     "wake_subscriptions", "wake_log", "goal_idle_offers",
-    "knowledge_areas", "knowledge_entries", "knowledge_stages",
+    "knowledge_areas", "knowledge_entries", "knowledge_stages", "knowledge_maintenance_assignments",
 )
 # Connections depend on the source deployment's live browser sessions.
 NON_PORTABLE_TABLES = {"personal_agent_connections", "personal_agent_cli_approvals", "local_dri_watchers"}

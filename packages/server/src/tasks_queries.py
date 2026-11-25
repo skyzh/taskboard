@@ -708,7 +708,7 @@ class BoardQueries:
         return result
 
     def maintained_decision_rows(self, *, search=None, entry=None, source_ticket=None, before=None, limit,
-                                 github_url=None, project=None):
+                                 github_url=None, project=None, maintenance_dri=None):
         context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
         legacy = f"""({ledger.display_state_sql(context)} = 'done'
             AND tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?))"""
@@ -718,6 +718,9 @@ class BoardQueries:
         if project is not None:
             terms.append("tasks.project_prefix = ?")
             args.append(project)
+        if maintenance_dri is not None:
+            terms.append("tasks.id IN (SELECT task_id FROM knowledge_maintenance_assignments WHERE dri = ?)")
+            args.append(maintenance_dri)
         if before is not None:
             terms.append("events.id < ?")
             args.append(before)
@@ -759,17 +762,24 @@ class BoardQueries:
             (*args, limit + 1),
         ).fetchall()
 
-    def maintained_decisions(self, *, search=None, entry=None, source_ticket=None, before=None, limit):
+    def maintained_decisions(self, *, actor, search=None, entry=None, source_ticket=None, before=None, limit,
+                             project=None, maintenance_dri=None, source_project=None):
         def render(rows):
+            assignments = knowledge.maintenance_assignments(self.db, [row["id"] for row in rows])
+            managed = {row["prefix"] for row in self.db.execute("SELECT prefix FROM projects WHERE dri = ?", (actor,))}
             return [{
                 "id": row["id"], "key": projects.row_reference(row), "title": row["title"],
-                "summary": row["brief"], "sources": self.decision_sources(row["id"]),
-                **knowledge.metadata(self.db, row["id"]),
+                "project": projects.row_project(row), "maintenance_dri": assignments.get(row["id"]),
+                "can_assign_maintenance_dri": projects.row_project(row) in managed,
+                "can_reconcile": projects.row_project(row) in managed or (not ledger.is_knowledge(row) and row["dri"] == actor),
+                "summary": row["brief"], "sources": self.decision_sources(row["id"], project=source_project),
+                **knowledge.metadata(self.db, row["id"], source_project=source_project),
             } for row in rows]
 
         with tasks_storage.read(self.db):
             rows = self.maintained_decision_rows(
                 search=search, entry=entry, source_ticket=source_ticket, before=before, limit=limit,
+                project=project, maintenance_dri=maintenance_dri,
             )
             return page(rows, limit, "event_id", render)
 
@@ -812,7 +822,7 @@ class BoardQueries:
 
             return page(ordered, limit, "event_id", render)
 
-    def decision_sources(self, task_id):
+    def decision_sources(self, task_id, *, project=None):
         prefix = f"{self.base}/#event-"
         sources = []
         for _, label, url, _ in watches.task_source_links(self.db, task_id):
@@ -821,11 +831,11 @@ class BoardQueries:
                 if event_id > projects.MAX_ID:
                     continue
                 event = self.db.execute(
-                    "SELECT events.id, events.at, events.task_id, tasks.title AS task_title, "
+                    "SELECT events.id, events.at, events.task_id, tasks.title AS task_title, tasks.project_prefix, "
                     + TASK_REFERENCE + " AS task_key FROM events JOIN tasks ON tasks.id = events.task_id "
                     "WHERE events.id = ?", (event_id,),
                 ).fetchone()
-                if event is not None:
+                if event is not None and project in (None, event["project_prefix"]):
                     sources.append({
                         "label": label, "url": url, "unavailable": False,
                         "event_id": event["id"], "at": event["at"], "task_id": event["task_id"],

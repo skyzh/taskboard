@@ -1654,6 +1654,8 @@ def create_app(
                     and releases.ticket_fields(connection, [number])[number]["queued_for_release"]):
                 raise RequestError("Wait for this ticket's active release to finish before moving it.", 409)
             try:
+                # A legacy completed ticket can leave Knowledge before it is moved.
+                knowledge_records.set_maintenance_dri(connection, task, key, None)
                 new_key = projects.move(connection, task, destination)
             except ValueError as error:
                 raise RequestError(str(error), 409) from error
@@ -2384,18 +2386,51 @@ def create_app(
         )
         return {**result, "roster": True} if has_roster else result
 
-    @app.get("/api/v1/knowledge")
-    def knowledge():
-        current_actor(required=True)
-        args = request.args
-        entry = text(args, "entry", optional=True, maximum=28)
-        source = text(args, "source", optional=True, maximum=28)
+    def knowledge_page(actor, data):
+        scope = text(data, "scope", optional=True, maximum=8) or "board"
+        if scope not in ("board", "assigned"):
+            raise RequestError("Choose board or assigned Knowledge scope.")
+        project = project_filter(data)
+        entry = text(data, "entry", optional=True, maximum=28)
+        source = text(data, "source", optional=True, maximum=28)
+        key = actor["ledger_key"]
+        local = g.get("local_dri")
         return query().maintained_decisions(
-            search=text(args, "q", optional=True, maximum=160),
+            actor=key, project=project, maintenance_dri=key if scope == "assigned" else None,
+            source_project=local["project"] if local is not None else None,
+            search=text(data, "q", optional=True, maximum=160),
             entry=task_number(entry) if entry else None,
             source_ticket=task_number(source) if source else None,
-            **page_args(args),
+            **page_args(data),
         )
+
+    @app.get("/api/v1/knowledge")
+    def knowledge():
+        return knowledge_page(current_actor(required=True), request.args)
+
+    def assign_knowledge_dri(actor, identifier, dri):
+        key = actor["ledger_key"]
+        try:
+            with tasks_storage.write(db()) as connection:
+                number = task_number(identifier)
+                note = knowledge_records.maintained(connection, number)
+                if not projects.manages(connection, projects.row_project(note), key):
+                    raise RequestError("Only the project manager can assign a Knowledge DRI.", 403)
+                if dri is not None:
+                    dri = require_person(dri, task_id=number)
+                return knowledge_records.set_maintenance_dri(connection, note, key, dri)
+        except RequestError:
+            raise
+        except ValueError as error:
+            raise RequestError(str(error), 409) from error
+
+    @app.post("/api/v1/knowledge/<identifier>/maintenance-dri")
+    def knowledge_maintenance_dri(identifier):
+        actor = current_actor(write=True, required=True)
+        data = json_body({"dri"})
+        if "dri" not in data:
+            raise RequestError("Provide a DRI key or null to clear the assignment.")
+        return assign_knowledge_dri(actor, identifier, text(data, "dri", optional=True, maximum=160))
 
     def create_knowledge(actor, data):
         text(data, "project", maximum=8)
@@ -3413,6 +3448,10 @@ def create_app(
                                                  **shared_ticket_search(data), **page_args(data))
         if name == "knowledge-areas":
             return knowledge_directory(project_filter(data))
+        if name == "knowledge-sweep":
+            return knowledge_page(actor, data)
+        if name == "knowledge-assign":
+            return assign_knowledge_dri(actor, data["id"], text(data, "dri", optional=True, maximum=160))
         if name == "create-knowledge":
             return create_knowledge(actor, data)
         if name in {"knowledge-place", "knowledge-stage", "knowledge-reconcile"}:
@@ -3433,7 +3472,9 @@ def create_app(
                             integer(data["source_event"], "source_event") if "source_event" in data else None,
                         )
                     text(data, "project", maximum=8)
-                    return knowledge_records.reconcile(connection, project_filter(data), key, base)
+                    return knowledge_records.reconcile(
+                        connection, project_filter(data), key, base, dri=text(data, "dri", optional=True, maximum=160),
+                    )
             except RequestError:
                 raise
             except PermissionError as error:
