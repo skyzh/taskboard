@@ -652,7 +652,9 @@ def main():
                         goal_state=args.goal_state, notify_goal=notify_goal,
                     )
                 except (KeyError, RuntimeError, ValueError) as error:
-                    recovery_wake(args.by, args.channel, args.message_id, error, emit)
+                    # SharedBoard preserves an interrupted signed read as a read error.
+                    if not (isinstance(error, ReadyReadStopped) and error.reason == "interrupted"):
+                        recovery_wake(args.by, args.channel, args.message_id, error, emit)
                     raise
             else:
                 watch = watch_two_pickups if args.two_pickups else watch_idle

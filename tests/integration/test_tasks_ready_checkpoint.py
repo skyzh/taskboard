@@ -863,6 +863,27 @@ class ReadyCheckpointTest(unittest.TestCase):
             self.assertEqual([json.loads(line)["kind"] for line in log.getvalue().splitlines()],
                              ["ready-read-retry", "ready-read-recovered"])
 
+    def test_interrupting_a_signed_carrier_read_exits_without_recovery_wake(self):
+        argv = ["ready-checkpoint", "--watch-idle", "--repeat", "--by", "Avery",
+                "--channel", "#example", "--message-id", "12345678", "--idle-delay-seconds", "0"]
+        context = self.avery.invoke("context")
+        reply = json.dumps({"ok": True, "data": {"result": context}})
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(sys, "stdout", new_callable=StringIO) as log,
+            patch.object(sys, "stderr", new_callable=StringIO),
+            patch("taskboard_client.connection.subprocess.run", side_effect=[
+                subprocess.CompletedProcess([], 0, reply, ""), KeyboardInterrupt,
+            ]) as carrier,
+            patch("taskboard_cli.ready_checkpoint.raft_idle", return_value=True),
+            patch("taskboard_cli.ready_checkpoint.raft_cli") as raft,
+        ):
+            self.assertEqual(main(), 1)
+            self.assertEqual(carrier.call_count, 2)
+            raft.assert_not_called()
+            stopped, = [json.loads(line) for line in log.getvalue().splitlines()]
+            self.assertEqual((stopped["kind"], stopped["reason"]), ("ready-read-stopped", "interrupted"))
+
     def test_count_wake_uses_only_the_owned_queue_size(self):
         title = f"You have 2 Ready tickets. {COUNT_WAKE_GUIDANCE}"
         with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", "Scheduled"]) as invoke:
