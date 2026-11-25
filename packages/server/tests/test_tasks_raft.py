@@ -109,7 +109,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "set-priority": ("POST", "id priority", ""),
             "record-activity": ("POST", "id note", "details url label"),
             "delegate": ("POST", "id worker role brief", "effort"),
-            "worker-handoff": ("POST", "run transition", "note handle result url label"),
+            "worker-handoff": ("POST", "run transition", "note handle result subagent url label"),
             "worker-check-show": ("GET", "run", ""),
             "worker-check": ("POST", "run mode", "at"),
             "watch-task": ("POST", "id", "watch"),
