@@ -44,18 +44,23 @@ def replay_versioned_profiles(test, board, app, restart, engine):
     test.assertEqual((task["title"], task["dri"]), ("Keep the existing ticket", owner_id))
 
 
-def reject_incompatible_profile_type(test, engine):
+def reject_incompatible_profile_definition(test, engine, definition):
     with engine.begin() as connection:
         connection.exec_driver_sql("ALTER TABLE board_principals DROP COLUMN role")
-        connection.exec_driver_sql("ALTER TABLE board_principals ADD COLUMN role INTEGER")
-    before = inspect(engine).get_columns("board_principals")
+        connection.exec_driver_sql(f"ALTER TABLE board_principals ADD COLUMN role {definition}")
+
+    def profile_shape():
+        return [
+            (column["name"], str(column["type"]), column["nullable"], column["default"], column.get("computed"))
+            for column in inspect(engine).get_columns("board_principals")
+        ]
+
+    before = profile_shape()
     for apply in (False, True):
         with test.assertRaisesRegex(ValueError, "unsupported.*role"):
             migrate(engine, apply=apply)
     test.assertFalse(inspect(engine).has_table(VERSION_TABLE))
-    after = inspect(engine).get_columns("board_principals")
-    test.assertEqual([(column["name"], str(column["type"])) for column in after],
-                     [(column["name"], str(column["type"])) for column in before])
+    test.assertEqual(profile_shape(), before)
 
 
 class VersionedProfileMigrationTest(unittest.TestCase):
@@ -85,4 +90,8 @@ class VersionedProfileMigrationTest(unittest.TestCase):
 
     def test_sqlite_rejects_wrong_profile_column_type_without_changes(self):
         self.board.app(portal_reader=True)
-        reject_incompatible_profile_type(self, self.engine)
+        reject_incompatible_profile_definition(self, self.engine, "INTEGER")
+
+    def test_sqlite_rejects_generated_profile_column_without_changes(self):
+        self.board.app(portal_reader=True)
+        reject_incompatible_profile_definition(self, self.engine, "TEXT GENERATED ALWAYS AS ('Fictional role') VIRTUAL")

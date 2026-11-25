@@ -48,6 +48,7 @@ def validate_profile_columns(columns, *, postgres):
             valid = (
                 isinstance(column["type"], value_type) and column["default"] == default
                 and column["nullable"] == (name not in REQUIRED_TEXT)
+                and column.get("computed") is None and column.get("identity") is None
             )
         if not valid:
             raise ValueError(f"The Taskboard profile table has an unsupported definition for {name}.")
@@ -63,15 +64,26 @@ def profile_revision(connection):
         ("events", {"id": Integer, "task_id": Integer, "actor": Text}),
         ("board_settings", {"key": Text, "value": Text}),
     ):
-        columns = {column["name"]: column["type"] for column in catalog.get_columns(table)}
-        if any(not isinstance(columns.get(name), value_type) for name, value_type in expected.items()):
+        columns = {column["name"]: column for column in catalog.get_columns(table)}
+        if any(
+            name not in columns
+            or not isinstance(columns[name]["type"], value_type)
+            or columns[name].get("computed") is not None
+            for name, value_type in expected.items()
+        ):
             raise ValueError(f"The Taskboard {table} table has an unsupported layout.")
 
     profiles = {column["name"]: column for column in catalog.get_columns("board_principals")}
-    validate_profile_columns(profiles, postgres=connection.dialect.name == "postgresql")
+    postgres = connection.dialect.name == "postgresql"
+    validate_profile_columns(profiles, postgres=postgres)
     primary_key = catalog.get_pk_constraint("board_principals").get("constrained_columns")
-    unique_keys = [key["column_names"] for key in catalog.get_unique_constraints("board_principals")]
-    if primary_key != IDENTITY or ["ledger_key"] not in unique_keys:
+    unique_keys = {tuple(key["column_names"]) for key in catalog.get_unique_constraints("board_principals")}
+    unique_keys.update(
+        tuple(index["column_names"]) for index in catalog.get_indexes("board_principals") if index["unique"]
+    )
+    expected_keys = {("ledger_key",), ("principal_order",)} if postgres else {("ledger_key",)}
+    if (primary_key != IDENTITY or unique_keys != expected_keys
+            or catalog.get_foreign_keys("board_principals") or catalog.get_check_constraints("board_principals")):
         raise ValueError("The Taskboard profile table has unsupported identity constraints.")
     return PROFILE_SHORT_ROLE if "short_role" in profiles else PROFILE_BASELINE
 
