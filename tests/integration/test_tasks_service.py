@@ -2008,7 +2008,9 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("Dated goal · 2026-11-30", self.shared_cli(avery, "goals")[1])
         profile = self.call(avery, f"/api/v1/assignee?owner={owner}").json
         self.assertEqual({key: profile["standing_goal"][key] for key in standing}, standing)
-        self.assertEqual(profile["milestones"], my_goals["milestones"])
+        self.assertEqual([
+            {key: value for key, value in milestone.items() if key != "ticket"} for milestone in profile["milestones"]
+        ], my_goals["milestones"])
         self.assertEqual(self.action(avery, "my-goals", query_string={"project": "COURSE"})["milestones"], [])
 
         def report_goals(project):
@@ -2023,6 +2025,10 @@ class TasksServiceTest(unittest.TestCase):
                             "project": project, "owner": row["owner"],
                         }).json
                         self.assertEqual(assignee["standing_goal"]["ticket"], reference)
+                    if goal["kind"] == "milestone":
+                        milestone = next(item for item in profile["milestones"] if item["summary"] == goal["summary"])
+                        self.assertEqual(milestone["ticket"], reference)
+                        self.assertNotIn(reference, [ticket["key"] for ticket in milestone["tickets"]])
                     detail = self.call(blake, f"/api/v1/tasks/{reference}").json
                     self.assertEqual((detail["task"]["title"], detail["task"]["state"], detail["task"]["dri"]),
                                      (goal["summary"], "parked", row["owner"]))

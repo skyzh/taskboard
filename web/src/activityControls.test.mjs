@@ -813,12 +813,14 @@ test('Project log shows empty only after the current read succeeds', () => {
 
 test('profile renders two dated milestones and keeps the standing edit date-free', () => {
   const milestones = [
-    { summary: 'Review the cutover', deadline: '2026-11-28', tickets: [{ id: 42, key: 'T-42', title: 'Cutover' }] },
+    { summary: 'Review the cutover', ticket: 'COURSE-8', deadline: '2026-11-28', tickets: [{ id: 42, key: 'T-42', title: 'Cutover' }] },
     { summary: 'Verify the import', deadline: '2026-12-03', tickets: [{ id: 43, key: 'T-43', title: 'Import' }] },
   ]
   fixture.state = []
   const profile = renderToStaticMarkup(React.createElement(DriMilestones, { milestones, project: 'T', editable: true }))
   assert.match(profile, /Review the cutover.*2026-11-28.*href="#task-42".*Verify the import.*2026-12-03.*href="#task-43"/)
+  assert.match(profile, /<h3><a href="#task-COURSE-8">Review the cutover<\/a><\/h3>/)
+  assert.match(profile, /<h3>Verify the import<\/h3>/)
   assert.match(profile, /Add milestone/)
   fixture.state = ['Verify the import']
   const edit = renderToStaticMarkup(React.createElement(DriMilestones, { milestones, project: 'T', editable: true }))

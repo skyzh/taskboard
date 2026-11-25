@@ -1,5 +1,4 @@
 import React, { useRef, useState } from 'react'
-import { ArrowRight } from 'lucide-react'
 import taskSessionPrompt from '../../docs/taskboard/prompts/v1/AGENTS.md?raw'
 import handoffPrompt from '../../docs/taskboard/prompts/v1/automated-handoff.md?raw'
 import factoryPrompt from '../../docs/taskboard/prompts/v1/ai-factory.md?raw'
@@ -275,16 +274,15 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
         </div>
       )}
       <h3 id="agent-workflow">How do you use your agents?</h3>
-      <ol className="integration-paths" aria-labelledby="agent-workflow" role="list">
-        {workflows.map((item, index) => <li key={item.id}>
-          {index > 0 && <ArrowRight className="integration-path-arrow" size={14} aria-hidden="true" />}
+      <ul className="integration-paths" aria-labelledby="agent-workflow" role="list">
+        {workflows.map(item => <li key={item.id}>
           <button type="button" aria-pressed={selected === item.id} aria-controls="agent-workflow-details"
             onClick={() => {
               setSelected(item.id)
               if (item.id !== 'local-dri') setIdentityId('')
             }}>{item.label}</button>
         </li>)}
-      </ol>
+      </ul>
       {projects?.length > 0 && (
         <label className="settings-preference integration-project">
           Project for the prompt

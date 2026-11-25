@@ -142,9 +142,9 @@ export function DriMilestones({ milestones, project, editable, onChanged }) {
         {editable && editing === null && <button type="button" onClick={() => setEditing('')}>Add milestone</button>}
       </div>
       {milestones.map(goal => (
-        <div key={goal.summary}>
+        <div className="dri-milestone" key={goal.ticket || goal.summary}>
           <div className="dri-goal-actions">
-            <h3>{goal.summary}</h3>
+            <h3>{goal.ticket ? <a href={taskHref(goal.ticket)}>{goal.summary}</a> : goal.summary}</h3>
             {editable && editing === null && (
               <button type="button" aria-label={`Edit ${goal.summary}`} onClick={() => setEditing(goal.summary)}>Edit</button>
             )}

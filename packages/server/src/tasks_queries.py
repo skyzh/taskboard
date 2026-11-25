@@ -1942,7 +1942,7 @@ class BoardQueries:
         return {
             "profile": profile, "report_count": count,
             "goal": goals.get(self.db, project, owner),
-            "milestones": goals.milestones(self.db, project, owner),
+            "milestones": goals.milestones(self.db, project, owner, include_ticket=True),
             "standing_goal": next(iter(goals.standing(self.db, owner, project, include_ticket=True)), None),
             "pending_reports": reports["items"], "pending_reports_before": reports["next_cursor"],
             "in_progress": task_counts["in_progress"] > 0,
