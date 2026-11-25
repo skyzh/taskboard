@@ -2275,8 +2275,8 @@ def create_app(
         current_actor()
         args = request.args
         feed = text(args, "detail", optional=True, maximum=20)
-        if feed not in (None, "all", "outcomes"):
-            raise RequestError("Choose compact or full activity.")
+        if feed not in (None, "all", "outcomes", "reports"):
+            raise RequestError("Choose compact, full, or report activity.")
         return query().events(
             feed=feed, actor=text(args, "actor", optional=True, maximum=160),
             action=text(args, "action", optional=True, maximum=40), project=project_scope(args),

@@ -4,6 +4,19 @@
 }
 
 .reports-heading { display: contents; }
+.assignee-activity-list {
+  margin: .25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.assignee-activity-list a {
+  display: block;
+  padding: .4rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: .875rem;
+  overflow-wrap: anywhere;
+}
+.assignee-activity-list time { white-space: nowrap; }
 .reports-needs-you {
   margin-bottom: .85rem;
   padding-inline: .85rem;

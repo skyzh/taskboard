@@ -117,6 +117,45 @@ def is_routine_acknowledgment(note):
     return ROUTINE_ACKNOWLEDGMENT.fullmatch(note.strip()) is not None
 
 
+def report_activity_sql(acknowledge, *, project_scoped, action_scoped):
+    # A linked worker review already has its own report on the original ticket.
+    # Prefer the first imported Stamp receipt to any mirrored result.
+    project_match = "AND receipt_task.project_prefix = tasks.project_prefix" if project_scoped else ""
+    action_match = "AND receipt.action = events.action" if action_scoped else ""
+    return f"""
+        (events.action IN ('decide', 'assign-human', 'redirect-decision', 'withdraw-decision', 'wait', 'resume')
+         OR (events.action = 'done' AND NOT EXISTS (
+             SELECT 1 FROM peer_asks WHERE task_id = events.task_id AND requester = events.actor
+         ))
+         OR (events.action = 'transfer'
+             AND (json_extract(events.context, '$.manual_review_result') IS NOT NULL OR EXISTS (
+                 SELECT 1 FROM peer_asks AS ask
+                 WHERE ask.task_id = events.task_id AND ask.review_run_id IS NULL
+                   AND (ask.result_event_id = events.id OR json_extract(events.context, '$.stamp_verdict') IS NOT NULL)
+             )))
+         OR (events.action IN ('log', 'update') AND TRIM(events.note) <> ''
+             AND json_extract(events.context, '$.audit') IS NULL
+             AND json_extract(events.context, '$.watcher_measurements') IS NULL
+             AND json_extract(events.context, '$.worker_disposition_id') IS NULL
+             AND json_extract(events.context, '$.stamp_review') IS NULL
+             AND json_extract(events.context, '$.manual_review') IS NULL
+             AND NOT {acknowledge}))
+        AND events.note <> 'The peer result is ready for acknowledgment.'
+        AND events.note NOT LIKE 'Opened peer request %.'
+        AND events.note NOT LIKE 'Peer result acknowledged in %. Continue the original work.'
+        AND events.note NOT LIKE 'Peer request % was %. Check the next step.'
+        AND (json_extract(events.context, '$.stamp_verdict.id') IS NULL OR NOT EXISTS (
+            SELECT 1 FROM events AS receipt JOIN tasks AS receipt_task ON receipt_task.id = receipt.task_id
+            WHERE json_extract(receipt.context, '$.stamp_verdict.id') = json_extract(events.context, '$.stamp_verdict.id')
+              AND COALESCE(json_extract(receipt.context, '$.stamp_verdict.reviewer'), receipt.actor)
+                  = COALESCE(json_extract(events.context, '$.stamp_verdict.reviewer'), events.actor)
+              AND ((receipt.actor = 'Stamp' AND events.actor <> 'Stamp')
+                   OR ((receipt.actor = 'Stamp') = (events.actor = 'Stamp') AND receipt.id < events.id))
+              {project_match} {action_match}
+        ))
+    """
+
+
 def pacific_day(at):
     return datetime.fromisoformat(at).astimezone(PACIFIC).date().isoformat()
 
@@ -1034,6 +1073,13 @@ class BoardQueries:
             terms.append("(events.actor = ? OR (events.action = 'source-event' AND events.actor = 'TaskNote'))")
             args.append(actor)
             actor = None
+        if actor is not None and feed == "reports":
+            terms.append(
+                "(events.actor = ? OR (events.actor = 'Stamp' AND events.action = 'log' "
+                "AND json_extract(events.context, '$.stamp_verdict.reviewer') = ?))"
+            )
+            args.extend((actor, actor))
+            actor = None
         for column, value in (
             ("events.task_id", number), ("events.id", event_id), ("events.actor", actor),
             ("events.action", action), ("tasks.dri", dri), ("tasks.project_prefix", project),
@@ -1050,27 +1096,32 @@ class BoardQueries:
             args.append(day.isoformat())
         if outcomes:
             terms.append(OUTCOME_ACTIONS)
-        elif feed == "outcomes":
+        elif feed in ("outcomes", "reports"):
             if isinstance(self.db, tasks_storage.Postgres):
                 acknowledge = r"(regexp_replace(events.note, '^\s+|\s+$', '', 'g') ~* ?)"
                 args.append("^" + ROUTINE_ACKNOWLEDGMENT.pattern + "$")
             else:
                 self.db.create_function("routine_acknowledgment", 1, is_routine_acknowledgment, deterministic=True)
                 acknowledge = "routine_acknowledgment(events.note)"
-            terms.append(
-                "(events.action IN ('done', 'decide', 'wait', 'resume', 'assign-human', "
-                "'redirect-decision', 'withdraw-decision', 'transfer', 'park', 'unpark', 'source-event') "
-                "OR (events.action IN ('log', 'update') AND ("
-                "json_extract(events.context, '$.ownership_action') IS NOT NULL "
-                "OR json_type(events.context, '$.closure') = 'object' "
-                "OR json_extract(events.context, '$.worker_report_id') IS NOT NULL "
-                "OR json_extract(events.context, '$.worker_disposition_id') IS NOT NULL "
-                "OR EXISTS (SELECT 1 FROM merge_candidates AS merge "
-                "WHERE merge.review_event_id = events.id OR (merge.status = 'merged' AND merge.status_event_id = events.id)) "
-                "OR ((json_array_length(events.links) > 0 "
-                "OR json_type(events.context, '$.activity_details') = 'text') "
-                f"AND NOT {acknowledge}))))"
-            )
+            if feed == "reports":
+                terms.append(report_activity_sql(
+                    acknowledge, project_scoped=project is not None, action_scoped=action is not None,
+                ))
+            else:
+                terms.append(
+                    "(events.action IN ('done', 'decide', 'wait', 'resume', 'assign-human', "
+                    "'redirect-decision', 'withdraw-decision', 'transfer', 'park', 'unpark', 'source-event') "
+                    "OR (events.action IN ('log', 'update') AND ("
+                    "json_extract(events.context, '$.ownership_action') IS NOT NULL "
+                    "OR json_type(events.context, '$.closure') = 'object' "
+                    "OR json_extract(events.context, '$.worker_report_id') IS NOT NULL "
+                    "OR json_extract(events.context, '$.worker_disposition_id') IS NOT NULL "
+                    "OR EXISTS (SELECT 1 FROM merge_candidates AS merge "
+                    "WHERE merge.review_event_id = events.id OR (merge.status = 'merged' AND merge.status_event_id = events.id)) "
+                    "OR ((json_array_length(events.links) > 0 "
+                    "OR json_type(events.context, '$.activity_details') = 'text') "
+                    f"AND NOT {acknowledge}))))"
+                )
         elif (feed != "all" and action is None and number is None and event_id is None
               and watcher is None and owner_or_watcher is None):
             routine = ", ".join("?" for _ in ledger.ROUTINE_AUDIT_ACTIONS)

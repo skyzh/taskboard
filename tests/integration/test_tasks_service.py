@@ -4045,6 +4045,50 @@ class TasksServiceTest(unittest.TestCase):
             "id": "1", "note": "An otherwise valid headline.", "details": 123,
         }, status=400)
 
+    def test_agent_report_activity_filters_before_paging_and_keeps_one_worker_result(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        reviewer, reviewer_id = self.login(app, "Blake")
+        self.cli("register-project", "SAMPLE", "Sample project", "--dri", owner_id)
+        for project in ("T", "SAMPLE"):
+            self.action(owner, "create-task", {"project": project, "title": "Sample work", "step": "Read the sample."})
+
+        def log(client, ticket, note):
+            self.action(client, "record-activity", {"id": ticket, "note": note})
+
+        log(reviewer, "T-1", "Checked the first sample.")
+        log(reviewer, "T-1", "Got it, will read.")
+        log(owner, "T-1", "The ticket owner added a note.")
+        log(reviewer, "SAMPLE-1", "Checked a different project.")
+        run = self.action(owner, "delegate", {
+            "id": "T-1", "worker": reviewer_id, "role": "review", "brief": "Review the sample.",
+        })["receipt"].split()[0]
+        linked = self.action(owner, "peer-ask", {
+            "id": "T-1", "transition": "create", "recipient": reviewer_id, "review": run,
+            "note": "Review this sample.",
+        })["receipt"].split()[0]
+        self.action(owner, "worker-handoff", {"run": run, "transition": "start", "handle": "fixture-review"})
+        self.action(reviewer, "worker-handoff", {
+            "run": run, "transition": "report", "result": "completed", "note": "The review passed.",
+        })
+        self.assertTrue(any(row["action"] == "transfer" for row in
+                            self.call(owner, f"/api/v1/tasks/{linked}/activity").json["items"]))
+
+        path = "/api/v1/activity"
+        filters = {"project": "T", "actor": reviewer_id, "detail": "reports", "limit": 1}
+        first = self.call(owner, path, query_string=filters).json
+        review, = first["items"]
+        self.assertEqual((review["task_key"], review["context"]["worker_report_id"]), ("T-1", int(run.removeprefix("W-"))))
+        self.assertEqual(self.call(owner, f"{path}/{review['id']}").json, review)
+        second = self.call(owner, path, query_string={**filters, "before": first["next_cursor"]}).json
+        self.assertEqual([row["note"] for row in second["items"]], ["Checked the first sample."])
+        self.assertIsNone(second["next_cursor"])
+        other = self.call(owner, path, query_string={**filters, "project": "SAMPLE"}).json
+        self.assertEqual([row["note"] for row in other["items"]], ["Checked a different project."])
+        self.action(owner, "worker-handoff", {"run": run, "transition": "collect", "note": "Thanks."})
+        owner_report = self.call(owner, path, query_string={**filters, "actor": owner_id, "limit": 20}).json
+        self.assertNotIn("Thanks.", [row["note"] for row in owner_report["items"]])
+
     def test_ticket_blockers_use_the_normal_shared_wait_and_handoff_paths(self):
         app = self.app(portal_reader=True)
         avery, avery_id = self.login(app, "Avery")
@@ -9442,6 +9486,11 @@ class TasksServiceTest(unittest.TestCase):
         activity = self.call(owner, "/api/v1/tasks/T-2/activity").json["items"]
         revisions = [pin["head"] for event in activity if (pin := event["context"].get("manual_review_result"))]
         self.assertEqual(revisions, [rebased, corrected, original])
+        report = self.call(owner, "/api/v1/activity", query_string={
+            "project": "T", "actor": reviewer_id, "detail": "reports",
+        }).json["items"]
+        self.assertEqual([event["context"]["manual_review_result"]["head"] for event in report],
+                         [rebased, corrected, original])
 
     def test_stamp_pin_requires_the_project_importer_and_preserves_the_ordinary_handoff(self):
         pr = "https://github.com/example/board/pull/10"
@@ -9541,6 +9590,11 @@ class TasksServiceTest(unittest.TestCase):
             self.assertTrue(apply_stamp_verdict(db, 3, **changes))
         self.assertEqual(self.action(prism, "my-next")["work"]["key"], "T-3")
         self.assertEqual(len(self.call(prism, "/api/v1/reports/recent-peer-responses").json["items"]), 2)
+        report = self.call(prism, "/api/v1/activity", query_string={
+            "project": "T", "actor": reviewer, "detail": "reports",
+        }).json["items"]
+        self.assertEqual([event["context"]["stamp_verdict"]["verdict"] for event in report],
+                         ["changes_requested", "approved"])
 
     def test_reports_only_loads_personal_asks_through_the_verified_recipient_feeds(self):
         app = self.app(portal_reader=True)
