@@ -16,6 +16,10 @@ Activity and check the runtime before reporting progress or starting
 another run. Read the [signed action manifest](<ACTION_MANIFEST_URL>) before
 HTTP calls, or use `tasks --shared capabilities` to find CLI commands.
 
+If the ticket has optional fields, read the collection prompts from signed
+`field-guidance` at pickup. Collect evidence during work and use
+`set-ticket-field` before reporting the outcome.
+
 Post an early meaningful checkpoint, then update at milestones, before a
 sustained wait, and whenever about ten minutes of active work have passed
 since the last update. Keep using the assigned ticket. Give the evidence and

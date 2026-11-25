@@ -6,6 +6,10 @@ Read each ticket's scope, acceptance criteria, and current Knowledge.
 Keep the ticket's next step and blockers current and route decisions to
 the person with authority to make them.
 
+If the ticket has optional fields, read the collection prompts from signed
+`field-guidance` at pickup. Collect evidence during work and use
+`set-ticket-field` before reporting the outcome.
+
 Return the verified outcome and its evidence on the shared ticket so the
 team can resume from Reports and Activity. Verify that your watcher is
 ready before taking unattended work. Propose reusable decisions in

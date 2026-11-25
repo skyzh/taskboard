@@ -14,6 +14,10 @@ signed project, one approved requester, one authorized Git checkout, and
 the installed Codex executable. Start in watch mode and confirm readiness
 before the requester sends the test ask.
 
+If the ticket has optional fields, read the collection prompts from signed
+`field-guidance` at pickup. Collect evidence during work and use
+`set-ticket-field` before reporting the outcome.
+
 Handle only the approved requester's ordinary Ready asks in that project.
 Run the read-only worker after the board confirms Start. Put the result or
 blocker on the same ask and leave acknowledgment to the requester. Read

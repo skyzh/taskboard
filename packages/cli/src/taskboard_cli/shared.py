@@ -150,6 +150,21 @@ def task_details(board, url, number, *, workers_only=False, guidance=None, conte
         guidance = detail.get("peer_request_next") or guidance
     if detail["brief"]:
         text.append(detail["brief"])
+    if not workers_only and (configuration := detail.get("ticket_fields")):
+        text.extend(("", "Project ticket fields"))
+        for field in configuration["fields"]:
+            value = field["value"]
+            if value is None:
+                summary = "Unknown"
+            else:
+                unit = field.get("currency") or ("seconds" if field["kind"] == "duration" else "")
+                summary = f"{value} {unit}".rstrip()
+                summary += f" · {field['method'].capitalize()} · {field['coverage'].capitalize()}"
+            text.append(f"  {field['label']} · {summary}")
+            if configuration["editable"]:
+                text.append(f"    {field['key']} · {field['prompt']}")
+        if configuration["editable"]:
+            text.append("Record supported values with set-ticket-field before reporting the outcome.")
     if not workers_only and (stages := detail.get("knowledge_stages")):
         text.extend(("", "Knowledge stages", *knowledge_stage_lines(stages, url)))
     if not workers_only and detail["checklist"]:

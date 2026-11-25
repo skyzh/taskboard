@@ -3434,6 +3434,10 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((hours["value"], hours["method"], hours["coverage"]), ("2400", "measured", "partial"))
         self.assertEqual((cost["value"], cost["method"], cost["coverage"]), ("0", "measured", "complete"))
         self.assertEqual(detail["task"]["state"], "done")
+        status, output, error = self.shared_cli(avery, "show", "T-1")
+        self.assertEqual(status, 0, error)
+        self.assertIn("Agent cost · 0 USD · Measured · Complete", output)
+        self.assertIn("agent_cost · Use only a ticket-linked usage receipt.", output)
         self.assertNotIn("ticket_fields", self.call(observer, task_path).json)
         self.assertNotIn(amount["url"], self.call(observer, task_path + "/activity").get_data(as_text=True))
         old_path = task_path + f"/ticket-fields?event={first['event_id']}"
