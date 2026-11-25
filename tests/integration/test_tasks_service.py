@@ -7655,6 +7655,17 @@ class TasksServiceTest(unittest.TestCase):
         ):
             self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
 
+    def test_schedule_fragments_return_after_sign_in(self):
+        app = self.app(portal_reader=True)
+        for name, fragment in (("Sam", "#schedules=&project=COURSE"), ("Quinn", "#schedule-R-42?project=COURSE")):
+            client = app.test_client()
+            login = self.call(client, "/auth/login", query_string={"fragment": fragment}, status=302)
+            state = parse_qs(urlsplit(login.location).query)["state"][0]
+            result = self.call(client, "/auth/callback", query_string={"code": name, "state": state}, status=302)
+            self.assertEqual(result.location, ORIGIN + BASE + "/" + fragment)
+        for fragment in ("#schedule-R-42?project=//other.example", "#schedules=&project=COURSE&project=T"):
+            self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
+
     def test_general_lists_hide_peer_requests_before_pagination(self):
         app = self.app(portal_reader=True)
         owner, owner_id = self.login(app, "Avery")

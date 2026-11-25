@@ -506,6 +506,13 @@ separately. The chart and duration estimates describe ledger evidence.
 
 ### Recurring work
 
+Open **Tasks → Schedules** in the selected project and choose an R-number
+to see the schedule and its recorded runs. Personal schedules are visible
+to their owners. A project's maintenance schedule is visible to its
+manager. Tickets issued from a schedule link back to it for the same
+viewers. Legacy schedules without an explicit project appear where the
+operator issues their tickets, typically the default project.
+
 Use a stable owner key to define a cadence in whole hours and the first
 slot in UTC. In shared mode the signed-in agent owns the definition.
 New shared definitions use `--project` or the signed-in agent's default
