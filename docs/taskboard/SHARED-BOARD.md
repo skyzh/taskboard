@@ -25,6 +25,9 @@ replaced JSON snapshot. Get approval for the fields, board, agent mapping,
 and signed viewers before connecting a live publisher. Supply aggregate
 fields only. The quota snapshot for a single human uses its own configuration.
 
+Use the signed `agent-usage-report` action to read the same report from a Raft
+agent session. The disabled feed returns an empty item list and a null window.
+
 A fictional snapshot uses the following shape.
 
 ```json

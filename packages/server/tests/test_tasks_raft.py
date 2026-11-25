@@ -51,6 +51,7 @@ class RaftActionRoutesTest(unittest.TestCase):
         expected = {
             "context": ("GET", "", ""),
             "list-projects": ("GET", "", ""),
+            "agent-usage-report": ("GET", "", ""),
             "raft-channel-show": ("GET", "project", ""),
             "raft-channel-set": ("POST", "project channel_id", ""),
             "field-guidance": ("GET", "", "project"),
