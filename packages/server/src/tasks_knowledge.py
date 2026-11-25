@@ -223,8 +223,12 @@ def directory(db, *, project=None):
     )]
 
 
-def links(db, number, *, include_source=False):
-    where = "stage.entry_id = ? OR stage.source_id = ?" if include_source else "stage.entry_id = ?"
+def links(db, number, *, include_source=False, source_project=None):
+    where = "(stage.entry_id = ? OR stage.source_id = ?)" if include_source else "stage.entry_id = ?"
+    args = (number, number) if include_source else (number,)
+    if source_project is not None:
+        where += " AND source.project_prefix = ?"
+        args += (source_project,)
     records = db.execute(f"""
         SELECT stage.*, source.id, source.title AS source_title, source.project_prefix, source.project_number,
                source_event.at AS source_at, entry.title AS entry_title,
@@ -234,7 +238,7 @@ def links(db, number, *, include_source=False):
         JOIN tasks AS entry ON entry.id = stage.entry_id
         LEFT JOIN events AS source_event ON source_event.id = stage.source_event_id
         WHERE {where} ORDER BY stage.staged_at DESC, stage.source_id DESC
-        """, (number, number) if include_source else (number,)).fetchall()
+    """, args).fetchall()
     return [{
         "source": projects.row_reference(row), "source_title": row["source_title"],
         "entry": f"{row['entry_project']}-{row['entry_number']}", "entry_title": row["entry_title"],
@@ -243,7 +247,7 @@ def links(db, number, *, include_source=False):
     } for row in records]
 
 
-def metadata(db, number):
+def metadata(db, number, *, source_project=None):
     area = db.execute(
         """SELECT entries.project, entries.path, areas.index_id FROM knowledge_entries AS entries
            JOIN knowledge_areas AS areas ON areas.project = entries.project AND areas.path = entries.path
@@ -263,7 +267,7 @@ def metadata(db, number):
                 """, (area["project"], area["path"], number, DECISION_TAG),
             ) if ledger.is_knowledge(row) or row["display_state"] == "done"
         ]
-    if staged := links(db, number):
+    if staged := links(db, number, source_project=source_project):
         result["staged_work"] = staged
     return result
 

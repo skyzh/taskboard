@@ -18,6 +18,7 @@ def replay_knowledge_sweeps(test, board, app, open_board):
     with open_board() as db, write(db):
         projects.register(db, "OPS", "Operations", manager_id)
         projects.register(db, "LAB", "Measurements", other_manager_id)
+        projects.register(db, "ARCH", "Archive", other_manager_id)
 
     def knowledge(client, project, title):
         return board.action(client, "create-knowledge", {
@@ -101,10 +102,12 @@ def replay_knowledge_sweeps(test, board, app, open_board):
     test.assertIn(legacy_source, {event["id"] for event in original_activity})
 
     staged = {}
+    source_tickets = {}
     for entry in (owned, unassigned, other):
         project = entry.split("-")[0]
         evidence, event = source(maintainer, project, f"Check policy for {entry}")
         staged[entry] = event
+        source_tickets[entry] = evidence
         board.action(maintainer, "knowledge-stage", {
             "id": entry, "source": evidence, "brief": "Use a new baseline.", "source_event": event,
         })
@@ -131,13 +134,34 @@ def replay_knowledge_sweeps(test, board, app, open_board):
     local = board.call(other_manager, "/api/v1/personal-agents/local-dris", method="POST", headers=origin,
                        json={"project": "LAB", "name": "Lab operator"}).json["local_dri"]["id"]
     headers = {**human_headers, "X-Taskboard-Local-DRI": local}
-    test.assertEqual([row["key"] for row in sweep(unauthenticated, "board", headers=headers)["items"]], [other])
+    foreign, foreign_event = source(maintainer, "OPS", "Review a cross-project baseline")
+    board.action(maintainer, "knowledge-stage", {
+        "id": other, "source": foreign, "brief": "Use the final baseline.", "source_event": foreign_event,
+    })
+    board.action(unauthenticated, "knowledge-reconcile", {"project": "LAB"}, headers=human_headers)
+    local_entry, = sweep(unauthenticated, "board", headers=headers)["items"]
+    test.assertEqual(local_entry["key"], other)
+    test.assertEqual({row["source"] for row in local_entry["staged_work"]}, {source_tickets[other]})
+    test.assertEqual({row["event_id"] for row in local_entry["sources"]}, {staged[other]})
     sweep(unauthenticated, "board", headers=headers, project="OPS", status=403)
     board.action(manager, "knowledge-assign", {"id": owned, "dri": local}, status=403)
     board.call(other_manager, f"/api/v1/knowledge/{other}/maintenance-dri", method="POST", json={"dri": local})
     assigned_local, = sweep(unauthenticated, "assigned", headers=headers)["items"]
     test.assertEqual((assigned_local["key"], assigned_local["maintenance_dri"]["id"]), (other, local))
     test.assertFalse(assigned_local["can_reconcile"])
+
+    # A still-unmigrated completed ticket can leave Knowledge, move and be tagged again.
+    reclassified, _ = source(maintainer, "LAB", "Retagged runbook")
+    board.action(maintainer, "task-tag", {"id": reclassified, "action": "add", "tag": "decision-record"})
+    board.call(other_manager, f"/api/v1/knowledge/{reclassified}/maintenance-dri", method="POST",
+               json={"dri": local})
+    board.action(maintainer, "task-tag", {"id": reclassified, "action": "remove", "tag": "decision-record"})
+    moved = board.call(other_manager, f"/api/v1/tasks/{reclassified}/project", method="POST",
+                       json={"project": "ARCH"}).json["key"]
+    board.action(maintainer, "task-tag", {"id": moved, "action": "add", "tag": "decision-record"})
+    restored, = sweep(maintainer, "board", project="ARCH")["items"]
+    test.assertEqual(restored["key"], moved)
+    test.assertIsNone(restored["maintenance_dri"])
 
 
 class KnowledgeSweepTest(unittest.TestCase):

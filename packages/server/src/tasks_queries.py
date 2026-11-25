@@ -763,7 +763,7 @@ class BoardQueries:
         ).fetchall()
 
     def maintained_decisions(self, *, actor, search=None, entry=None, source_ticket=None, before=None, limit,
-                             project=None, maintenance_dri=None):
+                             project=None, maintenance_dri=None, source_project=None):
         def render(rows):
             assignments = knowledge.maintenance_assignments(self.db, [row["id"] for row in rows])
             managed = {row["prefix"] for row in self.db.execute("SELECT prefix FROM projects WHERE dri = ?", (actor,))}
@@ -772,8 +772,8 @@ class BoardQueries:
                 "project": projects.row_project(row), "maintenance_dri": assignments.get(row["id"]),
                 "can_assign_maintenance_dri": projects.row_project(row) in managed,
                 "can_reconcile": projects.row_project(row) in managed or (not ledger.is_knowledge(row) and row["dri"] == actor),
-                "summary": row["brief"], "sources": self.decision_sources(row["id"]),
-                **knowledge.metadata(self.db, row["id"]),
+                "summary": row["brief"], "sources": self.decision_sources(row["id"], project=source_project),
+                **knowledge.metadata(self.db, row["id"], source_project=source_project),
             } for row in rows]
 
         with tasks_storage.read(self.db):
@@ -822,7 +822,7 @@ class BoardQueries:
 
             return page(ordered, limit, "event_id", render)
 
-    def decision_sources(self, task_id):
+    def decision_sources(self, task_id, *, project=None):
         prefix = f"{self.base}/#event-"
         sources = []
         for _, label, url, _ in watches.task_source_links(self.db, task_id):
@@ -831,11 +831,11 @@ class BoardQueries:
                 if event_id > projects.MAX_ID:
                     continue
                 event = self.db.execute(
-                    "SELECT events.id, events.at, events.task_id, tasks.title AS task_title, "
+                    "SELECT events.id, events.at, events.task_id, tasks.title AS task_title, tasks.project_prefix, "
                     + TASK_REFERENCE + " AS task_key FROM events JOIN tasks ON tasks.id = events.task_id "
                     "WHERE events.id = ?", (event_id,),
                 ).fetchone()
-                if event is not None:
+                if event is not None and project in (None, event["project_prefix"]):
                     sources.append({
                         "label": label, "url": url, "unavailable": False,
                         "event_id": event["id"], "at": event["at"], "task_id": event["task_id"],

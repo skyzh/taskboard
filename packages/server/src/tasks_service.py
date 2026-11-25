@@ -1654,6 +1654,8 @@ def create_app(
                     and releases.ticket_fields(connection, [number])[number]["queued_for_release"]):
                 raise RequestError("Wait for this ticket's active release to finish before moving it.", 409)
             try:
+                # A legacy completed ticket can leave Knowledge before it is moved.
+                knowledge_records.set_maintenance_dri(connection, task, key, None)
                 new_key = projects.move(connection, task, destination)
             except ValueError as error:
                 raise RequestError(str(error), 409) from error
@@ -2392,8 +2394,10 @@ def create_app(
         entry = text(data, "entry", optional=True, maximum=28)
         source = text(data, "source", optional=True, maximum=28)
         key = actor["ledger_key"]
+        local = g.get("local_dri")
         return query().maintained_decisions(
             actor=key, project=project, maintenance_dri=key if scope == "assigned" else None,
+            source_project=local["project"] if local is not None else None,
             search=text(data, "q", optional=True, maximum=160),
             entry=task_number(entry) if entry else None,
             source_ticket=task_number(source) if source else None,
