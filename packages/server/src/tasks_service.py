@@ -6,6 +6,7 @@ from binascii import Error as Base64Error
 from contextlib import closing, nullcontext
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
+from html import escape
 from hmac import compare_digest
 from io import BytesIO
 import json
@@ -16,7 +17,7 @@ import socket
 import sqlite3
 import stat
 from threading import Lock
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 from uuid import UUID
 from zoneinfo import ZoneInfo, available_timezones
 
@@ -60,6 +61,7 @@ from tasks_evidence_preview import read_image
 from tasks_github import linked_source
 import tasks_github_webhooks as github_webhooks
 from tasks_queries import BoardQueries, NEEDS_YOU_START, PACIFIC, pacific_day, task_creation
+from tasks_ui_routes import BoardPage, board_return_allowed
 
 
 from taskboard_client.connection import exact_person_id
@@ -680,6 +682,7 @@ def create_app(
     origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
     prefix = parsed_url.path.rstrip("/")
     app = Flask(__name__, static_folder=None)
+    app.url_map.converters["board_page"] = BoardPage
     app.config["MAX_CONTENT_LENGTH"] = profiles.MAX_AVATAR_BYTES * 2
     app.config["MAX_FORM_MEMORY_SIZE"] = profiles.MAX_AVATAR_BYTES + 8192
 
@@ -1831,19 +1834,39 @@ def create_app(
         return {"actor": actor_profile(actor)}
 
     @app.get("/")
-    def index():
+    @app.get("/<board_page:page>")
+    def index(page=None):
         if marketplace and raft.identity() is None:
+            login = f"{base}/auth/login"
+            if page is not None:
+                target = quote(request.path, safe="/:") + (
+                    "?" + request.query_string.decode("latin-1") if request.query_string else ""
+                )
+                if board_return_allowed(target):
+                    login += "?" + urlencode({"return_to": target})
             return render_template_string(
                 "<!doctype html><html lang='en'><meta charset='utf-8'>"
                 "<meta name='viewport' content='width=device-width, initial-scale=1'>"
                 "<title>Taskboard</title><main><h1>Taskboard</h1>"
                 "<p>Manage tasks, decisions, and handoffs in your Raft Server.</p>"
                 "<a href='{{ login }}'>Sign in with Raft</a></main></html>",
-                login=f"{base}/auth/login",
+                login=login,
             )
-        if not (dist / "index.html").is_file():
+        index_file = dist / "index.html"
+        if not index_file.is_file():
             return jsonify(error="Build the React board with npm ci and npm run build in web/."), 503
-        return send_from_directory(dist, "index.html", max_age=0)
+        if page is None:
+            return send_from_directory(dist, "index.html", max_age=0)
+        # Keep the canonical root response byte-for-byte equal to the packaged HTML.
+        # Nested entry points resolve relative assets and API requests from the configured mount.
+        html = index_file.read_bytes()
+        marker = b'<base href="./">'
+        if marker not in html:
+            return jsonify(error="Build the React board with npm ci and npm run build in web/."), 503
+        mount = escape(prefix + "/", quote=True)
+        document = html.replace(marker, f'<base href="{mount}">'.encode(), 1)
+        return send_file(BytesIO(document), download_name="index.html", max_age=0,
+                         etag=sha256(document).hexdigest())
 
     @app.get("/assets/<path:asset>")
     def assets(asset):
@@ -4226,7 +4249,9 @@ def create_app(
 
         def board_mount(environ, start_response):
             if environ.get("PATH_INFO") == prefix:
-                return redirect(base + "/", code=308)(environ, start_response)
+                query_string = environ.get("QUERY_STRING")
+                destination = base + "/" + ("?" + query_string if query_string else "")
+                return redirect(destination, code=308)(environ, start_response)
             return mounted(environ, start_response)
 
         app.wsgi_app = board_mount

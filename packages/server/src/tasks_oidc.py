@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from flask import jsonify, make_response, redirect, request, session
 
-from raft_auth import board_fragment_allowed, fetch_profile_photo
+from raft_auth import fetch_profile_photo, login_return
 from raft_sessions import DurableSessions, Session
 from tasks_oidc_members import issuer_url, valid_subject
 
@@ -130,14 +130,14 @@ class OIDC:
         return metadata
 
     def login(self):
-        fragments = request.args.getlist("fragment")
-        if fragments and (len(fragments) != 1 or not board_fragment_allowed(fragments[0])):
+        return_target = login_return(request.args)
+        if return_target is None:
             return error("Open the sign-in link from Taskboard.", 400)
         session.clear()
         try:
             self.metadata()
             session["expires"] = time() + LOGIN_SECONDS
-            session["fragment"] = fragments[0] if fragments else ""
+            session["return_to"] = return_target
             return self.client.authorize_redirect(self.public_url + "/auth/callback")
         except self.failures:
             session.clear()
@@ -145,7 +145,7 @@ class OIDC:
 
     def callback(self):
         states, codes, issuer = (request.args.getlist(key) for key in ("state", "code", "iss"))
-        fragment = session.pop("fragment", "")
+        return_target = session.pop("return_to", "/" + session.pop("fragment", ""))
         expires = session.pop("expires", 0)
         if (expires <= time() or len(states) != 1 or len(codes) != 1 or not codes[0]
                 or (issuer and issuer != [self.issuer])):
@@ -166,7 +166,7 @@ class OIDC:
                 return error("OpenID Connect sign-in could not be verified.", 401)
             if not self.admit(subject, claims.get("name"), claims.get("picture")):
                 return error("This account has no Taskboard membership.", 403)
-            response = redirect(f"{self.public_url}/{fragment}")
+            response = redirect(self.public_url + return_target)
             key = token_urlsafe(32)
             end = min(expiry, now + SESSION_SECONDS)
             self.sessions.replace(request.cookies.get(COOKIE), key, Session("", end, subject, "human"), now)

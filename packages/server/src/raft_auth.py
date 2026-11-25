@@ -22,6 +22,7 @@ from uuid import UUID
 from flask import Flask, Response, g, jsonify, make_response, redirect, request
 from raft_sessions import DurableSessions, MemorySessions, Session, session_digest
 from tasks_profiles import MAX_AVATAR_BYTES, imported_avatar
+from tasks_ui_routes import board_return_allowed
 
 
 _PENDING_COOKIE = "raft_board_login"
@@ -91,6 +92,20 @@ def board_fragment_allowed(fragment: str) -> bool:
     return anchor == "#reports" and bool(_GOAL_FILTER.fullmatch(remaining))
 
 
+def login_return(args):
+    targets = args.getlist("return_to")
+    fragments = args.getlist("fragment")
+    if targets:
+        if len(targets) != 1 or fragments or not board_return_allowed(targets[0]):
+            return None
+        return targets[0]
+    if fragments:
+        if len(fragments) != 1 or not board_fragment_allowed(fragments[0]):
+            return None
+        return "/" + fragments[0]
+    return "/"
+
+
 _MAX_PROVIDER_RESPONSE = 64 * 1024
 _RAFT_API_ORIGIN = "https://api.raft.build"
 _RAFT_AVATAR_CDN = "https://cdn.raft.build"
@@ -114,7 +129,7 @@ class _Pending:
     state: str = field(repr=False)
     verifier: str = field(repr=False)
     expires: float
-    fragment: str
+    return_target: str
 
 
 class _Failure(Enum):
@@ -446,15 +461,15 @@ class RaftAuth:
         return self._response(response)
 
     def _login(self) -> Response:
-        fragments = request.args.getlist("fragment")
-        if fragments and (len(fragments) != 1 or not board_fragment_allowed(fragments[0])):
+        return_target = login_return(request.args)
+        if return_target is None:
             return self._error(_Failure.CALLBACK)
         key, state, verifier = (token_urlsafe(32) for _ in range(3))
         with self._lock:
             now = monotonic()
             self._prune(now)
             self._pending.pop(request.cookies.get(_PENDING_COOKIE), None)
-            self._pending[key] = _Pending(state, verifier, now + _PENDING_TTL, fragments[0] if fragments else "")
+            self._pending[key] = _Pending(state, verifier, now + _PENDING_TTL, return_target)
         challenge = urlsafe_b64encode(sha256(verifier.encode()).digest()).decode().rstrip("=")
         params = urlencode({
             "response_type": "code",
@@ -505,7 +520,7 @@ class RaftAuth:
             self._require_current_human_access(identity.subject)
         if (self._server_id is None or durable_human) and self._on_verified_sign_in is not None:
             self._on_verified_sign_in(identity)
-        response = redirect(f"{self._public_base}/{pending.fragment}") if pending else make_response("", 200)
+        response = redirect(self._public_base + pending.return_target) if pending else make_response("", 200)
         session_key = token_urlsafe(32)
         session_server = identity.server_id if self._server_id is None else None
         session = Session("" if durable_human else token, expires, identity.subject, identity.kind, session_server)
