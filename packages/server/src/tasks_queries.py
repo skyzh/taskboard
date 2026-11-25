@@ -373,9 +373,8 @@ class BoardQueries:
         return f"""
             SELECT MAX(activity.id) FROM events AS activity
             WHERE activity.task_id = {task}.id AND activity.actor = {task}.dri
-              AND activity.state = 'in_progress'
-              AND (activity.action IN ('start', 'update', 'resume')
-                   OR (activity.action = 'log'
+              AND ((activity.state = 'in_progress' AND activity.action IN ('start', 'update', 'resume'))
+                   OR (activity.state IN ('in_progress', 'waiting') AND activity.action = 'log'
                        AND json_extract({event_context}, '$.watcher_measurements') IS NULL
                        AND ({event_context} = '{{}}'
                             OR json_extract({event_context}, '$.activity_details') IS NOT NULL)))

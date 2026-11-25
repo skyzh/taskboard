@@ -7862,6 +7862,13 @@ class TasksServiceTest(unittest.TestCase):
             course = self.call(sam, route, query_string={"view": "recent", "project": "COURSE"}).json
             self.assertEqual({row["owner"] for row in course["items"]}, {team, stale})
 
+            self.call(quinn, f"/api/v1/tasks/T-{stale_wait}/activity", method="POST", headers={"Origin": ORIGIN},
+                      json={"note": "Checked the sample while waiting."})
+            refreshed = self.call(quinn, route, query_string={"view": "recent"}).json
+            newly_recent = next(row for row in refreshed["items"] if row["owner"] == stale)
+            row, = newly_recent["tasks"]
+            self.assertEqual((row["id"], row["state"], row["reported_progress"]["at"]), (stale_wait, "waiting", now))
+
     def test_stats_period_returns_after_sign_in(self):
         app = self.app(portal_reader=True)
         for fragment in ("#stats", "#stats?project=COURSE&period=week", "#stats?period=week&project=COURSE", "#stats?project=COURSE"):
