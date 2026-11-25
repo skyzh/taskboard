@@ -370,7 +370,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const scopedRoute = href => projectHref(href, navigationScope)
   const reportsReturn = new URLSearchParams(preferredReportsMode.split('?', 2)[1])
   const watchingReturn = reportsReturn.get('view') === 'watching' ? `#${preferredReportsMode}` : null
-  const savedProfileReturn = window.history.state?.watchingProfileReturn
+  const savedProfileReturn = window.history?.state?.watchingProfileReturn
   const profileReportsHref = watchingReturn ||
     (savedProfileReturn?.fragment === fragment ? savedProfileReturn.href : reportsHref)
   useEffect(() => {
