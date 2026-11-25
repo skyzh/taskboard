@@ -604,13 +604,16 @@ export function ResourceStatus({ resource, label }) {
   )
 }
 
-export function LoadMore({ page, label }) {
+export function LoadMore({ page, label, onActivate }) {
   if (page.data?.next_cursor == null) return null
   const action = page.moreError ? page.retry : page.loadMore
   return (
     <div className="list-continuation">
       <button type="button" aria-label={page.moreError ? `Retry loading more ${label}` : `More ${label}`}
-        aria-disabled={!action} onClick={action || undefined}>{page.moreError ? 'Retry' : 'More'}</button>
+        aria-disabled={!action} onClick={action ? event => {
+          onActivate?.(event)
+          action()
+        } : undefined}>{page.moreError ? 'Retry' : 'More'}</button>
       {page.loadingMore && <p role="status">Loading more {label}…</p>}
       {page.moreError && <p role="status">Unable to load more {label}. {page.moreError.message}</p>}
     </div>

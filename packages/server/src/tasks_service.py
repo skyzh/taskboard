@@ -58,7 +58,7 @@ from raft_auth import RaftAuth
 from tasks_evidence_preview import read_image
 from tasks_github import linked_source
 import tasks_github_webhooks as github_webhooks
-from tasks_queries import BoardQueries, PACIFIC, pacific_day, task_creation
+from tasks_queries import BoardQueries, NEEDS_YOU_START, PACIFIC, pacific_day, task_creation
 
 
 from taskboard_client.connection import exact_person_id
@@ -2973,21 +2973,25 @@ def create_app(
     def needs_you():
         actor = current_actor(required=True)
         project = project_scope(request.args)
+        limit = integer(request.args["limit"], "limit", maximum=100) if "limit" in request.args else None
         before = None
         if cursor := text(request.args, "before", optional=True, maximum=160):
             try:
                 decision, attention, review = json.loads(cursor)
-                if any(value is not None and type(value) is not int for value in (decision, attention)):
+                if any(value not in (None, NEEDS_YOU_START) and type(value) is not int
+                       for value in (decision, attention)):
                     raise ValueError
             except (TypeError, ValueError):
                 raise RequestError("Provide a cursor returned by Needs you.") from None
             before = (
-                integer(decision, "decision cursor") if decision is not None else None,
-                integer(attention, "request cursor") if attention is not None else None,
-                ordered_feed_cursor({"before": review}, ("peer", "review"), "Needs you"),
+                integer(decision, "decision cursor") if type(decision) is int else decision,
+                integer(attention, "request cursor") if type(attention) is int else attention,
+                review if review == NEEDS_YOU_START else ordered_feed_cursor(
+                    {"before": review}, ("peer", "review"), "Needs you",
+                ),
             )
         with tasks_storage.read(db()):
-            return query().needs_you(actor, today=pacific_day(ledger.timestamp()), project=project, before=before, limit=2)
+            return query().needs_you(actor, today=pacific_day(ledger.timestamp()), project=project, before=before, limit=limit)
 
     @app.get("/api/v1/notifications/decisions")
     def decision_notifications():

@@ -41,6 +41,7 @@ SUGGESTION_KEY = re.compile(r"([A-Z][A-Z0-9]{0,7})-([0-9]*)", re.ASCII)
 SEARCH_WORDS = re.compile(r"[^\W_]+")
 ACTIVITY_EXCERPT_LIMIT = 180
 GOAL_OUTCOME_LIMIT = 20
+NEEDS_YOU_START = "start"
 DECISION_RECORD_TAG = knowledge.DECISION_TAG
 GITHUB_SOURCE_MATCH = """
     tasks.id IN (
@@ -2285,17 +2286,28 @@ class BoardQueries:
 
     def needs_you(self, actor, *, today, project, before, limit):
         owner = actor["ledger_key"]
-        decision_before, request_before, review_before = before or (None, None, None)
+        decision_before, request_before, review_before = before or (NEEDS_YOU_START,) * 3
+        remaining = limit
+
+        def take(fetch, cursor, **filters):
+            nonlocal remaining
+            if cursor is None:
+                return {"items": [], "next_cursor": None}
+            start = None if cursor == NEEDS_YOU_START else cursor
+            # When the page is full, check whether this stream has work without advancing it.
+            size = 2 if remaining is None else max(1, remaining)
+            result = fetch(before=start, limit=size, project=project, **filters)
+            if remaining == 0:
+                return {"items": [], "next_cursor": cursor if result["items"] else None}
+            if remaining is not None:
+                remaining -= len(result["items"])
+            return result
+
         decisions = requests = reviews = {"items": [], "next_cursor": None}
-        if actor["kind"] == "human" and (before is None or decision_before is not None):
-            decisions = self.tasks(state="human_review", waiting_on=owner, project=project,
-                                   before=decision_before, limit=limit)
-        if actor["kind"] == "human" and (before is None or request_before is not None):
-            requests = self.attention(owner, state="open", today=today, before=request_before,
-                                      limit=limit, project=project)
-        if before is None or review_before is not None:
-            reviews = self.request_log(project=project, before=review_before, limit=limit,
-                                       actionable_reviewer=owner, recover_title=True)
+        if actor["kind"] == "human":
+            decisions = take(self.tasks, decision_before, state="human_review", waiting_on=owner)
+            requests = take(self.attention, request_before, recipient=owner, state="open", today=today)
+        reviews = take(self.request_log, review_before, actionable_reviewer=owner, recover_title=True)
 
         decision_rows = decisions["items"]
         actors = {}

@@ -61,7 +61,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: .25rem 1.3rem;
-  border-block: 1px solid var(--line);
   margin: .65rem 0 .75rem;
   padding-block: .4rem;
 }
