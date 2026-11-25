@@ -12,6 +12,9 @@ from uuid import uuid4
 from taskboard_cli import main as tasks_main
 from taskboard_client.direct import DirectBoard
 from taskboard_server import local_dri
+from tasks_core import import_notification_on
+from tasks_notification_log import outbox_receipt
+from tasks_storage import open_sqlite
 import test_tasks_service as service
 
 
@@ -122,6 +125,10 @@ class LocalDRIRoutingTest(unittest.TestCase):
         call(client, "/api/v1/reports", headers=sender, status=403)
         action(client, "task", query_string={"id": "OPS-1"}, headers=sender, status=403)
         action(client, "my-queue", query_string={"scope": "all"}, headers=sender, status=403)
+        project_log = "/api/v1/notifications/log"
+        call(client, project_log, query_string={"project": "OPS"}, headers=sender, status=403)
+        call(client, project_log, headers={"X-Taskboard-Local-DRI": perf["id"]}, status=401)
+        call(client, "/api/v1/notifications/watched", headers=sender, status=403)
 
         def directory(project):
             return {row["id"]: row for row in call(manager, "/api/v1/assignees",
@@ -134,6 +141,12 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertFalse(directory("T")[perf["id"]]["accepts_agent_asks"])
 
         action(manager, "create-task", {"title": "Verify sample totals", "step": "Inspect the recorded totals."})
+        ready = fixture.task_event(manager, "T-1")
+        with closing(open_sqlite(fixture.database)) as db:
+            import_notification_on(db, outbox_receipt("ready", ready["event"], "T-1", ready["at"], manager_id, True))
+        log = call(client, project_log, headers=sender,
+                   query_string={"recipient": fixture.provider.people["Avery"]["sub"]}).json
+        self.assertEqual([(row["task"], row["recipient"]) for row in log["items"]], [("T-1", "Avery")])
         action(manager, "advance-task", {"id": "T-1", "transition": "start", "note": "Start the fixture."})
         ask = {"id": "T-1", "transition": "create", "recipient": perf["id"], "note": "Check the sample total."}
         original = action(manager, "task", query_string={"id": "T-1"})["task"]

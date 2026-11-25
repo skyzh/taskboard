@@ -92,8 +92,7 @@ export default function NotificationLog({ project, state, kind, agent, projects 
   const showEmpty = page.data && !page.pending && !page.error && items.length === 0
   const emptyMessage = page.data?.has_receipts
     ? 'No recorded notifications match these filters.'
-    : agentOptions ? 'No notification receipts have been recorded for this project.'
-      : 'No notification receipts have been recorded for your account in this project.'
+    : 'No notification receipts have been recorded for this project.'
 
   function chooseFilters(changes) {
     const next = { project, state, kind, agent, ...changes }

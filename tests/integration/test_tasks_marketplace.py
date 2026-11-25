@@ -15,6 +15,9 @@ from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 from tasks_service import create_app
+from tasks_core import import_notification_on
+from tasks_notification_log import outbox_receipt
+from tasks_storage import open_sqlite
 
 
 ORIGIN = "https://marketplace.example.test"
@@ -125,8 +128,17 @@ class MarketplaceTest(unittest.TestCase):
                     "SELECT value FROM board_settings WHERE key = 'marketplace_server_id'"
                 ).fetchone()[0], server)
 
+        with closing(open_sqlite(self.tenants / SERVER_A / "tasks.sqlite3")) as db:
+            ready = db.execute("SELECT id, at, actor FROM events WHERE action = 'add'").fetchone()
+            import_notification_on(db, outbox_receipt("ready", ready["id"], "T-1", ready["at"], ready["actor"], True))
+        log = "/api/v1/notifications/log"
+        self.assertEqual(self.request(anonymous, log).status_code, 401)
+        self.assertEqual([item["task"] for item in self.request(a, log).json["items"]], ["T-1"])
+        self.assertEqual(self.request(b, log, query_string={"server_id": SERVER_A}).json["items"], [])
+
         self.provider.installed.remove(SERVER_A)
         self.assertEqual(self.task(a).status_code, 401)
+        self.assertEqual(self.request(a, log).status_code, 401)
         self.assertEqual(self.add(a, "Revoked write").status_code, 401)
         self.assertEqual(self.task(b).json["task"]["title"], "B only")
         self.assertFalse((self.tenants / SERVER_C).exists())
