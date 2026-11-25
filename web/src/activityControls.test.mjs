@@ -1305,6 +1305,7 @@ test('the named decision recipient can answer from ticket reading mode', () => {
   assert.match(assigned, /Sam Example/)
   assert.match(assigned, /aria-label="Edit ticket" aria-pressed="false"/)
   assert.match(assigned, /<form class="ownership-form decision-form"/)
+  assert.match(assigned, /href="#notifications-needs-me">Return to decisions<\/a>/)
   assert.match(assigned, /name="decision-choice" value="CSV"/)
   assert.match(assigned, /aria-describedby="decision-answer-format-41".*Supports multiline text and Markdown\./)
   assert.match(assigned, /aria-describedby="decision-details-format-41".*Block Markdown, including fenced Mermaid diagrams\./)
@@ -1313,7 +1314,7 @@ test('the named decision recipient can answer from ticket reading mode', () => {
   for (const readOnly of [render(sam, null), render({ kind: 'human', id: 'other' }, null),
     render({ kind: 'agent', id: 'sam' }, null)]) {
     assert.match(readOnly, /CSV/)
-    assert.doesNotMatch(readOnly, /class="ownership-form decision-form"|Record decision/)
+    assert.doesNotMatch(readOnly, /class="ownership-form decision-form"|Record decision|Return to decisions/)
   }
 })
 
