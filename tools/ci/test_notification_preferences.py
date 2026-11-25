@@ -104,6 +104,22 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual((profile["name"], profile["role"]), ("Avery", "Fictional release tester"))
         self.assertEqual((task["title"], task["dri"]), ("Verify the original ticket", owner_id))
 
+    def test_postgres_attention_retry_keeps_the_original_request(self):
+        app = self.postgres_app(self.postgres_fixture())
+        owner, _ = self.board.login(app, "Avery")
+        recipient, recipient_id = self.board.login(app, "Sam")
+        action = self.board.action
+        action(owner, "create-task", {"title": "Review the totals", "step": "Check the result."})
+        fields = {"id": "T-1", "reason": "Check the totals.", "recipient": recipient_id, "request_key": "sample"}
+        first = action(owner, "raise-attention", fields)
+        self.assertEqual(action(owner, "raise-attention", fields), first)
+        action(owner, "raise-attention", {**fields, "reason": "Different request."}, status=409)
+        inbox = "/api/v1/notifications/requests"
+        self.assertEqual([row["id"] for row in self.board.call(recipient, inbox).json["items"]], [first["id"]])
+        self.board.call(recipient, f"{inbox}/{first['id']}/handled", method="POST", headers=ORIGIN)
+        self.assertEqual(action(owner, "raise-attention", fields), first)
+        self.assertEqual(self.board.call(recipient, inbox).json["items"], [])
+
     def test_postgres_project_move(self):
         dsn = self.postgres_fixture()
         app = self.postgres_app(dsn, project_admin_subject=fixture.FixtureRaft().people["Sam"]["sub"])
