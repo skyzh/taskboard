@@ -1,0 +1,19 @@
+name: Compare the Taskboard demo
+description: Build and replay the currently checked out demo against the approved commit
+inputs:
+  baseline:
+    description: Reviewed demo commit from the repository configuration
+    required: false
+outputs:
+  status:
+    description: pass, changed, unavailable, privacy_failed, or error
+    value: ${{ steps.compare.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - id: compare
+      shell: bash
+      env:
+        BASELINE: ${{ inputs.baseline }}
+        EVIDENCE: ${{ runner.temp }}/demo-evidence
+      run: bash tools/demo-publication/compare.sh
