@@ -191,10 +191,12 @@ test('Knowledge scope follows the signed viewer, while detail links and maintena
 test('Knowledge scope and search survive sign-in alongside existing history links', () => {
   const fragment = knowledgeListHref('assigned', 'Team practices')
   assert.equal(fragment, '#knowledge?scope=assigned&q=Team+practices')
-  for (const hash of [fragment, '#knowledge?scope=assigned', '#knowledge?q=Team+practices', '#knowledge?entry=OPS-1&history=2']) {
+  const sorted = knowledgeListHref('assigned', 'Team practices', { order: 'updated', project: 'OPS' })
+  assert.equal(sorted, '#knowledge?scope=assigned&q=Team+practices&order=updated&project=OPS')
+  for (const hash of [fragment, sorted, '#knowledge?scope=assigned', '#knowledge?q=Team+practices', '#knowledge?entry=OPS-1&history=2']) {
     assert.equal(new URL(signInHref(hash), 'https://example.test/tasks/').searchParams.get('fragment'), hash)
   }
-  assert.equal(signInHref('#knowledge?scope=assigned&project=OPS'), './auth/login')
+  assert.equal(signInHref('#knowledge?scope=assigned&project=OPS&project=T'), './auth/login')
 })
 
 test('history anchors the previous version and offers a return to the same record', () => {

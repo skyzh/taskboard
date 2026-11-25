@@ -726,7 +726,7 @@ class BoardQueries:
         return result
 
     def maintained_decision_rows(self, *, search=None, entry=None, source_ticket=None, before=None, limit,
-                                 github_url=None, project=None, maintenance_dri=None):
+                                 github_url=None, project=None, maintenance_dri=None, include_activity=False, updated_order=False):
         context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
         legacy = f"""({ledger.display_state_sql(context)} = 'done'
             AND tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?))"""
@@ -740,8 +740,15 @@ class BoardQueries:
             terms.append("tasks.id IN (SELECT task_id FROM knowledge_maintenance_assignments WHERE dri = ?)")
             args.append(maintenance_dri)
         if before is not None:
-            terms.append("events.id < ?")
-            args.append(before)
+            if updated_order:
+                cursor = self.db.execute(f"SELECT {ledger.event_time_sql('at')} FROM events WHERE id = ?", (before,)).fetchone()
+                if cursor is None:
+                    return []
+                terms.append(f"({ledger.event_time_sql('latest_activity.at')}, latest_activity.id) < (?, ?)")
+                args.extend((cursor[0], before))
+            else:
+                terms.append("events.id < ?")
+                args.append(before)
         if entry is not None:
             terms.append("tasks.id = ?")
             args.append(entry)
@@ -762,6 +769,8 @@ class BoardQueries:
         if github_url is not None:
             terms.append(GITHUB_SOURCE_MATCH)
             args.extend((github_url, github_url + "/"))
+        order = "activity_sort_at DESC, activity_id DESC" if updated_order else "events.id DESC"
+        base = ledger.current_tasks_sql(self.db, include_knowledge=True, include_activity=include_activity)
         if search:
             needle = search.casefold()
             area_matches = {row["task_id"] for row in self.db.execute("SELECT task_id, path FROM knowledge_entries")
@@ -773,15 +782,16 @@ class BoardQueries:
                         or needle in (row["brief"] or "").casefold()
                         or row["id"] in area_matches)
 
-            return self.search_rows(terms, args, "events.id DESC", limit, False, matches, include_knowledge=True)
+            return self.search_rows(terms, args, order, limit, False, matches,
+                                    base_sql=base, updated_order=updated_order)
         where = " WHERE " + " AND ".join(terms)
         return self.db.execute(
-            ledger.current_tasks_sql(self.db, include_knowledge=True) + where + " ORDER BY events.id DESC LIMIT ?",
+            base + where + f" ORDER BY {order} LIMIT ?",
             (*args, limit + 1),
         ).fetchall()
 
     def maintained_decisions(self, *, actor, search=None, entry=None, source_ticket=None, before=None, limit,
-                             project=None, maintenance_dri=None, source_project=None):
+                             project=None, maintenance_dri=None, source_project=None, updated_order=False):
         def render(rows):
             assignments = knowledge.maintenance_assignments(self.db, [row["id"] for row in rows])
             managed = {row["prefix"] for row in self.db.execute(projects.MANAGED_BY, (actor, actor))}
@@ -790,6 +800,10 @@ class BoardQueries:
                 "project": projects.row_project(row), "maintenance_dri": assignments.get(row["id"]),
                 "can_assign_maintenance_dri": projects.row_project(row) in managed,
                 "can_reconcile": projects.row_project(row) in managed or (not ledger.is_knowledge(row) and row["dri"] == actor),
+                "last_activity": {
+                    "at": row["activity_at"], "id": row["activity_id"],
+                    "label": ledger.event_label(row["activity_action"], json.loads(row["activity_context"])),
+                } if row["activity_at"] else None,
                 "summary": row["brief"], "sources": self.decision_sources(row["id"], project=source_project),
                 **knowledge.metadata(self.db, row["id"], source_project=source_project),
             } for row in rows]
@@ -797,9 +811,9 @@ class BoardQueries:
         with tasks_storage.read(self.db):
             rows = self.maintained_decision_rows(
                 search=search, entry=entry, source_ticket=source_ticket, before=before, limit=limit,
-                project=project, maintenance_dri=maintenance_dri,
+                project=project, maintenance_dri=maintenance_dri, include_activity=True, updated_order=updated_order,
             )
-            return page(rows, limit, "event_id", render)
+            return page(rows, limit, "activity_id" if updated_order else "event_id", render)
 
     def search_with_decisions(self, *, before, limit, search=None, github_url=None, project=None):
         """Search ordinary T tickets and maintained decisions on the verified board."""
@@ -886,13 +900,14 @@ class BoardQueries:
 
         return [row for _, _, row in nsmallest(6, matches(), key=lambda match: match[:2])]
 
-    def search_rows(self, terms, args, order, limit, priority_order, matches, *, include_knowledge=False):
+    def search_rows(self, terms, args, order, limit, priority_order, matches, *,
+                    include_knowledge=False, base_sql=None, updated_order=False):
         rows = []
         cursor, bindings = [], ()
         batch_size = max(100, limit + 1)
         snapshot = nullcontext() if self.db.in_transaction else tasks_storage.read(self.db)
         with snapshot:
-            base = ledger.current_tasks_sql(self.db, include_knowledge=include_knowledge)
+            base = base_sql or ledger.current_tasks_sql(self.db, include_knowledge=include_knowledge)
             while len(rows) <= limit:
                 conditions = terms + cursor
                 where = " WHERE " + " AND ".join(conditions) if conditions else ""
@@ -905,6 +920,9 @@ class BoardQueries:
                 if priority_order:
                     cursor = [f"({ledger.PRIORITY_ORDER_SQL}, events.id) > (?, ?)"]
                     bindings = (ledger.PRIORITIES.index(last["priority"]), last["event_id"])
+                elif updated_order:
+                    cursor = [f"({ledger.event_time_sql('latest_activity.at')}, latest_activity.id) < (?, ?)"]
+                    bindings = (last["activity_sort_at"], last["activity_id"])
                 else:
                     cursor, bindings = ["events.id < ?"], (last["event_id"],)
         return rows[:limit + 1]

@@ -166,11 +166,11 @@ CURRENT_TASKS = """
            events.id AS event_id, events.action AS current_action,
            events.state, events.at, events.note, events.waiting_on, events.links AS current_links,
            {context} AS context,
-           {display_state} AS display_state
+           {display_state} AS display_state{activity_fields}
     FROM tasks
     JOIN events ON events.id = (
         SELECT MAX(id) FROM events WHERE task_id = tasks.id AND action NOT IN ('source-event', 'log')
-    ){record_scope}
+    ){record_scope}{activity_join}
 """
 
 
@@ -292,7 +292,12 @@ def display_state_sql(context):
     return f"CASE WHEN events.state = 'done' AND json_type({context}, '$.closure') = 'object' THEN 'closed' ELSE events.state END"
 
 
-def current_tasks_sql(db, *, include_knowledge=False):
+def event_time_sql(column):
+    """Compare the two UTC spellings without losing fractional seconds."""
+    return f"RTRIM(REPLACE({column}, '+00:00', ''), 'Z')"
+
+
+def current_tasks_sql(db, *, include_knowledge=False, include_activity=False):
     # Read pre-migration databases without touching them.
     context = "events.context" if has_event_context(db) else "'{}'"
     columns = task_columns(db)
@@ -301,8 +306,20 @@ def current_tasks_sql(db, *, include_knowledge=False):
     project_prefix = "tasks.project_prefix" if "project_prefix" in columns else "'T'"
     project_number = "tasks.project_number" if "project_number" in columns else "NULL"
     record_kind = "tasks.record_kind" if "record_kind" in columns else "'work'"
+    activity_fields, activity_join = "", ""
+    if include_activity:
+        activity_context = "latest_activity.context" if has_event_context(db) else "'{}'"
+        activity_fields = (", latest_activity.id AS activity_id, latest_activity.at AS activity_at, "
+                           f"{event_time_sql('latest_activity.at')} AS activity_sort_at, "
+                           f"latest_activity.action AS activity_action, {activity_context} AS activity_context")
+        activity_join = f"""
+            LEFT JOIN events AS latest_activity ON latest_activity.id = (
+                SELECT id FROM events WHERE task_id = tasks.id ORDER BY {event_time_sql('at')} DESC, id DESC LIMIT 1
+            )
+        """
     return CURRENT_TASKS.format(
         context=context, display_state=display_state_sql(context), priority=priority, eta=eta,
+        activity_fields=activity_fields, activity_join=activity_join,
         project_prefix=project_prefix, project_number=project_number, record_kind=record_kind,
         dri=f"CASE WHEN {record_kind} = 'knowledge' THEN '' ELSE tasks.dri END",
         record_scope="" if include_knowledge else f" AND {record_kind} = 'work'",
