@@ -340,8 +340,16 @@ export default function App({ previewNotice, tourSteps } = {}) {
       { route: fragment, target: 'reports', title: 'Reports', text: 'See who owns the current work, what needs a decision, and what was completed.' },
       { route: taskRoute, target: 'board', title: 'Tasks', text: 'Open a ticket to see its owner, current state, and next step.' },
       { route: 'activity', target: 'activity', title: 'Activity', text: 'See who reported progress, asked for help, or recorded an outcome, and when.' },
-      ...(verified ? [{ route: 'knowledge', target: 'knowledge', title: 'Knowledge',
-        text: 'Find shared decisions and notes, with links back to the work they came from.' }] : []),
+      { route: allReports ? 'stats' : `stats?project=${reportsProject}`, target: 'stats', title: 'Stats',
+        text: 'Change the time period to see ticket activity over an hour, day, or week.' },
+      ...(verified ? [
+        { route: 'knowledge', target: 'knowledge', title: 'Knowledge',
+          text: 'Find shared decisions and notes, with links back to the work they came from.' },
+        { route: 'notifications-needs-me', target: 'notifications', title: 'Notifications',
+          text: 'Open Needs me to find decisions and reviews waiting for you.' },
+      ] : []),
+      { route: integrationsHref.slice(1), target: 'integrations', title: 'Integrations',
+        text: 'Choose how you want to work with an agent and copy the matching setup prompt.' },
     ])
   }
   function closeTour() {
