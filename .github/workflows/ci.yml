@@ -36,7 +36,7 @@ jobs:
 
       - name: Install the locked dependencies
         run: |
-          uv sync --locked --extra websocket --group lint
+          uv sync --locked --extra websocket --extra webpush --group lint
           npm --prefix web ci --no-audit --no-fund
 
       - name: Build the web app
@@ -116,8 +116,8 @@ jobs:
           python-version: '3.14.10'
           enable-cache: false
 
-      - name: Install the locked PostgreSQL driver
-        run: uv sync --locked --extra postgres
+      - name: Install the locked PostgreSQL and Web Push dependencies
+        run: uv sync --locked --extra postgres --extra webpush
 
       - name: Replay notification preferences on both engines
         env:

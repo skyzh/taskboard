@@ -750,12 +750,22 @@ class TasksServiceTest(unittest.TestCase):
         from base64 import urlsafe_b64encode
         from time import time
         from tasks_browser_push import Configuration, Delivery
+        try:
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric import ec
+        except ImportError:
+            self.skipTest("Install the webpush extra to test browser push.")
 
         delivered = []
+        attempted = []
         statuses = {}
+        fail_first = False
 
         def send(row, ttl):
             self.assertTrue(0 < ttl <= 300)
+            attempted.append(row["endpoint"])
+            if fail_first and len(attempted) == 1:
+                raise ValueError("Fictional device encryption failure.")
             delivered.append((row["endpoint"], row["enrollment"]))
             return statuses.get(row["endpoint"], 201)
 
@@ -767,7 +777,10 @@ class TasksServiceTest(unittest.TestCase):
         quinn, quinn_id = self.login(app, "Quinn")
         settings = "/api/v1/notifications/browser-push"
         headers = {"Origin": ORIGIN}
-        keys = {"p256dh": urlsafe_b64encode(b"\x04" + bytes(64)).decode(),
+        device_key = ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(
+            serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint,
+        )
+        keys = {"p256dh": urlsafe_b64encode(device_key).decode(),
                 "auth": urlsafe_b64encode(bytes(16)).decode()}
         first_endpoint = "https://fcm.googleapis.com/fcm/send/fictional-first"
         second_endpoint = "https://updates.push.services.mozilla.com/wpush/v2/fictional-second"
@@ -782,6 +795,9 @@ class TasksServiceTest(unittest.TestCase):
         self.call(sam, settings, method="PUT", status=403, json={"endpoint": first_endpoint, "keys": keys})
         self.call(sam, settings, method="PUT", headers=headers, status=400,
                   json={"endpoint": "https://fcm.googleapis.com.example.test/path", "keys": keys})
+        invalid_keys = {**keys, "p256dh": urlsafe_b64encode(b"\x04" + bytes(64)).decode()}
+        self.call(sam, settings, method="PUT", headers=headers, status=400,
+                  json={"endpoint": first_endpoint, "keys": invalid_keys})
         self.assertIsNone(self.call(sam, settings).json["enrollment"])
         first_enrollment = enroll(sam, first_endpoint)
         second_enrollment = enroll(second, second_endpoint, expirationTime=int(time() * 1000) + 300_000)
@@ -813,6 +829,16 @@ class TasksServiceTest(unittest.TestCase):
             first = attention("fictional-original")
             self.assertEqual(attention("fictional-original"), first)
             self.assertCountEqual(delivered, [(first_endpoint, first_enrollment), (second_endpoint, second_enrollment)])
+
+            delivered.clear()
+            attempted.clear()
+            fail_first = True
+            with self.assertLogs(app.logger, level="WARNING"):
+                attention("fictional-isolated-failure")
+            fail_first = False
+            self.assertCountEqual(attempted, [first_endpoint, second_endpoint])
+            enrollments = {first_endpoint: first_enrollment, second_endpoint: second_enrollment}
+            self.assertEqual(delivered, [(attempted[1], enrollments[attempted[1]])])
 
             delivered.clear()
             with patch("tasks_browser_push.time", return_value=time() + 301):

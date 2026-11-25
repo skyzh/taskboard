@@ -41,6 +41,8 @@ def decode_key(value, length):
 
 
 def subscription(data):
+    from cryptography.hazmat.primitives.asymmetric import ec
+
     endpoint = data.get("endpoint")
     if not isinstance(endpoint, str) or len(endpoint) > 2048 or not endpoint.isascii():
         raise ValueError("Use a supported browser push endpoint.")
@@ -51,8 +53,10 @@ def subscription(data):
     keys = data.get("keys")
     if not isinstance(keys, dict) or set(keys) != {"p256dh", "auth"}:
         raise ValueError("Include the browser push keys.")
-    if decode_key(keys["p256dh"], 65)[0] != 4:
-        raise ValueError("Invalid Web Push public key.")
+    try:
+        ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), decode_key(keys["p256dh"], 65))
+    except ValueError:
+        raise ValueError("Invalid Web Push public key.") from None
     decode_key(keys["auth"], 16)
     expiry = data.get("expirationTime")
     if expiry is not None and (type(expiry) is not int or not time() * 1000 < expiry <= 2**53 - 1):
@@ -212,6 +216,13 @@ class Delivery:
                 INSERT INTO browser_push_receipts (endpoint, kind, ask_id) VALUES (?, ?, ?)
                 ON CONFLICT DO NOTHING
             """, (row["endpoint"], kind, ask_id)).rowcount
-        if claimed and self.config.send(row, ttl) in (404, 410):
+        if not claimed:
+            return
+        try:
+            status = self.config.send(row, ttl)
+        except Exception:
+            self.app.logger.warning("Could not prepare a push for one browser.")
+            return
+        if status in (404, 410):
             with tasks_storage.write(db):
                 remove_enrollment(db, row["enrollment"])
