@@ -1838,7 +1838,7 @@ def create_app(
     def index(page=None):
         if marketplace and raft.identity() is None:
             login = f"{base}/auth/login"
-            if page is not None:
+            if page is not None or request.query_string:
                 target = quote(request.path, safe="/:") + (
                     "?" + request.query_string.decode("latin-1") if request.query_string else ""
                 )

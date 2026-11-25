@@ -4,8 +4,10 @@ from tools.checkout import ROOT
 
 from contextlib import closing
 from hashlib import sha256
+from html import unescape
 import json
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import sys
@@ -86,8 +88,8 @@ class MarketplaceTest(unittest.TestCase):
     def agent(self, client, code):
         return self.request(client, "/auth/callback", query_string={"code": code})
 
-    def browser(self, client, code):
-        login = self.request(client, "/auth/login")
+    def browser(self, client, code, *, login_route="/auth/login"):
+        login = self.request(client, login_route)
         params = parse_qs(urlsplit(login.location).query)
         self.assertEqual(params["redirect_uri"], [ORIGIN + MOUNT + "/auth/callback"])
         self.assertEqual(params["code_challenge_method"], ["S256"])
@@ -154,6 +156,23 @@ class MarketplaceTest(unittest.TestCase):
         self.assertEqual(self.add(human, "Disallowed action").status_code, 403)
         self.provider.installed.remove(SERVER_A)
         self.assertEqual(self.request(human, "/api/v1/overview").status_code, 401)
+
+    def test_marketplace_landing_sign_in_restores_the_root_query(self):
+        human = self.app.test_client()
+        route = "/?project=OPS&view=watching"
+        with self.request(human, route) as landing:
+            self.assertEqual(landing.status_code, 200)
+            link = re.search(r"<a href='([^']+)'>Sign in with Raft</a>", landing.get_data(as_text=True))
+        self.assertIsNotNone(link)
+        login = urlsplit(unescape(link[1]))
+        self.assertEqual(f"{login.scheme}://{login.netloc}{login.path}", ORIGIN + MOUNT + "/auth/login")
+
+        login_route = login.path.removeprefix(MOUNT) + "?" + login.query
+        callback = self.browser(human, "human-a", login_route=login_route)
+        self.assertEqual((callback.status_code, callback.location), (302, ORIGIN + MOUNT + route))
+        with self.request(human, route) as board:
+            self.assertEqual(board.status_code, 200)
+            self.assertIn(b"Signed-in fixture", board.data)
 
     def test_decision_receipt_reads_only_the_session_tenant_after_restart(self):
         owner, recipient, other = (self.app.test_client() for _ in range(3))
