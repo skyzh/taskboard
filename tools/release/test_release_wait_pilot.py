@@ -12,6 +12,7 @@ add_tests()
 
 from publish_receipt import activity_event, publish_outcome, release_event
 from raft_auth import Identity
+from release_plan import write_json
 from taskboard_cli.ready_checkpoint import checkpoint
 from taskboard_server.ready_wake import WakeRecipient, launch_ready_wake
 import tasks_core as ledger
@@ -166,9 +167,24 @@ class ReleaseWaitPilotTest(unittest.TestCase):
         self.assertEqual(self.deliver(transport, healthy=False), "unverified_mount")
         self.assertEqual(self.ticket()["state"], "waiting")
         self.assertEqual(offers, [])
-        self.assertEqual(self.deliver(transport), "unknown")
-        self.assertEqual(self.deliver(transport), "accepted")
-        self.assertEqual(self.deliver(transport), "already_accepted")
+        saved = self.database.with_name("release-outbox.json")
+        ack = self.database.with_name("release-ack.json")
+        write_json(saved, {"schema": "taskboard-release-pilot/v1", "result": self.delivery()})
+        original = saved.read_bytes()
+
+        def deliver_saved():
+            envelope = json.loads(saved.read_text(encoding="utf-8"))
+            return apply_fixture_receipt(self.operator, self.database, self.wait,
+                                         envelope["result"], self.recipient, transport)
+
+        self.assertEqual(deliver_saved(), "unknown")
+        self.assertFalse(ack.exists())
+        self.assertEqual(deliver_saved(), "accepted")
+        write_json(ack, {"release_id": self.delivery()["release_id"], "event_id": self.ticket()["event_id"]})
+        self.assertEqual(deliver_saved(), "already_accepted")
+        self.assertEqual(saved.read_bytes(), original)
+        for path in (saved, ack):
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.deliver(transport, release_id="different-release"), "stale")
         self.assertEqual(len(offers), 2)
         self.assertEqual(offers[0], offers[1])
