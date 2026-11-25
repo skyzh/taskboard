@@ -79,8 +79,9 @@ def create(db, actor, project, title, brief):
 
 
 def is_maintained(db, task):
+    state = task["display_state"] if "display_state" in task.keys() else task["state"]
     return ledger.is_knowledge(task) or (
-        task["display_state"] == "done" and DECISION_TAG in ledger.task_tags(db, task["id"])
+        state == "done" and DECISION_TAG in ledger.task_tags(db, task["id"])
     )
 
 

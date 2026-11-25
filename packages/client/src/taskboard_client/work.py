@@ -23,6 +23,7 @@ STATES = {
     "done": "Done",
     "closed": "Closed",
 }
+PROJECT_WRITER_TRANSITIONS = ("start", "update", "wait", "resume", "done", "park", "remind", "unpark")
 
 
 PEER_ASK = "peer-ask"

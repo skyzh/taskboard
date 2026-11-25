@@ -261,7 +261,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         tools = {tool.name: tool for tool in (await owner.list_tools()).tools}
         self.assertEqual(set(tools), {
             "taskboard_context", "taskboard_queue", "taskboard_reviews", "taskboard_ticket",
-            "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_create_project",
+            "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_reopen", "taskboard_create_project",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
             "taskboard_projects", "taskboard_field_guidance",
         })
@@ -314,6 +314,19 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(details["task"]["state"], "done")
         self.assertIn("T-2 · Done", cli_success(python, ROOT, environment, "show", "T-2"))
         self.assertEqual((await value(owner, "taskboard_ticket", ticket="COURSE-1"))["task"]["state"], "ready")
+
+        reopen = {"ticket": "T-2", "reason": "Check the corrected fixture."}
+        warning = await reviewer.call_tool("taskboard_reopen", reopen)
+        self.assertTrue(warning.is_error)
+        self.assertIn("force_reason", warning.content[0].text)
+        peer_reason = "The expected fixture was corrected."
+        reopened = await value(reviewer, "taskboard_reopen", **reopen, force=True, force_reason=peer_reason)
+        self.assertEqual(reopened["receipt"], "T-2 · Reopened")
+        task = (await value(owner, "taskboard_ticket", ticket="T-2"))["task"]
+        self.assertEqual((task["state"], task["dri"]), ("ready", details["task"]["dri"]))
+        event, = io_action(origin, "task-activity", cookie=cookie, query={"id": "T-2", "limit": 1})["items"]
+        self.assertEqual(event["actor"], blake["id"])
+        self.assertEqual(event["context"]["transition_override"]["reason"], peer_reason)
 
 
 if __name__ == "__main__":

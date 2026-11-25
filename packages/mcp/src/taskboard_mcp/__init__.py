@@ -95,14 +95,15 @@ def build_server(board: SharedBoard) -> MCPServer:
         params = {"project": project, "limit": limit, "before": before}
         return board.invoke("my-reviews", {key: value for key, value in params.items() if value is not None})
 
-    def advance(ticket: str, transition: str, note: str, details: str | None = None) -> dict[str, Any]:
-        data = {"id": ticket, "transition": transition, "note": note}
-        if details is not None:
-            data["details"] = details
-        return board.invoke("advance-task", data, write=True)
+    def advance(
+        ticket: str, transition: str, note: str, details: str | None = None,
+        *, force: bool = False, force_reason: str | None = None,
+    ) -> dict[str, Any]:
+        return ticket_write("advance-task", id=ticket, transition=transition, note=note, details=details,
+                            force=force or None, force_reason=force_reason)
 
-    def ticket_write(action: str, **fields: Any) -> dict[str, Any]:
-        return board.invoke(action, {key: value for key, value in fields.items() if value is not None}, write=True)
+    def ticket_write(operation: str, **fields: Any) -> dict[str, Any]:
+        return board.invoke(operation, {key: value for key, value in fields.items() if value is not None}, write=True)
 
     @server.tool(annotations=write)
     def taskboard_create_ticket(
@@ -151,19 +152,34 @@ def build_server(board: SharedBoard) -> MCPServer:
         server.tool(annotations=ToolAnnotations(idempotent_hint=True))(taskboard_create_project)
 
     @server.tool(annotations=write)
-    def taskboard_start(ticket: Ticket, note: Note) -> dict[str, Any]:
-        """Start an owned Ready ticket with the step you are taking."""
-        return advance(ticket, "start", note)
+    def taskboard_start(
+        ticket: Ticket, note: Note, force: bool = False, force_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Start a Ready ticket. If Taskboard asks for confirmation, retry with force and a reason."""
+        return advance(ticket, "start", note, force=force, force_reason=force_reason)
 
     @server.tool(annotations=write)
-    def taskboard_update(ticket: Ticket, note: Note) -> dict[str, Any]:
-        """Record progress on an owned in-progress ticket. Use the shared CLI update command for ETA or checklist changes."""
-        return advance(ticket, "update", note)
+    def taskboard_update(
+        ticket: Ticket, note: Note, force: bool = False, force_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Record progress. Use the shared CLI update command for ETA or checklist changes."""
+        return advance(ticket, "update", note, force=force, force_reason=force_reason)
 
     @server.tool(annotations=write)
-    def taskboard_done(ticket: Ticket, note: Note, details: Details | None = None) -> dict[str, Any]:
-        """Complete an owned in-progress ticket and record the outcome."""
-        return advance(ticket, "done", note, details)
+    def taskboard_done(
+        ticket: Ticket, note: Note, details: Details | None = None,
+        force: bool = False, force_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Complete an in-progress ticket and record the outcome."""
+        return advance(ticket, "done", note, details, force=force, force_reason=force_reason)
+
+    @server.tool(annotations=write)
+    def taskboard_reopen(
+        ticket: Ticket, reason: str, force: bool = False, force_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Reopen a completed or closed ticket and retain its owner."""
+        return ticket_write("change-ownership", id=ticket, action="reopen", reason=reason,
+                            force=force or None, force_reason=force_reason)
 
     return server
 

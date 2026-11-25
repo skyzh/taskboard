@@ -15,6 +15,10 @@ _PROJECT = {"project": "Optional Tasks project prefix, such as T or COURSE."}
 _SCOPE = {"scope": "Use all to read across projects. Omit scope and project for the legacy T queue."}
 _PAGINATION = {"before": "Cursor from the previous page.", "limit": "Maximum records to return."}
 _EVIDENCE = {"url": "HTTP(S) evidence link.", "label": "Display label for the evidence link."}
+_TRANSITION_OVERRIDE = {
+    "force": "Use true when retrying a project-writer transition that requires confirmation.",
+    "force_reason": "Reason to record for the explicit override. Supply with force=true.",
+}
 _NOTE = "Activity or decision to record."
 _DETAILS = "Optional handoff details. Send an empty string for a headline alone. With this field, note is a one-line headline."
 CODEX_SNAPSHOT_ACTION = "install-codex-snapshot"
@@ -114,7 +118,7 @@ _ACTIONS = {
     "task-activity": _Action("GET", "Read a task's activity and evidence links.", _TASK, _PAGINATION),
     "confirm-blocker": _Action("POST", "Record proof that a current trigger was satisfied and return the ticket to Ready.", {
         **_TASK, "wait_event": "Event ID of the current recorded wait.", "note": "Verified outcome of that trigger.",
-    }, _EVIDENCE),
+    }, {**_EVIDENCE, **_TRANSITION_OVERRIDE}),
     "assignees": _Action("GET", "Find board assignees and their stable IDs.", optional={
         "query": "Search by name or handle.", **_PROJECT, **_PAGINATION,
     }),
@@ -168,7 +172,7 @@ _ACTIONS = {
         "state": "Use active or paused.",
         "members": "Optional roster of exact ledger keys as a JSON array. Use an empty array to clear it.",
     }),
-    "advance-task": _Action("POST", "Advance a task you own or record its next step.", {
+    "advance-task": _Action("POST", "Advance ordinary work in a project where you can write.", {
         **_TASK, "transition": "Task transition, such as start, update, wait, resume, or done.", "note": _NOTE,
     }, {
         "on": "Exact decision recipient ID or wait dependency. A new Local DRI decision defaults to its creator.",
@@ -189,7 +193,7 @@ _ACTIONS = {
         "clear_eta": "Use true with update to clear the estimated completion time.",
         "reason": "Reason for the transition when it requires one.",
         "details": "Handoff details for wait or done. With this field, note is a one-line headline.",
-        **_EVIDENCE,
+        **_EVIDENCE, **_TRANSITION_OVERRIDE,
     }),
     "peer-ask": _Action("POST", "Manage an actionable peer request as a linked ticket.", {
         **_TASK, "transition": "Choose create, result, acknowledge, cancel, or correct-result. "
@@ -210,12 +214,13 @@ _ACTIONS = {
         "owner_name": "New owner's exact handle or display name. Supply this or owner.",
         **_EVIDENCE,
     }),
-    "change-ownership": _Action("POST", "Clear, change, or reopen an assignment as the project manager.", {
+    "change-ownership": _Action("POST", "Reopen an ordinary ticket or manage its assignment.", {
         **_TASK, "action": "Choose unassign, reassign, or reopen.", "reason": "Reason for the change.",
-    }, {"owner": "New owner's stable ID for reassign or reopen.", **_EVIDENCE}),
-    "close-task": _Action("POST", "Close unfinished work as its owner or project manager.", {
+    }, {"owner": "New owner's stable ID for reassign or manager reassignment during reopen. Omit to keep the owner.",
+        **_EVIDENCE, **_TRANSITION_OVERRIDE}),
+    "close-task": _Action("POST", "Close unfinished work in a project where you can write.", {
         **_TASK, "reason": "Short reason for closing the task.",
-    }, {"related": "Optional related ticket, such as the duplicate or successor.", **_EVIDENCE}),
+    }, {"related": "Optional related ticket, such as the duplicate or successor.", **_EVIDENCE, **_TRANSITION_OVERRIDE}),
     "set-ticket-field": _Action("POST", "Record a configured ticket field with ticket-linked evidence.", {
         **_TASK, "field": "A configured field key from field-guidance.",
         "method": "measured, estimated, or unknown.", "basis": "Source or estimation basis.",

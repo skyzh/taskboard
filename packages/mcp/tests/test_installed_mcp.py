@@ -14,7 +14,7 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
         tools = {tool.name: tool for tool in await server.list_tools()}
         self.assertEqual(set(tools), {
             "taskboard_context", "taskboard_queue", "taskboard_ticket", "taskboard_reviews",
-            "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_create_project",
+            "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_reopen", "taskboard_create_project",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
             "taskboard_projects", "taskboard_field_guidance",
         })

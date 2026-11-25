@@ -35,6 +35,7 @@ export async function request(path, { signal, cache, body, method = body ? 'POST
       const message = data?.message || data?.error
       const error = new Error(typeof message === 'string' ? message : `Request failed (${response.status}).`)
       error.status = response.status
+      if (typeof data?.code === 'string') error.code = data.code
       throw error
     }
     if (response.status !== 204 && data === null) throw new Error('The server returned an invalid response.')

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from taskboard_client import references as projects
 from taskboard_client.work import (
-    CHECKLIST_EDITS, PEER_ASK, PEER_ASK_TRANSITIONS, PRIORITIES, PROVIDERS, READ, STATES, STRUCTURED_ACTIVITY,
+    CHECKLIST_EDITS, PEER_ASK, PEER_ASK_TRANSITIONS, PRIORITIES, PROJECT_WRITER_TRANSITIONS, PROVIDERS, READ, STATES, STRUCTURED_ACTIVITY,
     WORKER_WRITES, WRITE, nonblank, recurrence_id,
 )
 
@@ -25,6 +25,11 @@ def add_maintenance_options(parser, *, setup=False):
                         help="Exact ledger key in the project's maintenance roster. Repeat for multiple members.")
     if not setup:
         parser.add_argument("--clear-members", action="store_true", help="Stop checking owners against a roster.")
+
+
+def add_transition_override(parser):
+    parser.add_argument("--force", action="store_true", help="Confirm a shared project-writer transition after a warning.")
+    parser.add_argument("--force-reason", type=nonblank, help="Reason to record with the explicit override.")
 
 
 def task_id(value):
@@ -110,6 +115,7 @@ def arguments(argv=None):
                          help="Show the parked task on this Pacific date.")
     options.add_argument("--clear", action="store_true", help="Clear the reminder from a parked task.")
     reminder.add_argument("--by", type=nonblank)
+    add_transition_override(reminder)
     reminder.set_defaults(note="Update the task reminder.")
 
     actions = {
@@ -142,6 +148,8 @@ def arguments(argv=None):
         command.add_argument("note", type=nonblank, metavar=note_labels.get(action, "note"),
                              help=note_formats.get(action))
         command.add_argument("--by", type=nonblank)
+        if action in PROJECT_WRITER_TRANSITIONS or action == "close":
+            add_transition_override(command)
         if action in STRUCTURED_ACTIVITY:
             add_details_flag(command)
         if action == "close":
@@ -217,14 +225,17 @@ def arguments(argv=None):
     for action, description in (
         ("unassign", "Clear the owner of an open task as its project manager."),
         ("reassign", "Give an open task to a new owner as its project manager."),
-        ("reopen", "Return a completed task to Ready with an owner as its project manager."),
+        ("reopen", "Return a completed or closed ticket to Ready and keep its owner."),
     ):
         command = commands.add_parser(action, help=description)
         command.add_argument("id", type=task_id)
         command.add_argument("note", type=nonblank, metavar="REASON")
         command.add_argument("--by", type=nonblank)
         if action != "unassign":
-            command.add_argument("--dri", required=True, type=nonblank, help="New accountable owner.")
+            command.add_argument("--dri", required=action == "reassign", type=nonblank,
+                                 help="New accountable owner. Only a project manager can change ownership on reopen.")
+        if action == "reopen":
+            add_transition_override(command)
         add_link_flag(command)
 
     log = commands.add_parser("log", help="Record contributor activity and keep the current step and status.",
@@ -239,6 +250,7 @@ def arguments(argv=None):
     confirm.add_argument("id", type=task_id)
     confirm.add_argument("wait_event", type=int, help="Activity event ID for the current wait.")
     confirm.add_argument("note", type=nonblank, help="The verified outcome.")
+    add_transition_override(confirm)
     add_link_flag(confirm)
 
     edit = commands.add_parser("edit", help="Correct an owned or managed ticket’s title or brief.",

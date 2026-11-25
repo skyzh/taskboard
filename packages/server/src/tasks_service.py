@@ -70,9 +70,10 @@ TIME_ZONE_NAMES = available_timezones() - {"localtime"}
 LOCAL_ADDRESS = "127.0.0.1"
 PORTAL_TOKEN_HEADER = "HTTP_X_PORTAL_UPSTREAM_TOKEN"
 ADVANCES = frozenset({
-    "start", "update", "wait", "resume", "park", "remind", "unpark", "done",
+    *ledger.PROJECT_WRITER_TRANSITIONS,
     "assign-human", "redirect-decision", "withdraw-decision",
 })
+TRANSITION_OVERRIDE_FIELDS = {"force", "force_reason"}
 WORKER_TRANSITIONS = frozenset({"start", "report", "collect", "stop"})
 INTAKE_ERRORS = """
     CREATE TABLE IF NOT EXISTS intake_errors (
@@ -757,6 +758,10 @@ def create_app(
     def invalid(error):
         return jsonify(error=str(error)), error.status
 
+    @app.errorhandler(ledger.TransitionConfirmationRequired)
+    def transition_warning(error):
+        return jsonify(error=str(error), code="TRANSITION_CONFIRMATION_REQUIRED"), 409
+
     @app.errorhandler(RequestEntityTooLarge)
     def large_request(_error):
         return jsonify(error="This request is too large."), 413
@@ -1428,6 +1433,7 @@ def create_app(
         allowed = key is not None and projects.manages(db(), project, key)
         is_note = ledger.is_knowledge(task)
         editable = allowed or (not is_note and key is not None and task["dri"] == key)
+        owns = key is not None and key == task["dri"]
         details_editable = can_edit_shared_content(db(), actor, task, project)
         if key is not None and not is_note and (fields := ticket_fields.definitions(db(), project)):
             configured = ticket_fields.detail(db(), number, project, fields, result["workers"], editable=details_editable)
@@ -1435,7 +1441,9 @@ def create_app(
                 if "links" in field:
                     field["links"] = query().links(field["links"], event_id=field["event_id"])
             result["ticket_fields"] = configured
-        may_close = editable and not is_note
+        ordinary = not (is_note or result["goal"] or task.get("peer_request"))
+        collaborator = ordinary and can_collaborate_on_transition(db(), actor, task)
+        may_close = (editable or collaborator) and not is_note
         if ask := task.get("peer_request"):
             may_close = key is not None and (key == ask["requester"] or allowed)
         labels = ledger.task_tags(db(), task["id"])
@@ -1449,9 +1457,17 @@ def create_app(
         ):
             if destinations := move_destinations(db(), task, key, project):
                 result["move_destinations"] = destinations
+        ownership = ledger.ownership_actions(task) if allowed and ordinary else []
+        if collaborator and task["state"] == "done":
+            ownership = ["reopen"]
+        transition_actions = [
+            step for step in ledger.PROJECT_WRITER_TRANSITIONS
+            if step not in ("park", "remind") and task["state"] in ledger.TRANSITIONS[step][0]
+        ] if ordinary and task["dri"] and (owns or collaborator) else []
         return {
-            **result, "ownership_actions": ledger.ownership_actions(task)
-            if allowed and not (is_note or ask or result["goal"]) else [],
+            **result, "ownership_actions": ownership,
+            "can_assign_on_reopen": allowed,
+            "transition_actions": transition_actions,
             "tag_editable": details_editable,
             "can_tag_decision_record": not is_note and editable,
             "can_edit_checklist": not is_note and editable,
@@ -1459,10 +1475,11 @@ def create_app(
             "can_close": not is_note and may_close and task["state"] != "done",
             "can_edit_details": details_editable,
             "can_edit_parking": (
-                not is_note and key is not None and key == task["dri"] and not result["goal"]
+                not is_note and bool(task["dri"]) and (owns or collaborator) and not result["goal"]
                 and task["state"] in ledger.TRANSITIONS["park"][0]
             ),
-            "can_confirm_blocker": not is_note and editable and has_verifiable_blocker(task["state"], task["context"]),
+            "can_confirm_blocker": not is_note and (editable or collaborator)
+            and has_verifiable_blocker(task["state"], task["context"]),
         }
 
     def has_verifiable_blocker(state, context):
@@ -1470,11 +1487,12 @@ def create_app(
             "blocked_by" in context or context.get("wait_kind") == "automation"
         )
 
-    def confirm_blocker(actor, number, wait_event, note, links):
+    def confirm_blocker(actor, number, wait_event, note, links, force_reason=None):
         key = actor["ledger_key"]
         with tasks_storage.write(db()) as connection:
             task = ledger.get_task(connection, number)
-            if task["dri"] != key and not projects.manages(connection, projects.row_project(task), key):
+            authorized = task["dri"] == key or projects.manages(connection, projects.row_project(task), key)
+            if not authorized and not can_collaborate_on_transition(connection, actor, task):
                 raise RequestError("Only the ticket owner or project manager can confirm its blocker.", 403)
             context = ledger.event_context(task)
             if not has_verifiable_blocker(task["state"], context) or task["event_id"] != wait_event:
@@ -1488,9 +1506,12 @@ def create_app(
                 links = [("Completed blocker", f"{base}/#task-{anchor}"), *links]
             elif not links:
                 raise RequestError("Include a link to the verified automation result.")
+            override = {} if authorized or not task["dri"] else ledger.transition_override(
+                task, "confirm-blocker", force_reason,
+            )
             event = ledger.record(
                 connection, number, "resume", key, "ready", note, None, links,
-                {"confirmed_blocker_event": wait_event},
+                {"confirmed_blocker_event": wait_event, **override},
             )
             ledger.bump_revision(connection)
         return {"receipt": f"{projects.row_reference(task)} · Blocker confirmed", "event_id": event}
@@ -1545,8 +1566,24 @@ def create_app(
             result["receipt"] = f"W-{run_id} · Worker wake checkpoint saved"
         return result
 
+    def transition_force_reason(data):
+        force = str(data.get("force", False)).lower()
+        if force not in ("true", "false"):
+            raise RequestError("force must be true or false.")
+        reason = text(data, "force_reason", optional=True)
+        if force == "true" and reason is None:
+            raise RequestError("Provide a reason with force=true.")
+        if force == "false" and "force_reason" in data:
+            raise RequestError("Use force=true when supplying a force reason.")
+        return reason
+
     def mutate(command, actor, data, **fields):
         args = Namespace(command=command, by=actor["ledger_key"], **fields)
+        if command in (*ledger.PROJECT_WRITER_TRANSITIONS, "close", "reopen"):
+            args.force_reason = transition_force_reason(data)
+            args.can_transition = lambda connection, task: can_collaborate_on_transition(connection, actor, task)
+        elif TRANSITION_OVERRIDE_FIELDS & data.keys():
+            raise RequestError("This action does not take a transition override.")
         if command in ("edit", "tag", "checklist", "link-reference"):
             args.can_edit_content = lambda connection, task: can_edit_shared_content(
                 connection, actor, task, projects.row_project(task),
@@ -1561,7 +1598,7 @@ def create_app(
         links = one_link(data)
         try:
             receipt = ledger.save_task(db(), database_path(), args, links)
-        except RequestError:
+        except (RequestError, ledger.TransitionConfirmationRequired):
             raise
         except PermissionError as error:
             raise RequestError(str(error), 403) from error
@@ -1610,9 +1647,10 @@ def create_app(
         task = ledger.find_task(db(), number)
         if task is None:
             raise NotFound()
-        if not projects.manages(db(), projects.row_project(task), actor["ledger_key"]):
-            raise RequestError("Only this project's manager can change task ownership.", 403)
         action = text(data, "action", maximum=20)
+        manager = projects.manages(db(), projects.row_project(task), actor["ledger_key"])
+        if not manager and not (action == "reopen" and can_collaborate_on_transition(db(), actor, task)):
+            raise RequestError("Only this project's manager can change task ownership.", 403)
         if action not in ledger.OWNERSHIP_ACTIONS:
             raise RequestError("Choose unassign, reassign, or reopen.")
         reason = text(data, "reason")
@@ -1620,8 +1658,12 @@ def create_app(
             if "owner" in data:
                 raise RequestError("Omit owner when clearing an assignment.")
             owner = None
+        elif action == "reassign" or "owner" in data:
+            if not manager and data["owner"] != task["dri"]:
+                raise RequestError("Only this project's manager can choose a different owner when reopening.", 403)
+            owner = None if not manager else require_person(text(data, "owner", maximum=160), task_id=number)
         else:
-            owner = require_person(text(data, "owner", maximum=160), task_id=number)
+            owner = None
         return mutate(action, actor, data, id=number, note=reason, dri=owner)
 
     def close_ticket(actor, number, data):
@@ -1883,6 +1925,16 @@ def create_app(
     def can_collaborate_on_ticket(connection, actor, task, project):
         return (project_writer(actor, project) and not ledger.is_knowledge(task)
                 and not ledger.task_goal_kind(connection, task["id"]))
+
+    def can_collaborate_on_transition(connection, actor, task):
+        project = projects.row_project(task) if "project_prefix" in task.keys() else projects.identifier(task["key"])[0]
+        require_local_project(project)
+        if not can_collaborate_on_ticket(connection, actor, task, project) or knowledge_records.is_maintained(connection, task):
+            return False
+        context = task["context"] if isinstance(task["context"], dict) else ledger.event_context(task)
+        peer_wait = task["state"] == "waiting" and (context.get("peer_ask_ticket") or context.get("named_peer_wait"))
+        return (task["state"] != "human_review" and not peer_wait
+                and not peer_asks.find(connection, task["id"]))
 
     def project_admin_access(connection, actor):
         return g.get("personal_agent_api") != "tailnet" and project_admin.allowed(connection, actor, project_admin_subject)
@@ -2365,22 +2417,34 @@ def create_app(
     @app.post("/api/v1/tasks/<number>/ownership")
     def task_ownership(number):
         actor = current_actor(write=True)
-        data = json_body({"action", "owner", "reason"})
+        data = json_body({"action", "owner", "reason", *TRANSITION_OVERRIDE_FIELDS})
         return change_ownership(actor, task_number(number), data)
+
+    @app.post("/api/v1/tasks/<number>/transition")
+    def task_transition(number):
+        actor = current_actor(write=True, required=True)
+        data = json_body({
+            "transition", "note", "on", "blocked_by", "automation", "attention_request_id", "details",
+            "steps", "started", "checked", "eta", "clear_eta", "review_after", "defer_until",
+            "review_on", "review_criteria", "feature_deferred", "label", "url", *TRANSITION_OVERRIDE_FIELDS,
+        })
+        if text(data, "transition", maximum=30) not in ledger.PROJECT_WRITER_TRANSITIONS:
+            raise RequestError("Choose an ordinary task transition.")
+        return advance(actor, data, task_number(number))
 
     @app.post("/api/v1/tasks/<number>/closure")
     def task_closure(number):
         actor = current_actor(write=True)
-        data = json_body({"reason", "related"})
+        data = json_body({"reason", "related", *TRANSITION_OVERRIDE_FIELDS})
         return close_ticket(actor, task_number(number), data)
 
     @app.post("/api/v1/tasks/<number>/confirm-blocker")
     def task_confirm_blocker(number):
         actor = current_actor(write=True)
-        data = json_body({"wait_event", "note", "label", "url"})
+        data = json_body({"wait_event", "note", "label", "url", *TRANSITION_OVERRIDE_FIELDS})
         return confirm_blocker(
             actor, task_number(number), integer(data.get("wait_event"), "wait_event"),
-            text(data, "note"), one_link(data),
+            text(data, "note"), one_link(data), transition_force_reason(data),
         )
 
     @app.post("/api/v1/tasks/<number>/details")
@@ -2429,14 +2493,15 @@ def create_app(
     @app.put("/api/v1/tasks/<number>/reminder")
     def task_reminder(number):
         actor = current_actor(write=True)
-        data = json_body({"date", "at", "time_zone"})
-        if set(data) == {"at", "time_zone"}:
+        data = json_body({"date", "at", "time_zone", *TRANSITION_OVERRIDE_FIELDS})
+        fields = data.keys() - TRANSITION_OVERRIDE_FIELDS
+        if fields == {"at", "time_zone"}:
             day, instant = None, local_defer_time(data)
-        elif set(data) == {"date"}:
+        elif fields == {"date"}:
             day, instant = reminder_date(data), None
         else:
             raise RequestError("Provide a reminder date or a local defer time and time zone.")
-        return mutate("remind", actor, {}, id=task_number(number), note="", review_after=day, defer_until=instant)
+        return mutate("remind", actor, data, id=task_number(number), note="", review_after=day, defer_until=instant)
 
     def parking_fields(data, command):
         review_on = text(data, "review_on", optional=True, maximum=28)
@@ -2469,10 +2534,11 @@ def create_app(
     @app.post("/api/v1/tasks/<number>/parking")
     def task_parking(number):
         actor = current_actor(write=True)
-        data = json_body({"note", "review_after", "at", "time_zone", "review_on", "review_criteria"})
+        data = json_body({"note", "review_after", "at", "time_zone", "review_on", "review_criteria",
+                          *TRANSITION_OVERRIDE_FIELDS})
         if "at" in data or "time_zone" in data:
             data["defer_until"] = local_defer_time(data)
-        return mutate("park", actor, {}, id=task_number(number), note=text(data, "note"),
+        return mutate("park", actor, data, id=task_number(number), note=text(data, "note"),
                       keep_park_links=True, **parking_fields(data, "park"))
 
     @app.get("/api/v1/tasks/<number>/activity")
@@ -3712,7 +3778,7 @@ def create_app(
         if name == "confirm-blocker":
             return confirm_blocker(
                 actor, task_number(data.get("id")), integer(data.get("wait_event"), "wait_event"),
-                text(data, "note"), one_link(data),
+                text(data, "note"), one_link(data), transition_force_reason(data),
             )
         if name == "task-activity":
             number = task_number(data.get("id"))

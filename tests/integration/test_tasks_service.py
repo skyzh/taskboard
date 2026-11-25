@@ -714,9 +714,11 @@ class TasksServiceTest(unittest.TestCase):
         advance("T-1", "wait", on="Portable checks", automation="true")
         event = read(owner, "T-1")["task"]["event_id"]
         self.assertTrue(read(manager, "T-1")["can_confirm_blocker"])
-        self.assertFalse(read(other, "T-1")["can_confirm_blocker"])
+        self.assertTrue(read(other, "T-1")["can_confirm_blocker"])
         proof = {"url": "https://ci.example.test/runs/7"}
-        confirm(other, "T-1", event, status=403, **proof)
+        confirmation = confirm(other, "T-1", event, status=409, **proof)
+        self.assertEqual(confirmation["code"], "TRANSITION_CONFIRMATION_REQUIRED")
+        self.assertEqual(read(owner, "T-1")["task"]["event_id"], event)
         confirm(manager, "T-1", event, status=400)
         confirm(manager, "T-1", event - 1, status=409, **proof)
         verified = confirm(manager, "T-1", event, **proof)
@@ -5514,7 +5516,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(revised["note"], "Check the revised samples.")
         self.assertEqual(revised["links"], original["links"])
 
-    def test_task_detail_offers_ordinary_parking_only_to_eligible_owner(self):
+    def test_task_detail_offers_ordinary_parking_to_project_writers(self):
         app = self.app(portal_reader=True)
         owner, _ = self.login(app, "Avery")
         manager, manager_id = self.login(app, "Sam")
@@ -5530,9 +5532,11 @@ class TasksServiceTest(unittest.TestCase):
 
         self.assertTrue(can_park(owner))
         self.assertTrue(self.call(manager, route).json["can_edit_details"])
-        for client in (manager, other, anonymous):
-            self.assertFalse(can_park(client))
-        self.call(manager, route + "/parking", method="POST", json=data, status=409)
+        self.assertTrue(can_park(manager))
+        self.assertTrue(can_park(other))
+        self.assertFalse(can_park(anonymous))
+        confirmation = self.call(manager, route + "/parking", method="POST", json=data, status=409).json
+        self.assertEqual(confirmation["code"], "TRANSITION_CONFIRMATION_REQUIRED")
         self.call(anonymous, route + "/parking", method="POST", json=data, status=401)
 
         def advance(transition, **extra):

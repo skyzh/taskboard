@@ -253,7 +253,7 @@ def shared_write(board, args, *, context):
         action = "change-ownership"
         reference = task_ref(args.id)
         data.update(id=reference, action=command, reason=args.note)
-        if command != "unassign":
+        if command != "unassign" and args.dri is not None:
             data["owner"] = board.person(args.dri, None, reference)
     elif command == "knowledge-add":
         action = "create-knowledge"
@@ -379,6 +379,12 @@ def shared_write(board, args, *, context):
                 data.update(review_on=args.review_on, review_criteria=args.review_criteria)
                 if args.feature_deferred:
                     data["feature_deferred"] = "true"
+    force = getattr(args, "force", False)
+    force_reason = getattr(args, "force_reason", None)
+    if force or force_reason is not None:
+        if not force or not force_reason or not force_reason.strip():
+            raise ValueError("Use --force and a nonempty --force-reason together.")
+        data.update(force=True, force_reason=force_reason)
     return board.invoke(action, {key: value for key, value in data.items() if value is not None}, write=True)
 
 
