@@ -171,12 +171,13 @@ export default function App({ previewNotice, tourSteps } = {}) {
     if (tour && !tourStep) setTour(null)
   }, [tour, tourStep])
   useLayoutEffect(() => {
-    if (restoreTourFocus.current && !tour) {
-      restoreTourFocus.current = false
-      const trigger = tourTrigger.current || main.current
-      trigger?.focus({ preventScroll: true })
-    }
-  }, [tour])
+    if (!restoreTourFocus.current || tour) return
+    const current = legacyLocation(fragment)
+    if (!current || routeAddress(current) !== routeAddress(legacyLocation(tourOrigin.current))) return
+    restoreTourFocus.current = false
+    const trigger = tourTrigger.current || main.current
+    trigger?.focus({ preventScroll: true })
+  }, [fragment, tour])
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(readWelcomeBannerPreference)
   const [welcomeExpanded, setWelcomeExpanded] = useState(false)
   function chooseWelcomeBanner(show) {
