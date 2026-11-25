@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { request, useLoadedPages, useResource } from './data.js'
+import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificationLogFilters, ownerHref, profileName, signInHref, taskHref } from './shared.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import NotificationLog from './NotificationLog.jsx'
@@ -12,6 +12,7 @@ import { EventRow } from './Work.jsx'
 import { TaskWaitAge } from './WaitAge.jsx'
 import { useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
+import { projectFilters, projectHref } from './projectScope.js'
 
 function Creation({ event }) {
   const { formatTimestamp } = useTimeZone()
@@ -116,9 +117,9 @@ function InboxStandingGoals({ goals, owner }) {
   )
 }
 
-function InboxEntries({ revision, owner }) {
-  const page = useLoadedPages('/notifications/inbox', { scope: 'all', view: 'updates' }, revision)
-  const work = useResource('/notifications/work?scope=all', revision)
+function InboxEntries({ revision, owner, project }) {
+  const page = useLoadedPages('/notifications/inbox', { ...projectFilters(project), view: 'updates' }, revision)
+  const work = useResource(queryPath('/notifications/work', projectFilters(project)), revision)
   const items = page.data?.items ?? []
   const datedGoals = work.data?.dated_goals || []
   const standingGoals = work.data?.standing_goals || []
@@ -152,7 +153,7 @@ function InboxEntries({ revision, owner }) {
   )
 }
 
-function Inbox({ revision, owner }) {
+function Inbox({ revision, owner, project }) {
   const preference = useResource('/notifications/preferences', revision)
   const [saving, setSaving] = useState(false)
   const [failure, setFailure] = useState(null)
@@ -182,14 +183,14 @@ function Inbox({ revision, owner }) {
       )}
       {failure && <p role="alert" className="section-message">{failure}</p>}
       {preference.data && (
-        <InboxEntries revision={`${revision}:${preference.data.task_creations}`} owner={owner} />
+        <InboxEntries revision={`${revision}:${preference.data.task_creations}`} owner={owner} project={project} />
       )}
     </section>
   )
 }
 
-function FollowThrough({ revision }) {
-  const page = useLoadedPages('/notifications/decisions', { state: 'answered', scope: 'all' }, revision)
+function FollowThrough({ revision, project }) {
+  const page = useLoadedPages('/notifications/decisions', { state: 'answered', ...projectFilters(project) }, revision)
   if (!page.data?.items.length && !page.error) return null
   return (
     <>
@@ -210,8 +211,8 @@ function FollowThrough({ revision }) {
   )
 }
 
-function ReviewRequests({ revision }) {
-  const page = useLoadedPages('/notifications/needs-you', { scope: 'all', kind: 'review' }, revision)
+function ReviewRequests({ revision, project }) {
+  const page = useLoadedPages('/notifications/needs-you', { ...projectFilters(project), kind: 'review' }, revision)
   const reviews = page.data?.items
   if ((!page.pending && !page.error && !reviews?.length) || page.error?.status === 404) return null
   return (
@@ -236,8 +237,8 @@ function ReviewRequests({ revision }) {
   )
 }
 
-function NeedsMe({ revision, session, onChanged }) {
-  const decisions = useLoadedPages('/notifications/decisions', { scope: 'all' }, revision)
+function NeedsMe({ revision, session, onChanged, project }) {
+  const decisions = useLoadedPages('/notifications/decisions', projectFilters(project), revision)
   const [submitted, setSubmitted] = useState([])
   const current = decisions.data?.items ?? []
   const currentIds = new Set(current.map(task => task.event_id))
@@ -261,15 +262,15 @@ function NeedsMe({ revision, session, onChanged }) {
       )}
       {decisions.data && items.length === 0 && <p className="section-message">No open decision requests.</p>}
       <LoadMore page={decisions} label="open decision requests" />
-      <AttentionRequests revision={revision} onChanged={onChanged} />
-      <ReviewRequests revision={revision} />
-      <FollowThrough revision={revision} />
+      <AttentionRequests revision={revision} onChanged={onChanged} project={project} />
+      <ReviewRequests revision={revision} project={project} />
+      <FollowThrough revision={revision} project={project} />
     </section>
   )
 }
 
-function TaskReminders({ revision }) {
-  const reminders = useLoadedPages('/notifications/task-reminders', { scope: 'all' }, revision)
+function TaskReminders({ revision, project }) {
+  const reminders = useLoadedPages('/notifications/task-reminders', projectFilters(project), revision)
   const items = reminders.data?.items
   if (items?.length === 0 && !reminders.pending && !reminders.error) return null
   return (
@@ -283,36 +284,40 @@ function TaskReminders({ revision }) {
 }
 
 function PersonalNotifications({ revision, session, onChanged, fragment, project, projects }) {
-  const needsMe = fragment === 'notifications-needs-me'
+  const [route, query] = fragment.split('?', 2)
+  const needsMe = route === 'notifications-needs-me'
+  const scope = project || (new URLSearchParams(query).get('scope') === 'all' ? 'all' : undefined)
   const logFilters = notificationLogFilters(fragment)
-  const { data } = useResource('/notifications/open-count?scope=all', revision)
+  const { data } = useResource(queryPath('/notifications/open-count', projectFilters(project)), revision)
   return (
     <>
       <nav className="notification-views" aria-label="Notification views">
-        <a href="#notifications" aria-current={fragment === 'notifications' ? 'page' : undefined}>Inbox</a>
-        <a href="#notifications-needs-me" aria-current={needsMe ? 'page' : undefined}>
+        <a href={projectHref('#notifications', scope)} aria-current={route === 'notifications' ? 'page' : undefined}>Inbox</a>
+        <a href={projectHref('#notifications-needs-me', scope)} aria-current={needsMe ? 'page' : undefined}>
           Needs me{data && <span aria-live="polite"> ({data.count})</span>}
         </a>
-        <a href={logFilters ? `#${fragment}` : '#notifications-log'} aria-current={logFilters ? 'page' : undefined}>Project log</a>
+        <a href={logFilters ? `#${fragment}` : projectHref('#notifications-log', scope)} aria-current={logFilters ? 'page' : undefined}>Project log</a>
       </nav>
       {logFilters ? <NotificationLog project={project} state={logFilters.state} kind={logFilters.kind} agent={logFilters.agent}
         allProjects={logFilters.allProjects} projects={projects} revision={revision} /> : (
         <>
           {session.data?.actor?.kind === 'human' && <BrowserPush />}
-          <TaskReminders revision={revision} />
-          {needsMe ? <NeedsMe revision={revision} session={session} onChanged={onChanged} />
-            : <Inbox revision={revision} owner={session.data?.actor?.id} />}
+          <TaskReminders revision={revision} project={project} />
+          {needsMe ? <NeedsMe key={project} revision={revision} session={session} onChanged={onChanged} project={project} />
+            : <Inbox revision={revision} owner={session.data?.actor?.id} project={project} />}
         </>
       )}
     </>
   )
 }
 
-export default function Notifications({ session, verified, revision, onChanged, fragment, project, projects }) {
+export default function Notifications({ session, verified, revision, onChanged, fragment = 'notifications', project, projectPicker, projects }) {
   const sessionFailed = session.error && session.error.status !== 401
   return (
     <>
-      <div className="page-heading"><h1 id="notifications">Notifications</h1></div>
+      <div className="page-heading"><h1 id="notifications">Notifications</h1>
+        {!notificationLogFilters(fragment) && projectPicker}
+      </div>
       {(session.pending || (!verified && sessionFailed)) && <ResourceStatus resource={session} label="your session" />}
       {verified && <PersonalNotifications key={session.data?.actor?.id ?? session.data?.actor?.name}
         revision={revision} session={session} onChanged={onChanged} fragment={fragment} project={project} projects={projects} />}

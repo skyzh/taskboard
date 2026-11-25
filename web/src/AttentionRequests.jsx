@@ -4,6 +4,7 @@ import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref
 import { Markdown } from './Markdown.jsx'
 import ReminderDate from './ReminderDate.jsx'
 import { WaitAge } from './WaitAge.jsx'
+import { projectFilters } from './projectScope.js'
 
 export function AttentionReceipt({ receipt }) {
   return (
@@ -33,7 +34,7 @@ export function AttentionImpact({ item }) {
   )
 }
 
-export default function AttentionRequests({ revision, onChanged, taskId, showControls = true }) {
+export default function AttentionRequests({ revision, onChanged, taskId, project, showControls = true }) {
   const onTicket = taskId != null
   const [state, setState] = useState('open')
   const [pending, setPending] = useState(null)
@@ -43,7 +44,7 @@ export default function AttentionRequests({ revision, onChanged, taskId, showCon
   const page = useLoadedPages('/notifications/requests', {
     state: onTicket ? 'open' : state,
     task_id: taskId,
-    scope: 'all',
+    ...projectFilters(onTicket ? undefined : project),
   }, revision)
   const latestPage = useRef(page.data)
   useLayoutEffect(() => {

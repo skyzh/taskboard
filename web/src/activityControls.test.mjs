@@ -206,6 +206,19 @@ test('Knowledge scope and search survive sign-in alongside existing history link
   assert.equal(signInHref('#knowledge?scope=assigned&project=OPS&project=T'), './auth/login')
 })
 
+test('sign-in preserves supported scoped routes and their filters', () => {
+  for (const hash of [
+    '#board?project=LAB', '#project=LAB&section=queue-heading&owner=Avery',
+    '#activity?detail=all&project=LAB', '#stats?period=week&scope=all',
+    '#notifications-needs-me?project=LAB', '#team-overview?scope=all',
+    '#knowledge?project=LAB&scope=assigned&q=glass',
+  ]) {
+    assert.equal(new URL(signInHref(hash), 'https://example.test/tasks/').searchParams.get('fragment'), hash)
+  }
+  assert.equal(signInHref('#board?project=LAB&scope=all'), './auth/login')
+  assert.equal(signInHref('#activity?project=LAB&next=https://example.test/'), './auth/login')
+})
+
 test('history anchors the previous version and offers a return to the same record', () => {
   const props = { record: 'T-12', currentHref: '#knowledge?entry=T-12', knowledge: true }
   const event = { id: 54, label: 'Details updated', at: '2026-11-23T19:25:00Z', actor: 'Sam' }

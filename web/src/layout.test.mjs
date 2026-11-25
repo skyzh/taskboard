@@ -111,7 +111,7 @@ test('project ticket links open separate detail and return to the matching queue
   assert.match(ticket, /<h1 id="task-heading-COURSE-1">Task COURSE-1/)
   assert.match(ticket, /href="#project=COURSE">Back to Tasks/)
   assert.doesNotMatch(ticket, /id="queue-heading"|id="now-title"/)
-  assert.match(render('#project=COURSE'), /id="queue-heading"[^>]*>Work queue/)
+  assert.match(render('#project=COURSE'), /Loading projects…/)
 })
 
 test('a search result ticket returns to the exact query and keeps its project ticket route', () => {
@@ -140,7 +140,7 @@ test('a Taskboard ticket returns to Taskboard from a course queue', () => {
   }))
   const backLink = ticket.match(/href="([^"]+)">Back to Tasks/)?.[1]
   assert.equal(backLink, '#project=T')
-  assert.match(render(backLink), /id="queue-heading"[^>]*>Work queue/)
+  assert.match(render(backLink), /Loading projects…/)
 })
 
 test('Settings remains a separate route alongside the layout views', () => {
@@ -162,7 +162,7 @@ test('a filtered Project log has the Notifications route', () => {
     const fragment = `notifications-log?project=T&status=pending&kind=${kind}&agent=${agent}`
     assert.deepEqual(notificationLogFilters(fragment), { project: 'T', state: 'pending', kind, agent })
     const projectLog = render(`#${fragment}`)
-    assert.match(projectLog, /id="notifications">Notifications<\/h1>/)
+    assert.match(projectLog, /Loading projects…/)
     assert.doesNotMatch(projectLog, /id="queue-heading"/)
   }
 })

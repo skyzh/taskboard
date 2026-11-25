@@ -185,6 +185,18 @@ export function notificationLogFilters(fragment) {
   return { project, state, kind, agent, ...(all && { allProjects: true }) }
 }
 
+function scopedSignInRoute(hash) {
+  if (!hash.startsWith('#') || hash.indexOf('?') !== hash.lastIndexOf('?')) return null
+  const [route, query] = hash.split('?', 2)
+  const scope = /^(?:project=[A-Z][A-Z0-9]{0,7}|scope=all)$/
+  const fields = (query ?? (route.includes('=') ? route.slice(1) : '')).split('&')
+  const scopes = fields.filter(field => scope.test(field))
+  if (scopes.length !== 1) return null
+  const filters = fields.filter(field => !scope.test(field))
+  if (filters.some(field => field.startsWith('project=') || field.startsWith('scope=') && field !== 'scope=assigned')) return null
+  return [query === undefined && route.includes('=') ? '#board' : route, filters.join('&')]
+}
+
 export function signInHref(hash) {
   const login = './auth/login'
   const [anchor, query] = hash.split('?', 2)
@@ -192,16 +204,25 @@ export function signInHref(hash) {
   const history = new URLSearchParams(query).get('history')
   const taskReturn = taskLink && /^(?:all|[1-9]\d{0,18})$/.test(history || '')
     ? `${anchor}?history=${history}` : anchor
-  const statsLink = /^#stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/.test(hash)
-  const activityLink = /^#(?:activity|event-[1-9]\d{0,18}-log)(?:\?(?:actor=[A-Za-z0-9_%+.*-]{1,1920}&?)?(?:action=[a-z-]{1,30}&?)?(?:detail=all&?)?(?:hide_requests=true)?)?$/.test(hash)
+  const statsLink = /^#stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/
+  const activityLink = /^#(?:activity|event-[1-9]\d{0,18}-log)(?:\?(?:actor=[A-Za-z0-9_%+.*-]{1,1920}&?)?(?:action=[a-z-]{1,30}&?)?(?:detail=all&?)?(?:hide_requests=true)?)?$/
   const goalActivityLink = /^#reports\?view=goal-activity&(?:project=[A-Z][A-Z0-9]{0,7}|scope=all)(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})?$/.test(hash)
-  const knowledgeLink = /^#knowledge(?:\?(?:entry=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18}(?:&history=(?:all|[1-9]\d{0,18}))?|(?:scope=assigned(?:&q=[A-Za-z0-9_%+.*~-]{1,1920})?|q=[A-Za-z0-9_%+.*~-]{1,1920})(?:&order=updated)?(?:&project=[A-Z][A-Z0-9]{0,7})?|order=updated(?:&project=[A-Z][A-Z0-9]{0,7})?|project=[A-Z][A-Z0-9]{0,7}))?$/.test(hash)
+  const knowledgeLink = /^#knowledge(?:\?(?:entry=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18}(?:&history=(?:all|[1-9]\d{0,18}))?|(?:scope=assigned(?:&q=[A-Za-z0-9_%+.*~-]{1,1920})?|q=[A-Za-z0-9_%+.*~-]{1,1920})(?:&order=updated)?(?:&project=[A-Z][A-Z0-9]{0,7})?|order=updated(?:&project=[A-Z][A-Z0-9]{0,7})?|project=[A-Z][A-Z0-9]{0,7}))?$/
   const reportsLink = /^#reports(?:-all(?:\?view=(?:active|all|idle|recent))?|\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&view=(?:active|all|idle|recent))?|view=(?:active|all|idle|recent)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/.test(hash)
   const integrationsLink = /^#integrations(?:\?(?:cli=[a-f0-9]{64}|project=[A-Z][A-Z0-9]{0,7}))?$/.test(hash)
   const schedulesLink = /^#(?:schedules(?:=(?:&(?:project=[A-Z][A-Z0-9]{0,7}|scope=all))?)?|schedule-R-[1-9]\d{0,18}(?:\?project=[A-Z][A-Z0-9]{0,7})?)$/.test(hash)
   const settingsLink = /^#(?:settings|manage)(?:\?(?:section=permissions(?:&project=[A-Z][A-Z0-9]{0,7})?|project=[A-Z][A-Z0-9]{0,7}))?$/.test(hash)
-  const returnToBoard = taskLink || statsLink || activityLink || goalActivityLink || reportsLink || knowledgeLink || integrationsLink
-    || schedulesLink || settingsLink
+  const isReadRoute = value => statsLink.test(value) || activityLink.test(value) || knowledgeLink.test(value)
+  const [scopedRoute, scopedFilters] = scopedSignInRoute(hash) || []
+  const baseRoute = scopedFilters ? `${scopedRoute}?${scopedFilters}` : scopedRoute
+  const scopedRead = /^#(?:activity|event-[1-9]\d{0,18}-log|knowledge|stats)$/.test(scopedRoute || '') &&
+    isReadRoute(baseRoute)
+  const scopedList = /^#(?:board|team-overview|now-title|decisions-title|outcomes-title|workstreams-title|map|work-log-title|my-activity|notifications(?:-needs-me)?)$/.test(scopedRoute || '') &&
+    (!scopedFilters || (scopedRoute === '#board' && /^section=queue-heading(?:&owner=[A-Za-z0-9_%+.*-]{1,1920})?$/.test(scopedFilters)))
+  const scopedGoal = scopedRoute === '#reports' &&
+    /^view=goal-activity(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})?$/.test(scopedFilters)
+  const returnToBoard = taskLink || isReadRoute(hash) || goalActivityLink || reportsLink || integrationsLink
+    || schedulesLink || settingsLink || scopedRead || scopedList || scopedGoal
     || /^#(?:notifications(?:-needs-me)?|about|personal-codex)$/.test(hash)
     || (hash.startsWith('#') && notificationLogFilters(hash.slice(1)))
   return returnToBoard ? `${login}?fragment=${encodeURIComponent(taskLink ? taskReturn : hash)}` : login

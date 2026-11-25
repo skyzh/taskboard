@@ -56,6 +56,41 @@ BOARD_FRAGMENT = re.compile(
     r"|(?:settings|manage)(?:\?(?:section=permissions(?:&project=[A-Z][A-Z0-9]{0,7})?|project=[A-Z][A-Z0-9]{0,7}))?"
     r"|integrations(?:\?(?:cli=[0-9a-f]{64}|project=[A-Z][A-Z0-9]{0,7}))?)"
 )
+_PROJECT_SCOPE = re.compile(r"project=[A-Z][A-Z0-9]{0,7}|scope=all")
+_SCOPED_READ_ROUTE = re.compile(r"#(?:activity|event-[1-9][0-9]{0,18}-log|knowledge|stats)")
+_SCOPED_LIST_ROUTE = re.compile(
+    r"#(?:board|team-overview|now-title|decisions-title|outcomes-title|workstreams-title|map"
+    r"|work-log-title|my-activity|notifications(?:-needs-me)?)"
+)
+_QUEUE_FILTER = re.compile(r"section=queue-heading(?:&owner=[A-Za-z0-9_%+.*-]{1,1920})?")
+_GOAL_FILTER = re.compile(
+    r"view=goal-activity(?:&agent=[A-Za-z0-9_%+.*-]{1,1920})?"
+    r"(?:&goal=[A-Z][A-Z0-9]{0,7}-[1-9][0-9]{0,18})?"
+)
+
+
+def board_fragment_allowed(fragment: str) -> bool:
+    if BOARD_FRAGMENT.fullmatch(fragment):
+        return True
+    anchor, separator, query = fragment.partition("?")
+    if not separator and "=" in anchor and anchor.startswith("#"):
+        query, anchor = anchor[1:], "#board"
+    fields = query.split("&")
+    scopes = [field for field in fields if _PROJECT_SCOPE.fullmatch(field)]
+    if len(scopes) != 1:
+        return False
+    filters = [field for field in fields if not _PROJECT_SCOPE.fullmatch(field)]
+    if any(field.startswith("project=") or (field.startswith("scope=") and field != "scope=assigned")
+           for field in filters):
+        return False
+    remaining = "&".join(filters)
+    if _SCOPED_READ_ROUTE.fullmatch(anchor):
+        return bool(BOARD_FRAGMENT.fullmatch(f"{anchor}?{remaining}" if remaining else anchor))
+    if _SCOPED_LIST_ROUTE.fullmatch(anchor):
+        return not remaining or (anchor == "#board" and bool(_QUEUE_FILTER.fullmatch(remaining)))
+    return anchor == "#reports" and bool(_GOAL_FILTER.fullmatch(remaining))
+
+
 _MAX_PROVIDER_RESPONSE = 64 * 1024
 _RAFT_API_ORIGIN = "https://api.raft.build"
 _RAFT_AVATAR_CDN = "https://cdn.raft.build"
@@ -412,7 +447,7 @@ class RaftAuth:
 
     def _login(self) -> Response:
         fragments = request.args.getlist("fragment")
-        if fragments and (len(fragments) != 1 or not BOARD_FRAGMENT.fullmatch(fragments[0])):
+        if fragments and (len(fragments) != 1 or not board_fragment_allowed(fragments[0])):
             return self._error(_Failure.CALLBACK)
         key, state, verifier = (token_urlsafe(32) for _ in range(3))
         with self._lock:

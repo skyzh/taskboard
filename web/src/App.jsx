@@ -21,10 +21,11 @@ import Schedules from './Schedules.jsx'
 import Settings from './Settings.jsx'
 import Stats from './Stats.jsx'
 import { watchBoardSections } from './sectionIndex.js'
-import { BoardBrand, notificationLogFilters, schedulesHref, signInHref } from './shared.jsx'
+import { BoardBrand, notificationLogFilters, ResourceStatus, schedulesHref, signInHref } from './shared.jsx'
 import { SearchResults, TaskSearch } from './TaskSearch.jsx'
 import { KnowledgeRecordTools, TaskDetail, WorkLog, WorkQueue } from './Work.jsx'
 import { useTheme } from './theme.js'
+import { projectFilters, projectHref, validProject } from './projectScope.js'
 import {
   browserTimeZone, createTimeZoneFormatters, readTimeZonePreference, saveTimeZonePreference, TimeZoneContext,
 } from './timeZone.js'
@@ -80,15 +81,14 @@ function useFragment(preview) {
 
   useEffect(() => {
     if (!fragment || !reveal || rawFragment !== fragment) return
-    const params = new URLSearchParams(fragment)
     const [base, query] = fragment.split('?', 2)
+    const params = new URLSearchParams(query ?? fragment)
     const section = base === 'settings' ? new URLSearchParams(query).get('section') : params.get('section')
     let anchor = /^(?:task-|event-|activity$)/.test(base) || scheduleAnchor.test(base) ? base : fragment
     if (fragment.startsWith('notifications-')) anchor = 'notifications'
     if (base === 'reports-all' || base === 'reports') anchor = 'reports'
-    if (fragment.startsWith('stats?')) anchor = 'stats'
-    if (['knowledge', 'integrations', 'settings'].includes(base)) anchor = base
-    if (fragment === 'map' || fragment === 'workstreams-title') anchor = 'team-overview'
+    if (['board', 'stats', 'knowledge', 'integrations', 'settings', 'notifications', 'my-activity', 'team-overview'].includes(base)) anchor = base
+    if (['map', 'workstreams-title', 'now-title', 'decisions-title', 'outcomes-title', 'work-log-title', 'queue-heading'].includes(base)) anchor = base === 'map' || base === 'workstreams-title' ? 'team-overview' : base
     const id = params.get('dri') ? section || 'assignee-title'
       : params.get('search')?.trim() ? 'search-results' : params.has('schedules') ? 'schedules' : section || anchor
     function revealAnchor() {
@@ -117,7 +117,7 @@ function useFragment(preview) {
   return [fragment, writeFilterFragment, rawFragment]
 }
 
-function SectionIndex({ overview }) {
+function SectionIndex({ overview, scope }) {
   const nav = useRef(null)
   const [current, setCurrent] = useState(null)
   useEffect(() => watchBoardSections(nav.current, setCurrent), [])
@@ -132,7 +132,7 @@ function SectionIndex({ overview }) {
   return (
     <nav ref={nav} className="section-index" aria-label="Board sections">
       {links.map(([id, label, count]) => (
-        <a key={id} href={`#${id}`} aria-current={current === id ? 'location' : undefined}>
+        <a key={id} href={projectHref(`#${id}`, scope)} aria-current={current === id ? 'location' : undefined}>
           {label}{count != null && <span className="index-count">{count}</span>}
         </a>
       ))}
@@ -210,14 +210,13 @@ export default function App({ previewNotice, tourSteps } = {}) {
   useEffect(() => {
     setTicketMove(previous => previous?.href === `#${taskAnchor}` ? previous : null)
   }, [taskAnchor])
-  const [projectChoice, chooseProject] = useState(null)
+  const [lastScope, rememberScope] = useState(null)
   const reportsParams = ['reports', 'reports-all'].includes(taskAnchor) ? new URLSearchParams(taskContext) : null
   const requestedReportsProject = reportsParams?.get('project')
   const requestedAssigneeView = reportsParams?.get('view')
   const assigneeView = requestedAssigneeView === 'idle' ? 'all'
     : ['all', 'recent'].includes(requestedAssigneeView) ? requestedAssigneeView : 'active'
   const showGoalActivity = requestedAssigneeView === 'goal-activity'
-  const allGoalActivity = showGoalActivity && reportsParams?.get('scope') === 'all'
   const goalAgent = reportsParams?.get('agent')
   const goalKey = reportsParams?.get('goal')
   const allReports = !fragment || taskAnchor === 'reports-all'
@@ -259,25 +258,20 @@ export default function App({ previewNotice, tourSteps } = {}) {
   }, [needsOidcSignIn])
   const isAgent = session.data?.actor?.kind === 'agent'
   const verified = ['agent', 'human'].includes(session.data?.actor?.kind)
-  const params = new URLSearchParams(fragment)
+  const params = new URLSearchParams(taskContext ?? fragment)
   const logFilters = notificationLogFilters(fragment)
   const projectList = useResource(hasSession ? '/projects' : null, revision)
   const visibleProjects = projectList.data?.items
   const defaultProject = projectList.data?.default_project
     || visibleProjects?.find(entry => entry.prefix === 'T')?.prefix || visibleProjects?.[0]?.prefix || 'T'
-  const preferredProject = projectChoice || defaultProject
   const projectsPending = !visibleProjects && !projectList.error && (sessionResource.pending || hasSession)
   const hasProjectChoices = visibleProjects?.length > 1
   const knowledgeFilters = taskAnchor === 'knowledge' ? new URLSearchParams(taskContext) : null
   const knowledgeScope = !preview && knowledgeFilters?.get('scope') === 'assigned' ? 'assigned' : 'board'
   const knowledgeOrder = !preview && knowledgeFilters?.get('order') === 'updated' ? 'updated' : ''
-  const requestedKnowledgeProject = knowledgeFilters?.get('project')
-  const knowledgeProject = /^[A-Z][A-Z0-9]{0,7}$/.test(requestedKnowledgeProject || '') ? requestedKnowledgeProject : undefined
   const statsFilters = taskAnchor === 'stats' ? new URLSearchParams(taskContext) : null
   const requestedStatsPeriod = statsFilters?.get('period')
   const statsPeriod = ['hour', 'week'].includes(requestedStatsPeriod) ? requestedStatsPeriod : 'day'
-  const requestedStatsProject = statsFilters?.get('project')
-  const statsProject = /^[A-Z][A-Z0-9]{0,7}$/.test(requestedStatsProject || '') ? requestedStatsProject : undefined
   const owner = params.get('dri')
   const search = selected ? '' : params.get('search')?.trim() || ''
   let view = 'board'
@@ -291,24 +285,42 @@ export default function App({ previewNotice, tourSteps } = {}) {
   else if (taskAnchor === 'knowledge') view = 'knowledge'
   else if (scheduleId || params.has('schedules')) view = 'schedules'
   else if (taskAnchor === 'stats') view = 'stats'
-  else if (logFilters || ['notifications', 'notifications-needs-me'].includes(fragment)) view = 'notifications'
-  else if (fragment === 'my-activity' && isAgent) view = 'my-activity'
-  else if (linkedEvent || taskAnchor === 'activity' || fragment === 'work-log-title') view = 'activity'
+  else if (logFilters || ['notifications', 'notifications-needs-me'].includes(taskAnchor)) view = 'notifications'
+  else if (taskAnchor === 'my-activity' && isAgent) view = 'my-activity'
+  else if (linkedEvent || taskAnchor === 'activity' || taskAnchor === 'work-log-title') view = 'activity'
   else if (selected) view = 'task'
   else if (params.get('section') === 'team-overview' ||
-    ['team-overview', 'now-title', 'decisions-title', 'outcomes-title', 'workstreams-title', 'map'].includes(fragment)) {
+    ['team-overview', 'now-title', 'decisions-title', 'outcomes-title', 'workstreams-title', 'map'].includes(taskAnchor)) {
     view = 'team-overview'
   }
-  const reportsProject = visibleProjects?.find(entry => entry.prefix === requestedReportsProject)?.prefix
-    || defaultProject
-  const supportsAllProjects = ['board', 'team-overview'].includes(view) || (view === 'schedules' && !scheduleId)
-  const allProjectRead = supportsAllProjects && params.get('scope') === 'all'
-  const requestedSettingsProject = view === 'settings' ? new URLSearchParams(taskContext).get('project') : null
-  const project = view === 'reports' ? reportsProject : selected ? namedTask?.split('-')[0] || 'T'
-    : logFilters?.project || scheduleProject || requestedSettingsProject || params.get('project') || preferredProject
-  const settingsProject = visibleProjects?.find(item => item.prefix === project)?.prefix
-    || visibleProjects?.find(item => item.prefix === preferredProject)?.prefix || defaultProject
-  const settingsHref = settingsFragment(settingsProject === defaultProject ? null : settingsProject)
+  const supportsAllProjects = ['reports', 'board', 'activity', 'team-overview', 'knowledge', 'stats', 'notifications', 'my-activity'].includes(view) ||
+    (view === 'schedules' && !scheduleId)
+  const scopedView = supportsAllProjects || ['assignee', 'task', 'schedules'].includes(view)
+  const canSelectProject = scopedView || ['settings', 'integrations'].includes(view)
+  const knowledgeEntry = knowledgeFilters?.get('entry')
+  const recordProject = namedTask?.split('-')[0] || knowledgeEntry?.match(/^([A-Z][A-Z0-9]{0,7})-\d+$/)?.[1]
+  const requestedProject = recordProject || (canSelectProject ? params.get('project') : null)
+  const defaultsToAll = ['activity', 'knowledge', 'stats', 'notifications', 'my-activity'].includes(view) && !logFilters
+  const allProjectRead = !requestedProject && supportsAllProjects &&
+    (allReports || params.get('scope') === 'all' || defaultsToAll)
+  const allGoalActivity = showGoalActivity && allProjectRead
+  // Legacy list links without a scope keep their board default across history navigation.
+  const project = requestedProject || defaultProject
+  const projectUnavailable = !recordProject && requestedProject && (!validProject(requestedProject)
+    || (visibleProjects && !visibleProjects.some(entry => entry.prefix === requestedProject)))
+  const scopePending = Boolean(requestedProject && !recordProject && canSelectProject && !preview &&
+    (projectsPending || (hasSession && projectList.error && !visibleProjects)))
+  const scope = scopedView && !projectUnavailable
+    ? allProjectRead ? 'all' : (requestedProject || (visibleProjects && project)) : undefined
+  const navigationScope = scopedView ? scope : requestedProject && !projectUnavailable ? requestedProject : lastScope
+  const projectRead = allProjectRead ? undefined : project
+  const reportsProject = project
+  const settingsProject = visibleProjects?.find(item => item.prefix === project)?.prefix || defaultProject
+  const settingsHref = settingsFragment(navigationScope && navigationScope !== 'all' ? navigationScope : null)
+  useEffect(() => {
+    if (scope && !scopePending && (visibleProjects || scope === 'all')) rememberScope(scope)
+    else if (!scopedView && requestedProject && !projectUnavailable && visibleProjects) rememberScope(requestedProject)
+  }, [scope, scopePending, scopedView, requestedProject, projectUnavailable, visibleProjects])
   useEffect(() => {
     if (taskAnchor === 'manage') {
       const linkedProject = /^[A-Z][A-Z0-9]{0,7}$/.test(project) ? project : null
@@ -335,36 +347,40 @@ export default function App({ previewNotice, tourSteps } = {}) {
     if (view !== 'board' && !fromList) listReturn.current = null
   }, [view, fromList])
   const overview = useResource(
-    !needsOidcSignIn && (!projectsPending || view === 'activity') && ['board', 'team-overview', 'activity'].includes(view)
-      ? queryPath('/overview', allProjectRead ? { scope: 'all' } : { project: view === 'activity' ? undefined : project })
+    !needsOidcSignIn && !projectUnavailable && !scopePending && (!projectsPending || view === 'activity') && ['board', 'team-overview', 'activity'].includes(view)
+      ? queryPath('/overview', projectFilters(projectRead))
       : null,
     revision,
   )
   const integrationsParams = new URLSearchParams(view === 'integrations' ? taskContext : undefined)
   const integrationsProject = visibleProjects?.find(item => item.prefix === integrationsParams.get('project'))?.prefix
-  const integrationsHref = allReports ? '#integrations' : `#integrations?project=${project}`
+  const integrationsHref = allProjectRead ? '#integrations' : projectHref('#integrations', project)
   const reportsScopeReady = allReports || !requestedReportsProject || Boolean(visibleProjects)
   const personalAgentsLink = reportsScopeReady && session.data?.actor?.kind === 'human'
     ? <a href={integrationsHref}>Personal Agents</a> : null
-  const showAllReports = view === 'reports' && hasProjectChoices && allReports
+  const showAllReports = view === 'reports' && hasProjectChoices && allProjectRead
   const reportsPending = Boolean((allReports || requestedReportsProject) && projectsPending)
   const reportsMode = reportsPending ? (fragment || 'reports-all')
-    : reportFragment(allReports ? 'all' : reportsProject,
-      ['active', 'all', 'idle', 'recent'].includes(requestedAssigneeView) ? assigneeView : undefined, defaultProject)
-  const reportsHref = `#${view === 'reports' ? reportsMode : preferredReportsMode}`
+    : reportFragment(allProjectRead ? 'all' : reportsProject,
+      ['active', 'all', 'idle', 'recent'].includes(requestedAssigneeView) ? assigneeView : undefined,
+      requestedReportsProject ? null : defaultProject)
+  const reportsHref = view === 'reports' ? `#${reportsMode}`
+    : projectHref(`#${preferredReportsMode}`, navigationScope, { replace: true })
+  const knowledgeProject = allProjectRead ? undefined : scope
+  const scopedRoute = href => projectHref(href, navigationScope)
   function startTour() {
-    const taskRoute = new URLSearchParams({ project: reportsProject, section: 'queue-heading' }).toString()
+    const taskRoute = scopedRoute('#section=queue-heading').slice(1)
     tourOrigin.current = fragment
     setTour([
       { route: fragment, target: 'reports', title: 'Reports', text: 'See who owns the current work, what needs a decision, and what was completed.' },
       { route: taskRoute, target: 'board', title: 'Tasks', text: 'Open a ticket to see its owner, current state, and next step.' },
-      { route: 'activity', target: 'activity', title: 'Activity', text: 'See who reported progress, asked for help, or recorded an outcome, and when.' },
-      { route: allReports ? 'stats' : `stats?project=${reportsProject}`, target: 'stats', title: 'Stats',
+      { route: scopedRoute('#activity').slice(1), target: 'activity', title: 'Activity', text: 'See who reported progress, asked for help, or recorded an outcome, and when.' },
+      { route: scopedRoute('#stats').slice(1), target: 'stats', title: 'Stats',
         text: 'Change the time period to see ticket activity over an hour, day, or week.' },
       ...(verified ? [
-        { route: 'knowledge', target: 'knowledge', title: 'Knowledge',
+        { route: scopedRoute('#knowledge').slice(1), target: 'knowledge', title: 'Knowledge',
           text: 'Find shared decisions and notes, with links back to the work they came from.' },
-        { route: 'notifications-needs-me', target: 'notifications', title: 'Notifications',
+        { route: scopedRoute('#notifications-needs-me').slice(1), target: 'notifications', title: 'Notifications',
           text: 'Open Needs me to find decisions and reviews waiting for you.' },
       ] : []),
       { route: integrationsHref.slice(1), target: 'integrations', title: 'Integrations',
@@ -377,13 +393,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
     setTour(null)
   }
   useEffect(() => {
-    if (view === 'reports' && !reportsPending) {
-      rememberReportsMode(reportsMode)
-      if (requestedReportsProject && visibleProjects && requestedReportsProject !== reportsProject) {
-        window.location.replace(`#${showGoalActivity ? goalActivityFragment(reportsProject) : reportsMode}`)
-      }
-    }
-  }, [view, reportsPending, reportsMode, requestedReportsProject, visibleProjects, reportsProject, showGoalActivity])
+    if (view === 'reports' && !reportsPending && !projectUnavailable && !showGoalActivity) rememberReportsMode(reportsMode)
+  }, [view, reportsPending, reportsMode, projectUnavailable, showGoalActivity])
   const activeTab = ['assignee', 'team-overview'].includes(view) ? 'reports' : ['task', 'schedules'].includes(view) ? 'board' : view
   const refresh = useCallback(() => setRevision(value => value + 1), [])
   const updateConnection = useCallback(status => {
@@ -398,34 +409,15 @@ export default function App({ previewNotice, tourSteps } = {}) {
   }
   const projectPicker = hasProjectChoices && (
     <label className="project-switcher embedded-picker">
-      <select aria-label="Project" value={showAllReports || allProjectRead || allGoalActivity ? 'all' : project} onChange={event => {
+      <select aria-label="Project" value={allProjectRead ? 'all' : project} onChange={event => {
         const value = event.target.value
-        if (supportsAllProjects) {
-          if (value !== 'all') chooseProject(value)
-          if (view === 'schedules') {
-            window.location.hash = schedulesHref(value === 'all' ? undefined : value, value === 'all')
-            return
-          }
-          setQueueFilters(previous => ({ ...previous, tag: undefined }))
-          const next = new URLSearchParams(value === 'all' ? { scope: 'all' } : { project: value })
-          if (view === 'team-overview') next.set('section', 'team-overview')
-          window.location.hash = next.toString()
-          return
-        }
-        if (value === 'all') {
-          window.location.hash = showGoalActivity ? goalActivityFragment(null, goalAgent, goalKey)
-            : reportFragment('all', assigneeView)
-          return
-        }
-        chooseProject(value)
-        setQueueFilters({})
-        setWaitingLabel('')
-        window.location.hash = view === 'reports' ? showGoalActivity ? goalActivityFragment(value) : reportFragment(value, assigneeView, defaultProject)
-          : view === 'team-overview' ? new URLSearchParams({ project: value, section: 'team-overview' }).toString()
-          : view === 'schedules' ? schedulesHref(value)
-          : view
+        if (view === 'board') setQueueFilters(previous => ({ ...previous, tag: undefined }))
+        const route = fragment ? `#${fragment}` : '#reports-all'
+        window.location.hash = view === 'schedules'
+          ? schedulesHref(value === 'all' ? undefined : value, value === 'all')
+          : projectHref(route, value, { replace: true })
       }}>
-        {(view === 'reports' || supportsAllProjects) && <option value="all">All projects</option>}
+        {supportsAllProjects && <option value="all">All projects</option>}
         {visibleProjects.map(entry => <option key={entry.prefix} value={entry.prefix}>{entry.title}</option>)}
       </select>
       <ChevronDown size={14} aria-hidden="true" focusable="false" />
@@ -446,7 +438,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
       <header ref={appHeader} className={view === 'board' ? 'app-header tasks-header' : 'app-header'}>
         <div className="masthead">
           <BoardBrand href={reportsHref} />
-          <BoardViews current={activeTab} reportsHref={reportsHref} isAgent={isAgent}
+          <BoardViews current={activeTab} reportsHref={reportsHref} projectScope={navigationScope} isAgent={isAgent}
             showNotifications={verified || session.data?.sign_in_available} showKnowledge={verified} />
           <TaskSearch query={search} fragment={fragment} />
           <div className={preview ? 'account account-with-tour' : 'account'}>
@@ -461,7 +453,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
         </div>
         {hasSession && !preview && <BoardConnection {...connection} />}
         {demoTour.panel}
-        {view === 'team-overview' && <SectionIndex key={project} overview={overview.data} />}
+        {view === 'team-overview' && !projectUnavailable && <SectionIndex key={project} overview={overview.data} scope={navigationScope} />}
         {tourStep && <BoardTour step={tourStep} index={tourIndex} total={tour.length}
           onMove={index => writeFilterFragment(tour[index].route, false)} onClose={closeTour} />}
       </header>
@@ -469,6 +461,12 @@ export default function App({ previewNotice, tourSteps } = {}) {
         <div className="main-content">
           {previewNotice && <p className="section-message">{previewNotice}</p>}
           {updateDeferred && <p className="board-connection" role="status">Taskboard will refresh when you finish your changes.</p>}
+          {projectUnavailable ? <section aria-label="Project">
+            <p className="section-message" role="status">Project unavailable.</p>
+            <a href={projectHref(`#${fragment}`, supportsAllProjects ? 'all' : defaultProject, { replace: true })}>
+              {supportsAllProjects ? 'All projects' : 'Open the default project'}
+            </a>
+          </section> : scopePending ? <ResourceStatus resource={sessionResource.pending ? sessionResource : projectList} label="projects" /> : <>
           {view === 'reports' && !showGoalActivity && showWelcomeBanner && (
             <aside className="reports-welcome" aria-labelledby="reports-welcome-title" data-expanded={welcomeExpanded || undefined}>
               <div>
@@ -513,11 +511,11 @@ export default function App({ previewNotice, tourSteps } = {}) {
                 revision={revision} agent={goalAgent} goal={goalKey}
                 onFilter={(agent, goal) => writeFilterFragment(goalActivityFragment(allGoalActivity ? null : project, agent, goal))} />
               : <Reports revision={revision} project={projectsPending ? undefined : project}
-                defaultProject={defaultProject} assigneeView={assigneeView}
-                onAssigneeViewChange={value => writeFilterFragment(reportFragment(allReports ? 'all' : project, value, defaultProject), false)}
+                assigneeView={assigneeView}
+                onAssigneeViewChange={value => writeFilterFragment(reportFragment(allProjectRead ? 'all' : project, value, requestedReportsProject ? null : defaultProject), false)}
                 projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null}
                 headerAction={personalAgentsLink} projectPicker={projectPicker} />)}
-          {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={statsProject}
+          {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={scope === 'all' ? undefined : scope}
             projects={visibleProjects} />}
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}
             chooseTimeZone={chooseTimeZone} showWelcomeBanner={showWelcomeBanner} chooseWelcomeBanner={chooseWelcomeBanner}
@@ -525,7 +523,6 @@ export default function App({ previewNotice, tourSteps } = {}) {
             project={visibleProjects ? settingsProject : undefined} fragment={`#${fragment}`}
             projects={visibleProjects} revision={revision} onProjectCreated={refresh}
             onPermissionProjectChange={value => {
-              chooseProject(value)
               writeFilterFragment(settingsFragment(value, 'permissions').slice(1), true)
             }} />}
           {view === 'about' && <About revision={revision} />}
@@ -534,7 +531,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
             onProjectChange={value => writeFilterFragment(value ? `integrations?project=${value}` : 'integrations', true)}
             challenge={integrationsParams.get('cli')} preview={preview} />}
           {view === 'knowledge' && <Knowledge key={knowledgeFilters.get('entry') || 'index'}
-            session={session} verified={verified} revision={revision} projects={visibleProjects} preview={preview}
+            session={session} verified={verified} revision={revision} projects={visibleProjects} preview={preview} projectPicker={projectPicker}
             onChanged={refresh} RecordTools={KnowledgeRecordTools}
             scope={knowledgeScope} search={knowledgeFilters.get('q') || ''} order={knowledgeOrder} project={knowledgeProject}
             entry={knowledgeFilters.get('entry')} history={knowledgeFilters.get('history')}
@@ -551,10 +548,10 @@ export default function App({ previewNotice, tourSteps } = {}) {
             reportsHref={reportsHref} canEditGoal={verified && session.data.actor.id === owner}
             viewer={verified ? session.data.actor : null} />}
           {view === 'notifications' && <Notifications session={session} verified={verified} revision={revision}
-            onChanged={refresh} fragment={fragment} project={project} projects={visibleProjects} />}
+            onChanged={refresh} fragment={fragment} project={projectRead} projectPicker={projectPicker} projects={visibleProjects} />}
           {view === 'activity' && <WorkLog requested={linkedEvent} revision={revision} ownerProfiles={overview.data?.owner_profiles}
-            fragment={fragment} onFiltersChange={writeFilterFragment} />}
-          {view === 'my-activity' && <MyActivity revision={revision} />}
+            fragment={fragment} project={projectRead} projectPicker={projectPicker} onFiltersChange={writeFilterFragment} />}
+          {view === 'my-activity' && <MyActivity revision={revision} project={projectRead} projectPicker={projectPicker} />}
           {view === 'schedules' && <Schedules key={JSON.stringify([session.data?.actor?.id, scheduleId])}
             id={scheduleId} project={project} requestedProject={scheduleProject} projectPicker={projectPicker}
             allProjects={allProjectRead} revision={revision} session={session} verified={verified} onChanged={refresh} />}
@@ -567,13 +564,13 @@ export default function App({ previewNotice, tourSteps } = {}) {
               <WorkQueue revision={revision} overview={overview.data} filters={queueFilters} setFilters={setQueueFilters}
                 waitingLabel={waitingLabel} setWaitingLabel={setWaitingLabel}
                 allProjects={allProjectRead}
-                project={projectsPending && !params.get('project') ? undefined : project} projectPicker={projectPicker}
+                project={projectsPending && !requestedProject ? undefined : project} projectPicker={projectPicker}
                 layout={queueLayout} setLayout={setQueueLayout} phoneColumn={phoneColumn} setPhoneColumn={setPhoneColumn}
                 kanbanNavigation={kanbanNavigation} listNavigation={listNavigation} listReturn={listReturn} />
             </>
           )}
           {view === 'task' && <TaskDetail key={selected} id={selected} revision={revision} session={session}
-            preferredProject={preferredProject} returnHref={fromList ? listReturn.current.board : undefined}
+            preferredProject={defaultProject} returnHref={fromList ? listReturn.current.board : undefined}
             fromSearch={fromSearch} history={recordHistory} onChanged={refresh}
             moveReceipt={ticketMove?.href === `#${taskAnchor}` ? ticketMove.receipt : undefined}
             onMoved={(href, receipt) => {
@@ -589,6 +586,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
               <Outcomes key={allProjectRead ? 'all' : project} revision={revision} project={project} allProjects={allProjectRead} />
             </>
           )}
+          </>}
         </div>
       </main>
     </TimeZoneContext.Provider>

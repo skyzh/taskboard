@@ -225,7 +225,7 @@ export function StagedWork({ changes }) {
 }
 
 export default function Knowledge({ session, verified, revision, projects, search, entry, history, scope = 'board',
-  preview, project, order = '', onSearch, onScope, onOrder, onChanged, RecordTools }) {
+  preview, project, projectPicker, order = '', onSearch, onScope, onOrder, onChanged, RecordTools }) {
   const [editing, setEditing] = useState(false)
   const assigned = !entry && scope === 'assigned'
   const page = useLoadedPages(verified ? '/knowledge' : null, {
@@ -247,7 +247,7 @@ export default function Knowledge({ session, verified, revision, projects, searc
   return (
     <section className="knowledge" aria-labelledby="knowledge">
       <div className="page-heading"><h1 id="knowledge" tabIndex={-1}>Knowledge</h1>
-        {entry && <a href="#knowledge">All entries</a>}
+        {entry ? <a href={knowledgeListHref('board', '', { project })}>All entries</a> : projectPicker}
         {verified && !entry && writableProjects.length > 0 &&
           <EditToggle label="Edit Knowledge" active={editing} onToggle={() => setEditing(value => !value)} />}
       </div>

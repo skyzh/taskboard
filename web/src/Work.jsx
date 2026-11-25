@@ -36,6 +36,7 @@ import { useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
 import SegmentedControl from './SegmentedControl.jsx'
+import { projectFilters } from './projectScope.js'
 
 const ownerOptionPrefix = 'owner:'
 const layoutOptions = [{ value: 'list', label: 'List' }, { value: 'kanban', label: 'Kanban' }]
@@ -705,7 +706,7 @@ export function ActivityEntry({ event, full, selected = false, exact = selected 
   )
 }
 
-export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activity', onFiltersChange }) {
+export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activity', project, projectPicker, onFiltersChange }) {
   const { formatDay } = useTimeZone()
   const params = new URLSearchParams(fragment.split('?', 2)[1])
   const actor = params.get('actor')?.trim().slice(0, 160) || ''
@@ -720,7 +721,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   const full = complete || Boolean(action)
   const filterCount = [actor, action, complete, hideRequests].filter(Boolean).length
   const filtered = filterCount > 0
-  const page = useLoadedPages('/activity', { scope: 'all', actor, action, detail: full ? 'all' : 'outcomes',
+  const page = useLoadedPages('/activity', { ...projectFilters(project), actor, action, detail: full ? 'all' : 'outcomes',
     ...(hideRequests && { hide_requests: true }) }, revision)
   const items = page.data?.items || []
   const onPage = items.some(event => event.id === requested)
@@ -742,6 +743,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   function changeFilters(next, replace = false) {
     const filters = { actor, action, complete, hideRequests, ...next }
     const scope = new URLSearchParams({
+      ...(params.has('project') || params.get('scope') === 'all' ? projectFilters(project) : {}),
       ...(filters.actor && { actor: filters.actor }),
       ...(filters.action && { action: filters.action }),
       ...(filters.complete && { detail: 'all' }),
@@ -761,6 +763,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
     <section className="work-log" id="work-log-title" aria-labelledby="activity" tabIndex={-1}>
       <div className="page-heading activity-heading">
         <h1 id="activity">Activity</h1>
+        {projectPicker}
         <div className="activity-filter-controls">
           <button type="button" className="activity-filter-toggle" ref={filterToggle}
             aria-expanded={filtersOpen} aria-controls="activity-filters" data-active={filtered}

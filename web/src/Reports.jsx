@@ -5,6 +5,7 @@ import {
   eventHref, ownerHref, profileName, taskHref, taskLabel,
 } from './shared.jsx'
 import './reports.css'
+import { projectHref } from './projectScope.js'
 
 import { TaskRows } from './WorkRow.jsx'
 import { groupOutcomes } from './Overview.jsx'
@@ -160,7 +161,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
   const projectChoices = entry.projects || []
   const multipleProjects = projectChoices.length > 1
   const ownerProject = project || projectChoices[0]
-  const activityLink = `#activity?${new URLSearchParams({ actor: owner, detail: 'all' })}`
+  const activityLink = projectHref(`#activity?${new URLSearchParams({ actor: owner, detail: 'all' })}`, project)
   const queueLink = `#${new URLSearchParams({ ...(ownerProject && { project: ownerProject }), section: 'queue-heading', owner })}`
   return (
     <li className="report-owner">
@@ -384,18 +385,17 @@ const assigneeViews = [
 ]
 
 export default function Reports({
-  revision, viewer, project, projects, defaultProject = 'T', assigneeView = 'active',
+  revision, viewer, project, projects, assigneeView = 'active',
   onAssigneeViewChange, headerAction, projectPicker,
 }) {
   const [hideRequests, setHideRequests] = useState(false)
   const reportProps = { revision, viewer, view: assigneeView, hideRequests }
   const projectNames = useMemo(() => projects && new Map(projects.map(({ prefix, title }) => [prefix, title])), [projects])
-  const teamOverview = project && project !== defaultProject
-    ? `#${new URLSearchParams({ project, section: 'team-overview' })}` : '#team-overview'
+  const teamOverview = projectHref('#team-overview', projects ? 'all' : project)
   return (
     <section className="reports" aria-labelledby="reports">
       <ReportsHeading headingId="reports" projectPicker={projectPicker}>
-        {!projects && <a href={teamOverview}>Team overview</a>}
+        <a href={teamOverview}>Team overview</a>
         {!projects && project && <a href={`#${goalActivityFragment(project)}`}>Goal activity</a>}
         {headerAction}
         <label className="activity-mode">

@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from flask import jsonify, make_response, redirect, request, session
 
-from raft_auth import BOARD_FRAGMENT, fetch_profile_photo
+from raft_auth import board_fragment_allowed, fetch_profile_photo
 from raft_sessions import DurableSessions, Session
 from tasks_oidc_members import issuer_url, valid_subject
 
@@ -131,7 +131,7 @@ class OIDC:
 
     def login(self):
         fragments = request.args.getlist("fragment")
-        if fragments and (len(fragments) != 1 or not BOARD_FRAGMENT.fullmatch(fragments[0])):
+        if fragments and (len(fragments) != 1 or not board_fragment_allowed(fragments[0])):
             return error("Open the sign-in link from Taskboard.", 400)
         session.clear()
         try:
