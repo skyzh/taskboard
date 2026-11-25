@@ -317,10 +317,13 @@ export function NeedsYou({ project, revision }) {
 }
 
 function ProjectReports({ revision, project, projectTitle, hideRequests, viewer, view }) {
+  const now = useReportNow()
+  // Recent owners can age out without creating a ledger revision.
+  const pageRevision = view === 'recent' ? `${revision}:${Math.floor(now / 60_000)}` : revision
   const page = useLoadedPages('/reports', {
     view, project, ...(hideRequests && { hide_requests: true }),
     ...(viewer?.kind === 'human' && { include_self: true }),
-  }, revision)
+  }, pageRevision)
   const label = view === 'all' ? 'Assignees' : view === 'recent' ? 'Recent and Team DRI reports' : 'Assignees with open work'
   const empty = view === 'all' ? 'No assignees.' : view === 'recent' ? 'No recent or Team DRI reports.' : 'No open work to report.'
   const reports = (
