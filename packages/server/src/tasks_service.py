@@ -2185,8 +2185,8 @@ def create_app(
         project = project_filter(args, use_default=True)
         has_roster = project == projects.DEFAULT and project_roster is not None
         view = args.get("view", "all" if has_roster else "active")
-        if view not in ("all", "active", "idle"):
-            raise RequestError("Choose all assignees, open work, or other assignees.")
+        if view not in ("all", "active", "idle", "recent"):
+            raise RequestError("Choose all assignees, open work, other assignees, or recent reports and team DRIs.")
         personal_owner = (actor["ledger_key"]
                           if actor and actor["kind"] == "human" and args.get("include_self") == "true"
                           else None)

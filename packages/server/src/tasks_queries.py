@@ -368,26 +368,29 @@ class BoardQueries:
     def wait_starts(self, rows):
         return ledger.wait_starts(self.db, rows)
 
+    def owner_progress_event(self, task):
+        event_context = "activity.context" if ledger.has_event_context(self.db) else "'{}'"
+        return f"""
+            SELECT MAX(activity.id) FROM events AS activity
+            WHERE activity.task_id = {task}.id AND activity.actor = {task}.dri
+              AND activity.state = 'in_progress'
+              AND (activity.action IN ('start', 'update', 'resume')
+                   OR (activity.action = 'log'
+                       AND json_extract({event_context}, '$.watcher_measurements') IS NULL
+                       AND ({event_context} = '{{}}'
+                            OR json_extract({event_context}, '$.activity_details') IS NOT NULL)))
+        """
+
     def owner_progress(self, task_ids):
         if not task_ids:
             return {}
         marks = ", ".join("?" for _ in task_ids)
-        event_context = "activity.context" if ledger.has_event_context(self.db) else "'{}'"
         return {
             report["task_id"]: {"id": report["id"], "at": report["at"]}
             for report in self.db.execute(
                 f"""
                 SELECT tasks.id AS task_id, events.id, events.at FROM tasks
-                JOIN events ON events.id = (
-                    SELECT MAX(activity.id) FROM events AS activity
-                    WHERE activity.task_id = tasks.id AND activity.actor = tasks.dri
-                      AND activity.state = 'in_progress'
-                      AND (activity.action IN ('start', 'update', 'resume')
-                           OR (activity.action = 'log'
-                               AND json_extract({event_context}, '$.watcher_measurements') IS NULL
-                               AND ({event_context} = '{{}}'
-                                    OR json_extract({event_context}, '$.activity_details') IS NOT NULL)))
-                )
+                JOIN events ON events.id = ({self.owner_progress_event('tasks')})
                 WHERE tasks.id IN ({marks})
                 """, tuple(sorted(task_ids)),
             )
@@ -426,7 +429,7 @@ class BoardQueries:
         owners = profiles.visible_by_keys(self.db, owner_keys, self.base)
         reporting_tasks = {
             row["id"] for row in rows
-            if include_report_fields and row["state"] == "in_progress"
+            if include_report_fields and row["state"] in ("in_progress", "waiting")
             and (owners.get(row["dri"], {}).get("kind") == "human"
                  or owners.get(row["dri"], {}).get("dri_kind") == "local")
         }
@@ -528,7 +531,7 @@ class BoardQueries:
                 item["last_activity_at"] = activity_times.get(row["id"], row["at"])
                 if row["id"] in reporting_tasks:
                     item["reported_progress"] = work_reports.get(row["id"])
-                    if owners.get(row["dri"], {}).get("dri_kind") == "local":
+                    if row["state"] == "in_progress" and owners.get(row["dri"], {}).get("dri_kind") == "local":
                         watcher = row["dri"], projects.row_project(row)
                         if watcher not in local_watchers:
                             local_watchers[watcher] = local_dri.ready(self.db, *watcher)
@@ -1566,9 +1569,10 @@ class BoardQueries:
             owner_args = (*names, *local_owners)
             if personal_owner and personal_owner not in names:
                 owner_args += (personal_owner,)
-            if not owner_args:
+            if not owner_args and view != "recent":
                 return {"items": [], "next_cursor": None}
-            owner_source = "VALUES " + ", ".join("(?)" for _ in owner_args)
+            owner_source = ("VALUES " + ", ".join("(?)" for _ in owner_args)
+                            if owner_args else "SELECT CAST(NULL AS TEXT) WHERE FALSE")
         elif personal_owner:
             owner_source += " UNION SELECT ?"
             owner_args += (personal_owner,)
@@ -1580,9 +1584,56 @@ class BoardQueries:
         if personal_owner:
             rank = "CASE WHEN dri = ? THEN '0:' WHEN is_active THEN '1:' ELSE '2:' END"
             rank_args = (personal_owner,)
-            if view != "all":
+            if view not in ("all", "recent"):
                 view_filter = " AND (is_active = ? OR dri = ?)"
                 filter_args += (personal_owner,)
+        recent_cte, recent_args = "", ()
+        recent_cutoff = None
+        summary_owners = "owners"
+        if view == "recent":
+            recent_cutoff = (datetime.fromisoformat(ledger.timestamp()) - timedelta(hours=1)).isoformat(
+                timespec="seconds",
+            ).replace("+00:00", "Z")
+            linked_reviews = ""
+            if peer_work and not hide_requests:
+                linked_reviews = """
+                    UNION SELECT current.dri
+                    FROM current JOIN peer_asks ON peer_asks.task_id = current.id
+                    JOIN tasks AS source ON source.id = peer_asks.source_task_id
+                      AND source.project_prefix = current.project_prefix
+                    WHERE current.state IN ('ready', 'waiting', 'in_progress', 'parked')
+                      AND (peer_asks.review_run_id IS NOT NULL OR (
+                          SELECT COUNT(*) FILTER (
+                              WHERE (action = 'add' AND json_extract(context, '$.manual_review') IS NOT NULL)
+                                 OR (action = 'log' AND json_extract(context, '$.stamp_review') IS NOT NULL)
+                          ) > 0 FROM events WHERE task_id = current.id))
+                """
+            recent_cte = f"""recent_signals AS (
+                SELECT current.dri
+                FROM current JOIN board_principals AS person ON person.ledger_key = current.dri
+                JOIN events AS progress ON progress.id = ({self.owner_progress_event('current')})
+                WHERE current.state IN ('waiting', 'in_progress') AND progress.at >= ?
+                  AND (person.kind = 'human' OR (person.kind = 'agent' AND current.dri LIKE 'local-dri:%'))
+                UNION SELECT dri FROM current WHERE state = 'human_review'
+                UNION SELECT current.dri FROM current JOIN worker_runs ON worker_runs.task_id = current.id
+                WHERE current.display_state <> 'closed' AND worker_runs.role = 'review'
+                  AND worker_runs.status IN ('planned', 'running', 'reported') {unlinked_reports}
+                {linked_reviews}
+            ),"""
+            recent_args = (recent_cutoff,)
+            eligible = [
+                "dri IN (SELECT dri FROM recent_signals)",
+                """dri IN (SELECT ledger_key FROM board_principals
+                           WHERE kind = 'agent' AND ledger_key NOT LIKE 'local-dri:%')""",
+            ]
+            if roster:
+                summary_owners = "(SELECT dri FROM owners UNION SELECT dri FROM recent_signals) AS owners"
+                eligible.append("""dri IN (
+                    SELECT dri FROM owners WHERE dri NOT LIKE 'local-dri:%'
+                      AND dri NOT IN (SELECT ledger_key FROM board_principals WHERE kind = 'human')
+                )""")
+            view_filter = " AND (" + " OR ".join(eligible) + ")"
+            filter_args = ()
         rows = self.db.execute(
             f"""
             WITH current AS ({current}),
@@ -1615,6 +1666,7 @@ class BoardQueries:
                      GROUP BY current.dri
                  ),
                  owners(dri) AS ({owner_source}),
+                 {recent_cte}
                  summary AS (
                      SELECT owners.dri, {work_columns}, COALESCE(work.task_count, 0) AS task_count,
                             COALESCE(reports.report_count, 0) AS report_count,
@@ -1631,7 +1683,7 @@ class BoardQueries:
                                 OR legacy_waits.recipient IS NOT NULL
                                 OR COALESCE(runs.running_builds, 0) > 0
                                 OR COALESCE(runs.running_reviews, 0) > 0) AS is_active
-                     FROM owners
+                     FROM {summary_owners}
                      LEFT JOIN work ON work.dri = owners.dri
                      LEFT JOIN reports ON reports.dri = owners.dri
                      LEFT JOIN runs ON runs.dri = owners.dri
@@ -1643,7 +1695,7 @@ class BoardQueries:
                  )
             SELECT * FROM ordered WHERE {order} > ?{view_filter}
             ORDER BY {order} LIMIT ?
-            """, (project, project, *owner_args, *rank_args, before or "", *filter_args, limit + 1),
+            """, (project, project, *owner_args, *recent_args, *rank_args, before or "", *filter_args, limit + 1),
         ).fetchall()
 
         def render(visible):
@@ -1653,16 +1705,25 @@ class BoardQueries:
             results = []
             for row in visible:
                 person = row["dri"]
+                profile = directory.get(person)
                 active = []
                 if row["task_count"]:
+                    work_order = "CASE events.state WHEN 'human_review' THEN 0 WHEN 'waiting' THEN 1 WHEN 'parked' THEN 1 ELSE 2 END"
+                    work_args = ()
+                    if recent_cutoff and profile and (profile["kind"] == "human" or profile.get("dri_kind") == "local"):
+                        work_order = f"""CASE WHEN events.state = 'human_review' THEN 0
+                            WHEN events.state IN ('waiting', 'in_progress') AND (
+                                SELECT at FROM events AS progress
+                                WHERE progress.id = ({self.owner_progress_event('tasks')})
+                            ) >= ? THEN 1
+                            WHEN events.state IN ('waiting', 'parked') THEN 2 ELSE 3 END"""
+                        work_args = (recent_cutoff,)
                     active = self.db.execute(
                         current + f" AND tasks.dri = ? AND ({active_event}) "
-                        "ORDER BY CASE events.state WHEN 'human_review' THEN 0 WHEN 'waiting' THEN 1 WHEN 'parked' THEN 1 ELSE 2 END, "
-                        "events.id DESC LIMIT 10",
-                        (project, person),
+                        f"ORDER BY {work_order}, events.id DESC LIMIT 10",
+                        (project, person, *work_args),
                     ).fetchall()
                 pending = self.pending_reports(person, project=project, unlinked=True) if row["report_count"] else {"items": [], "next_cursor": None}
-                profile = directory.get(person)
                 if profile is None and person in names:
                     profile = projects.roster_profile(person, names[person])
                 owned = self.task_rows(active, include_report_fields=True, include_release_results=True)
