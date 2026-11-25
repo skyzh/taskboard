@@ -821,11 +821,11 @@ class ReadyCheckpointTest(unittest.TestCase):
                              "--channel", "#example", "--message-id", "12345678")
         for replies, outcome, commands in (
             ([json.dumps(auth), "", "Scheduled"], "wake-requested",
-             [("auth", "whoami"), ("reminder", "list", "--status", "scheduled,fired"), expected_schedule]),
-            ([json.dumps(auth), f'#12345678 [fired] "{title}" ref=#example'], "already-queued",
-             [("auth", "whoami"), ("reminder", "list", "--status", "scheduled,fired")]),
+             [("auth", "whoami"), ("reminder", "list", "--status", "scheduled"), expected_schedule]),
+            ([json.dumps(auth), f'#12345678 [scheduled] "{title}" ref=#example'], "already-queued",
+             [("auth", "whoami"), ("reminder", "list", "--status", "scheduled")]),
             ([json.dumps(auth), "", RuntimeError("private diagnostic")], "wake-failed",
-             [("auth", "whoami"), ("reminder", "list", "--status", "scheduled,fired"), expected_schedule]),
+             [("auth", "whoami"), ("reminder", "list", "--status", "scheduled"), expected_schedule]),
             ([json.dumps({"ok": True, "data": {**auth["data"], "agent": {**auth["data"]["agent"], "name": "Blake"}}})],
              "owner-unconfirmed", [("auth", "whoami")]),
         ):

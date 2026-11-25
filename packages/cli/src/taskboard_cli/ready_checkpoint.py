@@ -571,7 +571,7 @@ def recovery_wake(owner, channel, message_id, error, emit):
         if (reply.get("ok") is True and data.get("serverConfirmed") is True and actor_id
                 and agent.get("id") == actor_id
                 and owner.removeprefix("@").casefold() in {name.casefold() for name in names if isinstance(name, str)}):
-            event["outcome"] = wake_with_title(title, channel, message_id, lambda: True)
+            event["outcome"] = wake_with_title(title, channel, message_id, lambda: True, status="scheduled")
         else:
             event["outcome"] = "owner-unconfirmed"
     except (KeyError, TypeError, AttributeError, RuntimeError, ValueError):

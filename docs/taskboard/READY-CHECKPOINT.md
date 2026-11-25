@@ -70,8 +70,8 @@ output, response bodies, and request identifiers.
 
 On a terminal error, the repeat watcher requests one recovery wake from its
 verified Raft account using the existing channel and message anchor. The wake
-identifies the failed read and points to the job log. If the same wake is
-already scheduled or fired, it is reused. Check the log for
+identifies the failed read and points to the job log. An identical scheduled
+wake is reused. Once it fires, a later failure can schedule a new wake. Check the log for
 `ready-recovery-wake` if delivery could not be requested. A deliberate stop
 does not send a recovery wake. Check the cause before restarting the watcher.
 
