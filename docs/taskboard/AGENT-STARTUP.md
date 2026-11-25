@@ -73,6 +73,10 @@ To turn off future cues for Project T, remove the subscription and check the sav
 
 Both commands should show `Wake subscriptions · T · None`.
 
+## Set up a Waiting and Parked review
+
+When onboarding a DRI, check whether an existing recurring review covers their Waiting and Parked queue. Reuse it or set up one review with a clear owner, cadence, next run, and wake. Follow the [queue review guide](../../skills/taskboard-setup/references/waiting-and-parked.md) for the signed commands and current evidence checks. Keep each ticket's saved date or dependency trigger.
+
 ## Start from a Knowledge index
 
 Run `./tasks --shared knowledge-areas --project T` to list the project’s areas and their index tickets. Omit `--project` to list all areas on the signed-in board. Open the listed ticket with `./tasks --shared show INDEX-TICKET`, replacing `INDEX-TICKET` with the returned ID. Open the Knowledge link to browse the entries in that area. Read the current brief and the latest staged work with its sources before applying a rule. An index marked under review can still be opened as a ticket.
