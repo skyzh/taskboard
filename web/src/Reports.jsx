@@ -148,8 +148,6 @@ function ReportOutcome({ event, publicPreview }) {
 }
 
 export function AssigneeReport({ entry, revision, project, projectTitle, publicPreview = false, tourTargets = {}, activeTarget }) {
-  const now = useReportNow()
-  const olderWorkCutoff = Math.floor(now / 1000) * 1000 - 60 * 60_000
   const { owner, profile, tasks, task_count: taskCount,
     pending_reports: reports, pending_reports_before: before, report_count: reportCount } = entry
   const name = profileName(owner, profile)
@@ -185,7 +183,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         <div className="report-owner-section" id={tourTargets.current} data-tour-current={tourTargets.current === activeTarget && activeTarget ? true : undefined}>
           <WorkHeading>Current work</WorkHeading>
           <TaskRows items={tasks} owner={false} label={`Current work for ${name}`} report="summary" revision={revision}
-            olderWorkCutoff={olderWorkCutoff} publicPreview={publicPreview} />
+            publicPreview={publicPreview} />
           {taskCount > tasks.length && <p className="report-note">Showing {tasks.length} of {taskCount} current tasks.</p>}
         </div>
       )}

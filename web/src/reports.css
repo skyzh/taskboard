@@ -313,16 +313,6 @@
 .report-task-cue { overflow-wrap: anywhere; }
 .report-peer-request { margin-bottom: .15rem; color: var(--muted); font-size: .81rem; }
 .report-peer-request svg { margin-inline-end: .32rem; vertical-align: -.17em; }
-.report-older-work > summary {
-  width: fit-content;
-  max-width: 100%;
-  font-size: .84rem;
-  padding-block: .2rem;
-}
-.report-older-work[open] > summary { margin-bottom: .25rem; }
-@media (pointer: coarse), (max-width: 44rem) {
-  .report-older-work > summary { min-height: 2.75rem; align-content: center; }
-}
 .report-details { margin-top: .14rem; font-size: .8rem; }
 .report-details > summary { width: fit-content; max-width: 100%; }
 .report-details[open] { padding-bottom: .2rem; }
