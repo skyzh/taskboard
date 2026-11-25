@@ -142,6 +142,36 @@ test('adds compact recognized references to source and evidence links', () => {
   assert.equal(evidenceLinkLabel('https://board.example/another/#task-7', 'Source', { board }), 'Source')
 })
 
+test('Jira issue links identify Jira and the issue key while preserving labels and destinations', () => {
+  const cloud = 'https://example.atlassian.net/browse/OPS-12?focusedCommentId=3#comment-3'
+  const dataCenter = 'https://jira.example.test:8443/tracker/browse/OPS_2-37'
+  const context = 'https://work.example.test/jira/browse/SAMPLE-8'
+  const links = [
+    { url: cloud, label: 'Escalation' },
+    { url: dataCenter, label: dataCenter, generated: true },
+    { url: context, label: 'Jira SAMPLE-8 incident' },
+  ]
+  const result = render(shared.EvidenceLinks, { links, label: 'Sources', ticketSources: true })
+  assert.ok(result.includes(`<a href="${cloud}">Escalation · Jira · OPS-12</a>`))
+  assert.ok(result.includes(`<a href="${dataCenter}">Jira · OPS_2-37</a>`))
+  assert.ok(result.includes(`<a href="${context}">Jira SAMPLE-8 incident</a>`))
+  assert.equal(evidenceLinkLabel(cloud, 'Follow-up on OPS-12'), 'Follow-up on OPS-12 · Jira')
+  assert.equal(evidenceLinkLabel(cloud, 'Jira OPS-120'), 'Jira OPS-120 · OPS-12')
+  for (const url of [
+    'https://example.test/browse/OPS-12',
+    'https://example.atlassian.net.example.test/browse/OPS-12',
+    'https://example.atlassian.net/issues/?selectedIssue=OPS-12',
+    'https://example.atlassian.net/browse/OPS-12/extra',
+    'https://user@example.atlassian.net/browse/OPS-12',
+    'https://github.com/jira/tool/blob/main/docs/browse/OPS-12',
+    'https://github.com/jira/browse/OPS-12',
+    'https://example.atlassian.net/wiki/browse/OPS-12',
+    'https://example.atlassian.net/wiki/spaces/DOC/browse/OPS-12',
+  ]) {
+    assert.equal(evidenceLinkLabel(url, 'Tracking link'), 'Tracking link', url)
+  }
+})
+
 test('renders Markdown in historical details and checklist labels without changing evidence gates', () => {
   const links = [
     { label: 'GitHub · example/tool#14', url: 'https://github.com/example/tool/pull/14', generated: true },

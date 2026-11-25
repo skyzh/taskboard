@@ -3,6 +3,8 @@ const activityFragment = /^#event-([1-9]\d*)-log$/
 const githubIssueOrPull = /^\/([\w.-]+\/[\w.-]+)\/(pull|issues)\/([1-9]\d*)(?:\/|$)/
 const githubCommit = /^\/([\w.-]+\/[\w.-]+)\/commit\/([a-f\d]{7,40})(?:\/|$)/i
 const stampPull = /^\/(?:s\/[\w.-]+\/)?github\/([\w.-]+\/[\w.-]+)\/pull\/([1-9]\d*)(?:\/|$)/
+const jiraIssue = /^\/(?:([A-Za-z0-9][A-Za-z0-9._-]*)\/)?browse\/([A-Z][A-Z0-9_]*-[1-9]\d*)\/?$/
+const jiraServer = /^jira(?:[-\d][a-z\d-]*)?(?:\.|$)/
 const fragmentRoute = fragment => fragment.split('?', 1)[0]
 
 export function markdownHref(href) {
@@ -38,18 +40,28 @@ function sourceRecord(href, board) {
   const activity = activityFragment.exec(route)
   if (activity) return { kind: 'Activity', reference: `Activity #${activity[1]}` }
 
-  if (url?.protocol !== 'https:' || url.port || url.username || url.password) return null
+  if (url?.protocol !== 'https:' || url.username || url.password) return null
   if (url.hostname === 'github.com') {
+    if (url.port) return null
     const issueOrPull = githubIssueOrPull.exec(url.pathname)
     if (issueOrPull) return { kind: issueOrPull[2] === 'pull' ? 'Pull request' : 'Issue', reference: `${issueOrPull[1]}#${issueOrPull[3]}` }
     const commit = githubCommit.exec(url.pathname)
     if (commit) return { kind: 'Commit', reference: `${commit[1]}@${commit[2].slice(0, 7)}` }
+    return null
   }
   if (url.hostname === 'stamp.build') {
+    if (url.port) return null
     const pull = stampPull.exec(url.pathname)
     if (pull) return { kind: 'Stamp review', reference: `${pull[1]}#${pull[2]}` }
+    return null
   }
-  return null
+  const issue = jiraIssue.exec(url.pathname)
+  if (!issue) return null
+  const [, context, reference] = issue
+  const knownRoute = url.hostname.endsWith('.atlassian.net')
+    ? !context || context === 'jira'
+    : context === 'jira' || jiraServer.test(url.hostname)
+  return knownRoute ? { kind: 'Jira', reference } : null
 }
 
 export function evidenceLinkLabel(href, label, { generated, board } = {}) {
@@ -63,5 +75,6 @@ export function evidenceLinkLabel(href, label, { generated, board } = {}) {
   const commitTail = kind === 'Commit' ? '[a-f\\d]{0,33}' : ''
   const alreadyNamed = new RegExp(`(^|[^\\w./-])${escapedReference}${commitTail}(?![\\w/-])`, 'i')
     .test(label.replace(/\s+#/g, '#').replace(/Activity#/gi, 'Activity #'))
-  return alreadyNamed ? label : `${label} · ${reference}`
+  const attributed = kind === 'Jira' && !/\bJira\b/i.test(label) ? `${label} · Jira` : label
+  return alreadyNamed ? attributed : `${attributed} · ${reference}`
 }
