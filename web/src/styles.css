@@ -733,8 +733,8 @@ button:disabled { opacity: .57; }
 .ticket-properties dd { margin: 0; }
 .recurring-runs { margin-block: .8rem; border-block: 1px solid var(--line); }
 .recurring-runs > summary { padding-block: .55rem; font-weight: var(--weight-emphasis); }
-.recurring-runs > ol { list-style: none; margin: 0; padding: 0; }
-.recurring-runs li { border-top: 1px solid var(--line); padding-block: .55rem; }
+.recurring-run-list { list-style: none; margin: 0; padding: 0; }
+.recurring-run-list li { border-top: 1px solid var(--line); padding-block: .55rem; }
 .recurring-run-heading { display: flex; flex-wrap: wrap; gap: .2rem .65rem; }
 .recurring-run-heading > span, .recurring-run-times dt { color: var(--muted); }
 .recurring-run-times {
@@ -1218,6 +1218,8 @@ button:disabled { opacity: .57; }
 .attention-row > div { flex: 1 1 14rem; min-width: 0; }
 
 .schedule-panel { display: grid; gap: .65rem; }
+.schedule-heading { flex-wrap: wrap; }
+.schedule-heading h1 { min-width: 0; overflow-wrap: anywhere; }
 .schedule-item { display: grid; gap: .55rem; padding-block: .6rem; border-top: 1px solid var(--line); }
 .schedule-summary { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin: 0; }
 .schedule-summary dt, .schedule-muted { color: var(--muted); font-size: .82rem; }

@@ -22,7 +22,7 @@ import Schedules from './Schedules.jsx'
 import Settings from './Settings.jsx'
 import Stats from './Stats.jsx'
 import { watchBoardSections } from './sectionIndex.js'
-import { BoardBrand, notificationLogFilters, signInHref } from './shared.jsx'
+import { BoardBrand, notificationLogFilters, schedulesHref, signInHref } from './shared.jsx'
 import { SearchResults, TaskSearch } from './TaskSearch.jsx'
 import { KnowledgeRecordTools, TaskDetail, WorkLog, WorkQueue } from './Work.jsx'
 import { useTheme } from './theme.js'
@@ -55,6 +55,8 @@ function fragmentId(fragment, pattern) {
   return Number.isSafeInteger(id) ? id : null
 }
 
+const scheduleAnchor = /^schedule-(R-[1-9]\d{0,18})$/
+
 function useFragment(preview) {
   const [{ fragment: rawFragment, reveal }, setLocation] = useState(() => ({ fragment: window.location.hash.slice(1), reveal: true }))
   const fragment = preview ? withoutTour(rawFragment) : rawFragment
@@ -75,7 +77,7 @@ function useFragment(preview) {
     const params = new URLSearchParams(fragment)
     const section = params.get('section')
     const base = fragment.split('?', 1)[0]
-    let anchor = /^(?:task-|event-|activity$)/.test(base) ? base : fragment
+    let anchor = /^(?:task-|event-|activity$)/.test(base) || scheduleAnchor.test(base) ? base : fragment
     if (fragment.startsWith('notifications-')) anchor = 'notifications'
     if (base === 'reports-all' || base === 'reports') anchor = 'reports'
     if (fragment.startsWith('stats?')) anchor = 'stats'
@@ -192,6 +194,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const timeZone = timeZonePreference || browserTimeZone
   const timeZoneFormatters = useMemo(() => createTimeZoneFormatters(timeZone), [timeZone])
   const [taskAnchor, taskContext] = fragment.split('?', 2)
+  const scheduleId = taskAnchor.match(scheduleAnchor)?.[1]
+  const scheduleProject = scheduleId ? new URLSearchParams(taskContext).get('project') : null
   const recordHistory = new URLSearchParams(taskContext).get('history')
   const namedTask = taskAnchor.match(/^task-([A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})$/)?.[1]
   const selected = namedTask || fragmentId(taskAnchor, /^task-([1-9]\d*)$/)
@@ -277,7 +281,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   else if (fragment === 'personal-codex') view = 'personal-codex'
   else if (fragment === 'about') view = 'about'
   else if (taskAnchor === 'knowledge') view = 'knowledge'
-  else if (params.has('schedules')) view = 'schedules'
+  else if (scheduleId || params.has('schedules')) view = 'schedules'
   else if (taskAnchor === 'stats') view = 'stats'
   else if (logFilters || ['notifications', 'notifications-needs-me'].includes(fragment)) view = 'notifications'
   else if (fragment === 'my-activity' && isAgent) view = 'my-activity'
@@ -290,7 +294,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const reportsProject = visibleProjects?.find(entry => entry.prefix === requestedReportsProject)?.prefix
     || defaultProject
   const project = view === 'reports' ? reportsProject : selected ? namedTask?.split('-')[0] || 'T'
-    : logFilters?.project || params.get('project') || preferredProject
+    : logFilters?.project || scheduleProject || params.get('project') || preferredProject
   useEffect(() => {
     setQueueFilters(previous => previous.tag && previous.tag.project !== project
       ? { ...previous, tag: undefined }
@@ -377,6 +381,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
         setWaitingLabel('')
         window.location.hash = view === 'reports' ? showGoalActivity ? goalActivityFragment(value) : reportFragment(value, assigneeView, defaultProject)
           : view === 'team-overview' ? new URLSearchParams({ project: value, section: 'team-overview' }).toString()
+          : view === 'schedules' ? schedulesHref(value)
           : view
       }}>
         {view === 'reports' && <option value="all">All projects</option>}
@@ -499,13 +504,14 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'activity' && <WorkLog requested={linkedEvent} revision={revision} ownerProfiles={overview.data?.owner_profiles}
             fragment={fragment} onFiltersChange={writeFilterFragment} />}
           {view === 'my-activity' && <MyActivity revision={revision} />}
-          {view === 'schedules' && <Schedules key={project} project={project} revision={revision}
-            session={session} verified={verified} onChanged={refresh} />}
+          {view === 'schedules' && <Schedules key={JSON.stringify([session.data?.actor?.id, scheduleId])}
+            id={scheduleId} project={project} requestedProject={scheduleProject} projectPicker={projectPicker}
+            revision={revision} session={session} verified={verified} onChanged={refresh} />}
           {view === 'board' && (
             <>
               {projectPicker && <div className="tasks-desktop-project">{projectPicker}</div>}
               <div className="page-heading tasks-heading"><h1 id="board">Tasks</h1>
-                {verified && <a href={'#' + new URLSearchParams({ schedules: '', project })}>Schedules</a>}
+                {verified && <a href={schedulesHref(project)}>Schedules</a>}
               </div>
               <WorkQueue revision={revision} overview={overview.data} filters={queueFilters} setFilters={setQueueFilters}
                 waitingLabel={waitingLabel} setWaitingLabel={setWaitingLabel}

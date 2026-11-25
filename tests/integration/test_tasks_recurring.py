@@ -82,6 +82,42 @@ def replay_project_tick(test, fixture, app, open_board):
         test.assertEqual((status, errors), (0, ""))
         test.assertEqual(json.loads(output)["issued"], 0)
 
+        schedules = "/api/v1/schedules"
+        selection = {"project": "OPS"}
+        own_list = fixture.call(owner, schedules, query_string=selection).json
+        self_schedule, = own_list["recurring"]
+        test.assertEqual(self_schedule["id"], bound)
+        test.assertIsNone(own_list["maintenance"]["schedule"])
+        test.assertEqual(fixture.call(owner, schedules, query_string={"project": "T"}).json["recurring"], [])
+        managed_list = fixture.call(manager, schedules, query_string=selection).json
+        test.assertEqual(managed_list["recurring"], [])
+        managed = managed_list["maintenance"]["schedule"]
+        self_detail = fixture.call(owner, f"{schedules}/{bound}").json
+        test.assertEqual((self_detail["project"], self_detail["kind"], self_detail["schedule"], self_detail["owner_choices"]),
+                         ("OPS", "recurring", self_schedule, []))
+        first_run, missed_run = self_detail["runs"]
+        test.assertEqual((first_run["task_key"], first_run["due_at"], first_run["issued_at"], first_run["state"]),
+                         ("OPS-2", EIGHT, EIGHT, "issued"))
+        test.assertEqual((missed_run["task_key"], missed_run["due_at"], missed_run["state"]), (None, FOUR, "missed"))
+        managed_detail = fixture.call(manager, f"{schedules}/{managed['id']}", query_string=selection).json
+        test.assertEqual((managed_detail["project"], managed_detail["kind"], managed_detail["schedule"]),
+                         ("OPS", "maintenance", managed))
+        test.assertEqual(managed_detail["owner_choices"], managed_list["maintenance"]["owner_choices"])
+        for client, identifier, request_scope in (
+            (owner, managed["id"], selection),
+            (manager, bound, selection),
+            (owner, bound, {"project": "LAB"}),
+            (owner, "R-9999", selection),
+        ):
+            fixture.call(client, f"{schedules}/{identifier}", query_string=request_scope, status=404)
+        fixture.call(app.test_client(), f"{schedules}/{bound}", status=401)
+        for viewer, other_viewer, task, identifier in (
+            (manager, owner, "OPS-1", managed["id"]), (owner, manager, "OPS-2", bound),
+        ):
+            detail = fixture.call(viewer, f"/api/v1/tasks/{task}").json["recurring_runs"]
+            test.assertEqual((detail["schedule_id"], detail["project"]), (identifier, "OPS"))
+            test.assertNotIn("recurring_runs", fixture.call(other_viewer, f"/api/v1/tasks/{task}").json)
+
         with open_board() as db:
             test.assertEqual([tuple(row) for row in db.execute(
                 "SELECT project_prefix, dri FROM tasks ORDER BY id",
@@ -425,6 +461,9 @@ class RecurringFixtureTest(unittest.TestCase):
         self.assertEqual(cli.pop("key"), "private-key")
         self.assertEqual(ordinary, {**cli, "owner_name": "Avery"})
         self.assertEqual(ordinary["recent_occurrences"][0]["task_id"], 1)
+        with patch("tasks_core.timestamp", return_value=ZERO):
+            direct = fixture.call(owner, route + "/R-1").json
+        self.assertEqual((direct["project"], direct["kind"], direct["schedule"]), ("T", "recurring", ordinary))
 
         view = schedules(manager, "COURSE")
         self.assertEqual(view["recurring"], [])

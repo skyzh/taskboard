@@ -295,65 +295,98 @@ class BoardQueries:
         report["owner_name"] = profile["name"] if profile else "Unknown owner"
         return report
 
+    def maintenance_report(self, row, project, as_of):
+        report = self.schedule_report(row["id"], row["owner"], as_of)
+        choices = [dict(person) for person in self.db.execute(
+            """
+            SELECT ledger_key AS id, COALESCE(NULLIF(name, ''), NULLIF(username, ''), 'Unknown owner') AS name
+            FROM board_principals ORDER BY name COLLATE NOCASE, ledger_key
+            """,
+        )]
+        return {**report, **maintenance.describe(row, project)["schedule"]}, choices
+
     def schedules(self, project, owner):
         result = {"recurring": [], "maintenance": {"editable": False, "schedule": None, "owner_choices": []}}
         if owner is None:
             return result
         as_of = ledger.timestamp()
-        if project == projects.DEFAULT:
-            definitions = self.db.execute(
-                """
-                SELECT id FROM recurring_definitions
-                WHERE owner = ? AND id NOT IN (SELECT definition_id FROM project_maintenance)
-                ORDER BY id
-                """, (owner,),
-            )
-            result["recurring"] = [self.schedule_report(row["id"], owner, as_of) for row in definitions]
+        definitions = self.db.execute(
+            """
+            SELECT definition.id FROM recurring_definitions AS definition
+            LEFT JOIN local_dris AS local ON local.actor = definition.owner
+            WHERE definition.owner = ?
+              AND definition.id NOT IN (SELECT definition_id FROM project_maintenance)
+              AND COALESCE(definition.project_prefix, local.project, ?) = ?
+            ORDER BY definition.id
+            """, (owner, projects.default_project(self.db), project),
+        )
+        result["recurring"] = [self.schedule_report(row["id"], owner, as_of) for row in definitions]
         if projects.manages(self.db, project, owner):
             maintenance_view = result["maintenance"]
             maintenance_view["editable"] = True
             row = maintenance.find(self.db, project=project)
             if row is not None:
-                report = self.schedule_report(row["id"], row["owner"], as_of)
-                maintenance_view["schedule"] = {**report, **maintenance.describe(row, project)["schedule"]}
-                maintenance_view["owner_choices"] = [dict(person) for person in self.db.execute(
-                    """
-                    SELECT ledger_key AS id, COALESCE(NULLIF(name, ''), NULLIF(username, ''), 'Unknown owner') AS name
-                    FROM board_principals ORDER BY name COLLATE NOCASE, ledger_key
-                    """,
-                )]
+                maintenance_view["schedule"], maintenance_view["owner_choices"] = self.maintenance_report(
+                    row, project, as_of,
+                )
         return result
+
+    def visible_schedule(self, number, owner, *, occurrence=False):
+        source = "definition.id = ?"
+        if occurrence:
+            source = "definition.id = (SELECT definition_id FROM recurring_occurrences WHERE task_id = ?)"
+        return self.db.execute(
+            f"""
+            SELECT definition.id, definition.owner, managed.project AS maintenance_project,
+                   COALESCE(managed.project, definition.project_prefix, local.project, ?) AS project,
+                   CASE WHEN definition.state = 'active' THEN definition.next_at END AS next_at
+            FROM recurring_definitions AS definition
+            LEFT JOIN project_maintenance AS managed ON managed.definition_id = definition.id
+            LEFT JOIN projects AS manager_scope ON manager_scope.prefix = managed.project
+            LEFT JOIN local_dris AS local ON local.actor = definition.owner
+            WHERE {source}
+              AND (CASE WHEN managed.project IS NULL THEN definition.owner ELSE manager_scope.dri END) = ?
+            """, (projects.default_project(self.db), number, owner),
+        ).fetchone()
+
+    def schedule_detail(self, number, owner, project=None):
+        row = self.visible_schedule(number, owner)
+        if row is None or (project is not None and project != row["project"]):
+            return None
+        as_of = ledger.timestamp()
+        if row["maintenance_project"] is not None:
+            managed = maintenance.find(self.db, definition_id=number)
+            schedule, choices = self.maintenance_report(managed, row["project"], as_of)
+            kind = "maintenance"
+        else:
+            schedule, choices = self.schedule_report(number, row["owner"], as_of), []
+            kind = "recurring"
+        return {"project": row["project"], "kind": kind, "schedule": schedule, "owner_choices": choices,
+                "runs": self.schedule_runs(number)}
 
     def recurring_runs(self, number, owner):
         """Read a bounded history from the schedule linked to this occurrence."""
+        schedule = self.visible_schedule(number, owner, occurrence=True)
+        if schedule is None:
+            return None
+        return {"current_task_id": number, "next_at": schedule["next_at"], "schedule_id": f"R-{schedule['id']}",
+                "project": schedule["project"], "items": self.schedule_runs(schedule["id"], current_task_id=number)}
+
+    def schedule_runs(self, number, *, current_task_id=None):
         rows = self.db.execute(
             f"""
-            WITH schedule AS (
-                SELECT definition.id,
-                       CASE WHEN definition.state = 'active' THEN definition.next_at END AS next_at
-                FROM recurring_occurrences AS occurrence
-                JOIN recurring_definitions AS definition ON definition.id = occurrence.definition_id
-                LEFT JOIN project_maintenance AS managed ON managed.definition_id = definition.id
-                LEFT JOIN projects AS project ON project.prefix = managed.project
-                WHERE occurrence.task_id = ? AND (
-                    (managed.project IS NULL AND definition.owner = ?) OR project.dri = ?
-                )
-            ),
-            recent AS (
-                SELECT occurrence.due_at, occurrence.issued_at, occurrence.task_id
-                FROM recurring_occurrences AS occurrence
-                JOIN schedule ON schedule.id = occurrence.definition_id
-                ORDER BY occurrence.due_at DESC LIMIT ?
+            WITH recent AS (
+                SELECT due_at, issued_at, task_id
+                FROM recurring_occurrences WHERE definition_id = ?
+                ORDER BY due_at DESC LIMIT ?
             ),
             history AS (
                 SELECT due_at, issued_at, task_id FROM recent
                 UNION
-                SELECT occurrence.due_at, occurrence.issued_at, occurrence.task_id
-                FROM recurring_occurrences AS occurrence
-                JOIN schedule ON schedule.id = occurrence.definition_id
-                WHERE occurrence.task_id = ?
+                SELECT due_at, issued_at, task_id
+                FROM recurring_occurrences WHERE definition_id = ? AND task_id = ?
             )
-            SELECT history.due_at, history.issued_at, history.task_id, schedule.next_at,
+            SELECT history.due_at, history.issued_at, history.task_id,
                    ticket.id, ticket.project_prefix, ticket.project_number,
                    {ledger.display_state_sql("events.context")} AS display_state,
                    (SELECT at FROM events
@@ -365,17 +398,15 @@ class BoardQueries:
                          AND (action = 'done' OR json_type(events.context, '$.closure') = 'object')
                        ORDER BY id DESC LIMIT 1
                    ) END AS terminal_at
-            FROM history CROSS JOIN schedule
+            FROM history
             LEFT JOIN tasks AS ticket ON ticket.id = history.task_id
             LEFT JOIN events ON events.id = (
                 SELECT MAX(id) FROM events
                 WHERE task_id = history.task_id AND action NOT IN ('source-event', 'log')
             )
             ORDER BY history.due_at DESC
-            """, (number, owner, owner, recurring.HISTORY_LIMIT, number),
+            """, (number, recurring.HISTORY_LIMIT, number, current_task_id),
         ).fetchall()
-        if not rows:
-            return None
         items = []
         for row in rows:
             if row["task_id"] is None:
@@ -391,7 +422,7 @@ class BoardQueries:
                 "state": state,
                 "task_key": projects.row_reference(row) if row["id"] is not None else None,
             })
-        return {"current_task_id": number, "next_at": rows[0]["next_at"], "items": items}
+        return items
 
     def links(self, pairs, *, event_id=None):
         values = []

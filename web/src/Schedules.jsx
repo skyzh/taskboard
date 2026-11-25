@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { queryPath, request, useResource } from './data.js'
-import { ResourceStatus, signInHref, taskHref, taskLabel } from './shared.jsx'
+import { ResourceStatus, scheduleHref, schedulesHref, signInHref, taskHref, taskLabel } from './shared.jsx'
 import { useTimeZone } from './timeZone.js'
+import { RecurringRunList } from './RecurringRuns.jsx'
 
 const scheduleStates = { active: 'Active', paused: 'Paused', canceled: 'Canceled' }
 const runStates = {
@@ -30,7 +31,7 @@ export function ScheduleSummary({ schedule }) {
   return (
     <dl className="schedule-summary">
       <div><dt>Owner</dt><dd>{owner || 'Unavailable assignee'}</dd></div>
-      <div><dt>Schedule</dt><dd>{interval}</dd></div>
+      <div><dt>Cadence</dt><dd>{interval}</dd></div>
       <div><dt>Status</dt><dd>{scheduleStates[state]}</dd></div>
       {state === 'active' && <div><dt>Next run</dt><dd><ScheduleDate value={next} /></dd></div>}
     </dl>
@@ -166,38 +167,49 @@ function MaintenanceControls({ project, schedule, owners, onChanged }) {
   )
 }
 
+function ScheduleControls({ project, schedule, ownerChoices, onChanged }) {
+  if (!ownerChoices) return <RecurringControls key={schedule.state} schedule={schedule} onChanged={onChanged} />
+  return (
+    <MaintenanceControls
+      key={JSON.stringify([schedule.id, schedule.owner, schedule.cadence_hours, schedule.next_at,
+        schedule.state, schedule.members])}
+      project={project} schedule={schedule} owners={ownerChoices} onChanged={onChanged} />
+  )
+}
+
+function ScheduleLink({ schedule, project }) {
+  return <a href={scheduleHref(schedule.id, project)}>{schedule.id} · {schedule.title}</a>
+}
+
 export function ScheduleContents({ data, project, onChanged }) {
   const { recurring, maintenance } = data
   const schedule = maintenance.schedule
   return (
     <>
-      {project === 'T' && (
-        <section className="panel schedule-panel" aria-labelledby="recurring-title">
-          <h2 id="recurring-title">Your recurring work</h2>
-          {recurring.length === 0 && <p>You have no recurring schedules.</p>}
-          {recurring.map(item => (
-            <article key={item.id} className="schedule-item">
-              <h3>{item.title}</h3>
-              <ScheduleSummary schedule={item} />
-              <OccurrenceHistory occurrences={item.recent_occurrences} />
-              <RecurringControls key={item.state} schedule={item} onChanged={onChanged} />
-            </article>
-          ))}
-        </section>
-      )}
+      <section className="panel schedule-panel" aria-labelledby="recurring-title">
+        <h2 id="recurring-title">Your recurring work</h2>
+        {recurring.length === 0 && <p>You have no recurring schedules in this project.</p>}
+        {recurring.map(item => (
+          <article key={item.id} className="schedule-item">
+            <h3><ScheduleLink schedule={item} project={project} /></h3>
+            <ScheduleSummary schedule={item} />
+            <OccurrenceHistory occurrences={item.recent_occurrences} />
+            <ScheduleControls schedule={item} onChanged={onChanged} />
+          </article>
+        ))}
+      </section>
       <section className="panel schedule-panel" aria-labelledby="maintenance-title">
         <h2 id="maintenance-title">Project maintenance</h2>
         {!maintenance.editable && <p>Only the project manager can view and edit this schedule.</p>}
         {maintenance.editable && !schedule && <p>This project has no maintenance schedule.</p>}
         {schedule && (
           <>
+            <h3><ScheduleLink schedule={schedule} project={project} /></h3>
             <ScheduleSummary schedule={schedule} />
             <OccurrenceHistory occurrences={schedule.recent_occurrences} />
             {maintenance.editable && (
-              <MaintenanceControls
-                key={JSON.stringify([schedule.id, schedule.owner, schedule.cadence_hours, schedule.next_at,
-                  schedule.state, schedule.members])}
-                project={project} schedule={schedule} owners={maintenance.owner_choices} onChanged={onChanged} />
+              <ScheduleControls project={project} schedule={schedule}
+                ownerChoices={maintenance.owner_choices} onChanged={onChanged} />
             )}
           </>
         )}
@@ -206,23 +218,49 @@ export function ScheduleContents({ data, project, onChanged }) {
   )
 }
 
-export default function Schedules({ project, session, verified, revision, onChanged }) {
-  const resource = useResource(verified ? queryPath('/schedules', { project }) : null, revision)
-  const projectHash = new URLSearchParams({ project })
+function ScheduleDetail({ data, onChanged }) {
+  const { kind, project, runs, schedule, owner_choices: ownerChoices } = data
   return (
     <>
-      <div className="page-heading">
-        <h1 id="schedules">Schedules</h1>
-        <a href={'#' + projectHash}>Back to Tasks</a>
+      <section className="panel schedule-panel" aria-label="Schedule details">
+        <ScheduleSummary schedule={schedule} />
+        <ScheduleControls project={project} schedule={schedule}
+          ownerChoices={kind === 'maintenance' ? ownerChoices : undefined} onChanged={onChanged} />
+      </section>
+      <section className="panel schedule-panel" aria-labelledby="schedule-runs">
+        <h2 id="schedule-runs">Recent runs</h2>
+        <RecurringRunList runs={runs} />
+      </section>
+    </>
+  )
+}
+
+export default function Schedules({ id, project, requestedProject, projectPicker, session, verified, revision, onChanged }) {
+  const path = id ? queryPath(`/schedules/${id}`, { project: requestedProject }) : queryPath('/schedules', { project })
+  const resource = useResource(verified ? path : null, revision)
+  const listProject = resource.data?.project || project
+  const detailTitle = resource.data?.schedule?.title
+  const heading = id && detailTitle ? `${id} · ${detailTitle}` : id || 'Schedules'
+  const label = id ? 'schedule' : 'schedules'
+  return (
+    <>
+      <div className="page-heading schedule-heading">
+        <h1 id={id ? `schedule-${id}` : 'schedules'}>{heading}</h1>
+        {id ? <a href={schedulesHref(listProject)}>Back to Schedules</a> : <>
+          {projectPicker}
+          <a href={'#' + new URLSearchParams({ project })}>Back to Tasks</a>
+        </>}
       </div>
       {verified ? (
         <>
-          <ResourceStatus resource={resource} label="schedules" />
-          {resource.data && <ScheduleContents data={resource.data} project={project} onChanged={onChanged} />}
+          {id && resource.error?.status === 404 ? <p className="section-message" role="status">Schedule unavailable.</p>
+            : <ResourceStatus resource={resource} label={label} />}
+          {resource.data && (id ? <ScheduleDetail data={resource.data} onChanged={onChanged} />
+            : <ScheduleContents data={resource.data} project={project} onChanged={onChanged} />)}
         </>
       ) : (
         <p>{session.data?.sign_in_available || session.error?.status === 401
-          ? <a href={signInHref('#' + new URLSearchParams({ schedules: '', project }))}>Sign in with Raft</a>
+          ? <a href={signInHref(id ? scheduleHref(id, requestedProject) : schedulesHref(project))}>Sign in with Raft</a>
           : 'Schedules are available on the signed-in board.'}</p>
       )}
     </>

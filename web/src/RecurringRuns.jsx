@@ -1,5 +1,5 @@
 import React from 'react'
-import { TaskLink, Timestamp } from './shared.jsx'
+import { TaskLink, Timestamp, scheduleHref } from './shared.jsx'
 
 const runLabels = {
   scheduled: 'Scheduled',
@@ -42,6 +42,15 @@ function RunRow({ run, currentTaskId }) {
   )
 }
 
+export function RecurringRunList({ runs, currentTaskId }) {
+  if (runs.length === 0) return <p>No runs recorded yet.</p>
+  return (
+    <ol className="recurring-run-list" aria-label="Recurring runs" role="list">
+      {runs.map(run => <RunRow key={run.due_at} run={run} currentTaskId={currentTaskId} />)}
+    </ol>
+  )
+}
+
 export default function RecurringRuns({ history }) {
   if (!history) return null
   const current = history.items.find(run => run.task_id === history.current_task_id)
@@ -51,14 +60,14 @@ export default function RecurringRuns({ history }) {
     ...history.items.filter(run => run !== current),
   ]
   return (
-    <details className="recurring-runs">
-      <summary>Recent runs</summary>
-      {runs.length === 0 && <p>No runs recorded yet.</p>}
-      {runs.length > 0 && (
-        <ol aria-label="Recurring runs" role="list">
-          {runs.map(run => <RunRow key={run.due_at} run={run} currentTaskId={history.current_task_id} />)}
-        </ol>
+    <>
+      {history.schedule_id && (
+        <p><a href={scheduleHref(history.schedule_id, history.project)}>Recurring schedule {history.schedule_id}</a></p>
       )}
-    </details>
+      <details className="recurring-runs">
+        <summary>Recent runs</summary>
+        <RecurringRunList runs={runs} currentTaskId={history.current_task_id} />
+      </details>
+    </>
   )
 }
