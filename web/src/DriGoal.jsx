@@ -1,7 +1,7 @@
 import React, { useId, useState } from 'react'
 import { queryPath, request } from './data.js'
 import { FieldHelp, useFieldGuidance } from './FieldGuidance.jsx'
-import { TaskLink } from './shared.jsx'
+import { taskHref, TaskLink } from './shared.jsx'
 import { useReportDay } from './ReportTime.jsx'
 
 export function GoalDeadline({ deadline, finished = false }) {
@@ -115,7 +115,7 @@ export default function DriGoal({ goal, project, standing = false, editable, onC
       </div>
       {goal ? (
         <>
-          <p>{goal.summary}</p>
+          <p>{standing && goal.ticket ? <a href={taskHref(goal.ticket)}>{goal.summary}</a> : goal.summary}</p>
           {!standing && <GoalDetails goal={goal} />}
         </>
       ) : <p className="section-message">No goal set.</p>}
