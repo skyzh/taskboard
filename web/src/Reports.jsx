@@ -16,6 +16,7 @@ import { useTimeZone } from './timeZone.js'
 import { briefSourceText } from './workCopy.js'
 import QueuedAsks from './QueuedAsks.jsx'
 import StampIntegration from './StampIntegration.jsx'
+import SegmentedControl from './SegmentedControl.jsx'
 import { DemoUnavailable } from './DemoControl.jsx'
 
 export const ownerWorkSections = [
@@ -346,7 +347,11 @@ function ProjectReports({ revision, project, projectTitle, hideRequests, viewer,
   )
 }
 
-const assigneeViews = [['active', 'Active'], ['all', 'All'], ['recent', 'Recent + team']]
+const assigneeViews = [
+  { value: 'active', label: 'Active' },
+  { value: 'all', label: 'All' },
+  { value: 'recent', label: 'Recent + team' },
+]
 
 export default function Reports({
   revision, viewer, project, projects, defaultProject = 'T', assigneeView = 'active',
@@ -366,12 +371,8 @@ export default function Reports({
           <input type="checkbox" checked={hideRequests} onChange={event => setHideRequests(event.target.checked)} />
           Hide peer requests
         </label>
-        <div className="report-assignee-views" role="group" aria-label="Assignees">
-          {assigneeViews.map(([value, label]) => (
-            <button key={value} type="button" aria-pressed={assigneeView === value}
-              onClick={() => onAssigneeViewChange(value)}>{label}</button>
-          ))}
-        </div>
+        <SegmentedControl className="report-assignee-views" label="Assignees" value={assigneeView}
+          options={assigneeViews} onChange={onAssigneeViewChange} />
       </ReportsHeading>
       {viewer && <NeedsYou key={viewer.id} project={projects ? undefined : project} revision={revision} />}
       {projects ? projects.map(({ prefix, title }) => (
