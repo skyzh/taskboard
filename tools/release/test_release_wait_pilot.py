@@ -1,7 +1,7 @@
 """Disposable replay of a Pi release result, scoped Ready transition, and direct wake."""
 
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import unittest
 
@@ -25,6 +25,7 @@ import test_tasks_service as service
 COMMIT = "a" * 40
 MANIFEST = "b" * 64
 PREVIOUS = "c" * 64
+PILOT_SCHEMA = "taskboard-release-pilot/v1"
 TICKET = "T-1"
 PRECHECK = {
     "ci_pending": "Required checks are still running.",
@@ -59,37 +60,52 @@ def apply_fixture_receipt(board, database, wait, result, recipient, transport):
         wait["key"], wait["event_id"], wait["expected_commit"],
     ) or datetime.fromisoformat(result["at"]) < datetime.fromisoformat(wait["at"]):
         return "stale"
+    if result["status"] == "rate-limited":
+        deadline = datetime.fromtimestamp(result["retry_at"], timezone.utc)
+        result = {**result, "status": "rate_limited", "retry_at": deadline.isoformat().replace("+00:00", "Z")}
     outcome = result["status"]
     if outcome == "released" and (
         result["mounted_commit"] != result["commit"] or result["active"] != result["candidate"]
         or result["healthy"] is not True
     ):
         return "unverified_mount"
+    if outcome in PRECHECK and result.keys() & {"mounted_commit", "candidate", "active", "healthy"}:
+        return "invalid_precheck"
 
     with closing(open_sqlite(database)) as db:
         current = ledger.get_task(db, projects.resolve(db, result["ticket"]))
-        if (outcome == "released" and current["state"] == "ready"
-                and ledger.event_context(current).get("confirmed_blocker_event") == wait["event_id"]):
-            prior = db.execute(
+    resumed = (current["state"] == "ready"
+               and ledger.event_context(current).get("confirmed_blocker_event") == wait["event_id"])
+    if not resumed and (current["state"], current["event_id"]) != ("waiting", wait["event_id"]):
+        return "stale"
+
+    actor = board.invoke("context")["actor"]["id"]
+    body = {"schema": PILOT_SCHEMA, **result}
+    try:
+        prior_event = activity_event(board.invoke, actor, body)
+    except ValueError:
+        return "conflicting_receipt"
+    if resumed:
+        if prior_event is None or outcome != "released":
+            return "stale"
+        with closing(open_sqlite(database)) as db:
+            prior_release = db.execute(
                 """SELECT receipt_url FROM release_events JOIN release_batches ON release_batches.id = batch_id
                    WHERE release_id = ? AND candidate = ? AND status = 'released' AND activity_task_id = ?""",
                 (result["release_id"], result["candidate"], current["id"]),
             ).fetchone()
-            if prior is None or not any(link[1] == prior["receipt_url"] for link in json.loads(current["current_links"])):
+            if prior_release is None or not any(
+                link[1] == prior_release["receipt_url"] for link in json.loads(current["current_links"])
+            ):
                 return "stale"
-            ledger.import_release_event(database, release_event(result, receipt_url=prior["receipt_url"]))
             return launch_ready_wake(db, project="T", task=result["ticket"], event_id=current["event_id"],
                                      recipient=recipient, transport=transport)
-    if current["state"] != "waiting" or current["event_id"] != wait["event_id"]:
-        return "stale"
-
-    actor = board.invoke("context")["actor"]["id"]
+    if prior_event is None:
+        board.invoke("record-activity", {
+            "id": result["ticket"], "note": PRECHECK.get(outcome, "Observed the Pi result for this wait."),
+            "details": json.dumps(body, sort_keys=True),
+        }, write=True)
     if outcome in PRECHECK:
-        body = {"schema": "taskboard-release-pilot/v1", **result}
-        if activity_event(board.invoke, actor, body) is None:
-            board.invoke("record-activity", {
-                "id": result["ticket"], "note": PRECHECK[outcome], "details": json.dumps(body, sort_keys=True),
-            }, write=True)
         return "still_waiting"
 
     observed = publish_outcome(board.invoke, result, confirm=True)
@@ -140,11 +156,13 @@ class ReleaseWaitPilotTest(unittest.TestCase):
         return self.board.invoke("task", {"id": TICKET})["task"]
 
     def delivery(self, status="released", **data):
-        return {
+        receipt = {
             "ticket": TICKET, "wait_event": self.wait["event_id"], "commit": COMMIT, "at": self.at,
-            "release_id": f"pilot-{status}", "status": status, "candidate": MANIFEST,
-            "active": MANIFEST, "mounted_commit": COMMIT, "healthy": True, **data,
+            "release_id": f"pilot-{status}", "status": status,
         }
+        if status in ("released", "rolled_back"):
+            receipt.update(candidate=MANIFEST, active=MANIFEST, mounted_commit=COMMIT, healthy=True)
+        return {**receipt, **data}
 
     def deliver(self, transport, **data):
         return apply_fixture_receipt(self.operator, self.database, self.wait,
@@ -169,7 +187,7 @@ class ReleaseWaitPilotTest(unittest.TestCase):
         self.assertEqual(offers, [])
         saved = self.database.with_name("release-outbox.json")
         ack = self.database.with_name("release-ack.json")
-        write_json(saved, {"schema": "taskboard-release-pilot/v1", "result": self.delivery()})
+        write_json(saved, {"schema": PILOT_SCHEMA, "result": self.delivery()})
         original = saved.read_bytes()
 
         def deliver_saved():
@@ -179,9 +197,20 @@ class ReleaseWaitPilotTest(unittest.TestCase):
 
         self.assertEqual(deliver_saved(), "unknown")
         self.assertFalse(ack.exists())
+        before = list(self.board.pages("task-activity", {"id": TICKET}))
+        ready = self.ticket()
+        self.assertEqual(self.deliver(transport, reason_code="changed"), "conflicting_receipt")
+        self.assertEqual(self.ticket(), ready)
+        self.assertEqual(list(self.board.pages("task-activity", {"id": TICKET})), before)
+        with closing(open_sqlite(self.database)) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM wake_log").fetchone()[0], 0)
+        self.assertEqual(len(offers), 1)
         self.assertEqual(deliver_saved(), "accepted")
         write_json(ack, {"release_id": self.delivery()["release_id"], "event_id": self.ticket()["event_id"]})
         self.assertEqual(deliver_saved(), "already_accepted")
+        self.assertEqual(self.deliver(transport, reason_code="changed"), "conflicting_receipt")
+        self.assertEqual(self.ticket(), ready)
+        self.assertEqual(list(self.board.pages("task-activity", {"id": TICKET})), before)
         self.assertEqual(saved.read_bytes(), original)
         for path in (saved, ack):
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
@@ -200,7 +229,7 @@ class ReleaseWaitPilotTest(unittest.TestCase):
 
         cases = [
             ("ci_pending", {}),
-            ("rate_limited", {"retry_at": "2099-01-01T00:00:00Z"}),
+            ("rate-limited", {"retry_at": int(datetime(2099, 1, 1, tzinfo=timezone.utc).timestamp())}),
             ("superseded", {"replacement_commit": "e" * 40}),
             ("build_failed", {"stage": "build"}),
             ("rolled_back", {"active": PREVIOUS, "healthy": False}),
@@ -212,9 +241,15 @@ class ReleaseWaitPilotTest(unittest.TestCase):
                 self.assertEqual((self.ticket()["state"], self.ticket()["event_id"]),
                                  ("waiting", self.wait["event_id"]))
         activity = list(self.board.pages("task-activity", {"id": TICKET}))
-        observed = [json.loads(event["details"])["status"] for event in activity
-                    if event["action"] == "log" and event.get("details")]
-        self.assertEqual(observed, [status for status, _ in reversed(cases)])
+        pilot_receipts = [json.loads(event["details"]) for event in activity
+                          if event["action"] == "log" and event.get("details")]
+        pilot_receipts = [record for record in pilot_receipts if record["schema"] == PILOT_SCHEMA]
+        self.assertEqual([record["status"] for record in pilot_receipts],
+                         [status.replace("-", "_") for status, _ in reversed(cases)])
+        limited, = [record for record in pilot_receipts if record["status"] == "rate_limited"]
+        self.assertEqual(limited["retry_at"], "2099-01-01T00:00:00Z")
+        self.assertNotIn("candidate", limited)
+        self.assertNotIn("active", limited)
         self.advance(TICKET, "resume")
         self.advance(TICKET, "wait", on="Replacement deployment", automation=True)
         self.assertEqual(self.deliver(unexpected_send), "stale")
