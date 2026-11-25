@@ -237,7 +237,10 @@ class OIDCTest(unittest.TestCase):
         self.provider.subject = "fixture-two"
         second = self.app.test_client()
         self.sign_in(second)
-        self.call(second, tag_path, 403, **options)
+        self.call(second, tag_path, **options)
+        event = self.call(legacy, "/api/v1/tasks/1/activity").json["items"][0]
+        self.assertEqual((event["actor"], event["context"]["audit"]["label"]), (self.two, "test"))
+        self.call(second, tag_path, 403, method="POST", json={"tag": "decision-record", "action": "add"})
         self.call(legacy, tag_path, **options)
 
     def test_wrong_context_state_or_token_cannot_create_a_session(self):

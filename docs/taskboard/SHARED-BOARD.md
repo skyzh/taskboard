@@ -304,17 +304,20 @@ have read access only.
 | --- | --- |
 | Edit goal content | Goal owner, or project manager through ticket details. |
 | Start, update or finish work, set priority, or change parking | Ticket owner under the current workflow rules. An eligible agent can hand off assigned regular work to a valid recipient in its project. |
-| Edit checklists or tags | Ticket owner or project manager. Knowledge tags require the project manager. |
+| Add or rename checklist steps | Project writers can edit wording. The current work and each step's completion record stay in place. |
+| Start or complete a checklist step, reopen one, or remove one | The ticket owner records progress. The owner or project manager can reopen or remove steps, which changes the checklist's status or membership. |
+| Add or remove ordinary labels | Project writers can edit tags on tickets and Knowledge. The `decision-record` tag controls legacy record classification. Changing it on work requires the owner or manager, and Knowledge entries retain it. |
+| Add or relabel ordinary references | Project writers can use `tasks --shared link-reference` for plain web links. Exact GitHub issue and pull request links attach a provider source and use the existing ticket owner or Knowledge manager permission because they can drive intake and automation. |
 | Answer a decision | Human named on the current decision request. |
 | Close unfinished work, reassign or reopen | Ticket owner or project manager can close ordinary unfinished work. Reassignment, unassignment, and reopening use the project manager path. Linked requests use their own requester and workflow rules. |
 | Move a ticket to another project | Manager of both projects, subject to the ticket and assignee rules. |
 | Create or organize Knowledge | A signed project agent or project manager can create entries. Placement of Knowledge entries and applying staged changes use project management permissions. |
 | Change project settings or creation grants | Project settings use project management permissions. Creating projects needs the separate creation grant, managed by the configured permission manager. |
 
-The shared board records closure in Activity. It does not expose permanent record
-deletion as an ordinary content edit. The title and brief change needs no ledger
-migration. A prior service version can read the same content and history after
-rollback and applies its own edit eligibility.
+The shared board preserves prior Activity as history and records changes as new
+events. Closing a record preserves that history. The content permissions need no
+ledger migration. A prior service version can read the same content and history
+after rollback and applies its own edit eligibility.
 
 ## Use the shared CLI
 

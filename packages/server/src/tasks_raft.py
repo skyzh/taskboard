@@ -103,7 +103,7 @@ _ACTIONS = {
     "search-activity": _Action("GET", "Find matching Activity notes and details in one project.", {
         "q": "Literal text to match, ignoring case.", "project": "Tasks project prefix.",
     }, _PAGINATION),
-    "task-tag": _Action("POST", "Add or remove a tag from a ticket you own or manage.", {
+    "task-tag": _Action("POST", "Edit ordinary tags with project write access. Knowledge classification has separate rules.", {
         **_TASK, "tag": "Tag to change.", "action": "Choose add or remove.",
     }),
     "task": _Action("GET", "Read a task, its current step, handoffs, and any due owner progress prompt.", _TASK),
@@ -214,7 +214,7 @@ _ACTIONS = {
     "move-task": _Action("POST", "Move a work ticket as a manager of both projects.", {
         **_TASK, "project": "Destination project prefix.",
     }),
-    "edit-checklist": _Action("POST", "Edit checklist steps as the ticket owner or project manager.", {
+    "edit-checklist": _Action("POST", "Add or rename steps with project write access. Reopen or remove as the owner or manager.", {
         **_TASK, "action": "Choose add, rename, reopen, or remove.",
     }, {"position": "Stable step number for rename, reopen, or remove.", "label": "Step wording for add or rename."}),
     "set-priority": _Action("POST", "Set the priority of a task you own.", {
@@ -248,7 +248,7 @@ _ACTIONS = {
     "link-github": _Action("POST", "Link a GitHub issue or pull request to a task you own.", {
         **_TASK, "github_url": "GitHub HTTPS issue or pull request URL.",
     }),
-    "link-reference": _Action("POST", "Attach or relabel a web link on a task you own. Repeat for each reference.", {
+    "link-reference": _Action("POST", "Attach or relabel an ordinary web link with project write access. GitHub sources require separate permission.", {
         **_TASK, "label": "Label shown in the task's Sources.", "url": "Full HTTP(S) URL, such as a Raft permalink.",
     }),
     "fetch-github": _Action("POST", "Fetch and record recent GitHub updates for a linked task.", _TASK),

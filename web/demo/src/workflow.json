@@ -1616,8 +1616,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [
           {
             "checked": 0,
@@ -1664,7 +1666,7 @@
             "url": "https://github.com/skyzh/taskboard/pull/234"
           }
         ],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "update",
           "at": "2026-11-24T05:44:00+00:00",
@@ -1896,8 +1898,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -1907,7 +1911,7 @@
         "ownership_actions": [],
         "related_tasks": [],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "done",
           "at": "2026-11-24T05:52:40+00:00",
@@ -2043,8 +2047,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -2061,7 +2067,7 @@
           }
         ],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "done",
           "at": "2026-11-24T05:58:00+00:00",
@@ -2325,8 +2331,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -2336,7 +2344,7 @@
         "ownership_actions": [],
         "related_tasks": [],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "done",
           "at": "2026-11-24T05:56:40+00:00",
@@ -2511,8 +2519,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": false,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "knowledge_stages": [
@@ -2535,7 +2545,7 @@
         "ownership_actions": [],
         "related_tasks": [],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "add",
           "at": "2026-11-24T05:58:40+00:00",
@@ -2635,8 +2645,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -2653,7 +2665,7 @@
           }
         ],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "wait",
           "at": "2026-11-24T06:01:20+00:00",
@@ -2802,8 +2814,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -2813,7 +2827,7 @@
         "ownership_actions": [],
         "related_tasks": [],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "start",
           "at": "2026-11-24T06:02:00+00:00",
@@ -2924,8 +2938,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -2935,7 +2951,7 @@
         "ownership_actions": [],
         "related_tasks": [],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "wait",
           "at": "2026-11-24T05:45:40+00:00",
@@ -3085,8 +3101,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -3096,7 +3114,7 @@
         "ownership_actions": [],
         "related_tasks": [],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "add",
           "at": "2026-11-24T05:45:20+00:00",
@@ -3175,8 +3193,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -3186,7 +3206,7 @@
         "ownership_actions": [],
         "related_tasks": [],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "wait",
           "at": "2026-11-24T05:47:00+00:00",
@@ -3336,8 +3356,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -3347,7 +3369,7 @@
         "ownership_actions": [],
         "related_tasks": [],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "wait",
           "at": "2026-11-24T05:48:20+00:00",
@@ -3487,8 +3509,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -3498,7 +3522,7 @@
         "ownership_actions": [],
         "related_tasks": [],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "assign-human",
           "at": "2026-11-24T05:49:40+00:00",
@@ -3648,8 +3672,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -3659,7 +3685,7 @@
         "ownership_actions": [],
         "related_tasks": [],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "add",
           "at": "2026-11-24T05:50:00+00:00",
@@ -3731,8 +3757,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -3742,7 +3770,7 @@
         "ownership_actions": [],
         "related_tasks": [],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "park",
           "at": "2026-11-24T05:50:40+00:00",
@@ -3848,8 +3876,10 @@
         "can_close": false,
         "can_confirm_blocker": false,
         "can_edit_checklist": false,
+        "can_edit_checklist_text": true,
         "can_edit_details": true,
         "can_edit_parking": false,
+        "can_tag_decision_record": false,
         "checklist": [],
         "goal": null,
         "last_activity": {
@@ -3859,7 +3889,7 @@
         "ownership_actions": [],
         "related_tasks": [],
         "sources": [],
-        "tag_editable": false,
+        "tag_editable": true,
         "task": {
           "action": "update",
           "at": "2026-11-24T05:51:20+00:00",

@@ -216,7 +216,15 @@ def evidence_links(pairs):
     return links
 
 
-def link_reference(db, task, label, url, actor):
+def require_source_editor(db, task, actor):
+    if is_knowledge(task):
+        if not may_tag(db, task, actor):
+            raise PermissionError("Only the project manager can link a Knowledge automation source.")
+    elif task["dri"] != actor:
+        raise ValueError(f"{projects.row_reference(task)} is owned by {task['dri']}.")
+
+
+def link_reference(db, task, label, url, actor, *, can_edit_content=False):
     from tasks_github import link_github_source, linked_source
 
     number = task["id"]
@@ -239,6 +247,8 @@ def link_reference(db, task, label, url, actor):
         _, github_url = linked_source(url)
     except ValueError:
         github_url = None
+    if github_url is not None or not can_edit_content:
+        require_source_editor(db, task, actor)
     source_id = None
     if github_url is not None:
         _, url, source_id = link_github_source(db, number, github_url)
@@ -429,9 +439,7 @@ def ownership_actions(task):
 
 def edit_task_details(db, args, links):
     task = get_task(db, args.id)
-    can_edit = getattr(args, "can_edit_details", None)
-    permitted = can_edit(db, task) if can_edit else may_tag(db, task, args.by)
-    if not permitted:
+    if not can_edit_content(db, task, args):
         raise PermissionError("You do not have permission to edit this record's details.")
     if args.title is None and args.brief is None:
         raise ValueError("Provide a title or brief to change.")
@@ -536,6 +544,11 @@ def may_tag(db, task, actor):
     )
 
 
+def can_edit_content(db, task, args):
+    check = getattr(args, "can_edit_content", None)
+    return check(db, task) if check else may_tag(db, task, args.by)
+
+
 def task_tags(db, task_id):
     if not watches.has_table(db, "task_tags"):
         return []
@@ -545,9 +558,10 @@ def task_tags(db, task_id):
 
 def change_tag(db, args):
     task = get_task(db, args.id)
-    if not may_tag(db, task, args.by):
-        raise PermissionError("Only the ticket owner or project manager can change its tags.")
     tag = tag_name(args.tag)
+    allowed = can_edit_content(db, task, args)
+    if not allowed or (tag == "decision-record" and not may_tag(db, task, args.by)):
+        raise PermissionError("You do not have permission to change this tag.")
     if is_knowledge(task) and tag == "decision-record" and args.tag_action == "remove":
         raise ValueError("Knowledge entries retain the decision-record tag for compatibility.")
     if args.tag_action == "add":
@@ -697,9 +711,11 @@ def change_checklist(db, number, additions, starts, checks, *, actor, state):
 
 def edit_checklist(db, args):
     task = get_work_task(db, args.id)
-    if args.by != task["dri"] and not projects.manages(db, projects.row_project(task), args.by):
-        raise PermissionError("Only the ticket owner or project manager can edit its checklist.")
     action, position, label = args.change, args.position, args.label
+    if not can_edit_content(db, task, args) or (
+        action not in ("add", "rename") and not may_tag(db, task, args.by)
+    ):
+        raise PermissionError("You do not have permission to make this checklist change.")
     if action not in CHECKLIST_EDITS:
         raise ValueError("Choose add, rename, reopen, or remove.")
     if (position is None) != (action == "add"):
@@ -1002,13 +1018,11 @@ def change_subscription(db, args, links):
 
     if args.command in ("link-source", "link-reference"):
         task = get_task(db, args.id)
-        if is_knowledge(task):
-            if not may_tag(db, task, args.by):
-                raise PermissionError("Only the project manager can link a Knowledge entry.")
-        elif task["dri"] != args.by:
-            raise ValueError(f"{projects.row_reference(task)} is owned by {task['dri']}.")
         if args.command == "link-reference":
-            return link_reference(db, task, args.label, args.url, args.by)
+            check = getattr(args, "can_edit_content", None)
+            return link_reference(db, task, args.label, args.url, args.by,
+                                  can_edit_content=check(db, task) if check else False)
+        require_source_editor(db, task, args.by)
         if not args.target.startswith(("http://", "https://")):
             raise ValueError("Choose an HTTP(S) URL for the provider source.")
         evidence_links(((args.key, args.target),))

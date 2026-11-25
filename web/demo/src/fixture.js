@@ -143,7 +143,10 @@ export function previewRequest(path, method) {
   if (record) {
     if (recordPath[2] === 'activity') return page(record.events.map(id => workflowEvents.get(id)))
     if (recordPath[2] === 'history' && record.history[recordPath[3]]) return record.history[recordPath[3]]
-    if (!recordPath[2]) return { ...record.detail, can_edit_details: false, can_edit_checklist: false }
+    if (!recordPath[2]) return {
+      ...record.detail, can_edit_details: false, can_edit_checklist: false,
+      can_edit_checklist_text: false, tag_editable: false, can_tag_decision_record: false,
+    }
   }
   if (endpoint === '/activity') return page(matchingEvents)
   if (endpoint.startsWith('/activity/')) {

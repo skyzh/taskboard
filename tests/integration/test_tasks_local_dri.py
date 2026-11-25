@@ -255,6 +255,21 @@ class LocalDRIRoutingTest(unittest.TestCase):
         local("edit-task-details", {"id": foreign_note, "brief": "Wrong project.", "reason": "Check scope."}, status=403)
         event = local("task-activity", query_string={"id": peer_note, "limit": 1})["items"][0]
         self.assertEqual(event["actor"], registered["OPS"])
+        peer_work = action(team, "create-task", {
+            "project": "OPS", "title": "Peer plan", "step": "Read the source.",
+        })["receipt"].split()[0]
+        local("edit-checklist", {"id": peer_work, "action": "add", "label": "Check the source."})
+        local("edit-checklist", {"id": peer_work, "action": "remove", "position": 1}, status=403)
+        self.assertEqual(local("task", query_string={"id": peer_work})["checklist"][0]["label"], "Check the source.")
+        local("task-tag", {"id": peer_note, "tag": "replay", "action": "add"})
+        local("task-tag", {"id": foreign_note, "tag": "replay", "action": "add"}, status=403)
+        source = {"id": peer_note, "url": "https://example.test/replay", "label": "Replay guide"}
+        local("link-reference", source)
+        local("link-reference", {**source, "id": foreign_note}, status=403)
+        local("link-reference", {**source, "url": "https://github.com/example/repo/issues/1"}, status=403)
+        referenced = local("task", query_string={"id": peer_note})
+        self.assertIn("replay", referenced["task"]["tags"])
+        self.assertIn(source["url"], [link["url"] for link in referenced["sources"]])
         local("knowledge-place", {"id": note, "area": "Review", "index": "true"}, status=403)
         local("knowledge-stage", {"id": note, "source": foreign}, status=403)
         local("knowledge-reconcile", {"project": "T"}, status=403)

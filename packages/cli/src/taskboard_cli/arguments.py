@@ -285,7 +285,7 @@ def arguments(argv=None):
     tick.add_argument("--deferrals-only", action="store_true",
                       help="Release exact-time ticket deferrals without issuing recurring work.")
 
-    tag = commands.add_parser("tag", help="Add or remove a ticket tag.")
+    tag = commands.add_parser("tag", help="Add or remove a tag on a ticket or Knowledge entry.")
     tag.add_argument("id", type=task_id)
     tag.add_argument("tag_action", choices=("add", "remove"))
     tag.add_argument("tag", type=nonblank)
@@ -523,7 +523,11 @@ def arguments(argv=None):
     source.add_argument("key", type=nonblank)
     source.add_argument("target", type=nonblank, help="Full provider URL.")
     source.add_argument("--by", required=True, type=nonblank)
-    reference = commands.add_parser("link-reference", help="Attach a labeled web link to a ticket you own.")
+    reference = commands.add_parser(
+        "link-reference", help="Attach or relabel a web reference on a ticket or Knowledge entry.",
+        description="Attach or relabel a web reference. Shared project writers can edit plain links. "
+                    "GitHub automation sources and offline commands use the existing ownership checks.",
+    )
     reference.add_argument("id", type=task_id)
     reference.add_argument("label", type=nonblank)
     reference.add_argument("url", type=nonblank, help="Full HTTP(S) URL, such as a copied Raft permalink.")
