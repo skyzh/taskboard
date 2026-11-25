@@ -2319,7 +2319,7 @@ class BoardQueries:
         items = [
             {
                 "id": f"decision:{item['event_id']}", "kind": "decision",
-                "ticket": item["key"], "title": item["title"],
+                "ticket": item["key"], "title": item["title"], "asked_at": item["at"],
                 "requester": actors.get(item["event_id"]),
                 "requester_profile": people.get(actors.get(item["event_id"])),
             }
@@ -2328,7 +2328,7 @@ class BoardQueries:
         items.extend(
             {
                 "id": f"request:{item['id']}", "kind": "request",
-                "ticket": item["task_key"], "title": item["task_title"],
+                "ticket": item["task_key"], "title": item["task_title"], "asked_at": item["raised_at"],
                 "requester": item["sender"], "requester_profile": item["sender_profile"],
             }
             for item in requests["items"]
@@ -2338,6 +2338,7 @@ class BoardQueries:
                 "id": f"review:{item['id']}", "kind": "review",
                 "ticket": item["request_key"] or item["source_key"],
                 "title": item["request_title"] or item["source_title"],
+                "asked_at": item["at"],
                 "requester": item["requester"], "requester_profile": item["requester_profile"],
             }
             for item in reviews["items"]

@@ -54,7 +54,8 @@
 }
 .reports-needs-you li a:is(:hover, :focus-visible) { background: var(--wash); }
 .needs-you-task { min-width: 0; text-decoration: underline; }
-.needs-you-action { color: var(--muted); font-size: .82rem; }
+.needs-you-action { display: flex; flex-wrap: wrap; column-gap: .6rem; color: var(--muted); font-size: .82rem; }
+.needs-you-age { white-space: nowrap; }
 @media (max-width: 44rem) {
   .reports-needs-you li a { grid-template-columns: minmax(0, 1fr); }
 }
