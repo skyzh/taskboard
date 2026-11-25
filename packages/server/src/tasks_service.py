@@ -240,8 +240,9 @@ def text(data, field, *, optional=False, maximum=4000, strip=True):
     value = data.get(field)
     if value is None and optional:
         return None
-    if not isinstance(value, str) or not value.strip() or len(value) > maximum:
-        raise RequestError(f"Provide {field} as text up to {maximum} characters.")
+    if not isinstance(value, str) or not value.strip() or (maximum is not None and len(value) > maximum):
+        limit = f" up to {maximum} characters" if maximum is not None else ""
+        raise RequestError(f"Provide {field} as text{limit}.")
     return value.strip() if strip else value
 
 
@@ -2806,10 +2807,14 @@ def create_app(
         other = data.get("other", False)
         if type(other) is not bool:
             raise RequestError("Use true or false for Other.")
+        details = data.get("details", "")
+        if not isinstance(details, str):
+            raise RequestError("Provide details as text.")
         return mutate(
             "decide", actor, data, id=task_number(number),
             request_id=integer(data.get("request_id"), "request_id"),
-            choice=text(data, "choice", optional=True), other=other, **activity_text(data, "decide"),
+            choice=text(data, "choice", optional=True), other=other,
+            note=text(data, "note", maximum=None), details=details.strip() if "details" in data else None,
         )
 
     @app.patch("/api/v1/profile")
