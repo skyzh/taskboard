@@ -2,6 +2,7 @@
 
 import tasks_extensions as extensions
 import tasks_github as github
+import tasks_projects as projects
 import tasks_storage
 from tasks_core import has_event_context
 
@@ -63,13 +64,13 @@ def _raft_notices(db, bounds, project, actor):
         JOIN tasks ON tasks.id = events.task_id
         JOIN projects ON projects.prefix = tasks.project_prefix
         WHERE SUBSTR(log.send_confirmed_at, 1, 19) < ?
-          AND (projects.dri = ? OR log.recipient = ?) {scope}
-        """, (bounds[0], bounds[1], actor, actor, *((project,) if project else ())),
+          AND (projects.prefix IN ({projects.MANAGED_BY}) OR log.recipient = ?) {scope}
+        """, (bounds[0], bounds[1], actor, actor, actor, *((project,) if project else ())),
     ).fetchone()
     if not row["known"]:
         return {"status": "unavailable", "count": None}
     if project:
-        managed = db.execute("SELECT 1 FROM projects WHERE prefix = ? AND dri = ?", (project, actor)).fetchone()
+        managed = projects.manages(db, project, actor)
         status = "recorded" if managed else "visible"
     else:
         status = "visible"

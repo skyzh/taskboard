@@ -1939,7 +1939,8 @@ def issue_recurring_task(db, definition, due, as_of):
         args.project = schedule["project"]
         members = set(json.loads(schedule["members"]))
         if members:
-            members.update((schedule["manager"], schedule["owner"]))
+            members.update(projects.owner_keys(db, args.project))
+            members.add(schedule["owner"])
         args.brief, links = build(db, args.project, as_of, schedule["cadence_hours"], members or None)
     elif definition["project_prefix"] is not None:
         args.project = definition["project_prefix"]

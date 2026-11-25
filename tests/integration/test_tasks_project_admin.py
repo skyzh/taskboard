@@ -113,12 +113,15 @@ class ProjectAdminTest(unittest.TestCase):
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         registrations = {row["id"]: row for row in response.json["items"]}
         self.assertEqual(set(registrations), {sam_id, quinn_id, avery_id, other_id, local["id"]})
-        self.assertEqual(registrations[sam_id], {"id": sam_id, "name": "Sam", "handle": "sam", "kind": "human"})
+        self.assertEqual({key: value for key, value in registrations[sam_id].items() if key != "permissions"},
+                         {"id": sam_id, "name": "Sam", "handle": "sam", "kind": "human"})
+        self.assertTrue(registrations[sam_id]["permissions"]["manage_board_permissions"])
         self.assertEqual((registrations[avery_id]["kind"], registrations[avery_id]["handle"]), ("team_dri", "avery"))
         self.assertEqual((registrations[other_id]["name"], registrations[other_id]["handle"]), ("Avery", "blake"))
-        self.assertEqual(registrations[local["id"]], {
+        self.assertEqual({key: value for key, value in registrations[local["id"]].items() if key != "permissions"}, {
             "id": local["id"], "name": "Fixture Local DRI", "handle": None, "kind": "local_dri",
         })
+        self.assertFalse(registrations[local["id"]]["permissions"]["view_project"])
         self.assertEqual(call(sam, "/api/v1/revision").json, revision)
 
         action(anonymous, "create-project", {"prefix": "NO", "title": "Denied"},
@@ -131,3 +134,87 @@ class ProjectAdminTest(unittest.TestCase):
         evidence = fixture.audit_events()
         self.assertEqual([(row[1], row[4]) for row in evidence if row[2] == "create-project"],
                          [(avery_id, "LAB"), (quinn_id, "Q"), (sam_id, "S")])
+
+    def test_project_owners_can_manage_prompts_and_transfer_access_without_moving_tickets(self):
+        fixture = service.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        call, action = fixture.call, fixture.action
+        root = fixture.provider.people["Sam"]["sub"]
+        app = fixture.app(portal_reader=True, project_admin_subject=root, personal_agent_tailnet_subject=root)
+        sam, sam_id = fixture.login(app, "Sam")
+        owner, owner_id = fixture.login(app, "Quinn")
+        agent, agent_id = fixture.login(app, "Avery")
+        outsider, outsider_id = fixture.login(app, "Blake")
+        unsigned = app.test_client()
+        call(sam, SETTINGS, method="PUT", headers=ORIGIN, json={"principal": owner_id, "allowed": True})
+        self.assertEqual(call(owner, PROJECTS, method="POST", json={"prefix": "LAB", "title": "Fictional lab"}).json[
+            "project"]["dri"], owner_id)
+        self.assertEqual(call(sam, PROJECTS, method="POST", json={"prefix": "OPS", "title": "Fictional operations"}).json[
+            "project"]["dri"], sam_id)
+        call(sam, SETTINGS, method="PUT", headers=ORIGIN, json={"principal": agent_id, "allowed": True})
+        self.assertEqual(action(agent, "create-project", {"prefix": "TEAM", "title": "Team project"})["project"]["dri"], agent_id)
+        action(agent, "create-task", {"project": "LAB", "title": "Keep ownership", "step": "Compare permissions."})
+        owners = PROJECTS + "/LAB/owners"
+        guidance = PROJECTS + "/LAB/field-guidance"
+        update = {"field": "title", "guidance": "Name the verified result."}
+
+        def change(actor, principal, allowed, *, status=200, headers=ORIGIN, route=owners):
+            return call(actor, route, method="PUT", status=status, headers=headers,
+                        json={"principal": principal, "allowed": allowed}).json
+
+        self.assertEqual([item["id"] for item in call(owner, owners).json["owners"]], [owner_id])
+        call(unsigned, owners, status=401)
+        self.assertFalse(call(outsider, owners).json["editable"])
+        change(outsider, outsider_id, True, status=403)
+        change(sam, owner_id, False, status=409)
+        change(unsigned, agent_id, True, status=403,
+               headers={**ORIGIN, "X-Taskboard-Personal-Agent": "1", "X-Portal-Auth-Method": "tailscale"})
+
+        local = call(owner, "/api/v1/personal-agents/local-dris", method="POST", headers=ORIGIN,
+                     json={"name": "Lab fixture", "project": "LAB"}).json["local_dri"]
+        change(sam, local["id"], True, status=404)
+        with closing(open_sqlite(fixture.database)) as db, db:
+            db.execute(
+                "INSERT INTO board_principals (ledger_key, server_id, kind, subject, name) VALUES (?, ?, ?, ?, ?)",
+                ("foreign-fixture-owner", "foreign-board", "human", root, "Foreign fixture"),
+            )
+        change(sam, "foreign-fixture-owner", True, status=404)
+        call(agent, guidance, method="PUT", json=update, status=403)
+        schedule_list = "/api/v1/schedules?project=LAB"
+        schedule_id = call(owner, schedule_list).json["maintenance"]["schedule"]["id"]
+        schedule_detail = f"/api/v1/schedules/{schedule_id}?project=LAB"
+        call(agent, schedule_detail, status=404)
+        self.assertEqual([item["id"] for item in change(owner, agent_id, True)["owners"]], [owner_id, agent_id])
+        self.assertTrue(call(agent, schedule_list).json["maintenance"]["editable"])
+        self.assertEqual(call(agent, schedule_detail).json["schedule"]["owner"], owner_id)
+        call(agent, guidance, method="PUT", json=update)
+        call(agent, PROJECTS + "/OPS/field-guidance", method="PUT", json=update, status=403)
+
+        def permissions(project):
+            result = call(sam, REGISTRATIONS, query_string={"project": project}).json
+            self.assertEqual(result["project"], project)
+            self.assertNotIn("foreign-fixture-owner", {row["id"] for row in result["items"]})
+            return {row["id"]: row["permissions"] for row in result["items"]}
+
+        lab = permissions("LAB")
+        self.assertTrue(lab[agent_id]["edit_project_prompts"])
+        self.assertTrue(lab[agent_id]["manage_project_owners"])
+        self.assertTrue(lab[agent_id]["create_projects"])
+        self.assertFalse(lab[agent_id]["manage_board_permissions"])
+        self.assertFalse(permissions("OPS")[local["id"]]["view_project"])
+        self.assertTrue(lab[local["id"]]["edit_shared_content"])
+        self.assertFalse(lab[local["id"]]["manage_project_owners"])
+
+        change(sam, owner_id, False)
+        self.assertEqual([item["id"] for item in call(agent, owners).json["owners"]], [agent_id])
+        call(owner, guidance, method="PUT", json=update, status=403)
+        call(owner, schedule_detail, status=404)
+        self.assertEqual(call(agent, schedule_detail).json["schedule"]["owner"], owner_id)
+        change(owner, outsider_id, True, status=403)
+        change(agent, agent_id, False, status=409)
+        self.assertFalse(permissions("LAB")[owner_id]["edit_project_prompts"])
+        self.assertEqual(call(agent, "/api/v1/tasks/LAB-1").json["task"]["dri"], agent_id)
+        self.assertEqual([(row[1], row[2], row[4]) for row in fixture.audit_events() if row[3] == "project-owner"],
+                         [(owner_id, "grant-project-owner", f"LAB:{agent_id}"),
+                          (sam_id, "revoke-project-owner", f"LAB:{owner_id}")])

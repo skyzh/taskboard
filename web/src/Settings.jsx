@@ -3,6 +3,7 @@ import CodexUsage from './CodexUsage.jsx'
 import FieldGuidanceSettings from './FieldGuidanceSettings.jsx'
 import { ProfileForm, ProfileSignIn } from './Profile.jsx'
 import ProjectSettings from './ProjectSettings.jsx'
+import ProjectOwnerSettings from './ProjectOwnerSettings.jsx'
 import { ResourceStatus } from './shared.jsx'
 import { browserTimeZone, timeZones } from './timeZone.js'
 
@@ -72,6 +73,7 @@ export default function Settings({
         </section>
       )}
       {canEdit && <ProjectSettings key={actor.id ?? actor.name} revision={revision} onProjectCreated={onProjectCreated} />}
+      {canEdit && <ProjectOwnerSettings project={project} projects={projects} revision={revision} />}
       {canEdit && <FieldGuidanceSettings project={project} projects={projects} revision={revision} />}
       {actor?.kind === 'human' && <CodexUsage key={actor.id} />}
     </section>
