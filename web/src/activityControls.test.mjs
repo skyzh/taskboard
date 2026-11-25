@@ -1116,6 +1116,37 @@ test('ticket detail uses the current record and keeps sources and evidence', () 
   assert.doesNotMatch(markup, /class="detail-checklist"/)
 })
 
+test('the named decision recipient can answer from ticket reading mode', () => {
+  const task = {
+    id: 7, key: 'COURSE-7', title: 'Choose an export format', state: 'human_review',
+    summary_label: 'Decision', waiting_on: 'sam', waiting_profile: { name: 'Sam Example' },
+    event_id: 41, note: 'Which format should we use?', context: { choices: ['CSV', 'JSON'] },
+  }
+  fixture.pages = {}
+  const render = (actor, requestId) => {
+    fixture.resources = { '/tasks/COURSE-7': { data: {
+      task: { ...task, decision_request_id: requestId }, checklist: [], sources: [], workers: [],
+    } } }
+    fixture.state = []
+    return renderToStaticMarkup(React.createElement(TaskDetail, {
+      id: 'COURSE-7', session: { data: { actor } },
+    }))
+  }
+  const sam = { kind: 'human', id: 'sam' }
+  const assigned = render(sam, 41)
+  assert.match(assigned, /Sam Example/)
+  assert.match(assigned, /aria-label="Edit ticket" aria-pressed="false"/)
+  assert.match(assigned, /<form class="decision-form"/)
+  assert.match(assigned, /name="decision-choice" value="CSV"/)
+  assert.match(assigned, /Record decision/)
+  assert.doesNotMatch(assigned, /Select Edit to answer/)
+  for (const readOnly of [render(sam, null), render({ kind: 'human', id: 'other' }, null),
+    render({ kind: 'agent', id: 'sam' }, null)]) {
+    assert.match(readOnly, /CSV/)
+    assert.doesNotMatch(readOnly, /class="decision-form"|Record decision/)
+  }
+})
+
 test('ticket details show the saved schedule and populated properties without repeating them in the work note', () => {
   const record = {
     task: { id: 1, key: 'T-1', title: 'Check the CSV', state: 'parked', summary_label: 'Reason for parking',
