@@ -532,8 +532,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
                     path={`/tasks/${id}/reminder`} saved={task.context?.review_after}
                     onChanged={onChanged} />
                 ) : <ParkingForm key={task.event_id} task={task} onChanged={onChanged} />}</div>}
-              {(!canAnswer || !showActions) && <Options options={task.context?.choices} />}
-              {canAnswer && !showActions && <p className="event-meta">Select Edit to answer this decision.</p>}
+              {!canAnswer && <Options options={task.context?.choices} />}
               <EvidenceLinks links={task.links} />
               {record.can_confirm_blocker && (
                 <div hidden={!showActions}>
@@ -542,7 +541,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               )}
             </>}
             <DecisionForm key={`${id}:${session.data?.actor?.id ?? session.data?.actor?.name ?? ''}`}
-              task={task} session={session} onChanged={onChanged} showControls={showActions} />
+              task={task} session={session} onChanged={onChanged} />
           </section>
           {task && <>
             {record.goal?.tickets.length > 0 && (

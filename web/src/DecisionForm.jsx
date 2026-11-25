@@ -50,7 +50,7 @@ function DecisionResult({ attempt, draft }) {
   )
 }
 
-export default function DecisionForm({ task, session, onChanged, onAnswerStarted, showControls = true }) {
+export default function DecisionForm({ task, session, onChanged, onAnswerStarted }) {
   const [draft, setDraft] = useState(null)
   const [attempt, setAttempt] = useState(null)
   const posting = useRef(null)
@@ -147,7 +147,7 @@ export default function DecisionForm({ task, session, onChanged, onAnswerStarted
   return (
     <>
       <DecisionResult attempt={ownAttempt} draft={draft} />
-      {showForm && showControls && (
+      {showForm && (
         <form className="decision-form" onSubmit={submit}
           data-reload-blocked={Boolean(pending || choice || other || note || details)}>
           {request.choices.length > 0 && (
