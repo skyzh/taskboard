@@ -169,6 +169,16 @@ class OIDCTest(unittest.TestCase):
         self.assertEqual(parsed.path, "/provider/auth")
         return {name: fields[0] for name, fields in parse_qs(parsed.query).items()}
 
+    def test_login_preserves_project_and_activity_filter(self):
+        client = self.app.test_client()
+        fragment = "#activity?detail=all&project=LAB"
+        response = self.call(client, "/auth/login", 302, query_string={"fragment": fragment})
+        parameters = {name: fields[0] for name, fields in parse_qs(urlsplit(response.location).query).items()}
+        callback = self.call(client, "/auth/callback", 302, query_string={
+            "code": self.provider.issue_code(parameters), "state": parameters["state"], "iss": self.provider.url,
+        })
+        self.assertEqual(callback.location, PUBLIC + "/" + fragment)
+
     def sign_in(self, client, *, status=302, state=None):
         query = self.start(client)
         response = self.call(client, "/auth/callback", status, query_string={

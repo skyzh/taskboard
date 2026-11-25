@@ -379,11 +379,18 @@ class RaftAuthTest(unittest.TestCase):
                           409, "LOGIN_CODE_UNAVAILABLE")
         self.assertEqual(self.action().json["subject"], AGENT)
 
-    def test_login_returns_to_assigned_knowledge_and_preserves_search(self):
-        for index, fragment in enumerate(("#knowledge?scope=assigned", "#knowledge?scope=assigned&q=sample+rule")):
+    def test_login_returns_to_scoped_board_routes(self):
+        routes = (
+            "#knowledge?scope=assigned", "#knowledge?scope=assigned&q=sample+rule",
+            "#board?project=LAB", "#project=LAB&section=queue-heading&owner=Avery",
+            "#activity?detail=all&project=LAB", "#stats?period=week&scope=all",
+            "#notifications-needs-me?project=LAB", "#team-overview?scope=all",
+            "#knowledge?project=LAB&scope=assigned&q=glass",
+        )
+        for index, fragment in enumerate(routes):
             with self.subTest(fragment=fragment):
                 browser = self.make_app(prefix="/tasks").test_client()
-                code = f"knowledge-{index}"
+                code = f"scoped-route-{index}"
                 self.provider.issue(code, "human")
                 login = browser.get("/tasks/auth/login", base_url=BOARD, query_string={"fragment": fragment})
                 self.assertEqual(login.status_code, 302)

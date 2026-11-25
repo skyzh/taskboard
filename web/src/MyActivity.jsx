@@ -2,6 +2,7 @@ import React from 'react'
 import { useLoadedPages } from './data.js'
 import { LoadMore, ResourceStatus, Timestamp, profileName } from './shared.jsx'
 import { EventRow } from './Work.jsx'
+import { projectFilters } from './projectScope.js'
 
 const providers = {
   github: 'GitHub',
@@ -21,12 +22,12 @@ function SourceContext({ event }) {
   )
 }
 
-export default function MyActivity({ revision }) {
-  const page = useLoadedPages('/my-activity', { scope: 'all' }, revision)
+export default function MyActivity({ revision, project, projectPicker }) {
+  const page = useLoadedPages('/my-activity', projectFilters(project), revision)
   const errors = page.data?.source_errors || []
   return (
     <section className="panel my-activity" aria-labelledby="my-activity">
-      <h2 id="my-activity">My activity</h2>
+      <div className="page-heading"><h2 id="my-activity">My activity</h2>{projectPicker}</div>
       <ResourceStatus resource={page} label="your activity" />
       {errors.length > 0 && (
         <section className="activity-source-errors" aria-labelledby="activity-source-errors-title">
