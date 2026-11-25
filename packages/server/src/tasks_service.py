@@ -1855,12 +1855,15 @@ def create_app(
 
         register_revision_socket(app, origin, current_actor, lambda: json.dumps({"revision": read_revision()}))
 
+    def team_agent_access(actor, project):
+        return project != projects.DEFAULT or project_roster is None or actor["subject"] in project_roster
+
     def project_agent(actor, project):
         if actor is None or actor["kind"] != "agent":
             return False
         if (local := g.get("local_dri")) is not None:
             return local["project"] == project
-        return project != projects.DEFAULT or project_roster is None or actor["subject"] in project_roster
+        return team_agent_access(actor, project)
 
     def project_writer(actor, project):
         return actor is not None and (actor["kind"] == "human" or project_agent(actor, project))
@@ -1896,7 +1899,8 @@ def create_app(
         local_project = row["local_project"]
         project_access = local_project is None or local_project == project
         owner = row["ledger_key"] in owners and project_access
-        ordinary = local_project == project if local_project is not None else project_writer(row, project)
+        ordinary = (local_project == project if local_project is not None
+                    else row["kind"] == "human" or team_agent_access(row, project))
         return {
             "create_projects": may_create,
             "manage_board_permissions": administrator,
@@ -2012,19 +2016,57 @@ def create_app(
         return (g.get("personal_agent_api") != "tailnet" and g.get("local_dri") is None
                 and (manages_project_admin_permissions(actor) or projects.manages(connection, project, actor["ledger_key"])))
 
+    def project_owner_candidate(row, project):
+        return project_admin.eligible(row) and project_writer(row, project)
+
     def project_owner_state(connection, actor, project):
         editable = can_manage_project_owners(connection, actor, project)
         owners = projects.owner_keys(connection, project)
         people = {
             row["ledger_key"]: project_admin.registration(row)
             for row in project_admin.registered_principals(connection, actor["server_id"])
-            if row["ledger_key"] in owners or (editable and project_admin.eligible(row) and project_writer(row, project))
+            if row["ledger_key"] in owners or (editable and project_owner_candidate(row, project))
         }
         return {
             "project": project, "editable": editable,
             "owners": [people.get(key, {"id": key, "name": key, "kind": None, "handle": None}) for key in owners],
             "choices": [item for key, item in people.items() if key not in owners] if editable else [],
         }
+
+    @app.get("/api/v1/settings/permissions")
+    def settings_permissions():
+        actor = current_actor(required=True, sync_profile=False)
+        project = project_filter(request.args, use_default=True)
+        actor_key = actor["ledger_key"]
+        board_editor = manages_project_admin_permissions(actor)
+        with tasks_storage.read(db()) as connection:
+            owner_editor = can_manage_project_owners(connection, actor, project)
+            owners = set(projects.owner_keys(connection, project))
+            items = []
+            for row in project_admin.registered_principals(connection, actor["server_id"]):
+                key = row["ledger_key"]
+                candidate = owner_editor and project_owner_candidate(row, project)
+                is_owner = key in owners
+                if not (board_editor or candidate or is_owner or key == actor_key):
+                    continue
+                permissions = registration_permissions(row, project, owners)
+                if not board_editor and key != actor_key:
+                    del permissions["create_projects"], permissions["manage_board_permissions"]
+                items.append({
+                    **project_admin.registration(row), "permissions": permissions,
+                    "project_owner": is_owner,
+                    "can_edit_project_owner": owner_editor and (len(owners) > 1 if is_owner else candidate),
+                    "can_edit_create_projects": board_editor and project_admin.eligible(row)
+                    and not project_admin.manager(row, project_admin_subject),
+                })
+            known = {item["id"] for item in items}
+            for key in sorted(owners - known):
+                items.append({
+                    "id": key, "name": key, "kind": None, "handle": None, "permissions": {},
+                    "project_owner": True, "can_edit_project_owner": owner_editor and len(owners) > 1,
+                    "can_edit_create_projects": False,
+                })
+        return jsonify(project=project, items=items), {"Cache-Control": "no-store"}
 
     @app.route("/api/v1/projects/<project>/owners", methods=("GET", "PUT"))
     def project_owners(project):
@@ -2046,7 +2088,7 @@ def create_app(
             if allowed and principal not in projects.owner_keys(connection, project):
                 target = profiles.get(connection, principal)
                 if (target is None or target["server_id"] != actor["server_id"]
-                        or not project_admin.eligible(target) or not project_writer(target, project)):
+                        or not project_owner_candidate(target, project)):
                     raise RequestError("Choose a verified person or Team DRI who can work in this project.", 404)
             try:
                 changed = projects.set_owner(connection, project, principal, allowed)

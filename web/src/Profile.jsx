@@ -80,7 +80,7 @@ const themeActions = [
   { value: 'night', label: 'Night', Icon: Moon },
 ]
 
-export default function Profile({ session, fragment, theme, freshness, canManageRegistrations = false, preview = false }) {
+export default function Profile({ session, fragment, theme, freshness, settingsHref = '#settings', preview = false }) {
   const actor = session.data?.actor
   const panelId = useId()
   const shortcutsTitle = useId()
@@ -182,9 +182,7 @@ export default function Profile({ session, fragment, theme, freshness, canManage
             </button>
           ))}
         </div>
-        <a href="#settings" onClick={closeAndFocus}>Settings</a>
-        {canManageRegistrations && <a href="#manage" className="profile-manage" onClick={closeAndFocus}
-          aria-current={fragment === '#manage' ? 'page' : undefined}>Manage</a>}
+        <a href={settingsHref} onClick={closeAndFocus}>Settings</a>
         {actor?.kind === 'human' && <a href="#integrations" onClick={closeAndFocus}>Integrations</a>}
         <a href="#about" onClick={closeAndFocus}>About</a>
         <button type="button" aria-keyshortcuts="Alt+Shift+H" onClick={() => showShortcuts(true)}>Keyboard shortcuts</button>

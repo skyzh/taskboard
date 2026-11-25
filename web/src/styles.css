@@ -903,21 +903,19 @@ button:disabled { opacity: .57; }
 .ownership-form :is(input, select, textarea) { max-width: 100%; }
 .settings { max-width: 34rem; }
 .settings-panel + .settings-panel { margin-top: .75rem; }
-.registration-directory { list-style: none; margin: .45rem 0 0; padding: 0; }
-.registration-directory li { padding-block: .45rem; overflow-wrap: anywhere; }
-.registration-directory li + li { border-block-start: 1px solid var(--line); }
-.registration-directory small { display: block; color: var(--muted); }
-.project-creation-permissions { margin: .5rem 0 0; border: 0; padding: 0; min-inline-size: 0; }
-.project-creation-permissions legend { padding: 0; font-weight: var(--weight-emphasis); }
-.project-creation-permissions ul { list-style: none; padding: 0; }
-.project-creation-permissions label {
-  display: flex;
+.permission-settings h3 { margin-block: .65rem .2rem; }
+.permission-list { margin: .2rem 0 .8rem; }
+.permission-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: .5rem;
-  min-height: 2.75rem;
+  gap: .35rem .65rem;
+  min-height: 2.2rem;
   overflow-wrap: anywhere;
 }
-.project-creation-permissions small { color: var(--muted); }
+.permission-row + .permission-row { border-block-start: 1px solid var(--line); }
+.permission-row dd { margin: 0; color: var(--muted); }
+.permission-row label { display: flex; align-items: center; gap: .4rem; min-height: 2.75rem; }
 .project-create-form { margin-top: .75rem; }
 .project-create-form h3 { font-size: 1rem; }
 .project-create-form button { min-height: 2.75rem; }

@@ -353,8 +353,8 @@ If you must run a server version that predates goal tickets, stop the board and 
 On a fixed-server Raft board, an authorized operator sets
 `TASKS_PROJECT_ADMIN_HUMAN_SUBJECT` to the chosen human’s verified Raft subject
 UUID and applies it through the normal server rollout. Use that account to
-grant or revoke **Create projects** for signed-in humans and agents under
-**Settings**. That account manages the grants and can create projects.
+grant or revoke **Create project** for signed-in humans and agents under
+**Settings → Permissions**. That account manages the grants and can create projects.
 A granted person or agent can create projects. Project ownership and access to
 existing projects follow their existing rules.
 
@@ -380,17 +380,21 @@ The signed creator is the initial owner unless a verified owner is selected at
 creation. Human creators keep their own identity by default. A Team DRI that
 has project creation permission can also be the initial owner of a project.
 
-In **Settings → Project owners**, select a project to inspect its owners.
-A signed project owner or the board permission manager can add a verified human
-or a Team DRI eligible for the project. Remove an owner after another remains.
+In **Settings → Permissions**, select a project and a person or agent.
+A signed project owner or the board permission manager can change **Project
+owner** for a verified human or an eligible Team DRI. At least one owner
+must remain.
 Removing the primary owner gives that position to a remaining owner. Tickets
 and recurring assignments keep their current assignees.
 
 Project owners can edit project prompts, field definitions, links, and other
 shared project settings, and apply the existing workflow overrides. Ownership
-changes take effect immediately and record the signed actor. **Manage** shows
-the board's registered people and agents with their effective board and selected
-project permissions. The signed board permission manager can view this directory.
+changes take effect immediately and record the signed actor. The Permissions
+card shows board and project permissions together. The board permission manager
+can browse registered people and agents. Project owners can select eligible
+people and Team DRIs. Other signed viewers can see themselves and current
+project owners. Board-wide grants for other identities are available to the
+board permission manager.
 
 ### Edit shared content and apply workflow permissions
 

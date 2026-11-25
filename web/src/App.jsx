@@ -16,7 +16,6 @@ import { ReportTime } from './ReportTime.jsx'
 import { Outcomes, Overview } from './Overview.jsx'
 import PersonalCodex from './PersonalCodex.jsx'
 import Profile from './Profile.jsx'
-import RegistrationDirectory from './RegistrationDirectory.jsx'
 import Reports, { ReportsHeading } from './Reports.jsx'
 import Schedules from './Schedules.jsx'
 import Settings from './Settings.jsx'
@@ -39,6 +38,13 @@ function readWelcomeBannerPreference() {
   } catch {
     return true
   }
+}
+
+function settingsFragment(project, section) {
+  const query = new URLSearchParams()
+  if (section) query.set('section', section)
+  if (project) query.set('project', project)
+  return query.size ? `#settings?${query}` : '#settings'
 }
 
 function reportFragment(project, assigneeView, defaultProject = 'T') {
@@ -75,13 +81,13 @@ function useFragment(preview) {
   useEffect(() => {
     if (!fragment || !reveal || rawFragment !== fragment) return
     const params = new URLSearchParams(fragment)
-    const section = params.get('section')
-    const base = fragment.split('?', 1)[0]
+    const [base, query] = fragment.split('?', 2)
+    const section = base === 'settings' ? new URLSearchParams(query).get('section') : params.get('section')
     let anchor = /^(?:task-|event-|activity$)/.test(base) || scheduleAnchor.test(base) ? base : fragment
     if (fragment.startsWith('notifications-')) anchor = 'notifications'
     if (base === 'reports-all' || base === 'reports') anchor = 'reports'
     if (fragment.startsWith('stats?')) anchor = 'stats'
-    if (base === 'knowledge' || base === 'integrations') anchor = base
+    if (['knowledge', 'integrations', 'settings'].includes(base)) anchor = base
     if (fragment === 'map' || fragment === 'workstreams-title') anchor = 'team-overview'
     const id = params.get('dri') ? section || 'assignee-title'
       : params.get('search')?.trim() ? 'search-results' : params.has('schedules') ? 'schedules' : section || anchor
@@ -233,8 +239,6 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const websocket = sessionResource.data?.websocket_revisions === true
   const [savedActor, setSavedActor] = useState(null)
   const session = savedActor ? { ...sessionResource, data: { ...sessionResource.data, actor: savedActor } } : sessionResource
-  const canManageRegistrations = !preview && !session.error && session.data?.actor?.kind === 'human' &&
-    session.data?.can_manage_registrations === true
   const hasSession = Boolean(session.data?.actor)
   const needsOidcSignIn = !hasSession && session.data?.sign_in_provider === 'oidc'
   const appHeader = useRef(null)
@@ -280,8 +284,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   if (owner) view = 'assignee'
   else if (search) view = 'search'
   else if (!fragment || taskAnchor === 'reports' || allReports) view = 'reports'
-  else if (fragment === 'settings') view = 'settings'
-  else if (fragment === 'manage') view = 'manage'
+  else if (taskAnchor === 'settings' || taskAnchor === 'manage') view = 'settings'
   else if (taskAnchor === 'integrations') view = 'integrations'
   else if (fragment === 'personal-codex') view = 'personal-codex'
   else if (fragment === 'about') view = 'about'
@@ -300,8 +303,18 @@ export default function App({ previewNotice, tourSteps } = {}) {
     || defaultProject
   const supportsAllProjects = ['board', 'team-overview'].includes(view) || (view === 'schedules' && !scheduleId)
   const allProjectRead = supportsAllProjects && params.get('scope') === 'all'
+  const requestedSettingsProject = view === 'settings' ? new URLSearchParams(taskContext).get('project') : null
   const project = view === 'reports' ? reportsProject : selected ? namedTask?.split('-')[0] || 'T'
-    : logFilters?.project || scheduleProject || params.get('project') || preferredProject
+    : logFilters?.project || scheduleProject || requestedSettingsProject || params.get('project') || preferredProject
+  const settingsProject = visibleProjects?.find(item => item.prefix === project)?.prefix
+    || visibleProjects?.find(item => item.prefix === preferredProject)?.prefix || defaultProject
+  const settingsHref = settingsFragment(settingsProject === defaultProject ? null : settingsProject)
+  useEffect(() => {
+    if (taskAnchor === 'manage') {
+      const linkedProject = /^[A-Z][A-Z0-9]{0,7}$/.test(project) ? project : null
+      window.location.replace(settingsFragment(linkedProject, 'permissions'))
+    }
+  }, [taskAnchor, project])
   useEffect(() => {
     setQueueFilters(previous => previous.tag && previous.tag.project !== project
       ? { ...previous, tag: undefined }
@@ -441,7 +454,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
               {demoTour.toggle}
               <a className="board-repository" href="https://github.com/skyzh/taskboard" aria-label="Taskboard on GitHub"><span aria-hidden="true" /></a>
             </>}
-            <Profile session={session} fragment={`#${fragment}`} theme={theme} canManageRegistrations={canManageRegistrations}
+            <Profile session={session} fragment={`#${fragment}`} theme={theme} settingsHref={settingsHref}
               freshness={hasSession && !preview && <BoardFreshness checkedAt={connection.checkedAt}
                 source={connection.source} className="profile-freshness" />} preview={preview} />
           </div>
@@ -509,10 +522,12 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}
             chooseTimeZone={chooseTimeZone} showWelcomeBanner={showWelcomeBanner} chooseWelcomeBanner={chooseWelcomeBanner}
             onProfileSaved={actor => { setSavedActor(actor); refresh() }}
-            project={visibleProjects?.some(item => item.prefix === project) ? project : visibleProjects?.[0]?.prefix || 'T'}
-            projects={visibleProjects} revision={revision} onProjectCreated={refresh} />}
-          {view === 'manage' && <RegistrationDirectory available={canManageRegistrations} session={session} revision={revision}
-            project={preferredProject} projects={visibleProjects} />}
+            project={visibleProjects ? settingsProject : undefined} fragment={`#${fragment}`}
+            projects={visibleProjects} revision={revision} onProjectCreated={refresh}
+            onPermissionProjectChange={value => {
+              chooseProject(value)
+              writeFilterFragment(settingsFragment(value, 'permissions').slice(1), true)
+            }} />}
           {view === 'about' && <About revision={revision} />}
           {view === 'integrations' && <Integrations session={session} project={integrationsProject}
             projects={visibleProjects} revision={revision}
