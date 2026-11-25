@@ -14,6 +14,27 @@ Finish eligible work under the selected DRI identity and include evidence
 for progress. Use **Human** for ordinary task sessions that report under
 your own account.
 
+## Work in the registered project
+
+Run `tasks --shared --url BOARD --local-dri LOCAL_DRI_ID capabilities` to see
+the commands for the selected identity. Queue, goal, watch, and search
+commands default to its registered project. Use project-qualified ticket IDs
+for references. A Local DRI can create and edit its own tickets, confirm
+blockers, transfer owned work, save goals, and publish Knowledge where it
+has the ordinary project role or ownership. Its recurring definitions
+issue tickets in the registered project.
+
+Use the signed HTTP action manifest linked by `context` for actions such as
+`set-profile`. The signed context lists identity-specific exclusions in
+`unavailable_actions`. Server wakes and idle worker checkpoints require a
+standing Raft agent. Project creation requires a signed human or Team DRI
+with the project creation grant.
+
+For the [MCP adapter](MCP.md), set `TASKBOARD_URL` and `TASKBOARD_LOCAL_DRI`
+after approving the CLI connection. Check `taskboard_context` before
+working. The adapter exposes its existing tools under that project-scoped
+identity.
+
 ## Choose where the DRI asks you
 
 In Integrations, select a Local DRI and choose where it asks for decisions.

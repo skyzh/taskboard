@@ -3,6 +3,7 @@
 from contextlib import closing, redirect_stderr, redirect_stdout
 from datetime import timedelta
 from io import StringIO
+import json
 import sqlite3
 import unittest
 from unittest.mock import patch
@@ -57,7 +58,9 @@ class LocalDRIRoutingTest(unittest.TestCase):
         context = action(client, "context", headers=sender)
         self.assertEqual((context["actor"]["id"], context["actor"]["dri_kind"], context["project"],
                           context["human_questions"]), (perf["id"], "local", "T", "local_prompt"))
-        action(client, "list-projects", headers=sender, status=403)
+        local_directory = action(client, "list-projects", headers=sender)
+        self.assertEqual(local_directory["default_project"], "T")
+        self.assertEqual([row["prefix"] for row in local_directory["items"]], ["T"])
         human_headers = {name: value for name, value in sender.items() if name != "X-Taskboard-Local-DRI"}
         directory_rows = action(client, "list-projects", headers=human_headers)["items"]
         self.assertEqual([row["prefix"] for row in directory_rows], ["T", "OPS"])
@@ -172,6 +175,115 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertIn("T-5", output)
         self.assertEqual(action(manager, "task", query_string={"id": "T-5"})["task"]["dri"], perf["id"])
 
+
+    def test_workflow_parity_keeps_local_identity_and_project(self):
+        fixture = service.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        roster = {fixture.provider.people["Avery"]["sub"]: "Avery"}
+        app = fixture.app(portal_reader=True, project_roster=roster)
+        team, team_id = fixture.login(app, "Avery")
+        sam, sam_id = fixture.login(app, "Sam")
+        fixture.cli("register-project", "OPS", "Operations", "--dri", team_id)
+        client = app.test_client()
+        call, action = fixture.call, fixture.action
+        registered = {
+            project: call(sam, REGISTER, method="POST", headers=ORIGIN,
+                          json={"name": "Fixture DRI", "project": project}).json["local_dri"]["id"]
+            for project in ("OPS", "T")
+        }
+        token = call(sam, CONNECTIONS, method="POST", headers=ORIGIN, json={"session": "Parity fixture"}).json["token"]
+        auth = {**ORIGIN, "Authorization": "Bearer " + token}
+        headers = {**auth, "X-Taskboard-Local-DRI": registered["OPS"]}
+
+        def local(name, data=None, *, project="OPS", **options):
+            return action(client, name, data, headers={**headers, "X-Taskboard-Local-DRI": registered[project]}, **options)
+
+        def create(project):
+            return action(team, "create-task", {"title": "Parity sample", "step": "Check the rows.",
+                                                "project": project})["receipt"].split()[0]
+
+        foreign, peer_owned = create("T"), create("OPS")
+        own = local("create-task", {"title": "Parity sample", "step": "Check the rows."})["receipt"].split()[0]
+        self.assertTrue(own.startswith("OPS-"))
+        local("advance-task", {"id": own, "transition": "start", "note": "Check the rows."})
+        local("advance-task", {"id": own, "transition": "wait", "note": "Wait for the import.",
+                               "blocked_by": foreign}, status=403)
+        local("advance-task", {"id": own, "transition": "wait", "note": "Wait for the import.",
+                               "on": "Fixture import", "automation": "true"})
+        task = local("task", query_string={"id": own})["task"]
+        proof = {"id": own, "wait_event": task["event_id"], "note": "The import completed.",
+                 "url": "https://example.test/import", "label": "Import result"}
+        confirmed = local("confirm-blocker", proof)
+        local("confirm-blocker", proof, status=409)
+        history = local("task-activity", query_string={"id": own})["items"]
+        self.assertEqual((history[0]["id"], history[0]["actor"], history[0]["state"]),
+                         (confirmed["event_id"], registered["OPS"], "ready"))
+        local("edit-task-details", {"id": peer_owned, "title": "Other work", "reason": "Check ownership."}, status=403)
+        local("handoff", {"id": peer_owned, "note": "Check ownership.", "owner": registered["OPS"]}, status=409)
+        local("handoff", {"id": own, "note": "Use the imported rows.", "owner": registered["T"]}, status=403)
+        local("handoff", {"id": own, "note": "Use the imported rows.", "owner": team_id})
+        transferred = local("task", query_string={"id": own})["task"]
+        self.assertEqual(transferred["dri"], team_id)
+        self.assertEqual(local("task-activity", query_string={"id": own})["items"][0]["actor"], registered["OPS"])
+
+        local("save-goal", {"kind": "standing", "summary": "Verify the operations evidence."})
+        goal = local("my-goals")["standing_goal"]
+        self.assertEqual(goal["summary"], "Verify the operations evidence.")
+        local("my-goals", query_string={"project": "T"}, status=403)
+        local("set-profile", {"role": "Operations review"})
+        self.assertEqual(local("context")["actor"]["role"], "Operations review")
+        self.assertEqual(action(client, "context", headers=auth)["actor"]["id"], sam_id)
+        self.assertNotEqual(action(client, "context", headers=auth)["actor"]["role"], "Operations review")
+        note = local("create-knowledge", {"project": "OPS", "title": "Parity sample knowledge",
+                                          "brief": "Keep the import evidence."})["id"]
+        local("create-knowledge", {"project": "T", "title": "Fixture entry", "brief": "Record evidence."},
+              project="T")
+        local("knowledge-place", {"id": note, "area": "Review", "index": "true"}, status=403)
+        local("knowledge-stage", {"id": note, "source": foreign}, status=403)
+        local("knowledge-reconcile", {"project": "T"}, status=403)
+        local("create-task", {"project": "T", "title": "Wrong project", "step": "Check the scope."}, status=403)
+        local("my-activity", query_string={"scope": "all"}, status=403)
+        local("maintenance-show", query_string={"project": "OPS"}, status=403)
+        matches = local("search-with-decisions", query_string={"q": "Parity sample"})["items"]
+        self.assertEqual({item["key"] for item in matches}, {own, note, peer_owned})
+
+        limits = local("context")["unavailable_actions"]
+        self.assertIn("worker-check", limits)
+        self.assertIn("create-project", limits)
+        self.assertNotIn("confirm-blocker", limits)
+        local("create-project", {"prefix": "OTHER", "title": "No project grant"}, status=403)
+        local("my-wake-subscriptions", status=403)
+
+        instant = "2099-06-01T10:00:00Z"
+        recurring = local("recurring-add", {"key": "fixture", "title": "Recurring operations check",
+                                            "step": "Review the fixture.", "cadence_hours": "24",
+                                            "next_at": instant})["receipt"].split()[0]
+        fixture.cli("recurring-tick", "--as-of", instant)
+        with patch("tasks_core.timestamp", return_value=instant):
+            occurrences = local("recurring-show", query_string={"id": recurring})["recent_occurrences"]
+        ticket, = occurrences
+        self.assertTrue(ticket["task_key"].startswith("OPS-"))
+        self.assertEqual(local("task", query_string={"id": ticket["task_key"]})["task"]["dri"], registered["OPS"])
+
+        board_url = service.ORIGIN + service.BASE
+        board = DirectBoard(board_url, local_dri=registered["OPS"])
+
+        def signed_request(path, method="GET", body=None):
+            response = call(client, path, method=method, json=body, headers=headers)
+            return response.status_code, response.json
+
+        with patch.object(board, "request", side_effect=signed_request), \
+                patch("taskboard_cli.shared.DirectBoard", return_value=board), \
+                redirect_stdout(StringIO()) as output, redirect_stderr(StringIO()) as errors:
+            command = ["--shared", "--url", board_url, "--local-dri", registered["OPS"]]
+            self.assertEqual(tasks_main([*command, "capabilities"]), 0)
+            capabilities = output.getvalue()
+            self.assertIn("confirm-blocker", capabilities)
+            self.assertNotIn("wake-subscribe", capabilities)
+            self.assertNotIn("create-project", capabilities)
+            self.assertEqual(tasks_main([*command, "next"]), 0)
+            self.assertEqual(errors.getvalue(), "")
 
     def test_creator_decisions_and_existing_registrations(self):
         fixture = service.TasksServiceTest()

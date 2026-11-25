@@ -913,14 +913,23 @@ def create_app(
                         raise RequestError("Choose an agent from this project's roster.")
         return person["ledger_key"]
 
+    def require_local_project(project):
+        if (local := g.get("local_dri")) is not None and local["project"] != project:
+            raise RequestError("Use the Local DRI's registered project.", 403)
+
     def project_filter(data, *, use_default=False):
         value = text(data, "project", optional=True, maximum=8)
+        if value is None and (local := g.get("local_dri")) is not None:
+            value = local["project"]
         if value is None and use_default:
             value = projects.default_project(db())
         if value is None:
             return None
         try:
+            require_local_project(projects.prefix(value))
             return projects.require(db(), value)
+        except RequestError:
+            raise
         except ValueError as error:
             raise RequestError(str(error)) from error
         except LookupError as error:
@@ -981,6 +990,7 @@ def create_app(
         scope = text(data, "scope", optional=True, maximum=3)
         if scope is None:
             return project_filter(data, use_default=use_default)
+        require_local_project(None)
         if scope != "all" or data.get("project") is not None:
             raise RequestError("Choose one project prefix or scope=all.")
         return None
@@ -996,7 +1006,16 @@ def create_app(
 
     def task_number(value):
         try:
-            return projects.resolve(db(), value)
+            if g.get("local_dri") is None:
+                return projects.resolve(db(), value)
+            require_local_project(projects.identifier(value)[0])
+            number = projects.resolve(db(), value)
+            row = db().execute("SELECT project_prefix FROM tasks WHERE id = ?", (number,)).fetchone()
+            if row is not None:
+                require_local_project(row["project_prefix"])
+            return number
+        except RequestError:
+            raise
         except ValueError as error:
             raise RequestError(str(error)) from error
         except LookupError as error:
@@ -1457,6 +1476,8 @@ def create_app(
 
     def change_maintenance(actor, data, project, *, encoded_members=False):
         owner = text(data, "owner", optional=True, maximum=160)
+        if (local := local_dri.registration(db(), owner)) is not None and local["project"] != project:
+            raise RequestError("Choose a Local DRI registered for this project.", 403)
         hours = data.get("cadence_hours")
         state = text(data, "state", optional=True, maximum=6)
         if state is not None and state not in ("active", "paused"):
@@ -1509,8 +1530,11 @@ def create_app(
         return mutate(action, actor, data, id=number, note=reason, dri=owner)
 
     def close_ticket(actor, number, data):
+        related = text(data, "related", optional=True, maximum=28)
+        if related and g.get("local_dri") is not None:
+            task_number(related)
         return mutate("close", actor, data, id=number, note=text(data, "reason", maximum=180),
-                      related=text(data, "related", optional=True, maximum=28))
+                      related=related)
 
     def edit_ticket(actor, number, data):
         return mutate("edit", actor, data, id=number, note=text(data, "reason"),
@@ -1658,7 +1682,8 @@ def create_app(
     def can_create_knowledge(actor, project, manager):
         return actor is not None and (actor["ledger_key"] == manager or (
             actor["kind"] == "agent"
-            and (project != projects.DEFAULT or project_roster is None or actor["subject"] in project_roster)
+            and (project != projects.DEFAULT or project_roster is None or actor["subject"] in project_roster
+                 or ((local := g.get("local_dri")) is not None and local["project"] == project))
         ))
 
     def project_admin_access(connection, actor):
@@ -1749,8 +1774,12 @@ def create_app(
         return create_shared_project(actor, json_body({"prefix", "title", "dri"}))
 
     def project_directory(actor):
-        default = projects.default_project(db())
-        rows = db().execute("SELECT prefix, title, dri FROM projects ORDER BY prefix <> ?, prefix", (default,))
+        local = g.get("local_dri")
+        default = local["project"] if local is not None else projects.default_project(db())
+        if local is not None:
+            rows = db().execute("SELECT prefix, title, dri FROM projects WHERE prefix = ?", (default,))
+        else:
+            rows = db().execute("SELECT prefix, title, dri FROM projects ORDER BY prefix <> ?, prefix", (default,))
         return {"default_project": default, "items": [{
             **dict(row), **projects.project_features(row["prefix"]),
             "can_create_knowledge": can_create_knowledge(actor, row["prefix"], row["dri"]),
@@ -2881,6 +2910,8 @@ def create_app(
                 projects.identifier(blocked_by)
             except ValueError as error:
                 raise RequestError(str(error)) from error
+            if local is not None:
+                task_number(blocked_by)
         if blocked_by is not None and command != "wait":
             raise RequestError("Choose wait to link a blocking ticket.")
         attention_request = (
@@ -3005,39 +3036,27 @@ def create_app(
             return {"project": project, "kind": "unavailable"}
         return {"project": project, "kind": "empty"}
 
-    def local_dri_action(name, data, profile):
-        project = profile["project"]
-        if name in ("my-next", "my-queue", "assignees", "knowledge-areas", "search-tasks"):
-            if data.get("scope") or data.get("project", project) != project:
-                raise RequestError("Use the Local DRI's registered project.", 403)
-            data["project"] = project
-        elif name in ("task", "task-activity", "advance-task", "peer-ask", "record-activity", "raise-attention"):
-            for field in ("id", "blocked_by", "review_on"):
-                if field in data:
-                    try:
-                        target_project, _ = projects.identifier(data[field])
-                    except ValueError as error:
-                        raise RequestError(str(error)) from error
-                    if target_project != project:
-                        raise RequestError("Use the Local DRI's registered project.", 403)
-        elif name != "context":
-            raise RequestError("This action is outside the Local DRI workflow.", 403)
+    def local_dri_action_limits():
+        limits = {name: STANDING_RAFT_REQUIRED for name in sorted(STANDING_RAFT_ACTIONS)}
+        limits["create-project"] = "Project creation requires a human or Team DRI with a project creation grant."
+        limits["raise-attention"] = "Use the Local DRI's configured question route."
+        if codex_snapshot_uploader is not None:
+            limits[CODEX_SNAPSHOT_ACTION] = "Only the board's configured snapshot uploader can use this action."
+        return limits
 
     def dispatch_action(name, data):
         write = request.method != "GET"
         actor = current_actor(write=write, required=True)
+        profile = g.get("local_dri")
+        limits = local_dri_action_limits() if profile is not None else {}
+        if name in limits:
+            raise RequestError(limits[name], 403)
         if name == "create-project":
             return create_shared_project(actor, data)
         if name != "list-projects" and actor["kind"] != "agent" and not g.get("personal_agent_api"):
             raise RequestError("This action requires a signed-in agent or Personal Agents connection.", 403)
-        if g.get("personal_agent_api") and name in {
-            "my-wake-subscriptions", "set-wake-subscription", "idle-goal-offer", "my-wake-workers",
-            "worker-check", "worker-check-show",
-        }:
-            raise RequestError("This action requires a standing Raft agent.", 403)
-        profile = g.get("local_dri")
-        if profile is not None:
-            local_dri_action(name, data, profile)
+        if g.get("personal_agent_api") and name in STANDING_RAFT_ACTIONS:
+            raise RequestError(STANDING_RAFT_REQUIRED, 403)
         key = actor["ledger_key"]
         if name == "list-projects":
             return project_directory(actor)
@@ -3049,11 +3068,12 @@ def create_app(
                 "decision_recipient_lookup": True,
                 "handoff_recipient_lookup": True,
                 "can_create_project": project_admin_access(db(), actor),
-                "default_project": projects.default_project(db()),
+                "default_project": profile["project"] if profile is not None else projects.default_project(db()),
             }
             if profile is not None:
                 context["project"] = profile["project"]
                 context["human_questions"] = profile["human_questions"]
+                context["unavailable_actions"] = limits
             if agent_guidance.cli:
                 context["cli_guidance"] = agent_guidance.cli
             if g.get("personal_agent_api"):
@@ -3091,7 +3111,7 @@ def create_app(
             now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
             with tasks_storage.read(db()) as connection:
                 board = query()
-                scope = {"today": now.date().isoformat(), "project": None}
+                scope = {"today": now.date().isoformat(), "project": project if profile is not None else None}
                 work = next(board.actionable_work(key, **scope), None)
                 ordinary = work is not None
                 if work and work["kind"] in ("in_progress", "reminder") and ledger.task_goal_kind(connection, work["id"]):
@@ -3225,7 +3245,8 @@ def create_app(
                 text(data, "q", maximum=160, strip=False), project=project_filter(data), **page_args(data),
             )
         if name == "search-with-decisions":
-            return query().search_with_decisions(**shared_ticket_search(data), **page_args(data))
+            return query().search_with_decisions(project=profile["project"] if profile is not None else None,
+                                                 **shared_ticket_search(data), **page_args(data))
         if name == "knowledge-areas":
             return knowledge_directory(project_filter(data))
         if name == "create-knowledge":
@@ -3249,6 +3270,8 @@ def create_app(
                         )
                     text(data, "project", maximum=8)
                     return knowledge_records.reconcile(connection, project_filter(data), key, base)
+            except RequestError:
+                raise
             except PermissionError as error:
                 raise RequestError(str(error), 403) from error
             except ValueError as error:
@@ -3291,7 +3314,11 @@ def create_app(
             number = record_id(data.get("id"), "R-", "Recurring ID")
             try:
                 with tasks_storage.read(db()) as connection:
+                    if profile is not None and (schedule := maintenance.find(connection, definition_id=number)):
+                        require_local_project(schedule["project"])
                     return tasks_recurring.report(connection, number, key, ledger.timestamp())
+            except RequestError:
+                raise
             except ValueError as error:
                 raise RequestError(str(error), 404) from error
         if name == "set-profile":
@@ -3305,8 +3332,16 @@ def create_app(
             transition = text(data, "transition", maximum=30)
             if transition not in WORKER_TRANSITIONS:
                 raise RequestError("Choose start, report, collect, or stop.")
+            run = record_id(data.get("run"), "W-", "run ID")
+            if profile is not None:
+                ticket = db().execute(
+                    "SELECT tasks.project_prefix FROM worker_runs JOIN tasks ON tasks.id = worker_runs.task_id "
+                    "WHERE worker_runs.id = ?", (run,),
+                ).fetchone()
+                if ticket is not None:
+                    require_local_project(ticket["project_prefix"])
             return mutate(
-                f"worker-{transition}", actor, data, run=record_id(data.get("run"), "W-", "run ID"),
+                f"worker-{transition}", actor, data, run=run,
                 note=text(data, "note", optional=transition == "start"),
                 handle=text(data, "handle", optional=transition != "start", maximum=200),
                 result=text(data, "result", optional=transition != "report", maximum=30),
@@ -3406,7 +3441,9 @@ def create_app(
         raise RequestError("Unknown Tasks action.", 404)
 
     if raft_config:
-        from tasks_raft import ACTION_MANIFEST_PATH, CODEX_SNAPSHOT_ACTION, register_actions
+        from tasks_raft import (
+            ACTION_MANIFEST_PATH, CODEX_SNAPSHOT_ACTION, STANDING_RAFT_ACTIONS, STANDING_RAFT_REQUIRED, register_actions,
+        )
 
         def dispatch(name, data):
             if name == CODEX_SNAPSHOT_ACTION:

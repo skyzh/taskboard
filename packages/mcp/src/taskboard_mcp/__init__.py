@@ -28,6 +28,7 @@ def build_server(board: SharedBoard) -> MCPServer:
         instructions=(
             "Check taskboard_context for your signed identity, then choose work with "
             "taskboard_queue or taskboard_reviews. See docs/taskboard/MCP.md for the adapter's full tool list. "
+            "Local DRI context includes its registered project and identity-specific action limits. "
             "Run ./tasks --shared capabilities for additional shared CLI actions."
         ),
         log_level="WARNING",
@@ -131,7 +132,6 @@ def build_server(board: SharedBoard) -> MCPServer:
         """Record a contribution on a ticket without advancing its state."""
         return ticket_write("record-activity", id=ticket, note=note, details=details, url=url, label=label)
 
-    @server.tool(annotations=ToolAnnotations(idempotent_hint=True))
     def taskboard_create_project(
         prefix: Project,
         title: Annotated[str, Field(description="One-line project title.")],
@@ -142,6 +142,9 @@ def build_server(board: SharedBoard) -> MCPServer:
         if dri is not None:
             payload["dri"] = dri
         return board.invoke("create-project", payload, write=True)
+
+    if not (isinstance(board, DirectBoard) and board.local_dri is not None):
+        server.tool(annotations=ToolAnnotations(idempotent_hint=True))(taskboard_create_project)
 
     @server.tool(annotations=write)
     def taskboard_start(ticket: Ticket, note: Note) -> dict[str, Any]:
@@ -164,5 +167,8 @@ def build_server(board: SharedBoard) -> MCPServer:
 def main():
     service = os.environ.get("TASKS_RAFT_SERVICE", "tasks-board")
     url = os.environ.get("TASKBOARD_URL")
-    board = DirectBoard(url) if url else SharedBoard(service)
+    local_dri = os.environ.get("TASKBOARD_LOCAL_DRI")
+    if local_dri is not None and not url:
+        raise ValueError("Set TASKBOARD_URL to select a Local DRI for the MCP adapter.")
+    board = DirectBoard(url, local_dri=local_dri) if url else SharedBoard(service)
     build_server(board).run(transport="stdio")
