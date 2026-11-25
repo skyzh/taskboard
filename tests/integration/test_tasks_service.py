@@ -5452,7 +5452,7 @@ class TasksServiceTest(unittest.TestCase):
 
         self.assertEqual(self.call(sam, detail).json["needs_you_actions"], ["attention"])
         for other in (avery, quinn, viewer):
-            self.assertEqual(self.call(other, detail).json["needs_you_actions"], [])
+            self.assertNotIn("needs_you_actions", self.call(other, detail).json)
         self.call(viewer, route, method="POST", headers=headers, json=ask, status=401)
         self.call(avery, route, method="POST", headers=headers, json=ask, status=403)
         self.call(sam, route, method="POST", headers={"Origin": "https://example.test"}, json=ask, status=403)

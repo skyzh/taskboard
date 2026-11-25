@@ -105,20 +105,32 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual((task["title"], task["dri"]), ("Verify the original ticket", owner_id))
 
     def test_postgres_attention_retry_keeps_the_original_request(self):
-        app = self.postgres_app(self.postgres_fixture())
+        dsn = self.postgres_fixture()
+        app = self.postgres_app(dsn)
         owner, _ = self.board.login(app, "Avery")
         recipient, recipient_id = self.board.login(app, "Sam")
         action = self.board.action
         action(owner, "create-task", {"title": "Review the totals", "step": "Check the result."})
+        before = {"id": "T-1", "reason": "Check the header.", "recipient": recipient_id}
+        legacy = action(owner, "raise-attention", before)
+        with closing(Postgres(dsn)) as db:
+            self.assertEqual(db.execute("SELECT schema_version FROM taskboard_writer WHERE id = 1").fetchone()[0], 1)
+            db.execute("ALTER TABLE attention_requests DROP COLUMN request_key")
+
+        upgraded = self.postgres_app(dsn)
+        owner, _ = self.board.login(upgraded, "Avery")
+        recipient, recipient_id = self.board.login(upgraded, "Sam")
+        inbox = "/api/v1/notifications/requests"
+        self.assertEqual([row["id"] for row in self.board.call(recipient, inbox).json["items"]], [legacy["id"]])
         fields = {"id": "T-1", "reason": "Check the totals.", "recipient": recipient_id, "request_key": "sample"}
         first = action(owner, "raise-attention", fields)
         self.assertEqual(action(owner, "raise-attention", fields), first)
         action(owner, "raise-attention", {**fields, "reason": "Different request."}, status=409)
-        inbox = "/api/v1/notifications/requests"
-        self.assertEqual([row["id"] for row in self.board.call(recipient, inbox).json["items"]], [first["id"]])
+        self.assertEqual([row["id"] for row in self.board.call(recipient, inbox).json["items"]],
+                         [first["id"], legacy["id"]])
         self.board.call(recipient, f"{inbox}/{first['id']}/handled", method="POST", headers=ORIGIN)
         self.assertEqual(action(owner, "raise-attention", fields), first)
-        self.assertEqual(self.board.call(recipient, inbox).json["items"], [])
+        self.assertEqual([row["id"] for row in self.board.call(recipient, inbox).json["items"]], [legacy["id"]])
 
     def test_postgres_project_move(self):
         dsn = self.postgres_fixture()

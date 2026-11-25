@@ -337,6 +337,20 @@ def prepare(database, url, server_id, *, marketplace=False, oidc_issuer=None, in
                        initial_project=initial_project, require_initial=require_initial, legacy_preview=legacy_preview)
 
 
+def ensure_attention_requests(db):
+    db.execute(ATTENTION_SCHEMA)
+    columns = tasks_storage.table_columns(db, "attention_requests")
+    for name, declaration in (
+        ("remind_on", "TEXT"),
+        ("unblocks_task_id", "INTEGER REFERENCES tasks (id)"),
+        ("request_key", "TEXT"),
+    ):
+        if name not in columns:
+            db.execute(f"ALTER TABLE attention_requests ADD COLUMN {name} {declaration}")
+    db.execute("CREATE INDEX IF NOT EXISTS attention_recipient ON attention_requests (recipient, id)")
+    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS attention_request_key ON attention_requests (task_id, sender, request_key)")
+
+
 def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, initial_project=None,
                    require_initial=False, legacy_preview=False):
     ledger.ensure_schema(db, seed_legacy_project=legacy_preview and initial_project is None)
@@ -366,15 +380,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     for statement in knowledge_records.SCHEMA:
         db.execute(statement)
     knowledge_records.migrate_records(db)
-    db.execute(ATTENTION_SCHEMA)
-    attention_columns = tasks_storage.table_columns(db, "attention_requests")
-    if "remind_on" not in attention_columns:
-        db.execute("ALTER TABLE attention_requests ADD COLUMN remind_on TEXT")
-    if "unblocks_task_id" not in attention_columns:
-        db.execute("ALTER TABLE attention_requests ADD COLUMN unblocks_task_id INTEGER REFERENCES tasks (id)")
-    if "request_key" not in attention_columns:
-        db.execute("ALTER TABLE attention_requests ADD COLUMN request_key TEXT")
-    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS attention_request_key ON attention_requests (task_id, sender, request_key)")
+    ensure_attention_requests(db)
     db.execute(NOTIFICATION_PREFERENCES)
     db.execute(wake_subscriptions.SCHEMA)
     for statement in notification_log.SCHEMA:
@@ -384,7 +390,6 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     if "started_event_id" not in wait_columns:
         db.execute("ALTER TABLE attention_wait_links ADD COLUMN started_event_id INTEGER REFERENCES events (id)")
     db.execute("CREATE INDEX IF NOT EXISTS attention_wait_event ON attention_wait_links (event_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS attention_recipient ON attention_requests (recipient, id)")
     db.execute("CREATE INDEX IF NOT EXISTS events_action ON events (action, id)")
     db.execute("CREATE INDEX IF NOT EXISTS tasks_dri ON tasks (dri, id)")
     db.execute("CREATE INDEX IF NOT EXISTS task_watches_watcher ON task_watches (watcher, task_id)")
@@ -418,6 +423,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None, initial_project=No
             ledger.ensure_record_kind(db)
             ledger.ensure_checklist_schema(db)
             profiles.ensure_principals(db)
+            ensure_attention_requests(db)
             db.execute(ticket_fields.SCHEMA)
             projects.bootstrap(db, initial_project, required=require_initial)
             tasks_recurring.ensure_project_binding(db)
@@ -1479,7 +1485,7 @@ def create_app(
             **result, "ownership_actions": ownership,
             "can_assign_on_reopen": allowed,
             "transition_actions": transition_actions,
-            "needs_you_actions": needs_you_actions,
+            **({"needs_you_actions": needs_you_actions} if needs_you_actions else {}),
             "tag_editable": details_editable,
             "can_tag_decision_record": not is_note and editable,
             "can_edit_checklist": not is_note and editable,
