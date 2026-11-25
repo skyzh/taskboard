@@ -801,7 +801,7 @@ def create_app(
         if selection is not None:
             if not bearer:
                 raise RequestError("Approve a Personal Agents CLI sign-in before selecting a Local DRI.", 401)
-            if not request.path.startswith("/api/v1/raft/"):
+            if request.endpoint != "project_notification_log" and not request.path.startswith("/api/v1/raft/"):
                 raise RequestError("Use the signed Local DRI workflow actions.", 403)
         tailnet_requested = not authorization and request.headers.get("X-Taskboard-Personal-Agent") == "1"
         if not (bearer or tailnet_requested):
@@ -2654,7 +2654,7 @@ def create_app(
 
     @app.get("/api/v1/notifications/log")
     def project_notification_log():
-        actor = current_actor(required=True)
+        current_actor(required=True)
         state = request.args.get("state", "all")
         kind = request.args.get("kind")
         if state not in ("all", "pending", "history"):
@@ -2668,30 +2668,21 @@ def create_app(
             "limit": integer(request.args.get("limit", 20), "limit", maximum=100),
         }
         project = project_filter(request.args, use_default=True)
-        key = actor["ledger_key"]
         with tasks_storage.read(db()) as connection:
-            manager = projects.manages(connection, project, key)
+            roster = (project_roster or {}) if project == projects.DEFAULT else {}
+            agents = notification_log.project_agents(connection, project, roster)
             requested = request.args.get("recipient")
-            if requested is not None and not manager:
-                raise RequestError("Only this project's manager can filter by agent.", 403)
-            options = None
-            recipient = None if manager else key
-            if manager:
-                roster = (project_roster or {}) if project == projects.DEFAULT else {}
-                agents = notification_log.project_agents(connection, project, roster)
-                options = [{"id": row["subject"], "name": row["name"]} for row in agents]
-                if requested is not None:
-                    selected = next((row for row in agents if row["subject"] == requested), None)
-                    if selected is None:
-                        raise RequestError("Choose an available agent for this project.", 404)
-                    recipient = selected["ledger_key"]
+            recipient = None
+            if requested is not None:
+                selected = next((row for row in agents if row["subject"] == requested), None)
+                if selected is None:
+                    raise RequestError("Choose an available agent for this project.", 404)
+                recipient = selected["ledger_key"]
             page = notification_log.listing(connection, project, recipient, state, kind, before_wake=before_wake, **page)
             return {
                 **page,
-                "agent_options": options,
-                "has_receipts": bool(page["items"]) or notification_log.has_receipts(
-                    connection, project, None if manager else key,
-                ),
+                "agent_options": [{"id": row["subject"], "name": row["name"]} for row in agents],
+                "has_receipts": bool(page["items"]) or notification_log.has_receipts(connection, project),
             }
 
     @app.get("/api/v1/notifications/watched")

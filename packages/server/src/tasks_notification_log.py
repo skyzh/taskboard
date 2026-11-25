@@ -348,18 +348,16 @@ def project_agents(db, project, roster):
     ).fetchall()
 
 
-def has_receipts(db, project, recipient):
-    scope = "" if recipient is None else " AND notices.recipient = ?"
-    bindings = (project,) if recipient is None else (project, recipient)
+def has_receipts(db, project):
     return db.execute(
         f"""
         WITH receipts AS ({RECIPIENTS})
         SELECT 1 FROM receipts AS notices
         JOIN events ON events.id = notices.source_event_id
         JOIN tasks ON tasks.id = events.task_id
-        WHERE tasks.project_prefix = ?{scope}
+        WHERE tasks.project_prefix = ?
         LIMIT 1
-        """, bindings,
+        """, (project,),
     ).fetchone() is not None
 
 

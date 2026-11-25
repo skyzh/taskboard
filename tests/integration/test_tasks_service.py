@@ -852,7 +852,7 @@ class TasksServiceTest(unittest.TestCase):
             return self.call(client, path, query_string=filters).get_json()
 
         self.call(app.test_client(), path, status=401)
-        self.assertEqual(view(avery), {"items": [], "next_cursor": None, "agent_options": None, "has_receipts": False})
+        self.assertEqual(view(avery), {"items": [], "next_cursor": None, "agent_options": [], "has_receipts": False})
         pending = receipt("T-1", add("Pending notice"), pending=True, requested="2026-11-21T19:55:00Z")
         avery_subject = self.provider.people["Avery"]["sub"]
         blake_subject = self.provider.people["Blake"]["sub"]
@@ -896,14 +896,15 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(manager_rows["T-7"]["recipient"], "Avery")
         self.assertNotIn(avery_key, json.dumps(manager_rows))
 
-        self.assertEqual([row["task"] for row in view(avery)["items"]], ["T-7", "T-3", "T-2", "T-1"])
-        self.call(blake, path, query_string={"recipient": avery_subject}, status=403)
-        self.assertEqual([row["task"] for row in view(blake)["items"]], ["T-5", "T-4"])
-        self.assertIsNone(view(blake)["agent_options"])
+        for viewer in (other, avery, blake):
+            self.assertEqual(view(viewer), view(manager))
+            self.assertEqual([row["task"] for row in view(viewer, recipient=avery_subject)["items"]],
+                             ["T-7", "T-3", "T-2", "T-1"])
         self.assertTrue(view(blake, state="pending")["has_receipts"])
         self.assertFalse(view(avery, project="COURSE", state="history")["items"])
-        self.assertFalse(view(other)["has_receipts"])
-        self.assertFalse(view(manager, project="COURSE")["has_receipts"])
+        self.assertTrue(view(manager, project="COURSE")["has_receipts"])
+        self.call(blake, path, query_string={"project": "COURSE", "recipient": blake_subject}, status=404)
+        self.call(other, path, query_string={"project": "UNKNOWN"}, status=404)
         self.assertEqual(view(other, project="COURSE")["agent_options"], [{"id": avery_subject, "name": "Avery"}])
         self.call(other, path, query_string={"project": "COURSE", "recipient": blake_subject}, status=404)
         manager_view = view(manager, recipient=blake_subject, state="history", kind="ready", limit=1)
@@ -997,7 +998,8 @@ class TasksServiceTest(unittest.TestCase):
             self.assertTrue(save(fixture)["changed"])
 
         self.call(app.test_client(), path, query_string={"kind": "wake"}, status=401)
-        self.call(blake, path, query_string={"kind": "wake", "recipient": avery_subject}, status=403)
+        self.assertEqual([row["task"] for row in view(blake, kind="wake", recipient=avery_subject)["items"]],
+                         ["T-6", "T-3", "T-2", "T-1"])
         self.call(other, path, query_string={"project": "COURSE", "kind": "wake", "recipient": blake_subject}, status=404)
         self.call(manager, path, query_string={"kind": "wake", "before": "wrong:wake"}, status=400)
         visible = {item["task"]: item for item in view(manager, kind="wake")["items"]}
@@ -1012,7 +1014,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([row["task"] for row in view(manager, kind="wake", state="pending")["items"]], ["T-1"])
         self.assertEqual([row["task"] for row in view(manager, kind="wake", recipient=blake_subject)["items"]],
                          ["T-7", "T-5", "T-4"])
-        self.assertEqual([row["task"] for row in view(avery, kind="wake")["items"]], ["T-6", "T-3", "T-2", "T-1"])
+        self.assertEqual(view(avery, kind="wake"), view(manager, kind="wake"))
         self.assertEqual([row["task"] for row in view(other, project="COURSE", kind="wake")["items"]], ["COURSE-1"])
         self.assertNotIn(avery_key, json.dumps(visible))
 
@@ -1043,11 +1045,11 @@ class TasksServiceTest(unittest.TestCase):
 
         save({"schema": "taskboard-notification/v1", "kind": "ready", "source": observed,
               "recipient": avery_key, "pending": False, "status_at": observed["at"], "observations": {}})
-        first = view(avery, limit=1, before=accepted["event"])
+        first = view(avery, recipient=avery_subject, limit=1, before=accepted["event"])
         self.assertEqual([(row["task"], row["kind"]) for row in first["items"]], [("T-2", "wake")])
-        second = view(avery, limit=1, before=first["next_cursor"])
+        second = view(avery, recipient=avery_subject, limit=1, before=first["next_cursor"])
         self.assertEqual([(row["task"], row["kind"]) for row in second["items"]], [("T-2", "ready")])
-        third = view(avery, limit=1, before=second["next_cursor"])
+        third = view(avery, recipient=avery_subject, limit=1, before=second["next_cursor"])
         self.assertEqual([(row["task"], row["kind"]) for row in third["items"]], [("T-1", "wake")])
 
     def test_sender_commands_publish_scoped_pending_and_confirmed_notices(self):
@@ -1071,7 +1073,9 @@ class TasksServiceTest(unittest.TestCase):
             output = subprocess.run([*command, *args], text=True, capture_output=True, check=True)
             return json.loads(output.stdout)
 
-        def log(client, **filters):
+        def log(client, *, recipient=None, **filters):
+            if recipient is not None:
+                filters["recipient"] = self.provider.people[recipient]["sub"]
             return self.call(client, path, query_string=filters).json["items"]
 
         def merge(ticket, candidate, squash):
@@ -1095,8 +1099,8 @@ class TasksServiceTest(unittest.TestCase):
         ready = log(manager, state="pending", kind="ready")
         self.assertEqual([(item["task"], item["status"]) for item in ready], [("T-1", "pending")])
         self.assertEqual([item["task"] for item in log(avery, project="COURSE")], ["COURSE-1"])
-        self.assertEqual(log(manager, project="COURSE"), [])
-        self.assertEqual(log(blake), [])
+        self.assertEqual(log(manager, project="COURSE"), log(avery, project="COURSE"))
+        self.assertEqual(log(blake), log(manager))
 
         self.action(avery, "advance-task", {"id": "COURSE-1", "transition": "start", "note": "Review the fixture."})
         sender("ready", "pending")
@@ -1118,24 +1122,24 @@ class TasksServiceTest(unittest.TestCase):
         merge_event = str(offered["pending"][0]["event_id"])
         self.assertEqual(offered["project_log"]["changed"], 1)
         self.assertEqual([item["recipient"] for item in log(manager, kind="merge")], ["Avery"])
-        self.assertEqual(log(blake, state="pending", kind="merge"), [])
+        self.assertEqual([row["recipient"] for row in log(blake, state="pending", kind="merge")], ["Avery"])
 
         imported = sender("merge", "export-log", "--event-id", merge_event)
         imported["observations"]["requested"] = imported["source"]["at"]
         receipt = self.database.with_name("legacy-merge-receipt.json")
         receipt.write_text(json.dumps(imported), encoding="utf-8")
         self.cli("notification-event", str(receipt))
-        self.assertIsNotNone(log(avery, state="pending", kind="merge")[0]["requested_at"])
+        self.assertIsNotNone(log(avery, recipient="Avery", state="pending", kind="merge")[0]["requested_at"])
 
         self.call(manager, "/api/v1/tasks/T-1/ownership", method="POST", json={
             "action": "reassign", "owner": blake_key, "reason": "Route the verification.",
         })
         sender("merge", "pending", "--event-id", merge_event)
-        self.assertEqual(log(avery, state="pending", kind="merge"), [])
-        new_owner = log(blake, state="pending", kind="merge")
+        self.assertEqual(log(avery, recipient="Avery", state="pending", kind="merge"), [])
+        new_owner = log(blake, recipient="Blake", state="pending", kind="merge")
         self.assertEqual([item["recipient"] for item in new_owner], ["Blake"])
         self.assertIsNone(new_owner[0]["requested_at"])
-        self.assertEqual(log(other, kind="merge"), [])
+        self.assertEqual(log(other, kind="merge"), new_owner)
 
         with closing(sqlite3.connect(self.database)) as db, db:
             db.execute("ALTER TABLE notification_log RENAME TO paused_notification_log")
@@ -1153,8 +1157,8 @@ class TasksServiceTest(unittest.TestCase):
             "action": "reassign", "owner": avery_key, "reason": "Return follow-up to the author.",
         })
         self.assertEqual(sender("merge", "pending")["pending"], [])
-        self.assertEqual(log(avery, kind="merge"), [])
-        self.assertEqual(log(blake, kind="merge")[0]["recipient"], "Blake")
+        self.assertEqual(log(avery, recipient="Avery", kind="merge"), [])
+        self.assertEqual(log(blake, recipient="Blake", kind="merge")[0]["recipient"], "Blake")
         records = log(manager, state="history", kind="merge")
         self.assertEqual([(item["recipient"], item["status"]) for item in records], [("Blake", "send_confirmed")])
         self.assertIsNone(records[0]["acknowledged_at"])
@@ -1179,10 +1183,10 @@ class TasksServiceTest(unittest.TestCase):
             "action": "reassign", "owner": blake_key, "reason": "Route follow-up after the earlier notice.",
         })
         self.assertEqual(sender("merge", "pending")["pending"][0]["owner"], blake_key)
-        original = log(avery, kind="merge")
+        original = log(avery, recipient="Avery", kind="merge")
         self.assertEqual([(item["task"], item["status"], item["recipient"]) for item in original],
                          [("T-3", "send_confirmed", "Avery")])
-        self.assertEqual([item["task"] for item in log(blake, kind="merge")], ["T-1"])
+        self.assertEqual([item["task"] for item in log(blake, recipient="Blake", kind="merge")], ["T-1"])
 
         conflicting_send = sender("merge", "ack", "--event-id", next_event, "--owner", blake_key,
                                   "--receipt", "synthetic-conflicting-merge-message")
@@ -1197,9 +1201,9 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(mixed["project_log"]["status"], "partial")
         self.assertEqual(mixed["project_log"]["changed"], 1)
         self.assertEqual(mixed["project_log"]["conflicts"][0]["source_event"], int(next_event))
-        self.assertEqual([(item["task"], item["status"]) for item in log(avery, kind="merge")],
+        self.assertEqual([(item["task"], item["status"]) for item in log(avery, recipient="Avery", kind="merge")],
                          [("T-4", "pending"), ("T-3", "send_confirmed")])
-        self.assertEqual([item["task"] for item in log(blake, kind="merge")], ["T-1"])
+        self.assertEqual([item["task"] for item in log(blake, recipient="Blake", kind="merge")], ["T-1"])
         self.assertEqual(sender("merge", "pending")["project_log"]["changed"], 0)
 
     def test_parked_readiness_reports_accepted_dependency_events_to_current_owner(self):
@@ -1911,7 +1915,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIsNone(visible["delivery"])
         self.assertIsNone(visible["start_event_id"])
         self.assertNotIn("request_acknowledgment", rows[canceled])
-        self.assertNotIn(returned, wakes(peer))
+        self.assertEqual(wakes(peer)[returned]["request_acknowledgment"], expected)
         self.assertNotIn("request_acknowledgment", wakes(peer)[opened])
         self.call(app.test_client(), path, query_string={"kind": "wake"}, status=401)
 
