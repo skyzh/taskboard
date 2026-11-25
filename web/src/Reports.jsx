@@ -378,9 +378,9 @@ export default function Reports({
       {projects ? projects.map(({ prefix, title }) => (
         <ProjectReports key={prefix} {...reportProps} project={prefix} projectTitle={title} />
       )) : <>
-        <StampIntegration key={project} project={project} revision={revision} />
         <ProjectReports {...reportProps} project={project} />
         <ProjectLinks project={project} revision={revision} />
+        <StampIntegration key={project} project={project} revision={revision} />
       </>}
     </section>
   )
