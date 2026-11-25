@@ -47,6 +47,10 @@ For per-DRI jobs limited to the selected project, include that project in the ke
 
 Use the [queue review guide](references/waiting-and-parked.md) to choose an owned queue or a project queue. Reuse a review that already covers it. Where coverage is missing, agree on one owner, cadence, next run, and wake. Each review verifies current evidence and return triggers on the original tickets.
 
+## Collect optional ticket data
+
+When the project asks agents to collect an additional ticket value, use the [custom field prompt example](references/custom-field-prompt.md). Adapt the units, evidence, and reporting instructions to the fields the project has enabled.
+
 ## Verify the setup
 
 Read back the chosen project, index, entry links, and each recurring purpose's R-number or external wake reference, including Waiting and Parked review coverage. Run the selected Knowledge sweep as its owner and confirm the intended coverage before relying on it. Record the owner, cadence, first or next due time, and issuance path. Repeat discovery to confirm the project is complete and the next setup pass needs no writes. Record created, reused, and unresolved items in the setup ticket. For a demonstration or skill test, do this on a disposable project with fictional sources and schedules.
