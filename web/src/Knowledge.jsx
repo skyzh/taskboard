@@ -1,19 +1,22 @@
 import React, { useState } from 'react'
-import { request, useLoadedPages, useResource } from './data.js'
+import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import EditToggle from './EditToggle.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import RecordHistory, { historyHref } from './RecordHistory.jsx'
 import SegmentedControl from './SegmentedControl.jsx'
+import { ReportTime } from './ReportTime.jsx'
 import { LoadMore, ResourceStatus, eventHref, signInHref, taskHref } from './shared.jsx'
 
 export function entryHref(key) {
   return '#knowledge?' + new URLSearchParams({ entry: key })
 }
 
-export function knowledgeListHref(scope, search) {
+export function knowledgeListHref(scope, search, { order, project } = {}) {
   const params = new URLSearchParams()
   if (scope === 'assigned') params.set('scope', scope)
   if (search) params.set('q', search)
+  if (order === 'updated') params.set('order', order)
+  if (project) params.set('project', project)
   return params.size ? `#knowledge?${params}` : '#knowledge'
 }
 
@@ -222,16 +225,17 @@ export function StagedWork({ changes }) {
 }
 
 export default function Knowledge({ session, verified, revision, projects, search, entry, history, scope = 'board',
-  preview, onSearch, onScope, onChanged, RecordTools }) {
+  preview, project, order = '', onSearch, onScope, onOrder, onChanged, RecordTools }) {
   const [editing, setEditing] = useState(false)
   const assigned = !entry && scope === 'assigned'
   const page = useLoadedPages(verified ? '/knowledge' : null, {
     q: entry ? undefined : search, entry, scope: assigned ? 'assigned' : undefined,
+    project: entry ? undefined : project, order: !entry && order ? order : undefined,
   }, revision)
   const showDirectory = !entry && !search && !assigned
-  const directory = useResource(verified && showDirectory ? '/knowledge/areas' : null, revision)
+  const directory = useResource(verified && showDirectory ? queryPath('/knowledge/areas', { project }) : null, revision)
   const signIn = session.data?.sign_in_available || session.error?.status === 401
-  const fragment = entry ? entryHref(entry) : knowledgeListHref(scope, search)
+  const fragment = entry ? entryHref(entry) : knowledgeListHref(scope, search, { order, project })
   const writableProjects = projects?.filter(project => project.can_create_knowledge === true) || []
   if (history && entry && verified && page.data?.items.length > 0) {
     return (
@@ -253,7 +257,16 @@ export default function Knowledge({ session, verified, revision, projects, searc
         </div>}
         {!entry && !preview && <SegmentedControl className="knowledge-scope" label="Knowledge entries to show"
           value={scope} options={knowledgeScopes} onChange={onScope} />}
-        <KnowledgeSearch key={search} search={search} onSearch={onSearch} />
+        <div className="knowledge-browse-controls">
+          <KnowledgeSearch key={search} search={search} onSearch={onSearch} />
+          {!entry && !preview && onOrder && <label className="knowledge-order">
+            Sort by
+            <select value={order} onChange={event => onOrder(event.currentTarget.value)}>
+              <option value="">Default order</option>
+              <option value="updated">Last updated</option>
+            </select>
+          </label>}
+        </div>
         {showDirectory && <KnowledgeDirectory directory={directory} projects={projects} />}
         <ResourceStatus resource={page} label="Knowledge entries" />
         {page.data?.items.length === 0 && <p className="section-message">
@@ -266,6 +279,10 @@ export default function Knowledge({ session, verified, revision, projects, searc
                 <h2><a href={entryHref(item.key)}><MarkdownInline text={item.title} links={false} /></a></h2>
                 <a className="ticket-id" href={taskHref(item.key)}>{item.key}</a>
                 {entry && <a className="history-link" href={historyHref(entryHref(item.key))}>History</a>}
+                {!entry && item.last_activity && <p className="last-activity knowledge-last-activity">
+                  Last activity {item.last_activity.label && <span>· {item.last_activity.label} </span>}
+                  <a href={eventHref(item.last_activity.id)}><ReportTime at={item.last_activity.at} linked /></a>
+                </p>}
                 {item.area && <p className="knowledge-area-label">{item.area}</p>}
                 {item.maintenance_dri !== undefined && <p className="knowledge-area-label">
                   Maintenance DRI <strong>{item.maintenance_dri?.name || 'Unassigned'}</strong>

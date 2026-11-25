@@ -266,6 +266,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const hasProjectChoices = visibleProjects?.length > 1
   const knowledgeFilters = taskAnchor === 'knowledge' ? new URLSearchParams(taskContext) : null
   const knowledgeScope = !preview && knowledgeFilters?.get('scope') === 'assigned' ? 'assigned' : 'board'
+  const knowledgeOrder = !preview && knowledgeFilters?.get('order') === 'updated' ? 'updated' : ''
+  const requestedKnowledgeProject = knowledgeFilters?.get('project')
+  const knowledgeProject = /^[A-Z][A-Z0-9]{0,7}$/.test(requestedKnowledgeProject || '') ? requestedKnowledgeProject : undefined
   const statsFilters = taskAnchor === 'stats' ? new URLSearchParams(taskContext) : null
   const requestedStatsPeriod = statsFilters?.get('period')
   const statsPeriod = ['hour', 'week'].includes(requestedStatsPeriod) ? requestedStatsPeriod : 'day'
@@ -518,10 +521,14 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'knowledge' && <Knowledge key={knowledgeFilters.get('entry') || 'index'}
             session={session} verified={verified} revision={revision} projects={visibleProjects} preview={preview}
             onChanged={refresh} RecordTools={KnowledgeRecordTools}
-            scope={knowledgeScope} search={knowledgeFilters.get('q') || ''}
+            scope={knowledgeScope} search={knowledgeFilters.get('q') || ''} order={knowledgeOrder} project={knowledgeProject}
             entry={knowledgeFilters.get('entry')} history={knowledgeFilters.get('history')}
-            onSearch={value => writeFilterFragment(knowledgeListHref(knowledgeScope, value).slice(1), false)}
-            onScope={value => writeFilterFragment(knowledgeListHref(value, knowledgeFilters.get('q')).slice(1), false)} />}
+            onSearch={value => writeFilterFragment(knowledgeListHref(knowledgeScope, value,
+              { order: knowledgeOrder, project: knowledgeProject }).slice(1), false)}
+            onScope={value => writeFilterFragment(knowledgeListHref(value, knowledgeFilters.get('q'),
+              { order: knowledgeOrder, project: knowledgeProject }).slice(1), false)}
+            onOrder={value => writeFilterFragment(knowledgeListHref(knowledgeScope, knowledgeFilters.get('q'),
+              { order: value, project: knowledgeProject }).slice(1), false)} />}
           {view === 'personal-codex' && <PersonalCodex key={session.data?.actor?.id} session={session}
             reportsHref={reportsHref} />}
           {view === 'search' && <SearchResults query={search} revision={revision} />}

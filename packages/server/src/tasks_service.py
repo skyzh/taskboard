@@ -2567,6 +2567,9 @@ def create_app(
         scope = text(data, "scope", optional=True, maximum=8) or "board"
         if scope not in ("board", "assigned"):
             raise RequestError("Choose board or assigned Knowledge scope.")
+        order = text(data, "order", optional=True, maximum=10)
+        if order not in (None, "updated"):
+            raise RequestError("Choose last-updated Knowledge ordering.")
         project = project_filter(data)
         entry = text(data, "entry", optional=True, maximum=28)
         source = text(data, "source", optional=True, maximum=28)
@@ -2574,6 +2577,7 @@ def create_app(
         local = g.get("local_dri")
         return query().maintained_decisions(
             actor=key, project=project, maintenance_dri=key if scope == "assigned" else None,
+            updated_order=order == "updated",
             source_project=local["project"] if local is not None else None,
             search=text(data, "q", optional=True, maximum=160),
             entry=task_number(entry) if entry else None,
@@ -2636,7 +2640,7 @@ def create_app(
     @app.get("/api/v1/knowledge/areas")
     def knowledge_areas():
         current_actor(required=True)
-        return knowledge_directory()
+        return knowledge_directory(project_filter(request.args))
 
     def agent_usage_report():
         actor = current_actor(required=True, sync_profile=False)

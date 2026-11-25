@@ -2745,6 +2745,39 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((after["index"], after["available"]), ("OPS-1", False))
         self.assertIn("Under review", self.shared_cli(reader, "knowledge-areas", "--project", "OPS")[1])
 
+    def test_knowledge_sorts_and_pages_by_latest_activity_in_the_requested_project(self):
+        from tasks_core import record
+
+        app = self.app(portal_reader=True)
+        writer, writer_id = self.login(app, "Avery")
+        self.cli("register-project", "OPS", "Fixture operations", "--dri", writer_id)
+        for project, title in (("T", "Runbook alpha"), ("T", "Runbook beta"), ("T", "Runbook gamma"),
+                               ("OPS", "Runbook delta")):
+            self.action(writer, "create-knowledge", {"project": project, "title": title, "brief": "Fixture notes."})
+
+        latest_at = "2099-01-01T08:00:00+00:00"
+        with closing(open_sqlite(self.database)) as db, db:
+            record(db, 1, "log", writer_id, "done", "Reviewed alpha.", None, [],
+                   at=latest_at.replace("+00:00", "Z"))
+            beta = record(db, 2, "log", writer_id, "done", "Reviewed beta.", None, [], at=latest_at)
+            record(db, 3, "log", writer_id, "done", "Earlier gamma note.", None, [], at="2098-01-01T08:00:00Z")
+            record(db, 4, "log", writer_id, "done", "Reviewed delta.", None, [], at="2099-01-02T08:00:00Z")
+
+        route = "/api/v1/knowledge"
+        filters = {"order": "updated", "project": "T", "q": "Runbook", "limit": 1}
+        first = self.call(writer, route, query_string=filters).json
+        self.assertEqual([item["key"] for item in first["items"]], ["T-2"])
+        self.assertEqual(first["items"][0]["last_activity"], {"id": beta, "at": latest_at, "label": "Activity logged"})
+        self.assertEqual(first["next_cursor"], beta)
+        second = self.call(writer, route, query_string={**filters, "before": first["next_cursor"]}).json
+        self.assertEqual([item["key"] for item in second["items"]], ["T-1"])
+        third = self.call(writer, route, query_string={**filters, "before": second["next_cursor"]}).json
+        self.assertEqual([item["key"] for item in third["items"]], ["T-3"])
+        self.assertIsNone(third["next_cursor"])
+        default = self.call(writer, route, query_string={"project": "T"}).json
+        self.assertEqual([item["key"] for item in default["items"]], ["T-3", "T-2", "T-1"])
+        self.call(app.test_client(), route, query_string=filters, status=401)
+
     def test_first_class_knowledge_preserves_existing_identity_history_and_staged_links(self):
         roster = {self.provider.people["Blake"]["sub"]: "Blake"}
         app = self.app(portal_reader=True, project_roster=roster)
@@ -8139,6 +8172,7 @@ class TasksServiceTest(unittest.TestCase):
             ("Quinn", "#about"), ("Casey", "#reports?project=COURSE"),
             ("Casey", "#reports?project=COURSE&view=all"), ("Sam", "#knowledge"),
             ("Sam", "#knowledge?entry=SRE-2"), ("Quinn", "#knowledge?q=sample+rule"),
+            ("Sam", "#knowledge?scope=assigned&q=sample+rule&order=updated&project=COURSE"),
             ("Sam", "#integrations?cli=" + "a" * 64), ("Sam", "#integrations?project=COURSE"),
         ):
             with self.subTest(fragment=fragment):
@@ -8152,6 +8186,7 @@ class TasksServiceTest(unittest.TestCase):
         for fragment in (
             "#reports?project=//other.example", "#reports?project=COURSE&project=T",
             "#knowledge?entry=SRE-2&next=//other.example", "#knowledge?q=sample&q=rule",
+            "#knowledge?order=updated&project=//other.example",
             "#integrations?cli=0&next=//other.example", "#integrations?project=COURSE&next=//other.example",
         ):
             self.call(app.test_client(), "/auth/login", query_string={"fragment": fragment}, status=400)
