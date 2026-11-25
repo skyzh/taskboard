@@ -151,10 +151,18 @@ def replay_knowledge_sweeps(test, board, app, open_board):
     test.assertFalse(assigned_local["can_reconcile"])
 
     # A still-unmigrated completed ticket can leave Knowledge, move and be tagged again.
+    index, _ = source(maintainer, "LAB", "Archive workflow index")
+    board.action(maintainer, "task-tag", {"id": index, "action": "add", "tag": "decision-record"})
+    board.action(unauthenticated, "knowledge-place", {"id": index, "area": "Archive workflow", "index": "true"},
+                 headers=human_headers)
+    board.action(unauthenticated, "knowledge-place", {"id": other, "area": "Archive workflow"},
+                 headers=human_headers)
     reclassified, _ = source(maintainer, "LAB", "Retagged runbook")
     board.action(maintainer, "task-tag", {"id": reclassified, "action": "add", "tag": "decision-record"})
     board.call(other_manager, f"/api/v1/knowledge/{reclassified}/maintenance-dri", method="POST",
                json={"dri": local})
+    board.action(unauthenticated, "knowledge-place", {"id": reclassified, "area": "Archive workflow"},
+                 headers=human_headers)
     board.action(maintainer, "task-tag", {"id": reclassified, "action": "remove", "tag": "decision-record"})
     moved = board.call(other_manager, f"/api/v1/tasks/{reclassified}/project", method="POST",
                        json={"project": "ARCH"}).json["key"]
@@ -162,6 +170,22 @@ def replay_knowledge_sweeps(test, board, app, open_board):
     restored, = sweep(maintainer, "board", project="ARCH")["items"]
     test.assertEqual(restored["key"], moved)
     test.assertIsNone(restored["maintenance_dri"])
+    test.assertNotIn("area", restored)
+    lab_index = next(row for row in sweep(unauthenticated, "board", headers=headers)["items"] if row["key"] == index)
+    test.assertEqual({row["key"] for row in lab_index["area_entries"]}, {other})
+
+    board.action(maintainer, "task-tag", {"id": index, "action": "remove", "tag": "decision-record"})
+    moved_index = board.call(other_manager, f"/api/v1/tasks/{index}/project", method="POST",
+                             json={"project": "ARCH"}).json["key"]
+    board.action(maintainer, "task-tag", {"id": moved_index, "action": "add", "tag": "decision-record"})
+    archive_index = board.call(manager, "/api/v1/knowledge", query_string={"entry": moved_index}).json["items"][0]
+    test.assertNotIn("area", archive_index)
+    test.assertNotIn("area_entries", archive_index)
+    test.assertEqual(board.action(unauthenticated, "knowledge-areas", headers=headers)["areas"], [])
+    board.action(unauthenticated, "knowledge-place", {"id": other, "area": "Archive workflow", "index": "true"},
+                 headers=human_headers)
+    areas = board.action(unauthenticated, "knowledge-areas", headers=headers)["areas"]
+    test.assertEqual([row["index"] for row in areas], [other])
 
 
 class KnowledgeSweepTest(unittest.TestCase):

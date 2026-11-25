@@ -141,7 +141,8 @@ def place(db, number, actor, area, *, index=False):
     if index_area and index_area["path"] != path:
         raise ValueError("This entry is the index of another area.")
     if index and existing and existing["index_id"] != number:
-        if is_maintained(db, ledger.get_task(db, existing["index_id"])):
+        previous = ledger.get_task(db, existing["index_id"])
+        if projects.row_project(previous) == project and is_maintained(db, previous):
             raise ValueError("This area already has an index entry.")
         if not projects.manages(db, project, actor):
             raise PermissionError("Only the project manager can replace an inactive area index.")
@@ -217,7 +218,8 @@ def directory(db, *, project=None):
                 (current.record_kind = 'knowledge' OR (current.display_state = 'done' AND EXISTS (
                     SELECT 1 FROM task_tags WHERE task_id = current.id AND tag = ?
                 ))) AS available
-            FROM knowledge_areas AS areas JOIN current ON current.id = areas.index_id
+            FROM knowledge_areas AS areas
+            JOIN current ON current.id = areas.index_id AND current.project_prefix = areas.project
             WHERE (? IS NULL OR areas.project = ?)
             ORDER BY areas.project, areas.path""", (DECISION_TAG, project, project),
     )]
@@ -250,6 +252,7 @@ def links(db, number, *, include_source=False, source_project=None):
 def metadata(db, number, *, source_project=None):
     area = db.execute(
         """SELECT entries.project, entries.path, areas.index_id FROM knowledge_entries AS entries
+           JOIN tasks AS note ON note.id = entries.task_id AND note.project_prefix = entries.project
            JOIN knowledge_areas AS areas ON areas.project = entries.project AND areas.path = entries.path
            WHERE entries.task_id = ?""", (number,),
     ).fetchone()
@@ -260,11 +263,11 @@ def metadata(db, number, *, source_project=None):
             for row in db.execute(
                 ledger.current_tasks_sql(db, include_knowledge=True) + """
                 WHERE tasks.id IN (SELECT task_id FROM knowledge_entries WHERE project = ? AND path = ?)
-                  AND tasks.id <> ? AND (
+                  AND tasks.project_prefix = ? AND tasks.id <> ? AND (
                       tasks.record_kind = 'knowledge' OR tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?)
                   )
                 ORDER BY tasks.title, tasks.id
-                """, (area["project"], area["path"], number, DECISION_TAG),
+                """, (area["project"], area["path"], area["project"], number, DECISION_TAG),
             ) if ledger.is_knowledge(row) or row["display_state"] == "done"
         ]
     if staged := links(db, number, source_project=source_project):
