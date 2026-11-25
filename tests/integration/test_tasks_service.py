@@ -3786,6 +3786,7 @@ class TasksServiceTest(unittest.TestCase):
         cookie_name = "raft_board_session"
         agent_cookie = agent.get_cookie(cookie_name, domain=domain, path=session_path)
         human_cookie = human.get_cookie(cookie_name, domain=domain, path=session_path)
+        self.assertEqual(human_cookie.max_age, 3600)
         restarted = self.app(portal_reader=True, session_dir=session_dir)
         restarted_agent, restarted_human = restarted.test_client(), restarted.test_client()
         for client, cookie in ((restarted_agent, agent_cookie), (restarted_human, human_cookie)):
@@ -3817,7 +3818,7 @@ class TasksServiceTest(unittest.TestCase):
             human, human_id = self.login(app, "Sam")
             self.cli("register-project", "T", "Tasks Board", "--dri", human_id)
             cookie = human.get_cookie("raft_board_session", domain=urlsplit(ORIGIN).hostname, path=BASE + "/")
-            self.assertEqual(cookie.max_age, 86400)
+            self.assertEqual(cookie.max_age, 604800)
             self.assertEqual(avery.get_cookie(
                 "raft_board_session", domain=urlsplit(ORIGIN).hostname, path=BASE + "/",
             ).max_age, 1800)
@@ -3868,12 +3869,40 @@ class TasksServiceTest(unittest.TestCase):
             self.call(signed_out, "/auth/logout", method="POST", headers={"Origin": ORIGIN}, status=204)
             signed_out.set_cookie(cookie.key, cookie.value, domain=cookie.domain, path=cookie.path)
             self.assertEqual(self.call(signed_out, "/api/v1/session").json["actor"]["kind"], "portal")
-            clock.return_value = issued + 86399
+            clock.return_value = issued + 604799
             self.assertEqual(self.call(human, "/api/v1/session").json["actor"]["id"], human_id)
             checks = len(self.provider.role_checks)
-            clock.return_value = issued + 86400
+            clock.return_value = issued + 604800
             self.assertEqual(self.call(human, "/api/v1/session").json["actor"]["kind"], "portal")
             self.assertEqual(len(self.provider.role_checks), checks)
+
+    def test_durable_human_session_expiry_survives_upgrades_and_rollbacks(self):
+        self.provider = FixtureRaftInstallation()
+        options = {
+            "session_dir": self.database.parent / "private-sessions",
+            "human_session_installation_id": INSTALLATION,
+            "portal_reader": True,
+        }
+        with patch("raft_auth.time") as clock:
+            issued = clock.return_value = 2_000_000_000
+            with patch("raft_auth._DURABLE_HUMAN_SESSION_TTL", 86400):
+                existing, _ = self.login(self.app(**options), "Sam")
+            new, new_id = self.login(self.app(**options), "Quinn")
+            cookie_name = "raft_board_session"
+            domain, path = urlsplit(ORIGIN).hostname, BASE + "/"
+            old_cookie = existing.get_cookie(cookie_name, domain=domain, path=path)
+            new_cookie = new.get_cookie(cookie_name, domain=domain, path=path)
+            self.assertEqual((old_cookie.max_age, new_cookie.max_age), (86400, 604800))
+            clock.return_value = issued + 86400
+            with patch("raft_auth._DURABLE_HUMAN_SESSION_TTL", 86400):
+                rolled_back = self.app(**options)
+                old_reader, new_reader = rolled_back.test_client(), rolled_back.test_client()
+                old_reader.set_cookie(cookie_name, old_cookie.value, domain=domain, path=path)
+                new_reader.set_cookie(cookie_name, new_cookie.value, domain=domain, path=path)
+                self.assertEqual(self.call(old_reader, "/api/v1/session").json["actor"]["kind"], "portal")
+                self.assertEqual(self.call(new_reader, "/api/v1/session").json["actor"]["id"], new_id)
+                self.provider.roles[self.provider.people["Quinn"]["sub"]] = None
+                self.assertEqual(self.call(new_reader, "/api/v1/session").json["actor"]["kind"], "portal")
 
     def test_human_day_session_renews_installation_token_once_and_fails_closed(self):
         self.provider = FixtureRaftInstallation()
