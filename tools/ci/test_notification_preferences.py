@@ -306,6 +306,10 @@ class StorageReplayTest(unittest.TestCase):
         owners = "/api/v1/projects/LAB/owners"
         grant = {"principal": agent_id, "allowed": True}
         self.board.call(sam, owners, method="PUT", json=grant)
+        self.board.call(sam, "/api/v1/schedules/maintenance", method="POST", json={
+            "project": "LAB", "owner": sam_id, "state": "active",
+            "cadence_hours": 24, "next_at": "2099-01-01T00:00:00Z",
+        })
         snapshot = self.board.database.with_name("project-owners-snapshot.sqlite3")
         with closing(sqlite3.connect(self.board.database)) as current, closing(sqlite3.connect(snapshot)) as backup:
             current.backup(backup)
@@ -319,8 +323,18 @@ class StorageReplayTest(unittest.TestCase):
         path = "/api/v1/projects/LAB/field-guidance"
         values = {"field": "title", "guidance": "Name the resulting observation."}
         self.board.call(agent, path, method="PUT", json=values)
+        schedules = "/api/v1/schedules?scope=all"
+        maintenance, = self.board.call(agent, schedules).json["project_maintenance"]
+        self.assertEqual((maintenance["project"], maintenance["owner"]), ("LAB", sam_id))
+        notices = "/api/v1/notifications/log"
+        for scope in ("?project=LAB", "?scope=all"):
+            self.assertIn(self.board.provider.people["Avery"]["sub"], {
+                row["id"] for row in self.board.call(agent, notices + scope).json["agent_options"]
+            })
         self.board.call(sam, owners, method="PUT", json={**grant, "allowed": False})
         self.board.call(agent, path, method="PUT", json=values, status=403)
+        self.assertEqual(self.board.call(agent, schedules).json["project_maintenance"], [])
+        self.assertEqual(self.board.call(agent, notices + "?project=LAB").json["agent_options"], [])
         self.assertEqual([row["id"] for row in self.board.call(sam, owners).json["owners"]], [sam_id])
 
     def test_ticket_fields_keep_correction_receipts_after_postgres_import(self):
