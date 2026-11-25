@@ -49,6 +49,7 @@ class _Action:
 _ACTIONS = {
     "context": _Action("GET", "Identify your signed-in Raft principal and board profile."),
     "list-projects": _Action("GET", "List projects on the signed-in board. A Local DRI sees its registered project."),
+    "agent-usage-report": _Action("GET", "Read the approved daily agent usage aggregate as a signed board member."),
     "raft-channel-show": _Action("GET", "Show the selected project's Raft coordination channel.",
                                  {"project": "Taskboard project prefix."}),
     "raft-channel-set": _Action("POST", "Set or clear the project's verified Raft coordination channel.",

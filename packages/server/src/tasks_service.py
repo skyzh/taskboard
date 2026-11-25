@@ -2563,16 +2563,20 @@ def create_app(
         current_actor(required=True)
         return knowledge_directory()
 
-    @app.get("/api/v1/reports/agent-usage")
-    def report_agent_usage():
+    def agent_usage_report():
         actor = current_actor(required=True, sync_profile=False)
         if g.get("personal_agent_api") == "tailnet":
             raise RequestError("Sign in with Raft to view agent usage.", 403)
+        if g.get("local_dri") is not None:
+            raise RequestError("Open board-wide usage as a signed-in board member.", 403)
         server_id = actor["server_id"]
         snapshot = tasks_agent_usage.load(agent_usage_snapshot, server_id)
         with tasks_storage.read(db()) as connection:
-            result = tasks_agent_usage.report(connection, server_id, snapshot)
-        response = jsonify(result)
+            return tasks_agent_usage.report(connection, server_id, snapshot)
+
+    @app.get("/api/v1/reports/agent-usage")
+    def report_agent_usage():
+        response = jsonify(agent_usage_report())
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -3354,6 +3358,7 @@ def create_app(
 
     def local_dri_action_limits(profile):
         limits = {name: STANDING_RAFT_REQUIRED for name in sorted(STANDING_RAFT_ACTIONS)}
+        limits["agent-usage-report"] = "Open board-wide usage as a signed-in board member."
         limits["create-project"] = "Project creation requires a human or Team DRI with a project creation grant."
         if profile["human_questions"] != local_dri.TASKBOARD:
             limits["raise-attention"] = local_dri.QUESTION_REQUIRED
@@ -3362,6 +3367,8 @@ def create_app(
         return limits
 
     def dispatch_action(name, data):
+        if name == "agent-usage-report":
+            return agent_usage_report()
         write = request.method != "GET"
         actor = current_actor(write=write, required=True)
         profile = g.get("local_dri")

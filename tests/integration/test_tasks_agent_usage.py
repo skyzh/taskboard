@@ -15,6 +15,7 @@ from tasks_storage import open_sqlite, write
 
 
 REPORT = "/api/v1/reports/agent-usage"
+ACTION = "/api/v1/raft/agent-usage-report"
 TOKENS = {
     "input_tokens": 800, "cached_input_tokens": 600,
     "output_tokens": 200, "reasoning_output_tokens": 50,
@@ -93,6 +94,9 @@ class AgentUsageTest(unittest.TestCase):
             }],
         })
         self.assertEqual(self.fixture.call(author, REPORT).json, response.json)
+        action = self.fixture.call(author, ACTION)
+        self.assertEqual(action.headers["Cache-Control"], "no-store")
+        self.assertEqual({key: action.json[key] for key in response.json}, response.json)
 
     def test_tailnet_only_access_is_denied_before_loading_aggregate(self):
         reader, _ = self.fixture.login(self.app, "Sam")
@@ -103,7 +107,30 @@ class AgentUsageTest(unittest.TestCase):
         self.assertEqual(context["personal_agent_access"], "tailnet")
         with patch.object(usage, "load", side_effect=AssertionError("Tailnet access must not read the snapshot.")):
             self.fixture.call(anonymous, REPORT, status=403, headers=trusted)
+            self.fixture.call(anonymous, ACTION, status=403, headers=trusted)
+            self.fixture.call(anonymous, ACTION, status=401)
         self.assertEqual(len(self.fixture.call(reader, REPORT).json["items"]), 1)
+
+    def test_signed_action_verifies_disabled_feed_without_mutating_the_board(self):
+        app = self.fixture.app(portal_reader=True)
+        agent, _ = self.fixture.login(app, "Avery")
+        human, _ = self.fixture.login(app, "Sam")
+        client = app.test_client()
+        origin = {"Origin": service.ORIGIN}
+        local = self.fixture.call(human, "/api/v1/personal-agents/local-dris", method="POST", headers=origin,
+                                  json={"name": "Project worker", "project": "T"}).json["local_dri"]["id"]
+        token = self.fixture.call(human, "/api/v1/personal-agents/connections", method="POST", headers=origin,
+                                  json={"session": "Usage fixture"}).json["token"]
+        headers = {**origin, "Authorization": "Bearer " + token, "X-Taskboard-Local-DRI": local}
+        before = self.fixture.call(agent, "/api/v1/revision").json
+        response = self.fixture.call(agent, ACTION)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertIsNone(response.json["window"])
+        self.assertEqual(response.json["items"], [])
+        self.assertEqual(self.fixture.call(agent, "/api/v1/revision").json, before)
+        with patch.object(usage, "load", side_effect=AssertionError("Local DRIs must not read board-wide usage.")):
+            self.fixture.call(client, ACTION, headers=headers, status=403)
+        self.assertIn("agent-usage-report", self.fixture.action(client, "context", headers=headers)["unavailable_actions"])
 
     def test_unknown_cost_and_worker_coverage_remain_null(self):
         agent, _ = self.fixture.login(self.app, "Avery")
