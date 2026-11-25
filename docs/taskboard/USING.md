@@ -60,6 +60,7 @@ Use plain text when formatting adds nothing. Inline Markdown supports emphasis, 
 | Activity details, worker brief and report, and attention request reason | Block Markdown and Mermaid where the full text appears. |
 | Checklist step label | Inline Markdown. Use one line per step. |
 | Goal and milestone names, schedule titles, display names, source labels, and writing guidance | Plain text. |
+| Profile short role | Plain text beside your name on Reports Summary. Set it in Settings → Profile and aim for two or three words. |
 | Profile description | Block Markdown and Mermaid in the expanded profile. |
 | Tags, ticket IDs, recipients, dates, and source URLs | Use the value the control requests. Markdown syntax stays literal or fails validation. |
 

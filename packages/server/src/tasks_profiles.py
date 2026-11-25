@@ -12,6 +12,7 @@ import tasks_storage
 
 MAX_AVATAR_BYTES = 1024 * 1024
 MAX_DESCRIPTION_LENGTH = 2000
+MAX_SHORT_ROLE_LENGTH = 60
 AVATAR_SIZE = 256
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 SVG_ROOT = "{http://www.w3.org/2000/svg}svg"
@@ -25,6 +26,7 @@ SCHEMA = """
         name TEXT NOT NULL DEFAULT '',
         picture TEXT,
         role TEXT,
+        short_role TEXT,
         description TEXT,
         avatar BLOB,
         avatar_digest TEXT,
@@ -48,7 +50,7 @@ IMPORT_SCHEMA = """
     )
 """
 FIELDS = (
-    "server_id, kind, subject, ledger_key, username, name, picture, role, description, avatar_digest, "
+    "server_id, kind, subject, ledger_key, username, name, picture, role, short_role, description, avatar_digest, "
     "provider_description, provider_avatar_source, provider_avatar_digest"
 )
 
@@ -57,7 +59,7 @@ def ensure_principals(db):
     db.execute(SCHEMA)
     existing = tasks_storage.table_columns(db, "board_principals")
     for field, column_type in (
-        ("description", "TEXT"), ("provider_description", "TEXT"), ("provider_avatar_source", "TEXT"),
+        ("description", "TEXT"), ("short_role", "TEXT"), ("provider_description", "TEXT"), ("provider_avatar_source", "TEXT"),
         ("provider_avatar", "BLOB"), ("provider_avatar_digest", "TEXT"),
     ):
         if field not in existing:
@@ -177,6 +179,7 @@ def public_profile(row, base):
         **({"dri_kind": "local" if row["ledger_key"].startswith("local-dri:") else "team"}
            if row["kind"] == "agent" else {}),
         "role": row["role"] or ("Human" if row["kind"] == "human" else None),
+        "short_role": row["short_role"],
         "description": description,
         "avatar_url": avatar,
     }
@@ -212,6 +215,15 @@ def update_role(db, key, role):
     if len(role) > 100 or any(not character.isprintable() for character in role):
         raise ValueError("Board roles accept up to 100 printable characters.")
     db.execute("UPDATE board_principals SET role = ? WHERE ledger_key = ?", (role or None, key))
+
+
+def update_short_role(db, key, short_role):
+    if not isinstance(short_role, str):
+        raise ValueError("Provide a short role as text.")
+    short_role = short_role.strip()
+    if short_role and (len(short_role) > MAX_SHORT_ROLE_LENGTH or not short_role.isprintable()):
+        raise ValueError(f"Short roles accept up to {MAX_SHORT_ROLE_LENGTH} printable characters on one line.")
+    db.execute("UPDATE board_principals SET short_role = ? WHERE ledger_key = ?", (short_role or None, key))
 
 
 def description_text(description):

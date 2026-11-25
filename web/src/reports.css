@@ -255,6 +255,7 @@
 .report-owner-heading :is(h2, h3) { font-size: 1.05rem; }
 .report-owner-heading :is(h2, h3) a { color: var(--ink); text-decoration: underline; text-decoration-color: #aab8ca; text-underline-offset: .16em; }
 .report-owner-heading :is(h2, h3) a:hover { color: var(--green); text-decoration-color: currentColor; }
+.report-short-role { color: var(--muted); font-weight: normal; }
 .report-project-label { color: var(--muted); font-size: .8rem; }
 .report-note { color: var(--muted); font-size: .8rem; }
 .report-owner-section, .pending-reports { margin-top: .65rem; }
