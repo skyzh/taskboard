@@ -557,10 +557,10 @@ An unavailable setting means Taskboard could not verify a destination. Use the p
 On a shared board outside Marketplace, set `TASKS_PUBLIC_RAFT_CHANNEL_URLS` in the serving environment to show a public discussion link in a project's Summary. This example configures Project T.
 
 ```sh
-TASKS_PUBLIC_RAFT_CHANNEL_URLS='{"T":"https://app.raft.build/s/example/channel/00000000-0000-0000-0000-000000000041"}'
+TASKS_PUBLIC_RAFT_CHANNEL_URLS='{"T":{"url":"https://app.raft.build/s/example/channel/00000000-0000-0000-0000-000000000041","channel":"proj-taskboard"}}'
 ```
 
-Use the channel's HTTPS browser URL on `app.raft.build` or `raft.build`. Confirm the channel is public before adding it and remove the entry if its visibility changes. Restart the service after editing the environment. This setting supplies the Summary link and leaves automated delivery configuration separate. Without an entry, the Summary shows a Raft link only when the existing channel adapter verifies a browser URL for the board's audience.
+Use the channel's HTTPS browser URL on `app.raft.build` or `raft.build`. Use the channel name without the leading `#`. The example displays **Raft example/proj-taskboard**. Existing URL-only entries display **Raft**. Confirm the channel is public before adding it and remove the entry if its visibility changes. Restart the service after editing the environment. This setting supplies the Summary link and leaves automated delivery configuration separate. Without an entry, the Summary shows a Raft link only when the existing channel adapter verifies a browser URL for the board's audience.
 
 The project manager can set either repository with `PUT /api/v1/projects/<project>/links`. Send `github` or `stamp` as an `owner/repository` string, or send an empty string to clear that setting. Fields left out keep their existing values. The Raft channel uses its separate verified channel setting.
 
