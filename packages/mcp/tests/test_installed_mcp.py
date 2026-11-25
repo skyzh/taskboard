@@ -1,6 +1,7 @@
 """Check the tool contract of an installed Taskboard adapter."""
 
 import unittest
+from unittest.mock import patch
 
 from taskboard_client import SharedBoard
 from taskboard_client.direct import DirectBoard
@@ -30,6 +31,9 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
         tools = {tool.name for tool in await build_server(board).list_tools()}
         self.assertNotIn("taskboard_create_project", tools)
         self.assertTrue({"taskboard_context", "taskboard_projects", "taskboard_create_ticket", "taskboard_edit_ticket"} <= tools)
+        with patch.object(board, "invoke", return_value={"items": [], "next_cursor": None}) as invoke:
+            await build_server(board).call_tool("taskboard_queue", {})
+            invoke.assert_called_once_with("my-queue", {"limit": 20, "state": "ready", "order": "priority"})
 
 
 if __name__ == "__main__":

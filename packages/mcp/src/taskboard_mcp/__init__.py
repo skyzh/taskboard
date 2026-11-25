@@ -23,6 +23,7 @@ State = Literal["ready", "in_progress", "waiting", "human_review", "parked", "do
 
 
 def build_server(board: SharedBoard) -> MCPServer:
+    local_dri = isinstance(board, DirectBoard) and board.local_dri is not None
     server = MCPServer(
         "Taskboard",
         instructions=(
@@ -59,9 +60,12 @@ def build_server(board: SharedBoard) -> MCPServer:
         before: Cursor | None = None,
         unassigned: Annotated[bool, Field(description="Read shared unassigned work instead of your own queue.")] = False,
     ) -> dict[str, Any]:
-        """List owned or unassigned tickets. Omit project to read across projects."""
-        params = {"project": project} if project else {"scope": "all"}
-        params["limit"] = limit
+        """List owned or unassigned tickets. A Local DRI defaults to its registered project."""
+        params = {"limit": limit}
+        if project:
+            params["project"] = project
+        elif not local_dri:
+            params["scope"] = "all"
         if state is not None:
             params["state"] = state
         if state == "ready":
@@ -143,7 +147,7 @@ def build_server(board: SharedBoard) -> MCPServer:
             payload["dri"] = dri
         return board.invoke("create-project", payload, write=True)
 
-    if not (isinstance(board, DirectBoard) and board.local_dri is not None):
+    if not local_dri:
         server.tool(annotations=ToolAnnotations(idempotent_hint=True))(taskboard_create_project)
 
     @server.tool(annotations=write)
