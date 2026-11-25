@@ -117,6 +117,10 @@ export function ActivityMark({ event }) {
     if (Object.hasOwn(workMarks, workKind)) {
       [label, Icon] = workMarks[workKind]
       kind = workKind === 'pull-review' || workKind === 'merge-review' ? 'review' : workKind
+    } else if (context?.manual_review_result) {
+      kind = 'review'
+      label = 'Manual pull request review'
+      Icon = FileCheck
     } else if (context?.stamp_verdict || context?.stamp_review) {
       kind = 'review'
       label = context.stamp_verdict ? 'Stamp review' : 'Stamp review requested'

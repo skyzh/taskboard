@@ -889,6 +889,7 @@ test('typed provider and board work events use their distinct named marks in eve
     [{ action: 'log', context: { work_kind: 'local-merge' } }, 'Merged locally', 'git-merge'],
     [{ action: 'log', context: { stamp_review: { pull: 'example/board#17' } } }, 'Stamp review requested', 'file-check'],
     [{ action: 'transfer', context: { stamp_verdict: { verdict: 'approved' } } }, 'Stamp review', 'file-check'],
+    [{ action: 'transfer', context: { manual_review_result: { pull: 'example/board#17' } } }, 'Manual pull request review', 'file-check'],
     [{ action: 'update', context: { peer_ask_ticket: 'T-3' } }, 'Peer request updated', 'messages-square'],
     [{ action: 'wait', label: 'Wait recorded', context: { peer_ask_ticket: 'T-3' } }, 'Wait recorded', 'clock'],
     [{ action: 'done', context: { peer_correction: { previous_close: 12 } } }, 'Peer result corrected', 'check'],
