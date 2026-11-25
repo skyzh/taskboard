@@ -249,3 +249,12 @@ test('decision answers and details are separate Markdown blocks with or without 
     assert.match(body, /<pre><code>Example answer<\/code><\/pre><\/div><div class="prose markdown"><ul><li>Check the export<\/li><\/ul>/)
   }
 })
+
+test('preserves semantic table headers and cells inside a keyboard-scrollable region', () => {
+  const text = '| Sample | Result |\n| --- | --- |\n| **Blue** | [Notes](#task-12) |'
+  const block = render(markdown.Markdown, { text })
+  assert.match(block, /<div class="markdown-table" role="region" aria-label="Scrollable table" tabindex="0"><table>/)
+  assert.match(block, /<thead><tr><th>Sample<\/th><th>Result<\/th><\/tr><\/thead>/)
+  assert.match(block, /<tbody><tr><td><strong>Blue<\/strong><\/td><td><a href="#task-12">Notes<\/a><\/td><\/tr><\/tbody>/)
+  assert.doesNotMatch(render(markdown.MarkdownInline, { text }), /<table\b/)
+})
