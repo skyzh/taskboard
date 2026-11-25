@@ -420,6 +420,17 @@ class TasksServiceTest(unittest.TestCase):
         shared(quinn_api, "change-ownership", change)
         self.assertEqual(shared(quinn_api, "task", query_string={"id": "OPS-1"})["task"]["dri"], agent_key)
         self.action(sam, "create-task", source, status=403)
+        shared(sam_api, "edit-task-details", {
+            "id": "OPS-1", "title": "Review current fixture imports", "reason": "Record the verified import scope.",
+        })
+        first_class = shared(quinn_api, "create-knowledge", {
+            "project": "OPS", "title": "Fixture guidance", "brief": "Use an isolated import.",
+        })["id"]
+        shared(sam_api, "edit-task-details", {"id": first_class, "brief": "Use an isolated dry run.",
+                                                "reason": "Record the verified first step."})
+        edit = shared(sam_api, "task-activity", query_string={"id": first_class, "limit": 1})["items"][0]
+        self.assertEqual((edit["actor"], edit["context"]["audit"]["current"]["brief"]),
+                         (sam_key, "Use an isolated dry run."))
         with patch.object(personal_agents, "utc_now", return_value=personal_agents.utc_now()
                           + personal_agents.MAX_DURATION):
             shared(sam_api, "context", status=401)
@@ -2728,7 +2739,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertTrue(index["can_edit_details"])
         self.assertEqual(index["knowledge_stages"][0]["source"], "T-3")
         self.assertIsNone(index["knowledge_stages"][0]["source_event_id"])
-        self.assertFalse(self.action(agent, "task", query_string={"id": "T-1"})["can_edit_details"])
+        self.assertTrue(self.action(agent, "task", query_string={"id": "T-1"})["can_edit_details"])
         listed = self.call(agent, "/api/v1/tasks").json["items"]
         self.assertEqual({row["key"] for row in listed}, {"T-3", "T-4", "T-5", "T-6"})
         stats = self.call(agent, "/api/v1/stats", query_string={"project": "T"}).json["ticket_flow"]
@@ -2741,7 +2752,8 @@ class TasksServiceTest(unittest.TestCase):
         self.assertTrue(all(event["task_key"] not in {"T-1", "T-2"} for event in activity))
         self.action(manager, "change-ownership", {"id": "T-1", "action": "reopen", "owner": agent_id,
                                                   "reason": "Rejected work transition."}, status=409)
-        self.action(agent, "edit-task-details", {"id": "T-1", "brief": "Invalid edit.", "reason": "Denied."}, status=403)
+        self.action(app.test_client(), "edit-task-details",
+                    {"id": "T-1", "brief": "Invalid edit.", "reason": "Denied."}, status=401)
         self.assertEqual(snapshot(), before)
 
         project = self.call(agent, "/api/v1/projects").json["items"][0]
@@ -2760,7 +2772,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("T-8", cli[1])
         created = self.call(manager, "/api/v1/knowledge", method="POST", json=action, status=201)
         self.assertEqual(created.json["id"], "T-9")
-        human, _ = self.login(app, "Sam")
+        human, human_id = self.login(app, "Sam")
         self.assertFalse(self.call(human, "/api/v1/projects").json["items"][0]["can_create_knowledge"])
         self.call(human, "/api/v1/knowledge", method="POST", json=action, status=403)
         self.call(human, "/api/v1/notifications/preferences", method="POST", json={"task_creations": True})
@@ -2781,6 +2793,22 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(agent, before_edit).json["brief"], "Initial guidance.")
         self.assertEqual(self.call(agent, history + str(changed["id"])).json["brief"], "Revised guidance.")
         self.call(app.test_client(), before_edit, status=401)
+
+        status, output, error = self.shared_cli(agent, "edit", "T-1", "Clarify the examples.",
+                                                "--brief", "Agent clarified the guidance.")
+        self.assertEqual((status, error), (0, ""))
+        self.assertIn("Details updated", output)
+        route = "/api/v1/tasks/T-1"
+        self.assertTrue(self.call(human, route).json["can_edit_details"])
+        self.call(human, route + "/details", method="POST", json={
+            "title": "Storage index for current guidance", "reason": "Name the index precisely.",
+        })
+        human_edit, agent_edit = self.call(human, route + "/activity", query_string={"limit": 2}).json["items"]
+        self.assertEqual((human_edit["actor"], agent_edit["actor"]), (human_id, agent_id))
+        row, = self.call(human, "/api/v1/knowledge", query_string={"entry": "T-1"}).json["items"]
+        self.assertEqual((row["key"], row["title"], row["summary"]),
+                         ("T-1", "Storage index for current guidance", "Agent clarified the guidance."))
+        self.assertEqual(row["area"], "Storage")
 
     def test_knowledge_directory_stages_work_and_reconciles_one_settled_correction(self):
         app = self.app(portal_reader=True)
@@ -4141,11 +4169,11 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(still_blocked["state"], "waiting")
         self.assertEqual(still_blocked["blockers"]["tickets"][-1]["state"], "done")
 
-    def test_ticket_owner_and_manager_edit_details_without_changing_work_or_history(self):
+    def test_signed_human_and_agent_edit_details_without_changing_work_or_history(self):
         app = self.app(portal_reader=True)
         owner, owner_id = self.login(app, "Avery")
         manager, manager_id = self.login(app, "Blake")
-        unrelated, _ = self.login(app, "Quinn")
+        human, human_id = self.login(app, "Quinn")
         viewer = app.test_client()
         self.cli("register-project", "COURSE", "Example project", "--dri", manager_id)
         self.action(owner, "create-task", {"title": "Reference ticket", "step": "Read the reference."})
@@ -4160,18 +4188,24 @@ class TasksServiceTest(unittest.TestCase):
         route = "/api/v1/tasks/COURSE-1"
         initial = self.call(owner, route).json
         self.assertTrue(initial["can_edit_details"])
-        self.assertTrue(self.call(manager, route).json["can_edit_details"])
-        self.assertFalse(self.call(unrelated, route).json["can_edit_details"])
+        self.assertTrue(initial["can_edit_checklist"])
+        managed = self.call(manager, route).json
+        self.assertTrue(managed["can_edit_details"])
+        self.assertTrue(managed["can_edit_checklist"])
+        peer = self.call(human, route).json
+        self.assertTrue(peer["can_edit_details"])
+        self.assertFalse(peer["can_edit_checklist"])
         self.assertFalse(self.call(viewer, route).json["can_edit_details"])
         change = {"title": "Corrected scope", "brief": "Use the corrected instructions.", "reason": "Scope changed."}
         self.call(viewer, route + "/details", method="POST", json=change, status=401)
-        self.call(unrelated, route + "/details", method="POST", json=change, status=403)
-        self.action(unrelated, "edit-task-details", {"id": "COURSE-1", **change}, status=403)
+        self.call(human, route + "/checklist", method="POST",
+                  json={"action": "add", "label": "Not the peer's responsibility."}, status=403)
+        self.action(human, "edit-task-details", {"id": "COURSE-1", **change}, status=403)
         self.call(owner, route + "/details", method="POST", json={**change, "title": " "}, status=409)
         self.assertEqual(self.call(owner, route).json, initial)
 
         before = self.call(owner, route + "/activity").json["items"]
-        self.call(owner, route + "/details", method="POST", json=change)
+        self.call(human, route + "/details", method="POST", json=change)
         result = self.call(viewer, route).json
         self.assertEqual((result["task"]["title"], result["brief"]), (change["title"], change["brief"]))
         self.assertEqual(result["task"]["dri"], owner_id)
@@ -4181,7 +4215,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(result["related_tasks"], initial["related_tasks"])
         added, *earlier = self.call(owner, route + "/activity").json["items"]
         self.assertEqual([event["id"] for event in earlier], [event["id"] for event in before])
-        self.assertEqual((added["actor"], added["details"]), (owner_id, change["reason"]))
+        self.assertEqual((added["actor"], added["details"]), (human_id, change["reason"]))
         self.assertEqual(added["context"]["audit"]["previous"], {
             "title": "Old scope", "brief": "Use the original plan in T-1.",
         })
@@ -4230,6 +4264,13 @@ class TasksServiceTest(unittest.TestCase):
         self.action(collaborator, "advance-task", {"id": "T-1", "transition": "start", "note": "Verify the feed."})
         self.action(collaborator, "advance-task", {"id": "T-1", "transition": "done", "note": "Verified."})
         self.action(owner, "handoff", {**handoff, "owner": owner_id}, status=409)
+        knowledge = self.action(owner, "create-knowledge", {
+            "project": "T", "title": "Fixture guidance", "brief": "Use the verified feed.",
+        })["id"]
+        self.assertFalse(self.call(outsider, f"/api/v1/tasks/{knowledge}").json["can_edit_details"])
+        self.action(outsider, "edit-task-details", {**change, "id": knowledge}, status=403)
+        self.call(outsider, f"/api/v1/tasks/{knowledge}/details", method="POST",
+                  json={"title": "Denied", "reason": "Outside the project roster."}, status=403)
 
     def test_record_history_replays_old_and_current_edits_at_their_activity_events(self):
         app = self.app(portal_reader=True)

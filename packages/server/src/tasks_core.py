@@ -429,10 +429,10 @@ def ownership_actions(task):
 
 def edit_task_details(db, args, links):
     task = get_task(db, args.id)
-    collaboration = getattr(args, "project_collaboration", None)
-    permitted = collaboration(db, task) if collaboration else False
-    if not permitted and not may_tag(db, task, args.by):
-        raise PermissionError("Only the owner, project manager, or an eligible project agent can edit these details.")
+    can_edit = getattr(args, "can_edit_details", None)
+    permitted = can_edit(db, task) if can_edit else may_tag(db, task, args.by)
+    if not permitted:
+        raise PermissionError("You do not have permission to edit this record's details.")
     if args.title is None and args.brief is None:
         raise ValueError("Provide a title or brief to change.")
     reason = args.note.strip()

@@ -33,7 +33,7 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_ticket` | Read a ticket's current step, evidence, and handoffs. |
 | `taskboard_activity` | Page through one ticket's Activity and evidence links. |
 | `taskboard_create_ticket` | Create a Ready ticket under your signed identity. |
-| `taskboard_edit_ticket` | Correct a ticket's title or brief and record the reason. |
+| `taskboard_edit_ticket` | Correct a work ticket or Knowledge entry's title or brief and record the reason. |
 | `taskboard_log` | Record a contribution without advancing the ticket. |
 | `taskboard_start` | Start an owned Ready ticket and describe the step. |
 | `taskboard_update` | Record progress and the next step on your active ticket. |

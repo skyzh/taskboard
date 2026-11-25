@@ -207,7 +207,7 @@ _ACTIONS = {
     "close-task": _Action("POST", "Close unfinished work as its owner or project manager.", {
         **_TASK, "reason": "Short reason for closing the task.",
     }, {"related": "Optional related ticket, such as the duplicate or successor.", **_EVIDENCE}),
-    "edit-task-details": _Action("POST", "Edit work ticket details as the owner, project manager, or a project agent.", {
+    "edit-task-details": _Action("POST", "Edit the title or brief of a work ticket or Knowledge entry with project write access.", {
         **_TASK, "reason": "Reason for correcting the ticket.",
     }, {"title": "Short, actionable replacement title. Read field-guidance for the project’s wording and example.",
         "brief": "Replacement brief. Empty clears it.", **_EVIDENCE}),
