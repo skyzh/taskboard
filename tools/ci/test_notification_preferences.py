@@ -13,6 +13,7 @@ add_packages("client", "cli", "server")
 add_tests()
 
 import test_tasks_service as fixture
+from test_tasks_project_move import replay_move
 from tasks_core import import_notification_on
 from tasks_service import create_app
 from tasks_storage import Postgres
@@ -82,6 +83,30 @@ class StorageReplayTest(unittest.TestCase):
 
     def test_postgres(self):
         self.replay(self.postgres_app(self.postgres_fixture()))
+
+    def test_postgres_project_move(self):
+        dsn = self.postgres_fixture()
+        app = self.postgres_app(dsn, project_admin_subject=fixture.FixtureRaft().people["Sam"]["sub"])
+        replay_move(self, self.board, app, lambda: closing(Postgres(dsn)))
+
+    def test_project_aliases_survive_sqlite_import(self):
+        app = self.board.app(portal_reader=True)
+        author, owner = self.board.login(app, "Avery")
+        self.board.cli("register-project", "T", "Tasks Board", "--dri", owner)
+        self.board.cli("register-project", "LAB", "Fictional Lab", "--dri", owner)
+        self.board.action(author, "create-task", {"title": "Record a sample", "step": "Check the gauge."})
+        self.board.action(author, "move-task", {"id": "T-1", "project": "LAB"})
+
+        snapshot = self.board.database.with_name("move-snapshot.sqlite3")
+        with closing(sqlite3.connect(self.board.database)) as source, closing(sqlite3.connect(snapshot)) as backup:
+            source.backup(backup)
+        dsn = self.postgres_fixture()
+        self.assertEqual(import_snapshot(snapshot, dsn)["task_project_aliases"], 1)
+        app = self.postgres_app(dsn)
+        author, _ = self.board.login(app, "Avery")
+        old_link = self.board.action(author, "task", query_string={"id": "T-1"})
+        new_link = self.board.action(author, "task", query_string={"id": "LAB-1"})
+        self.assertEqual(old_link, new_link)
 
     def test_postgres_worker_wake_checkpoint_matches_the_signed_run(self):
         app = self.postgres_app(self.postgres_fixture())

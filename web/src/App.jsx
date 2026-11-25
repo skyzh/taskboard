@@ -196,6 +196,10 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const namedTask = taskAnchor.match(/^task-([A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})$/)?.[1]
   const selected = namedTask || fragmentId(taskAnchor, /^task-([1-9]\d*)$/)
   const fromSearch = selected ? new URLSearchParams(taskContext).get('from-search')?.trim() : ''
+  const [ticketMove, setTicketMove] = useState(null)
+  useEffect(() => {
+    setTicketMove(previous => previous?.href === `#${taskAnchor}` ? previous : null)
+  }, [taskAnchor])
   const [projectChoice, chooseProject] = useState(null)
   const reportsParams = ['reports', 'reports-all'].includes(taskAnchor) ? new URLSearchParams(taskContext) : null
   const requestedReportsProject = reportsParams?.get('project')
@@ -512,7 +516,13 @@ export default function App({ previewNotice, tourSteps } = {}) {
           )}
           {view === 'task' && <TaskDetail key={selected} id={selected} revision={revision} session={session}
             preferredProject={preferredProject} returnHref={fromList ? listReturn.current.board : undefined}
-            fromSearch={fromSearch} history={recordHistory} onChanged={refresh} />}
+            fromSearch={fromSearch} history={recordHistory} onChanged={refresh}
+            moveReceipt={ticketMove?.href === `#${taskAnchor}` ? ticketMove.receipt : undefined}
+            onMoved={(href, receipt) => {
+              setTicketMove({ href, receipt })
+              window.location.hash = fromSearch ? `${href}?${new URLSearchParams({ 'from-search': fromSearch })}` : href
+              refresh()
+            }} />}
           {view === 'team-overview' && (
             <>
               <div className="page-heading"><h1 id="team-overview">Team overview</h1></div>

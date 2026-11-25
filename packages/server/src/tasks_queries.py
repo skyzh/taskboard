@@ -473,7 +473,7 @@ class BoardQueries:
             complete, total = progress.get(row["id"], (0, 0))
             context = ledger.event_context(row)
             details = context.get("activity_details")
-            blockers = ledger.blocker_chain(row["id"], ledger.ticket_blocker(row), lookup)
+            blockers = ledger.blocker_chain(self.db, row["id"], ledger.ticket_blocker(row), lookup)
             wait_kind = None
             if row["state"] == "human_review":
                 wait_kind = "person"

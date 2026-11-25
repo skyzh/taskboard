@@ -208,6 +208,9 @@ _ACTIONS = {
         **_TASK, "reason": "Reason for correcting the ticket.",
     }, {"title": "Short, actionable replacement title. Read field-guidance for the project’s wording and example.",
         "brief": "Replacement brief. Empty clears it.", **_EVIDENCE}),
+    "move-task": _Action("POST", "Move a work ticket as a manager of both projects.", {
+        **_TASK, "project": "Destination project prefix.",
+    }),
     "edit-checklist": _Action("POST", "Edit checklist steps as the ticket owner or project manager.", {
         **_TASK, "action": "Choose add, rename, reopen, or remove.",
     }, {"position": "Stable step number for rename, reopen, or remove.", "label": "Step wording for add or rename."}),
