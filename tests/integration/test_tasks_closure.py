@@ -75,7 +75,7 @@ class ClosureTest(unittest.TestCase):
         }, status=409)
         f.action(self.blake, "worker-handoff",
                  {"run": "W-1", "transition": "start", "handle": "fixture"}, status=409)
-        f.action(self.blake, "worker-handoff", {
+        f.action(self.avery, "worker-handoff", {
             "run": "W-2", "transition": "report", "result": "completed", "note": "Saved the prior work.",
         })
         self.assertNotIn(self.owner, active_owners())

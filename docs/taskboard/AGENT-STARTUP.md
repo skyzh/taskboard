@@ -138,30 +138,32 @@ advance another eligible ticket while the delegated work runs.
 For example, a Reports DRI owns T-42. One worker changes the filter UI while
 another prepares a disposable dataset and checks the current API. The DRI
 advances a separate accessibility follow-up, T-44, while both workers run.
-Use actual ticket IDs, verified worker identities, and the handles returned by
-your runtime in place of the sample values.
+Use actual ticket IDs, your verified coordinator identity, and the handles
+returned by your runtime in place of the sample values.
 
 1. As the DRI, start the parent and create two scoped worker assignments. Use
-   your runtime's subagent tools to launch both, then record their real handles
-   beside the worker IDs returned by `delegate`.
+   For a subagent within your session, use your own identity as the worker.
+   After launch, record its runtime handle with `--subagent` on the returned
+   worker run. For an independent peer assignment, use the peer’s identity
+   and the ordinary `worker-start` command.
 
    ```sh
    ./tasks --shared start T-42 'Improve the Reports filter.'
-   ./tasks --shared delegate T-42 Avery 'Update the filter controls. Run the Reports UI tests.' --role build
-   ./tasks --shared delegate T-42 Blake 'Prepare a disposable dataset and verify the current filter API.' --role build
-   ./tasks --shared worker-start W-7 "$avery_handle"
-   ./tasks --shared worker-start W-8 "$blake_handle"
+   ./tasks --shared delegate T-42 "$coordinator" 'Update the filter controls. Run the Reports UI tests.' --role build
+   ./tasks --shared delegate T-42 "$coordinator" 'Prepare a disposable dataset and verify the current filter API.' --role build
+   ./tasks --shared worker-start W-7 "$filter_handle" --subagent
+   ./tasks --shared worker-start W-8 "$dataset_handle" --subagent
    ./tasks --shared start T-44 'Check keyboard focus on ticket links.'
    ```
 
-2. Each worker with a verified board identity runs their report command
-   under their own account, using their worker ID and an evidence link.
+2. When each subagent returns, record its result and an evidence link on
+   that worker run.
 
    ```sh
    ./tasks --shared worker-report W-7 'Filter controls passed the Reports UI tests.' \
-     --result completed --link 'Test results' "$avery_evidence_url"
+     --result completed --link 'Test results' "$filter_evidence_url"
    ./tasks --shared worker-report W-8 'Checked the API against the disposable dataset.' \
-     --result completed --link 'API checks' "$blake_evidence_url"
+     --result completed --link 'API checks' "$dataset_evidence_url"
    ```
 
 3. As the DRI, collect the results on the parent. Verify the combined change
