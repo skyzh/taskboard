@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { BoardLink, useContentTitle } from './BoardNavigation.jsx'
 import { ListFilter } from 'lucide-react'
+import { isBackendError } from './boardAvailability.js'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { ActivityDate } from './Overview.jsx'
 import { entryHref, StagedWork, TicketKnowledgeLinks } from './Knowledge.jsx'
@@ -729,6 +730,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   const linkedEvent = linked.data?.event || linked.data
   const openEvent = requested && (items.find(event => event.id === requested) || linkedEvent)
   useContentTitle(openEvent ? activityHeadline(openEvent) || openEvent.label : null)
+  const showLinkedErrorAnchor = linked.error && !linkedEvent && !isBackendError(linked.error)
   const days = new Map()
   for (const event of items) {
     const day = formatDay(event.at)
@@ -805,12 +807,11 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
         </label>
       </div>
       <ResourceStatus resource={page} label="activity" />
-      {linked.pending && <p role="status" className="section-message">Loading linked activity…</p>}
-      {linked.error && (
-        <div id={eventHref(requested).slice(1)} tabIndex={-1}>
+      {showLinkedErrorAnchor
+        ? <div id={eventHref(requested).slice(1)} tabIndex={-1}>
           <ResourceStatus resource={linked} label="linked activity" />
         </div>
-      )}
+        : <ResourceStatus resource={linked} label="linked activity" />}
       {linkedEvent && (
         <section className="outcome-day" aria-labelledby="linked-activity-heading">
           <h2 id="linked-activity-heading">Linked event</h2>

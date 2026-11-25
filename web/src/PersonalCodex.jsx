@@ -120,7 +120,7 @@ export default function PersonalCodex({ session, reportsHref }) {
   const unavailable = [403, 404].includes(setup.error?.status)
   const signIn = setup.error?.status === 401 || ((!actor || actor.kind === 'portal') &&
     (session.data?.sign_in_available || session.error?.status === 401))
-  const pendingSession = session.pending && !actor
+  const awaitingSession = !actor && (session.pending || (session.error && session.error.status !== 401))
   const pilot = signIn || unavailable ? null : setup.data
   const prompt = pilot && `Read ${guide} and follow it to report progress on ${pilot.ticket} using ${new URL('./', document.baseURI)}`
 
@@ -129,8 +129,8 @@ export default function PersonalCodex({ session, reportsHref }) {
       <BoardLink className="back-link" href={reportsHref}>Back to Reports</BoardLink>
       <div className="page-heading"><h1 id="personal-codex" tabIndex={-1}>Personal Agents pilot</h1></div>
       {signIn ? <a href={login}>Sign in with Raft</a>
-        : pendingSession || (actor?.kind === 'human' && !unavailable)
-          ? <ResourceStatus resource={pendingSession ? session : setup} label="Personal Codex setup" />
+        : awaitingSession || (actor?.kind === 'human' && !unavailable)
+          ? <ResourceStatus resource={awaitingSession ? session : setup} label="Personal Codex setup" />
           : <p>Personal Codex is unavailable for this account.</p>}
       {pilot && (
         <>

@@ -1,10 +1,12 @@
-import React, { useRef, useState } from 'react'
+import React, { useContext, useRef, useState } from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
 import taskSessionPrompt from '../../docs/taskboard/prompts/v1/AGENTS.md?raw'
 import handoffPrompt from '../../docs/taskboard/prompts/v1/automated-handoff.md?raw'
 import factoryPrompt from '../../docs/taskboard/prompts/v1/ai-factory.md?raw'
 import localDriPrompt from '../../docs/taskboard/prompts/v1/local-dri.md?raw'
 import teamDriPrompt from '../../docs/taskboard/prompts/v1/team-dri.md?raw'
+import { isBackendError } from './boardAvailability.js'
+import { BoardOutageContext } from './BoardOutage.jsx'
 import IntegrationDiagram from './IntegrationDiagram.jsx'
 import { request, useResource } from './data.js'
 import { CopyPrompt } from './PersonalCodex.jsx'
@@ -93,12 +95,13 @@ function WorkflowPrompt({ text, session }) {
   }
 
   if (session.pending && !session.data) return <ResourceStatus resource={session} label="your session" />
-  if (resource.pending || (resource.error && !outdated)) {
+  if (!resource.data && (resource.pending || (resource.error && !outdated))) {
     return <ResourceStatus resource={resource} label="publishing instructions" />
   }
 
   return (
     <>
+      {resource.error && !outdated && <ResourceStatus resource={resource} label="publishing instructions" />}
       <label className="integration-publishing-instructions">
         Publishing instructions (optional)
         <textarea ref={editor} rows={3} value={instructions} readOnly={saving}
@@ -180,6 +183,8 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
   const [savingDestination, setSavingDestination] = useState(false)
   const [destinationFeedback, setDestinationFeedback] = useState(null)
   const registrationResource = useResource(human ? registrationsPath : null, revision)
+  const outage = useContext(BoardOutageContext)
+  const registrationUnavailable = outage && isBackendError(registrationResource.error)
   const registrations = registrationResource.data?.local_dris || []
   const identity = registrations.find(item => item.id === identityId)
   const unavailableIdentity = Boolean(identityId && !identity)
@@ -238,14 +243,14 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
               {registrations.map(item => <option key={item.id} value={item.id}>{item.name} · {item.project}</option>)}
             </select>
           </label>
-          <p>{!identityId
+          {(!registrationUnavailable || !identityId || identity) && <p>{!identityId
             ? 'Human reports activity under your profile, with the time it was reported. Unattended agent asks go to an eligible DRI.'
             : registrationResource.pending ? 'Checking watcher readiness…'
-              : registrationResource.error || unavailableIdentity ? 'The selected Local DRI could not be verified.'
+              : (registrationResource.error && !registrationUnavailable) || unavailableIdentity ? 'The selected Local DRI could not be verified.'
                 : identity.watcher_ready
                   ? 'At the last check, the watcher was ready for its configured requester in this project.'
                   : 'Set up the watcher before sending this Local DRI an ask from another agent.'}
-          </p>
+          </p>}
           {identity && <p className="integration-dri-id">Local DRI ID <code>{identity.id}</code></p>}
           {supportsDestination && (
             <>
@@ -260,7 +265,7 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
               </label>
               <p id="question-destination-help">Taskboard questions go to the person who registered this Local DRI by default. The DRI can choose another eligible human.</p>
               {savingDestination && <p role="status">Saving question destination…</p>}
-              {!destinationPending && destinationFeedback?.id === identity.id && !registrationResource.error &&
+              {!destinationPending && destinationFeedback?.id === identity.id && (!registrationResource.error || registrationUnavailable) &&
                 <p role={destinationFeedback.error ? 'alert' : 'status'}>{destinationFeedback.text}</p>}
             </>
           )}
@@ -371,7 +376,7 @@ function CliSignIn({ challenge, session }) {
         {human ? <button type="button" disabled={pending} onClick={approve}>
           {pending ? 'Approving…' : 'Approve sign-in'}
         </button> : signIn ? <a href={login}>Sign in to approve</a>
-          : session.pending ? <ResourceStatus resource={session} label="your session" />
+          : session.pending || session.error ? <ResourceStatus resource={session} label="your session" />
             : <p>A signed-in person must approve this request.</p>}
         {error && <p role="alert">{error}</p>}
       </>}
@@ -379,7 +384,10 @@ function CliSignIn({ challenge, session }) {
   )
 }
 
-export default function Integrations({ session, project, projects, onProjectChange, revision, challenge = null, preview = false }) {
+export default function Integrations({ session: sessionResource, project, projects, onProjectChange, revision, challenge = null, preview = false }) {
+  const outage = useContext(BoardOutageContext)
+  const session = outage && sessionResource.data && isBackendError(sessionResource.error)
+    ? { ...sessionResource, error: null } : sessionResource
   const access = useResource(challenge === null ? '/personal-agents/access' : null)
   const board = preview ? 'https://board.example/tasks/' : new URL('./', document.baseURI).href
   return (

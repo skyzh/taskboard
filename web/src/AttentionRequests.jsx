@@ -1,10 +1,12 @@
-import React, { useLayoutEffect, useRef, useState } from 'react'
+import React, { useContext, useLayoutEffect, useRef, useState } from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
 import { request, useLoadedPages } from './data.js'
 import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref, profileName, taskLabel } from './shared.jsx'
 import { Markdown } from './Markdown.jsx'
 import ReminderDate from './ReminderDate.jsx'
 import { WaitAge } from './WaitAge.jsx'
+import { BoardOutageContext } from './BoardOutage.jsx'
+import { isBackendError } from './boardAvailability.js'
 import { projectFilters } from './projectScope.js'
 
 export function AttentionReceipt({ receipt }) {
@@ -76,7 +78,9 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
   }
   const invalidated = onTicket && page.data != null && page.data === invalidatedPage
   const ticketError = page.error ?? (invalidated ? page.moreError : null)
-  const hideTicketRows = onTicket && (ticketError || (invalidated && page.pending))
+  const outage = useContext(BoardOutageContext)
+  const keepTicketRows = outage && page.data != null && (!ticketError || isBackendError(ticketError))
+  const hideTicketRows = onTicket && !keepTicketRows && (ticketError || (invalidated && page.pending))
   const items = hideTicketRows ? [] : (page.data?.items ?? []).filter(item => !handledIds.includes(item.id))
   if (onTicket && items.length === 0 && !notice && !hideTicketRows) return null
 
@@ -96,7 +100,7 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
         <ResourceStatus resource={onTicket ? { ...page, data: undefined, error: ticketError, retry: retryRequests } : page}
           label="attention requests" />
       )}
-      {!onTicket && page.data?.items.length === 0 && <p className="section-message">No {state} requests.</p>}
+      {!onTicket && !page.error && page.data?.items.length === 0 && <p className="section-message">No {state} requests.</p>}
       {notice?.error && <p role="alert" className="section-message">{notice.error}</p>}
       {notice?.receipt && <AttentionReceipt receipt={notice.receipt} />}
       {items.length > 0 && <ol className="event-list" role="list">

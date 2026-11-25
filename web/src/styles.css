@@ -35,6 +35,46 @@ main [id] { scroll-margin-top: .8rem; }
 :target:not(h1, h2, section) { background: var(--wash); }
 .main-content { width: min(82rem, 100% - 4rem); margin-inline: auto; padding: 1.35rem 0 3rem; }
 .board-connection { margin-bottom: .7rem; color: var(--muted); font-size: .85rem; }
+.board-outage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .65rem 1.15rem;
+  margin-bottom: 1rem;
+  padding: .75rem .9rem;
+  border: 1px solid color-mix(in srgb, #a7751d 52%, var(--line));
+  border-inline-start: 3px solid #a7751d;
+  border-radius: .45rem;
+  background: color-mix(in srgb, #a7751d 10%, var(--paper));
+}
+.board-outage h2 { margin: 0 0 .22rem; font-size: 1rem; }
+.board-outage p { margin: 0; font-size: .875rem; }
+.board-outage button { justify-self: start; min-height: 2.75rem; }
+.board-outage button[aria-disabled="true"] { opacity: .65; cursor: default; }
+@media (max-width: 40rem) {
+  .board-outage { grid-template-columns: minmax(0, 1fr); }
+}
+.read-placeholder {
+  display: flex;
+  align-items: center;
+  min-block-size: 2.75rem;
+  margin-block: .4rem;
+  padding-inline: .65rem;
+  border-radius: .35rem;
+  background: var(--wash);
+}
+.read-placeholder-line {
+  inline-size: min(60%, 10rem);
+  block-size: .42rem;
+  border-radius: 1rem;
+  background: var(--line);
+}
+.read-placeholder.compact {
+  inline-size: 5.5rem;
+  max-inline-size: 100%;
+  margin-block: 0;
+}
+.account > .read-placeholder { margin-inline-start: auto; }
 .appbar-connection {
   width: min(82rem, 100% - 4rem);
   margin-inline: auto;
@@ -56,7 +96,7 @@ main [id] { scroll-margin-top: .8rem; }
   white-space: nowrap;
 }
 .relative-time-detail:not([hidden]) { margin-inline-start: .4em; }
-.relative-time-accessible {
+.relative-time-accessible, .visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;

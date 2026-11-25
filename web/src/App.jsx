@@ -8,6 +8,8 @@ import BoardTour from './BoardTour.jsx'
 import { useDemoTour, withoutTour } from './DemoTour.jsx'
 import './demo-tour.css'
 import BoardViews from './BoardViews.jsx'
+import BoardOutage, { BoardOutageContext, ReadPlaceholder } from './BoardOutage.jsx'
+import { isBackendError } from './boardAvailability.js'
 import AssigneePage from './AssigneePage.jsx'
 import GoalActivity, { goalActivityFragment } from './GoalActivity.jsx'
 import Integrations from './Integrations.jsx'
@@ -225,9 +227,12 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const [appliedQueueLink, setAppliedQueueLink] = useState(null)
   const [revision, setRevision] = useState(0)
   const [connection, setConnection] = useState({ stale: false })
+  const revisionWatcher = useRef(null)
   const [updateDeferred, setUpdateDeferred] = useState(false)
   useEffect(() => watchFrontendBuild(setUpdateDeferred), [])
   const sessionResource = useResource('/session')
+  const sessionUnavailable = isBackendError(sessionResource.lastError)
+  const boardUnavailable = !preview && (sessionUnavailable || connection.backendUnavailable)
   const websocket = sessionResource.data?.websocket_revisions === true
   const [savedActor, setSavedActor] = useState(null)
   const session = savedActor ? { ...sessionResource, data: { ...sessionResource.data, actor: savedActor } } : sessionResource
@@ -406,8 +411,18 @@ export default function App({ previewNotice, tourSteps } = {}) {
     setConnection(previous => ({ ...previous, ...status }))
   }, [])
   useEffect(() => {
-    if (hasSession && !preview) return watchBoardRevision(refresh, updateConnection, { websocket })
-  }, [hasSession, preview, refresh, updateConnection, websocket])
+    if ((!hasSession && !sessionUnavailable) || preview) return
+    const watcher = watchBoardRevision(refresh, updateConnection, { websocket })
+    revisionWatcher.current = watcher
+    return () => {
+      revisionWatcher.current = null
+      watcher.stop()
+    }
+  }, [hasSession, sessionUnavailable, preview, refresh, updateConnection, websocket])
+  function retryBoard() {
+    if (sessionUnavailable) sessionResource.retry()
+    revisionWatcher.current?.retry()
+  }
   function chooseTimeZone(preference) {
     setTimeZonePreference(preference)
     saveTimeZonePreference(preference)
@@ -439,7 +454,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
     )
   }
   return (
-    <TimeZoneContext.Provider value={timeZoneFormatters}>
+    <BoardOutageContext.Provider value={boardUnavailable}><TimeZoneContext.Provider value={timeZoneFormatters}>
       <header ref={appHeader} className={view === 'board' ? 'app-header tasks-header' : 'app-header'}>
         <div className="masthead">
           <BoardBrand href={reportsHref} />
@@ -451,28 +466,32 @@ export default function App({ previewNotice, tourSteps } = {}) {
               {demoTour.toggle}
               <a className="board-repository" href="https://github.com/skyzh/taskboard" aria-label="Taskboard on GitHub"><span aria-hidden="true" /></a>
             </>}
-            <Profile session={session} fragment={`#${fragment}`} theme={theme} settingsHref={settingsHref}
+            {sessionUnavailable && !hasSession ? <ReadPlaceholder label="Account" compact />
+              : <Profile session={session} fragment={`#${fragment}`} theme={theme} settingsHref={settingsHref}
               freshness={hasSession && !preview && <BoardFreshness checkedAt={connection.checkedAt}
-                source={connection.source} className="profile-freshness" />} preview={preview} />
+                source={connection.source} className="profile-freshness" />} preview={preview} />}
           </div>
         </div>
-        {hasSession && !preview && <BoardConnection {...connection} />}
+        {hasSession && !preview && !boardUnavailable && <BoardConnection {...connection} />}
         {demoTour.panel}
         {view === 'team-overview' && !projectUnavailable && <SectionIndex key={project} overview={overview.data} scope={navigationScope} />}
         {tourStep && <BoardTour step={tourStep} index={tourIndex} total={tour.length}
           onMove={index => writeFilterFragment(tour[index].route, false)} onClose={closeTour} />}
       </header>
-      <main ref={main} tabIndex={0} aria-label="Taskboard content">
+      <main ref={main} tabIndex={0} aria-label="Taskboard content" data-reload-blocked={boardUnavailable || undefined}>
         <div className="main-content">
           {previewNotice && <p className="section-message">{previewNotice}</p>}
-          {updateDeferred && <p className="board-connection" role="status">Taskboard will refresh when you finish your changes.</p>}
+          {boardUnavailable && <BoardOutage checking={connection.checking || (sessionUnavailable && sessionResource.pending)}
+            onRetry={retryBoard} />}
+          {!boardUnavailable && updateDeferred &&
+            <p className="board-connection" role="status">Taskboard will refresh when you finish your changes.</p>}
           {projectUnavailable ? <section aria-label="Project">
             <p className="section-message" role="status">Project unavailable.</p>
             <BoardLink href={projectHref(`#${fragment}`, supportsAllProjects ? 'all' : defaultProject, { replace: true })}>
               {supportsAllProjects ? 'All projects' : 'Open the default project'}
             </BoardLink>
           </section> : scopePending ? <ResourceStatus resource={sessionResource.pending ? sessionResource : projectList} label="projects" /> : <>
-          {view === 'reports' && !showGoalActivity && showWelcomeBanner && (
+          {view === 'reports' && !showGoalActivity && showWelcomeBanner && (hasSession || !boardUnavailable) && (
             <aside className="reports-welcome" aria-labelledby="reports-welcome-title" data-expanded={welcomeExpanded || undefined}>
               <div>
                 <h2 id="reports-welcome-title">
@@ -509,7 +528,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'reports' && (reportsPending
             ? <section className="reports" aria-labelledby="reports">
               <ReportsHeading headingId="reports" projectPicker={projectPicker} />
-              <p className="section-message" role="status">Loading Reports…</p>
+              <ResourceStatus resource={sessionResource.pending ? sessionResource : projectList} label="Reports" />
             </section>
             : showGoalActivity
               ? <GoalActivity key={allGoalActivity ? 'all' : project} project={allGoalActivity ? null : project}
@@ -599,6 +618,6 @@ export default function App({ previewNotice, tourSteps } = {}) {
           </>}
         </div>
       </main>
-    </TimeZoneContext.Provider>
+    </TimeZoneContext.Provider></BoardOutageContext.Provider>
   )
 }

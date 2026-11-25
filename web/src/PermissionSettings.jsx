@@ -64,7 +64,7 @@ export default function PermissionSettings({ actor, project, projects, revision,
       </select>
     </label>}
     <ResourceStatus resource={directory} label="permissions" />
-    {!directory.error && person && <>
+    {person && <>
       <label className="settings-preference">Person or agent
         <select aria-label="Person or agent" value={person.id} onChange={event => { setResult(null); setSelected(event.target.value) }} disabled={busy}>
           {items.map(item => <option key={item.id} value={item.id}>{personLabel(item)}</option>)}
