@@ -9,6 +9,7 @@ from pathlib import Path
 from tasks_core import live_board_url
 from tasks_extensions import configuration
 from tasks_github import GitHubReader
+from tasks_github_budget import ScheduledReadBudget
 from tasks_github_extensions import refresh
 from tasks_stamp import StampReader, refresh_approvals
 from tasks_storage import Postgres, open_sqlite
@@ -44,7 +45,9 @@ def main():
             if args.stamp_pull:
                 report = {"stamp": refresh_approvals(db, StampReader(), configured, args.stamp_pull), "errors": []}
             else:
-                report = refresh(db, GitHubReader(), configured, release_source=args.active_release, board_url=url)
+                budget = ScheduledReadBudget(db)
+                report = refresh(db, GitHubReader(transport=budget.send), configured, release_source=args.active_release,
+                                 board_url=url, require_reads=budget.require)
     except (OSError, RuntimeError, ValueError) as error:
         parser.exit(1, f"Refresh Taskboard extensions: {error}\n")
     print(json.dumps(report, sort_keys=True))
