@@ -1424,7 +1424,7 @@ def create_app(
         allowed = key is not None and projects.manages(db(), project, key)
         is_note = ledger.is_knowledge(task)
         editable = allowed or (not is_note and key is not None and task["dri"] == key)
-        details_editable = editable or can_collaborate_on_ticket(db(), actor, task, project)
+        details_editable = can_edit_shared_details(db(), actor, task, project)
         may_close = editable and not is_note
         if ask := task.get("peer_request"):
             may_close = key is not None and (key == ask["requester"] or allowed)
@@ -1443,6 +1443,7 @@ def create_app(
             **result, "ownership_actions": ledger.ownership_actions(task)
             if allowed and not (is_note or ask or result["goal"]) else [],
             "tag_editable": editable,
+            "can_edit_checklist": not is_note and editable,
             "can_close": not is_note and may_close and task["state"] != "done",
             "can_edit_details": details_editable,
             "can_edit_parking": (
@@ -1534,12 +1535,15 @@ def create_app(
 
     def mutate(command, actor, data, **fields):
         args = Namespace(command=command, by=actor["ledger_key"], **fields)
-        if command in ("edit", "transfer"):
+        if command == "edit":
+            args.can_edit_details = lambda connection, task: can_edit_shared_details(
+                connection, actor, task, projects.row_project(task),
+            )
+        if command == "transfer":
             def project_collaboration(connection, task):
                 project = projects.row_project(task)
                 require_local_project(project)
-                if command == "transfer":
-                    require_person(args.dri, "agent", task_id=task["id"])
+                require_person(args.dri, "agent", task_id=task["id"])
                 return can_collaborate_on_ticket(connection, actor, task, project)
             args.project_collaboration = project_collaboration
         links = one_link(data)
@@ -1806,6 +1810,16 @@ def create_app(
 
     def can_create_knowledge(actor, project, manager):
         return actor is not None and (actor["ledger_key"] == manager or project_agent(actor, project))
+
+    def can_edit_shared_details(connection, actor, task, project):
+        if actor is None:
+            return False
+        require_local_project(project)
+        key = actor["ledger_key"]
+        if (not ledger.is_knowledge(task) and task["dri"] == key) or projects.manages(connection, project, key):
+            return True
+        return ((actor["kind"] == "human" or project_agent(actor, project))
+                and not ledger.task_goal_kind(connection, task["id"]))
 
     def can_collaborate_on_ticket(connection, actor, task, project):
         return (project_agent(actor, project) and not ledger.is_knowledge(task)

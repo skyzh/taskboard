@@ -1250,6 +1250,33 @@ test('ticket editors share the signed guidance read for the ticket project', () 
   }
 })
 
+test('ticket writers can edit details and only checklist editors get checklist controls', () => {
+  const record = {
+    task: { id: 1, key: 'T-1', title: 'Check the CSV', state: 'in_progress', dri: 'Morgan',
+      checklist_completed: 0, checklist_total: 1 },
+    checklist: [{ position: 1, label: 'Read the input' }],
+    sources: [], workers: [], can_edit_details: true, can_edit_checklist: false, tag_editable: false,
+  }
+  fixture.resources = { '/tasks/1': { data: record } }
+  fixture.pages = {}
+  function render() {
+    fixture.state = [true, true]
+    const session = { data: { actor: { kind: 'human', id: 'Avery' } } }
+    return renderToStaticMarkup(React.createElement(TaskDetail, { id: 1, session }))
+  }
+  const peer = render()
+  assert.match(peer, /Save details/)
+  assert.match(peer, /Read the input/)
+  assert.doesNotMatch(peer, /Add checklist step|Edit step 1/)
+
+  record.can_edit_checklist = true
+  assert.match(render(), /Edit step 1.*Add checklist step/)
+  delete record.can_edit_checklist
+  assert.doesNotMatch(render(), /Add checklist step|Edit step 1/)
+  record.tag_editable = true
+  assert.match(render(), /Edit step 1.*Add checklist step/)
+})
+
 test('ticket detail opens its checklist with a progress count and readable step states', () => {
   const started = '2026-11-21T01:00:00Z'
   const completed = '2026-11-21T02:00:00Z'

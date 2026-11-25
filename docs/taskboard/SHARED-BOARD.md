@@ -290,6 +290,32 @@ is restored.
 
 See the [interface inventory and project API contract](INTERFACE-PARITY.md).
 
+### Edit shared content and apply workflow permissions
+
+Signed-in human writers, eligible Team DRIs under the board’s project rules,
+and Local DRIs in their registered project can edit the title or brief of a
+regular ticket or Knowledge entry. Open **Edit ticket** or **Edit Knowledge entry**
+in the browser, run `tasks --shared edit <id> <reason>`, or use
+`taskboard_edit_ticket` with a signed connection. Activity and History credit
+the person or agent that made the edit. Preview readers and unsigned readers
+have read access only.
+
+| Action | Permission |
+| --- | --- |
+| Edit goal content | Goal owner, or project manager through ticket details. |
+| Start, update or finish work, set priority, or change parking | Ticket owner under the current workflow rules. An eligible agent can hand off assigned regular work to a valid recipient in its project. |
+| Edit checklists or tags | Ticket owner or project manager. Knowledge tags require the project manager. |
+| Answer a decision | Human named on the current decision request. |
+| Close unfinished work, reassign or reopen | Ticket owner or project manager can close ordinary unfinished work. Reassignment, unassignment, and reopening use the project manager path. Linked requests use their own requester and workflow rules. |
+| Move a ticket to another project | Manager of both projects, subject to the ticket and assignee rules. |
+| Create or organize Knowledge | A signed project agent or project manager can create entries. Placement of Knowledge entries and applying staged changes use project management permissions. |
+| Change project settings or creation grants | Project settings use project management permissions. Creating projects needs the separate creation grant, managed by the configured permission manager. |
+
+The shared board records closure in Activity. It does not expose permanent record
+deletion as an ordinary content edit. The title and brief change needs no ledger
+migration. A prior service version can read the same content and history after
+rollback and applies its own edit eligibility.
+
 ## Use the shared CLI
 
 The live shared board shown by `./tasks --shared context` is the authoritative ledger for shared work. A checkout's `state/tasks.sqlite3` is a separate local ledger that can be behind by an unknown amount. If you cannot find a ticket referenced in Raft in that file, read it on the live board or with `./tasks --shared show <ticket>` before drawing a conclusion. For standalone work, follow [the disposable checkout guide](SETUP.md#try-a-disposable-checkout) with an explicitly selected SQLite file.
@@ -616,7 +642,7 @@ exact-time reminders.
 
 ## Organize and maintain Knowledge
 
-Knowledge entries are project records with a ticket ID, brief, links, and Activity. Create an entry directly and use its brief to record the current guidance. A signed project agent or project manager can create an entry. The project manager edits the entry and organizes it in an area. Use linked work tickets for proposed changes, assignments, and reviews.
+Knowledge entries are project records with a ticket ID, brief, links, and Activity. Create an entry directly and use its brief to record the current guidance. A signed project agent or project manager can create an entry. Project writers can edit its title and brief. The project manager organizes entries in an area. Use linked work tickets for proposed changes, assignments, and reviews.
 
 ```sh
 ./tasks --shared knowledge-add 'Storage performance index' --project OPS --brief 'Link the current findings here.'
@@ -625,7 +651,7 @@ Knowledge entries are project records with a ticket ID, brief, links, and Activi
 ./tasks --shared knowledge-stage OPS-2 OPS-3
 ```
 
-Create the area’s index before placing other entries there. A nested area has its own index. Existing completed tickets tagged `decision-record` are recognized as Knowledge when the shared ledger opens. Their ticket IDs, Knowledge URLs, Activity, area placement, and staged links carry over. Open and closed tagged tickets continue as work tickets. Each project needs a registered project manager to edit migrated entries and apply staged changes.
+Create the area’s index before placing other entries there. A nested area has its own index. Existing completed tickets tagged `decision-record` are recognized as Knowledge when the shared ledger opens. Their ticket IDs, Knowledge URLs, Activity, area placement, and staged links carry over. Open and closed tagged tickets continue as work tickets. The same title and brief permissions apply to migrated entries. Applying staged changes uses the existing project manager workflow.
 
 The **Knowledge** tab links each directory to its index and the index to its entries. Open the source ticket or use signed search to see the stage alongside the current brief. Read the newest linked work and the exact decision or correction before applying an older rule.
 

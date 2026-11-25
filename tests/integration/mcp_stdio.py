@@ -237,6 +237,21 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Compare fixture responses", shown)
         self.assertIn("https://example.test/readback", shown)
 
+        entry = io_action(origin, "create-knowledge", cookie=cookie, data={
+            "project": "COURSE", "title": "Fixture guidance", "brief": "Review the planned outcome.",
+        })["id"]
+        edited = await reviewer.call_tool("taskboard_edit_ticket", {
+            "ticket": entry, "brief": "Review the verified outcome.", "reason": "Record the checked result.",
+        })
+        self.assertFalse(edited.is_error, edited.content)
+        self.assertEqual(edited.structured_content["receipt"], f"{entry} · Details updated")
+        with request(origin, MOUNT + f"/api/v1/tasks/{entry}", cookie=blake_cookie) as response:
+            stored = json.load(response)
+        self.assertEqual(stored["task"]["record_kind"], "knowledge")
+        self.assertEqual(stored["brief"], "Review the verified outcome.")
+        event, = io_action(origin, "task-activity", cookie=cookie, query={"id": entry, "limit": 1})["items"]
+        self.assertEqual(event["actor"], expected_actor)
+
     async def verify_workflow(self, owner, reviewer, python, origin, cookie, environment, blake):
         async def value(client, name, **params):
             result = await client.call_tool(name, params)

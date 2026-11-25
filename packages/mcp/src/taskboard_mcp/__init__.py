@@ -125,7 +125,7 @@ def build_server(board: SharedBoard) -> MCPServer:
         url: EvidenceUrl | None = None,
         label: EvidenceLabel | None = None,
     ) -> dict[str, Any]:
-        """Correct the title or brief as the owner, project manager, or an eligible project agent."""
+        """Correct a work ticket or Knowledge entry's title or brief with project write access."""
         return ticket_write("edit-task-details", id=ticket, reason=reason, title=title, brief=brief, url=url, label=label)
 
     @server.tool(annotations=write)

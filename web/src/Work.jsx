@@ -461,6 +461,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const signedIn = ['agent', 'human'].includes(session.data?.actor?.kind)
   const showActions = signedIn && actionsOpen
   const editingTags = showActions && record?.tag_editable
+  const canEditChecklist = record?.can_edit_checklist ?? record?.tag_editable
   const canAnswer = task && mayAnswer(task, session)
   const ownsReturnPath = task && session.data?.actor?.id && session.data.actor.id === task.dri
     && ['ready', 'in_progress', 'parked'].includes(task.state)
@@ -556,7 +557,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               <Markdown text={record.brief} className="prose" relatedTasks={record.related_tasks} />
             </section>}
             {signedIn && <TicketKnowledgeLinks ticket={task.key || id} revision={revision} />}
-            {(record.checklist.length > 0 || record.can_edit_details) && (
+            {(record.checklist.length > 0 || canEditChecklist) && (
               <details className="detail-checklist" open={checklistOpen}
                 hidden={!record.checklist.length && !showActions}
                 onToggle={event => setChecklistOpen(event.currentTarget.open)}>
@@ -566,10 +567,10 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
                 </summary>
                 {record.checklist.length > 0 && <ChecklistSteps steps={record.checklist} relatedTasks={record.related_tasks}
                   showMissingTimes
-                  editStep={record.can_edit_details ? step => <div hidden={!showActions}>
+                  editStep={canEditChecklist ? step => <div hidden={!showActions}>
                     <ChecklistEdit task={task} step={step} onChanged={onChanged} />
                   </div> : undefined} />}
-                {record.can_edit_details && <div hidden={!showActions}><ChecklistEdit task={task} onChanged={onChanged} /></div>}
+                {canEditChecklist && <div hidden={!showActions}><ChecklistEdit task={task} onChanged={onChanged} /></div>}
               </details>
             )}
             <div hidden={!showActions}>

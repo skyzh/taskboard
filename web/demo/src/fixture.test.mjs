@@ -64,6 +64,19 @@ test('the fixture surfaces a decision and a staged Knowledge entry with original
 })
 
 
+test('the read-only demo suppresses content editing for both tickets and Knowledge', () => {
+  const [area] = get('/knowledge/areas').areas
+  for (const key of ['FLOW-1', area.index]) {
+    const path = '/tasks/' + key
+    const detail = get(path)
+    assert.ok(detail.brief)
+    assert.equal(detail.can_edit_details, false)
+    assert.equal(detail.can_edit_checklist, false)
+    assert.equal(get('/tasks/' + detail.task.id).can_edit_details, false)
+    assert.throws(() => previewRequest(path + '/details', 'POST'), { status: 403 })
+  }
+})
+
 test('all-project activity interleaves the fixtures by timestamp without changing anchors', () => {
   const { items } = get('/activity?scope=all&detail=all')
   assert.ok(items.some(item => item.task_key.startsWith('FLOW-')))

@@ -244,8 +244,17 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertNotEqual(action(client, "context", headers=auth)["actor"]["role"], "Operations review")
         note = local("create-knowledge", {"project": "OPS", "title": "Parity sample knowledge",
                                           "brief": "Keep the import evidence."})["id"]
-        local("create-knowledge", {"project": "T", "title": "Fixture entry", "brief": "Record evidence."},
-              project="T")
+        foreign_note = local("create-knowledge", {
+            "project": "T", "title": "Fixture entry", "brief": "Record evidence.",
+        }, project="T")["id"]
+        peer_note = action(team, "create-knowledge", {
+            "project": "OPS", "title": "Peer guidance", "brief": "Record the result.",
+        })["id"]
+        self.assertTrue(local("task", query_string={"id": peer_note})["can_edit_details"])
+        local("edit-task-details", {"id": peer_note, "brief": "Keep the verified result.", "reason": "Clarify guidance."})
+        local("edit-task-details", {"id": foreign_note, "brief": "Wrong project.", "reason": "Check scope."}, status=403)
+        event = local("task-activity", query_string={"id": peer_note, "limit": 1})["items"][0]
+        self.assertEqual(event["actor"], registered["OPS"])
         local("knowledge-place", {"id": note, "area": "Review", "index": "true"}, status=403)
         local("knowledge-stage", {"id": note, "source": foreign}, status=403)
         local("knowledge-reconcile", {"project": "T"}, status=403)
@@ -290,7 +299,12 @@ class LocalDRIRoutingTest(unittest.TestCase):
             self.assertNotIn("wake-subscribe", capabilities)
             self.assertNotIn("create-project", capabilities)
             self.assertEqual(tasks_main([*command, "next"]), 0)
+            self.assertEqual(tasks_main([*command, "edit", peer_note, "Clarify the title.",
+                                         "--title", "Peer guidance for verified results"]), 0)
             self.assertEqual(errors.getvalue(), "")
+        edited = local("task", query_string={"id": peer_note})
+        self.assertEqual((edited["task"]["title"], edited["brief"]),
+                         ("Peer guidance for verified results", "Keep the verified result."))
 
     def test_creator_decisions_and_existing_registrations(self):
         fixture = service.TasksServiceTest()
