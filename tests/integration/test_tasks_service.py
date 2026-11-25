@@ -8376,10 +8376,15 @@ class TasksServiceTest(unittest.TestCase):
         with closing(self.call(client, "/assets/theme.js")) as response:
             self.assertIn(b"tasks-board.theme", response.get_data())
 
-        login = self.call(client, "/auth/login", query_string={"fragment": "#settings"}, status=302)
-        state = parse_qs(urlsplit(login.location).query)["state"][0]
-        result = self.call(client, "/auth/callback", query_string={"code": "Quinn", "state": state}, status=302)
-        self.assertEqual(result.location, ORIGIN + BASE + "/#settings")
+        fragments = ("#settings", "#settings?section=permissions&project=LAB", "#manage?project=LAB")
+        for index, fragment in enumerate(fragments):
+            code = f"Quinn-{index}"
+            self.provider.people[code] = self.provider.people["Quinn"]
+            client = app.test_client()
+            login = self.call(client, "/auth/login", query_string={"fragment": fragment}, status=302)
+            state = parse_qs(urlsplit(login.location).query)["state"][0]
+            result = self.call(client, "/auth/callback", query_string={"code": code, "state": state}, status=302)
+            self.assertEqual(result.location, ORIGIN + BASE + "/" + fragment)
         self.call(client, "/auth/login", query_string={"fragment": "#settings/other"}, status=400)
 
     def test_reports_group_live_progress_and_keep_worker_links(self):

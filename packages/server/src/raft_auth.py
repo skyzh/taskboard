@@ -52,7 +52,8 @@ BOARD_FRAGMENT = re.compile(
     r"|schedules(?:=(?:&(?:project=[A-Z][A-Z0-9]{0,7}|scope=all))?)?"
     r"|schedule-R-[1-9][0-9]{0,18}(?:\?project=[A-Z][A-Z0-9]{0,7})?"
     r"|stats(?:\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&period=(?:hour|day|week))?"
-    r"|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?|settings|about|personal-codex"
+    r"|period=(?:hour|day|week)(?:&project=[A-Z][A-Z0-9]{0,7})?))?|about|personal-codex"
+    r"|(?:settings|manage)(?:\?(?:section=permissions(?:&project=[A-Z][A-Z0-9]{0,7})?|project=[A-Z][A-Z0-9]{0,7}))?"
     r"|integrations(?:\?(?:cli=[0-9a-f]{64}|project=[A-Z][A-Z0-9]{0,7}))?)"
 )
 _MAX_PROVIDER_RESPONSE = 64 * 1024

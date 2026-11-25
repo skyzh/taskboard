@@ -7,34 +7,9 @@ const permissionPath = '/admin/project-creation'
 export default function ProjectSettings({ revision, onProjectCreated }) {
   const permissions = useResource(permissionPath, revision)
   const [busy, setBusy] = useState(false)
-  const [permissionResult, setPermissionResult] = useState(null)
   const [projectResult, setProjectResult] = useState(null)
-  const canManage = permissions.data?.can_manage_permissions === true
   const canCreate = permissions.data?.can_create_project === true
   const disabled = busy || permissions.pending
-  const principals = permissions.data?.principals ?? []
-  const nameCounts = new Map()
-  for (const person of principals) {
-    const key = `${person.kind}:${person.name}`
-    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1)
-  }
-
-  async function changePermission(person, identity, allowed) {
-    setBusy(true)
-    setPermissionResult(null)
-    try {
-      await request(permissionPath, { method: 'PUT', body: { principal: person.id, allowed } })
-      const name = identity ? `${person.name} (${identity})` : person.name
-      setPermissionResult({ message: allowed
-        ? `${name} can now create projects.`
-        : `Removed project creation permission for ${name}.` })
-    } catch (error) {
-      setPermissionResult({ error: true, message: error.message })
-    } finally {
-      permissions.retry()
-      setBusy(false)
-    }
-  }
 
   async function createProject(event) {
     event.preventDefault()
@@ -59,37 +34,12 @@ export default function ProjectSettings({ revision, onProjectCreated }) {
   }
 
   if ([401, 403, 404].includes(permissions.error?.status)) return null
-  if (!permissions.error && !canManage && !canCreate) return null
+  if (!permissions.error && !canCreate) return null
 
   return (
     <section className="panel settings-panel" aria-labelledby="project-settings">
       <h2 id="project-settings">Projects</h2>
       <ResourceStatus resource={permissions} label="project permissions" />
-      {!permissions.error && canManage && (
-        <fieldset className="project-creation-permissions" disabled={disabled}>
-          <legend>Can create projects</legend>
-          <ul>
-            {principals.map(person => {
-              const kind = person.kind === 'human' ? 'Person' : 'Agent'
-              const duplicate = nameCounts.get(`${person.kind}:${person.name}`) > 1
-              const identity = person.handle ? `@${person.handle}` : duplicate ? person.id : ''
-              const description = identity ? `${kind}, ${identity}` : kind
-              return (
-                <li key={person.id}>
-                  <label>
-                    <input type="checkbox" checked={person.can_create_project} disabled={person.managed === false}
-                      aria-label={`Allow ${person.name} (${description}) to create projects`}
-                      onChange={event => changePermission(person, identity, event.currentTarget.checked)} />
-                    <span>{person.name} <small>{kind}{identity && ` · ${identity}`}
-                      {person.managed === false && ' · Fixed access'}</small></span>
-                  </label>
-                </li>
-              )
-            })}
-          </ul>
-        </fieldset>
-      )}
-      {permissionResult && <p role={permissionResult.error ? 'alert' : 'status'}>{permissionResult.message}</p>}
       {!permissions.error && canCreate && (
         <form className="ownership-form project-create-form" onSubmit={createProject}>
           <h3>Create project</h3>

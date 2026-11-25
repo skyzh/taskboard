@@ -206,6 +206,35 @@ class ProjectAdminTest(unittest.TestCase):
         self.assertTrue(lab[local["id"]]["edit_shared_content"])
         self.assertFalse(lab[local["id"]]["manage_project_owners"])
 
+        card = "/api/v1/settings/permissions"
+        call(unsigned, card, status=401)
+
+        def card_people(viewer, project):
+            response = call(viewer, card, query_string={"project": project})
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
+            self.assertEqual(response.json["project"], project)
+            return {item["id"]: item for item in response.json["items"]}
+
+        admin_card = card_people(sam, "LAB")
+        self.assertEqual(set(admin_card), {sam_id, owner_id, agent_id, outsider_id, local["id"]})
+        self.assertTrue(admin_card[agent_id]["can_edit_create_projects"])
+        self.assertTrue(admin_card[agent_id]["project_owner"])
+        self.assertFalse(admin_card[sam_id]["can_edit_create_projects"])
+        self.assertFalse(admin_card[local["id"]]["can_edit_project_owner"])
+        owner_card = card_people(owner, "LAB")
+        self.assertTrue(owner_card[outsider_id]["can_edit_project_owner"])
+        self.assertFalse(owner_card[outsider_id]["can_edit_create_projects"])
+        self.assertNotIn("create_projects", owner_card[outsider_id]["permissions"])
+        self.assertTrue(owner_card[owner_id]["permissions"]["create_projects"])
+        self.assertNotIn(local["id"], owner_card)
+        read_card = card_people(outsider, "LAB")
+        self.assertEqual(set(read_card), {owner_id, agent_id, outsider_id})
+        self.assertTrue(read_card[agent_id]["permissions"]["edit_project_prompts"])
+        self.assertNotIn("create_projects", read_card[agent_id]["permissions"])
+        self.assertTrue(all(not item["can_edit_project_owner"] and not item["can_edit_create_projects"]
+                            for item in read_card.values()))
+        self.assertFalse(card_people(sam, "OPS")[agent_id]["project_owner"])
+
         change(sam, owner_id, False)
         self.assertEqual([item["id"] for item in call(agent, owners).json["owners"]], [agent_id])
         call(owner, guidance, method="PUT", json=update, status=403)

@@ -3,7 +3,7 @@ import CodexUsage from './CodexUsage.jsx'
 import FieldGuidanceSettings from './FieldGuidanceSettings.jsx'
 import { ProfileForm, ProfileSignIn } from './Profile.jsx'
 import ProjectSettings from './ProjectSettings.jsx'
-import ProjectOwnerSettings from './ProjectOwnerSettings.jsx'
+import PermissionSettings from './PermissionSettings.jsx'
 import { ResourceStatus } from './shared.jsx'
 import { browserTimeZone, timeZones } from './timeZone.js'
 
@@ -47,7 +47,7 @@ export function AppearanceSettings({ theme, timeZonePreference, chooseTimeZone, 
 
 export default function Settings({
   session, theme, timeZonePreference, chooseTimeZone, showWelcomeBanner, chooseWelcomeBanner,
-  onProfileSaved, project, projects, revision, onProjectCreated,
+  onProfileSaved, project, projects, revision, onProjectCreated, onPermissionProjectChange, fragment = '#settings',
 }) {
   const actor = session.data?.actor
   const canEdit = actor?.kind === 'agent' || actor?.kind === 'human'
@@ -67,13 +67,14 @@ export default function Settings({
           {canEdit ? <ProfileForm key={actor.id ?? actor.name} actor={actor} onSaved={onProfileSaved} /> : (
             <>
               {session.error?.status !== 401 && <ResourceStatus resource={session} label="your session" />}
-              <ProfileSignIn session={session} fragment="#settings" />
+              <ProfileSignIn session={session} fragment={fragment} />
             </>
           )}
         </section>
       )}
       {canEdit && <ProjectSettings key={actor.id ?? actor.name} revision={revision} onProjectCreated={onProjectCreated} />}
-      {canEdit && <ProjectOwnerSettings project={project} projects={projects} revision={revision} />}
+      {canEdit && <PermissionSettings actor={actor} project={project} projects={projects} revision={revision}
+        onProjectChange={onPermissionProjectChange} onChanged={onProjectCreated} />}
       {canEdit && <FieldGuidanceSettings project={project} projects={projects} revision={revision} />}
       {actor?.kind === 'human' && <CodexUsage key={actor.id} />}
     </section>
