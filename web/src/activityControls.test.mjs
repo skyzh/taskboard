@@ -219,6 +219,14 @@ test('sign-in preserves supported scoped routes and their filters', () => {
   assert.equal(signInHref('#activity?project=LAB&next=https://example.test/'), './auth/login')
 })
 
+test('Watching sign-in preserves the selected Reports scope', () => {
+  for (const hash of ['#reports?view=watching', '#reports?project=OPS&view=watching',
+    '#reports?view=watching&project=OPS', '#reports-all?view=watching']) {
+    assert.equal(new URL(signInHref(hash), 'https://example.test/tasks/').searchParams.get('fragment'), hash)
+  }
+  assert.equal(signInHref('#reports?view=watching&project=OPS&project=T'), './auth/login')
+})
+
 test('history anchors the previous version and offers a return to the same record', () => {
   const props = { record: 'T-12', currentHref: '#knowledge?entry=T-12', knowledge: true }
   const event = { id: 54, label: 'Details updated', at: '2026-11-23T19:25:00Z', actor: 'Sam' }

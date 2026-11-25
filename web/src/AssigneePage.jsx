@@ -1,5 +1,5 @@
-import React from 'react'
-import { queryPath, useLoadedPages, useResource } from './data.js'
+import React, { useState } from 'react'
+import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { ActivityDate, Outcomes } from './Overview.jsx'
 import { NeedsYou, OwnerWorkLinks, PendingReports, ownerWorkSections } from './Reports.jsx'
 import {
@@ -69,7 +69,35 @@ function AssigneeActivity({ owner, project, revision }) {
   )
 }
 
-export default function AssigneePage({ owner, section, revision, project, reportsHref = '#reports', canEditGoal, viewer }) {
+function AssigneeWatch({ owner, project, watching, onChanged }) {
+  const [saving, setSaving] = useState(false)
+  const [failure, setFailure] = useState(null)
+
+  async function toggle() {
+    if (saving) return
+    setSaving(true)
+    setFailure(null)
+    try {
+      await request(queryPath('/assignee/watch', { owner, project }), { body: { watch: !watching } })
+      onChanged()
+    } catch (error) {
+      setFailure(error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="assignee-watch">
+      <button type="button" aria-disabled={saving} onClick={toggle}>
+        {watching ? 'Stop watching' : 'Watch'}
+      </button>
+      {failure && <p role="alert">{failure}</p>}
+    </div>
+  )
+}
+
+export default function AssigneePage({ owner, section, revision, project, reportsHref = '#reports', canEditGoal, viewer, onWatchChanged }) {
   const resource = useResource(queryPath('/assignee', { owner, project }), revision)
   const entry = resource.data
   if (!entry) return <ResourceStatus resource={resource} label="assignee profile" />
@@ -107,6 +135,10 @@ export default function AssigneePage({ owner, section, revision, project, report
           )}
         </div>
       </header>
+      {viewer && typeof entry.watching === 'boolean' && (
+        <AssigneeWatch owner={owner} project={project} watching={entry.watching}
+          onChanged={onWatchChanged} />
+      )}
       {viewer?.kind === 'human' && viewer.id === owner && <NeedsYou project={project} revision={revision} />}
       {(showStandingGoal || showMilestones || entry.goal || hasWork || hasOutcomeLink || reports.length > 0) && (
         <nav className="owner-links profile-index" aria-label={`${name}’s work sections`}>

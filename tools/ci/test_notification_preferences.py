@@ -108,6 +108,34 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual((profile["name"], profile["role"]), ("Avery", "Fictional release tester"))
         self.assertEqual((task["title"], task["dri"]), ("Verify the original ticket", owner_id))
 
+    def test_postgres_watching_upgrades_a_ledger_with_existing_ticket_watches(self):
+        dsn = self.postgres_fixture()
+        app = self.postgres_app(dsn)
+        owner, owner_id = self.board.login(app, "Avery")
+        viewer, _ = self.board.login(app, "Sam")
+        self.board.action(owner, "create-task", {"title": "Check a fixture", "step": "Review."})
+        self.board.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Review."})
+        watch_ticket = "/api/v1/tasks/T-1/watch"
+        self.board.call(viewer, watch_ticket, method="POST", headers=ORIGIN, json={"watch": True})
+        with closing(Postgres(dsn)) as db:
+            self.assertEqual(db.execute("SELECT schema_version FROM taskboard_writer WHERE id = 1").fetchone()[0], 1)
+            db.execute("DROP TABLE assignee_watches")
+
+        upgraded = self.postgres_app(dsn)
+        viewer, _ = self.board.login(upgraded, "Sam")
+        other, _ = self.board.login(upgraded, "Quinn")
+        route = "/api/v1/reports?view=watching&scope=all"
+        ticket_only, = self.board.call(viewer, route).json["items"]
+        self.assertFalse(ticket_only["watching_person"])
+        self.assertEqual(ticket_only["watched_tickets"]["items"][0]["key"], "T-1")
+        self.board.call(viewer, "/api/v1/assignee/watch", method="POST", headers=ORIGIN,
+                        query_string={"owner": owner_id}, json={"watch": True})
+        combined, = self.board.call(viewer, route).json["items"]
+        self.assertTrue(combined["watching_person"])
+        self.assertEqual(combined["tasks"], [])
+        self.assertEqual(combined["watched_tickets"]["items"][0]["key"], "T-1")
+        self.assertEqual(self.board.call(other, route).json["items"], [])
+
     def test_postgres_attention_retry_keeps_the_original_request(self):
         dsn = self.postgres_fixture()
         app = self.postgres_app(dsn)

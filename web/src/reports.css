@@ -1,6 +1,16 @@
 .report-controls { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; font-size: .84rem; }
+.report-controls .report-assignee-views { flex-wrap: wrap; max-inline-size: 100%; }
+.assignee-watch { margin-block: .6rem; }
 @media (pointer: coarse), (max-width: 44rem) {
-  .report-controls .report-assignee-views > button { min-block-size: 2.75rem; }
+  .report-controls .report-assignee-views > button, .assignee-watch > button { min-block-size: 2.75rem; }
+}
+
+@media (max-width: 22rem) {
+  .report-controls .report-assignee-views:has(> :nth-child(4)) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    inline-size: 100%;
+  }
 }
 
 .reports-heading { display: contents; }

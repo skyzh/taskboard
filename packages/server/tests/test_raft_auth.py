@@ -398,6 +398,21 @@ class RaftAuthTest(unittest.TestCase):
                 callback = self.callback(code, client=browser, prefix="/tasks", state=state)
                 self.assertEqual(callback.location, f"{BOARD}/tasks/{fragment}")
 
+    def test_login_returns_to_watching_reports_scope(self):
+        for index, fragment in enumerate((
+            "#reports?view=watching", "#reports?project=OPS&view=watching",
+            "#reports?view=watching&project=OPS", "#reports-all?view=watching",
+        )):
+            with self.subTest(fragment=fragment):
+                browser = self.make_app(prefix="/tasks").test_client()
+                code = f"watching-{index}"
+                self.provider.issue(code, "human")
+                login = browser.get("/tasks/auth/login", base_url=BOARD, query_string={"fragment": fragment})
+                self.assertEqual(login.status_code, 302)
+                state = parse_qs(urlsplit(login.location).query)["state"][0]
+                callback = self.callback(code, client=browser, prefix="/tasks", state=state)
+                self.assertEqual(callback.location, f"{BOARD}/tasks/{fragment}")
+
     def test_token_expiry_caps_session_lifetime(self):
         for expiry, session_ttl in ((5, 5), (3600, 1800)):
             with self.subTest(expiry=expiry), patch("raft_auth.monotonic", return_value=100) as clock:

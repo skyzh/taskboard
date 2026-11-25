@@ -8839,6 +8839,206 @@ class TasksServiceTest(unittest.TestCase):
         more = pages("/api/v1/reports/pending", owner=blake_id, **filters)
         self.assertEqual([result["run_id"] for result in more], [expected_run])
 
+    def test_watching_reports_combine_person_and_ticket_watches_before_paging(self):
+        roster = {self.provider.people[name]["sub"]: name for name in ("Avery", "Blake")}
+        app = self.app(portal_reader=True, project_roster=roster)
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        sam, sam_id = self.login(app, "Sam")
+        quinn, _ = self.login(app, "Quinn")
+        origin = {"Origin": ORIGIN}
+        self.cli("register-project", "T", "Example board", "--dri", avery_id)
+        self.cli("register-project", "OPS", "Example operations", "--dri", avery_id)
+        local = self.call(sam, "/api/v1/personal-agents/local-dris", method="POST", headers=origin,
+                          json={"name": "Avery", "project": "OPS"}).json["local_dri"]["id"]
+
+        def add(title, owner, project="T"):
+            assignee = ("--dri", owner) if owner else ()
+            ticket = self.cli("add", title, "--project", project,
+                              "--step", "Check the sample.", *assignee).split()[0]
+            if owner:
+                self.cli("start", ticket, "Check the sample.", "--by", owner)
+            return ticket
+
+        transfer = add("Watched ticket to transfer", avery_id)
+        ordinary = add("Ordinary work for Avery", avery_id)
+        avery_ops = add("Avery in operations", avery_id, "OPS")
+        same_name = add("Distinct local Avery", local, "OPS")
+        blake_other = add("Unwatched work for Blake", blake_id)
+        human = add("Human-owned work", sam_id)
+        unassigned = self.action(avery, "create-task", {
+            "title": "Unassigned watched work", "step": "Check the sample.",
+        })["receipt"].split()[0]
+        self.action(avery, "change-ownership", {
+            "id": unassigned, "action": "unassign", "reason": "Check the unassigned group.",
+        })
+        hidden = add("Outside registered Local DRI project", local)
+
+        def follow(client, owner, selected=True, project="T", status=200, headers=origin):
+            return self.call(client, "/api/v1/assignee/watch", method="POST", status=status,
+                             headers=headers, query_string={"project": project, "owner": owner},
+                             json={"watch": selected})
+
+        def ticket_watch(client, ticket, selected=True):
+            return self.call(client, f"/api/v1/tasks/{ticket}/watch", method="POST",
+                             headers=origin, json={"watch": selected})
+
+        def watching(client, project=None, **options):
+            scope = {"project": project} if project else {"scope": "all"}
+            return self.call(client, "/api/v1/reports", query_string={
+                **scope, "view": "watching", **options,
+            }).json
+
+        unsigned = app.test_client()
+        self.call(unsigned, "/api/v1/reports?view=watching", status=401)
+        self.call(unsigned, "/api/v1/reports/watched-tickets", status=401)
+        follow(unsigned, avery_id, status=401)
+        follow(sam, local, status=404)
+        follow(sam, "Nonexistent", status=404, project="OPS")
+        follow(sam, avery_id, status=403, headers={"Origin": "https://outside.example.test"})
+        self.assertEqual(watching(sam)["items"], [])
+
+        before = self.call(sam, "/api/v1/revision").json
+        self.assertEqual(follow(sam, avery_id).json, {"watching": True})
+        after = self.call(sam, "/api/v1/revision").json
+        self.assertNotEqual(after, before)
+        follow(sam, avery_id)
+        self.assertEqual(self.call(sam, "/api/v1/revision").json, after)
+        self.assertEqual(self.call(sam, "/api/v1/notifications/watched").json["items"], [])
+        follow(sam, sam_id)
+        follow(quinn, local, project="OPS")
+        for ticket in (transfer, unassigned, hidden):
+            ticket_watch(sam, ticket)
+
+        self.provider.issued.discard("Sam")
+        second_browser, _ = self.login(app, "Sam")
+        profile = "/api/v1/assignee"
+        args = {"project": "OPS", "owner": avery_id}
+        self.assertTrue(self.call(second_browser, profile, query_string=args).json["watching"])
+        self.assertFalse(self.call(quinn, profile, query_string=args).json["watching"])
+        self.assertNotIn("watching", self.call(unsigned, profile, query_string=args).json)
+        self.assertNotIn("watching", self.call(sam, profile, query_string={"owner": local}).json)
+
+        def paged(client, project=None):
+            items = []
+            before = None
+            while True:
+                reply = watching(client, project, limit=1, **({"before": before} if before else {}))
+                items.extend(reply["items"])
+                before = reply["next_cursor"]
+                if before is None:
+                    return {row["owner"]: row for row in items}
+
+        def keys(entry, field):
+            return {row["key"] for row in (entry[field]["items"] if field == "watched_tickets" else entry[field])}
+
+        rows = paged(second_browser)
+        self.assertEqual(set(rows), {"", avery_id, sam_id})
+        self.assertEqual(rows[avery_id]["projects"], ["OPS", "T"])
+        self.assertEqual(keys(rows[avery_id], "tasks"), {ordinary, avery_ops})
+        self.assertEqual(keys(rows[avery_id], "watched_tickets"), {transfer})
+        self.assertEqual(keys(rows[""], "watched_tickets"), {unassigned})
+        self.assertEqual(keys(rows[sam_id], "tasks"), {human})
+        self.assertEqual(set(paged(sam, "OPS")), {avery_id})
+        self.assertEqual(keys(paged(quinn)[local], "tasks"), {same_name})
+        self.assertEqual(paged(quinn, "T"), {})
+        self.assertEqual(rows[avery_id]["profile"]["name"], paged(quinn)[local]["profile"]["name"])
+
+        self.action(avery, "handoff", {"id": transfer, "owner": blake_id, "note": "Continue with the sample."})
+        rows = paged(sam)
+        self.assertNotIn(transfer, keys(rows[avery_id], "watched_tickets"))
+        self.assertFalse(rows[blake_id]["watching_person"])
+        self.assertNotIn("tasks", rows[blake_id])
+        self.assertEqual(keys(rows[blake_id], "watched_tickets"), {transfer})
+        self.assertNotIn(blake_other, repr(rows[blake_id]))
+        self.action(blake, "advance-task", {"id": transfer, "transition": "start", "note": "Check the sample."})
+        self.action(blake, "advance-task", {"id": transfer, "transition": "done", "note": "The sample was checked."})
+        follow(sam, blake_id)
+        completed = paged(sam)[blake_id]
+        self.assertEqual(completed["watched_tickets"]["items"][0]["state"], "done")
+        self.assertEqual(completed["recent_outcomes"], [])
+        self.assertEqual(keys(completed, "tasks"), {blake_other})
+        ticket_rows = "/api/v1/reports/watched-tickets"
+        self.assertEqual(self.call(sam, ticket_rows, query_string={"scope": "all", "owner": local}).json["items"], [])
+        self.assertEqual(self.call(quinn, ticket_rows, query_string={"scope": "all", "owner": blake_id}).json["items"], [])
+        ticket_watch(sam, blake_other)
+        one_ticket = {"scope": "all", "owner": blake_id, "limit": 1}
+        first = self.call(sam, ticket_rows, query_string=one_ticket).json
+        self.assertEqual([row["key"] for row in first["items"]], [blake_other])
+        last = self.call(sam, ticket_rows, query_string={**one_ticket, "before": first["next_cursor"]}).json
+        self.assertEqual([row["key"] for row in last["items"]], [transfer])
+        self.assertIsNone(last["next_cursor"])
+        ticket_watch(sam, blake_other, False)
+        self.assertIn(transfer, {item["task_key"] for item in self.call(
+            sam, "/api/v1/notifications/watched",
+        ).json["items"]})
+
+        narrowed_roster = {self.provider.people["Blake"]["sub"]: "Blake"}
+        restricted_app = self.app(portal_reader=True, project_roster=narrowed_roster)
+        self.provider.issued.discard("Sam")
+        restricted, _ = self.login(restricted_app, "Sam")
+        self.assertNotIn(avery_id, paged(restricted, "T"))
+        self.assertEqual(keys(paged(restricted, "OPS")[avery_id], "tasks"), {avery_ops})
+        follow(restricted, avery_id, status=404)
+
+        follow(second_browser, avery_id, False, project="OPS")
+        self.assertNotIn(avery_id, paged(sam))
+        self.assertEqual(set(paged(quinn)), {local})
+        ticket_watch(sam, transfer, False)
+        self.assertNotIn(transfer, keys(paged(sam)[blake_id], "watched_tickets"))
+
+    def test_watching_applies_peer_request_filter_and_deduplicates_legacy_waits(self):
+        app = self.app(portal_reader=True)
+        avery, avery_id = self.login(app, "Avery")
+        _, blake_id = self.login(app, "Blake")
+        sam, _ = self.login(app, "Sam")
+        origin = {"Origin": ORIGIN}
+
+        def legacy_wait(title):
+            key = self.action(avery, "create-task", {
+                "title": title, "step": "Prepare the export.",
+            })["receipt"].split()[0]
+            self.action(avery, "advance-task", {"id": key, "transition": "start", "note": "Prepare the export."})
+            self.cli("wait", key, "Review the export.", "--on", blake_id, "--by", avery_id)
+            return key
+
+        watched_wait = legacy_wait("Saved wait that is watched")
+        ordinary_wait = legacy_wait("Saved wait that is not watched")
+        source = self.action(avery, "create-task", {
+            "title": "Source for a linked request", "step": "Prepare a sample.",
+        })["receipt"].split()[0]
+        request_ticket = self.action(avery, "peer-ask", {
+            "id": source, "transition": "create", "recipient": blake_id, "note": "Review the sample.",
+        })["receipt"].split()[0]
+        for ticket in (watched_wait, request_ticket):
+            self.call(sam, f"/api/v1/tasks/{ticket}/watch", method="POST", headers=origin, json={"watch": True})
+
+        def groups(scope, hide):
+            response = self.call(sam, "/api/v1/reports", query_string={
+                **scope, "view": "watching", "hide_requests": hide,
+            }).json
+            return {row["owner"]: row for row in response["items"]}
+
+        def watched_keys(row):
+            return [item["key"] for item in row["watched_tickets"]["items"]]
+
+        for scope in ({"project": "T"}, {"scope": "all"}):
+            with self.subTest(scope=scope):
+                self.assertEqual(watched_keys(groups(scope, "false")[blake_id]), [request_ticket])
+                self.assertNotIn(blake_id, groups(scope, "true"))
+                self.assertEqual(watched_keys(groups(scope, "true")[avery_id]), [watched_wait])
+                args = {**scope, "owner": blake_id}
+                page = "/api/v1/reports/watched-tickets"
+                self.assertEqual([row["key"] for row in self.call(sam, page, query_string=args).json["items"]],
+                                 [request_ticket])
+                self.assertEqual(self.call(sam, page, query_string={**args, "hide_requests": "true"}).json["items"], [])
+
+        self.call(sam, "/api/v1/assignee/watch", method="POST", query_string={"owner": blake_id},
+                  headers=origin, json={"watch": True})
+        rows = groups({"scope": "all"}, "false")
+        self.assertEqual([row["task_key"] for row in rows[blake_id]["legacy_peer_waits"]], [ordinary_wait])
+        self.assertEqual(watched_keys(rows[avery_id]), [watched_wait])
+
     def test_reports_keep_the_latest_mixed_outcomes_in_the_requested_project(self):
         app = self.app()
         owner, owner_key = self.login(app, "Avery")

@@ -1466,11 +1466,14 @@ class BoardQueries:
         ))
     """
 
-    def queued_peer_waits(self, *, before, limit, project=projects.DEFAULT, legacy_recipient=None):
+    def queued_peer_waits(self, *, before, limit, project=projects.DEFAULT, legacy_recipient=None, watcher=None):
         legacy = "" if legacy_recipient is None else (
             "AND peer.ledger_key = ? AND json_extract(tasks.context, '$.peer_ask_ticket') IS NULL"
         )
         args = () if legacy_recipient is None else (legacy_recipient,)
+        if watcher:
+            legacy += f" AND NOT {self.ticket_watch_sql('tasks')}"
+            args += (watcher,)
         rows = self.db.execute(
             f"""
             WITH current AS ({ledger.current_tasks_sql(self.db)} WHERE tasks.project_prefix = ?)
@@ -1664,12 +1667,14 @@ class BoardQueries:
             if len(rows) > limit else None,
         }
 
-    def recent_report_outcomes(self, owner, project, *, exclude_requests=""):
+    def recent_report_outcomes(self, owner, project, *, exclude_requests="", watcher=None):
         # Read each action in event ID order before combining the small results.
+        exclude_watched = f"AND NOT {self.ticket_watch_sql('tasks')}" if watcher else ""
+        watch_args = (watcher,) if watcher else ()
         recent_ids = f"""
             SELECT events.id FROM events JOIN tasks ON tasks.id = events.task_id
             WHERE events.action = ? AND tasks.dri = ? AND tasks.project_prefix = ?
-                AND {ledger.work_records_sql(self.db)} {exclude_requests}
+                AND {ledger.work_records_sql(self.db)} {exclude_requests} {exclude_watched}
             ORDER BY events.id DESC LIMIT 3
         """
         rows = self.db.execute(
@@ -1678,9 +1683,112 @@ class BoardQueries:
             {ACTIVITY_SELECT}
             WHERE events.id IN (SELECT id FROM completions UNION ALL SELECT id FROM decisions)
             ORDER BY events.id DESC LIMIT 3
-            """, ("done", owner, project, "decide", owner, project),
+            """, ("done", owner, project, *watch_args, "decide", owner, project, *watch_args),
         ).fetchall()
         return self.event_rows(rows)
+
+    @staticmethod
+    def ticket_watch_sql(task):
+        return f"""EXISTS (
+            SELECT 1 FROM task_watches WHERE watcher = ? AND task_id = {task}.id
+        )"""
+
+    def watch_owner_scope(self, project, owner, *, require_profile=False):
+        # Local identities only belong to the project where they are registered.
+        local = f"EXISTS (SELECT 1 FROM local_dris WHERE actor = {owner} AND project = ?)"
+        scope = f"({owner} NOT LIKE 'local-dri:%' OR {local})"
+        if project != projects.DEFAULT or self.project_roster is None:
+            if require_profile:
+                scope += f""" AND (
+                    EXISTS (SELECT 1 FROM board_principals WHERE ledger_key = {owner})
+                    OR EXISTS (SELECT 1 FROM board_assignee_imports WHERE ledger_key = {owner})
+                )"""
+            return scope, (project,)
+        roster = tuple(projects.roster_owners(self.db, self.project_roster))
+        members = (f" OR {owner} IN ({', '.join('?' for _ in roster)})" if roster else "")
+        scope += f""" AND ({local} OR EXISTS (
+            SELECT 1 FROM board_principals WHERE ledger_key = {owner} AND kind = 'human'
+        ){members})"""
+        return scope, (project, project, *roster)
+
+    def watchable_assignee(self, owner, project):
+        scope, args = self.watch_owner_scope(project, "candidate.owner", require_profile=True)
+        return self.db.execute(
+            f"WITH candidate(owner) AS (VALUES (CAST(? AS TEXT))) SELECT 1 FROM candidate WHERE {scope}",
+            (owner, *args),
+        ).fetchone() is not None
+
+    def watched_ticket_scope(self, watcher, project, task, hide_requests):
+        clauses, args = [], [watcher]
+        for prefix in [project] if project is not None else self.report_projects():
+            scope, bindings = self.watch_owner_scope(prefix, f"{task}.dri")
+            clauses.append(f"({task}.project_prefix = ? AND ({task}.dri = '' OR ({scope})))")
+            args.extend((prefix, *bindings))
+        scope = f"{self.ticket_watch_sql(task)} AND ({' OR '.join(clauses) or 'FALSE'})"
+        if hide_requests:
+            scope += f" AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE task_id = {task}.id)"
+        return scope, args
+
+    def watched_tickets(self, watcher, owner, project, *, before, limit, hide_requests=False):
+        scope, args = self.watched_ticket_scope(watcher, project, "current", hide_requests)
+        cursor = "AND id < ?" if before is not None else ""
+        cursor_args = (before,) if before is not None else ()
+        rows = self.db.execute(
+            f"""WITH current AS ({ledger.current_tasks_sql(self.db)})
+                SELECT * FROM current WHERE {scope} AND dri = ? {cursor}
+                ORDER BY id DESC LIMIT ?""",
+            (*args, owner, *cursor_args, limit + 1),
+        ).fetchall()
+        return page(rows, limit, "id", self.report_task_rows)
+
+    def watching_reports(self, watcher, *, project, before, limit, hide_requests):
+        followed, renderers = {}, {}
+        group = {}
+        for prefix in [project] if project is not None else self.report_projects():
+            rows, _, render = self.project_reports("watching", None, None, prefix, hide_requests, None, watcher=watcher)
+            renderers[prefix] = render
+            for row in rows:
+                followed.setdefault(row["dri"], {})[prefix] = row
+                group.setdefault(row["dri"], set()).add(prefix)
+
+        scope, args = self.watched_ticket_scope(watcher, project, "tasks", hide_requests)
+        ticket_groups = self.db.execute(
+            f"""SELECT DISTINCT tasks.dri, tasks.project_prefix FROM tasks
+                WHERE {scope} AND {ledger.work_records_sql(self.db)}""", args,
+        )
+        for row in ticket_groups:
+            group.setdefault(row["dri"], set()).add(row["project_prefix"])
+
+        # Paginate the union of the eligible, deduplicated owner keys.
+        ordered = sorted(("0:" + owner, owner) for owner in group if before is None or "0:" + owner > before)
+        items = []
+        for _, owner in ordered[:limit]:
+            scopes = followed.get(owner, {})
+            entries = [renderers[prefix]([row], combining=project is None)[0] for prefix, row in scopes.items()]
+            if entries and project is None:
+                entry = self.combine_project_reports(owner, scopes, entries, hide_requests)
+            elif entries:
+                entry = entries[0]
+            else:
+                entry = {"owner": owner, "profile": profiles.visible_by_keys(self.db, [owner], self.base).get(owner)}
+            entry.update(
+                watching_person=bool(entries),
+                watched_tickets=self.watched_tickets(
+                    watcher, owner, project, before=None, limit=10, hide_requests=hide_requests,
+                ),
+                projects=sorted(group[owner]),
+            )
+            items.append(entry)
+        return {"items": items, "next_cursor": ordered[limit - 1][0] if len(ordered) > limit else None}
+
+    def report_task_rows(self, rows):
+        tasks = self.task_rows(rows, include_report_fields=True, include_release_results=True)
+        for task in tasks:
+            if task["state"] == "human_review":
+                # Pending questions are available in the recipient's notifications.
+                task.pop("details", None)
+                task.update(note="", waiting_on=None, waiting_profile=None, context={}, links=[], event_id=None)
+        return tasks
 
     def reports(self, *, view, before, limit, project=projects.DEFAULT, hide_requests=False, personal_owner=None):
         if project is None:
@@ -1755,7 +1863,7 @@ class BoardQueries:
             "report_count": report_count,
         }
 
-    def project_reports(self, view, before, limit, project, hide_requests, personal_owner, *, owner=None):
+    def project_reports(self, view, before, limit, project, hide_requests, personal_owner, *, owner=None, watcher=None):
         current = ledger.current_tasks_sql(self.db) + " WHERE tasks.project_prefix = ?"
         peer_work = watches.has_table(self.db, "peer_asks")
         exclude_requests = ""
@@ -1794,16 +1902,43 @@ class BoardQueries:
             owner_args = (*names, *local_owners)
             if personal_owner and personal_owner not in names:
                 owner_args += (personal_owner,)
-            if not owner_args and view != "recent":
+            if not owner_args and view not in ("recent", "watching"):
                 return [], "dri", lambda visible: []
             owner_source = ("VALUES " + ", ".join("(?)" for _ in owner_args)
                             if owner_args else "SELECT CAST(NULL AS TEXT) WHERE FALSE")
-        elif personal_owner:
+        roster_cte = ""
+        if roster and watcher:
+            roster_cte = f"roster_members(dri) AS ({owner_source}),"
+            owner_args += (project, project)
+            owner_source = "SELECT dri FROM roster_members UNION " + """
+                    SELECT project_tasks.dri FROM project_tasks
+                    JOIN board_principals AS person ON person.ledger_key = project_tasks.dri
+                    WHERE person.kind = 'human'
+                    UNION SELECT member.dri FROM projects AS member
+                    JOIN board_principals AS person ON person.ledger_key = member.dri
+                    WHERE person.kind = 'human' AND member.prefix = ?
+                    UNION SELECT ownership.principal FROM project_owner_grants AS ownership
+                    JOIN board_principals AS person ON person.ledger_key = ownership.principal
+                    WHERE person.kind = 'human' AND ownership.project = ?
+                """
+        elif not roster and personal_owner:
             owner_source += " UNION SELECT ?"
             owner_args += (personal_owner,)
         order = "cursor" if view == "all" or personal_owner else "dri"
         filter_args = () if view == "all" else (view == "active",)
         view_filter = "" if view == "all" else " AND is_active = ?"
+        current_work = active_state
+        exclude_watched_waits = ""
+        watch_args = ()
+        if watcher:
+            scope, args = self.watch_owner_scope(project, "ordered.dri", require_profile=True)
+            view_filter = f""" AND {scope} AND EXISTS (
+                SELECT 1 FROM assignee_watches WHERE watcher = ? AND owner = ordered.dri
+            )"""
+            filter_args = (*args, watcher)
+            current_work = f"({active_state}) AND NOT {self.ticket_watch_sql('current')}"
+            exclude_watched_waits = f"AND NOT {self.ticket_watch_sql('tasks')}"
+            watch_args = (watcher,)
         rank = "CASE WHEN is_active THEN '0:' ELSE '1:' END"
         rank_args = ()
         if personal_owner:
@@ -1874,11 +2009,12 @@ class BoardQueries:
                      FROM current AS tasks {self._PEER_WAIT_JOIN}
                      WHERE {self._PEER_WAIT_CONDITIONS}
                        AND json_extract(tasks.context, '$.peer_ask_ticket') IS NULL
+                       {exclude_watched_waits}
                      GROUP BY peer.ledger_key
                  ),
                  work AS (
                      SELECT dri, {WORK_COUNTS},
-                            COUNT(CASE WHEN {active_state} THEN 1 END) AS task_count,
+                            COUNT(CASE WHEN {current_work} THEN 1 END) AS task_count,
                             MAX(CASE WHEN {active_state} THEN at END) AS updated
                      FROM current GROUP BY dri
                  ),
@@ -1895,6 +2031,7 @@ class BoardQueries:
                      {self.subagent_launch_join()}
                      GROUP BY launch.actor
                  ),
+                 {roster_cte}
                  owners(dri) AS ({owner_source}),
                  {recent_cte}
                  summary AS (
@@ -1925,14 +2062,14 @@ class BoardQueries:
                  )
             SELECT * FROM ordered WHERE {order} > ?{view_filter}{owner_filter}
             ORDER BY {order} {paging}
-            """, (project, project, *owner_args, *recent_args, *rank_args, before or "", *filter_args,
+            """, (project, project, *watch_args, *watch_args, *owner_args, *recent_args, *rank_args, before or "", *filter_args,
                   *owner_filter_args, *paging_args),
         ).fetchall()
 
         def render(visible, *, combining=False):
             people = [row["dri"] for row in visible]
             directory = profiles.visible_by_keys(self.db, people, self.base)
-            goal_summaries = goals.report_summaries(self.db, project, people)
+            goal_summaries = goals.report_summaries(self.db, project, people, exclude_watched_by=watcher)
             results = []
             for row in visible:
                 person = row["dri"]
@@ -1952,21 +2089,16 @@ class BoardQueries:
                     active = self.db.execute(
                         f"""WITH current AS ({current})
                             SELECT current.*, {work_order} AS report_rank
-                            FROM current WHERE dri = ? AND ({active_state})
+                            FROM current WHERE dri = ? AND ({current_work})
                             ORDER BY report_rank, event_id DESC LIMIT 10""",
-                        (project, *work_args, person),
+                        (project, *work_args, person, *watch_args),
                     ).fetchall()
                 pending = self.pending_reports(person, project=project, unlinked=True) if (
                     not combining and row["report_count"]
                 ) else {"items": [], "next_cursor": None}
                 if profile is None and person in names:
                     profile = projects.roster_profile(person, names[person])
-                owned = self.task_rows(active, include_report_fields=True, include_release_results=True)
-                for task in owned:
-                    if task["state"] == "human_review":
-                        # Pending questions are available in the recipient's notifications.
-                        task.pop("details", None)
-                        task.update(note="", waiting_on=None, waiting_profile=None, context={}, links=[], event_id=None)
+                owned = self.report_task_rows(active)
                 results.append({
                     "owner": person,
                     "profile": profile,
@@ -1975,11 +2107,13 @@ class BoardQueries:
                     "last_activity": self.last_activity(owner=person, project=project),
                     "tasks": owned,
                     "legacy_peer_waits": self.queued_peer_waits(
-                        before=None, limit=10, project=project, legacy_recipient=person,
+                        before=None, limit=10, project=project, legacy_recipient=person, watcher=watcher,
                     )["items"] if row["has_legacy_waits"] else [],
                     "task_count": row["task_count"],
                     "task_counts": {state: row[state] for state in WORK_STATES},
-                    "recent_outcomes": self.recent_report_outcomes(person, project, exclude_requests=exclude_requests),
+                    "recent_outcomes": self.recent_report_outcomes(
+                        person, project, exclude_requests=exclude_requests, watcher=watcher,
+                    ),
                     "worker_counts": worker_counts(row),
                     "pending_reports": pending["items"],
                     "pending_reports_before": pending["next_cursor"],
@@ -1993,14 +2127,17 @@ class BoardQueries:
 
         return rows, order, render
 
-    def report_project_prefixes(self, owner, view, hide_requests, personal_owner):
-        scoped_view = "recent" if view == "recent" else "all"
+    def report_project_prefixes(self, owner, view, hide_requests, personal_owner, *, watcher=None):
+        scoped_view = view if view in ("recent", "watching") else "all"
         scopes = {}
         for project in self.report_projects():
-            rows, _, _ = self.project_reports(scoped_view, None, 1, project, hide_requests, personal_owner, owner=owner)
+            rows, _, _ = self.project_reports(
+                scoped_view, None, 1, project, hide_requests, personal_owner if not watcher else None,
+                owner=owner, watcher=watcher,
+            )
             if rows:
                 scopes[project] = rows[0]
-        return list(scopes) if self.report_owner_visible(owner, scopes, view, personal_owner) else []
+        return list(scopes) if watcher or self.report_owner_visible(owner, scopes, view, personal_owner) else []
 
     def report_owner_visible(self, owner, rows, view, personal_owner):
         return (view in ("all", "recent") or owner == personal_owner

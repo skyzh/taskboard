@@ -215,7 +215,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const requestedReportsProject = reportsParams?.get('project')
   const requestedAssigneeView = reportsParams?.get('view')
   const assigneeView = requestedAssigneeView === 'idle' ? 'all'
-    : ['all', 'recent'].includes(requestedAssigneeView) ? requestedAssigneeView : 'active'
+    : ['all', 'recent', 'watching'].includes(requestedAssigneeView) ? requestedAssigneeView : 'active'
   const showGoalActivity = requestedAssigneeView === 'goal-activity'
   const goalAgent = reportsParams?.get('agent')
   const goalKey = reportsParams?.get('goal')
@@ -362,12 +362,24 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const reportsPending = Boolean((allReports || requestedReportsProject) && projectsPending)
   const reportsMode = reportsPending ? (fragment || 'reports-all')
     : reportFragment(allProjectRead ? 'all' : reportsProject,
-      ['active', 'all', 'idle', 'recent'].includes(requestedAssigneeView) ? assigneeView : undefined,
+      ['active', 'all', 'idle', 'recent', 'watching'].includes(requestedAssigneeView) ? assigneeView : undefined,
       requestedReportsProject ? null : defaultProject)
   const reportsHref = view === 'reports' ? `#${reportsMode}`
     : projectHref(`#${preferredReportsMode}`, navigationScope, { replace: true })
   const knowledgeProject = allProjectRead ? undefined : scope
   const scopedRoute = href => projectHref(href, navigationScope)
+  const reportsReturn = new URLSearchParams(preferredReportsMode.split('?', 2)[1])
+  const watchingReturn = reportsReturn.get('view') === 'watching' ? `#${preferredReportsMode}` : null
+  const savedProfileReturn = window.history.state?.watchingProfileReturn
+  const profileReportsHref = watchingReturn ||
+    (savedProfileReturn?.fragment === fragment ? savedProfileReturn.href : reportsHref)
+  useEffect(() => {
+    if (view !== 'assignee' || !watchingReturn || preview) return
+    // Preserve the return across reload on this profile's history entry.
+    window.history.replaceState({
+      ...window.history.state, watchingProfileReturn: { fragment, href: watchingReturn },
+    }, '')
+  }, [view, preview, fragment, watchingReturn])
   function startTour() {
     const taskRoute = scopedRoute('#section=queue-heading').slice(1)
     tourOrigin.current = fragment
@@ -545,8 +557,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
             reportsHref={reportsHref} />}
           {view === 'search' && <SearchResults query={search} revision={revision} />}
           {view === 'assignee' && <AssigneePage key={`${project}:${owner}`} owner={owner} section={params.get('section')} revision={revision} project={project}
-            reportsHref={reportsHref} canEditGoal={verified && session.data.actor.id === owner}
-            viewer={verified ? session.data.actor : null} />}
+            reportsHref={profileReportsHref} canEditGoal={verified && session.data.actor.id === owner}
+            viewer={verified ? session.data.actor : null} onWatchChanged={refresh} />}
           {view === 'notifications' && <Notifications session={session} verified={verified} revision={revision}
             onChanged={refresh} fragment={fragment} project={projectRead} projectPicker={projectPicker} projects={visibleProjects} />}
           {view === 'activity' && <WorkLog requested={linkedEvent} revision={revision} ownerProfiles={overview.data?.owner_profiles}

@@ -166,7 +166,7 @@ def review_events(events):
         yield event, review
 
 
-def goal_rows(db, owners, project=None, kind=None):
+def goal_rows(db, owners, project=None, kind=None, *, exclude_watched_by=None):
     if not owners:
         return []
     placeholders = ", ".join("?" for _ in owners)
@@ -178,6 +178,9 @@ def goal_rows(db, owners, project=None, kind=None):
     if kind is not None:
         filters.append("goals.kind = ?")
         args.append(kind)
+    if exclude_watched_by is not None:
+        filters.append("NOT EXISTS (SELECT 1 FROM task_watches WHERE task_id = tasks.id AND watcher = ?)")
+        args.append(exclude_watched_by)
     return db.execute(f"""
         SELECT tasks.id, tasks.project_prefix, tasks.project_number, tasks.dri AS owner, tasks.title AS summary,
                goals.kind, goals.deadline, goals.ticket_ids, events.state
@@ -226,9 +229,9 @@ def save_standing(db, project, owner, summary):
     return {"project": project, "summary": summary} if summary is not None else None
 
 
-def report_summaries(db, project, owners):
+def report_summaries(db, project, owners, *, exclude_watched_by=None):
     summaries = {}
-    for row in goal_rows(db, owners, project):
+    for row in goal_rows(db, owners, project, exclude_watched_by=exclude_watched_by):
         summaries.setdefault(row["owner"], []).append({
             "kind": row["kind"], "summary": row["summary"], "deadline": row["deadline"],
             "ticket": projects.row_reference(row),
