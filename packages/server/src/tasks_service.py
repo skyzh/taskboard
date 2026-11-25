@@ -4025,7 +4025,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
     human_installation = os.environ.get("TASKS_RAFT_HUMAN_SESSION_INSTALLATION_ID")
     if human_installation is not None:
         if config is None or marketplace:
-            raise ValueError("Configure 24-hour Raft sign-in only on a fixed-server Raft board.")
+            raise ValueError("Configure durable human Raft sign-in only on a fixed-server Raft board.")
         config["human_session_installation_id"] = human_installation
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
     with socket.socket(family) as listener:

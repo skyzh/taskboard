@@ -28,7 +28,7 @@ _PENDING_COOKIE = "raft_board_login"
 _SESSION_COOKIE = "raft_board_session"
 _PENDING_TTL = 300
 _HUMAN_SESSION_TTL = 3600
-_HUMAN_DAY_TTL = 86400
+_DURABLE_HUMAN_SESSION_TTL = 7 * 24 * 60 * 60
 _AGENT_SESSION_TTL = 1800
 _RAFT_ROLES = ("owner", "admin", "member", "guest")
 _SCOPES = frozenset({"openid", "profile"})
@@ -197,7 +197,7 @@ class RaftAuth:
             marketplace or not session_dir or not _canonical_uuid(server_id)
             or not _canonical_uuid(human_session_installation_id)
         ):
-            raise ValueError("24-hour Raft sign-in requires a fixed Server, installation ID and private session directory.")
+            raise ValueError("Durable human Raft sign-in requires a fixed Server, installation ID and private session directory.")
         self._public_origin = f"{public.scheme}://{public.netloc}"
         self._callback_url = f"{self._public_base}/auth/callback"
         self._session_path = f"{public.path}/"
@@ -460,17 +460,17 @@ class RaftAuth:
         identity = self._userinfo(token)
         if pending is None and identity.kind != "agent":
             raise _Rejected(_Failure.STATE)
-        human_day = identity.kind == "human" and self._human_sessions is not None
+        durable_human = identity.kind == "human" and self._human_sessions is not None
         maximum = _HUMAN_SESSION_TTL if identity.kind == "human" else _AGENT_SESSION_TTL
-        expires = issued_at + (_HUMAN_DAY_TTL if human_day else min(lifetime, maximum))
-        if human_day:
+        expires = issued_at + (_DURABLE_HUMAN_SESSION_TTL if durable_human else min(lifetime, maximum))
+        if durable_human:
             self._require_current_human_access(identity.subject)
-        if (self._server_id is None or human_day) and self._on_verified_sign_in is not None:
+        if (self._server_id is None or durable_human) and self._on_verified_sign_in is not None:
             self._on_verified_sign_in(identity)
         response = redirect(f"{self._public_base}/{pending.fragment}") if pending else make_response("", 200)
         session_key = token_urlsafe(32)
         session_server = identity.server_id if self._server_id is None else None
-        session = Session("" if human_day else token, expires, identity.subject, identity.kind, session_server)
+        session = Session("" if durable_human else token, expires, identity.subject, identity.kind, session_server)
         old_key = request.cookies.get(_SESSION_COOKIE)
         with self._lock:
             now = self._session_time()
@@ -478,14 +478,14 @@ class RaftAuth:
                 raise _Rejected(_Failure.CODE)
             age = ceil(expires - now)
             self._prune(monotonic())
-            if human_day:
+            if durable_human:
                 self._human_sessions.replace(old_key, session_key, session, now)
                 self._sessions.discard(old_key)
             else:
                 self._sessions.replace(old_key, session_key, session, now)
                 if self._human_sessions is not None:
                     self._human_sessions.discard(old_key)
-        if not human_day and self._server_id is not None and self._on_verified_sign_in is not None:
+        if not durable_human and self._server_id is not None and self._on_verified_sign_in is not None:
             self._on_verified_sign_in(identity)
         self._cookie(response, _SESSION_COOKIE, session_key, age, self._session_path)
         return response
