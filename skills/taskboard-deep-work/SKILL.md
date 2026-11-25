@@ -1,0 +1,46 @@
+---
+name: taskboard-deep-work
+description: Carry substantial Taskboard tickets through investigation, implementation, verification, and handoff, or perform an independent milestone review. Use on personal, standalone, or shared Taskboard deployments with any agent harness.
+---
+
+# Taskboard Deep Work
+
+Read the ticket and its latest evidence. State the observable result, the next useful step, and any real dependency. Work from the current build and the user's references. Use the board and identity configured for your agent. Shared queues, named project owners, and release automation apply where the project has them.
+
+## Set up a project
+
+- Record the ledger and, where used, the field queues and release destinations. For team projects, identify the project DRI and field owners. Use the project’s settings for effort, review, and deployment.
+- Give owners a way to start routine work and request independent review when needed. Route decisions that change the outcome, cross-field priority, or approved release scope to the accountable owner.
+
+## Stay with the problem
+
+- Give each ticket one owner responsible for its result. On a team, the project DRI owns the overall outcome, agreed deadline, cross-field decisions, and release priorities. Field owners run their queues. A specialist can contribute to multiple projects.
+- After verifying a new session, finishing a handoff, or recording a result, check your Ready work. Record a start or the specific reason you cannot take it. If your queue is empty and the project offers a shared queue, claim suitable unowned work within your scope. If no work is actionable, inspect recent feedback or the current product for a concrete follow-up. Bring priority or ownership conflicts to the accountable owner.
+- Before starting substantial work, sketch its parts and dependencies. Delegate independent parts early when your harness and project permissions allow. Define the expected output, evidence location, and file or data boundaries. Keep tightly coupled steps with one executor. The ticket owner integrates the results and remains responsible for the outcome.
+- For an integration request, check the external contract and the app's current behavior first. Turn the findings into owned implementation tickets with testable outcomes and an explicit owner action if one is needed.
+- When independent review applies, use an uninvolved subagent for work within your area if your project and harness allow it. Ask a qualified peer when their expertise or authority is needed or subagents are unavailable. Keep active assignments with their current reviewers. Record the request and verdict on the original ticket. Route scope, acceptance, or release decisions to the owner who has that authority.
+- Record real worker launches and collect results in the ticket. When a runtime worker has no board identity, log its actual launch and outcome on the parent ticket. Keep the worker’s own identity in the record.
+- Own the normal checks for your work. Run the browser and fixture checks yourself or delegate them directly. Check the actual workflow against realistic data and use the rendered page at the requested sizes. Verify that a reader can find the owner, progress, blocker, next action, and evidence.
+- Turn repeatable checks into tests or scripts. Reuse existing unit, integration, and headless browser suites. Add a check for a concrete regression those suites miss, run it against the frozen build, and record the command and result. Use human review for design judgment and checks that require a real person or device.
+- Where independent acceptance applies, use the [exact revision review workflow](../../docs/taskboard/AGENT-STARTUP.md#review-an-exact-revision). Include launch instructions and one evidence location. The ticket owner can advance other Ready work while review runs.
+- For code work, use an isolated branch or worktree when sharing a checkout and follow the project's review and merge policy. Keep the ticket open through required review. The author lands the exact reviewed change, records the commit, and closes the code ticket. Recheck the result after a rebase or conflict resolution. The owner can pick up independent work while review or merge runs. Track deployment separately when an operator or release runner owns it.
+
+## Keep the work in Taskboard
+
+- Write a ticket the way you would write a Jira ticket or GitHub issue. Record the original problem, why it matters, and the intended result in the brief. Keep current facts, the next action, and evidence on the ticket as you learn. Finish with the solution or decision and how it was verified. A teammate should be able to resume from the ticket without reconstructing the work from chat.
+- Before closing a design, critique, or investigation, compare the accepted result with the original request. Put any agreed next action on an existing or new ticket, give it an owner, and link it in the completion receipt. For an open proposal, record the decision needed and who can make it in the existing decision workflow. Finish normally when the result covers the request.
+- When a decision changes scope, check related active tickets for conflicts. The authorized owner updates the title, brief, checklist, and next step. If the ticket cannot be edited, create one linked replacement and have its owner park the old ticket as superseded. Carry forward existing work and evidence, notify affected owners, and verify the queue points to the current instruction.
+- Add a short checklist for work with several observable milestones. Set it at start or add it when a small task grows. Check a step when it is verified and show the current step or actual blocker beside the progress count. Use the project’s threshold for when to add a checklist.
+- Read the ticket through your [configured Taskboard connection](../taskboard/SKILL.md#choose-the-ledger) and use `start`, `update`, `log`, `transfer`, or `done` as appropriate. Use Waiting when the ticket cannot advance without a specific external action. Name the person or linked ticket, the unblock condition, and the follow-up. Continue work you can verify, delegate, or do in parallel.
+- Start each Activity update with one sentence a person can understand. Say what changed, what result was verified, or what is blocked and why. Keep exact hashes, file paths, checks, reproduction steps, and reviewer handoff behind one evidence link or in details. A headline could read “The profile photo now stays sharp when enlarged. It’s ready for review.” Put exact build and rollback steps in the handoff details when they apply.
+- Use Markdown paragraphs, lists, and descriptively labeled links. Link to the actual source thread, ticket, pull request, or issue through a verified URL. Give research its own ticket with a question, scope, and the decision it should inform, then route it to an eligible owner.
+- Use the project’s collaboration channel for urgent actions, review requests, and important results. If the project uses Raft, mention the person who needs to act and link the ticket. Use the project's decision or approval process for human action and state what is needed and why. Keep routine progress and detailed review evidence in Taskboard.
+- At a checkpoint, collect worker results and replenish independent work from the queues available to you. On a team, the project DRI handles cross-field interruptions and communicates outcomes.
+
+## Automate routine releases
+
+- When the project uses a release queue, submit the exact build, the live base it expects, and the applicable test and independent review receipts. Apply the project's merge rule before closing a code ticket.
+- Use the project's authorized operator or runner for staging, activation, smoke checks, and rollback. If the project delegates these steps to a release subagent, give it the authorized operator path. Verify the entry and live base, keep a rollback point, and record live readback. If verification fails, follow the project's rollback procedure and report the failure. Route decisions and scope changes to the accountable owner.
+- Start with a disposable target. Verify the ordinary release, stale-base handling, a failed health check and rollback, and preservation of task data. Keep the existing release path available through the transition.
+
+Stay inside the task's approval and release scope. Before adding speculative race or security handling, give the accountable owner the concrete failure, its likelihood, and the cost of the proposed change.
