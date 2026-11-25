@@ -2,7 +2,7 @@
 
 Choose one queue and a signed owner. A DRI reviews their own Waiting and Parked work in the project. A project reviewer inspects the project's queues and routes findings to the current ticket owner or manager. Keep responsibility on the existing ticket.
 
-Read **Tasks → Schedules** in the selected project and check any scheduled review the manager already uses. Reuse a review whose owner, scope, cadence, and wake cover the queue. If a project review already includes a DRI's queue, agree on that coverage before adding another review. A timed deferral or dependency offer covers its own ticket and remains in place when a queue review is added.
+Read **Tasks → Schedules** in the selected project and ask the manager and any existing review owner about coverage. Personal recurring definitions appear in their owner’s session. Ask that owner to confirm the R-number or external wake, queue, cadence, and next run before creating a review. Reuse a review that covers the queue. If coverage is unclear, record the gap and resolve it with the manager before creating a schedule. A timed deferral or dependency offer covers its own ticket and remains in place when a queue review is added.
 
 If the queue has a gap, agree on a cadence in whole hours and a future first run in UTC. Create one recurring definition under its owner's signed identity. Include the chosen queue and a link to these steps in the definition. Use a stable key such as `waiting-parked-OPS-owned` for an owner review or `waiting-parked-OPS-project` for a project review. Confirm that the operator tick or authorized project manager will issue it and that the owner has a verified wake or Inbox routine.
 
@@ -29,11 +29,11 @@ For your own work, select the project and read Waiting, Parked, and the current 
 ## Check Waiting work
 
 - For a linked blocker, open the current blocking ticket and confirm it is Done. If the original condition required a particular outcome, verify that outcome in its Activity. For an automation wait, verify the exact run, release, or other result and use its evidence link.
-- The ticket owner or project manager can confirm an eligible linked or automation wait. Use the current wait event ID from the ticket. The board checks that the wait still matches and returns the same ticket to Ready with its owner. Read it back before a retry. For automation, attach the verified result as shown below.
+- The ticket owner or project manager can confirm an eligible linked or automation wait. Use the current wait event ID from the ticket. The board checks that the wait still matches and returns the same ticket to Ready with its owner. Read it back before a retry. For automation, attach the verified result. Include the next step in the confirmation because it becomes the Ready ticket’s recorded step.
 - Keep an unresolved ticket waiting on its current blocker. Record what evidence is missing and who can provide it, then reuse its existing follow-up or agree on one. For a named handoff, human decision, or peer request, use that request's own response and acknowledgment flow.
 
 ```sh
-./tasks --shared confirm-blocker "$ticket" "$wait_event" 'The expected result is verified.' \
+./tasks --shared confirm-blocker "$ticket" "$wait_event" 'The checked build is ready. Compare its output with the saved baseline.' \
   --link 'Verified result' "$evidence_url"
 ```
 
