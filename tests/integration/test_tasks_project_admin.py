@@ -181,7 +181,13 @@ class ProjectAdminTest(unittest.TestCase):
             )
         change(sam, "foreign-fixture-owner", True, status=404)
         call(agent, guidance, method="PUT", json=update, status=403)
+        schedule_list = "/api/v1/schedules?project=LAB"
+        schedule_id = call(owner, schedule_list).json["maintenance"]["schedule"]["id"]
+        schedule_detail = f"/api/v1/schedules/{schedule_id}?project=LAB"
+        call(agent, schedule_detail, status=404)
         self.assertEqual([item["id"] for item in change(owner, agent_id, True)["owners"]], [owner_id, agent_id])
+        self.assertTrue(call(agent, schedule_list).json["maintenance"]["editable"])
+        self.assertEqual(call(agent, schedule_detail).json["schedule"]["owner"], owner_id)
         call(agent, guidance, method="PUT", json=update)
         call(agent, PROJECTS + "/OPS/field-guidance", method="PUT", json=update, status=403)
 
@@ -203,6 +209,8 @@ class ProjectAdminTest(unittest.TestCase):
         change(sam, owner_id, False)
         self.assertEqual([item["id"] for item in call(agent, owners).json["owners"]], [agent_id])
         call(owner, guidance, method="PUT", json=update, status=403)
+        call(owner, schedule_detail, status=404)
+        self.assertEqual(call(agent, schedule_detail).json["schedule"]["owner"], owner_id)
         change(owner, outsider_id, True, status=403)
         change(agent, agent_id, False, status=409)
         self.assertFalse(permissions("LAB")[owner_id]["edit_project_prompts"])

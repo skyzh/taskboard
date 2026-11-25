@@ -360,11 +360,11 @@ class BoardQueries:
                    CASE WHEN definition.state = 'active' THEN definition.next_at END AS next_at
             FROM recurring_definitions AS definition
             LEFT JOIN project_maintenance AS managed ON managed.definition_id = definition.id
-            LEFT JOIN projects AS manager_scope ON manager_scope.prefix = managed.project
             LEFT JOIN local_dris AS local ON local.actor = definition.owner
             WHERE {source}
-              AND (CASE WHEN managed.project IS NULL THEN definition.owner ELSE manager_scope.dri END) = ?
-            """, (projects.default_project(self.db), number, owner),
+              AND ((managed.project IS NULL AND definition.owner = ?)
+                   OR managed.project IN ({projects.MANAGED_BY}))
+            """, (projects.default_project(self.db), number, owner, owner, owner),
         ).fetchone()
 
     def schedule_detail(self, number, owner, project=None):

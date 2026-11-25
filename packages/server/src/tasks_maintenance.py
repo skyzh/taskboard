@@ -30,11 +30,9 @@ def find(db, *, project=None, definition_id=None):
     field, value = ("project", project) if project is not None else ("definition_id", definition_id)
     return db.execute(
         f"""
-        SELECT recurring_definitions.*, project_maintenance.project, project_maintenance.members,
-               projects.dri AS manager
+        SELECT recurring_definitions.*, project_maintenance.project, project_maintenance.members
         FROM project_maintenance
         JOIN recurring_definitions ON recurring_definitions.id = project_maintenance.definition_id
-        JOIN projects ON projects.prefix = project_maintenance.project
         WHERE project_maintenance.{field} = ?
         """, (value,),
     ).fetchone()
