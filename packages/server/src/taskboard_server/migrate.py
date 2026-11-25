@@ -9,7 +9,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.util import CommandError
-from sqlalchemy import Text, create_engine, inspect
+from sqlalchemy import BigInteger, Integer, LargeBinary, Text, create_engine, inspect
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 
@@ -19,11 +19,38 @@ from tasks_storage import open_sqlite
 VERSION_TABLE = "taskboard_schema_revision"
 PROFILE_BASELINE = "0001_profiles_baseline"
 PROFILE_SHORT_ROLE = "0002_profile_short_role"
-PROFILE_COLUMNS = frozenset("""
-    server_id kind subject ledger_key username name picture role description
-    avatar avatar_digest provider_description provider_avatar_source provider_avatar provider_avatar_digest
-""".split())
 IDENTITY = ["server_id", "kind", "subject"]
+REQUIRED_TEXT = frozenset({*IDENTITY, "ledger_key", "username", "name"})
+OPTIONAL_TEXT = frozenset("""
+    picture role description avatar_digest provider_description provider_avatar_source provider_avatar_digest
+""".split())
+BINARY = frozenset({"avatar", "provider_avatar"})
+
+
+def validate_profile_columns(columns, *, postgres):
+    expected = REQUIRED_TEXT | OPTIONAL_TEXT | BINARY
+    if postgres:
+        expected |= {"principal_order"}
+    if "short_role" in columns:
+        expected |= {"short_role"}
+    if columns.keys() != expected:
+        raise ValueError("The Taskboard profile table has an unsupported layout.")
+
+    for name, column in columns.items():
+        if name == "principal_order":
+            valid = (
+                isinstance(column["type"], BigInteger) and not column["nullable"]
+                and column["default"] is None and column.get("identity") is not None
+            )
+        else:
+            value_type = LargeBinary if name in BINARY else Text
+            default = ("''::text" if postgres else "''") if name in {"username", "name"} else None
+            valid = (
+                isinstance(column["type"], value_type) and column["default"] == default
+                and column["nullable"] == (name not in REQUIRED_TEXT)
+            )
+        if not valid:
+            raise ValueError(f"The Taskboard profile table has an unsupported definition for {name}.")
 
 
 def profile_revision(connection):
@@ -31,28 +58,22 @@ def profile_revision(connection):
     tables = set(catalog.get_table_names())
     if not {"board_principals", "board_settings", "events", "tasks"} <= tables:
         raise ValueError("Initialize a Taskboard ledger before checking its schema.")
-    for table, columns in (
-        ("tasks", {"id", "title", "dri"}),
-        ("events", {"id", "task_id", "actor"}),
-        ("board_settings", {"key", "value"}),
+    for table, expected in (
+        ("tasks", {"id": Integer, "title": Text, "dri": Text}),
+        ("events", {"id": Integer, "task_id": Integer, "actor": Text}),
+        ("board_settings", {"key": Text, "value": Text}),
     ):
-        if not columns <= {column["name"] for column in catalog.get_columns(table)}:
+        columns = {column["name"]: column["type"] for column in catalog.get_columns(table)}
+        if any(not isinstance(columns.get(name), value_type) for name, value_type in expected.items()):
             raise ValueError(f"The Taskboard {table} table has an unsupported layout.")
 
     profiles = {column["name"]: column for column in catalog.get_columns("board_principals")}
-    expected = PROFILE_COLUMNS
-    if connection.dialect.name == "postgresql":
-        expected |= {"principal_order"}
-    short_role = profiles.pop("short_role", None)
+    validate_profile_columns(profiles, postgres=connection.dialect.name == "postgresql")
     primary_key = catalog.get_pk_constraint("board_principals").get("constrained_columns")
     unique_keys = [key["column_names"] for key in catalog.get_unique_constraints("board_principals")]
-    if profiles.keys() != expected or primary_key != IDENTITY or ["ledger_key"] not in unique_keys:
-        raise ValueError("The Taskboard profile table has an unsupported layout.")
-    if short_role is None:
-        return PROFILE_BASELINE
-    if not isinstance(short_role["type"], Text) or not short_role["nullable"] or short_role["default"] is not None:
-        raise ValueError("The existing short_role column has an unsupported definition.")
-    return PROFILE_SHORT_ROLE
+    if primary_key != IDENTITY or ["ledger_key"] not in unique_keys:
+        raise ValueError("The Taskboard profile table has unsupported identity constraints.")
+    return PROFILE_SHORT_ROLE if "short_role" in profiles else PROFILE_BASELINE
 
 
 def prepare_connection(connection):

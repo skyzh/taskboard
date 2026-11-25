@@ -19,8 +19,8 @@ Run `taskboard-migrate --postgres check` and
 `taskboard-migrate --postgres upgrade`.
 
 `check` reports the recognized layout, the recorded revision if present, and
-the target. The command validates the tables and the profile's columns and
-identity constraints before it records a baseline. For a supported profile
+the target. The command validates the tables, profile column definitions,
+and identity constraints before it records a baseline. For a supported profile
 layout that already has `short_role`, the upgrade records the current revision.
 For an older supported layout, it adds the column and records the revision in
 one transaction. Rerunning the upgrade leaves the schema and records unchanged.

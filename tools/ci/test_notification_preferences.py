@@ -18,7 +18,7 @@ add_tests()
 import test_tasks_service as fixture
 import test_tasks_github_webhooks as webhook_fixture
 from test_tasks_knowledge_sweeps import replay_knowledge_sweeps
-from test_tasks_migrations import replay_versioned_profiles
+from test_tasks_migrations import reject_incompatible_profile_type, replay_versioned_profiles
 from test_tasks_project_move import replay_move
 from test_tasks_recurring import replay_project_tick
 import test_tasks_ring1 as ring1_fixture
@@ -106,6 +106,13 @@ class StorageReplayTest(unittest.TestCase):
             return self.postgres_app(dsn)
 
         replay_versioned_profiles(self, self.board, restart(), restart, engine)
+
+    def test_postgres_versioned_profiles_reject_wrong_column_type_without_changes(self):
+        dsn = self.postgres_fixture()
+        self.postgres_app(dsn)
+        engine = create_engine(dsn.replace("postgresql://", "postgresql+psycopg://", 1), poolclass=NullPool)
+        self.addCleanup(engine.dispose)
+        reject_incompatible_profile_type(self, engine)
 
     def test_postgres_adopts_profiles_from_before_short_roles(self):
         dsn = self.postgres_fixture()
