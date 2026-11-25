@@ -146,7 +146,9 @@
   width: 2.75rem;
   height: 2.75rem;
   padding: 0;
+  border: 0;
 }
+.reports-welcome-dismiss, .reports-welcome-dismiss:enabled:hover { background: transparent; }
 @media (max-width: 44rem) {
   .reports-welcome {
     position: relative;
@@ -177,7 +179,6 @@
     position: absolute;
     inset-block-start: 0;
     inset-inline-end: 0;
-    border: 0;
   }
   .reports > .reports-heading {
     display: grid;

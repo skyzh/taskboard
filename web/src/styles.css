@@ -689,8 +689,10 @@ button:disabled { opacity: .57; }
   width: 2.75rem;
   height: 2.75rem;
   padding: 0;
+  border: 0;
 }
-.record-edit-toggle[aria-pressed="true"] { color: var(--paper); background: var(--green); border-color: var(--green); }
+.record-edit-toggle, .record-edit-toggle:enabled:hover { background: transparent; }
+.record-edit-toggle[aria-pressed="true"] { color: var(--green); }
 .ticket-heading-meta .record-edit-toggle { margin-inline-start: auto; }
 .history-link { display: inline-flex; min-height: 2.75rem; align-items: center; margin-inline-start: .65rem; }
 .record-history-layout { display: grid; gap: 1rem; }

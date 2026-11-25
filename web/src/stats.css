@@ -100,9 +100,10 @@
 }
 .stats-table th:first-child { text-align: left; }
 .stats-table tbody th { font-weight: 500; overflow-wrap: anywhere; }
+.stats-task-table tr > :nth-child(n+2) { white-space: nowrap; }
 .stats-task-table tr > :last-child { text-align: left; }
+.stats-task-table .status::before { flex: none; }
 .stats-task-table .status.done::before {
-  flex: none;
   width: .32rem;
   height: .56rem;
   border: solid currentColor;
