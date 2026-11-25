@@ -127,6 +127,8 @@ class LocalDRIRoutingTest(unittest.TestCase):
         action(client, "my-queue", query_string={"scope": "all"}, headers=sender, status=403)
         project_log = "/api/v1/notifications/log"
         call(client, project_log, query_string={"project": "OPS"}, headers=sender, status=403)
+        for path in (project_log, "/api/v1/overview", "/api/v1/schedules"):
+            call(client, path, query_string={"scope": "all"}, headers=sender, status=403)
         call(client, project_log, headers={"X-Taskboard-Local-DRI": perf["id"]}, status=401)
         call(client, "/api/v1/notifications/watched", headers=sender, status=403)
 

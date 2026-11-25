@@ -926,6 +926,14 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([row["task"] for row in first["items"] + second["items"]], ["T-5", "T-4", "T-3", "T-2"])
         self.assertIsNone(second["next_cursor"])
         self.assertEqual([row["task"] for row in view(manager, kind="merge")["items"]], ["T-7"])
+        all_first = view(blake, scope="all", limit=2)
+        self.assertEqual([row["task"] for row in all_first["items"]], ["T-7", "COURSE-1"])
+        all_next = view(blake, scope="all", limit=2, before=all_first["next_cursor"])
+        self.assertEqual([row["task"] for row in all_next["items"]], ["T-5", "T-4"])
+        across = view(manager, scope="all", state="pending", recipient=avery_subject)
+        self.assertEqual([row["task"] for row in across["items"]], ["COURSE-1", "T-1"])
+        self.call(app.test_client(), path, query_string={"scope": "all"}, status=401)
+        self.call(blake, path, query_string={"scope": "all", "project": "T"}, status=400)
 
         self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Start assigned work."})
         self.assertIsNone(view(avery, state="pending")["items"][0]["read_at"])
@@ -2271,6 +2279,43 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(blake, work).json["items"], [])
         self.assertEqual([item["key"] for item in self.call(avery, work).json["items"]], ["T-1"])
         self.assertEqual([item["key"] for item in self.call(blake, work + "?scope=all").json["items"]], ["COURSE-1"])
+
+    def test_all_project_overview_and_schedule_reads_keep_scope_and_ownership(self):
+        app = self.app(portal_reader=True)
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        self.cli("register-project", "T", "Taskboard", "--dri", avery_id)
+        self.cli("register-project", "OPS", "Operations", "--dri", blake_id)
+        for actor, project, title in ((avery, "T", "Board work"), (blake, "OPS", "Operations work")):
+            self.action(actor, "create-task", {"project": project, "title": title, "step": "Check the fixture."})
+            self.action(actor, "advance-task", {"id": f"{project}-1", "transition": "start", "note": "Checked."})
+        overview = "/api/v1/overview"
+        first = self.call(avery, overview, query_string={"scope": "all", "limit": 1}).json
+        self.assertEqual(first["counts"]["in_progress"], 2)
+        self.assertEqual([item["key"] for item in first["now"]["items"]], ["OPS-1"])
+        self.assertNotIn("merge_queue", first)
+        second = self.call(avery, overview, query_string={
+            "scope": "all", "limit": 1, "now_before": first["now"]["next_cursor"],
+        }).json
+        self.assertEqual([item["key"] for item in second["now"]["items"]], ["T-1"])
+        self.assertEqual(self.call(avery, overview, query_string={"project": "T"}).json["counts"]["in_progress"], 1)
+        self.call(avery, overview, query_string={"scope": "all", "project": "T"}, status=400)
+
+        for actor, project, title in ((avery, "T", "Board schedule"), (avery, "OPS", "Operations schedule"),
+                                      (blake, "OPS", "Someone else's schedule")):
+            self.action(actor, "recurring-add", {"project": project, "title": title, "key": title.lower().replace(" ", "-"),
+                                                "step": "Check the fixture.", "cadence_hours": 4,
+                                                "next_at": "2099-01-01T00:00:00Z"})
+        schedules = "/api/v1/schedules"
+        listed = self.call(avery, schedules, query_string={"scope": "all"}).json
+        self.assertEqual([(row["project"], row["title"]) for row in listed["recurring"]],
+                         [("T", "Board schedule"), ("OPS", "Operations schedule")])
+        self.assertFalse(listed["maintenance"]["editable"])
+        self.assertEqual([row["title"] for row in self.call(avery, schedules, query_string={"project": "T"}).json["recurring"]],
+                         ["Board schedule"])
+        other = self.call(blake, schedules, query_string={"scope": "all"}).json
+        self.assertEqual([row["title"] for row in other["recurring"]], ["Someone else's schedule"])
+        self.call(avery, schedules, query_string={"scope": "all", "project": "T"}, status=400)
 
     def test_project_registry_preserves_legacy_links_and_scopes_queues(self):
         with closing(sqlite3.connect(self.database)) as db, db:
@@ -7905,8 +7950,10 @@ class TasksServiceTest(unittest.TestCase):
             ("Sam", "#notifications-needs-me"),
             ("Quinn", "#notifications-log?project=COURSE&status=pending&kind=wake"
                       f"&agent={self.provider.people['Avery']['sub']}"),
+            ("Sam", "#notifications-log?scope=all&status=history&kind=ready"),
         ):
             with self.subTest(fragment=fragment):
+                self.provider.issued.discard(name)
                 client = app.test_client()
                 login = self.call(client, "/auth/login", query_string={"fragment": fragment}, status=302)
                 state = parse_qs(urlsplit(login.location).query)["state"][0]
@@ -7923,7 +7970,9 @@ class TasksServiceTest(unittest.TestCase):
 
     def test_schedule_fragments_return_after_sign_in(self):
         app = self.app(portal_reader=True)
-        for name, fragment in (("Sam", "#schedules=&project=COURSE"), ("Quinn", "#schedule-R-42?project=COURSE")):
+        for name, fragment in (("Sam", "#schedules=&project=COURSE"), ("Quinn", "#schedule-R-42?project=COURSE"),
+                               ("Sam", "#schedules=&scope=all")):
+            self.provider.issued.discard(name)
             client = app.test_client()
             login = self.call(client, "/auth/login", query_string={"fragment": fragment}, status=302)
             state = parse_qs(urlsplit(login.location).query)["state"][0]

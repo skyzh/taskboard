@@ -85,21 +85,24 @@ export function NotificationLogEntry({ item }) {
   )
 }
 
-export default function NotificationLog({ project, state, kind, agent, projects = [], revision }) {
-  const page = useLoadedPages('/notifications/log', { project, state, kind, recipient: agent }, revision)
+export default function NotificationLog({ project, state, kind, agent, allProjects, projects = [], revision }) {
+  const selection = allProjects ? '' : project
+  const page = useLoadedPages('/notifications/log', {
+    ...(allProjects ? { scope: 'all' } : { project }), state, kind, recipient: agent,
+  }, revision)
   const items = page.data?.items ?? []
   const agentOptions = page.data?.agent_options
   const showEmpty = page.data && !page.pending && !page.error && items.length === 0
   const emptyMessage = page.data?.has_receipts
     ? 'No recorded notifications match these filters.'
-    : 'No notification receipts have been recorded for this project.'
+    : allProjects ? 'No notification receipts have been recorded.' : 'No notification receipts have been recorded for this project.'
 
   function chooseFilters(changes) {
-    const next = { project, state, kind, agent, ...changes }
-    const params = new URLSearchParams({ project: next.project })
+    const next = { project: selection, state, kind, agent, ...changes }
+    const params = new URLSearchParams(next.project ? { project: next.project } : { scope: 'all' })
     if (next.state !== 'all') params.set('status', next.state)
     if (next.kind) params.set('kind', next.kind)
-    if (next.agent && next.project === project) params.set('agent', next.agent)
+    if (next.agent && (!next.project || next.project === selection)) params.set('agent', next.agent)
     window.location.hash = `notifications-log?${params}`
   }
 
@@ -110,7 +113,8 @@ export default function NotificationLog({ project, state, kind, agent, projects 
       <div className="filters log-filters">
         {projects.length > 1 && (
           <label>Project
-            <select value={project} onChange={event => chooseFilters({ project: event.target.value })}>
+            <select value={selection} onChange={event => chooseFilters({ project: event.target.value })}>
+              <option value="">All projects</option>
               {projects.map(entry => <option key={entry.prefix} value={entry.prefix}>{entry.title}</option>)}
             </select>
           </label>

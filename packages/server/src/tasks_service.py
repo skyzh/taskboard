@@ -2105,7 +2105,7 @@ def create_app(
     @app.get("/api/v1/schedules")
     def schedules():
         actor = current_actor()
-        project = project_filter(request.args, use_default=True)
+        project = project_scope(request.args)
         with tasks_storage.read(db()) as connection:
             return query().schedules(project, actor["ledger_key"] if actor else None)
 
@@ -2680,16 +2680,16 @@ def create_app(
             "before": integer(cursor.removesuffix(":wake"), "before") if cursor is not None else None,
             "limit": integer(request.args.get("limit", 20), "limit", maximum=100),
         }
-        project = project_filter(request.args, use_default=True)
+        project = project_scope(request.args)
         with tasks_storage.read(db()) as connection:
-            roster = (project_roster or {}) if project == projects.DEFAULT else {}
+            roster = (project_roster or {}) if project in (None, projects.DEFAULT) else {}
             agents = notification_log.project_agents(connection, project, roster)
             requested = request.args.get("recipient")
             recipient = None
             if requested is not None:
                 selected = next((row for row in agents if row["subject"] == requested), None)
                 if selected is None:
-                    raise RequestError("Choose an available agent for this project.", 404)
+                    raise RequestError("Choose an available agent for the selected projects.", 404)
                 recipient = selected["ledger_key"]
             page = notification_log.listing(connection, project, recipient, state, kind, before_wake=before_wake, **page)
             return {

@@ -268,7 +268,7 @@ function PersonalNotifications({ revision, session, onChanged, fragment, project
         <a href={logFilters ? `#${fragment}` : '#notifications-log'} aria-current={logFilters ? 'page' : undefined}>Project log</a>
       </nav>
       {logFilters ? <NotificationLog project={project} state={logFilters.state} kind={logFilters.kind} agent={logFilters.agent}
-        projects={projects} revision={revision} /> : (
+        allProjects={logFilters.allProjects} projects={projects} revision={revision} /> : (
         <>
           <TaskReminders revision={revision} />
           {needsMe ? <NeedsMe revision={revision} session={session} onChanged={onChanged} />

@@ -294,7 +294,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   }
   const reportsProject = visibleProjects?.find(entry => entry.prefix === requestedReportsProject)?.prefix
     || defaultProject
-  const supportsAllProjects = ['board', 'team-overview'].includes(view)
+  const supportsAllProjects = ['board', 'team-overview'].includes(view) || (view === 'schedules' && !scheduleId)
   const allProjectRead = supportsAllProjects && params.get('scope') === 'all'
   const project = view === 'reports' ? reportsProject : selected ? namedTask?.split('-')[0] || 'T'
     : logFilters?.project || scheduleProject || params.get('project') || preferredProject
@@ -385,6 +385,10 @@ export default function App({ previewNotice, tourSteps } = {}) {
         const value = event.target.value
         if (supportsAllProjects) {
           if (value !== 'all') chooseProject(value)
+          if (view === 'schedules') {
+            window.location.hash = schedulesHref(value === 'all' ? undefined : value, value === 'all')
+            return
+          }
           setQueueFilters(previous => ({ ...previous, tag: undefined }))
           const next = new URLSearchParams(value === 'all' ? { scope: 'all' } : { project: value })
           if (view === 'team-overview') next.set('section', 'team-overview')
@@ -527,12 +531,12 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'my-activity' && <MyActivity revision={revision} />}
           {view === 'schedules' && <Schedules key={JSON.stringify([session.data?.actor?.id, scheduleId])}
             id={scheduleId} project={project} requestedProject={scheduleProject} projectPicker={projectPicker}
-            revision={revision} session={session} verified={verified} onChanged={refresh} />}
+            allProjects={allProjectRead} revision={revision} session={session} verified={verified} onChanged={refresh} />}
           {view === 'board' && (
             <>
               {projectPicker && <div className="tasks-desktop-project">{projectPicker}</div>}
               <div className="page-heading tasks-heading"><h1 id="board">Tasks</h1>
-                {verified && <a href={schedulesHref(project)}>Schedules</a>}
+                {verified && <a href={schedulesHref(allProjectRead ? undefined : project, allProjectRead)}>Schedules</a>}
               </div>
               <WorkQueue revision={revision} overview={overview.data} filters={queueFilters} setFilters={setQueueFilters}
                 waitingLabel={waitingLabel} setWaitingLabel={setWaitingLabel}

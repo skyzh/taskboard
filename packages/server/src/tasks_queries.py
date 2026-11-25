@@ -310,17 +310,36 @@ class BoardQueries:
         if owner is None:
             return result
         as_of = ledger.timestamp()
+        default = projects.default_project(self.db)
         definitions = self.db.execute(
             """
-            SELECT definition.id FROM recurring_definitions AS definition
-            LEFT JOIN local_dris AS local ON local.actor = definition.owner
-            WHERE definition.owner = ?
-              AND definition.id NOT IN (SELECT definition_id FROM project_maintenance)
-              AND COALESCE(definition.project_prefix, local.project, ?) = ?
-            ORDER BY definition.id
-            """, (owner, projects.default_project(self.db), project),
+            WITH owned AS (
+                SELECT definition.id, COALESCE(definition.project_prefix, local.project, ?) AS project
+                FROM recurring_definitions AS definition
+                LEFT JOIN local_dris AS local ON local.actor = definition.owner
+                WHERE definition.owner = ?
+                  AND definition.id NOT IN (SELECT definition_id FROM project_maintenance)
+            )
+            SELECT id, project FROM owned WHERE (? IS NULL OR project = ?) ORDER BY id
+            """, (default, owner, project, project),
         )
-        result["recurring"] = [self.schedule_report(row["id"], owner, as_of) for row in definitions]
+        result["recurring"] = [
+            {**self.schedule_report(row["id"], owner, as_of), **({"project": row["project"]} if project is None else {})}
+            for row in definitions
+        ]
+        if project is None:
+            maintenance_rows = self.db.execute(
+                """SELECT definition.*, managed.project, managed.members FROM project_maintenance AS managed
+                   JOIN recurring_definitions AS definition ON definition.id = managed.definition_id
+                   JOIN projects ON projects.prefix = managed.project
+                   WHERE projects.dri = ? ORDER BY projects.prefix""", (owner,),
+            )
+            result["project_maintenance"] = [
+                {**self.schedule_report(row["id"], row["owner"], as_of),
+                 **maintenance.describe(row, row["project"])["schedule"], "project": row["project"]}
+                for row in maintenance_rows
+            ]
+            return result
         if projects.manages(self.db, project, owner):
             maintenance_view = result["maintenance"]
             maintenance_view["editable"] = True

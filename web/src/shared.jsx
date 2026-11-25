@@ -153,8 +153,8 @@ export function taskHref(id, reference) {
   return `#task-${anchor}`
 }
 
-export function schedulesHref(project) {
-  return '#' + new URLSearchParams({ schedules: '', ...(project && { project }) })
+export function schedulesHref(project, allProjects = false) {
+  return '#' + new URLSearchParams({ schedules: '', ...(allProjects ? { scope: 'all' } : project && { project }) })
 }
 
 export function scheduleHref(id, project) {
@@ -170,10 +170,10 @@ export function eventHref(id) {
 }
 
 export function notificationLogFilters(fragment) {
-  const match = /^notifications-log(?:\?project=([A-Z][A-Z0-9]{0,7})(?:&status=(pending|history))?(?:&kind=(ready|merge|wake))?(?:&agent=([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}))?)?$/.exec(fragment)
+  const match = /^notifications-log(?:\?(?:project=([A-Z][A-Z0-9]{0,7})|(scope=all))(?:&status=(pending|history))?(?:&kind=(ready|merge|wake))?(?:&agent=([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}))?)?$/.exec(fragment)
   if (!match) return null
-  const [, project, state = 'all', kind = '', agent = ''] = match
-  return { project, state, kind, agent }
+  const [, project, all, state = 'all', kind = '', agent = ''] = match
+  return { project, state, kind, agent, ...(all && { allProjects: true }) }
 }
 
 export function signInHref(hash) {
@@ -189,7 +189,7 @@ export function signInHref(hash) {
   const knowledgeLink = /^#knowledge(?:\?(?:entry=[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18}(?:&history=(?:all|[1-9]\d{0,18}))?|scope=assigned(?:&q=[A-Za-z0-9_%+.*~-]{1,1920})?|q=[A-Za-z0-9_%+.*~-]{1,1920}))?$/.test(hash)
   const reportsLink = /^#reports(?:-all(?:\?view=(?:active|all|idle|recent))?|\?(?:project=[A-Z][A-Z0-9]{0,7}(?:&view=(?:active|all|idle|recent))?|view=(?:active|all|idle|recent)(?:&project=[A-Z][A-Z0-9]{0,7})?))?$/.test(hash)
   const integrationsLink = /^#integrations(?:\?(?:cli=[a-f0-9]{64}|project=[A-Z][A-Z0-9]{0,7}))?$/.test(hash)
-  const schedulesLink = /^#(?:schedules(?:=(?:&project=[A-Z][A-Z0-9]{0,7})?)?|schedule-R-[1-9]\d{0,18}(?:\?project=[A-Z][A-Z0-9]{0,7})?)$/.test(hash)
+  const schedulesLink = /^#(?:schedules(?:=(?:&(?:project=[A-Z][A-Z0-9]{0,7}|scope=all))?)?|schedule-R-[1-9]\d{0,18}(?:\?project=[A-Z][A-Z0-9]{0,7})?)$/.test(hash)
   const returnToBoard = taskLink || statsLink || activityLink || goalActivityLink || reportsLink || knowledgeLink || integrationsLink
     || schedulesLink
     || /^#(?:notifications(?:-needs-me)?|settings|about|personal-codex)$/.test(hash)
