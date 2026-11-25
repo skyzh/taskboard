@@ -1335,7 +1335,7 @@ class TasksServiceTest(unittest.TestCase):
             ).fetchall()
 
     def test_project_tags_filter_without_changing_ownership_or_queue_order(self):
-        app = self.app(portal_reader=True)
+        app = self.app(portal_reader=True, project_roster={self.provider.people["Avery"]["sub"]: "Avery"})
         avery, avery_key = self.login(app, "Avery")
         blake, blake_key = self.login(app, "Blake")
         viewer = app.test_client()
@@ -2809,6 +2809,15 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((row["key"], row["title"], row["summary"]),
                          ("T-1", "Storage index for current guidance", "Agent clarified the guidance."))
         self.assertEqual(row["area"], "Storage")
+        self.call(human, route + "/tags", method="POST", json={"tag": "storage", "action": "add"})
+        self.call(human, route + "/tags", method="POST",
+                  json={"tag": "decision-record", "action": "remove"}, status=403)
+        reference = {"id": "T-1", "url": "https://example.test/storage", "label": "Storage guide"}
+        self.action(agent, "link-reference", reference)
+        self.action(agent, "link-reference", {**reference, "url": "https://github.com/example/repo/pull/42"}, status=403)
+        record = self.call(human, route).json
+        self.assertEqual(record["task"]["tags"], ["decision-record", "storage"])
+        self.assertIn(reference["url"], [source["url"] for source in record["sources"]])
 
     def test_knowledge_directory_stages_work_and_reconciles_one_settled_correction(self):
         app = self.app(portal_reader=True)
@@ -3503,7 +3512,7 @@ class TasksServiceTest(unittest.TestCase):
     def test_checklist_edits_keep_step_numbers_and_historical_wording(self):
         app = self.app(portal_reader=True)
         avery, avery_id = self.login(app, "Avery")
-        blake, _ = self.login(app, "Blake")
+        blake, blake_id = self.login(app, "Blake")
         manager, manager_id = self.login(app, "Sam")
         self.cli("register-project", "T", "Tasks Board", "--dri", manager_id)
         self.action(avery, "create-task", {"title": "Verify samples", "step": "Read the plan."})
@@ -3513,8 +3522,9 @@ class TasksServiceTest(unittest.TestCase):
         })
         route = "/api/v1/tasks/T-1/checklist"
         rename = {"action": "rename", "position": 1, "label": "Read new sample"}
-        self.call(blake, route, method="POST", json=rename, status=403)
-        self.call(manager, route, method="POST", json=rename)
+        self.call(blake, route, method="POST", json={"action": "reopen", "position": 1}, status=403)
+        self.call(blake, route, method="POST", json={"action": "remove", "position": 1}, status=403)
+        self.call(blake, route, method="POST", json=rename)
         self.action(avery, "edit-checklist", {"id": "T-1", "action": "reopen", "position": 1})
         before_remove = self.action(avery, "task", query_string={"id": "T-1"})
         reopened = before_remove["checklist"][0]
@@ -3541,7 +3551,7 @@ class TasksServiceTest(unittest.TestCase):
             (avery_id, {"action": "checklist-add", "position": 2, "label": "Record the count"}),
             (avery_id, {"action": "checklist-start", "position": 1, "label": "Read old sample"}),
             (avery_id, {"action": "checklist-complete", "position": 1, "label": "Read old sample"}),
-            (manager_id, {"action": "checklist-rename", "position": 1, "label": "Read new sample", "previous_label": "Read old sample"}),
+            (blake_id, {"action": "checklist-rename", "position": 1, "label": "Read new sample", "previous_label": "Read old sample"}),
             (avery_id, {"action": "checklist-reopen", "position": 1, "label": "Read new sample"}),
             (avery_id, {"action": "checklist-remove", "position": 2, "label": "Record the count"}),
             (avery_id, {"action": "checklist-add", "position": 3, "label": "Share the count"}),
@@ -4199,7 +4209,7 @@ class TasksServiceTest(unittest.TestCase):
         change = {"title": "Corrected scope", "brief": "Use the corrected instructions.", "reason": "Scope changed."}
         self.call(viewer, route + "/details", method="POST", json=change, status=401)
         self.call(human, route + "/checklist", method="POST",
-                  json={"action": "add", "label": "Not the peer's responsibility."}, status=403)
+                  json={"action": "remove", "position": 1}, status=403)
         self.action(human, "edit-task-details", {"id": "COURSE-1", **change}, status=403)
         self.call(owner, route + "/details", method="POST", json={**change, "title": " "}, status=409)
         self.assertEqual(self.call(owner, route).json, initial)
@@ -4228,6 +4238,19 @@ class TasksServiceTest(unittest.TestCase):
         self.assertNotIn("Use the corrected instructions.", output)
         latest = self.call(owner, route + "/activity").json["items"][0]
         self.assertEqual((latest["actor"], latest["details"]), (manager_id, "Clear the obsolete brief."))
+
+        self.assertTrue(peer["tag_editable"])
+        self.assertTrue(peer["can_edit_checklist_text"])
+        self.assertFalse(peer["can_tag_decision_record"])
+        self.call(human, route + "/tags", method="POST", json={"action": "add", "tag": "sample"})
+        self.call(human, route + "/tags", method="POST",
+                  json={"action": "add", "tag": "decision-record"}, status=403)
+        self.call(human, route + "/checklist", method="POST",
+                  json={"action": "rename", "position": 1, "label": "Read the updated instructions."})
+        revised = self.call(human, route).json
+        self.assertEqual(revised["task"]["tags"], ["sample"])
+        self.assertEqual(revised["checklist"][0]["label"], "Read the updated instructions.")
+        self.assertEqual(revised["task"]["state"], "in_progress")
 
     def test_project_agent_edits_and_handoffs_are_attributed_within_membership(self):
         self.provider.people["Outside"] = {
@@ -8326,7 +8349,7 @@ class TasksServiceTest(unittest.TestCase):
 
         app = self.app(GitHubReader(transport=github), portal_reader=True)
         avery, avery_id = self.login(app, "Avery")
-        blake, _ = self.login(app, "Blake")
+        blake, blake_id = self.login(app, "Blake")
         sam, _ = self.login(app, "Sam")
         self.action(avery, "create-task", {"title": "Release sample", "step": "Compare the signed files."})
         self.action(blake, "create-task", {"title": "Other work", "step": "Review the sample."})
@@ -8375,12 +8398,12 @@ class TasksServiceTest(unittest.TestCase):
         attach(avery, "T-1", "Release handoff", raft_task)
         attach(avery, "T-1", "Tracking issue", github_issue.lower() + "/")
         attach(avery, "T-1", "GitHub", github_pull)
-        attach(avery, "T-1", "Updated request label", thread)
+        attach(blake, "T-1", "Updated request label", thread)
         attach(avery, "T-1", "Updated request label", thread)
         attach(blake, "T-2", "Context from release", thread)
         attach(blake, "T-2", "Upstream tracker", github_issue)
         self.action(avery, "link-github", {"id": "T-1", "github_url": github_issue.lower()})
-        attach(blake, "T-1", "Other owner's edit", thread, 409)
+        attach(blake, "T-1", "Provider source edit", github_issue, 409)
         attach(sam, "T-1", "Human session", thread, 403)
         attach(app.test_client(), "T-1", "Unsigned edit", thread, 401)
         for invalid in ("file:///tmp/note.md", "#project:#42", "https://user@raft.example.test/path",
@@ -8417,9 +8440,9 @@ class TasksServiceTest(unittest.TestCase):
             {"action": "reference-add", "label": "Release handoff"},
             {"action": "reference-add", "label": "Original request"},
         ])
+        self.assertEqual([event["actor"] for event in public_history[:7]], [blake_id] + [avery_id] * 6)
         for event in public_history[:7]:
-            self.assertEqual((event["actor"], event["action"], event["state"], event["links"]),
-                             (avery_id, "log", "ready", []))
+            self.assertEqual((event["action"], event["state"], event["links"]), ("log", "ready", []))
             self.assertIn(event["note"], ("Reference added.", "Reference label updated.", "Source attached."))
         self.assertEqual(inspected, [])
         fetched = self.action(avery, "fetch-github", {"id": "T-1"})

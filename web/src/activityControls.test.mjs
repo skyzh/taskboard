@@ -1250,12 +1250,13 @@ test('ticket editors share the signed guidance read for the ticket project', () 
   }
 })
 
-test('ticket writers can edit details and only checklist editors get checklist controls', () => {
+test('ticket writers can edit content and only owners and managers can reopen or remove steps', () => {
   const record = {
     task: { id: 1, key: 'T-1', title: 'Check the CSV', state: 'in_progress', dri: 'Morgan',
-      checklist_completed: 0, checklist_total: 1 },
-    checklist: [{ position: 1, label: 'Read the input' }],
-    sources: [], workers: [], can_edit_details: true, can_edit_checklist: false, tag_editable: false,
+      checklist_completed: 1, checklist_total: 1, tags: ['decision-record', 'sample'] },
+    checklist: [{ position: 1, label: 'Read the input', checked: 1 }],
+    sources: [], workers: [], can_edit_details: true, can_edit_checklist: false, can_edit_checklist_text: true,
+    tag_editable: true, can_tag_decision_record: false,
   }
   fixture.resources = { '/tasks/1': { data: record } }
   fixture.pages = {}
@@ -1267,11 +1268,15 @@ test('ticket writers can edit details and only checklist editors get checklist c
   const peer = render()
   assert.match(peer, /Save details/)
   assert.match(peer, /Read the input/)
-  assert.doesNotMatch(peer, /Add checklist step|Edit step 1/)
+  assert.match(peer, /Edit step 1.*Add checklist step/)
+  assert.match(peer, /Remove tag sample/)
+  assert.doesNotMatch(peer, /Reopen step|Remove step|Remove tag decision-record/)
 
   record.can_edit_checklist = true
-  assert.match(render(), /Edit step 1.*Add checklist step/)
+  assert.match(render(), /Reopen step.*Remove step/)
   delete record.can_edit_checklist
+  delete record.can_edit_checklist_text
+  record.tag_editable = false
   assert.doesNotMatch(render(), /Add checklist step|Edit step 1/)
   record.tag_editable = true
   assert.match(render(), /Edit step 1.*Add checklist step/)

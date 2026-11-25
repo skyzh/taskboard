@@ -4,7 +4,7 @@ import { request } from './data.js'
 const tagName = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const maxLength = 32
 
-export default function TaskTags({ task, editable, onChanged }) {
+export default function TaskTags({ task, editable, canTagDecisionRecord, onChanged }) {
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState(null)
@@ -36,6 +36,10 @@ export default function TaskTags({ task, editable, onChanged }) {
       setNotice({ error: true, text: 'Use 1 to 32 letters or digits, with single hyphens between words.' })
       return
     }
+    if (tag === 'decision-record' && !canTagDecisionRecord) {
+      setNotice({ error: true, text: 'The decision-record tag is reserved for Knowledge classification.' })
+      return
+    }
     return save(tag, 'add')
   }
 
@@ -46,8 +50,9 @@ export default function TaskTags({ task, editable, onChanged }) {
           {tags.map(tag => (
             <li key={tag}>
               <span>{tag}</span>
-              <button type="button" disabled={saving} aria-label={`Remove tag ${tag}`}
-                onClick={() => save(tag, 'remove')}>Remove</button>
+              {(tag !== 'decision-record' || canTagDecisionRecord) &&
+                <button type="button" disabled={saving} aria-label={`Remove tag ${tag}`}
+                  onClick={() => save(tag, 'remove')}>Remove</button>}
             </li>
           ))}
         </ul>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { request } from './data.js'
 
-export default function ChecklistEdit({ task, step, onChanged }) {
+export default function ChecklistEdit({ task, step, canManageStep = true, onChanged }) {
   const [draft, setDraft] = useState(null)
   const [saving, setSaving] = useState(false)
   const [failure, setFailure] = useState(null)
@@ -45,9 +45,9 @@ export default function ChecklistEdit({ task, step, onChanged }) {
         <button type="submit" disabled={!label.trim() || unchanged || saving}>
           {rename ? 'Save wording' : 'Add step'}
         </button>
-        {complete && <p>Keep completed steps unless the work has changed.</p>}
-        {complete && <button type="button" disabled={saving} onClick={() => save('reopen')}>Reopen step</button>}
-        {step && <button type="button" disabled={saving} onClick={() => save('remove')}>Remove step</button>}
+        {canManageStep && complete && <p>Keep completed steps unless the work has changed.</p>}
+        {canManageStep && complete && <button type="button" disabled={saving} onClick={() => save('reopen')}>Reopen step</button>}
+        {canManageStep && step && <button type="button" disabled={saving} onClick={() => save('remove')}>Remove step</button>}
         {failure && <p role="alert">{failure}</p>}
       </form>
     </details>

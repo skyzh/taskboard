@@ -418,6 +418,8 @@ function KnowledgeRecordActions({ record, id, activity, signedIn, onChanged }) {
       <EditToggle label="Edit Knowledge entry" active={editing} onToggle={() => setEditing(value => !value)} />
       <div hidden={!editing}>
         <TaskDetailsEdit key={id} task={record.task} brief={record.brief} onChanged={onChanged} />
+        <TaskTags task={record.task} editable={editing && record.tag_editable} canTagDecisionRecord={false}
+          onChanged={onChanged} />
       </div>
     </>}
     <RecordActivity id={id} task={record.task} activity={activity} knowledge />
@@ -462,6 +464,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const showActions = signedIn && actionsOpen
   const editingTags = showActions && record?.tag_editable
   const canEditChecklist = record?.can_edit_checklist ?? record?.tag_editable
+  const canEditChecklistText = record?.can_edit_checklist_text ?? canEditChecklist
   const canAnswer = task && mayAnswer(task, session)
   const ownsReturnPath = task && session.data?.actor?.id && session.data.actor.id === task.dri
     && ['ready', 'in_progress', 'parked'].includes(task.state)
@@ -557,7 +560,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               <Markdown text={record.brief} className="prose" relatedTasks={record.related_tasks} />
             </section>}
             {signedIn && <TicketKnowledgeLinks ticket={task.key || id} revision={revision} />}
-            {(record.checklist.length > 0 || canEditChecklist) && (
+            {(record.checklist.length > 0 || canEditChecklistText) && (
               <details className="detail-checklist" open={checklistOpen}
                 hidden={!record.checklist.length && !showActions}
                 onToggle={event => setChecklistOpen(event.currentTarget.open)}>
@@ -567,10 +570,10 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
                 </summary>
                 {record.checklist.length > 0 && <ChecklistSteps steps={record.checklist} relatedTasks={record.related_tasks}
                   showMissingTimes
-                  editStep={canEditChecklist ? step => <div hidden={!showActions}>
-                    <ChecklistEdit task={task} step={step} onChanged={onChanged} />
+                  editStep={canEditChecklistText ? step => <div hidden={!showActions}>
+                    <ChecklistEdit task={task} step={step} canManageStep={canEditChecklist} onChanged={onChanged} />
                   </div> : undefined} />}
-                {canEditChecklist && <div hidden={!showActions}><ChecklistEdit task={task} onChanged={onChanged} /></div>}
+                {canEditChecklistText && <div hidden={!showActions}><ChecklistEdit task={task} onChanged={onChanged} /></div>}
               </details>
             )}
             <div hidden={!showActions}>
@@ -584,7 +587,8 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
                 <TaskClosure key={`close-${task.id}`} task={task} onChanged={onChanged} />
               )}
             </div>
-            <TaskTags task={task} editable={editingTags} onChanged={onChanged} />
+            <TaskTags task={task} editable={editingTags} canTagDecisionRecord={record.can_tag_decision_record ?? record.tag_editable}
+              onChanged={onChanged} />
           </>}
         </div>
         {task && <TicketContext key={id} record={record} id={id} task={task} state={state} wide={sidebar} detailed={detailed} properties={properties}

@@ -1424,7 +1424,7 @@ def create_app(
         allowed = key is not None and projects.manages(db(), project, key)
         is_note = ledger.is_knowledge(task)
         editable = allowed or (not is_note and key is not None and task["dri"] == key)
-        details_editable = can_edit_shared_details(db(), actor, task, project)
+        details_editable = can_edit_shared_content(db(), actor, task, project)
         may_close = editable and not is_note
         if ask := task.get("peer_request"):
             may_close = key is not None and (key == ask["requester"] or allowed)
@@ -1442,8 +1442,10 @@ def create_app(
         return {
             **result, "ownership_actions": ledger.ownership_actions(task)
             if allowed and not (is_note or ask or result["goal"]) else [],
-            "tag_editable": editable,
+            "tag_editable": details_editable,
+            "can_tag_decision_record": not is_note and editable,
             "can_edit_checklist": not is_note and editable,
+            "can_edit_checklist_text": not is_note and details_editable,
             "can_close": not is_note and may_close and task["state"] != "done",
             "can_edit_details": details_editable,
             "can_edit_parking": (
@@ -1535,8 +1537,8 @@ def create_app(
 
     def mutate(command, actor, data, **fields):
         args = Namespace(command=command, by=actor["ledger_key"], **fields)
-        if command == "edit":
-            args.can_edit_details = lambda connection, task: can_edit_shared_details(
+        if command in ("edit", "tag", "checklist", "link-reference"):
+            args.can_edit_content = lambda connection, task: can_edit_shared_content(
                 connection, actor, task, projects.row_project(task),
             )
         if command == "transfer":
@@ -1811,7 +1813,7 @@ def create_app(
     def can_create_knowledge(actor, project, manager):
         return actor is not None and (actor["ledger_key"] == manager or project_agent(actor, project))
 
-    def can_edit_shared_details(connection, actor, task, project):
+    def can_edit_shared_content(connection, actor, task, project):
         if actor is None:
             return False
         require_local_project(project)

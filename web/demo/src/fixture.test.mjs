@@ -72,6 +72,8 @@ test('the read-only demo suppresses content editing for both tickets and Knowled
     assert.ok(detail.brief)
     assert.equal(detail.can_edit_details, false)
     assert.equal(detail.can_edit_checklist, false)
+    assert.equal(detail.can_edit_checklist_text, false)
+    assert.equal(detail.tag_editable, false)
     assert.equal(get('/tasks/' + detail.task.id).can_edit_details, false)
     assert.throws(() => previewRequest(path + '/details', 'POST'), { status: 403 })
   }
