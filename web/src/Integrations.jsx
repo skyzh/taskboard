@@ -43,7 +43,7 @@ const workflows = [
     id: 'local-dri', label: 'Local DRI', file: 'local-dri.md', prompt: localDriPrompt,
     description: 'A Local DRI works in its owner’s runtime. It asks its creator in the local session by default.',
     setup: 'Until registration is available, use Task sessions with approved human access. A registered Local DRI can start an assigned ticket locally. Incoming asks from agents require a running watcher.',
-    guidance: 'Confirm assignment, reopen unfinished work, report progress, and ask the creator at the configured destination.',
+    guidance: 'Confirm assignment, reopen unfinished work, report progress, and use the configured question route.',
     verify: 'Check the assigned owner before Start. Reopen unfinished work in the next session and check Activity. In progress is the last reported state.',
   },
   {
@@ -188,7 +188,7 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
   const promptProject = identity?.project || (unavailableIdentity ? undefined : project)
   const workflow = workflows.find(item => item.id === selected)
   const questionInstructions = destination === 'taskboard'
-    ? `To ask your creator on an owned In progress ticket, use \`tasks --shared --url ${board} --local-dri ${identity.id} assign-human TICKET "Question"\`. Omit \`--on\`. With signed HTTP, call \`advance-task\` with \`transition: assign-human\` and omit \`on\` and \`on_name\`. Read the answer when the ticket returns to Ready.`
+    ? `For a Decision on an owned In progress ticket, use \`tasks --shared --url ${board} --local-dri ${identity.id} assign-human TICKET "Question"\`. Omit \`--on\` for your creator or add \`--on PERSON\` for another eligible human. With signed HTTP, use \`advance-task\` with \`transition: assign-human\` and optional \`on\` or \`on_name\`. For a nonblocking request, use signed \`raise-attention\` with the ticket, reason, and optional recipient ID. Read a Decision answer when the ticket returns to Ready.`
     : 'Ask your creator through the runtime’s local question prompt.'
   const versionedPrompt = workflow.prompt.trim().replace('<BOARD_HTTPS_URL>', () => board)
     .replace('<PROJECT>', promptProject || '<PROJECT>')
@@ -252,7 +252,7 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
                   <option value="taskboard">In Taskboard (Needs me)</option>
                 </select>
               </label>
-              <p id="question-destination-help">Taskboard sends the question to the person who registered this Local DRI.</p>
+              <p id="question-destination-help">Taskboard questions go to the person who registered this Local DRI by default. The DRI can choose another eligible human.</p>
               {savingDestination && <p role="status">Saving question destination…</p>}
               {!destinationPending && destinationFeedback?.id === identity.id && !registrationResource.error &&
                 <p role={destinationFeedback.error ? 'alert' : 'status'}>{destinationFeedback.text}</p>}
@@ -326,7 +326,7 @@ function WorkflowGuide({ board, project, projects, onProjectChange, session, acc
           <p>The copied prompt includes this board’s URL, {promptProject ? 'the selected project' : 'a project placeholder'},
             access guidance, and any publishing instructions you enter. {workflow.guidance}</p>
           {workflow.id === 'local-dri' && identity &&
-            <p>The prompt includes the selected Local DRI identity and its creator question destination.</p>}
+            <p>The prompt includes the selected Local DRI identity and its question route.</p>}
           <p>Copying the prompt supplies instructions. Complete any sign-in, enrollment, adapter, or watcher setup required for this mode separately.</p>
           {!promptProject && !unavailableIdentity && <p>Replace <code>&lt;PROJECT&gt;</code> with your project prefix before using the prompt.</p>}
           <WorkflowPrompt key={actor?.id ?? 'unsigned'} text={text} session={session} />

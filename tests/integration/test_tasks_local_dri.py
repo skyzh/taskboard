@@ -370,8 +370,9 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertEqual(saved, {**legacy, **board_mode})
         self.assertEqual(call(sam, REGISTER, method="POST", headers=ORIGIN, json=payload).json["local_dri"], saved)
         self.assertEqual(action(client, "context", headers=sender)["human_questions"], "taskboard")
-        for override in ({"on": quinn_id}, {"on_name": "Quinn"}, {"id": "OPS-1"}):
-            action(client, "advance-task", {**question, **override}, headers=sender, status=403)
+        action(client, "advance-task", {**question, "id": "OPS-1"}, headers=sender, status=403)
+        action(client, "advance-task", {**question, "on": manager_id}, headers=sender, status=404)
+        action(client, "advance-task", {**question, "on": quinn_id, "on_name": "Quinn"}, headers=sender, status=400)
         action(client, "advance-task", {**question, "id": "T-2"}, headers=sender, status=409)
 
         board_url = service.ORIGIN + service.BASE
@@ -386,25 +387,107 @@ class LocalDRIRoutingTest(unittest.TestCase):
                 redirect_stdout(StringIO()) as output, redirect_stderr(StringIO()) as errors:
             command = ["--shared", "--url", board_url, "--local-dri", legacy["id"]]
             self.assertEqual(tasks_main([*command, "context"]), 0)
-            self.assertIn("Omit --on", output.getvalue())
+            self.assertIn("--on PERSON", output.getvalue())
             self.assertEqual(tasks_main([*command, "assign-human", "T-1", question["note"],
                                          "--option", "Summary", "--option", "Full result"]), 0)
             self.assertIn("Decision requested", output.getvalue())
             self.assertEqual(errors.getvalue(), "")
 
         action(client, "advance-task", question, headers=sender, status=409)
-        action(client, "advance-task", {**question, "transition": "redirect-decision", "on": quinn_id},
-               headers=sender, status=403)
-        decision, = call(sam, decisions).json["items"]
+        first, = call(sam, decisions).json["items"]
         self.assertEqual(call(quinn, decisions).json["items"], [])
         self.assertEqual(action(manager, "task", query_string={"id": "T-1"})["task"]["waiting_on"], sam_id)
+        action(client, "advance-task", {**question, "transition": "redirect-decision", "on": quinn_id,
+                                         "note": "Quinn owns this decision."}, headers=sender)
+        self.assertEqual(call(sam, decisions).json["items"], [])
+        decision, = call(quinn, decisions).json["items"]
+        self.assertNotEqual(decision["event_id"], first["event_id"])
+        self.assertEqual(action(manager, "task", query_string={"id": "T-1"})["task"]["waiting_on"], quinn_id)
         answer = {"request_id": decision["event_id"], "note": "It has the evidence.", "choice": "Full result"}
         route = "/api/v1/tasks/T-1/decision"
-        call(quinn, route, method="POST", headers=ORIGIN, json=answer, status=409)
+        call(sam, route, method="POST", headers=ORIGIN, json=answer, status=409)
         call(sam, settings, method="PUT", headers=ORIGIN, json={"human_questions": "local_prompt"})
-        call(sam, route, method="POST", headers=ORIGIN, json=answer)
+        call(quinn, route, method="POST", headers=ORIGIN, json=answer)
         resumed = action(client, "task", query_string={"id": "T-1"}, headers=sender)["task"]
         self.assertEqual((resumed["state"], resumed["note"]), ("ready", "Full result · It has the evidence."))
         action(client, "advance-task", {"id": "T-1", "transition": "start", "note": "Use the full result."},
                headers=sender)
         action(client, "advance-task", question, headers=sender, status=403)
+
+
+    def test_taskboard_questions_check_live_recipient_access_and_keep_inboxes_private(self):
+        fixture = service.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.provider = service.FixtureRaftInstallation()
+        app = fixture.app(portal_reader=True, session_dir=fixture.database.parent / "sessions",
+                          human_session_installation_id=service.INSTALLATION)
+        team, _ = fixture.login(app, "Avery")
+        sam, sam_id = fixture.login(app, "Sam")
+        quinn, quinn_id = fixture.login(app, "Quinn")
+        client = app.test_client()
+        call, action = fixture.call, fixture.action
+        registered = call(sam, REGISTER, method="POST", headers=ORIGIN, json={
+            "name": "Research runtime", "project": "T", "human_questions": "taskboard",
+        }).json["local_dri"]
+        approval = call(sam, CONNECTIONS, method="POST", headers=ORIGIN, json={"session": "Research runtime"})
+        headers = {**ORIGIN, "Authorization": "Bearer " + approval.json["token"],
+                   "X-Taskboard-Local-DRI": registered["id"]}
+
+        action(team, "create-task", {"title": "Check the sample", "step": "Read the result."})
+        action(team, "create-task", {"title": "Other work", "step": "Keep the current owner."})
+        action(team, "handoff", {"id": "T-1", "owner": registered["id"], "note": "Read the result."})
+        action(client, "advance-task", {"id": "T-1", "transition": "start", "note": "Read the result."}, headers=headers)
+        ask = {"id": "T-1", "reason": "Review the source."}
+        question = {"id": "T-1", "transition": "assign-human", "note": "Which result should we use?"}
+        with closing(sqlite3.connect(fixture.database)) as connection, connection:
+            connection.execute(
+                "INSERT INTO board_principals (server_id, kind, subject, ledger_key, name) VALUES (?, 'human', ?, ?, ?)",
+                (str(uuid4()), str(uuid4()), "foreign", "Foreign recipient"),
+            )
+        action(client, "raise-attention", {**ask, "recipient": "foreign"}, headers=headers, status=404)
+        action(client, "advance-task", {**question, "on": "foreign"}, headers=headers, status=404)
+        role = fixture.provider.people["Quinn"]["sub"]
+        fixture.provider.roles.pop(role)
+        action(client, "raise-attention", {**ask, "recipient": quinn_id}, headers=headers, status=403)
+        action(client, "advance-task", {**question, "on_name": "Quinn"}, headers=headers, status=403)
+        action(client, "raise-attention", {**ask, "recipient": "unknown"}, headers=headers, status=404)
+        fixture.provider.roles[role] = "member"
+        self.assertNotIn("raise-attention", action(client, "context", headers=headers)["unavailable_actions"])
+        action(client, "raise-attention", {**ask, "id": "T-2", "recipient": quinn_id}, headers=headers, status=403)
+        self.assertEqual(call(sam, "/api/v1/notifications/requests").json["items"], [])
+        self.assertEqual(call(quinn, "/api/v1/notifications/requests").json["items"], [])
+        to_quinn = action(client, "raise-attention", {**ask, "recipient": quinn_id}, headers=headers)
+        to_sam = action(client, "raise-attention", ask, headers=headers)
+        self.assertEqual([item["id"] for item in call(quinn, "/api/v1/notifications/requests").json["items"]],
+                         [to_quinn["id"]])
+        self.assertEqual([item["id"] for item in call(sam, "/api/v1/notifications/requests").json["items"]],
+                         [to_sam["id"]])
+        handled = f"/api/v1/notifications/requests/{to_quinn['id']}/handled"
+        call(sam, handled, method="POST", headers=ORIGIN, status=404)
+        call(quinn, handled, method="POST", headers=ORIGIN)
+        unchanged = action(client, "task", headers=headers, query_string={"id": "T-1"})["task"]
+        self.assertEqual((unchanged["state"], unchanged["dri"]), ("in_progress", registered["id"]))
+
+        board_url = service.ORIGIN + service.BASE
+        board = DirectBoard(board_url, local_dri=registered["id"])
+
+        def signed_request(path, method="GET", body=None):
+            response = call(client, path, method=method, json=body, headers=headers)
+            return response.status_code, response.json
+
+        with patch.object(board, "request", side_effect=signed_request), \
+                patch("taskboard_cli.shared.DirectBoard", return_value=board), \
+                redirect_stdout(StringIO()) as output, redirect_stderr(StringIO()) as errors:
+            command = ["--shared", "--url", board_url, "--local-dri", registered["id"]]
+            self.assertEqual(tasks_main([*command, "assign-human", "T-1", question["note"], "--on", "@quinn"]), 0)
+            self.assertIn("Decision requested", output.getvalue())
+            self.assertEqual(errors.getvalue(), "")
+        self.assertEqual(call(sam, "/api/v1/notifications/decisions").json["items"], [])
+        item, = call(quinn, "/api/v1/notifications/decisions").json["items"]
+        route = "/api/v1/tasks/T-1/decision"
+        call(quinn, route, method="POST", headers=ORIGIN, json={"request_id": item["event_id"], "note": "Use row one."})
+        action(client, "advance-task", {**question, "transition": "start"}, headers=headers)
+        action(client, "advance-task", {**question, "transition": "wait", "on": quinn_id}, headers=headers)
+        item, = call(quinn, "/api/v1/notifications/decisions").json["items"]
+        self.assertEqual((item["waiting_on"], item["dri"]), (quinn_id, registered["id"]))

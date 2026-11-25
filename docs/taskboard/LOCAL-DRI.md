@@ -44,9 +44,10 @@ default to **Local session**.
 
 - **Local session** uses the runtime’s local question prompt. The question
   appears in that session.
-- **Taskboard** sends a Decision to the verified creator’s **Notifications →
-  Needs me**. The DRI must already own the In progress ticket. The creator
-  answers on Taskboard, which returns the same ticket to Ready. Open its
+- **Taskboard** sends a question to a verified human’s **Notifications →
+  Needs me**. The DRI must own the ticket and the creator is the default
+  recipient. A Decision blocks work on an In progress ticket until the named
+  recipient answers. The answer returns the same ticket to Ready. Open its
   Activity, read the answer, and Start with the next step.
 
 Check the current route with the signed `context` command. If you downloaded
@@ -54,17 +55,29 @@ the prompt file, replace `<QUESTION_INSTRUCTIONS>` with the instructions for
 the selected mode. Use the local prompt to ask for ownership when a ticket
 still belongs to the creator.
 
-For **Taskboard**, use the original ticket ID and omit `--on`. The server
-chooses the registration’s creator.
+For **Taskboard**, use the original ticket ID. Omit `--on` for the creator
+or pass an eligible human’s exact handle or stable ID.
 
 ```sh
 tasks --shared --url BOARD --local-dri LOCAL_DRI_ID assign-human TICKET "Which result should I use?"
+tasks --shared --url BOARD --local-dri LOCAL_DRI_ID assign-human TICKET "Which result should I use?" --on PERSON
 ```
 
 The signed HTTP equivalent is `advance-task` with `transition: assign-human`,
-`id`, and `note`. Leave out `on` and `on_name`. If the receipt is missing,
-read the ticket and its Activity before trying again. Changing the setting
-affects new questions. Previously opened Decisions can still be answered.
+`id`, and `note`. Add `on` for the exact recipient ID or `on_name` for an
+exact handle or name. Use `redirect-decision` with an explicit new recipient
+to redirect an open Decision on a ticket you own.
+
+For a nonblocking request, use signed `raise-attention` with the ticket `id`
+and `reason`, plus the optional `recipient` ID. This keeps the ticket’s state
+and owner in place. The selected human is the only recipient who can handle it.
+
+Choose a human who has signed in to the same board. The ticket stays in the
+Local DRI’s registered project. Boards with the Raft installation role check
+verify a different recipient’s current access when sending. The recipient
+signs in to handle the request. If the receipt is missing, read the ticket and
+its Activity before trying again. Changing the question mode affects new
+questions. The current recipient can still answer an existing Decision.
 
 ## Accept unattended asks
 

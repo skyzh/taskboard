@@ -2814,11 +2814,28 @@ def create_app(
         ).fetchone() is not None
         return {"watching": watching}
 
-    def raise_attention(actor, number, data):
-        if g.get("local_dri") is not None:
+    def local_question_recipient(profile, key):
+        if profile["human_questions"] != local_dri.TASKBOARD:
             raise RequestError(local_dri.QUESTION_REQUIRED, 403)
+        if key is None or key == profile["owner"]:
+            # The Local DRI connection just verified the creator's human session.
+            return require_person(profile["owner"], "human")
+        person = profiles.get(db(), key)
+        if (person is None or person["kind"] != "human"
+                or person["server_id"] != raft_config["server_id"]):
+            raise RequestError("Choose a human who has signed in to this board.", 404)
+        access = raft.human_recipient_access(person["subject"])
+        if access == "unavailable":
+            raise RequestError("The recipient's board access could not be verified. Try again later.", 503)
+        if access == "denied":
+            raise RequestError("Choose a human who has access to this board.", 403)
+        return person["ledger_key"]
+
+    def raise_attention(actor, number, data):
+        local = g.get("local_dri")
         sender = actor["ledger_key"]
-        recipient = require_person(text(data, "recipient", maximum=160), "human")
+        recipient = text(data, "recipient", optional=local is not None and "recipient" not in data, maximum=160)
+        recipient = local_question_recipient(local, recipient) if local else require_person(recipient, "human")
         reason = text(data, "reason")
         links = one_link(data)
         unblocks = task_number(data["unblocks"]) if "unblocks" in data else None
@@ -3095,18 +3112,18 @@ def create_app(
         if on and command not in ("wait", "assign-human", "redirect-decision"):
             raise RequestError("This transition does not take a dependency or recipient.")
         local = g.get("local_dri")
-        if local is not None and command in ("assign-human", "redirect-decision"):
-            if local["human_questions"] == local_dri.LOCAL_PROMPT:
-                raise RequestError(local_dri.QUESTION_REQUIRED, 403)
-            if command == "redirect-decision" or "on" in data or "on_name" in data:
-                raise RequestError("Local DRI decisions go to their registered creator. Omit the recipient.", 403)
-            on = local["owner"]
-        elif "on_name" in data:
-            if on is not None or command not in ("assign-human", "redirect-decision"):
+        decision = command in ("assign-human", "redirect-decision")
+        if decision and local is not None and local["human_questions"] != local_dri.TASKBOARD:
+            raise RequestError(local_dri.QUESTION_REQUIRED, 403)
+        if "on_name" in data:
+            if "on" in data or not decision:
                 raise RequestError("Use either a name or an exact ID when assigning or redirecting a human decision.")
-            on = resolve_assignee(text(data, "on_name", maximum=101), "human", projects.default_project(db()))
-        if command in ("assign-human", "redirect-decision"):
-            on = require_person(on, "human")
+            project = local["project"] if local else projects.default_project(db())
+            on = resolve_assignee(text(data, "on_name", maximum=101), "human", project)
+        if decision:
+            if command == "redirect-decision" and on is None:
+                raise RequestError("Choose a new recipient to redirect the decision.")
+            on = local_question_recipient(local, on) if local else require_person(on, "human")
         blocked_by = data.get("blocked_by")
         if "blocked_by" in data:
             try:
@@ -3141,8 +3158,8 @@ def create_app(
             if on == actor["ledger_key"]:
                 raise RequestError("Choose a different person for this wait.")
             human_wait = person["kind"] == "human"
-            if human_wait and g.get("local_dri") is not None:
-                raise RequestError(local_dri.QUESTION_REQUIRED, 403)
+            if human_wait and local is not None:
+                on = local_question_recipient(local, on)
             if not human_wait:
                 peer = on
         parking = parking_fields(data, command)
@@ -3239,10 +3256,11 @@ def create_app(
             return {"project": project, "kind": "unavailable"}
         return {"project": project, "kind": "empty"}
 
-    def local_dri_action_limits():
+    def local_dri_action_limits(profile):
         limits = {name: STANDING_RAFT_REQUIRED for name in sorted(STANDING_RAFT_ACTIONS)}
         limits["create-project"] = "Project creation requires a human or Team DRI with a project creation grant."
-        limits["raise-attention"] = "Use the Local DRI's configured question route."
+        if profile["human_questions"] != local_dri.TASKBOARD:
+            limits["raise-attention"] = local_dri.QUESTION_REQUIRED
         if codex_snapshot_uploader is not None:
             limits[CODEX_SNAPSHOT_ACTION] = "Only the board's configured snapshot uploader can use this action."
         return limits
@@ -3251,7 +3269,7 @@ def create_app(
         write = request.method != "GET"
         actor = current_actor(write=write, required=True)
         profile = g.get("local_dri")
-        limits = local_dri_action_limits() if profile is not None else {}
+        limits = local_dri_action_limits(profile) if profile is not None else {}
         if name in limits:
             raise RequestError(limits[name], 403)
         if name == "create-project":
@@ -3276,6 +3294,7 @@ def create_app(
             if profile is not None:
                 context["project"] = profile["project"]
                 context["human_questions"] = profile["human_questions"]
+                context["local_question_recipients"] = True
                 context["unavailable_actions"] = limits
             if agent_guidance.cli:
                 context["cli_guidance"] = agent_guidance.cli

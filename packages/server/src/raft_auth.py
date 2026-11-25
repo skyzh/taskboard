@@ -350,6 +350,18 @@ class RaftAuth:
         if role not in _RAFT_ROLES:
             raise _Rejected(_Failure.PROVIDER)
 
+    def human_recipient_access(self, subject: str) -> str:
+        """Check a known human through the configured installation role gate."""
+        if not _canonical_uuid(subject):
+            return "denied"
+        if self._human_installation_id is None:
+            return "directory"
+        try:
+            self._require_current_human_access(subject)
+        except _Rejected as error:
+            return "unavailable" if error.failure == _Failure.PROVIDER else "denied"
+        return "allowed"
+
     def profile_photo_url(self, picture: str | None) -> str | None:
         if not picture or any(character.isspace() or ord(character) < 32 for character in picture):
             return None

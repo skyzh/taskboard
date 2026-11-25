@@ -167,7 +167,7 @@ _ACTIONS = {
     "advance-task": _Action("POST", "Advance a task you own or record its next step.", {
         **_TASK, "transition": "Task transition, such as start, update, wait, resume, or done.", "note": _NOTE,
     }, {
-        "on": "Exact decision recipient ID or wait dependency. A Local DRI configured for Taskboard decisions omits the recipient.",
+        "on": "Exact decision recipient ID or wait dependency. A new Local DRI decision defaults to its creator.",
         "on_name": "Exact handle or display name of a signed-in human for assign-human or redirect-decision.",
         "attention_request_id": "Exact open Needs me request to wait for, instead of a named dependency.",
         "blocked_by": "Separate blocking ticket ID for a wait, such as T-49.",
@@ -247,9 +247,12 @@ _ACTIONS = {
     }, {"at": "Whole-second UTC timestamp for an at checkpoint."}),
     "my-watches": _Action("GET", "Read recent activity on tasks you follow.", optional=_PROJECT | _SCOPE | _PAGINATION),
     "my-activity": _Action("GET", "Read the activity of tasks you own or follow.", optional=_PROJECT | _SCOPE | _PAGINATION),
-    "raise-attention": _Action("POST", "Ask a verified human to look at a task you own. A Local DRI uses its configured question route.", {
-        **_TASK, "recipient": "Human's stable ID from assignees.", "reason": "What needs their attention.",
-    }, {"unblocks": "Optional ticket ID whose owner can link its wait to this request.", **_EVIDENCE}),
+    "raise-attention": _Action("POST", "Ask a verified human to look at a task you own.", {
+        **_TASK, "reason": "What needs their attention.",
+    }, {
+        "recipient": "Human's stable ID from assignees. A Taskboard-mode Local DRI defaults to its creator.",
+        "unblocks": "Optional ticket ID whose owner can link its wait to this request.", **_EVIDENCE,
+    }),
     "link-github": _Action("POST", "Link a GitHub issue or pull request to a task you own.", {
         **_TASK, "github_url": "GitHub HTTPS issue or pull request URL.",
     }),
