@@ -51,7 +51,8 @@ ticket's status and owner. On an In progress ticket the owner can request a
 Decision, which moves the ticket to Human review. Only the selected human can
 handle the request or answer the Decision.
 
-Open the signed ticket or use one of these shared CLI commands:
+Open **Send Needs You ask** on the signed ticket, or use one of these shared
+CLI commands:
 
 ```sh
 tasks --shared assign-human T-42 "Which format should we use?" --on @sam --option CSV --option JSON
