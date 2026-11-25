@@ -376,11 +376,13 @@ function TicketContext({ record, id, task, state, wide, detailed, properties, se
       {wide ? <TicketIdentity task={task} state={state}>
         {watch}
       </TicketIdentity> : watch}
-      {properties.length > 0 && (
+      {(properties.length > 0 || record.ticket_fields?.fields?.length > 0) && (
         <dl className="ticket-properties">
           {properties.map(([label, value]) => (
             <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
           ))}
+          <TicketFields configuration={record.ticket_fields} ticket={task.key || id}
+            editing={showActions} onChanged={onChanged} />
         </dl>
       )}
       <RecordedActivity activity={record.last_activity} />
@@ -479,7 +481,8 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const backLabel = fromSearch ? 'Back to Search results' : knowledge ? 'Open in Knowledge' : 'Back to Tasks'
   const properties = task && !knowledge ? ticketProperties(record, state, editingTags) : []
   const detailed = Boolean(record && !knowledge && (record.brief || record.checklist.length || record.sources.length
-    || record.related_tasks?.length || record.goal?.tickets.length || state === 'human_review' || properties.length || editingTags))
+    || record.related_tasks?.length || record.goal?.tickets.length || state === 'human_review' || properties.length
+    || record.ticket_fields?.fields?.length || editingTags))
   const sidebar = wide && detailed
   const anchor = taskHref(id)
   const currentHref = fromSearch ? `${anchor}?${new URLSearchParams({ 'from-search': fromSearch })}` : anchor
@@ -560,8 +563,6 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               <h2 id={`task-description-${id}`}>Description</h2>
               <Markdown text={record.brief} className="prose" relatedTasks={record.related_tasks} />
             </section>}
-            <TicketFields configuration={record.ticket_fields} ticket={task.key || id}
-              editing={showActions} onChanged={onChanged} />
             {signedIn && <TicketKnowledgeLinks ticket={task.key || id} revision={revision} />}
             {(record.checklist.length > 0 || canEditChecklistText) && (
               <details className="detail-checklist" open={checklistOpen}

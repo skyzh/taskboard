@@ -85,32 +85,24 @@ function FieldEditor({ field, ticket, onChanged }) {
 }
 
 export default function TicketFields({ configuration, ticket, editing, onChanged }) {
-  if (!configuration?.fields?.length) return null
-  return (
-    <section aria-label="Ticket fields">
-      <h2>Ticket fields</h2>
-      <dl className="ticket-properties">
-        {configuration.fields.map(field => (
-          <div key={field.key}>
-            <dt>{field.label}</dt>
-            <dd>
-              <span>
-                {displayValue(field)}
-                {field.method === 'estimated' && ' · Estimated'}
-                {field.coverage === 'partial' && ' · Partial'}
-              </span>
-              {field.basis && <details>
-                <summary>Evidence</summary>
-                <p>{field.basis}</p>
-                <EvidenceLinks links={field.links} />
-              </details>}
-              {configuration.editable && <div hidden={!editing}>
-                <FieldEditor key={field.event_id || field.kind} field={field} ticket={ticket} onChanged={onChanged} />
-              </div>}
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  )
+  return configuration?.fields?.map(field => (
+    <div key={field.key}>
+      <dt>{field.label}</dt>
+      <dd>
+        <span>
+          {displayValue(field)}
+          {field.method === 'estimated' && ' · Estimated'}
+          {field.coverage === 'partial' && ' · Partial'}
+        </span>
+        {field.basis && <details>
+          <summary>Evidence</summary>
+          <p>{field.basis}</p>
+          <EvidenceLinks links={field.links} />
+        </details>}
+        {configuration.editable && <div hidden={!editing}>
+          <FieldEditor key={field.event_id || field.kind} field={field} ticket={ticket} onChanged={onChanged} />
+        </div>}
+      </dd>
+    </div>
+  ))
 }
