@@ -52,6 +52,14 @@ test('the reviewer report shows the queued ask and the ask already in progress',
   }
 })
 
+test('the demo reader has no watches in any report scope', () => {
+  for (const scope of ['project=T', 'project=FLOW', 'scope=all']) {
+    assert.deepEqual(get('/reports?view=watching&' + scope).items, [])
+    assert.ok(get('/reports?view=all&' + scope).items.length > 0)
+  }
+  assert.throws(() => previewRequest('/tasks/FLOW-1/watch', 'POST'), { status: 403 })
+})
+
 test('the fixture surfaces a decision and a staged Knowledge entry with original ticket links', () => {
   const [decision] = get('/notifications/needs-you?project=FLOW').items
   assert.equal(decision.kind, 'decision')

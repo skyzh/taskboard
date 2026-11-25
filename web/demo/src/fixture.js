@@ -110,7 +110,11 @@ export function previewRequest(path, method) {
   if (endpoint === '/session') return { actor: reader }
   if (endpoint === '/projects') return page([project, workflow.project])
   if (endpoint === '/revision') return { revision: 'public-demo-234-and-workflow' }
-  if (endpoint === '/reports') return page(workflowProject ? workflowReports(filters.get('view')) : reports)
+  if (endpoint === '/reports') {
+    const view = filters.get('view')
+    if (view === 'watching') return page()
+    return page(workflowProject ? workflowReports(view) : reports)
+  }
   if (endpoint === '/reports/request-log') return page(workflowProject ? workflow.request_log : [request])
   if (endpoint === '/projects/T/links') return { links: [{ kind: 'github', url: repository }] }
   if (endpoint === '/overview') {
