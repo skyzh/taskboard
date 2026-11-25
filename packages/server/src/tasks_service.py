@@ -2159,7 +2159,7 @@ def create_app(
     def overview():
         actor = current_actor()
         with tasks_storage.read(db()):
-            project = project_filter(request.args, use_default=True)
+            project = project_scope(request.args)
             result = query().overview(
                 now_before=page_args(request.args, "now_before")["before"],
                 decisions_before=page_args(request.args, "decisions_before")["before"],

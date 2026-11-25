@@ -37,18 +37,18 @@ import SegmentedControl from './SegmentedControl.jsx'
 const ownerOptionPrefix = 'owner:'
 const layoutOptions = [{ value: 'list', label: 'List' }, { value: 'kanban', label: 'Kanban' }]
 
-export function WorkQueue({ revision, overview, filters, setFilters, waitingLabel, setWaitingLabel, project, projectPicker,
+export function WorkQueue({ revision, overview, filters, setFilters, waitingLabel, setWaitingLabel, project, projectPicker, allProjects,
   layout, setLayout, phoneColumn, setPhoneColumn, kanbanNavigation, listNavigation, listReturn }) {
   const kanban = layout === 'kanban'
   const closedAvailable = overview?.counts?.closed != null
   const { tag: selectedTag, ...otherFilters } = filters
-  const tag = selectedTag?.project === project ? selectedTag?.name : undefined
+  const tag = !allProjects && selectedTag?.project === project ? selectedTag?.name : undefined
   const taskFilters = { ...otherFilters, dri: filters.unassigned ? undefined : filters.dri, tag }
-  const projectTags = useResource(project ? queryPath('/tags', { project }) : null, revision)
+  const projectTags = useResource(project && !allProjects ? queryPath('/tags', { project }) : null, revision)
   const tagOptions = new Set(projectTags.data?.tags || [])
   if (tag) tagOptions.add(tag)
   const listFilters = {
-    ...taskFilters, project, order: filters.state === 'ready' ? 'priority' : undefined,
+    ...taskFilters, ...(allProjects ? { scope: 'all' } : { project }), order: filters.state === 'ready' ? 'priority' : undefined,
   }
   const listScope = queryPath('/tasks', listFilters)
   const page = useLoadedPages(kanban ? null : '/tasks', listFilters, revision, { rememberedNavigation: listNavigation })
@@ -96,7 +96,7 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
     ...(overview?.decisions?.items || []),
     ...(overview?.now?.items || []),
     ...(page.data?.items || []),
-    ...Object.values(columnPages).filter(page => page?.project === project).flatMap(page => page.items),
+    ...Object.values(columnPages).filter(page => page?.project === (allProjects ? undefined : project)).flatMap(page => page.items),
   ]
   for (const task of visibleTasks) addFilterName(waitingOn, task.waiting_on, task.waiting_profile)
   const selectedOwnerProfile = visibleTasks.find(task => task.dri === filters.dri && task.dri_profile)?.dri_profile
@@ -117,7 +117,7 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
             {filterCount ? `Filters (${filterCount})` : 'Filters'}
           </button>
         </div>
-        {overview?.merge_queue && <div className="queue-tools">
+        {!allProjects && overview?.merge_queue && <div className="queue-tools">
           <MergeQueue project={project} revision={revision} />
         </div>}
         <div className="filters" id="queue-filters" data-open={filtersOpen}>
@@ -174,7 +174,8 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
             </label>
           )}
         </div>
-        {kanban ? <Kanban key={project} project={project} filters={taskFilters} revision={revision}
+        {kanban ? <Kanban key={allProjects ? 'all' : project} project={allProjects ? undefined : project} allProjects={allProjects}
+          filters={taskFilters} revision={revision}
           closedAvailable={closedAvailable} phoneColumn={phoneColumn} setPhoneColumn={setPhoneColumn}
           counts={stateCounts} navigation={kanbanNavigation} onPage={updateColumn} /> : (
           <>

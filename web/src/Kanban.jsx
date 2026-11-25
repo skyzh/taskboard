@@ -20,9 +20,10 @@ function usePhoneLayout() {
   return phone
 }
 
-function KanbanColumn({ state, count, filters, project, revision, navigation, onPage }) {
+function KanbanColumn({ state, count, filters, project, allProjects, revision, navigation, onPage }) {
   const page = useLoadedPages('/tasks', {
-    project, state, dri: filters.dri, unassigned: filters.unassigned, waiting_on: filters.waiting_on, tag: filters.tag,
+    ...(allProjects ? { scope: 'all' } : { project }),
+    state, dri: filters.dri, unassigned: filters.unassigned, waiting_on: filters.waiting_on, tag: filters.tag,
     ...(filters.hide_requests && { hide_requests: true }),
     order: state === 'ready' ? 'priority' : undefined,
   }, revision, { rememberedNavigation: navigation })
@@ -44,7 +45,7 @@ function KanbanColumn({ state, count, filters, project, revision, navigation, on
   )
 }
 
-export default function Kanban({ filters, project, revision, closedAvailable, phoneColumn, setPhoneColumn, counts, navigation, onPage }) {
+export default function Kanban({ filters, project, allProjects, revision, closedAvailable, phoneColumn, setPhoneColumn, counts, navigation, onPage }) {
   const phone = usePhoneLayout()
   const availableColumns = closedAvailable ? [...columns, 'closed'] : columns
   const chosenState = filters.state || (phone ? phoneColumn : null)
@@ -66,7 +67,7 @@ export default function Kanban({ filters, project, revision, closedAvailable, ph
         tabIndex={chosenState ? undefined : 0}>
         {(chosenState ? [chosenState] : availableColumns).map(state => (
           <KanbanColumn key={state} state={state} count={phone && chosenState ? counts?.[state] : undefined}
-            filters={filters} project={project}
+            filters={filters} project={project} allProjects={allProjects}
             revision={revision} navigation={navigation} onPage={onPage} />
         ))}
       </div>

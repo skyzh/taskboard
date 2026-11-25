@@ -892,14 +892,15 @@ class BoardQueries:
         return rows[:limit + 1]
 
     def overview(self, *, now_before, decisions_before, limit, recipient, project=projects.DEFAULT):
+        project_term, bindings = ("tasks.project_prefix = ?", (project,)) if project is not None else ("1=1", ())
         counts = dict.fromkeys(ledger.STATES, 0)
         counts.update(self.db.execute(
             "SELECT display_state, COUNT(*) FROM (" + ledger.current_tasks_sql(self.db) +
-            " WHERE tasks.project_prefix = ?) GROUP BY display_state", (project,),
+            f" WHERE {project_term}) GROUP BY display_state", bindings,
         ))
         owners = [row[0] for row in self.db.execute(
-            f"SELECT DISTINCT dri FROM tasks WHERE project_prefix = ? AND dri <> '' "
-            f"AND {ledger.work_records_sql(self.db)} ORDER BY dri LIMIT 256", (project,)
+            f"SELECT DISTINCT dri FROM tasks WHERE {project_term} AND dri <> '' "
+            f"AND {ledger.work_records_sql(self.db)} ORDER BY dri LIMIT 256", bindings,
         )]
         return {
             "counts": counts,

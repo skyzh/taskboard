@@ -294,6 +294,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
   }
   const reportsProject = visibleProjects?.find(entry => entry.prefix === requestedReportsProject)?.prefix
     || defaultProject
+  const supportsAllProjects = ['board', 'team-overview'].includes(view)
+  const allProjectRead = supportsAllProjects && params.get('scope') === 'all'
   const project = view === 'reports' ? reportsProject : selected ? namedTask?.split('-')[0] || 'T'
     : logFilters?.project || scheduleProject || params.get('project') || preferredProject
   useEffect(() => {
@@ -317,7 +319,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   }, [view, fromList])
   const overview = useResource(
     !needsOidcSignIn && (!projectsPending || view === 'activity') && ['board', 'team-overview', 'activity'].includes(view)
-      ? queryPath('/overview', { project: view === 'activity' ? undefined : project })
+      ? queryPath('/overview', allProjectRead ? { scope: 'all' } : { project: view === 'activity' ? undefined : project })
       : null,
     revision,
   )
@@ -379,8 +381,16 @@ export default function App({ previewNotice, tourSteps } = {}) {
   }
   const projectPicker = hasProjectChoices && (
     <label className="project-switcher embedded-picker">
-      <select aria-label="Project" value={showAllReports ? 'all' : project} onChange={event => {
+      <select aria-label="Project" value={showAllReports || allProjectRead ? 'all' : project} onChange={event => {
         const value = event.target.value
+        if (supportsAllProjects) {
+          if (value !== 'all') chooseProject(value)
+          setQueueFilters(previous => ({ ...previous, tag: undefined }))
+          const next = new URLSearchParams(value === 'all' ? { scope: 'all' } : { project: value })
+          if (view === 'team-overview') next.set('section', 'team-overview')
+          window.location.hash = next.toString()
+          return
+        }
         if (value === 'all') {
           window.location.hash = reportFragment('all', assigneeView)
           return
@@ -393,7 +403,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
           : view === 'schedules' ? schedulesHref(value)
           : view
       }}>
-        {view === 'reports' && <option value="all">All projects</option>}
+        {(view === 'reports' || supportsAllProjects) && <option value="all">All projects</option>}
         {visibleProjects.map(entry => <option key={entry.prefix} value={entry.prefix}>{entry.title}</option>)}
       </select>
       <ChevronDown size={14} aria-hidden="true" focusable="false" />
@@ -526,6 +536,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
               </div>
               <WorkQueue revision={revision} overview={overview.data} filters={queueFilters} setFilters={setQueueFilters}
                 waitingLabel={waitingLabel} setWaitingLabel={setWaitingLabel}
+                allProjects={allProjectRead}
                 project={projectsPending && !params.get('project') ? undefined : project} projectPicker={projectPicker}
                 layout={queueLayout} setLayout={setQueueLayout} phoneColumn={phoneColumn} setPhoneColumn={setPhoneColumn}
                 kanbanNavigation={kanbanNavigation} listNavigation={listNavigation} listReturn={listReturn} />
@@ -543,8 +554,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'team-overview' && (
             <>
               <div className="page-heading"><h1 id="team-overview">Team overview</h1></div>
-              <Overview key={project} resource={overview} revision={revision} project={project} />
-              <Outcomes key={project} revision={revision} project={project} />
+              <Overview key={allProjectRead ? 'all' : project} resource={overview} revision={revision} project={project}
+                allProjects={allProjectRead} />
+              <Outcomes key={allProjectRead ? 'all' : project} revision={revision} project={project} allProjects={allProjectRead} />
             </>
           )}
         </div>
