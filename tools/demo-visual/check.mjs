@@ -218,19 +218,21 @@ async function capture(pageURL, directory) {
           else await panel.getByRole('button', { name: exit, exact: true }).press('Enter')
           await returnedFocus()
         }
-        step = 'Watching report and reload'
-        await go('#/reports?scope=all')
-        const reportViews = page.getByRole('group', { name: 'Assignees' })
-        await reportViews.getByRole('button', { name: 'Watching', exact: true }).click()
-        await page.waitForURL(url => new URLSearchParams(url.hash.split('?')[1]).get('view') === 'watching')
-        const empty = page.getByText('Watch a person, DRI, or ticket to see their work here.', { exact: true })
-        await empty.waitFor()
-        await page.reload()
-        await empty.waitFor()
-        assert.equal(await page.locator('.report-owner').count(), 0)
-        await screenshot('watching')
-        await reportViews.getByRole('button', { name: 'Active', exact: true }).click()
-        await page.locator('.report-owner').first().waitFor()
+        for (const [scope, query] of [['all', '?scope=all'], ['taskboard', ''], ['flow', '?project=FLOW']]) {
+          step = `Watching report and reload (${scope})`
+          await go('#/reports' + query)
+          const reportViews = page.getByRole('group', { name: 'Assignees' })
+          await reportViews.getByRole('button', { name: 'Watching', exact: true }).click()
+          await page.waitForURL(url => new URLSearchParams(url.hash.split('?')[1]).get('view') === 'watching')
+          const empty = page.getByText('Watch a person, DRI, or ticket to see their work here.', { exact: true })
+          await empty.waitFor()
+          await page.reload()
+          await empty.waitFor()
+          assert.equal(await page.locator('.report-owner').count(), 0)
+          await screenshot(`watching-${scope}`)
+          await reportViews.getByRole('button', { name: 'Active', exact: true }).click()
+          await page.locator('.report-owner').first().waitFor()
+        }
 
         step = 'static demo requests'
         assert.deepEqual(unexpected, [], 'The demo requested a write, API, or external resource')
