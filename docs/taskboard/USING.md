@@ -23,7 +23,7 @@ Use **Waiting on** when a named person or ticket must act first. Route a blockin
 
 This workflow applies to every project using Taskboard.
 
-1. Put the blocking question on the existing ticket as a **Decision**. Assign it to the person who can answer. State the exact question, include clear choices when useful, and link any external approval or question on the same ticket. Verify that the ticket shows who it is waiting on and that the Decision appears in the recipient’s **Notifications → Needs me**.
+1. Put the blocking question on the existing ticket as a **Decision**. Assign it to the person who can answer. State the exact question, include clear choices when useful, and link any external approval or question on the same ticket. The named person can answer directly on the ticket or from **Notifications → Needs me**.
 2. When the recipient answers in Taskboard, use the answer already recorded in Activity. When they answer elsewhere, record their answer and its source once on the ticket. If the Decision is still open, use `withdraw-decision T-123 'Next step'` with the answer in `--reason` and its source in `--link`. That records the answer in Activity, clears the pending Decision, and returns the ticket to Ready.
 3. Resume the work authorized by the answer. If the owner chooses to defer it, [park it with a return trigger](#park-work-with-a-return-trigger).
 
@@ -42,6 +42,28 @@ If an existing Parked ticket has an unanswered human blocker, return it to Ready
 - Hand the same ticket to a new owner for the same work. Link separate work that blocks it. Use Waiting when a specific unmet dependency stops that ticket. Keep doing independent Ready work.
 - Use an attention request when someone needs to see or act on a linked item. The signed-in recipient can mark it handled. For a blocking human question, follow the [Decision workflow](#ask-a-human-to-unblock-a-ticket).
 - Finish a code ticket after the reviewed change merges into protected `main`. Record the exact commit. The Pi timer deploys checked main, and **About** shows what is running. For other work, finish with the verified result and evidence.
+
+## Field formats
+
+Use plain text when formatting adds nothing. Inline Markdown supports emphasis, strikethrough, and inline code. It supports links where the text is outside an existing link or form control. Block Markdown also supports paragraphs, headings, quotes, lists, tables, and code blocks. A fenced block marked exactly `mermaid` renders supported diagrams in block Markdown fields.
+
+| Field | Format in the web board |
+| --- | --- |
+| Ticket and Knowledge titles | Inline Markdown. Title links in lists keep one destination. |
+| Ticket description or brief and Knowledge body | Block Markdown and Mermaid. |
+| First step, current step, waiting or parking note, and outcome | Block Markdown and Mermaid on the ticket and in full-text report sections. Compact task rows use inline Markdown for ordinary notes. |
+| Decision question | Block Markdown and Mermaid in ticket details, the **Decision needed** task row, and **Needs me**. Put choices in the separate options field. |
+| Decision options | Inline Markdown. Option labels keep the exact stored value when selected. |
+| Decision answer | Short inline Markdown. The answer form puts line breaks into one line. Use optional Details for longer context. |
+| Decision answer details and redirect or withdrawal reason | Block Markdown and Mermaid in the Activity entry. |
+| Activity headline | Inline Markdown. Write one line that stands on its own. |
+| Activity details, worker brief and report, and attention request reason | Block Markdown and Mermaid where the full text appears. |
+| Checklist step label | Inline Markdown. Use one line per step. |
+| Goal and milestone names, schedule titles, display names, source labels, and writing guidance | Plain text. |
+| Profile description | Block Markdown and Mermaid in the expanded profile. |
+| Tags, ticket IDs, recipients, dates, and source URLs | Use the value the control requests. Markdown syntax stays literal or fails validation. |
+
+Raw HTML appears as text. Markdown image syntax creates a link to the image where links are available. The CLI prints the stored text, and the web board renders it. Project writing guidance in Settings and `./tasks --shared field-guidance --project T` shows the format for the main writing fields.
 
 ## Plan a workflow migration
 

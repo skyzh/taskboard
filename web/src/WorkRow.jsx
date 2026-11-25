@@ -123,7 +123,9 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
       {detailedReport && cue?.text && ownReport && task.release_after_step && (
         <p className="report-note">Review your next step after this release result.</p>
       )}
-      {!report && task.note && <p className="task-row-note"><MarkdownInline text={task.note} /></p>}
+      {!report && task.note && (state === 'human_review'
+        ? <Markdown text={task.note} className="task-decision-note prose" />
+        : <p className="task-row-note"><MarkdownInline text={task.note} /></p>)}
       {!publicPreview && <>
         <ClosureReference context={task.context} />
         <ReminderWhen context={task.context} className="task-dependency" />

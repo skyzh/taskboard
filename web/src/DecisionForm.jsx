@@ -167,10 +167,12 @@ export default function DecisionForm({ task, session, onChanged, onAnswerStarted
               </label>
             </fieldset>
           )}
-          <label>Answer<textarea rows={3} maxLength={180} value={note}
+          <label>Answer<textarea rows={3} maxLength={180} value={note} aria-describedby={`decision-answer-format-${request.id}`}
             onChange={event => edit('note', event.target.value.replace(/\r\n?|\n/g, ' '))} disabled={pending} required /></label>
-          <label>Details (optional)<textarea rows={3} maxLength={4000} value={details}
+          <p className="field-guidance-help" id={`decision-answer-format-${request.id}`}>One line with inline Markdown.</p>
+          <label>Details (optional)<textarea rows={3} maxLength={4000} value={details} aria-describedby={`decision-details-format-${request.id}`}
             onChange={event => edit('details', event.target.value)} disabled={pending} /></label>
+          <p className="field-guidance-help" id={`decision-details-format-${request.id}`}>Block Markdown, including fenced Mermaid diagrams.</p>
           {checking && <p role="status">Connection interrupted. Checking whether your answer was recorded…</p>}
           {retry && <p role="status">This decision request is still open. Review your draft and retry.</p>}
           {error && <p role="alert">{error.message}{error.status === 401 && <> <a href={login}>Sign in</a></>}</p>}

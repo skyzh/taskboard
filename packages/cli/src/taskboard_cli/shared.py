@@ -599,8 +599,10 @@ def shared_command(args):
         lines = [f"{result['project']} · Writing guidance"]
         for field in (args.field,) if args.field else ("title", "brief", "next_step", "activity"):
             item = fields[field]
-            lines.extend(("", field.replace("_", " ").capitalize(), item["guidance"],
-                          f"Appears in {item['where']}", f"Example · {item['example']}"))
+            lines.extend(("", field.replace("_", " ").capitalize(), item["guidance"], f"Appears in {item['where']}"))
+            if item.get("format"):
+                lines.append(f"Format · {item['format']}")
+            lines.append(f"Example · {item['example']}")
         return "\n".join(lines)
     if command in {"wake-subscriptions", "wake-subscribe", "wake-unsubscribe"}:
         data = {"project": projects.prefix(args.project)} if args.project else {}

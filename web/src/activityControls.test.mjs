@@ -479,6 +479,29 @@ test('task rows distinguish the current wait, decision and Ready states', t => {
   assert.doesNotMatch(render({ state: 'waiting', waiting_since: '2026-11-21' }), /<time/)
 })
 
+test('decision rows render block Markdown while ordinary queue notes stay compact', () => {
+  const note = [
+    'Compare **both exports**.',
+    '',
+    '- Keep the existing importer.',
+    '- Check `schema.json`.',
+    '',
+    '```mermaid',
+    'flowchart LR',
+    'A --> B',
+    '```',
+  ].join('\n')
+  const render = state => renderToStaticMarkup(React.createElement(TaskRow, {
+    task: { id: 1, title: 'Review exports', note, state, at: '2026-11-21T05:00:00Z' },
+    owner: false,
+  }))
+  const decision = render('human_review')
+  assert.match(decision, /Compare <strong>both exports<\/strong>/)
+  assert.match(decision, /<ul><li>Keep the existing importer\.<\/li><li>Check <code>schema\.json<\/code>\.<\/li><\/ul>/)
+  assert.match(decision, /<pre><code>flowchart LR\nA --&gt; B\n<\/code><\/pre>/)
+  assert.doesNotMatch(render('in_progress'), /<ul><li>Keep the existing importer/)
+})
+
 test('a deferred request keeps its original age and a handled request has no active age', t => {
   t.mock.method(Date, 'now', () => Date.parse('2026-11-21T08:00:00Z'))
   const request = { id: 4, task_id: 1, sender: 'Avery', reason: 'Review it.',
@@ -768,11 +791,13 @@ test('goal editors show the project title guidance and submit longer names intac
   const title = 'Make the release evidence easy to find in every supported project view'
   const props = { goal: { summary: 'Improve evidence' }, standing: true, project, editable: true, onChanged() {} }
   fixture.resources = { '/projects/COURSE/field-guidance': { data: { fields: {
-    title: { guidance: 'Describe the outcome.', where: 'Ticket headings and queue rows.', example: 'Verify the phone view.' },
+    title: { guidance: 'Describe the outcome.', where: 'Ticket headings and queue rows.', example: 'Verify the phone view.',
+      format: 'Inline Markdown.' },
   } } } }
   fixture.state = [true, title]
   const markup = renderToStaticMarkup(React.createElement(DriGoal, props))
-  assert.match(markup, /<label>Standing goal<input[^>]+aria-describedby="([^"]+)"[^>]*\/><\/label>.*Describe the outcome\..*Ticket headings and queue rows\..*Verify the phone view\./)
+  assert.match(markup, /<label>Standing goal<input[^>]+aria-describedby="([^"]+)"[^>]*\/><\/label>.*Describe the outcome\..*Plain text\. Markdown and Mermaid are displayed as written\./)
+  assert.doesNotMatch(markup, /Inline Markdown|Ticket headings and queue rows/)
   assert.match(markup, /<button>Save goal<\/button>/)
 
   const sent = []
@@ -1090,10 +1115,11 @@ test('a legacy hold, decision context, and evidence remain accessible', () => {
   assert.ok(holdMarkup.includes(note))
   assert.equal(holdMarkup.split('Hold evidence').length - 1, 1)
 
-  const decision = { ...selected, action: 'decide', context: { choice: 'CSV', decision_reason: 'Keep the existing import.' } }
+  const decision = { ...selected, action: 'decide',
+    context: { choice: 'CSV', decision_reason: '- Keep the existing import.\n- Check the sample.' } }
   const decisionMarkup = renderLog([decision], null)
   assert.match(decisionMarkup, /<summary>Details<\/summary>/)
-  assert.match(decisionMarkup, /Keep the existing import\./)
+  assert.match(decisionMarkup, /<strong>Reason<\/strong><\/p>.*<ul><li>Keep the existing import\.<\/li><li>Check the sample\.<\/li><\/ul>/)
 })
 
 test('ticket detail uses the current record and keeps sources and evidence', () => {
@@ -1138,6 +1164,8 @@ test('the named decision recipient can answer from ticket reading mode', () => {
   assert.match(assigned, /aria-label="Edit ticket" aria-pressed="false"/)
   assert.match(assigned, /<form class="decision-form"/)
   assert.match(assigned, /name="decision-choice" value="CSV"/)
+  assert.match(assigned, /aria-describedby="decision-answer-format-41".*One line with inline Markdown\./)
+  assert.match(assigned, /aria-describedby="decision-details-format-41".*Block Markdown, including fenced Mermaid diagrams\./)
   assert.match(assigned, /Record decision/)
   assert.doesNotMatch(assigned, /Select Edit to answer/)
   for (const readOnly of [render(sam, null), render({ kind: 'human', id: 'other' }, null),
@@ -1191,7 +1219,8 @@ test('ticket editors share the signed guidance read for the ticket project', () 
     [path]: { data: { fields: {
       title: { guidance: 'Start with the action.', where: 'List rows.', example: 'Review the sample.' },
       brief: { guidance: 'Describe the outcome.', where: 'Ticket details.', example: 'Check two viewports.' },
-      activity: { guidance: 'Report what changed.', where: 'Activity feed.', example: 'All checks passed.' },
+      activity: { guidance: 'Report what changed.', where: 'Activity feed.', example: 'All checks passed.',
+        format: 'Inline Markdown headlines and block Markdown details.' },
     } } },
   }
   fixture.pages = {}
@@ -1206,7 +1235,7 @@ test('ticket editors share the signed guidance read for the ticket project', () 
     assert.match(signed, /aria-describedby="ticket-title-guidance-7".*id="ticket-title-guidance-7".*Start with the action\..*List rows\..*Review the sample\./)
     assert.match(signed, /aria-describedby="ticket-brief-guidance-7".*id="ticket-brief-guidance-7".*Describe the outcome\..*Ticket details\..*Check two viewports\./)
     const activityHelpId = signed.match(/<label>Update<textarea[^>]+aria-describedby="([^"]+)"/)[1]
-    assert.ok(signed.includes(`id="${activityHelpId}"><p>Report what changed.</p><p>Activity feed.</p><p><strong>Example</strong> All checks passed.</p>`))
+    assert.ok(signed.includes(`id="${activityHelpId}"><p>Report what changed.</p><p>Activity feed.</p><p><strong>Format</strong> Inline Markdown headlines and block Markdown details.</p><p><strong>Example</strong> All checks passed.</p>`))
 
     fixture.resourceReads = []
     assert.doesNotMatch(render('portal'), /field-guidance-help/)
@@ -1836,7 +1865,7 @@ test('Needs me shares the decision form with the exact recipient and keeps the r
   assert.match(open, /name="decision-choice" value="CSV"/)
   assert.match(open, /name="decision-choice" value="Other"/)
   assert.match(open, /Other \(write an answer\)/)
-  assert.match(open, /<textarea rows="3" maxLength="180" required=""><\/textarea>/)
+  assert.match(open, /<textarea rows="3" maxLength="180" aria-describedby="decision-answer-format-41" required=""><\/textarea>/)
   assert.match(open, /<button type="submit" disabled="">Record decision<\/button>/)
   assert.doesNotMatch(render({ kind: 'human', id: 'other' }), /Record decision/)
   assert.doesNotMatch(render({ kind: 'agent', id: 'sam' }), /Record decision/)
@@ -1943,7 +1972,7 @@ test('a lost decision response checks the same request and unlocks a retry only 
         const newMarkup = renderToStaticMarkup(render(newRequest, closed))
         assert.match(newMarkup, /closed elsewhere/)
         assert.match(newMarkup, /My draft details/)
-        assert.match(newMarkup, /<textarea rows="3" maxLength="180" required=""><\/textarea>/)
+        assert.match(newMarkup, /<textarea rows="3" maxLength="180" aria-describedby="decision-answer-format-44" required=""><\/textarea>/)
         assert.doesNotMatch(newMarkup, /Retry recording/)
         assert.equal(changes, 1)
       } else if (status === 'open') {

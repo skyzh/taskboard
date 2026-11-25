@@ -28,7 +28,10 @@ function GoalForm({ goal, project, mode, onCancel, onSaved }) {
   const [error, setError] = useState(null)
 
   const { data: fieldGuidance } = useFieldGuidance(project)
-  const titleField = fieldGuidance?.fields?.title
+  const goalField = {
+    guidance: fieldGuidance?.fields?.title?.guidance,
+    format: 'Plain text. Markdown and Mermaid are displayed as written.',
+  }
 
   async function save(value) {
     if (saving) return
@@ -57,9 +60,9 @@ function GoalForm({ goal, project, mode, onCancel, onSaved }) {
   return (
     <form className="profile-form dri-goal-form" onSubmit={submit} data-reload-blocked={edited || saving}>
       <label>{standing ? 'Standing goal' : 'Milestone name'}<input value={summary} required disabled={saving}
-        aria-describedby={titleField ? titleHelpId : undefined}
+        aria-describedby={titleHelpId}
         onChange={event => setSummary(event.target.value)} /></label>
-      <FieldHelp field={titleField} id={titleHelpId} />
+      <FieldHelp field={goalField} id={titleHelpId} />
       {!standing && <>
         <label>Deadline<input type="date" value={deadline} required disabled={saving}
           onChange={event => setDeadline(event.target.value)} /></label>

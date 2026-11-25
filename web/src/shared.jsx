@@ -564,7 +564,10 @@ export function OutcomeNote({ event, headline, withEvidence = true, choiceShown 
       {text && <Markdown text={text} relatedTasks={event.related_tasks} />}
       {dependency && <p><Dependency task={event} /></p>}
       {choice && <p>Selected <strong><MarkdownInline text={choice} /></strong></p>}
-      {context.decision_reason && <Markdown text={'Reason ' + context.decision_reason} />}
+      {context.decision_reason && <>
+        <p><strong>Reason</strong></p>
+        <Markdown text={context.decision_reason} relatedTasks={event.related_tasks} />
+      </>}
       <ReminderWhen context={context} />
       <Options options={context.choices} />
       {context.request_event_id && (

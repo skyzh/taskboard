@@ -58,7 +58,7 @@ def review_date(value):
 
 
 OFFLINE_EVIDENCE_HELP = "Offline: repeat for each local path or HTTP(S) URL."
-FIELD_GUIDANCE_HELP = "Run ./tasks --shared field-guidance --project T for field wording, locations and examples."
+FIELD_GUIDANCE_HELP = "Run ./tasks --shared field-guidance --project T for field wording, formats, locations and examples."
 
 
 SHARED_EVIDENCE_HELP = "Shared: one HTTP(S) URL per record."
@@ -74,7 +74,7 @@ def add_link_flag(command, help_text=f"{OFFLINE_EVIDENCE_HELP} {SHARED_EVIDENCE_
 def add_details_flag(command):
     command.add_argument(
         "--details", nargs="?", const="", metavar="TEXT",
-        help="Attach handoff details to a brief Activity headline.",
+        help="Attach block Markdown details to a brief Activity headline. Fenced mermaid diagrams are supported.",
     )
 
 
@@ -127,11 +127,20 @@ def arguments(argv=None):
         "unpark": "Return a parked task to Ready with its next step.",
         "transfer": "Hand off a ready or running task to a new owner.",
     }
-    note_labels = {"close": "REASON", "redirect-decision": "REASON", "withdraw-decision": "NEXT_STEP"}
+    note_labels = {
+        "close": "REASON", "assign-human": "QUESTION", "redirect-decision": "REASON",
+        "withdraw-decision": "NEXT_STEP", "decide": "ANSWER",
+    }
+    note_formats = {
+        "assign-human": "Decision question in block Markdown, including fenced mermaid diagrams.",
+        "redirect-decision": "Reason in block Markdown, including fenced mermaid diagrams.",
+        "decide": "One-line answer in inline Markdown. Use --details for longer context.",
+    }
     for action, help_text in actions.items():
         command = commands.add_parser(action, help=help_text, description=help_text, epilog=FIELD_GUIDANCE_HELP)
         command.add_argument("id", type=task_id)
-        command.add_argument("note", type=nonblank, metavar=note_labels.get(action, "note"))
+        command.add_argument("note", type=nonblank, metavar=note_labels.get(action, "note"),
+                             help=note_formats.get(action))
         command.add_argument("--by", type=nonblank)
         if action in STRUCTURED_ACTIVITY:
             add_details_flag(command)
@@ -143,7 +152,8 @@ def arguments(argv=None):
                 on_help = "Decision recipient. Omit for a Local DRI configured to ask its creator in Taskboard."
             command.add_argument("--on", required=action == "redirect-decision", type=nonblank, help=on_help)
         if action == "withdraw-decision":
-            command.add_argument("--reason", required=True, type=nonblank, help="Why the request was withdrawn.")
+            command.add_argument("--reason", required=True, type=nonblank,
+                                 help="Why the request was withdrawn. Block Markdown and fenced mermaid diagrams are supported.")
         if action == "wait":
             dependency = command.add_mutually_exclusive_group(required=True)
             dependency.add_argument("--on", type=nonblank, help="Verified teammate in shared mode, or an automation name with --automation.")
@@ -158,7 +168,7 @@ def arguments(argv=None):
         if action == "assign-human":
             command.add_argument(
                 "--option", action="append", default=[], type=nonblank, metavar="LABEL",
-                help="Offer a named choice. Repeatable.",
+                help="Offer a named choice in inline Markdown. Repeatable.",
             )
         if action == "decide":
             command.add_argument("--choice", type=nonblank, help="Exact label of the selected option.")

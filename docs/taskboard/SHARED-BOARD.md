@@ -164,11 +164,13 @@ Each value is a string. Use an empty string for `ready-review` to omit the extra
 The shared CLI displays the server's selected guidance for Ready pickup, standing goals, task details, and shared writes. After a completed task or handoff it shows an actionable next ticket or standing goal when one exists. Use the `cli` table to customize the other command messages listed above, including the completion message when there is no next item.
 
 Run `./tasks --shared field-guidance --project T` to see what to write in each
-field, where it appears, and an example. Add a field key, such as
+field, its supported format, where it appears, and an example. See
+[Field formats](USING.md#field-formats) for decision options and the other
+writing fields. Add a field key, such as
 `field-guidance title`, to read only that field. For each field, a project
 manager's setting takes precedence over the TOML value, followed by the
 built-in wording. Clearing a project override restores its inherited text
-and keeps the field's location and example.
+and keeps the field's format, location and example.
 
 This change adds no bulk rewrite of existing titles or history. If an older title was
 shortened, use `tasks --shared edit` with a reason to restore the intended
