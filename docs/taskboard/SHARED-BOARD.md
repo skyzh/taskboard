@@ -137,6 +137,11 @@ expiry, or turning the setting off stops future alerts for that enrollment.
 Sign in and opt in again when a session expires. Delivery is best effort. The
 decision or attention request is always recorded on the board.
 
+The worker checks the enrollment before displaying a queued alert. Safari
+can revoke the browser subscription if a push reaches it when the app cannot
+show the alert. If the control offers **Enable on this browser** again, opt in
+from that button. [WebKit’s notification delivery requirements](https://webkit.org/blog/16535/meet-declarative-web-push/#challenge-1-silent-push-protection)
+
 ### Enable durable human browser sessions
 
 Have a Raft Server admin save **Server** under the Taskboard app's

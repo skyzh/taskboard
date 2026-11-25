@@ -21,9 +21,10 @@ function Enrollment() {
         if (!data?.available) return
         await navigator.serviceWorker.register('./ask-sw.js')
         const worker = await navigator.serviceWorker.ready
+        const subscription = await worker.pushManager.getSubscription()
         if (!controller.signal.aborted) {
           setRegistration(worker)
-          setSettings(data)
+          setSettings(subscription ? data : { ...data, enrollment: null })
         }
       } catch (failure) {
         if (!controller.signal.aborted && failure.status !== 404) {
