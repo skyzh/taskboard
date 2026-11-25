@@ -11,6 +11,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "at": "2026-11-24T06:02:00+00:00",
@@ -38,6 +39,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T06:01:20+00:00",
@@ -69,6 +71,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       }
     },
@@ -83,6 +86,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T06:01:00+00:00",
@@ -110,6 +114,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T06:00:40+00:00",
@@ -137,6 +142,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T06:00:00+00:00",
@@ -164,6 +170,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:59:40+00:00",
@@ -198,6 +205,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:59:00+00:00",
@@ -225,6 +233,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:58:40+00:00",
@@ -254,6 +263,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:58:00+00:00",
@@ -281,6 +291,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:57:40+00:00",
@@ -308,6 +319,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:57:00+00:00",
@@ -344,6 +356,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:56:40+00:00",
@@ -371,6 +384,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "at": "2026-11-24T05:56:00+00:00",
@@ -401,6 +415,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "at": "2026-11-24T05:55:40+00:00",
@@ -428,6 +443,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "at": "2026-11-24T05:55:20+00:00",
@@ -455,6 +471,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:54:40+00:00",
@@ -486,6 +503,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       }
     },
@@ -500,6 +518,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:54:20+00:00",
@@ -527,6 +546,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:54:00+00:00",
@@ -554,6 +574,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:53:20+00:00",
@@ -581,6 +602,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:52:40+00:00",
@@ -608,6 +630,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:52:20+00:00",
@@ -635,6 +658,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:51:40+00:00",
@@ -662,6 +686,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:51:20+00:00",
@@ -691,6 +716,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:51:00+00:00",
@@ -718,6 +744,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:50:40+00:00",
@@ -747,6 +774,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:50:20+00:00",
@@ -774,6 +802,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "at": "2026-11-24T05:50:00+00:00",
@@ -801,6 +830,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:49:40+00:00",
@@ -827,6 +857,7 @@
         "kind": "human",
         "name": "Sam",
         "role": "Human",
+        "short_role": null,
         "username": "sam"
       }
     },
@@ -841,6 +872,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:49:20+00:00",
@@ -868,6 +900,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:48:40+00:00",
@@ -895,6 +928,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:48:20+00:00",
@@ -924,6 +958,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:48:00+00:00",
@@ -951,6 +986,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:47:20+00:00",
@@ -978,6 +1014,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:47:00+00:00",
@@ -1007,6 +1044,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:46:40+00:00",
@@ -1034,6 +1072,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:46:00+00:00",
@@ -1061,6 +1100,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:45:40+00:00",
@@ -1086,6 +1126,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       }
     },
@@ -1100,6 +1141,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:45:20+00:00",
@@ -1127,6 +1169,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:45:00+00:00",
@@ -1154,6 +1197,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:44:20+00:00",
@@ -1181,6 +1225,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:44:00+00:00",
@@ -1208,6 +1253,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:43:40+00:00",
@@ -1241,6 +1287,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:43:20+00:00",
@@ -1275,6 +1322,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:43:00+00:00",
@@ -1302,6 +1350,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "at": "2026-11-24T05:42:20+00:00",
@@ -1350,6 +1399,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "event_id": 23,
@@ -1370,6 +1420,7 @@
         "kind": "human",
         "name": "Sam",
         "role": "Human",
+        "short_role": null,
         "username": "sam"
       }
     }
@@ -1415,6 +1466,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "ticket": "FLOW-6",
@@ -1453,6 +1505,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "event_id": 23,
@@ -1473,6 +1526,7 @@
             "kind": "human",
             "name": "Sam",
             "role": "Human",
+            "short_role": null,
             "username": "sam"
           }
         }
@@ -1496,6 +1550,7 @@
             "kind": "agent",
             "name": "Blake",
             "role": null,
+            "short_role": null,
             "username": "blake"
           },
           "event_id": 50,
@@ -1534,6 +1589,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "event_id": 20,
@@ -1565,6 +1621,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "event_id": 10,
@@ -1591,6 +1648,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "raft:agent:00000000-0000-0000-0000-000000000029": {
@@ -1601,6 +1659,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       }
     },
@@ -1687,6 +1746,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "eta": null,
@@ -1726,6 +1786,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:42:20+00:00",
@@ -1754,6 +1815,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:43:00+00:00",
@@ -1785,6 +1847,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:43:20+00:00",
@@ -1816,6 +1879,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:43:40+00:00",
@@ -1847,6 +1911,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:44:00+00:00",
@@ -1878,6 +1943,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:59:40+00:00",
@@ -1932,6 +1998,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "eta": null,
@@ -1968,6 +2035,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:51:40+00:00",
@@ -1996,6 +2064,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:52:20+00:00",
@@ -2027,6 +2096,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:52:40+00:00",
@@ -2088,6 +2158,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "eta": null,
@@ -2128,6 +2199,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:53:20+00:00",
@@ -2156,6 +2228,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:54:00+00:00",
@@ -2187,6 +2260,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:54:40+00:00",
@@ -2218,6 +2292,7 @@
               "kind": "agent",
               "name": "Blake",
               "role": null,
+              "short_role": null,
               "username": "blake"
             },
             "at": "2026-11-24T05:56:00+00:00",
@@ -2249,6 +2324,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:57:00+00:00",
@@ -2280,6 +2356,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:57:40+00:00",
@@ -2311,6 +2388,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:58:00+00:00",
@@ -2365,6 +2443,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "eta": null,
@@ -2409,6 +2488,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:54:20+00:00",
@@ -2437,6 +2517,7 @@
               "kind": "agent",
               "name": "Blake",
               "role": null,
+              "short_role": null,
               "username": "blake"
             },
             "at": "2026-11-24T05:55:20+00:00",
@@ -2468,6 +2549,7 @@
               "kind": "agent",
               "name": "Blake",
               "role": null,
+              "short_role": null,
               "username": "blake"
             },
             "at": "2026-11-24T05:55:40+00:00",
@@ -2499,6 +2581,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:56:40+00:00",
@@ -2597,6 +2680,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:58:40+00:00",
@@ -2625,6 +2709,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:59:00+00:00",
@@ -2688,6 +2773,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "eta": null,
@@ -2711,6 +2797,7 @@
             "kind": "agent",
             "name": "Blake",
             "role": null,
+            "short_role": null,
             "username": "blake"
           },
           "waiting_since": "2026-11-24T06:01:20+00:00"
@@ -2735,6 +2822,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T06:00:00+00:00",
@@ -2763,6 +2851,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T06:00:40+00:00",
@@ -2794,6 +2883,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T06:01:20+00:00",
@@ -2848,6 +2938,7 @@
             "kind": "agent",
             "name": "Blake",
             "role": null,
+            "short_role": null,
             "username": "blake"
           },
           "eta": null,
@@ -2890,6 +2981,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T06:01:00+00:00",
@@ -2918,6 +3010,7 @@
               "kind": "agent",
               "name": "Blake",
               "role": null,
+              "short_role": null,
               "username": "blake"
             },
             "at": "2026-11-24T06:02:00+00:00",
@@ -2975,6 +3068,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "eta": null,
@@ -2998,6 +3092,7 @@
             "kind": "agent",
             "name": "Blake",
             "role": null,
+            "short_role": null,
             "username": "blake"
           },
           "waiting_since": "2026-11-24T05:45:40+00:00"
@@ -3022,6 +3117,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:44:20+00:00",
@@ -3050,6 +3146,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:45:00+00:00",
@@ -3081,6 +3178,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:45:40+00:00",
@@ -3135,6 +3233,7 @@
             "kind": "agent",
             "name": "Blake",
             "role": null,
+            "short_role": null,
             "username": "blake"
           },
           "eta": null,
@@ -3176,6 +3275,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:45:20+00:00",
@@ -3239,6 +3339,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "eta": null,
@@ -3277,6 +3378,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:46:00+00:00",
@@ -3305,6 +3407,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:46:40+00:00",
@@ -3336,6 +3439,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:47:00+00:00",
@@ -3392,6 +3496,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "eta": null,
@@ -3430,6 +3535,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:47:20+00:00",
@@ -3458,6 +3564,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:48:00+00:00",
@@ -3489,6 +3596,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:48:20+00:00",
@@ -3548,6 +3656,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "eta": null,
@@ -3570,6 +3679,7 @@
             "kind": "human",
             "name": "Sam",
             "role": "Human",
+            "short_role": null,
             "username": "sam"
           }
         },
@@ -3593,6 +3703,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:48:40+00:00",
@@ -3621,6 +3732,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:49:20+00:00",
@@ -3652,6 +3764,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:49:40+00:00",
@@ -3706,6 +3819,7 @@
             "kind": "agent",
             "name": "Blake",
             "role": null,
+            "short_role": null,
             "username": "blake"
           },
           "eta": null,
@@ -3740,6 +3854,7 @@
               "kind": "agent",
               "name": "Blake",
               "role": null,
+              "short_role": null,
               "username": "blake"
             },
             "at": "2026-11-24T05:50:00+00:00",
@@ -3793,6 +3908,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "eta": null,
@@ -3828,6 +3944,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:50:20+00:00",
@@ -3856,6 +3973,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:50:40+00:00",
@@ -3913,6 +4031,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "eta": null,
@@ -3948,6 +4067,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:51:00+00:00",
@@ -3976,6 +4096,7 @@
               "kind": "agent",
               "name": "Avery",
               "role": null,
+              "short_role": null,
               "username": "avery"
             },
             "at": "2026-11-24T05:51:20+00:00",
@@ -4011,6 +4132,7 @@
         "kind": "human",
         "name": "Sam",
         "role": "Human",
+        "short_role": null,
         "username": "sam"
       },
       "recent_outcomes": [],
@@ -4050,6 +4172,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "recent_outcomes": [
@@ -4064,6 +4187,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "at": "2026-11-24T05:58:00+00:00",
@@ -4091,6 +4215,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "at": "2026-11-24T05:56:40+00:00",
@@ -4118,6 +4243,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "at": "2026-11-24T05:52:40+00:00",
@@ -4159,6 +4285,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "event_id": null,
@@ -4192,6 +4319,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "event_id": 49,
@@ -4214,6 +4342,7 @@
             "kind": "agent",
             "name": "Blake",
             "role": null,
+            "short_role": null,
             "username": "blake"
           },
           "waiting_since": "2026-11-24T06:01:20+00:00"
@@ -4235,6 +4364,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "event_id": 20,
@@ -4279,6 +4409,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "event_id": 17,
@@ -4314,6 +4445,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "event_id": 14,
@@ -4336,6 +4468,7 @@
             "kind": "agent",
             "name": "Blake",
             "role": null,
+            "short_role": null,
             "username": "blake"
           },
           "waiting_since": "2026-11-24T05:45:40+00:00"
@@ -4355,6 +4488,7 @@
             "kind": "agent",
             "name": "Avery",
             "role": null,
+            "short_role": null,
             "username": "avery"
           },
           "event_id": 10,
@@ -4398,6 +4532,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "recent_outcomes": [],
@@ -4425,6 +4560,7 @@
             "kind": "agent",
             "name": "Blake",
             "role": null,
+            "short_role": null,
             "username": "blake"
           },
           "event_id": 50,
@@ -4463,6 +4599,7 @@
             "kind": "agent",
             "name": "Blake",
             "role": null,
+            "short_role": null,
             "username": "blake"
           },
           "event_id": 13,
@@ -4509,6 +4646,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "phase": "in_progress",
@@ -4521,6 +4659,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "request_key": "FLOW-15",
@@ -4534,6 +4673,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "review": false,
@@ -4556,6 +4696,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "request_key": "FLOW-12",
@@ -4569,6 +4710,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "resolution": {
@@ -4596,6 +4738,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "phase": "asked",
@@ -4608,6 +4751,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "request_key": "FLOW-3",
@@ -4621,6 +4765,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "review": false,
@@ -4645,6 +4790,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "event_id": 50,
@@ -4683,6 +4829,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "event_id": 49,
@@ -4704,6 +4851,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "waiting_since": "2026-11-24T06:01:20+00:00"
@@ -4723,6 +4871,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "event_id": 42,
@@ -4752,6 +4901,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "event_id": 39,
@@ -4788,6 +4938,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "event_id": 31,
@@ -4820,6 +4971,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "event_id": 28,
@@ -4851,6 +5003,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "event_id": 26,
@@ -4880,6 +5033,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "event_id": 24,
@@ -4914,6 +5068,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "event_id": 23,
@@ -4934,6 +5089,7 @@
         "kind": "human",
         "name": "Sam",
         "role": "Human",
+        "short_role": null,
         "username": "sam"
       }
     },
@@ -4954,6 +5110,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "event_id": 20,
@@ -4997,6 +5154,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "event_id": 17,
@@ -5031,6 +5189,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "event_id": 14,
@@ -5052,6 +5211,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "waiting_since": "2026-11-24T05:45:40+00:00"
@@ -5071,6 +5231,7 @@
         "kind": "agent",
         "name": "Blake",
         "role": null,
+        "short_role": null,
         "username": "blake"
       },
       "event_id": 13,
@@ -5107,6 +5268,7 @@
         "kind": "agent",
         "name": "Avery",
         "role": null,
+        "short_role": null,
         "username": "avery"
       },
       "event_id": 10,

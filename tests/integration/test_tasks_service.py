@@ -6853,6 +6853,53 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([event["id"] for event in self.call(viewer, "/api/v1/activity?detail=all").json["items"]],
                          event_ids)
 
+    def test_profile_short_roles_are_self_edited_and_reported_separately(self):
+        app = self.app(portal_reader=True)
+        person, person_id = self.login(app, "Sam")
+        agent, agent_id = self.login(app, "Avery")
+        viewer = app.test_client()
+        profile_path = "/api/v1/profile"
+        for client, owner in ((person, person_id), (agent, agent_id)):
+            self.cli("add", "Check the sample", "--dri", owner, "--step", "Read the plan.")
+            saved = self.call(client, profile_path, method="PATCH", json={
+                "role": "Existing board role", "description": "Full profile description.",
+            }).json["actor"]
+            self.assertIsNone(saved["short_role"])
+
+        def report_profiles():
+            rows = self.call(viewer, "/api/v1/reports?project=T&view=all").json["items"]
+            return {entry["owner"]: entry["profile"] for entry in rows}
+
+        self.assertIsNone(report_profiles()[agent_id]["short_role"])
+        self.assertIsNone(report_profiles()[person_id]["short_role"])
+        self.call(viewer, profile_path, method="PATCH", json={"short_role": "Reader"}, status=401)
+        self.call(agent, profile_path, method="PATCH", json={"short_role": "Two\nlines"}, status=400)
+        self.call(person, profile_path, method="PATCH", json={"short_role": "x" * 61}, status=400)
+        human = self.call(person, profile_path, method="PATCH", json={"short_role": " PM for dashboards "}).json["actor"]
+        worker = self.action(agent, "set-profile", {"short_role": "Tiny LLM implementation"})["actor"]
+        self.assertEqual(human["short_role"], "PM for dashboards")
+        self.assertEqual(worker["short_role"], "Tiny LLM implementation")
+        self.assertEqual(self.call(person, "/api/v1/session").json["actor"], human)
+        self.assertEqual(self.call(agent, "/api/v1/session").json["actor"], worker)
+        for owner, label in ((person_id, human["short_role"]), (agent_id, worker["short_role"])):
+            profile = report_profiles()[owner]
+            self.assertEqual((profile["short_role"], profile["role"], profile["description"]),
+                             (label, "Existing board role", "Full profile description."))
+
+        image = BytesIO()
+        Image.new("RGB", (2, 2), "blue").save(image, format="PNG")
+        image.seek(0)
+        cleared = self.call(person, profile_path + "/avatar", method="POST", data={
+            "avatar": (image, "sample.png"), "short_role": "",
+        }).json["actor"]
+        self.assertIsNone(cleared["short_role"])
+        self.assertTrue(cleared["avatar_url"])
+        self.assertIsNone(self.action(agent, "set-profile", {"short_role": ""})["actor"]["short_role"])
+        for owner in (person_id, agent_id):
+            profile = report_profiles()[owner]
+            self.assertEqual((profile["short_role"], profile["role"], profile["description"]),
+                             (None, "Existing board role", "Full profile description."))
+
     def test_verified_human_profile_uses_default_role_and_same_origin_import(self):
         app = self.app(portal_reader=True)
         self.provider.people["Sam"]["picture"] = "https://cdn.raft.build/fixture/sam.png"
@@ -7072,6 +7119,7 @@ class TasksServiceTest(unittest.TestCase):
             sam, actor_id = self.login(self.app(), name)
             actor = self.call(sam, "/api/v1/session").json["actor"]
             self.assertEqual((actor_id, actor["description"], actor["role"]), (key, "", "Human"))
+            self.assertIsNone(actor["short_role"])
             self.assertTrue(actor["avatar_url"].endswith("/" + digest))
             with closing(self.call(sam, urlsplit(actor["avatar_url"]).path.removeprefix(BASE))) as image:
                 self.assertEqual(image.data, photo.getvalue())

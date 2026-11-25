@@ -167,6 +167,7 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
           <div className="dri-name-line">
             <OwnerHeading>
               <a href={publicPreview ? entry.public_url : ownerHref(owner, undefined, project)}>{name}</a>
+              {profile?.short_role && <span className="report-short-role">{' · '}{profile.short_role}</span>}
               <DriWorkStatus inProgress={inProgress} compact />
             </OwnerHeading>
             {projectTitle && <span className="report-project-label">{projectTitle}</span>}

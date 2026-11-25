@@ -257,8 +257,9 @@ _ACTIONS = {
         **_TASK, "label": "Label shown in the task's Sources.", "url": "Full HTTP(S) URL, such as a Raft permalink.",
     }),
     "fetch-github": _Action("POST", "Fetch and record recent GitHub updates for a linked task.", _TASK),
-    "set-profile": _Action("POST", "Edit your board role, description, or photo.", optional={
+    "set-profile": _Action("POST", "Edit your board role, short role, description, or photo.", optional={
         "role": "Optional role shown on the board. Pass an empty string to clear it.",
+        "short_role": "Optional Reports Summary role, ideally two or three words and up to 60 printable characters. Send an empty string to clear it.",
         "description": "Description shown on the board, up to 2,000 characters. Send an empty string to clear it.",
         "photo_base64": "Base64 content of a PNG, JPEG, or WebP image up to 90 KiB.",
     }),

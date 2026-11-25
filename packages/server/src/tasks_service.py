@@ -1676,10 +1676,10 @@ def create_app(
         key = actor["ledger_key"]
         return profiles.visible_by_keys(db(), [key], base)[key]
 
-    def edit_profile(actor, *, role=None, description=None, avatar=None):
+    def edit_profile(actor, *, role=None, short_role=None, description=None, avatar=None):
         key = actor["ledger_key"]
-        if role is None and description is None and avatar is None:
-            raise RequestError("Provide a board role, description, or avatar.")
+        if role is None and short_role is None and description is None and avatar is None:
+            raise RequestError("Provide a board role, short role, description, or avatar.")
         try:
             with tasks_storage.write(db()) as connection:
                 before = profiles.get(connection, key)
@@ -1687,12 +1687,14 @@ def create_app(
                     if not isinstance(role, str):
                         raise ValueError("Provide a board role as text.")
                     profiles.update_role(connection, key, role)
+                if short_role is not None:
+                    profiles.update_short_role(connection, key, short_role)
                 if description is not None:
                     profiles.update_description(connection, key, description)
                 if avatar is not None:
                     profiles.update_avatar(connection, key, avatar)
                 after = profiles.get(connection, key)
-                if any(before[field] != after[field] for field in ("role", "description", "avatar_digest")):
+                if any(before[field] != after[field] for field in ("role", "short_role", "description", "avatar_digest")):
                     audit.record(connection, scope="private", actor=key, operation="update-profile",
                                  record_type="profile", record_id=key, at=ledger.timestamp())
                     ledger.bump_revision(connection)
@@ -2874,8 +2876,9 @@ def create_app(
     @app.patch("/api/v1/profile")
     def edit_profile_text():
         actor = current_actor(write=True)
-        data = json_body({"role", "description"})
-        return edit_profile(actor, role=data.get("role"), description=data.get("description"))
+        data = json_body({"role", "short_role", "description"})
+        return edit_profile(actor, role=data.get("role"), short_role=data.get("short_role"),
+                            description=data.get("description"))
 
     @app.patch("/api/v1/profile/goal")
     def save_profile_goal():
@@ -2956,7 +2959,8 @@ def create_app(
         if avatar is None:
             raise RequestError("Choose an image to upload.")
         return edit_profile(
-            actor, role=request.form.get("role"), description=request.form.get("description"),
+            actor, role=request.form.get("role"), short_role=request.form.get("short_role"),
+            description=request.form.get("description"),
             avatar=avatar.stream.read(profiles.MAX_AVATAR_BYTES + 1),
         )
 
@@ -3540,7 +3544,8 @@ def create_app(
                 image = b64decode(encoded, validate=True) if encoded else None
             except (Base64Error, ValueError) as error:
                 raise RequestError("Provide a Base64 encoded image.") from error
-            return edit_profile(actor, role=data.get("role"), description=data.get("description"), avatar=image)
+            return edit_profile(actor, role=data.get("role"), short_role=data.get("short_role"),
+                                description=data.get("description"), avatar=image)
         if name == "worker-handoff":
             transition = text(data, "transition", maximum=30)
             if transition not in WORKER_TRANSITIONS:

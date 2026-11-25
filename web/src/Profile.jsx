@@ -5,13 +5,16 @@ import { matchesBoardShortcut } from './shortcuts.js'
 
 export function ProfileForm({ actor, onSaved }) {
   const [role, setRole] = useState(actor.role || '')
+  const [shortRole, setShortRole] = useState(actor.short_role || '')
   const [description, setDescription] = useState(actor.description || '')
   const [avatar, setAvatar] = useState(null)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState(false)
+  const shortRoleHelp = useId()
   const updates = {}
   if (role.trim() !== (actor.role || '')) updates.role = role.trim()
+  if (shortRole.trim() !== (actor.short_role || '')) updates.short_role = shortRole.trim()
   if (description.trim() !== (actor.description || '').trim()) updates.description = description.trim()
   const hasTextChanges = Object.keys(updates).length > 0
 
@@ -47,6 +50,9 @@ export function ProfileForm({ actor, onSaved }) {
   return (
     <form className="profile-form" onSubmit={save}
       data-reload-blocked={Boolean(saving || avatar || hasTextChanges)}>
+      <label>Short role<input value={shortRole} maxLength={60} aria-describedby={shortRoleHelp}
+        onChange={event => setShortRole(event.target.value)} /></label>
+      <p id={shortRoleHelp} className="field-guidance-help">Use two or three words for Reports Summary, such as “Tiny LLM implementation.”</p>
       {actor.kind !== 'human' && <label>Role<input value={role} maxLength={100}
         onChange={event => setRole(event.target.value)} /></label>}
       <label>Description<textarea value={description} maxLength={2000} rows={3}
