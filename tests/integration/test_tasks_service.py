@@ -7689,6 +7689,7 @@ class TasksServiceTest(unittest.TestCase):
         }
         for name, fragment in (
             ("Sam", "#reports-all"), ("Sam", "#reports-all?view=all"), ("Sam", "#reports?view=active"),
+            ("Sam", "#reports-all?view=recent"), ("Sam", "#reports?project=COURSE&view=recent"),
             ("Quinn", "#about"), ("Casey", "#reports?project=COURSE"),
             ("Casey", "#reports?project=COURSE&view=all"), ("Sam", "#knowledge"),
             ("Sam", "#knowledge?entry=SRE-2"), ("Quinn", "#knowledge?q=sample+rule"),
@@ -7762,6 +7763,104 @@ class TasksServiceTest(unittest.TestCase):
                 (agent, human),
             )
         self.assertIsNone(tasks_by_owner()[human]["reported_progress"])
+
+    def test_reports_recent_filters_owners_before_paging_and_reuses_owner_report_time(self):
+        roster = {self.provider.people["Avery"]["sub"]: "Avery"}
+        app = self.app(portal_reader=True, project_roster=roster)
+        _, team = self.login(app, "Avery")
+        sam, human = self.login(app, "Sam")
+        quinn, stale = self.login(app, "Quinn")
+        self.cli("register-project", "COURSE", "Course", "--dri", team)
+        boundary = "2026-11-24T11:00:00Z"
+        old = "2026-11-24T10:59:59Z"
+        now = "2026-11-24T12:00:00Z"
+        local, decision, review = "local-dri:fixture", "decision-owner", "review-owner"
+        linked_reviewer = "linked-review-owner"
+
+        with closing(sqlite3.connect(self.database)) as db, db:
+            for key, kind in ((local, "agent"), (decision, "human"), (review, "human"), (linked_reviewer, "human")):
+                db.execute(
+                    "INSERT INTO board_principals (server_id, kind, subject, ledger_key, name) VALUES (?, ?, ?, ?, ?)",
+                    (SERVER, kind, key, key, key),
+                )
+
+            def event(ticket, actor, at, action, state):
+                db.execute(
+                    "INSERT INTO events (task_id, actor, at, action, state, note, links) VALUES (?, ?, ?, ?, ?, '', '[]')",
+                    (ticket, actor, at, action, state),
+                )
+
+            def work(owner, report_at, *, state="in_progress", project="T"):
+                ticket = db.execute(
+                    "INSERT INTO tasks (title, dri, brief, project_prefix) VALUES ('Sample', ?, '', ?)",
+                    (owner, project),
+                ).lastrowid
+                event(ticket, owner, report_at, "start", "in_progress")
+                if state == "waiting":
+                    event(ticket, owner, now, "wait", state)
+                if state == "human_review":
+                    event(ticket, owner, now, "assign-human", state)
+                return ticket
+
+            fresh = work(human, boundary)
+            for _ in range(11):
+                waiting = work(human, old, state="waiting")
+            stale_wait = work(stale, old, state="waiting")
+            event(stale_wait, team, now, "log", "waiting")
+            fresh_local = work(local, boundary, state="waiting")
+            work(decision, old, state="human_review")
+            review_task = work(review, old)
+            db.execute(
+                """INSERT INTO worker_runs (task_id, worker, role, brief, effort, status, assigned_at)
+                   VALUES (?, ?, 'review', '', 'high', 'planned', ?)""",
+                (review_task, team, old),
+            )
+            linked_task = db.execute(
+                "INSERT INTO tasks (title, dri, brief) VALUES ('Pinned review', ?, '')", (linked_reviewer,),
+            ).lastrowid
+            db.execute(
+                """INSERT INTO events (task_id, actor, at, action, state, note, links, context)
+                   VALUES (?, ?, ?, 'add', 'ready', '', '[]', ?)""",
+                (linked_task, human, old, json.dumps({"manual_review": {
+                    "pull": "example/repo#1", "head": "a" * 40, "base": "b" * 40,
+                }})),
+            )
+            db.execute(
+                "INSERT INTO peer_asks (task_id, source_task_id, requester, recipient) VALUES (?, ?, ?, ?)",
+                (linked_task, fresh, human, linked_reviewer),
+            )
+            work(stale, boundary, project="COURSE")
+
+        route = "/api/v1/reports"
+        with patch("tasks_core.timestamp", return_value=now):
+            params = {"view": "recent", "include_self": "true", "limit": 1}
+            entries = {}
+            for _ in range(7):
+                result = self.call(quinn, route, query_string=params).json
+                row, = result["items"]
+                self.assertNotIn(row["owner"], entries)
+                entries[row["owner"]] = row
+                if not result["next_cursor"]:
+                    break
+                params["before"] = result["next_cursor"]
+            self.assertEqual(set(entries), {team, human, local, decision, review, linked_reviewer})
+            hidden = self.call(quinn, route, query_string={"view": "recent", "hide_requests": "true"}).json
+            self.assertEqual({row["owner"] for row in hidden["items"]}, {team, human, local, decision, review})
+            self.assertEqual(entries[team]["tasks"], [])
+            self.assertEqual(entries[human]["task_count"], 12)
+            self.assertEqual(entries[human]["tasks"][0]["id"], fresh)
+            row, = entries[local]["tasks"]
+            self.assertEqual((row["id"], row["dri_profile"]["dri_kind"], row["reported_progress"]["at"]),
+                             (fresh_local, "local", boundary))
+            self.assertEqual(entries[decision]["tasks"][0]["state"], "human_review")
+            self.assertIsNone(entries[decision]["tasks"][0]["waiting_on"])
+            active = self.call(sam, route, query_string={"view": "active", "include_self": "true"}).json
+            own = active["items"][0]
+            self.assertEqual(own["owner"], human)
+            self.assertEqual(own["tasks"][0]["id"], waiting)
+            self.assertEqual(own["tasks"][0]["reported_progress"]["at"], old)
+            course = self.call(sam, route, query_string={"view": "recent", "project": "COURSE"}).json
+            self.assertEqual({row["owner"] for row in course["items"]}, {team, stale})
 
     def test_stats_period_returns_after_sign_in(self):
         app = self.app(portal_reader=True)
