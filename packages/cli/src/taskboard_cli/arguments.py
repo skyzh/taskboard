@@ -149,7 +149,7 @@ def arguments(argv=None):
         if action in ("assign-human", "redirect-decision"):
             on_help = "New decision recipient." if action == "redirect-decision" else "Owner of the dependency."
             if action == "assign-human":
-                on_help = "Decision recipient. Omit for a Local DRI configured to ask its creator in Taskboard."
+                on_help = "Decision recipient. A Taskboard-mode Local DRI defaults to its creator."
             command.add_argument("--on", required=action == "redirect-decision", type=nonblank, help=on_help)
         if action == "withdraw-decision":
             command.add_argument("--reason", required=True, type=nonblank,

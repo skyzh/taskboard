@@ -324,14 +324,17 @@ def shared_write(board, args, *, context):
                 if context["actor"].get("dri_kind") == "local":
                     if context.get("human_questions") != "taskboard":
                         raise ValueError("Use your runtime's local question prompt.")
-                    if command == "redirect-decision" or args.on is not None:
+                    if context.get("local_question_recipients") is not True and (
+                        command == "redirect-decision" or args.on is not None
+                    ):
                         raise ValueError("Local DRI decisions go to their creator. Omit --on.")
                 elif args.on is None:
                     raise ValueError("Supply the decision recipient with --on.")
-                elif context.get("decision_recipient_lookup") is True and not args.on.startswith("raft:human:"):
-                    data["on_name"] = args.on
-                else:
-                    data["on"] = board.person(args.on, "human")
+                if args.on is not None:
+                    if context.get("decision_recipient_lookup") is True and not args.on.startswith("raft:human:"):
+                        data["on_name"] = args.on
+                    else:
+                        data["on"] = board.person(args.on, "human")
             elif command == "wait":
                 data.update(on=args.on, automation=args.automation, attention_request_id=args.attention_request_id)
                 if args.blocked_by is not None:
@@ -506,9 +509,10 @@ def shared_command(args):
                 "create-project": "create-project",
             }
             excluded = {command for command, action in action_names.items() if action in limits}
-            excluded.add("redirect-decision")
             if context.get("human_questions") != "taskboard":
-                excluded.add("assign-human")
+                excluded.update(("assign-human", "redirect-decision"))
+            elif context.get("local_question_recipients") is not True:
+                excluded.add("redirect-decision")
             reads, writes = reads - excluded, writes - excluded
             heading = f"Taskboard commands for Local DRI · {context['project']}"
             guidance = ("Actions use your registered project and normal role and ownership checks. "
@@ -558,7 +562,9 @@ def shared_command(args):
     if command == "context":
         if local_dri is not None:
             guidance = (
-                "Ask your creator with assign-human TICKET QUESTION. Omit --on."
+                ("Ask with assign-human TICKET QUESTION. Add --on PERSON to choose an eligible recipient."
+                 if context.get("local_question_recipients") is True
+                 else "Ask your creator with assign-human TICKET QUESTION. Omit --on.")
                 if context.get("human_questions") == "taskboard" else "Use your runtime's local question prompt."
             )
             return f"Local DRI · {actor['name']} · {context['project']} · {url}\n{guidance}"

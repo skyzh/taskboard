@@ -121,7 +121,7 @@ export default function IntegrationDiagram({ mode, destination, localRegistratio
         <h4>Incoming agent asks</h4>
         <Flow route={localIntake} />
         <p className="integration-flow-note">{destination === 'taskboard'
-          ? 'Creator questions go to Taskboard → Notifications → Needs me.'
+          ? 'Questions go to the recipient’s Taskboard → Notifications → Needs me.'
           : destination === 'local_prompt'
             ? 'Creator questions appear in the local session.'
             : 'Choose whether creator questions appear in the local session or in Taskboard → Notifications → Needs me.'}</p>
