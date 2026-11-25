@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Local DRI ask recipients.** A Local DRI using Taskboard can choose another eligible human for a blocking Decision or nonblocking attention request. Omitting the recipient uses the registration creator. Upgrade the board and CLI to select a recipient with `--on`. [Setup and verification](LOCAL-DRI.md#choose-where-the-dri-asks-you)
+
 - **GitHub webhook intake.** Operators can opt a project's configured repository into authenticated push and pull request cues. The scheduled extension refresh verifies the provider state and applies its existing rules. [Setup](GITHUB-EXTENSIONS.md#github-webhook-intake)
 
 - **Project recurring work.** Managers can issue due work for their own project using the signed API or shared CLI. Upgrade the scheduler CLI before creating project-bound definitions. [Recurring work](SHARED-BOARD.md#recurring-work)
