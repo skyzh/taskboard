@@ -102,21 +102,25 @@ _FIELDS = {
         "Name the action and its subject in a short, complete phrase. Put background in the brief.",
         "Ticket heading, work lists and search results.",
         "Verify the Pi rollout on phone",
+        "Inline Markdown. Links are inactive inside ticket links. No block Markdown or Mermaid.",
     ),
     "brief": (
         "Explain why the work matters, what is in scope, and how to tell when it is complete.",
         "Ticket detail.",
         "Check the deployed review page at 390 and 1280 px and link the result.",
+        "Block Markdown, including lists, code blocks and fenced mermaid diagrams.",
     ),
     "next_step": (
         "Give the owner one concrete action they can take now.",
         "Current work under the title and the signed Inbox.",
         "Open the deployed review page and compare its links with the approved preview.",
+        "Block Markdown and fenced mermaid diagrams in ticket details and Reports. Compact Tasks rows use inline Markdown.",
     ),
     "activity": (
         "Lead with the change or verified result. Put supporting evidence in details and links.",
         "Ticket Activity and the board Activity feed when all entries are shown.",
         "The phone and desktop checks passed. The release receipt is attached.",
+        "Inline Markdown in headlines. Details support block Markdown and fenced mermaid diagrams.",
     ),
 }
 
@@ -144,9 +148,10 @@ class AgentGuidance:
                     "guidance": project_fields.get(name, self.fields.get(name, guidance)),
                     "where": where,
                     "example": example,
+                    "format": field_format,
                     "source": "project" if name in project_fields else "board" if name in self.fields else "default",
                 }
-                for name, (guidance, where, example) in _FIELDS.items()
+                for name, (guidance, where, example, field_format) in _FIELDS.items()
             },
         }
 

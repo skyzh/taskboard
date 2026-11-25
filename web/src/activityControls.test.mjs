@@ -479,6 +479,29 @@ test('task rows distinguish the current wait, decision and Ready states', t => {
   assert.doesNotMatch(render({ state: 'waiting', waiting_since: '2026-11-21' }), /<time/)
 })
 
+test('decision rows render block Markdown while ordinary queue notes stay compact', () => {
+  const note = [
+    'Compare **both exports**.',
+    '',
+    '- Keep the existing importer.',
+    '- Check `schema.json`.',
+    '',
+    '```mermaid',
+    'flowchart LR',
+    'A --> B',
+    '```',
+  ].join('\n')
+  const render = state => renderToStaticMarkup(React.createElement(TaskRow, {
+    task: { id: 1, title: 'Review exports', note, state, at: '2026-11-21T05:00:00Z' },
+    owner: false,
+  }))
+  const decision = render('human_review')
+  assert.match(decision, /Compare <strong>both exports<\/strong>/)
+  assert.match(decision, /<ul><li>Keep the existing importer\.<\/li><li>Check <code>schema\.json<\/code>\.<\/li><\/ul>/)
+  assert.match(decision, /<pre><code>flowchart LR\nA --&gt; B\n<\/code><\/pre>/)
+  assert.doesNotMatch(render('in_progress'), /<ul><li>Keep the existing importer/)
+})
+
 test('a deferred request keeps its original age and a handled request has no active age', t => {
   t.mock.method(Date, 'now', () => Date.parse('2026-11-21T08:00:00Z'))
   const request = { id: 4, task_id: 1, sender: 'Avery', reason: 'Review it.',
@@ -1090,10 +1113,11 @@ test('a legacy hold, decision context, and evidence remain accessible', () => {
   assert.ok(holdMarkup.includes(note))
   assert.equal(holdMarkup.split('Hold evidence').length - 1, 1)
 
-  const decision = { ...selected, action: 'decide', context: { choice: 'CSV', decision_reason: 'Keep the existing import.' } }
+  const decision = { ...selected, action: 'decide',
+    context: { choice: 'CSV', decision_reason: '- Keep the existing import.\n- Check the sample.' } }
   const decisionMarkup = renderLog([decision], null)
   assert.match(decisionMarkup, /<summary>Details<\/summary>/)
-  assert.match(decisionMarkup, /Keep the existing import\./)
+  assert.match(decisionMarkup, /<strong>Reason<\/strong><\/p>.*<ul><li>Keep the existing import\.<\/li><li>Check the sample\.<\/li><\/ul>/)
 })
 
 test('ticket detail uses the current record and keeps sources and evidence', () => {
@@ -1191,7 +1215,8 @@ test('ticket editors share the signed guidance read for the ticket project', () 
     [path]: { data: { fields: {
       title: { guidance: 'Start with the action.', where: 'List rows.', example: 'Review the sample.' },
       brief: { guidance: 'Describe the outcome.', where: 'Ticket details.', example: 'Check two viewports.' },
-      activity: { guidance: 'Report what changed.', where: 'Activity feed.', example: 'All checks passed.' },
+      activity: { guidance: 'Report what changed.', where: 'Activity feed.', example: 'All checks passed.',
+        format: 'Inline Markdown headlines and block Markdown details.' },
     } } },
   }
   fixture.pages = {}
@@ -1206,7 +1231,7 @@ test('ticket editors share the signed guidance read for the ticket project', () 
     assert.match(signed, /aria-describedby="ticket-title-guidance-7".*id="ticket-title-guidance-7".*Start with the action\..*List rows\..*Review the sample\./)
     assert.match(signed, /aria-describedby="ticket-brief-guidance-7".*id="ticket-brief-guidance-7".*Describe the outcome\..*Ticket details\..*Check two viewports\./)
     const activityHelpId = signed.match(/<label>Update<textarea[^>]+aria-describedby="([^"]+)"/)[1]
-    assert.ok(signed.includes(`id="${activityHelpId}"><p>Report what changed.</p><p>Activity feed.</p><p><strong>Example</strong> All checks passed.</p>`))
+    assert.ok(signed.includes(`id="${activityHelpId}"><p>Report what changed.</p><p>Activity feed.</p><p><strong>Format</strong> Inline Markdown headlines and block Markdown details.</p><p><strong>Example</strong> All checks passed.</p>`))
 
     fixture.resourceReads = []
     assert.doesNotMatch(render('portal'), /field-guidance-help/)

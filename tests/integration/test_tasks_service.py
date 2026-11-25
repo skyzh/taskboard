@@ -4943,6 +4943,8 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(set(baseline["fields"]), {"title", "brief", "next_step", "activity"})
         self.assertEqual(baseline["fields"]["title"]["source"], "board")
         self.assertEqual(baseline["fields"]["brief"]["source"], "default")
+        self.assertIn("Inline Markdown", baseline["fields"]["title"]["format"])
+        self.assertIn("fenced mermaid", baseline["fields"]["brief"]["format"])
         override = {"field": "title", "guidance": "State the verification in an active phrase."}
         self.call(agent, path, method="PUT", json=override, status=403)
         self.call(manager, path, method="PUT", json={"field": "unknown", "guidance": "Example."}, status=400)
@@ -4950,9 +4952,10 @@ class TasksServiceTest(unittest.TestCase):
         self.assertTrue(saved["editable"])
         field = saved["fields"]["title"]
         self.assertEqual((field["guidance"], field["source"]), (override["guidance"], "project"))
+        self.assertEqual(field["format"], baseline["fields"]["title"]["format"])
         code, output, error = self.shared_cli(agent, "field-guidance", "title", "--project", "T")
         self.assertEqual((code, error), (0, ""))
-        for part in ("T · Writing guidance", field["guidance"], field["where"], field["example"]):
+        for part in ("T · Writing guidance", field["guidance"], field["where"], field["example"], field["format"]):
             self.assertIn(part, output)
         another = self.action(agent, "field-guidance", query_string={"project": "COURSE"})
         self.assertEqual(another["fields"], baseline["fields"])

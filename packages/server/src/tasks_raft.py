@@ -54,7 +54,7 @@ _ACTIONS = {
     "raft-channel-set": _Action("POST", "Set or clear the project's verified Raft coordination channel.",
                                 {"project": "Taskboard project prefix.",
                                  "channel_id": "Stable Raft channel ID. Send an empty string to clear it."}),
-    "field-guidance": _Action("GET", "Read effective writing guidance, field locations and examples.",
+    "field-guidance": _Action("GET", "Read effective writing guidance, field formats, locations and examples.",
                               optional=_PROJECT),
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE),
     "idle-goal-offer": _Action("POST", "Return a standing goal at a verified idle runner handoff.", {

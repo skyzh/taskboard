@@ -98,7 +98,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             printed = cli_success(python, ROOT, environment, "field-guidance", *cli_args)
             self.assertIn(f"{prefix} · Writing guidance", printed)
             for field in signed["fields"].values():
-                for key in ("guidance", "where", "example"):
+                for key in ("guidance", "where", "example", "format"):
                     self.assertIn(field[key], printed)
             return signed
 

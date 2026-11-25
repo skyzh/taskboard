@@ -313,6 +313,7 @@ h3 { font-size: .92rem; font-weight: var(--weight-emphasis); }
 .task-row-meta .assignee a { color: var(--muted); font-weight: var(--weight-emphasis); text-decoration: none; }
 .task-row-meta .assignee a:hover { color: var(--green); text-decoration: underline; }
 .task-row-note { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.task-decision-note { overflow-wrap: anywhere; }
 .report-task .task-row-note { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .task-dependency { color: var(--muted); font-size: .81rem; }
 .task-dependency + .task-row-note { margin-top: .12rem; }
