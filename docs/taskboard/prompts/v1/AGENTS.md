@@ -44,9 +44,14 @@ If evidence is incomplete or conflicting, keep the current guidance.
 Stage the proposed change or leave a linked follow-up with the owner,
 the open question, and the evidence needed to settle it.
 
-Find the original ticket by ID or exact GitHub issue or PR URL. Read current
-Knowledge, staged changes, and their sources before acting. Use the
-`link-github` action for new GitHub work.
+Find the original ticket by ID or exact GitHub issue or PR URL when you have
+one. Otherwise, search the project for an existing ticket for this work and
+reuse it when you find a match. Before starting, check the ticket's current
+step and active workers. If someone is already doing the same work, coordinate
+a handoff or agree on a separate part of the work.
+
+Read current Knowledge, staged changes, and their sources before acting. Use
+the `link-github` action for new GitHub work.
 
 On long tasks, post an early meaningful checkpoint on the original ticket.
 Update at milestones, before a sustained wait, and whenever about ten minutes
