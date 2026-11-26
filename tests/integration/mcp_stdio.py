@@ -1,6 +1,7 @@
 """Exercise the Taskboard adapter with an official MCP client and a mounted fixture."""
 
 from contextlib import closing
+from datetime import datetime, timedelta
 from hashlib import sha256
 import json
 import os
@@ -562,7 +563,14 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             expected = action(name, **query)
             result = await owner.call_tool(tool, params)
             self.assertFalse(result.is_error, result.content)
-            self.assertEqual(result.structured_content, expected)
+            actual = result.structured_content
+            if name == "recurring-show":
+                for report in (actual, expected):
+                    self.assertEqual(datetime.fromisoformat(report["as_of"]).utcoffset(), timedelta(0))
+                self.assertEqual({key: value for key, value in actual.items() if key != "as_of"},
+                                 {key: value for key, value in expected.items() if key != "as_of"})
+            else:
+                self.assertEqual(actual, expected)
             return expected
 
         project = {"project": "COURSE"}
