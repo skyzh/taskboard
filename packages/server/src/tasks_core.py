@@ -2074,12 +2074,15 @@ def issue_recurring_task(db, definition, due, as_of):
 
 
 def attach_recurring_ticket(db, definition, as_of):
-    args = argparse.Namespace(project=recurring_project(db, definition, None), title=definition["title"],
-                              step=definition["step"], brief=None, dri=definition["owner"], by=None)
+    project = recurring_project(db, definition, None)
+    args = argparse.Namespace(project=project, title=definition["title"], step=definition["step"],
+                              brief=None, dri=definition["owner"], by=None)
     linked = create_task_record(db, args, [], context={"recurring": f"R-{definition['id']}"},
                                 at=as_of, state="parked")
     db.execute("UPDATE recurring_review_tickets SET task_id = ? WHERE definition_id = ?",
                (linked, definition["id"]))
+    if definition["project_prefix"] is None:
+        db.execute("UPDATE recurring_definitions SET project_prefix = ? WHERE id = ?", (project, definition["id"]))
     return linked
 
 
@@ -2184,7 +2187,7 @@ def adopt_recurring_review(db, args):
     definition = tasks_recurring.owned(db, args.id, args.by)
     series = tasks_recurring.review_ticket(db, args.id)
     if series is not None and series["task_id"] is not None:
-        return f"R-{args.id} · Already uses a recurring review ticket"
+        return f"R-{args.id} · Already uses a recurring review ticket · {projects.for_task(db, series['task_id'])}"
     if definition["state"] != "paused":
         raise ValueError("Pause this schedule before adopting a reusable ticket.")
     if unsettled_recurring_tickets(db, args.id):

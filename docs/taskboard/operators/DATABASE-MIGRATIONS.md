@@ -49,8 +49,8 @@ attached ticket IDs, schedule IDs, and run records carry forward.
    Read `tasks --shared recurring-show R-1` for each owner. The `adoption`
    preview gives the effective project, saved next UTC slot, last recorded
    slot, and open issued tickets visible to the owner. Review those values
-   before choosing the next run. Unbound schedules use their existing
-   effective project. Leave canceled schedules terminal and handle
+   before choosing the next run. Adoption binds an unbound schedule to
+   its effective project at the time you adopt it. Leave canceled schedules terminal and handle
    project-managed maintenance through its existing manager controls.
 2. Settle issued tickets, pause the chosen ordinary schedule, then run
    `tasks --shared recurring-adopt R-1`. Verify the receipt names one parked
