@@ -1740,7 +1740,7 @@ def create_app(
         args = Namespace(command=command, by=actor["ledger_key"], force_text=force_text(data), **fields)
 
         def authorize(connection):
-            if command in tasks_recurring.EDITS - {"recurring-add"}:
+            if command in tasks_recurring.EDITS - {"recurring-add"} or command == "complete-recurring-review":
                 return require_visible_schedule(args.id)
             project = getattr(args, "project", None)
             if project is None and getattr(args, "id", None) is not None:
@@ -1862,13 +1862,17 @@ def create_app(
 
     def change_recurring(actor, data, identifier):
         change = text(data, "change", maximum=10)
-        if change not in ("pause", "resume", "cancel"):
-            raise RequestError("Choose pause, resume, or cancel.")
+        if change not in ("pause", "resume", "cancel", "adopt"):
+            raise RequestError("Choose pause, resume, cancel, or adopt.")
         next_at = text(data, "next_at", optional=True, maximum=40)
         if (change == "resume") != (next_at is not None):
             raise RequestError("Supply next_at only when resuming a definition.")
         number = record_id(identifier, "R-", "Recurring ID")
         return mutate(f"recurring-{change}", actor, data, id=number, next_at=next_at)
+
+    def complete_recurring(actor, identifier, data):
+        number = record_id(identifier, "R-", "Recurring ID")
+        return mutate("complete-recurring-review", actor, data, id=number, **activity_text(data, "done"))
 
     def change_ownership(actor, number, data):
         task = ledger.find_task(db(), number)
@@ -2667,11 +2671,32 @@ def create_app(
             raise NotFound()
         return schedule
 
+    def save_goal_review_time(owner, identifier, value):
+        number = task_number(identifier)
+        try:
+            with tasks_storage.write(db()) as connection:
+                return goal_cadence.save_review_time(connection, owner, number, value)
+        except ValueError as error:
+            raise RequestError(str(error)) from error
+        except PermissionError as error:
+            raise RequestError(str(error), 403) from error
+
+    @app.post("/api/v1/schedules/goals/<identifier>/review-time")
+    def schedule_goal_review_time(identifier):
+        actor = current_actor(write=True)
+        data = json_body({"time"})
+        return save_goal_review_time(actor["ledger_key"], identifier, data.get("time"))
+
     @app.post("/api/v1/schedules/<number>/state")
     def recurring_schedule_state(number):
         actor = current_actor(write=True)
         data = json_body({"change", "next_at"})
         return change_recurring(actor, data, number)
+
+    @app.post("/api/v1/schedules/<number>/complete-review")
+    def recurring_schedule_review(number):
+        actor = current_actor(write=True, required=True)
+        return complete_recurring(actor, number, json_body({"note", "details", "label", "url"}, writing=True))
 
     @app.post("/api/v1/schedules/maintenance")
     def maintenance_schedule():
@@ -4268,14 +4293,7 @@ def create_app(
                     ordinary = next(board.actionable_work(key, ordinary_only=True, **scope), None) is not None
                 return goal_cadence.candidates(connection, key, project, now, busy=work is not None, ordinary_busy=ordinary)
         if name == "set-goal-review-time":
-            number = task_number(data.get("id"))
-            try:
-                with tasks_storage.write(db()) as connection:
-                    saved = goal_cadence.save_review_time(connection, key, number, data.get("time"))
-            except ValueError as error:
-                raise RequestError(str(error)) from error
-            except PermissionError as error:
-                raise RequestError(str(error), 403) from error
+            saved = save_goal_review_time(key, data.get("id"), data.get("time"))
             return {**saved, "receipt": f"{saved['ticket']} · Goal review time {'saved' if saved['review_time'] else 'cleared'}"}
         if name == "save-goal":
             project = project_filter(data, use_default=True)
@@ -4476,12 +4494,15 @@ def create_app(
             return {"receipt": f"{project} · Recurring work checked", **json.loads(result["receipt"])}
         if name == "recurring-state":
             return change_recurring(actor, data, data.get("id"))
+        if name == "complete-recurring-review":
+            return complete_recurring(actor, data["id"], data)
         if name == "recurring-show":
             number = record_id(data.get("id"), "R-", "Recurring ID")
             try:
                 with tasks_storage.read(db()) as connection:
                     project = require_visible_schedule(number)
                     result = tasks_recurring.report(connection, number, key, ledger.timestamp(),
+                                                    viewer=key, project=project,
                                                     task_scope=query().schedule_visibility("ticket.project_prefix"))
                     return {**result, "project": project}
             except RequestError:

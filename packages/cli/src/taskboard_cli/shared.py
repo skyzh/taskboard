@@ -29,7 +29,7 @@ WRITES = ADVANCES | {
     "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "raft-channel-set",
     "wake-subscribe", "wake-unsubscribe", "knowledge-add", "knowledge-assign", "knowledge-place", "knowledge-stage",
     "knowledge-reconcile",
-    "worker-check", "recurring-tick", ledger.WRITE, PEER_ASK,
+    "worker-check", "recurring-tick", "complete-recurring-review", ledger.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
 def assert_actor(value, actor):
     if value is None:
@@ -298,6 +298,9 @@ def shared_write(board, args, *, context):
         action = "recurring-state"
         data.update(id=f"R-{args.id}", change=command.removeprefix("recurring-"),
                     next_at=getattr(args, "next_at", None))
+    elif command == "complete-recurring-review":
+        action = command
+        data.update(id=f"R-{args.id}", note=args.note, details=args.details)
     elif command == "priority":
         action = "set-priority"
         data.update(id=task_ref(args.id), priority=args.priority)

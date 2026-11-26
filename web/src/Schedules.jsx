@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { BoardLink, useContentTitle } from './BoardNavigation.jsx'
 import { queryPath, request, useResource } from './data.js'
-import { ResourceStatus, scheduleHref, schedulesHref, useSignInHref, taskHref, taskLabel } from './shared.jsx'
+import { ResourceStatus, TaskLink, scheduleHref, schedulesHref, useSignInHref, taskHref, taskLabel } from './shared.jsx'
+import { MarkdownInline } from './Markdown.jsx'
 import { useTimeZone } from './timeZone.js'
 import { RecurringRunList } from './RecurringRuns.jsx'
 
@@ -26,6 +27,7 @@ function ScheduleDate({ value }) {
 
 export function ScheduleSummary({ schedule, project, showOwner = true }) {
   const { owner_name: owner, cadence_hours: cadence, state, next_at: next } = schedule
+  const recurringTicket = schedule.reusable_ticket
   const interval = cadence % 24 === 0
     ? cadence === 24 ? 'Daily' : `Every ${cadence / 24} days`
     : cadence === 1 ? 'Hourly' : `Every ${cadence} hours`
@@ -36,6 +38,11 @@ export function ScheduleSummary({ schedule, project, showOwner = true }) {
       <div><dt>Cadence</dt><dd>{interval}</dd></div>
       <div><dt>Status</dt><dd>{scheduleStates[state]}</dd></div>
       {state === 'active' && <div><dt>Next run</dt><dd><ScheduleDate value={next} /></dd></div>}
+      {recurringTicket && <>
+        <div><dt>Recurring ticket</dt><dd><TaskLink id={recurringTicket.id} reference={recurringTicket.key} /></dd></div>
+        <div><dt>Last reviewed</dt><dd>{schedule.last_reviewed_at
+          ? <ScheduleDate value={schedule.last_reviewed_at} /> : 'Not yet reviewed'}</dd></div>
+      </>}
     </dl>
   )
 }
@@ -183,35 +190,113 @@ function ScheduleLink({ schedule, project, allProjects }) {
   return <BoardLink href={scheduleHref(schedule.id, project, allProjects)}>{schedule.id} · {schedule.title}</BoardLink>
 }
 
-export function ScheduleContents({ data, project, allProjects, onChanged }) {
-  const { recurring, maintenance, project_maintenance: projectMaintenance } = data
-  const schedule = maintenance.schedule
+function ScheduleOwnerGroups({ items, renderRow }) {
   const owners = new Map()
-  for (const item of recurring) {
-    if (!owners.has(item.owner)) owners.set(item.owner, { name: item.owner_name || 'Unavailable assignee', schedules: [] })
-    owners.get(item.owner).schedules.push(item)
+  for (const item of items) {
+    if (!owners.has(item.owner)) owners.set(item.owner, { name: item.owner_name || 'Unavailable assignee', items: [] })
+    owners.get(item.owner).items.push(item)
   }
   const groups = [...owners].sort(([, left], [, right]) => left.name.localeCompare(right.name))
+  return groups.map(([owner, group]) => (
+    <section key={owner} className="schedule-owner" aria-label={group.name}>
+      <h3>{group.name}</h3>
+      {group.items.map(renderRow)}
+    </section>
+  ))
+}
+
+function GoalReviewTime({ goal, onChanged }) {
+  const initial = goal.review_time ?? ''
+  const [draft, setDraft] = useState(null)
+  const time = draft ?? initial
+  const { pending, error, save } = useScheduleSave(
+    `/schedules/goals/${encodeURIComponent(goal.ticket)}/review-time`, () => { setDraft(null); onChanged() },
+  )
+  return (
+    <details className="schedule-editor">
+      <summary>Edit review time</summary>
+      <form className="schedule-review-form" onSubmit={event => {
+        event.preventDefault()
+        save({ time })
+      }} data-reload-blocked={pending || time !== initial}>
+        <label>Daily review time (Pacific)
+          <input type="time" value={time} disabled={pending} onChange={event => setDraft(event.target.value)} />
+        </label>
+        <div className="schedule-actions">
+          <button type="submit" disabled={pending || time === initial}>Save review time</button>
+          {initial && <button type="button" disabled={pending} onClick={() => save({ time: '' })}>
+            Clear review time
+          </button>}
+        </div>
+        {error && <p role="alert">{error}</p>}
+      </form>
+    </details>
+  )
+}
+
+function GoalReviews({ goals, allProjects, onChanged }) {
+  return (
+    <section className="panel schedule-panel" aria-labelledby="goal-reviews-title">
+      <h2 id="goal-reviews-title">Goal reviews</h2>
+      {goals.length === 0 && <p>{allProjects
+        ? 'No active goals in your accessible projects.' : 'No active goals in this project.'}</p>}
+      <ScheduleOwnerGroups items={goals} renderRow={goal => (
+        <article key={goal.ticket} className="schedule-item">
+          <h4><BoardLink href={taskHref(goal.ticket)}>{goal.ticket} · <MarkdownInline text={goal.title} links={false} /></BoardLink></h4>
+          <dl className="schedule-summary">
+            <div><dt>Project</dt><dd>{goal.project}</dd></div>
+            <div><dt>Daily review</dt><dd>{goal.review_time
+              ? <><time dateTime={goal.review_time}>{goal.review_time}</time> Pacific</> : 'No time set'}</dd></div>
+            {goal.deadline && <div><dt>Deadline</dt><dd><time dateTime={goal.deadline}>{goal.deadline}</time></dd></div>}
+          </dl>
+          {goal.editable === true && <GoalReviewTime goal={goal} onChanged={onChanged} />}
+        </article>
+      )} />
+    </section>
+  )
+}
+
+function CompleteScheduleReview({ schedule, onChanged }) {
+  const [note, setNote] = useState('')
+  const { pending, error, save } = useScheduleSave(
+    `/schedules/${encodeURIComponent(schedule.id)}/complete-review`, () => { setNote(''); onChanged() },
+  )
+  return (
+    <details className="schedule-editor">
+      <summary>Complete review</summary>
+      <form className="schedule-review-form" onSubmit={event => {
+        event.preventDefault()
+        save({ note: note.trim() })
+      }} data-reload-blocked={pending || Boolean(note)}>
+        <label>Review outcome
+          <textarea rows="3" required value={note} disabled={pending} onChange={event => setNote(event.target.value)} />
+        </label>
+        <button type="submit" disabled={pending || !note.trim()}>Record outcome and park ticket</button>
+        {error && <p role="alert">{error}</p>}
+      </form>
+    </details>
+  )
+}
+
+export function ScheduleContents({ data, project, allProjects, onChanged }) {
+  const { recurring, goal_reviews: goalReviews = [], maintenance, project_maintenance: projectMaintenance } = data
+  const schedule = maintenance.schedule
   return (
     <>
       <section className="panel schedule-panel" aria-labelledby="recurring-title">
         <h2 id="recurring-title">Recurring work</h2>
-        {groups.length === 0 && <p>{allProjects
+        {recurring.length === 0 && <p>{allProjects
           ? 'No recurring schedules in your accessible projects.' : 'No recurring schedules in this project.'}</p>}
-        {groups.map(([owner, group]) => (
-          <section key={owner} className="schedule-owner" aria-label={group.name}>
-            <h3>{group.name}</h3>
-            {group.schedules.map(item => (
-              <article key={item.id} className="schedule-item">
-                <h4><ScheduleLink schedule={item} project={item.project || project} allProjects={allProjects} /></h4>
-                <ScheduleSummary schedule={item} project={item.project || project} showOwner={false} />
-                <OccurrenceHistory occurrences={item.recent_occurrences} />
-                {!allProjects && item.editable === true && <ScheduleControls schedule={item} onChanged={onChanged} />}
-              </article>
-            ))}
-          </section>
-        ))}
+        <ScheduleOwnerGroups items={recurring} renderRow={item => (
+          <article key={item.id} className="schedule-item">
+            <h4><ScheduleLink schedule={item} project={item.project || project} allProjects={allProjects} /></h4>
+            <ScheduleSummary schedule={item} project={item.project || project} showOwner={false} />
+            <OccurrenceHistory occurrences={item.recent_occurrences} />
+            {!allProjects && item.editable === true && <ScheduleControls schedule={item} onChanged={onChanged} />}
+          </article>
+        )} />
       </section>
+      <GoalReviews goals={goalReviews} allProjects={allProjects} onChanged={onChanged} />
       <section className="panel schedule-panel" aria-labelledby="maintenance-title">
         <h2 id="maintenance-title">Project maintenance</h2>
         {allProjects && !projectMaintenance?.length && <p>You have no project maintenance schedules.</p>}
@@ -247,12 +332,13 @@ function ScheduleDetail({ data, onChanged }) {
     <>
       <section className="panel schedule-panel" aria-label="Schedule details">
         <ScheduleSummary schedule={schedule} project={project} />
+        {schedule.can_complete_review === true && <CompleteScheduleReview schedule={schedule} onChanged={onChanged} />}
         {editable === true && <ScheduleControls project={project} schedule={schedule}
           ownerChoices={kind === 'maintenance' ? ownerChoices : undefined} onChanged={onChanged} />}
       </section>
       <section className="panel schedule-panel" aria-labelledby="schedule-runs">
         <h2 id="schedule-runs">Recent runs</h2>
-        <RecurringRunList runs={runs} />
+        <RecurringRunList runs={runs} showOutcome />
       </section>
     </>
   )

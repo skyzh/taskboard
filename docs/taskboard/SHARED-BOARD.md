@@ -733,10 +733,10 @@ separately. The chart and duration estimates describe ledger evidence.
 ### Recurring work
 
 Open **Tasks → Schedules** in the selected project and choose an R-number
-to see the schedule and its recorded runs. Personal schedules are visible
-to their owners. A project's maintenance schedule is visible to its
-manager. Tickets issued from a schedule link back to it for the same
-viewers. Legacy schedules without an explicit project appear where the
+to see its recorded runs. Recurring schedules appear in projects you can
+read. Their owners manage the schedule and complete reviews. A project's
+maintenance schedule is visible to its manager. Tickets issued from a
+schedule link back to it. Legacy schedules without an explicit project appear where the
 operator issues their tickets, typically the default project.
 
 Use a stable owner key to define a cadence in whole hours and the first
@@ -749,6 +749,7 @@ key and settings returns the existing ID.
 ./tasks --shared recurring-add sample-check 'Check the sample' \
   --project T --cadence-hours 4 --next-at 2026-11-21T12:00:00Z --step 'Verify the sample.'
 ./tasks --shared recurring-show R-1
+./tasks --shared complete-recurring-review R-1 'The sample passed.' --details 'Both readings matched.'
 ./tasks --shared recurring-pause R-1
 ./tasks --shared recurring-resume R-1 --next-at 2026-11-22T12:00:00Z
 ./tasks --shared recurring-cancel R-1
@@ -765,9 +766,13 @@ project, including its maintenance schedule. The operator tick continues
 to handle unbound definitions and timed deferrals.
 
 An explicit local operator tick uses `./tasks --offline --db FILE
-recurring-tick --as-of UTC`. It issues an ordinary Ready task for the
-latest due slot in each active series. Earlier skipped slots are recorded
-without issuing late tasks. Replaying the same tick creates no duplicate.
+recurring-tick --as-of UTC`. A new ordinary schedule creates one Ready
+ticket at its first due slot. Start the ticket and record a completed review
+from its schedule or with `complete-recurring-review`. Recording the outcome
+parks the ticket and updates **Last reviewed**. The next due slot returns
+that ticket to Ready. An existing Ready or In progress ticket stays in its
+current state, and the scheduler records the skipped slot. Waiting and
+terminal tickets keep their status. A repeat tick leaves the due run unchanged.
 The same tick returns due exact-time deferrals to Ready and reports them in
 `released_deferrals` when any were released. Run the operator tick with the
 current UTC time at the interval expected by the deployment. The existing
@@ -775,7 +780,14 @@ current UTC time at the interval expected by the deployment. The existing
 when the owner has opted in to delivery.
 
 Pause retains already due slots and excludes the pause interval; cancel
-prevents future slots. Issued tasks keep their normal status workflow.
+prevents future slots. Issued tasks keep their recorded history.
+
+To adopt a reusable ticket for a legacy ordinary schedule, finish or close
+its outstanding issued tickets, pause it, run `recurring-adopt R-1`, and
+resume it with the intended next UTC slot. The same R-number preserves all
+of its earlier run links. The first due slot after adoption creates the
+reusable ticket. Managed maintenance schedules keep their existing issuance
+flow.
 
 `recurring-show` reports counts through its observation time and includes
 the most recent 25 materialized occurrences. A slot is missed after the

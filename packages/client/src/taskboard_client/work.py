@@ -165,7 +165,7 @@ READ = "maintenance-show"
 WRITE = "maintenance-update"
 
 
-EDITS = {"recurring-add", "recurring-pause", "recurring-resume", "recurring-cancel"}
+EDITS = {"recurring-add", "recurring-pause", "recurring-resume", "recurring-cancel", "recurring-adopt"}
 
 
 def recurrence_id(value):

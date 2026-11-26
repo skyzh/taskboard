@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.pool import NullPool
 
 import test_tasks_service as fixture
-from taskboard_server.migrate import PROFILE_BASELINE, PROFILE_SHORT_ROLE, migrate
+from taskboard_server.migrate import PROFILE_BASELINE, RECURRING_REVIEW_TICKETS, migrate
 from tasks_storage import SCHEMA_REVISION_TABLE, open_sqlite
 
 
@@ -14,7 +14,7 @@ def replay_versioned_profiles(test, board, app, restart, engine):
     owner, owner_id = board.login(app, "Avery")
     board.action(owner, "set-profile", {"role": "Fixture release tester"})
     board.action(owner, "create-task", {"title": "Keep the existing ticket", "step": "Verify the upgrade."})
-    test.assertEqual(migrate(engine)["recognized_revision"], PROFILE_SHORT_ROLE)
+    test.assertEqual(migrate(engine)["recognized_revision"], RECURRING_REVIEW_TICKETS)
     test.assertFalse(inspect(engine).has_table(SCHEMA_REVISION_TABLE))
 
     with engine.begin() as connection:
@@ -34,8 +34,8 @@ def replay_versioned_profiles(test, board, app, restart, engine):
 
     test.assertFalse(inspect(engine).has_table(SCHEMA_REVISION_TABLE))
     test.assertEqual(migrate(engine)["recognized_revision"], PROFILE_BASELINE)
-    test.assertEqual(migrate(engine, apply=True)["applied_revision"], PROFILE_SHORT_ROLE)
-    test.assertEqual(migrate(engine, apply=True)["recorded_revision"], PROFILE_SHORT_ROLE)
+    test.assertEqual(migrate(engine, apply=True)["applied_revision"], RECURRING_REVIEW_TICKETS)
+    test.assertEqual(migrate(engine, apply=True)["recorded_revision"], RECURRING_REVIEW_TICKETS)
 
     owner, signed_id = board.login(restart(), "Avery")
     profile = board.call(owner, "/api/v1/session").json["actor"]
