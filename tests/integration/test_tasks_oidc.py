@@ -311,7 +311,7 @@ class OIDCTest(unittest.TestCase):
         restarted = self.board().test_client()
         restarted.set_cookie(saved.key, saved.value, domain=saved.domain, path=saved.path)
         self.assertEqual(self.actor(restarted)["id"], self.one)
-        with patch("tasks_oidc.time", return_value=time() + 241):
+        with patch("taskboard_server.login.time", return_value=time() + 241):
             self.assertIsNone(self.actor(restarted))
         self.call(client, "/auth/logout", 204, method="POST", headers={"Origin": ORIGIN})
         self.assertIsNone(self.actor(restarted))

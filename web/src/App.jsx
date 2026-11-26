@@ -240,7 +240,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const [savedActor, setSavedActor] = useState(null)
   const session = savedActor ? { ...sessionResource, data: { ...sessionResource.data, actor: savedActor } } : sessionResource
   const hasSession = Boolean(session.data?.actor)
-  const needsOidcSignIn = !hasSession && session.data?.sign_in_provider === 'oidc'
+  const signInProvider = session.data?.sign_in_provider
+  const needsMemberSignIn = !hasSession && ['oidc', 'external'].includes(signInProvider)
   const appHeader = useRef(null)
   useLayoutEffect(() => {
     const header = appHeader.current
@@ -256,7 +257,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
       resize.disconnect()
       style.removeProperty('--app-header-height')
     }
-  }, [needsOidcSignIn])
+  }, [needsMemberSignIn])
   const isAgent = session.data?.actor?.kind === 'agent'
   const isHuman = session.data?.actor?.kind === 'human'
   const verified = isAgent || isHuman
@@ -358,7 +359,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
     if (view !== 'board' && !fromList) listReturn.current = null
   }, [view, fromList])
   const overview = useResource(
-    !needsOidcSignIn && !projectUnavailable && !scopePending && (!projectsPending || view === 'activity') && ['board', 'team-overview', 'activity'].includes(view)
+    !needsMemberSignIn && !projectUnavailable && !scopePending && (!projectsPending || view === 'activity') && ['board', 'team-overview', 'activity'].includes(view)
       ? queryPath('/overview', projectFilters(projectRead))
       : null,
     revision,
@@ -450,12 +451,12 @@ export default function App({ previewNotice, tourSteps } = {}) {
           : projectHref(route, value, { replace: true }))
       }} />
   )
-  if (needsOidcSignIn) {
+  if (needsMemberSignIn) {
     return (
       <main aria-label="Taskboard content">
         <div className="main-content">
           <h1>Taskboard</h1>
-          <a href={login}>Sign in with OpenID Connect</a>
+          <a href={login}>{signInProvider === 'oidc' ? 'Sign in with OpenID Connect' : 'Sign in'}</a>
         </div>
       </main>
     )

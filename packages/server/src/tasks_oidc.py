@@ -1,22 +1,16 @@
 """OpenID Connect sign-in for a self-hosted Taskboard."""
 
 from hashlib import sha256
-from json import dumps
-from math import ceil
-from secrets import token_urlsafe
 from time import time
 from urllib.parse import urlsplit
 
-from flask import jsonify, make_response, redirect, request, session
+from flask import request
 
-from raft_auth import fetch_profile_photo, login_return
-from raft_sessions import DurableSessions, Session
+from raft_auth import fetch_profile_photo
+from taskboard_server.login import LoginProvider, LoginRejected, VerifiedLogin
 from tasks_oidc_members import issuer_url, valid_subject
 
 
-COOKIE = "tasks_oidc_session"
-LOGIN_SECONDS = 300
-SESSION_SECONDS = 3600
 SIGNED_ALGORITHMS = ("RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA")
 REQUIRED = ("ISSUER", "CLIENT_ID", "CLIENT_SECRET", "SESSION_DIR")
 
@@ -56,10 +50,6 @@ def configured_photo_origin(value):
     raise ValueError("Set TASKS_OIDC_PHOTO_ORIGIN to one HTTPS origin without a path.")
 
 
-def error(message, status):
-    return jsonify(error=message), status
-
-
 def allowed_endpoint(value):
     if not isinstance(value, str) or any(character.isspace() for character in value):
         return False
@@ -70,9 +60,15 @@ def allowed_endpoint(value):
         return False
 
 
+def provider(*, issuer, client_id, client_secret, session_dir, photo_origin=None):
+    def adapter(app):
+        return OIDC(app, issuer=issuer, client_id=client_id, client_secret=client_secret, photo_origin=photo_origin)
+
+    return LoginProvider(issuer, client_id, session_dir, adapter)
+
+
 class OIDC:
-    def __init__(self, app, public_url, *, issuer, client_id, client_secret, session_dir, admit, resolve,
-                 photo_origin=None):
+    def __init__(self, app, *, issuer, client_id, client_secret, photo_origin):
         try:
             from authlib.integrations.base_client import OAuthError
             from authlib.integrations.flask_client import OAuth
@@ -83,37 +79,16 @@ class OIDC:
             raise ValueError("Install OpenID Connect with uv sync --frozen --extra oidc.") from failure
         self.issuer = issuer_url(issuer)
         self.photo_origin = configured_photo_origin(photo_origin)
-        if not (client_id and client_secret and session_dir):
-            raise ValueError("Configure the OpenID Connect client and private session directory.")
-        self.public_url = public_url
+        if not client_secret:
+            raise ValueError("Configure the OpenID Connect client secret.")
         self.client_id = client_id
         self.validated_claims = UserInfo
-        parsed = urlsplit(public_url)
-        if not allowed_endpoint(public_url) or "?" in public_url or "#" in public_url:
-            raise ValueError("Set an HTTPS Taskboard origin and mount path for OpenID Connect.")
-        self.origin = f"{parsed.scheme}://{parsed.netloc}"
-        self.cookie_path = parsed.path + "/"
-        self.admit = admit
-        self.resolve = resolve
         self.failures = (OAuthError, JoseError, RequestException, ValueError)
-        self.sessions = DurableSessions(
-            session_dir, dumps([self.issuer, client_id, public_url]), filename="oidc-sessions.sqlite3",
-        )
-
-        app.secret_key = token_urlsafe(32)
-        app.config.update(
-            SESSION_COOKIE_NAME="tasks_oidc_login", SESSION_COOKIE_PATH=parsed.path + "/auth/",
-            SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
-            PERMANENT_SESSION_LIFETIME=LOGIN_SECONDS, SESSION_REFRESH_EACH_REQUEST=False,
-        )
         self.client = OAuth(app).register(
             "taskboard_oidc", client_id=client_id, client_secret=client_secret,
             server_metadata_url=self.issuer.rstrip("/") + "/.well-known/openid-configuration",
             client_kwargs={"scope": "openid profile", "code_challenge_method": "S256", "default_timeout": 8},
         )
-        app.add_url_rule("/auth/login", view_func=self.login)
-        app.add_url_rule("/auth/callback", view_func=self.callback)
-        app.add_url_rule("/auth/logout", view_func=self.logout, methods=["POST"])
 
     def metadata(self):
         metadata = self.client.load_server_metadata()
@@ -129,54 +104,30 @@ class OIDC:
             raise ValueError("OpenID Connect requires a signed ID token.")
         return metadata
 
-    def login(self):
-        return_target = login_return(request.args)
-        if return_target is None:
-            return error("Open the sign-in link from Taskboard.", 400)
-        session.clear()
+    def begin(self, callback_url):
         try:
             self.metadata()
-            session["expires"] = time() + LOGIN_SECONDS
-            session["return_to"] = return_target
-            return self.client.authorize_redirect(self.public_url + "/auth/callback")
+            return self.client.authorize_redirect(callback_url)
         except self.failures:
-            session.clear()
-            return error("OpenID Connect sign-in is unavailable.", 503)
+            raise LoginRejected("OpenID Connect sign-in is unavailable.", 503) from None
 
-    def callback(self):
+    def verify(self):
         states, codes, issuer = (request.args.getlist(key) for key in ("state", "code", "iss"))
-        return_target = session.pop("return_to", "/" + session.pop("fragment", ""))
-        expires = session.pop("expires", 0)
-        if (expires <= time() or len(states) != 1 or len(codes) != 1 or not codes[0]
-                or (issuer and issuer != [self.issuer])):
-            session.clear()
-            return error("Start a new OpenID Connect sign-in.", 400)
+        if len(states) != 1 or len(codes) != 1 or not codes[0] or (issuer and issuer != [self.issuer]):
+            raise LoginRejected("Start a new OpenID Connect sign-in.", 400)
         try:
             self.metadata()
             token = self.client.authorize_access_token(leeway=0)
             claims = token.get("userinfo")
             if not isinstance(claims, self.validated_claims) or not token.get("id_token"):
-                return error("OpenID Connect sign-in could not be verified.", 401)
+                raise ValueError("Unverified identity")
             aud, subject, expiry = (claims.get(key) for key in ("aud", "sub", "exp"))
-            now = time()
-            if (
-                claims.get("iss") != self.issuer or aud not in (self.client_id, [self.client_id])
-                or not valid_subject(subject) or type(expiry) is not int or expiry <= now
-            ):
-                return error("OpenID Connect sign-in could not be verified.", 401)
-            if not self.admit(subject, claims.get("name"), claims.get("picture")):
-                return error("This account has no Taskboard membership.", 403)
-            response = redirect(self.public_url + return_target)
-            key = token_urlsafe(32)
-            end = min(expiry, now + SESSION_SECONDS)
-            self.sessions.replace(request.cookies.get(COOKIE), key, Session("", end, subject, "human"), now)
-            response.set_cookie(COOKIE, key, max_age=ceil(end - now), path=self.cookie_path,
-                                secure=True, httponly=True, samesite="Lax")
-            return response
+            if (claims.get("iss") != self.issuer or aud not in (self.client_id, [self.client_id])
+                    or not valid_subject(subject) or type(expiry) is not int or expiry <= time()):
+                raise ValueError("Unverified identity")
+            return VerifiedLogin(self.issuer, subject, expiry, claims.get("name"), claims.get("picture"))
         except self.failures:
-            return error("OpenID Connect sign-in could not be verified.", 401)
-        finally:
-            session.clear()
+            raise LoginRejected("OpenID Connect sign-in could not be verified.", 401) from None
 
     def profile_photo(self, actor, picture):
         if (not self.photo_origin or actor["avatar_digest"] or not visible_url(picture)
@@ -188,17 +139,3 @@ class OIDC:
             return None
         contents = fetch_profile_photo(picture)
         return (source, contents) if contents else None
-
-    def actor(self):
-        key = request.cookies.get(COOKIE)
-        saved = self.sessions.get(key, time()) if key else None
-        return self.resolve(saved.subject) if saved else None
-
-    def logout(self):
-        if request.headers.get("Origin") not in (None, self.origin):
-            return error("Send changes from the board origin.", 403)
-        self.sessions.discard(request.cookies.get(COOKIE))
-        session.clear()
-        response = make_response("", 204)
-        response.delete_cookie(COOKIE, path=self.cookie_path, secure=True, httponly=True, samesite="Lax")
-        return response

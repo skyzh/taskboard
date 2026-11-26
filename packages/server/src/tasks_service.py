@@ -67,6 +67,7 @@ from tasks_ui_routes import BoardPage, board_return_allowed
 
 
 from taskboard_client.connection import exact_person_id
+from taskboard_server.login import BrowserLogin, external_issuer
 from taskboard_server.migrate import postgres_engine, prepare_and_upgrade, sqlite_engine
 from taskboard_server.paths import CHECKOUT, DIST, PACKAGE
 from taskboard_server import local_dri, personal_agents, personal_codex, project_admin, project_links, raft_channels, reports_presence
@@ -488,23 +489,43 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
 
 
 def set_oidc_member(database, issuer, subject, *, admitted, ledger_key=None, name=None):
+    return _set_browser_member(database, issuer=oidc_members.issuer_url(issuer), subject=subject,
+                               admitted=admitted, ledger_key=ledger_key, name=name)
+
+
+def set_login_member(database, issuer, subject, *, admitted, ledger_key=None, name=None, postgres_dsn=None):
+    """Provision the exact subject of a deployment-configured browser provider."""
+    issuer_key = external_issuer(issuer)
+    if postgres_dsn:
+        if database is not None:
+            raise ValueError("Choose a SQLite ledger or a PostgreSQL connection.")
+        with closing(tasks_storage.Postgres(postgres_dsn)) as db:
+            return _set_browser_member_on(db, issuer_key, subject, admitted=admitted, ledger_key=ledger_key, name=name)
+    return _set_browser_member(Path(database), issuer=issuer_key, subject=subject, admitted=admitted,
+                               ledger_key=ledger_key, name=name)
+
+
+def _set_browser_member(database, *, issuer, subject, admitted, ledger_key, name):
     if not admitted and not database.is_file():
-        raise ValueError("This OpenID Connect subject has no membership.")
-    oidc_members.issuer_url(issuer)
+        raise ValueError("This subject has no membership.")
     if not oidc_members.valid_subject(subject):
-        raise ValueError("Provide the exact OpenID Connect subject.")
+        raise ValueError("Provide the exact verified subject.")
     prepare(database, None, None)
     with closing(connect(database)) as db:
-        return set_oidc_member_on(db, issuer, subject, admitted=admitted, ledger_key=ledger_key, name=name)
+        return _set_browser_member_on(db, issuer, subject, admitted=admitted, ledger_key=ledger_key, name=name)
 
 
 def set_oidc_member_on(db, issuer, subject, *, admitted, ledger_key=None, name=None):
-    issuer = oidc_members.issuer_url(issuer)
+    return _set_browser_member_on(db, oidc_members.issuer_url(issuer), subject,
+                                  admitted=admitted, ledger_key=ledger_key, name=name)
+
+
+def _set_browser_member_on(db, issuer, subject, *, admitted, ledger_key, name):
     if not oidc_members.valid_subject(subject):
-        raise ValueError("Provide the exact OpenID Connect subject.")
+        raise ValueError("Provide the exact verified subject.")
     with tasks_storage.write(db):
         if marketplace_marker(db) is not None:
-            raise ValueError("OpenID Connect cannot use a Marketplace ledger.")
+            raise ValueError("Member-based sign-in cannot use a Marketplace ledger.")
         oidc_members.bind_issuer(db, issuer)
         key, changed = oidc_members.set_membership(
             db, issuer, subject, admitted=admitted, ledger_key=ledger_key, name=name,
@@ -575,6 +596,7 @@ def create_app(
     release_queue_ticket=None,
     watcher_measurement_ticket=None,
     oidc_config=None,
+    login_provider=None,
     postgres_dsn=None,
     github_merge_projects=(),
     raft_channel_lookup=None,
@@ -593,7 +615,10 @@ def create_app(
     initial_project=None,
     browser_push_config=None,
 ):
-    """Configure the board; injected identity providers are used by isolated tests."""
+    """Configure the board with Raft, OIDC, or one deployment-provided login adapter."""
+    if login_provider is not None and oidc_config is not None:
+        raise ValueError("Configure one browser login provider.")
+    member_mode = "external" if login_provider is not None else "oidc" if oidc_config is not None else None
     if initial_project is None:
         initial_project = projects.load_initial_project(os.environ.get("TASKS_SERVER_CONFIG") or None)
     agent_guidance = agent_guidance or tasks_guidance.AgentGuidance()
@@ -611,7 +636,7 @@ def create_app(
             raise ValueError("Set TASKS_NEW_TASKS_DEFAULT_SUBJECT to a verified human subject UUID.") from error
     marketplace = marketplace_root is not None
     personal_api_enabled = bool(
-        not marketplace and not local_readonly and oidc_config is None and (raft_config or {}).get("server_id")
+        not marketplace and not local_readonly and member_mode is None and (raft_config or {}).get("server_id")
     )
     if project_admin_subject is not None:
         if not personal_api_enabled:
@@ -656,11 +681,12 @@ def create_app(
         raise ValueError("Enable project extensions on a shared board.")
     if postgres_dsn and (database is not None or marketplace or local_readonly or websocket_revisions or github_reader):
         raise ValueError("Use the PostgreSQL ledger for one shared, polling board.")
-    if oidc_config is not None and (
+    if member_mode is not None and (
         raft_config is not None or identity_provider is not None or marketplace
         or portal_reader or local_readonly or creation_default_subject is not None or project_roster is not None
     ):
-        raise ValueError("Use OpenID Connect without Raft, Marketplace, portal-reader, or local preview settings.")
+        label = "OpenID Connect" if member_mode == "oidc" else "The configured login provider"
+        raise ValueError(f"Use {label} without Raft, Marketplace, portal-reader, or local preview settings.")
     if watcher_measurement_ticket is not None:
         project, number = projects.identifier(watcher_measurement_ticket)
         watcher_measurement_ticket = f"{project}-{number}"
@@ -694,7 +720,7 @@ def create_app(
         raise ValueError("Choose local preview or portal-reader mode.")
     if websocket_revisions and not (portal_reader or local_readonly):
         raise ValueError("WebSocket revisions require portal-reader or local preview mode.")
-    if not (local_readonly or portal_reader) and raft_config is None and oidc_config is None and identity_provider is None:
+    if not (local_readonly or portal_reader) and raft_config is None and member_mode is None and identity_provider is None:
         raise ValueError("Configure Raft sign-in before starting the shared board.")
     if not (local_readonly or marketplace) and (
         not portal_upstream_token or portal_upstream_token.strip() != portal_upstream_token
@@ -762,23 +788,28 @@ def create_app(
         raft = RaftAuth(app, public_origin=base, on_verified_sign_in=retry_provider_photo,
                         marketplace=marketplace, **raft_config)
         identity_provider = raft.identity
-    def oidc_member(subject):
-        return oidc_members.member(db(), oidc.issuer, subject)
 
-    def admit_oidc_member(subject, name, picture):
-        actor = oidc_member(subject)
-        if actor is None:
-            return False
-        photo = oidc.profile_photo(actor, picture)
-        with tasks_storage.changes(db()) as connection:
-            return oidc_members.admit(connection, oidc.issuer, subject, name, photo=photo)
+    member_login = None
+    issuer = None
+    if member_mode is not None:
+        provider = login_provider if login_provider is not None else oidc_auth.provider(**oidc_config)
+        issuer = external_issuer(provider.issuer) if member_mode == "external" else provider.issuer
 
-    oidc = None
-    if oidc_config is not None:
-        oidc = oidc_auth.OIDC(app, base, admit=admit_oidc_member, resolve=oidc_member, **oidc_config)
+        def resolve_member(subject):
+            return oidc_members.member(db(), issuer, subject)
+
+        def admit_member(identity, adapter):
+            actor = resolve_member(identity.subject)
+            if actor is None:
+                return False
+            photo = adapter.profile_photo(actor, identity.picture) if member_mode == "oidc" else None
+            with tasks_storage.changes(db()) as connection:
+                return oidc_members.admit(connection, issuer, identity.subject, identity.name, photo=photo)
+
+        member_login = BrowserLogin(app, base, provider=provider, mode=member_mode,
+                                    admit=admit_member, resolve=resolve_member)
     if not marketplace:
         server = raft_config["server_id"] if raft_config else None
-        issuer = oidc.issuer if oidc else None
         if postgres_dsn:
             prepare_postgres(postgres_dsn, base + "/", server, oidc_issuer=issuer,
                              initial_project=initial_project, require_initial=True)
@@ -917,11 +948,12 @@ def create_app(
             if kind or write or required:
                 raise RequestError("Sign in to a shared board to perform this action.", 403)
             return None
-        if oidc is not None:
+        if member_login is not None:
             if "actor" not in g:
-                g.actor = oidc.actor()
+                g.actor = member_login.actor()
             if g.actor is None:
-                raise RequestError("Sign in with OpenID Connect to perform this action.", 401)
+                label = " with OpenID Connect" if member_mode == "oidc" else ""
+                raise RequestError(f"Sign in{label} to perform this action.", 401)
             if kind and g.actor["kind"] != kind:
                 raise RequestError(f"This action requires a signed-in {kind}.", 403)
             return g.actor
@@ -955,7 +987,7 @@ def create_app(
             raise RequestError(f"This action requires a signed-in Raft {kind}.", 403)
         return g.actor
 
-    if marketplace or oidc is not None:
+    if marketplace or member_login is not None:
         @app.before_request
         def require_board_identity():
             if request.endpoint == "report_presence":
@@ -963,7 +995,7 @@ def create_app(
             if request.endpoint == "decision_receipt":
                 current_actor("human", sync_profile=False)
             elif request.path.startswith("/api/v1/") and request.endpoint not in (
-                ("session", "frontend_build", "github_webhook") if oidc is not None else ("session",)
+                ("session", "frontend_build", "github_webhook") if member_login is not None else ("session",)
             ):
                 current_actor(write=request.method not in ("GET", "HEAD", "OPTIONS"), required=True)
 
@@ -2009,7 +2041,7 @@ def create_app(
 
     def check_document_target(page):
         if not (local_readonly or portal_reader or (raft is not None and raft.identity() is not None)
-                or (oidc is not None and oidc.actor() is not None)):
+                or (member_login is not None and member_login.actor() is not None)):
             return  # The generic shell still supports signing in to a private board.
         current_actor()
         g.checked_document = True
@@ -2089,10 +2121,10 @@ def create_app(
 
     @app.get("/api/v1/session")
     def session():
-        if oidc is not None:
-            actor = oidc.actor()
+        if member_login is not None:
+            actor = member_login.actor()
             return {"actor": actor_profile(actor) if actor else None,
-                    "sign_in_available": True, "sign_in_provider": "oidc", **registration_capability(actor)}
+                    "sign_in_available": True, "sign_in_provider": member_mode, **registration_capability(actor)}
         if marketplace and raft.identity() is None:
             return {"actor": None, "sign_in_available": True}
         actor = current_actor()

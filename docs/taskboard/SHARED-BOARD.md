@@ -373,6 +373,55 @@ Email and display names do not grant access. Revocation takes effect on the next
 
 Photo import is off by default. When enabled, a member's verified ID token can supply a `picture` URL on the exact configured origin. Choose an origin you trust to serve profile images without credentials. Taskboard downloads only from that origin, declines redirects, and stores a normalized PNG from a valid PNG, JPEG, or WebP of at most 1 MiB. Board-uploaded avatars take priority. A missing photo or failed download leaves the current avatar in place and sign-in still works. Removing the setting stops future downloads.
 
+## Register a different browser login provider
+
+A self-hosted deployment can select one additional provider in its Python WSGI
+entry point. Package the adapter with the deployment and configure it in the
+Taskboard app factory. Use the same HTTPS gateway and dedicated portal credential
+as for the other shared modes.
+
+```python
+from pathlib import Path
+
+from taskboard_server.login import LoginProvider
+from tasks_service import create_app
+
+from deployment_identity import make_adapter  # Your deployment's trusted adapter.
+
+app = create_app(
+    Path("/srv/taskboard/tasks.sqlite3"),
+    public_url=board_url,
+    portal_upstream_token=portal_token,
+    initial_project=("T", "Taskboard"),
+    login_provider=LoginProvider(issuer, client_id, session_directory, make_adapter),
+)
+```
+
+Supply `board_url`, `portal_token`, the exact HTTPS `issuer`, the registered
+`client_id`, and an absolute service-owned `session_directory` with mode
+`0700` from the deployment configuration. For PostgreSQL, pass `None` as the
+ledger path and supply `postgres_dsn` to the same factory.
+
+`make_adapter(app)` returns an object with `begin(callback_url)` and `verify()`.
+`begin` starts the provider's sign-in using the given callback URL. `verify`
+validates the provider response for the configured issuer, client, and current
+attempt, then returns `VerifiedLogin(issuer, subject, expires_at, name=None)`.
+Use an absolute UTC expiry in Unix seconds. The adapter handles its protocol's
+correlation and verification. Report a failed verification with
+`LoginRejected(message, status)` and give the browser a safe error message.
+Taskboard handles its mounted return URL, browser session, and sign-out. Keep
+provider credentials and tokens inside the adapter's verification flow.
+
+Provision a trusted subject from an operator script with
+`tasks_service.set_login_member(database_path, issuer, subject, admitted=True)`.
+Use `admitted=False` to revoke access on the next request. On PostgreSQL, pass
+`None` for `database_path` and provide `postgres_dsn`. Use `ledger_key` only to
+bind an explicitly verified existing human principal. The exact issuer and
+subject identify the membership. Each member receives the existing human role
+and project permissions, including Ring 1 membership. Display names can update
+the profile. Existing Raft and OpenID Connect deployments use their usual
+configuration. The app factory selects one provider for the board.
+
 ## Use a PostgreSQL ledger
 
 For an existing board, follow the [versioned database upgrade procedure](operators/DATABASE-MIGRATIONS.md).
