@@ -1554,7 +1554,9 @@ def create_app(
         labels = ledger.task_tags(db(), task["id"])
         if labels:
             task["tags"] = labels
-        if actor is not None and (staged := knowledge_records.links(db(), number, include_source=True)):
+        if key is not None and (staged := knowledge_records.links(
+            db(), number, principal=actor_key(), include_source=True,
+        )):
             result["knowledge_stages"] = staged
         if allowed and not task.get("queued_for_release") and movable_ticket(
             task["key"], knowledge=is_note or (task["state"] == "done" and knowledge_records.DECISION_TAG in labels),

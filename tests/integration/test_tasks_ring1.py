@@ -1,8 +1,11 @@
 """Exercise Ring 1 through normal routes with fictional users and records."""
 
+from contextlib import closing
 import unittest
 
 import test_tasks_service as service
+from tasks_projects import register
+from tasks_storage import open_sqlite, write
 
 
 PROJECTS = "/api/v1/projects"
@@ -11,6 +14,88 @@ SECRET = "Fictional kestrel observation"
 
 
 class Ring1Test(unittest.TestCase):
+    def test_legacy_knowledge_stages_keep_both_projects_private(self):
+        fixture = service.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        admin = fixture.provider.people["Sam"]["sub"]
+        app = fixture.app(portal_reader=True, project_admin_subject=admin)
+        self.replay_legacy_stages(fixture, app, lambda: open_sqlite(fixture.database))
+
+    def replay_legacy_stages(self, fixture, app, open_board):
+        call, action = fixture.call, fixture.action
+        sam, _ = fixture.login(app, "Sam")
+        shared, shared_id = fixture.login(app, "Blake")
+        member, member_id = fixture.login(app, "Avery")
+        with closing(open_board()) as db, write(db):
+            register(db, "T", "Tasks Board", shared_id)
+        call(sam, PROJECTS, method="POST", json={
+            "prefix": "LAB", "title": "Fictional restricted project", "visibility": "ring1",
+        })
+        call(sam, MEMBERS, method="PUT", json={"principal": member_id, "allowed": True})
+
+        def note(client, project, title):
+            return action(client, "create-knowledge", {
+                "project": project, "title": title, "brief": "Original sample guidance.",
+            })["id"]
+
+        def settled(client, project, title):
+            receipt = action(client, "create-task", {
+                "project": project, "title": title, "step": "Check the example.",
+            })["receipt"]
+            ticket = receipt.split()[0]
+            action(client, "advance-task", {"id": ticket, "transition": "start", "note": "Check the example."})
+            action(client, "advance-task", {"id": ticket, "transition": "done", "note": "Verified the example."})
+            event = action(client, "task-activity", query_string={"id": ticket, "limit": 1})["items"][0]["id"]
+            return ticket, event
+
+        public_note = note(shared, "T", "Runbook alpha")
+        note(shared, "T", "Runbook beta")
+        public_source, public_event = settled(shared, "T", "Fictional shared sample")
+        private_note = call(sam, "/api/v1/knowledge", method="POST", status=201, json={
+            "project": "LAB", "title": "Fictional private guide", "brief": "Original sample guidance.",
+        }).json["id"]
+        private_source, private_event = settled(member, "LAB", SECRET)
+        filters = {"project": "T", "order": "updated", "limit": 1, "q": "Runbook"}
+        before = call(shared, "/api/v1/knowledge", query_string=filters).json
+        next_filter = {**filters, "before": before["next_cursor"]}
+        next_before = call(shared, "/api/v1/knowledge", query_string=next_filter).json
+
+        with closing(open_board()) as db, write(db):
+            ids = dict(db.execute("SELECT title, id FROM tasks").fetchall())
+            for entry, source, event in (
+                ("Runbook alpha", SECRET, private_event),
+                ("Fictional private guide", "Fictional shared sample", public_event),
+            ):
+                db.execute("""
+                    INSERT INTO knowledge_stages (entry_id, source_id, base_brief, proposed_brief, source_event_id, staged_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (ids[entry], ids[source], "Original sample guidance.", "A fictional replacement.",
+                      event, "2099-01-01T00:00:00Z"))
+
+        self.assertEqual(call(shared, "/api/v1/knowledge", query_string=filters).json, before)
+        self.assertEqual(call(shared, "/api/v1/knowledge", query_string=next_filter).json, next_before)
+        for ticket in (public_note, public_source):
+            self.assertNotIn("knowledge_stages", call(shared, f"/api/v1/tasks/{ticket}").json)
+            self.assertNotIn("knowledge_stages", action(shared, "task", query_string={"id": ticket}))
+        found = action(shared, "search-with-decisions", query_string={"q": "Runbook alpha"})["items"][0]
+        self.assertNotIn("staged_work", found["decision"])
+        for ticket in (private_note, private_source):
+            call(shared, f"/api/v1/tasks/{ticket}", status=404)
+            self.assertEqual(len(call(sam, f"/api/v1/tasks/{ticket}").json["knowledge_stages"]), 1)
+
+        def no_reconciliation(client, project):
+            result = action(client, "knowledge-reconcile", {"project": project})
+            self.assertEqual((result["applied"], result["unresolved"]), ([], []))
+
+        no_reconciliation(shared, "T")
+        self.assertEqual(call(shared, "/api/v1/knowledge", query_string=next_filter).json, next_before)
+        call(sam, MEMBERS, method="PUT", json={"principal": shared_id, "allowed": True})
+        self.assertEqual(len(call(shared, f"/api/v1/tasks/{public_note}").json["knowledge_stages"]), 1)
+        no_reconciliation(shared, "T")
+        self.assertEqual(call(sam, "/api/v1/knowledge", query_string={"entry": private_note}).json["items"][0]["summary"],
+                         "Original sample guidance.")
+
     def test_project_visibility_and_revocation(self):
         fixture = service.TasksServiceTest()
         fixture.setUp()

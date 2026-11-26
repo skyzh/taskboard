@@ -353,6 +353,12 @@ class StorageReplayTest(unittest.TestCase):
         app = self.postgres_app(self.postgres_fixture(), project_admin_subject=root)
         ring1_fixture.Ring1Test().replay(self.board, app)
 
+    def test_ring1_legacy_knowledge_stages_on_postgres(self):
+        root = self.board.provider.people["Sam"]["sub"]
+        dsn = self.postgres_fixture()
+        app = self.postgres_app(dsn, project_admin_subject=root)
+        ring1_fixture.Ring1Test().replay_legacy_stages(self.board, app, lambda: Postgres(dsn))
+
     def test_ring1_membership_survives_sqlite_import(self):
         root = self.board.provider.people["Sam"]["sub"]
         source = self.board.app(portal_reader=True, project_admin_subject=root)
