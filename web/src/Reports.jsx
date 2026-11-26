@@ -249,8 +249,9 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         <div>
           <div className="dri-name-line">
             <OwnerHeading>
-              {!owner || multipleProjects ? name : (
-                <BoardLink href={publicPreview ? entry.public_url : ownerHref(owner, undefined, ownerProject)}>{name}</BoardLink>
+              {!owner || (multipleProjects && (publicPreview || profile?.kind !== 'agent')) ? name : (
+                <BoardLink href={publicPreview ? entry.public_url
+                  : ownerHref(owner, undefined, multipleProjects ? 'all' : ownerProject)}>{name}</BoardLink>
               )}
               {profile?.short_role && <span className="report-short-role">{' · '}{profile.short_role}</span>}
               {watchingPerson !== false && <DriWorkStatus inProgress={inProgress} compact />}

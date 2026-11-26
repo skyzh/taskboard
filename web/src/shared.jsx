@@ -176,7 +176,8 @@ export function scheduleHref(id, project, allProjects = false) {
 }
 
 export function ownerHref(owner, section, project) {
-  return `#${new URLSearchParams({ dri: owner, ...(section && { section }), ...(project && { project }) })}`
+  return `#${new URLSearchParams({ dri: owner, ...(section && { section }),
+    ...(project === 'all' ? { scope: 'all' } : project && { project }) })}`
 }
 
 export function eventHref(id) {

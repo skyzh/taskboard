@@ -3239,10 +3239,10 @@ def create_app(
 
     @app.get("/api/v1/reports/workers")
     def report_workers():
-        current_actor()
         args = request.args
+        current_actor(required="scope" in args)
         owner = text(args, "owner", maximum=160)
-        project = project_filter(args, use_default=True)
+        project = project_scope(args)
         order = args.get("order")
         if order is None:
             return query().owner_workers(owner, project=project, **page_args(args))
@@ -3303,7 +3303,7 @@ def create_app(
         before = integer(args["before"], "before") if "before" in args else None
         limit = integer(args.get("limit", 10), "limit", maximum=20)
         reports = query()
-        if project is not None:
+        if project is not None or args.get("view") == "profile":
             return reports.pending_reports(owner, before=before, limit=limit, project=project)
         _, view, hide_requests, personal_owner = report_filters(args, actor, project)
         prefixes = reports.report_project_prefixes(
@@ -3847,14 +3847,16 @@ def create_app(
 
     @app.get("/api/v1/assignee")
     def assignee():
-        actor = current_actor()
-        owner = text(request.args, "owner", maximum=160)
-        project = project_filter(request.args, use_default=True)
+        args = request.args
+        actor = current_actor(required="scope" in args)
+        owner = text(args, "owner", maximum=160)
+        project = project_scope(args)
         board = query()
-        info = board.assignee(owner, project=project)
+        info = board.assignee(owner, project=project, include_projects=actor is not None)
         if info is None:
             raise RequestError("Assignee not found.", 404)
-        if actor and board.watchable_assignee(owner, project):
+        watch_projects = info["projects"] if project is None else (project,)
+        if actor and any(board.watchable_assignee(owner, prefix) for prefix in watch_projects):
             info["watching"] = watches.watches_assignee(db(), actor["ledger_key"], owner)
         return info
 
@@ -3863,11 +3865,13 @@ def create_app(
         actor = current_actor(write=True, required=True)
         args = request.args
         owner = text(args, "owner", maximum=160)
-        project = project_filter(args, use_default=True)
+        project = project_scope(args)
         selected = json_body({"watch"}).get("watch")
         if type(selected) is not bool:
             raise RequestError("Choose whether to watch this person or DRI.")
-        if not query().watchable_assignee(owner, project):
+        board = query()
+        watch_projects = board.assignee_projects(owner) if project is None else (project,)
+        if not any(board.watchable_assignee(owner, prefix) for prefix in watch_projects):
             raise RequestError("Assignee not found.", 404)
         viewer = actor["ledger_key"]
         with tasks_storage.write(db()) as connection:
