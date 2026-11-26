@@ -29,8 +29,9 @@ export function useTransitionRequest(onChanged, success) {
       const textWarning = !body.force_text && textLengthWarning(failure)
       const transitionWarning = failure.status === 409 && failure.code === 'TRANSITION_CONFIRMATION_REQUIRED'
       const deliveryWarning = !body.force_delivery && failure.status === 409 && failure.code === 'confirm_peer_delivery'
+      const deliveryMessage = deliveryWarning && 'Taskboard could not verify the agent’s watcher. Pickup may take longer. You can DM the recipient with the ask link after sending.'
       setFeedback({
-        error: true, text: textWarning || failure.message,
+        error: true, text: textWarning || deliveryMessage || failure.message,
         ...((textWarning || transitionWarning || deliveryWarning) && { pendingRequest }),
         ...(textWarning && { confirmTextLength: true }),
         ...(deliveryWarning && { confirmDelivery: true }),
