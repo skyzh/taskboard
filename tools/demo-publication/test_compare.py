@@ -25,10 +25,20 @@ class CompareTest(unittest.TestCase):
         binaries = self.root / "bin"
         binaries.mkdir()
         for program, script in {
-            "npm": "exit 0",
+            "npm": '''
+if [[ "$3" == "run" ]]; then
+    mkdir -p "$2/dist-demo"
+    printf '%s' "$FIXTURE_BUILD" > "$2/dist-demo/index.html"
+fi
+''',
             "git": 'if [[ "$1" == "show" ]]; then printf "%s\\n" "$FIXTURE_BASE_SHA"; fi',
             "tar": "cat > /dev/null",
-            "node": 'if [[ " $* " == *" --baseline "* ]]; then exit "$FIXTURE_REPLAY_EXIT"; fi',
+            "node": '''
+if [[ " $* " == *" --output $EVIDENCE/candidate "* ]]; then
+    printf '%s\\n' "$@" > "$EVIDENCE/candidate-args"
+    exit "$FIXTURE_REPLAY_EXIT"
+fi
+''',
         }.items():
             executable = binaries / program
             executable.write_text(f"#!/usr/bin/env bash\n{script}\n")
@@ -46,12 +56,15 @@ class CompareTest(unittest.TestCase):
         self.evidence = self.root / "evidence"
         self.summary = self.root / "summary"
         self.output = self.root / "output"
+        self.candidate = self.root / "candidate-dist"
+        self.candidate.mkdir()
+        (self.candidate / "index.html").write_text("candidate")
         self.env = {
             **os.environ, "RUNNER_TEMP": str(self.root), "PATH": f"{binaries}:{os.environ['PATH']}", "EVIDENCE": str(self.evidence),
             "BASELINE_REF": "", "GITHUB_EVENT_PATH": str(event), "GITHUB_SHA": "b" * 40,
             "GITHUB_REPOSITORY": "example/board", "GITHUB_RUN_ID": "11", "GITHUB_RUN_ATTEMPT": "3",
             "GITHUB_OUTPUT": str(self.output), "GITHUB_STEP_SUMMARY": str(self.summary),
-            "FIXTURE_REPLAY_EXIT": "0",
+            "CANDIDATE_DIST": str(self.candidate), "FIXTURE_BUILD": "baseline", "FIXTURE_REPLAY_EXIT": "0",
         }
 
     def replay(self, status, **environment):
@@ -59,7 +72,7 @@ class CompareTest(unittest.TestCase):
             ["bash", str(SCRIPT)], cwd=self.root, env={**self.env, **environment},
             capture_output=True, text=True, timeout=15,
         )
-        self.assertEqual(self.output.read_text().splitlines()[-1], f"status={status}")
+        self.assertEqual(self.output.read_text().splitlines()[-1], f"status={status}", result.stderr)
         receipt = json.loads((self.evidence / "receipt.json").read_text())
         self.assertEqual((receipt["status"], receipt["run"], receipt["attempt"]), (status, 11, 3))
         return result.returncode
@@ -72,6 +85,14 @@ class CompareTest(unittest.TestCase):
 
     def test_compare_statuses(self):
         self.assertEqual(self.replay("pass"), 0)
+        self.assertIn("--baseline", (self.evidence / "candidate-args").read_text().splitlines())
+        self.assertEqual(self.replay("changed", FIXTURE_REPLAY_EXIT="2"), 0)
+        self.assertEqual(self.replay("error", FIXTURE_REPLAY_EXIT="1"), 1)
+
+    def test_byte_identical_build_still_requires_candidate_interactions(self):
+        (self.candidate / "index.html").write_text("baseline")
+        self.assertEqual(self.replay("pass"), 0)
+        self.assertNotIn("--baseline", (self.evidence / "candidate-args").read_text().splitlines())
         self.assertEqual(self.replay("changed", FIXTURE_REPLAY_EXIT="2"), 0)
         self.assertEqual(self.replay("error", FIXTURE_REPLAY_EXIT="1"), 1)
 

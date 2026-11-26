@@ -20,8 +20,9 @@ approved demo at the full commit in `web/demo/baseline.txt`. The pull request
 comparison reads the file from the base commit. The checked-main verifier and
 publisher read it from their protected checkout. It compares the proposed merge build with the approved
 build on the same runner, including the tour's target visibility and highlight,
-navigation, focus, the Watching empty state, and matching screenshots at phone and desktop sizes. A
-one-level RGB rounding variation is treated as equal. Changes to dimensions
+navigation, focus, and the Watching empty state. Both builds run the browser
+checks. When their static files differ, the checks also compare phone and
+desktop screenshots. A one-level RGB rounding variation is treated as equal. Changes to dimensions
 or larger channel differences must reproduce on a second capture. A changed
 result includes the step or screen and matching evidence. Missing
 baselines, build errors and privacy audit failures have their own outcomes.

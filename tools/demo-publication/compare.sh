@@ -49,12 +49,19 @@ git fetch --no-tags --depth=1 origin "$BASELINE"
 git archive "$BASELINE" | tar -x -C "$baseline_source"
 npm --prefix "$baseline_source/web" ci --no-audit --no-fund
 npm --prefix "$baseline_source/web" run build:demo
-python3 tools/check_summary_demo.py "$baseline_source/web/dist-demo"
+baseline_dist="$baseline_source/web/dist-demo"
+python3 tools/check_summary_demo.py "$baseline_dist"
 
 web/node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
-node tools/demo-visual/check.mjs --dist "$baseline_source/web/dist-demo" --output "$EVIDENCE/baseline"
+node tools/demo-visual/check.mjs --dist "$baseline_dist" --output "$EVIDENCE/baseline"
+if diff -qr "$CANDIDATE_DIST" "$baseline_dist" > /dev/null; then
+    echo 'Demo files match the approved build byte for byte. Checking browser interactions.'
+    set --
+else
+    set -- --baseline "$EVIDENCE/baseline"
+fi
 result=0
-node tools/demo-visual/check.mjs --dist "$CANDIDATE_DIST" --baseline "$EVIDENCE/baseline" --output "$EVIDENCE/candidate" || result=$?
+node tools/demo-visual/check.mjs --dist "$CANDIDATE_DIST" --output "$EVIDENCE/candidate" "$@" || result=$?
 case "$result" in
     0) status=pass ;;
     2) status=changed ;;
