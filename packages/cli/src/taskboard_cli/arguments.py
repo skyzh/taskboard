@@ -446,6 +446,7 @@ def arguments(argv=None):
     create_project.add_argument("prefix", type=nonblank)
     create_project.add_argument("title", type=nonblank)
     create_project.add_argument("--dri", type=nonblank, help="Exact verified owner ID. Defaults to your signed identity.")
+    create_project.add_argument("--visibility", choices=("shared", "ring1"), help="Project access. Defaults to shared.")
     register_project = commands.add_parser("register-project", help="Register a project in an operator's local ledger.")
     register_project.add_argument("prefix", type=nonblank)
     register_project.add_argument("title", type=nonblank)

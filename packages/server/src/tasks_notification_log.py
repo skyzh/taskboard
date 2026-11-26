@@ -8,6 +8,7 @@ import sqlite3
 import tasks_audit as audit
 from tasks_merges import ACCEPTED_SQUASHES
 import tasks_projects as projects
+import tasks_ring1 as ring1
 import tasks_storage
 
 
@@ -326,46 +327,51 @@ def publish_after_sender(result, ledger_path, receipts):
     return {**result, "project_log": publication}
 
 
-def project_agents(db, project, roster):
+def project_agents(db, project, roster, *, principal=None):
+    projects_visible, project_args = ring1.visibility(db, "projects.prefix", principal)
+    grants_visible, grant_args = ring1.visibility(db, "grants.project", principal)
+    tasks_visible, task_args = ring1.visibility(db, "tasks.project_prefix", principal)
     roster_scope = " OR principals.subject IN (" + ", ".join("?" for _ in roster) + ")" if roster else ""
     return db.execute(
         f"""
         WITH receipts AS ({RECIPIENTS}), scope(project) AS (VALUES (CAST(? AS TEXT))), people AS (
-            SELECT dri FROM projects, scope WHERE scope.project IS NULL OR prefix = scope.project
+            SELECT dri FROM projects, scope WHERE (scope.project IS NULL OR prefix = scope.project) AND {projects_visible}
             UNION SELECT principal FROM project_owner_grants AS grants, scope
-                WHERE scope.project IS NULL OR grants.project = scope.project
-            UNION SELECT dri FROM tasks, scope WHERE scope.project IS NULL OR project_prefix = scope.project
+                WHERE (scope.project IS NULL OR grants.project = scope.project) AND {grants_visible}
+            UNION SELECT dri FROM tasks, scope WHERE (scope.project IS NULL OR project_prefix = scope.project) AND {tasks_visible}
             UNION SELECT notices.recipient
                 FROM receipts AS notices
                 JOIN events ON events.id = notices.source_event_id
                 JOIN tasks ON tasks.id = events.task_id
                 CROSS JOIN scope
-                WHERE scope.project IS NULL OR tasks.project_prefix = scope.project
+                WHERE (scope.project IS NULL OR tasks.project_prefix = scope.project) AND {tasks_visible}
         )
         SELECT principals.subject, principals.ledger_key,
                COALESCE(NULLIF(principals.name, ''), NULLIF(principals.username, ''), principals.ledger_key) AS name
         FROM board_principals AS principals
         WHERE principals.kind = 'agent' AND (principals.ledger_key IN (SELECT dri FROM people){roster_scope})
         ORDER BY LOWER(name), principals.subject
-        """, (project, *roster),
+        """, (project, *project_args, *grant_args, *task_args, *task_args, *roster),
     ).fetchall()
 
 
-def has_receipts(db, project):
+def has_receipts(db, project, *, principal=None):
+    visibility, bindings = ring1.visibility(db, "tasks.project_prefix", principal)
     return db.execute(
         f"""
         WITH receipts AS ({RECIPIENTS})
         SELECT 1 FROM receipts AS notices
         JOIN events ON events.id = notices.source_event_id
         JOIN tasks ON tasks.id = events.task_id
-        WHERE (? IS NULL OR tasks.project_prefix = ?)
+        WHERE (? IS NULL OR tasks.project_prefix = ?) AND {visibility}
         LIMIT 1
-        """, (project, project),
+        """, (project, project, *bindings),
     ).fetchone() is not None
 
 
-def listing(db, project, recipient, state, kind, *, before, limit, before_wake=False):
-    filters, bindings = ["(? IS NULL OR tasks.project_prefix = ?)"], [project, project]
+def listing(db, project, recipient, state, kind, *, before, limit, before_wake=False, principal=None):
+    visibility, visible_args = ring1.visibility(db, "tasks.project_prefix", principal)
+    filters, bindings = ["(? IS NULL OR tasks.project_prefix = ?)", visibility], [project, project, *visible_args]
     if recipient is not None:
         filters.append("notices.recipient = ?")
         bindings.append(recipient)

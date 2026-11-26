@@ -188,11 +188,14 @@ def build_server(board: SharedBoard) -> MCPServer:
         prefix: Project,
         title: Annotated[str, Field(description="One-line project title.")],
         dri: Annotated[str | None, Field(description="Exact owner ID. Defaults to the signed actor.")] = None,
+        visibility: Annotated[Literal["shared", "ring1"] | None, Field(description="Defaults to shared.")] = None,
     ) -> dict[str, Any]:
         """Create a project using your Taskboard project creation permission."""
         payload = {"prefix": prefix, "title": title}
         if dri is not None:
             payload["dri"] = dri
+        if visibility is not None:
+            payload["visibility"] = visibility
         return board.invoke("create-project", payload, write=True)
 
     if not local_dri:
