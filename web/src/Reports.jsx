@@ -11,6 +11,7 @@ import { projectHref } from './projectScope.js'
 import { TaskRows } from './WorkRow.jsx'
 import { groupOutcomes } from './Overview.jsx'
 import { ReportTime } from './ReportTime.jsx'
+import ReportPresence from './ReportPresence.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
 import { goalActivityFragment } from './GoalActivity.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
@@ -336,13 +337,14 @@ export function AssigneeReportList({ entries, label, revision, project, projectT
   )
 }
 
-export function ReportsHeading({ headingId, projectTitle, children, focusable, projectPicker }) {
+export function ReportsHeading({ headingId, projectTitle, children, focusable, projectPicker, headingAside }) {
   const Heading = projectTitle ? 'h2' : 'h1'
+  const title = <Heading id={headingId} tabIndex={focusable ? -1 : undefined}>{projectTitle || 'Reports'}</Heading>
   return (
     <div className="reports-heading">
       {projectPicker}
       <div className="page-heading">
-        <Heading id={headingId} tabIndex={focusable ? -1 : undefined}>{projectTitle || 'Reports'}</Heading>
+        {headingAside ? <div className="reports-title">{title}{headingAside}</div> : title}
         <div className="report-controls">{children}</div>
       </div>
     </div>
@@ -461,7 +463,7 @@ const signedAssigneeViews = [...assigneeViews, { value: 'watching', label: 'Watc
 
 export default function Reports({
   revision, viewer, project, projects, assigneeView = 'active',
-  onAssigneeViewChange, headerAction, projectPicker,
+  onAssigneeViewChange, headerAction, projectPicker, presenceScope,
 }) {
   const [hideRequests, setHideRequests] = useState(false)
   const view = assigneeView === 'watching' && !viewer ? 'active' : assigneeView
@@ -470,7 +472,9 @@ export default function Reports({
   const teamOverview = projectHref('#team-overview', projects ? 'all' : project)
   return (
     <section className="reports" aria-labelledby="reports">
-      <ReportsHeading headingId="reports" projectPicker={projectPicker}>
+      <ReportsHeading headingId="reports" projectPicker={projectPicker}
+        headingAside={viewer?.kind === 'human' && presenceScope &&
+          <ReportPresence key={`${viewer.id}:${presenceScope}`} scope={presenceScope} />}>
         <BoardLink href={teamOverview}>Team overview</BoardLink>
         {!projects && project && <BoardLink href={`#${goalActivityFragment(project)}`}>Goal activity</BoardLink>}
         {headerAction}

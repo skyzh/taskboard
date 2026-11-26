@@ -6,6 +6,8 @@
 }
 
 .reports-heading { display: contents; }
+.reports-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .6rem; }
+.reports-viewer-count { color: var(--muted); font-size: .82rem; white-space: nowrap; }
 .assignee-activity-list {
   margin: .25rem 0 0;
   padding: 0;

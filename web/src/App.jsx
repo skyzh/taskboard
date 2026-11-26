@@ -542,7 +542,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
                 assigneeView={assigneeView}
                 onAssigneeViewChange={value => writeFilterFragment(reportFragment(allProjectRead ? 'all' : project, value, requestedReportsProject ? null : defaultProject), false)}
                 projects={showAllReports ? visibleProjects : undefined} viewer={verified ? session.data.actor : null}
-                headerAction={personalAgentsLink} projectPicker={projectPicker} />)}
+                headerAction={personalAgentsLink} projectPicker={projectPicker} presenceScope={preview ? undefined : scope} />)}
           {view === 'stats' && <Stats revision={revision} period={statsPeriod} project={scope === 'all' ? undefined : scope}
             projects={visibleProjects} />}
           {view === 'settings' && <Settings session={session} theme={theme} timeZonePreference={timeZonePreference}
