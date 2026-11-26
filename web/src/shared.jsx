@@ -378,7 +378,11 @@ export function Assignee({ task, compact = false }) {
   return (
     <span className="assignee">
       <AssigneeAvatar name={name} url={profile?.avatar_url} />
-      <span>{!compact && 'Owner '}<BoardLink href={ownerHref(task.dri, undefined, project)}>{name}</BoardLink>{!compact && profile?.role && <> · {profile.role}</>}</span>
+      <span className="assignee-label">
+        {!compact && 'Owner '}<BoardLink href={ownerHref(task.dri, undefined, project)}>{name}</BoardLink>
+        {!compact && profile?.role && <span className="assignee-full-role"> · {profile.role}</span>}
+        {!compact && profile?.short_role && <span className="assignee-short-role"> · {profile.short_role}</span>}
+      </span>
     </span>
   )
 }

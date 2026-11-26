@@ -797,6 +797,7 @@ button:disabled { opacity: .57; }
 .version-timeline a[aria-current] { background: var(--wash); font-weight: var(--weight-emphasis); }
 .task-detail h1 { margin: .38rem 0 .25rem; font-size: clamp(1.45rem, 3vw, 2.15rem); letter-spacing: -.035em; }
 .detail-owner { color: var(--muted); font-size: .88rem; }
+.assignee-short-role { display: none; }
 .ticket-primary-identity { display: grid; gap: .25rem; margin-block: .4rem .7rem; }
 .detail-brief { margin-top: .65rem; }
 .detail-brief > h2 { margin-bottom: .2rem; color: var(--muted); font-size: .84rem; }
@@ -1224,6 +1225,9 @@ button:disabled { opacity: .57; }
   .ticket-primary-identity { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .65rem; }
   .task-detail .ticket-focus { margin-top: .65rem; padding: .6rem .7rem; }
   .task-detail .detail-brief { font-size: .9rem; }
+  .detail-owner .assignee-label { min-width: 0; overflow-wrap: anywhere; }
+  .detail-owner .assignee-full-role { display: none; }
+  .detail-owner .assignee-short-role { display: inline; }
   .task-detail .ticket-context { margin-block: .6rem; }
   .task-row {
     grid-template-columns: minmax(0, 1fr) auto;
