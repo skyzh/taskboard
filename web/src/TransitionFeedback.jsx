@@ -21,17 +21,19 @@ export function useTransitionRequest(onChanged, success) {
     setSaving(true)
     setFeedback(null)
     try {
-      await request(path, { method, body })
+      const result = await request(path, { method, body })
       if (forceReason) setForceReason('')
       if (success) setFeedback({ text: success })
-      onChanged()
+      onChanged(result)
     } catch (failure) {
       const textWarning = !body.force_text && textLengthWarning(failure)
       const transitionWarning = failure.status === 409 && failure.code === 'TRANSITION_CONFIRMATION_REQUIRED'
+      const deliveryWarning = !body.force_delivery && failure.status === 409 && failure.code === 'confirm_peer_delivery'
       setFeedback({
         error: true, text: textWarning || failure.message,
-        ...((textWarning || transitionWarning) && { pendingRequest }),
+        ...((textWarning || transitionWarning || deliveryWarning) && { pendingRequest }),
         ...(textWarning && { confirmTextLength: true }),
+        ...(deliveryWarning && { confirmDelivery: true }),
       })
       if (forceReason && !textWarning && !transitionWarning) setForceReason('')
     } finally {
@@ -48,6 +50,7 @@ export function useTransitionRequest(onChanged, success) {
     retry() {
       if (saving || !warning) return
       if (feedback.confirmTextLength) return send({ ...warning, body: { ...warning.body, force_text: true } })
+      if (feedback.confirmDelivery) return send({ ...warning, body: { ...warning.body, force_delivery: true } })
       const reason = forceReason.trim()
       if (reason) {
         const body = { ...warning.body, force: true, force_reason: reason }
@@ -71,6 +74,9 @@ export default function TransitionFeedback({ mutation }) {
       {feedback.confirmTextLength ? <>
         <button type="button" disabled={saving} onClick={retry}>Keep full text</button>
         <button type="button" disabled={saving} onClick={clear}>Edit text</button>
+      </> : feedback.confirmDelivery ? <>
+        <button type="button" disabled={saving} onClick={retry}>Send anyway</button>
+        <button type="button" disabled={saving} onClick={clear}>Back to draft</button>
       </> : feedback.pendingRequest && <>
         <label>Reason for overriding the warning
           <textarea value={forceReason} onChange={event => setForceReason(event.target.value)}
