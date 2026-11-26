@@ -4,12 +4,13 @@ from contextlib import closing
 from pathlib import Path
 import json
 import sqlite3
-from subprocess import CompletedProcess
+from subprocess import CalledProcessError, CompletedProcess, TimeoutExpired
 import sys
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+from publish_receipt import publish_outcome, release_event
 from release_plan import (
     MountedCheckFailed, ReleaseLayout, file_hash, run_release, switch_current, write_json,
 )
@@ -152,6 +153,59 @@ class ReleaseSlotsTest(unittest.TestCase):
         self.assertEqual(result["failed_checks"], [{"name": "slot", "reason": "http_403"}])
         self.assertEqual((self.slots.selected(), self.layout.current.resolve()), (PRIOR_PORT, self.previous))
         self.assertEqual(self.events[-1], ("direct", CANDIDATE_PORT, PRIOR_PORT, self.previous))
+
+    def check_command_failure(self, stage, error, expected):
+        command = "systemctl" if stage == "stop" else "systemd-run"
+        if stage == "stop":
+            self.processes[self.units[CANDIDATE_PORT]] = self.previous
+
+        def run(arguments, **options):
+            if arguments[0] == command and (stage == "launch" or arguments[2] == "stop"):
+                raise error
+            return self.systemd(arguments, **options)
+
+        self.slots.run = Mock(side_effect=run)
+        result = self.release()
+        self.assertEqual(
+            (result["status"], result["reason_code"], result["active"]),
+            ("rejected", "candidate_slot_unavailable", self.base),
+        )
+        self.assertEqual(result["slot_failure"], {"stage": stage, **expected})
+        self.assertNotIn("fixture-private", json.dumps(result))
+        self.assertEqual((self.slots.selected(), self.layout.current.resolve()), (PRIOR_PORT, self.previous))
+        self.assertEqual(self.events, [("direct", PRIOR_PORT, PRIOR_PORT, self.previous)])
+        self.assertEqual(self.slots.run.call_args.kwargs, {
+            "check": True, "capture_output": True, "text": True, "timeout": 45,
+        })
+        self.assertNotIn("slot_failure", release_event(result))
+        invoke = Mock(side_effect=[{"actor": {"id": "fixture"}}, {"items": [], "next_cursor": None}, {}])
+        publish_outcome(invoke, result)
+        activity = json.loads(invoke.call_args.args[1]["details"])
+        self.assertNotIn("slot_failure", activity)
+        self.assertNotIn("fixture-private", json.dumps(activity))
+
+    def test_candidate_stop_failure_records_safe_exit_status(self):
+        self.check_command_failure(
+            "stop", CalledProcessError(5, ["fixture-private-command"], "fixture-private-output"),
+            {"reason": "nonzero_exit", "returncode": 5},
+        )
+
+    def test_candidate_launch_failure_records_safe_exit_status(self):
+        self.check_command_failure(
+            "launch", CalledProcessError(203, ["fixture-private-command"], stderr="fixture-private-stderr"),
+            {"reason": "nonzero_exit", "returncode": 203},
+        )
+
+    def test_candidate_launch_timeout_records_safe_reason(self):
+        self.check_command_failure(
+            "launch", TimeoutExpired(["fixture-private-command"], 45, stderr="fixture-private-stderr"),
+            {"reason": "timeout"},
+        )
+
+    def test_candidate_launch_execution_error_records_safe_reason(self):
+        self.check_command_failure(
+            "launch", FileNotFoundError("fixture-private-path"), {"reason": "execution_error"},
+        )
 
     def test_incompatible_ledger_pair_keeps_candidate_stopped(self):
         self.pair_check.side_effect = ValueError("The prior release cannot read the upgraded fixture ledger.")

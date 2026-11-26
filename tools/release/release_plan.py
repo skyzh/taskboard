@@ -29,10 +29,22 @@ class MountedCheckFailed(RuntimeError):
         self.checks = checks
 
 
+class SlotCommandFailed(RuntimeError):
+    """Carry safe systemd diagnostics to the private operator receipt."""
+
+    def __init__(self, stage, reason, *, returncode=None):
+        super().__init__(f"Slot {stage} failed: {reason}.")
+        self.diagnostic = {"stage": stage, "reason": reason}
+        if returncode is not None:
+            self.diagnostic["returncode"] = returncode
+
+
 def failed_check(error):
     failure = {"failure": type(error).__name__}
     if isinstance(error, MountedCheckFailed):
         failure["failed_checks"] = error.checks
+    if isinstance(error, SlotCommandFailed):
+        failure["slot_failure"] = error.diagnostic
     return failure
 
 
