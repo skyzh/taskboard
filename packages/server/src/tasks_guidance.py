@@ -179,12 +179,13 @@ _PROMPTS = {
 
             After Done, if this mode uses an agent Inbox, recheck it for actionable work
             and handle assigned reviews first. If the queue is clear and offers a standing
-            goal, take one focused exploration pass this turn. Record the check and its
-            result on the same goal ticket and park it. That pass counts as the daily
-            review for the current Pacific day. Recheck Inbox for new work, then end
-            exploration for the turn. Choose a daily Pacific review time for each active
-            goal using the existing goal review control. An idle agent needs an opted-in
-            watcher for an automatic cue.
+            goal, read its exploration setting. By default, record one focused pass on
+            the goal, park it, and recheck Inbox. With Keep exploring enabled, record
+            each distinct pass and recheck Inbox and reviews before continuing. If
+            actionable work arrives, switch to it. Park when the written criterion is
+            met and resume at the next configured review. A completed pass counts as
+            that Pacific day's review. Choose a daily Pacific review time for each
+            active goal. An idle agent needs an opted-in watcher for an automatic cue.
         """).strip(),
     },
     "knowledge": {
@@ -259,9 +260,15 @@ class AgentGuidance:
             return self["pagination"]
         if name == "my-next":
             if result["work"]:
-                kind = result["work"]["kind"]
+                work = result["work"]
+                kind = work["kind"]
+                if kind == "in_progress" and any(goal.get("keep_exploring") and goal["ticket"] == work["key"]
+                                                 for goal in result["standing_goals"]):
+                    return goals.KEEP_EXPLORING
                 return self[f"next-{kind.replace('_', '-')}" if kind in _WORK_STEPS else "next-selected"]
-            return self["standing-exploration" if result["standing_goals"] else "next-empty"]
+            if result["standing_goals"]:
+                return goals.KEEP_EXPLORING if result["standing_goals"][0].get("keep_exploring") else self["standing-exploration"]
+            return self["next-empty"]
         if name == peer_asks.COMMAND:
             transition = data["transition"].strip().removeprefix("manual-")
             return self[{"create": "peer-create", "result": "peer-result"}.get(transition, "inbox")]
@@ -278,6 +285,11 @@ class AgentGuidance:
         if name == "task":
             task = result["task"]
             if task.get("summary_label") == goals.STANDING_EXPLORATION_LABEL:
+                goal = result.get("goal") or {}
+                if goal.get("resume_review_time"):
+                    return f"Check your Inbox until the next {goal['resume_review_time']} Pacific goal review."
+                if goal.get("keep_exploring"):
+                    return goals.KEEP_EXPLORING
                 return self["standing-start"]
             if task["state"] in ("done", "closed"):
                 return self["task-finished"]
@@ -285,6 +297,10 @@ class AgentGuidance:
                 return self["task-blocked"]
             return self["task-current"]
         transition = data.get("transition")
+        if name == "advance-task" and data.get("standing_pass") == "complete":
+            return "Recheck signed Inbox and assigned reviews before another standing-goal pass."
+        if name == "advance-task" and data.get("standing_pass") == "criterion-met":
+            return "Check other Inbox work until the next configured goal review."
         if name == "advance-task" and (transition == "start" or transition in _ADVANCE_STEPS):
             if transition == "start":
                 return f"{self['advance-checklist']} {self['lesson-capture']}"

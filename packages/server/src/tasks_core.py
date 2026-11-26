@@ -899,8 +899,9 @@ def change_task(db, args, links, *, automation=None):
     review_source = getattr(args, "review_on", None)
     review_criteria = getattr(args, "review_criteria", None)
     feature_deferred = getattr(args, "feature_deferred", False)
+    standing_pass = getattr(args, "standing_pass", None)
     goal_kind = task_goal_kind(db, args.id) if (
-        state == "ready" or args.command in ("start", "park", "remind", "done")
+        standing_pass or state == "ready" or args.command in ("start", "park", "remind", "done")
     ) else None
     if goal_kind and args.command in ("transfer", "unpark"):
         raise ValueError("A goal stays with its owner. Start it with the concrete step you will work on.")
@@ -934,6 +935,32 @@ def change_task(db, args, links, *, automation=None):
         if getattr(args, "start_check", None) or getattr(args, "check", None):
             raise ValueError("Only the ticket owner can start or complete its checklist steps.")
         override = transition_override(task, args.command, args.force_reason)
+    goal_pass_context = {}
+    if standing_pass or goal_kind == "standing" and args.command in ("start", "park", "remind"):
+        import tasks_goals as goals
+
+        criterion = goals.exploration_criterion(db, task["id"]) if goal_kind == "standing" else None
+        if standing_pass:
+            if criterion is None or task["state"] != "in_progress":
+                raise ValueError("Start your Keep exploring goal before recording a completed pass.")
+            if standing_pass == "complete" and args.command == "update":
+                goal_pass_context["goal_pass_complete"] = True
+            elif standing_pass == "criterion-met" and args.command == "park" and criterion:
+                if review_source or getattr(args, "review_after", None) or feature_deferred:
+                    raise ValueError("Use the daily goal review time for the stopping criterion.")
+                review = db.execute("SELECT review_time FROM goal_review_times WHERE task_id = ?", (task["id"],)).fetchone()
+                if review is None:
+                    raise ValueError("Set a daily Pacific goal review time before parking for the criterion.")
+                goal_pass_context.update(goal_criterion_met=True, goal_review_time=review["review_time"])
+            else:
+                raise ValueError("Record a pass with progress, or park after the saved stopping criterion is met.")
+        elif criterion is not None and args.command in ("park", "remind"):
+            raise ValueError("Record the goal's stopping criterion as met to park it, or update the daily goal review time.")
+        elif criterion and args.command == "start" and task["state"] == "parked":
+            row = next(iter(goals.goal_rows(db, [actor], projects.row_project(task), kind="standing")))
+            now = datetime.fromisoformat(timestamp()).astimezone(goals.PACIFIC)
+            if not goals.exploration_available(db, row, now):
+                raise ValueError("This goal is parked until its next configured daily review.")
     if args.command in ("start", "update"):
         change_checklist(db, args.id, args.checklist_step, args.start_check, args.check, actor=args.by, state=state)
     elif args.command == "done" and args.check:
@@ -956,6 +983,7 @@ def change_task(db, args, links, *, automation=None):
         waiting_on, context = wait_details(db, task, args)
     else:
         context = transition_context(args, task)
+    context.update(goal_pass_context)
     if human_wait:
         context["human_wait"] = True
         if (replacing_human_wait and waiting_on == task["waiting_on"] and args.note == task["note"]

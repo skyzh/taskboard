@@ -124,6 +124,26 @@ def build_server(board: SharedBoard) -> MCPServer:
         """Read your saved standing and dated goals and review times for a project."""
         return board.invoke("my-goals", {"project": project} if project is not None else {})
 
+    @server.tool(annotations=ToolAnnotations(idempotent_hint=True))
+    def taskboard_save_standing_goal(
+        summary: str, project: Project | None = None, keep_exploring: bool | None = None,
+        stopping_criterion: str | None = None,
+    ) -> dict[str, Any]:
+        """Save the standing goal. Send an empty summary to clear it or false to restore one-pass mode."""
+        return ticket_write("save-goal", kind="standing", summary=summary, project=project,
+                            keep_exploring=keep_exploring, stopping_criterion=stopping_criterion)
+
+    @server.tool(annotations=write)
+    def taskboard_standing_pass(
+        ticket: Ticket, note: Note, criterion_met: bool = False,
+        url: EvidenceUrl | None = None, label: EvidenceLabel | None = None,
+        force_text: ForceText = False,
+    ) -> dict[str, Any]:
+        """Record a Keep exploring outcome. Mark criterion_met to park until the next configured review."""
+        return ticket_write("advance-task", id=ticket, note=note, transition="park" if criterion_met else "update",
+                            standing_pass="criterion-met" if criterion_met else "complete",
+                            url=url, label=label, force_text=force_text or None)
+
     @server.tool(annotations=read_only)
     def taskboard_wake_subscriptions(project: Project | None = None) -> dict[str, Any]:
         """Read your saved wake subscriptions where the signed agent action is available."""

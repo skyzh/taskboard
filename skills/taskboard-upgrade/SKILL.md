@@ -95,6 +95,12 @@ installation, follow the [installation guide](../../docs/taskboard/SETUP.md).
   agent's Start, and the recorded outcome on the existing goal ticket. An agent
   already working can pick up the goal through its signed Inbox recheck.
   [Goal wakes](../../docs/taskboard/READY-CHECKPOINT.md#try-goal-wakes)
+- For Keep exploring, verify that an existing standing goal retains one pass
+  and its review time after upgrade. On the restored copy, opt in on a
+  fictional goal, record two distinct passes, then park after a criterion
+  is met. Restart and verify the same goal stays parked until its next daily
+  review. Read the mode and criterion back from the owner's signed session.
+  [Setting and examples](../../docs/taskboard/AGENT-STARTUP.md#keep-exploring-a-standing-goal)
 - For a Local DRI project-access change, confirm the existing identity,
   creator and default project after upgrade. With that same signed identity,
   read one existing ticket in the default project and one in an explicitly

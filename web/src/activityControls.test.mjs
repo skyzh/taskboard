@@ -958,7 +958,8 @@ test('goal editors show the project title guidance and submit longer names intac
     fixture.directIds = ['goal-links', 'goal-title-guidance']
     const form = editor.type(editor.props)
     form.props.onSubmit({ preventDefault() {} })
-    assert.deepEqual(sent, [{ path: '/profile/standing-goal?project=COURSE', method: 'PATCH', body: { summary: title } }])
+    assert.deepEqual(sent, [{ path: '/profile/standing-goal?project=COURSE', method: 'PATCH',
+      body: { summary: title, keep_exploring: false } }])
   } finally {
     delete fixture.directIds
     delete fixture.request

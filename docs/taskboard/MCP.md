@@ -39,6 +39,8 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_recurring_schedule` | Read an owned recurring schedule's first step, first slot, cadence and occurrence report. |
 | `taskboard_maintenance_schedule` | Read the maintenance schedule and roster for a project you manage. |
 | `taskboard_goals` | Read your saved standing and dated goals and review times. |
+| `taskboard_save_standing_goal` | Save a standing goal and its optional Keep exploring criterion. |
+| `taskboard_standing_pass` | Record a completed pass, or park for the next review when the criterion is met. |
 | `taskboard_wake_subscriptions` | Read your saved subscriptions for a project where the signed agent action is available. |
 | `taskboard_knowledge_areas` | Read accessible Knowledge area indexes. |
 | `taskboard_knowledge_sweep` | Read Knowledge entries, their placement and their maintenance DRI. Accepts assigned or board scope and a page cursor. |

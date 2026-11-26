@@ -618,7 +618,9 @@ class BoardQueries:
         if tasks_storage.table_columns(self.db, "task_goals"):
             goal_rows = {row["task_id"]: row for row in self.db.execute(
                 f"""
-                SELECT task_id, kind, deadline, ticket_ids FROM task_goals
+                SELECT task_id, kind, deadline, ticket_ids, exploration.value AS stopping_criterion FROM task_goals
+                LEFT JOIN board_settings AS exploration
+                  ON exploration.key = '{goals.EXPLORATION_SETTING}' || CAST(task_goals.task_id AS TEXT)
                 WHERE retired = 0 AND task_id IN ({placeholders})
                 """, ids,
             )}
@@ -2726,16 +2728,25 @@ class BoardQueries:
             ("in_progress", self.tasks, {"dri": owner, "state": "in_progress"}),
             ("shared_ready", self.tasks, {"dri": "", "state": "ready", "priority_order": True, "managed_by": owner}),
         )
+        exploration = None
         for kind, query, filters in queues:
             if ordinary_only and kind in ("reminder", "in_progress"):
                 filters["exclude_goals"] = True
             for item in query(**scope, **filters)["items"]:
-                yield {
+                work = {
                     "kind": kind,
                     "id": item.get("task_id", item.get("id")),
                     "key": item.get("task_key") or item["key"],
                     "title": item.get("task_title") or item["title"],
                 }
+                if kind == "in_progress" and not ordinary_only and goals.exploration_criterion(self.db, work["id"]) is not None:
+                    exploration = work
+                    for ordinary in self.tasks(**scope, **filters, exclude_goals=True)["items"]:
+                        yield {"kind": kind, "id": ordinary["id"], "key": ordinary["key"], "title": ordinary["title"]}
+                else:
+                    yield work
+        if exploration:
+            yield exploration
 
     def needs_you(self, actor, *, today, project, before, limit, reviews_only=False):
         owner = actor["ledger_key"]

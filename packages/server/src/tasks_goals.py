@@ -1,7 +1,9 @@
 """A project assignee's dated and standing goals."""
 
 import json
+from datetime import datetime, timedelta
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import tasks_core as ledger
 import tasks_projects as projects
@@ -30,6 +32,9 @@ STANDING_SCHEMA = """
     )
 """
 STANDING_LIMIT = 500
+CRITERION_LIMIT = 500
+EXPLORATION_SETTING = "standing_exploration:"
+PACIFIC = ZoneInfo("America/Los_Angeles")
 
 MILESTONE_SCHEMA = """
     CREATE TABLE IF NOT EXISTS board_goal_milestones (
@@ -72,6 +77,16 @@ STANDING_EXPLORATION = (
     "If you open a ticket from this standing goal, add the spontaneous tag. "
     "Record the result and park this goal ticket. The completed pass counts as today's Pacific daily review. "
     "Recheck Inbox for actionable work and end exploration for the turn."
+)
+KEEP_EXPLORING = (
+    "Check actionable Inbox work and assigned reviews before each pass. "
+    "Choose a distinct check grounded in recent feedback, a finished ticket, or current product evidence. "
+    "Verify a concrete finding and reuse an existing ticket before opening a new one. "
+    "Make focused fixes within your ordinary permissions. Record a no-finding result only after an actual check. "
+    "Record each result on this goal and update the handoff, then recheck Inbox and reviews. "
+    "If the queue stays clear, continue with a distinct check. If actionable work arrives, record your checkpoint "
+    "and switch to it. Use `update --standing-pass` to record a completed check. "
+    "If the written criterion is met, record the evidence with `park --criterion-met` until the next daily review."
 )
 
 
@@ -149,7 +164,7 @@ def create_goal_ticket(db, project, owner, kind, summary, deadline, encoded_ids)
 def parked_guidance(goal, note, standing_exploration):
     """Project the generated note against the current goal, leaving event history intact."""
     if goal["kind"] == "standing":
-        return STANDING_EXPLORATION_LABEL, standing_exploration
+        return STANDING_EXPLORATION_LABEL, KEEP_EXPLORING if goal["stopping_criterion"] is not None else standing_exploration
     if note not in (LEGACY_GOAL_STEP, DATED_GOAL_STEP):
         return None
     action = ("Review the linked tickets and record progress and blockers"
@@ -167,6 +182,9 @@ def review_events(events):
         if event["action"] == "start":
             open_checks.add(number)
             review = "start"
+        elif (number in open_checks and event["action"] == "update"
+              and ledger.event_context(event).get("goal_pass_complete")):
+            review = "completed"
         elif number in open_checks and event["state"] in ("done", "parked"):
             open_checks.remove(number)
             # Older reminder edits were stored as Park with the previous note and links.
@@ -196,8 +214,10 @@ def goal_rows(db, owners, project=None, kind=None, *, exclude_watched_by=None):
         args.append(exclude_watched_by)
     return db.execute(f"""
         SELECT tasks.id, tasks.project_prefix, tasks.project_number, tasks.dri AS owner, tasks.title AS summary,
-               goals.kind, goals.deadline, goals.ticket_ids, events.state
+               goals.kind, goals.deadline, goals.ticket_ids, events.state, events.at, events.context,
+               exploration.value AS stopping_criterion
         FROM task_goals AS goals JOIN tasks ON tasks.id = goals.task_id
+        LEFT JOIN board_settings AS exploration ON exploration.key = '{EXPLORATION_SETTING}' || CAST(tasks.id AS TEXT)
         JOIN events ON events.id = (
             SELECT MAX(id) FROM events WHERE task_id = tasks.id AND action NOT IN ('source-event', 'log')
         )
@@ -208,10 +228,35 @@ def goal_rows(db, owners, project=None, kind=None, *, exclude_watched_by=None):
     """, args).fetchall()
 
 
+def standing_summary(row, *, include_ticket=False):
+    result = {"project": row["project_prefix"], "summary": row["summary"]}
+    if include_ticket:
+        result["ticket"] = projects.row_reference(row)
+    if row["stopping_criterion"] is not None:
+        result.update(keep_exploring=True, stopping_criterion=row["stopping_criterion"])
+    return result
+
+
 def standing(db, owner, project=None, *, include_ticket=False):
-    return [{"project": row["project_prefix"], "summary": row["summary"],
-             **({"ticket": projects.row_reference(row)} if include_ticket else {})}
+    return [standing_summary(row, include_ticket=include_ticket)
             for row in goal_rows(db, [owner], project, "standing")]
+
+
+def exploration_available(db, row, now):
+    if (row["state"] != "parked" or not row["stopping_criterion"]
+            or not ledger.event_context(row).get("goal_criterion_met")):
+        return True
+    schedule = db.execute("SELECT review_time FROM goal_review_times WHERE task_id = ?", (row["id"],)).fetchone()
+    if schedule is None:
+        return False
+    next_day = datetime.fromisoformat(row["at"]).astimezone(PACIFIC).date() + timedelta(days=1)
+    return now.date() > next_day or (now.date() == next_day and now.strftime("%H:%M") >= schedule["review_time"])
+
+
+def exploration_criterion(db, number):
+    saved = db.execute("SELECT value FROM board_settings WHERE key = ?",
+                       (EXPLORATION_SETTING + str(number),)).fetchone()
+    return saved["value"] if saved is not None else None
 
 
 def write_goal(db, project, owner, kind, row, goal):
@@ -236,10 +281,23 @@ def write_goal(db, project, owner, kind, row, goal):
     ledger.record(db, row["id"], "log", owner, current["state"], "Updated this goal.", None, [])
 
 
-def save_standing(db, project, owner, summary):
+def save_standing(db, project, owner, summary, *, keep_exploring=None, criterion=""):
     row = next(iter(goal_rows(db, [owner], project, "standing")), None)
     write_goal(db, project, owner, "standing", row, (summary, None, []) if summary is not None else None)
-    return {"project": project, "summary": summary} if summary is not None else None
+    if summary is None:
+        if row is not None:
+            db.execute("DELETE FROM board_settings WHERE key = ?", (EXPLORATION_SETTING + str(row["id"]),))
+        return None
+    current = next(iter(goal_rows(db, [owner], project, "standing")))
+    if keep_exploring is True:
+        db.execute(
+            """INSERT INTO board_settings (key, value) VALUES (?, ?)
+               ON CONFLICT (key) DO UPDATE SET value = excluded.value WHERE board_settings.value <> excluded.value""",
+            (EXPLORATION_SETTING + str(current["id"]), criterion),
+        )
+    elif keep_exploring is False:
+        db.execute("DELETE FROM board_settings WHERE key = ?", (EXPLORATION_SETTING + str(current["id"]),))
+    return next(iter(standing(db, owner, project)))
 
 
 def report_summaries(db, project, owners, *, exclude_watched_by=None):
@@ -261,6 +319,11 @@ def ticket_details(db, task):
         return None
     result = {"kind": row["kind"], "deadline": row["deadline"],
               "tickets": tickets(db, projects.row_project(task), task["dri"], json.loads(row["ticket_ids"]))}
+    if row["kind"] == "standing" and (criterion := exploration_criterion(db, task["id"])) is not None:
+        result.update(keep_exploring=True, stopping_criterion=criterion)
+        if task["state"] == "parked" and ledger.event_context(task).get("goal_criterion_met"):
+            schedule = db.execute("SELECT review_time FROM goal_review_times WHERE task_id = ?", (task["id"],)).fetchone()
+            result["resume_review_time"] = schedule["review_time"] if schedule else None
     if (row["kind"] == "standing" and task["state"] == "parked"
             and task["note"] not in (LEGACY_GOAL_STEP, PREVIOUS_STANDING_EXPLORATION, STANDING_EXPLORATION)):
         result["parked_note"] = task["note"]
@@ -299,7 +362,8 @@ def dated_goal(db, project, owner, row):
     }
 
 
-def queue_context(db, owner, project=None, *, principal=None):
+def queue_context(db, owner, project=None, *, principal=None, now=None):
+    now = now or datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
     standing_goals = []
     dated_goals = []
     for row in goal_rows(db, [owner], project):
@@ -308,7 +372,8 @@ def queue_context(db, owner, project=None, *, principal=None):
             continue
         reference = {"project": prefix, "ticket": projects.row_reference(row)}
         if row["kind"] == "standing":
-            standing_goals.append({**reference, "summary": row["summary"]})
+            if exploration_available(db, row, now):
+                standing_goals.append(standing_summary(row, include_ticket=True))
         else:
             dated_goals.append({**reference, **dated_goal(db, prefix, owner, row)})
     return {"standing_goals": standing_goals, "dated_goals": dated_goals}

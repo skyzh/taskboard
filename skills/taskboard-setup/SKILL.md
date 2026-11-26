@@ -47,6 +47,10 @@ For per-DRI jobs limited to the selected project, include that project in the ke
 
 Use the [queue review guide](references/waiting-and-parked.md) to choose an owned queue or a project queue. Reuse a review that already covers it. Where coverage is missing, agree on one owner, cadence, next run, and wake. Each review verifies current evidence and return triggers on the original tickets.
 
+## Set up standing-goal exploration
+
+Keep one focused pass as the default. If a goal owner opts into **Keep exploring**, save an optional criterion they can verify, such as “two useful pull requests have been opened today,” and use the existing daily Pacific goal review. Check the saved mode and criterion from that owner's signed session. [Goal setup](../../docs/taskboard/AGENT-STARTUP.md#keep-exploring-a-standing-goal)
+
 ## Collect optional ticket data
 
 When the project asks agents to collect an additional ticket value, use the [custom field prompt example](references/custom-field-prompt.md). Adapt the units, evidence, and reporting instructions to the fields the project has enabled.

@@ -37,7 +37,15 @@ If you are changing the release on an existing board, follow the [Taskboard Upgr
 3. Read the ticket's latest activity, linked evidence, checklist, and current owner. Continue from its recorded step or wait. Check current evidence before resuming a waiting ticket. If an earlier write had an uncertain result, read its Activity before retrying. Keep the same ticket across turns and Computers.
 4. When capacity is available, choose eligible work from your Ready queue. See [Find the agent commands](#find-the-agent-commands) for checklist, ETA, handoff, and wait options. Check it again after recording an outcome or handoff. The [Ready checkpoint guide](READY-CHECKPOINT.md) covers managed watcher commands and the runner callback for a finished work unit.
 5. If your queue has nothing you can move, check the project's unassigned Ready work with `./tasks --shared list --status ready --unassigned --project T`. Use the current project prefix in place of `T` when needed. Take suitable work within your role using the project's ownership rules.
-6. Once actionable work and assigned reviews clear, start the standing goal offered by Inbox or `next` for one focused pass this turn. Check recent feedback, a finished ticket, or the current product. Verify any finding on the current build and search for an existing ticket before opening one. Record what you checked and the outcome on the goal ticket, then park it. Recheck Inbox for actionable work and end exploration for the turn. [Taskboard Deep Work](../../skills/taskboard-deep-work/SKILL.md#stay-with-the-problem) describes this handoff.
+6. Once actionable work and assigned reviews clear, open the standing goal offered by Inbox or `next`. Check recent feedback, a finished ticket, or the current product. Verify a finding on the current build and search for an existing ticket before opening one. One focused pass is the default. Record its outcome on the goal ticket, park it, and recheck Inbox. Follow the saved setting for [Keep exploring](#keep-exploring-a-standing-goal).
+
+### Keep exploring a standing goal
+
+In your agent profile, edit the standing goal and select **Keep exploring while Inbox is clear**. Enter a criterion the agent can verify, such as “two useful pull requests have been opened today.” Leave **Stop when** empty to continue while the Inbox is clear. Set a daily Pacific review time in **Tasks → Schedules → Goal reviews** when using a stopping criterion.
+
+In Keep exploring mode, choose a distinct check each pass. Verify concrete findings and make focused fixes within your ordinary authority. Record a no-finding outcome after an actual check. Use `tasks --shared update GOAL "What I checked and verified" --standing-pass` and recheck all actionable Inbox work and assigned reviews. If work arrives, checkpoint and switch to it. When the written criterion is met, use `tasks --shared park GOAL "Evidence that the criterion is met" --criterion-met`. The same goal is offered from its next configured daily review.
+
+To configure the same setting from the CLI, use `tasks --shared save-goal standing "Goal summary" --keep-exploring --criterion "Two useful pull requests opened today"`. Omit `--criterion` to clear it in Keep exploring mode. Use `--one-pass` to restore the default. The agent observes its existing runtime stop controls and wake settings.
 
 Set or read your dated and standing goals with your verified Taskboard account. Both appear below actionable work in Inbox and `next`. A dated goal shows its deadline and links to its ticket. Inbox and `next` offer unassigned tickets to the project manager who can assign them.
 
@@ -62,7 +70,7 @@ Use your signed Taskboard agent account to opt in to Raft wakes for tickets assi
 
 Both commands should show `Wake subscriptions · T · owned-ready`.
 
-When Raft wakes you, run `./tasks --shared next` for the current offer. The managed Ready-count watcher counts your assigned tickets across projects. Add `--project T` when you specifically want to inspect Project T. Handle actionable work and reviews first. If the queue is clear and offers your standing goal, take one focused pass this turn. Record the result, park the goal, then recheck Inbox for actionable work.
+When Raft wakes you, run `./tasks --shared next` for the current offer. The managed Ready-count watcher counts your assigned tickets across projects. Add `--project T` when you specifically want to inspect Project T. Handle actionable work and reviews first. If the queue offers your standing goal, follow its saved exploration setting.
 
 In Taskboard, open **Notifications → Project log**, choose Project T, and set the notice kind to **Wake**. You can also append `#notifications-log?project=T&kind=wake` to the board URL from `context`. Open the linked ticket for context. The log shows the cue and records Raft acceptance, delivery, the first queue check, and Start separately. Missing Raft evidence shows **Unknown**. A queue check or Start without evidence shows **Not observed**.
 

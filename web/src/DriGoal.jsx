@@ -27,6 +27,8 @@ function GoalForm({ goal, project, mode, onCancel, onSaved }) {
   const [tickets, setTickets] = useState(savedTickets)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [keepExploring, setKeepExploring] = useState(Boolean(goal?.keep_exploring))
+  const [criterion, setCriterion] = useState(goal?.stopping_criterion || '')
 
   const { data: fieldGuidance } = useFieldGuidance(project)
   const goalField = {
@@ -41,6 +43,10 @@ function GoalForm({ goal, project, mode, onCancel, onSaved }) {
     try {
       const path = `/profile/${mode}`
       const body = standing ? { summary: value?.summary ?? null } : { goal: value }
+      if (standing && value) {
+        body.keep_exploring = keepExploring
+        if (keepExploring) body.stopping_criterion = criterion
+      }
       if (mode === 'milestone' && goal) body.previous = goal.summary
       await request(queryPath(path, { project }), { method: 'PATCH', body })
       onSaved()
@@ -57,13 +63,21 @@ function GoalForm({ goal, project, mode, onCancel, onSaved }) {
     save({ summary, deadline, tickets: references })
   }
 
-  const edited = summary !== (goal?.summary || '') || deadline !== (goal?.deadline || '') || tickets !== savedTickets
+  const edited = summary !== (goal?.summary || '') || deadline !== (goal?.deadline || '') ||
+    tickets !== savedTickets || keepExploring !== Boolean(goal?.keep_exploring) || criterion !== (goal?.stopping_criterion || '')
   return (
     <form className="profile-form dri-goal-form" onSubmit={submit} data-reload-blocked={edited || saving}>
       <label>{standing ? 'Standing goal' : 'Milestone name'}<input value={summary} required disabled={saving}
         aria-describedby={titleHelpId}
         onChange={event => setSummary(event.target.value)} /></label>
       <FieldHelp field={goalField} id={titleHelpId} />
+      {standing && <>
+        <label><input type="checkbox" checked={keepExploring} disabled={saving}
+          onChange={event => setKeepExploring(event.target.checked)} /> Keep exploring while Inbox is clear</label>
+        {keepExploring && <label>Stop when <input value={criterion} maxLength={500} disabled={saving}
+          placeholder="Optional stopping criterion"
+          onChange={event => setCriterion(event.target.value)} /></label>}
+      </>}
       {!standing && <>
         <label>Deadline<input type="date" value={deadline} required disabled={saving}
           onChange={event => setDeadline(event.target.value)} /></label>
@@ -117,6 +131,9 @@ export default function DriGoal({ goal, project, standing = false, editable, onC
       {goal ? (
         <>
           <p>{standing && goal.ticket ? <BoardLink href={taskHref(goal.ticket)}>{goal.summary}</BoardLink> : goal.summary}</p>
+          {standing && goal.keep_exploring && <p className="section-message">
+            Keep exploring{goal.stopping_criterion && <> · Stop when {goal.stopping_criterion}</>}
+          </p>}
           {!standing && <GoalDetails goal={goal} />}
         </>
       ) : <p className="section-message">No goal set.</p>}

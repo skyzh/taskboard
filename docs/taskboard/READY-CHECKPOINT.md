@@ -48,7 +48,7 @@ For a two-pickup pilot, add `--two-pickups` to the watcher command. The process 
 
 For the opt-in Ready-count watcher, add `--repeat` in place of `--two-pickups`. Check `raft proc list` first and keep one managed watcher per agent. The default delay is ten seconds of sampled idle, about one confirming poll. When new work enters the signed Ready queue, the watcher rereads the queue and confirms Idle before sending a reminder such as “You have 2 Ready tickets.” The count covers your assigned Ready tickets across projects. A retained reminder records the newest included Ready event so a restart or a shrinking queue can reuse that wake. Run `./tasks --shared next` to find the current offer and take actionable Inbox work first. Add `--project` only for a deliberate check of one project.
 
-Take one standing-goal pass when actionable Inbox work and reviews clear. Record the result on the goal ticket and park it. Recheck Inbox for actionable work and end exploration for the turn. The process stays armed across turns and stays quiet for an empty or unchanged Ready queue.
+When actionable Inbox work and reviews clear, check the goal's saved exploration setting. The default is one pass followed by parking the goal. Keep exploring records distinct passes on the same ticket and rechecks Inbox before continuing. Meeting a saved criterion parks the goal until the next daily review. The process stays armed across turns and stays quiet for an empty or unchanged Ready queue. [Standing-goal setup](AGENT-STARTUP.md#keep-exploring-a-standing-goal)
 
 Keep [custom standing-goal or Park guidance](SHARED-BOARD.md#customize-agent-guidance) consistent with one exploration pass per turn.
 

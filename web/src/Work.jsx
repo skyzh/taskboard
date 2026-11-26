@@ -585,8 +585,9 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
                 <h3>Owner’s note</h3>
                 <Markdown text={record.goal.parked_note} relatedTasks={record.related_tasks} />
               </>}
+              {record.goal?.resume_review_time && <p>Resume at the next {record.goal.resume_review_time} Pacific goal review.</p>}
               <ClosureReference context={task.context} />
-              {showReturnPath && <div hidden={!showActions}>{record.goal ? (
+              {showReturnPath && !record.goal?.keep_exploring && <div hidden={!showActions}>{record.goal ? (
                   <ReminderDate key={`${id}:${task.context?.review_after || ''}`}
                     path={`/tasks/${id}/reminder`} saved={task.context?.review_after}
                     onChanged={onChanged} />
