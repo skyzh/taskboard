@@ -2007,9 +2007,10 @@ def create_app(
                 row = db().execute("SELECT task_id FROM events WHERE id = ?", (identifier,)).fetchone()
                 if row is None or require_visible_task(db(), row["task_id"]) is None:
                     raise NotFound()
-            elif page.startswith("schedules/"):
+            elif page.startswith("schedules/") and actor_key() is not None:
+                # Signed-out viewers get the same sign-in shell for every schedule ID.
                 number = record_id(page.rsplit("/", 1)[1], "R-", "Recurring ID")
-                if actor_key() is None or query().visible_schedule(number, actor_key()) is None:
+                if query().visible_schedule(number, actor_key()) is None:
                     raise NotFound()
         except RequestError as error:
             if error.status == 404:

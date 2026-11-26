@@ -7965,6 +7965,9 @@ class TasksServiceTest(unittest.TestCase):
             "/notifications", "/settings", "/integrations", "/personal-codex", "/search", "/about",
         )
         nested_html = html.replace(b'href="./"', f'href="{BASE}/"'.encode())
+        for schedule in (maintenance, "R-999"):
+            with closing(self.call(app.test_client(), f"/schedules/{schedule}")) as response:
+                self.assertEqual(response.data, nested_html)
         for page in pages:
             with self.subTest(page=page), closing(self.call(client, page)) as response:
                 self.assertEqual((response.mimetype, response.data), ("text/html", nested_html))
