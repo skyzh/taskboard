@@ -28,8 +28,10 @@ TABLES = (
     "wake_subscriptions", "wake_log", "goal_idle_offers",
     "knowledge_areas", "knowledge_entries", "knowledge_stages", "knowledge_maintenance_assignments",
 )
-# Connections depend on the source deployment's live browser sessions.
-NON_PORTABLE_TABLES = {"personal_agent_connections", "personal_agent_cli_approvals", "local_dri_watchers"}
+# Browser sessions, watchers, and foreground report views belong to the source deployment.
+NON_PORTABLE_TABLES = {
+    "personal_agent_connections", "personal_agent_cli_approvals", "local_dri_watchers", "reports_presence",
+}
 IDENTITIES = {
     "tasks": "id", "events": "id", "sources": "id", "worker_runs": "id",
     "recurring_definitions": "id", "release_batches": "id", "board_principals": "principal_order",
