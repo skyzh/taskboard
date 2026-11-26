@@ -1688,42 +1688,6 @@ def create_app(
             "blocked_by" in context or context.get("wait_kind") == "automation"
         )
 
-    def record_confirmed_blocker(connection, task, actor, note, links, override=None):
-        return ledger.record(
-            connection, task["id"], "resume", actor, "ready", note, None, links,
-            {"confirmed_blocker_event": task["event_id"], **(override or {})},
-        )
-
-    def release_linked_waits(connection, blocker_id):
-        blocker = ledger.get_task(connection, blocker_id)
-        if blocker["display_state"] != "done":
-            return
-        source_project = projects.row_project(blocker)
-        candidates = connection.execute(
-            f"""WITH current AS ({ledger.current_tasks_sql(connection)})
-                SELECT * FROM current
-                WHERE state = 'waiting' AND json_extract(context, '$.blocked_by') = ?
-                  AND json_extract(context, '$.peer_ask_ticket') IS NULL
-                  AND COALESCE(json_extract(context, '$.wait_kind'), '') <> 'automation'
-                  AND COALESCE(dri, '') <> ''""",
-            (blocker_id,),
-        ).fetchall()
-        for task in candidates:
-            target_project = projects.row_project(task)
-            if source_project != target_project and (
-                ring1.private(connection, source_project) or ring1.private(connection, target_project)
-            ):
-                continue
-            if ledger.task_goal_kind(connection, task["id"]):
-                continue
-            record_confirmed_blocker(
-                connection, task, "Taskboard",
-                f"{projects.row_reference(blocker)} is Done. Review its completion and start the next step.",
-                [("Blocker completion", f"{base}/#event-{blocker['event_id']}-log")],
-            )
-            if target_project != source_project:
-                ledger.bump_revision(connection, target_project)
-
     def confirm_blocker(actor, number, wait_event, note, links, force_reason=None):
         key = actor["ledger_key"]
         with tasks_storage.write(db()) as connection:
@@ -1751,7 +1715,7 @@ def create_app(
             override = {} if authorized or not task["dri"] else ledger.transition_override(
                 task, "confirm-blocker", force_reason,
             )
-            event = record_confirmed_blocker(connection, task, key, note, links, override)
+            event = ledger.record_confirmed_blocker(connection, task, key, note, links, override)
             ledger.bump_revision(connection, project)
         return {"receipt": f"{projects.row_reference(task)} · Blocker confirmed", "event_id": event}
 
@@ -1878,8 +1842,6 @@ def create_app(
             return project
 
         args.authorize = authorize
-        if command == "done":
-            args.on_done = release_linked_waits
         if command in (*ledger.PROJECT_WRITER_TRANSITIONS, "close", "reopen"):
             args.force_reason = transition_force_reason(data)
             args.can_transition = lambda connection, task: can_collaborate_on_transition(connection, actor, task)

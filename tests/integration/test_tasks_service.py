@@ -10414,19 +10414,29 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("Peer request for T-1 · Awaiting acknowledgment", output)
         self.assertIn("peer-ask acknowledge T-2", output)
         self.action(blake, "peer-ask", ack, status=403)
+        self.action(avery, "create-task", {"title": "Publish the checked sample", "step": "Check the dependent."})
+        self.action(avery, "advance-task", {**advance, "id": "T-4"})
+        self.action(avery, "advance-task", {
+            "id": "T-4", "transition": "wait", "blocked_by": "T-2", "note": "Wait for the acknowledgment.",
+        })
+        dependent_wait = read(4)["event_id"]
         self.action(avery, "peer-ask", ack)
         self.assertEqual(read(2)["state"], "done")
         self.assertEqual((read(1)["state"], read(1)["waiting_on"]), ("ready", None))
+        released = read(4)
+        self.assertEqual((released["state"], released["dri"]), ("ready", avery_id))
+        self.assertEqual(released["context"]["confirmed_blocker_event"], dependent_wait)
         self.assertIn("already acknowledged", self.action(avery, "peer-ask", ack)["receipt"])
+        self.assertEqual(read(4)["event_id"], released["event_id"])
 
         self.action(avery, "advance-task", advance)
         newer = self.action(avery, "peer-ask", {**created, "note": "Review the revised sample."})
-        self.assertIn("T-4", newer["receipt"])
-        canceled = {"id": "T-4", "transition": "cancel", "note": "The sample was replaced."}
+        self.assertIn("T-5", newer["receipt"])
+        canceled = {"id": "T-5", "transition": "cancel", "note": "The sample was replaced."}
         self.action(blake, "peer-ask", canceled, status=403)
         self.action(avery, "peer-ask", canceled)
         self.assertEqual(read(1)["state"], "ready")
-        self.assertEqual(read(4)["display_state"], "closed")
+        self.assertEqual(read(5)["display_state"], "closed")
 
     def test_handoff_receipts_use_the_senders_queue_and_preserve_peer_acknowledgment(self):
         app = self.app(portal_reader=True)
