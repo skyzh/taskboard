@@ -57,6 +57,35 @@ class SharedConnectionTest(unittest.TestCase):
                 self.assertEqual((failure.exception.reason, failure.exception.retryable), (reason, retryable))
                 self.assertEqual(call.call_count, 1)
 
+    def test_untyped_error_envelope_requires_an_exact_action_response(self):
+        reference = "38f7d50d-c2cd-41b5-a416-da555bb92d23"
+        header = "service action failed (HTTP 409)"
+        body = json.dumps({"error": "Unpark\n the ticket first."})
+        board = SharedBoard("fixture-board")
+        for overrides, expected in (
+            ({}, f"Shared write rejected. Unpark the ticket first. (HTTP 409, reference {reference})"),
+            ({"correlation_id": "https://private.example"}, "Shared write rejected. Unpark the ticket first. (HTTP 409)"),
+            ({"message": "transport error mentioning HTTP 409"}, "Shared write outcome unknown."),
+            ({"message": 'failed; response body: {"error":"HTTP 409"}'}, "Shared write outcome unknown."),
+            ({"fault_domain": "integration_action_transport"}, "Shared write outcome unknown."),
+            ({"code": "UNRECOGNIZED_FIXTURE_ERROR"}, "Shared write outcome unknown."),
+        ):
+            error = {
+                "message": f"{header}; response body: {body}",
+                "correlation_id": reference,
+                "effect": None,
+                "fault_domain": None,
+                "layer": None,
+                "retryable": None,
+                **overrides,
+            }
+            result = subprocess.CompletedProcess([], 1, "", json.dumps({"ok": False, "error": error}))
+            with self.subTest(overrides=overrides), patch("taskboard_client.connection.subprocess.run", return_value=result) as call:
+                with self.assertRaises(RuntimeError) as failure:
+                    board.invoke("advance-task", write=True)
+                self.assertTrue(str(failure.exception).startswith(expected), str(failure.exception))
+                self.assertEqual(call.call_count, 1)
+
     def test_terminal_read_diagnostics_distinguish_safe_carrier_categories(self):
         for code, domain, expected in (
             ("INTEGRATION_NOT_FOUND", None, "raft-integration-missing"),

@@ -13,6 +13,8 @@ BEFORE_DISPATCH = {"INTEGRATION_NOT_FOUND", "INTEGRATION_ACTION_NOT_FOUND", "INV
 APP_REJECTION = {400, 401, 403, 404, 405, 409, 415, 422}
 TEMPORARY_READ_STATUS = {502, 503, 504}
 READ_FAILURE = "Shared read failed. Check the registered app and your Raft session."
+ACTION_RESPONSE = re.compile(r"(?:Error: )?service action failed \(HTTP ([1-5][0-9]{2})\)")
+CORRELATION_ID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
 
 
 def attention_retry_hint(params):
@@ -128,13 +130,14 @@ def invocation_failure(result, reply, failure, code, service, action):
             f"Check the supported actions with `raft integration invoke --service {quote(service)} --list-actions`."
         )
         return reason, None, "raft-before-dispatch"
-    status_text, _, embedded_body = str(message if failure else result.stderr).partition("; response body: ")
-    match = re.search(r"\bHTTP (\d{3})\b", status_text)
-    status = int(match[1]) if code == "INTEGRATION_INVOKE_FAILED" and match else None
-    if status in TEMPORARY_READ_STATUS:
-        header = status_text.strip().splitlines()[0].removeprefix("Error: ")
-        if header != f"service action failed (HTTP {status})":
-            status = None
+    domain = failure.get("fault_domain")
+    carrier_response = code == "INTEGRATION_INVOKE_FAILED" or (
+        code is None and reply.get("ok") is False and isinstance(reply.get("error"), dict)
+    )
+    carrier_message = message if failure else result.stderr.partition("\n")[0]
+    header, _, embedded_body = str(carrier_message).partition("; response body: ")
+    match = ACTION_RESPONSE.fullmatch(header.strip())
+    status = int(match[1]) if carrier_response and domain != "integration_action_transport" and match else None
     if status in APP_REJECTION:
         if status == 401:
             reason = (
@@ -146,17 +149,21 @@ def invocation_failure(result, reply, failure, code, service, action):
         body = details.get("response_body", embedded_body)
         if isinstance(body, str):
             body = reply_json(body)
-        explanation = body.get("error") if isinstance(body, dict) else None
+        if not isinstance(body, dict):
+            body = {}
+        explanation = body.get("error")
         if isinstance(explanation, dict):
             explanation = explanation.get("message")
-        if isinstance(explanation, str) and explanation.strip():
-            return " ".join(explanation.split())[:300], status, None
-        return f"The Tasks app rejected the action (HTTP {status}).", status, None
+        for text in (body.get("hint"), explanation):
+            if isinstance(text, str):
+                safe_text = "".join(char for char in " ".join(text.split()) if char.isprintable())
+                if safe_text.strip():
+                    return safe_text[:300], status, None
+        return "The Tasks app rejected the action.", status, None
     if status is not None:
         return None, status, None
-    if code == "INTEGRATION_INVOKE_FAILED":
-        category = ("raft-action-transport" if failure.get("fault_domain") == "integration_action_transport"
-                    else "raft-invocation-failed")
+    if carrier_response:
+        category = "raft-action-transport" if domain == "integration_action_transport" else "raft-invocation-failed"
     elif not reply and code is None:
         category = "carrier-no-reply"
     else:
@@ -222,6 +229,12 @@ class SharedBoard:
                     carrier=carrier_diagnostic(result, reply, failure, code),
                 )
             reason, status, category = invocation_failure(result, reply, failure, code, self.service, action)
+            if reason and status in APP_REJECTION:
+                reference = failure.get("correlation_id")
+                diagnostic = f"HTTP {status}"
+                if isinstance(reference, str) and CORRELATION_ID.fullmatch(reference):
+                    diagnostic += f", reference {reference}"
+                reason = f"{reason} ({diagnostic})"
             if write:
                 raise RuntimeError(f"Shared write rejected. {reason}" if reason else unknown)
             raise SharedReadError(
