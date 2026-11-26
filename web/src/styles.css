@@ -991,6 +991,15 @@ button:disabled { opacity: .57; }
 .project-create-form { margin-top: .75rem; }
 .project-create-form h3 { font-size: 1rem; }
 .project-create-form button { min-height: 2.75rem; }
+.ring-one-settings { margin-top: .85rem; }
+.ring-one-members { list-style: none; margin: .2rem 0 .65rem; padding: 0; }
+.ring-one-members .permission-row { padding-block: .2rem; }
+.ring-one-settings :is(button, select, summary) { min-height: 2.75rem; }
+.ring-one-history { margin-top: .5rem; }
+.ring-one-history summary { align-content: center; }
+.ring-one-history ol { margin: .25rem 0 0; padding-inline-start: 1.4rem; }
+.ring-one-history li { margin-block: .35rem; overflow-wrap: anywhere; }
+.ring-one-history time { display: block; color: var(--muted); }
 .personal-codex-prompt { margin-block: .65rem; font-size: .85rem; }
 .personal-codex-preparation { margin-block-end: .65rem; font-size: .88rem; color: var(--muted); }
 .personal-codex-token { background: var(--wash); border-radius: .35rem; padding: .6rem; }

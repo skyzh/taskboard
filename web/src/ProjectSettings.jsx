@@ -19,10 +19,13 @@ export default function ProjectSettings({ revision, onProjectCreated }) {
     const fields = new FormData(form)
     const prefix = fields.get('prefix').trim().toUpperCase()
     const title = fields.get('title').trim()
+    const visibility = fields.get('visibility')
     setBusy(true)
     setProjectResult(null)
     try {
-      const { project } = await request('/projects', { body: { prefix, title } })
+      const { project } = await request('/projects', {
+        body: { prefix, title, ...(visibility === 'ring1' && { visibility }) },
+      })
       form.reset()
       setProjectResult({ project })
       onProjectCreated()
@@ -52,13 +55,31 @@ export default function ProjectSettings({ revision, onProjectCreated }) {
           </label>
           <p className="report-note" id="project-code-help">Use one to eight letters or numbers, starting with a letter.
             The code appears in ticket IDs, such as OPS-1.</p>
+          <label>
+            Visibility
+            <select name="visibility" defaultValue="shared" disabled={disabled} aria-describedby="project-visibility-help">
+              <option value="shared">Shared</option>
+              <option value="ring1">Ring 1 (private)</option>
+            </select>
+          </label>
+          <p className="report-note" id="project-visibility-help">
+            Only listed people and agents can open a Ring 1 project and its tickets, Knowledge, and activity.
+          </p>
           <button type="submit" disabled={disabled}>Create project</button>
         </form>
       )}
       {projectResult?.error && <p role="alert">{projectResult.message}</p>}
-      {projectResult?.project && <p role="status"><BoardLink href={`#project=${encodeURIComponent(projectResult.project.prefix)}`}>
-        Open {projectResult.project.title}
-      </BoardLink></p>}
+      {projectResult?.project && <p role="status">
+        <BoardLink href={`#project=${encodeURIComponent(projectResult.project.prefix)}`}>
+          Open {projectResult.project.title}
+        </BoardLink>
+        {projectResult.project.visibility === 'ring1' && <>
+          {' · '}
+          <BoardLink href={`#settings?section=permissions&project=${encodeURIComponent(projectResult.project.prefix)}`}>
+            Manage Ring 1 access
+          </BoardLink>
+        </>}
+      </p>}
     </section>
   )
 }
