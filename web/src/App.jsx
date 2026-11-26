@@ -343,6 +343,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
         dri: linkedOwner,
         current_work: currentWork ? 'all' : undefined,
         unfinished: unfinished || undefined,
+        watching: ((currentWork || unfinished) && params.get('watching') === 'true') || undefined,
         hide_requests: params.get('hide_requests') === 'true' || undefined,
       })
       if (currentWork || unfinished) setQueueLayout('list')

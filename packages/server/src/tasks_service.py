@@ -2462,14 +2462,19 @@ def create_app(
             raise RequestError("Choose one project when filtering by tag.")
         work = args.get("current_work")
         unfinished = args.get("unfinished")
+        watching = args.get("watching")
         if work not in (None, "all") or unfinished not in (None, "true"):
             raise RequestError("Use current_work=all or unfinished=true.")
+        if watching is not None and (watching != "true" or not (work or unfinished)):
+            raise RequestError("Use watching=true with a current-work or unfinished filter.")
+        watcher = current_actor(required=True)["ledger_key"] if watching else None
         return query().tasks(
             state=state, dri=owner,
             waiting_on=text(args, "waiting_on", optional=True, maximum=160),
             search=search, project=project, tag=tag, hide_requests=args.get("hide_requests") == "true",
             current_work=work == "all", unfinished=unfinished == "true",
             summary_personal_owner=actor["ledger_key"] if actor and actor["kind"] == "human" else None,
+            watching_viewer=watcher,
             **queue_page_args(args, state),
         )
 

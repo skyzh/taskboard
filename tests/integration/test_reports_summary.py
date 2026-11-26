@@ -134,6 +134,29 @@ class ReportsSummaryTest(unittest.TestCase):
         items = self.rows("tasks", current_work="all", scope="all", dri=self.owner)
         self.assertEqual(set(self.ids(items)), {self.high, self.old_progress, self.peer})
 
+    def test_watching_links_reconcile_for_a_followed_human_outside_the_roster(self):
+        roster = {self.board.provider.people["Avery"]["sub"]: "Avery"}
+        app = self.board.app(portal_reader=True, project_roster=roster)
+        self.board.provider.issued.discard("Avery")
+        self.client, _ = self.board.login(app, "Avery")
+        with closing(open_sqlite(self.board.database)) as db, write(db):
+            watched = self.create(db, "Explicit watch", "in_progress", owner=self.waiting_owner)
+            for index in range(3):
+                self.create(db, f"Followed work {index}", "in_progress", owner=self.waiting_owner)
+        headers = {"Origin": fixtures.ORIGIN}
+        self.board.call(self.client, "/api/v1/assignee/watch", method="POST", headers=headers,
+                        query_string={"owner": self.waiting_owner, "project": "T"}, json={"watch": True})
+        self.board.call(self.client, f"/api/v1/tasks/{watched}/watch", method="POST", headers=headers, json={"watch": True})
+        row, = self.rows("reports", summary="true", view="watching", scope="all")
+        self.assertEqual((row["task_count"], row["project_unfinished_counts"]["T"]), (4, 5))
+        self.assertEqual(self.ids(row["watched_tickets"]["items"]), [watched])
+        overflow = self.rows("tasks", watching="true", current_work="all", scope="all", dri=self.waiting_owner)
+        self.assertEqual(len(overflow), row["task_count"])
+        self.assertNotIn(watched, self.ids(overflow))
+        unfinished = self.rows("tasks", watching="true", unfinished="true", project="T", dri=self.waiting_owner)
+        self.assertEqual(len(unfinished), row["project_unfinished_counts"]["T"])
+        self.assertEqual(self.ids(unfinished).count(watched), 1)
+
     def test_all_fills_with_waits_and_legacy_page_keeps_its_contract(self):
         owner = next(row for row in self.rows("reports", summary="true", view="all", project="T")
                      if row["owner"] == self.waiting_owner)

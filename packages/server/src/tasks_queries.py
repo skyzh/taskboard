@@ -649,7 +649,7 @@ class BoardQueries:
     def tasks(self, *, state=None, dri=None, waiting_on=None, before=None, limit=20, now=False,
               decided_by=None, search=None, priority_order=False, review_due=None, project=None, tag=None,
               managed_by=None, hide_requests=False, exclude_goals=False, github_url=None, include_knowledge=False,
-              current_work=False, unfinished=False, summary_personal_owner=None):
+              current_work=False, unfinished=False, summary_personal_owner=None, watching_viewer=None):
         terms, args = [], []
         filter_search = None
         for column, value in (
@@ -666,7 +666,14 @@ class BoardQueries:
             terms.append(self.summary_current_work("tasks", "events.state", "tasks.dri"))
         if unfinished:
             terms.append("events.state <> 'done'")
-        if ((current_work or unfinished) and dri and dri != summary_personal_owner
+        if watching_viewer:
+            scope, bindings = self.watched_person_queue_scope(watching_viewer, project)
+            terms.append(scope)
+            args.extend(bindings)
+            if current_work:
+                terms.append(f"NOT {self.ticket_watch_sql('tasks')}")
+                args.append(watching_viewer)
+        elif ((current_work or unfinished) and dri and dri != summary_personal_owner
                 and project in (None, projects.DEFAULT) and self.project_roster is not None):
             allowed = dri in projects.roster_owners(self.db, self.project_roster)
             if not allowed and watches.has_table(self.db, "local_dris"):
@@ -1743,6 +1750,15 @@ class BoardQueries:
             f"WITH candidate(owner) AS (VALUES (CAST(? AS TEXT))) SELECT 1 FROM candidate WHERE {scope}",
             (owner, *args),
         ).fetchone() is not None
+
+    def watched_person_queue_scope(self, watcher, project):
+        scopes, args = [], [watcher]
+        for prefix in [project] if project is not None else self.report_projects():
+            scope, bindings = self.watch_owner_scope(prefix, "tasks.dri", require_profile=True)
+            scopes.append(f"(tasks.project_prefix = ? AND ({scope}))")
+            args.extend((prefix, *bindings))
+        followed = "EXISTS (SELECT 1 FROM assignee_watches WHERE watcher = ? AND owner = tasks.dri)"
+        return f"{followed} AND ({' OR '.join(scopes) or 'FALSE'})", args
 
     def watched_ticket_scope(self, watcher, project, task, hide_requests):
         clauses, args = [], [watcher]

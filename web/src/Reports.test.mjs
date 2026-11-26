@@ -173,6 +173,12 @@ test('All projects links to scoped unfinished queues and one cross-project curre
   }))
   assert.match(html, /class="owner-links"><a href="#scope=all&amp;section=queue-heading&amp;owner=Avery&amp;current_work=all&amp;hide_requests=true"[^>]+>\+5 more<\/a><a href="#project=T&amp;section=queue-heading&amp;owner=Avery&amp;unfinished=true&amp;hide_requests=true">Taskboard \(3\)<\/a>/)
   assert.match(html, /#project=COURSE&amp;section=queue-heading&amp;owner=Avery&amp;unfinished=true&amp;hide_requests=true">Course \(4\)<\/a>/)
+  const watched = renderToStaticMarkup(React.createElement(AssigneeReport, {
+    entry, projectNames: new Map([['T', 'Taskboard'], ['COURSE', 'Course']]),
+    reportFilters: { view: 'watching' },
+  }))
+  assert.match(watched, /current_work=all&amp;watching=true/)
+  assert.match(watched, /unfinished=true&amp;watching=true/)
 })
 
 test('Reports leave legacy receipts and preceding narratives on the ticket while showing authored actions', () => {

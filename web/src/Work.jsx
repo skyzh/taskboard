@@ -140,7 +140,7 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
             Status
             <select value={groupedStatus ? 'linked-work' : filters.state || ''} onChange={event => {
               const state = event.target.value
-              setFilters(previous => ({ ...previous, state, current_work: undefined, unfinished: undefined }))
+              setFilters(previous => ({ ...previous, state, current_work: undefined, unfinished: undefined, watching: undefined }))
             }}>
               {groupedStatus && <option value="linked-work" disabled>{groupedStatus}</option>}
               <option value="">All statuses</option>

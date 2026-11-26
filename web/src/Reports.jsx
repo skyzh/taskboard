@@ -195,7 +195,10 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
   const ownerProject = project || projectChoices[0]
   const scope = projectNames ? 'all' : project
   const activityLink = projectHref(`#activity?${new URLSearchParams({ actor: owner, detail: 'all' })}`, scope)
-  const hideRequests = reportFilters?.hide_requests ? { hide_requests: 'true' } : {}
+  const queueFilters = {
+    ...(reportFilters?.hide_requests && { hide_requests: 'true' }),
+    ...(reportFilters?.view === 'watching' && { watching: 'true' }),
+  }
   return (
     <li className="report-owner">
       <div className="report-owner-heading" id={tourTargets.owner}
@@ -261,14 +264,17 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
       )}
       {owner && (showProjectLinks || watchingPerson !== false) && (!publicPreview || entry.task_counts) && <div className="owner-links">
         {more > 0 && !publicPreview && (
-          <BoardLink href={ownerQueueHref(owner, project, { current_work: 'all', ...hideRequests })}
-            aria-label={`+${more} more current tickets for ${name}`}>+{more} more</BoardLink>
+          <BoardLink href={ownerQueueHref(owner, project, { current_work: 'all', ...queueFilters })}
+            aria-label={`+${more} more current ${more === 1 ? 'ticket' : 'tickets'} for ${name}`}>+{more} more</BoardLink>
         )}
-        {showProjectLinks ? projectChoices.map(prefix => (
-          <BoardLink key={prefix} href={ownerQueueHref(owner, prefix, { unfinished: 'true', ...hideRequests })}>
-            {projectNames.get(prefix) || prefix}{unfinishedCounts?.[prefix] != null && ` (${unfinishedCounts[prefix]})`}
+        {showProjectLinks ? projectChoices.map(prefix => {
+          const count = unfinishedCounts?.[prefix]
+          const href = count == null ? ownerHref(owner, undefined, prefix)
+            : ownerQueueHref(owner, prefix, { unfinished: 'true', ...queueFilters })
+          return <BoardLink key={prefix} href={href}>
+            {projectNames.get(prefix) || prefix}{count != null && ` (${count})`}
           </BoardLink>
-        )) : <>
+        }) : <>
           <OwnerWorkLinks owner={owner} counts={entry.task_counts} project={ownerProject} summary publicPreview={publicPreview} />
           {outcomes.size > 0 && (publicPreview ? <DemoUnavailable>All outcomes</DemoUnavailable>
             : <BoardLink href={ownerHref(owner, 'outcomes-title', ownerProject)}>All outcomes</BoardLink>)}
