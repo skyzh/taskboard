@@ -5,7 +5,7 @@ import { useResource } from './data.js'
 import { Assignee, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, PeerRequestContext, ReminderWhen, ResourceStatus, Status, TaskLink, TaskPriority, Timestamp, eventHref, profileName, taskLabel, taskState } from './shared.jsx'
 import { ReportTime } from './ReportTime.jsx'
 import { reportTaskCue } from './workCopy.js'
-import { Markdown, MarkdownInline } from './Markdown.jsx'
+import { Markdown, MarkdownExcerpt, MarkdownInline } from './Markdown.jsx'
 import { TaskWaitAge } from './WaitAge.jsx'
 
 export function ChecklistProgress({ task }) {
@@ -94,7 +94,8 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   const step = cue?.text && (
     <div className="report-task-cue">
       {cueLabel && <strong>{cueLabel}</strong>}
-      <Markdown text={cue.text} className="task-row-note prose" links={!publicPreview} />
+      {reportSummary ? <MarkdownExcerpt text={cue.text} className="task-row-note summary-next-step" />
+        : <Markdown text={cue.text} className="task-row-note prose" links={!publicPreview} />}
       {detailedReport && task.release_result && task.at && <p className="event-meta">Step updated <ReportTime at={task.at} /></p>}
     </div>
   )

@@ -123,7 +123,7 @@ test('Reports lead with progress and link to goals, outcomes and exact activity 
   assert.match(primary, /href="#task-COURSE-13"[^>]*>.*Choose the export format/)
   assert.match(primary, /Wait note <strong>Nora<\/strong>/)
   assert.ok(primary.includes(unblock))
-  assert.ok(primary.includes(release.replace('\n\n', '</p><p>')))
+  assert.ok(primary.includes(release.replace('\n\n', '<br/>')))
   assert.ok(primary.includes(step))
   assert.ok(!primary.includes(multiline))
   assert.ok(!primary.includes(longer))
@@ -151,7 +151,7 @@ test('Reports lead with progress and link to goals, outcomes and exact activity 
   assert.doesNotMatch(primary, /Full worker report/)
   assert.doesNotMatch(html, /aria-label="Display worker reports for Avery"/)
   assert.equal(html.split(unblock).length, 2)
-  assert.equal(html.split(release.replace('\n\n', '</p><p>')).length, 2)
+  assert.equal(html.split(release.replace('\n\n', '<br/>')).length, 2)
   assert.equal(html.split(step).length, 2)
   assert.doesNotMatch(html, /Current work<\/h3>/)
   assert.match(html, /aria-label="Current work for Avery"[\s\S]*?<div class="report-owner-section report-goals-panel">.*?<h3>Goals<\/h3>/s)
@@ -224,9 +224,9 @@ test('Reports leave legacy receipts and preceding narratives on the ticket while
   assert.match(primary, /Wait note <strong>Morgan<\/strong>/)
   assert.doesNotMatch(primary, /Review exact|release-candidate|Original proof/)
   assert.doesNotMatch(primary, /<strong>Next step<\/strong>/)
-  assert.ok(primary.includes(next.replace('\n\n', '</p><p>')))
+  assert.ok(primary.includes(next.replace('\n\n', '<br/>')))
   assert.ok(primary.includes('Check the signed proof.'))
-  assert.equal(html.split(next.replace('\n\n', '</p><p>')).length, 2)
+  assert.equal(html.split(next.replace('\n\n', '<br/>')).length, 2)
   for (const text of [receipt, narrative, details]) {
     assert.ok(!html.includes(text))
   }
@@ -266,9 +266,9 @@ test('the public Summary renders captured next steps and blocker references with
   const entry = { owner: 'Avery', tasks, task_count: tasks.length }
   const html = renderToStaticMarkup(React.createElement(AssigneeReport, { entry, publicPreview: true }))
   assert.match(html, /role="img" aria-label="Tasks in progress"/)
-  assert.match(html, /<strong>Next step<\/strong><div[^>]*><p>Compare the two totals\.<\/p>/)
+  assert.match(html, /<strong>Next step<\/strong><div class="task-row-note summary-next-step">Compare the two totals\.<\/div>/)
   assert.match(html, /Blocked by <strong>T-1<\/strong> \(In progress\) → <strong>T-3<\/strong> \(Waiting\)/)
-  assert.match(html, /<strong>Unblock condition<\/strong><div[^>]*><p>Wait for the signed count\.<\/p>/)
+  assert.match(html, /<strong>Unblock condition<\/strong><div class="task-row-note summary-next-step">Wait for the signed count\.<\/div>/)
   assert.doesNotMatch(html, /example\.test|#event-|#task-|Private evidence/)
 })
 

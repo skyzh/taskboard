@@ -20,7 +20,17 @@ async function checkTableKeyboard(page) {
     '| --- | --- | --- | --- |\n' +
     '| Start here | Fictional | LONG_UNBROKEN_REFERENCE_FOR_THE_COMPACT_TABLE_TEST | End here |'
   await page.route(url => url.pathname === '/tasks/api/v1/reports', route => route.fulfill({ json: reports }))
+  await page.route(url => /^\/tasks\/api\/v1\/tasks\/(?:T-)?1$/.test(url.pathname), route => route.fulfill({
+    json: { task, brief: '', checklist: [], sources: [], related_tasks: [], workers: [] },
+  }))
   await page.goto(`${url}#reports?project=T`)
+
+  const summaryRow = page.locator('.report-task-summary').filter({ has: page.getByRole('link', { name: /^T.1 / }) })
+  const excerpt = summaryRow.locator('.summary-next-step')
+  await excerpt.waitFor()
+  assert.equal(await excerpt.locator('a, button, [tabindex]').count(), 0)
+  assert.match(await excerpt.textContent(), /LONG_UNBROKEN_REFERENCE_FOR_THE_COMPACT_TABLE_TEST/)
+  await summaryRow.getByRole('link', { name: /^T.1 / }).press('Enter')
 
   const region = page.getByRole('region', { name: 'Scrollable table' })
   await region.focus()

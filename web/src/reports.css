@@ -345,6 +345,10 @@
   white-space: nowrap;
 }
 .report-task-cue { overflow-wrap: anywhere; }
+.report-task .task-row-note.summary-next-step {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+}
 .report-peer-request { margin-bottom: .15rem; color: var(--muted); font-size: .81rem; }
 .report-peer-request svg { margin-inline-end: .32rem; vertical-align: -.17em; }
 .report-details { margin-top: .14rem; font-size: .8rem; }
