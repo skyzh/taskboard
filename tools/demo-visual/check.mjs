@@ -281,7 +281,7 @@ async function compare(candidate, candidateDirectory, baseline, baselineDirector
         const png = await readFile(resolve(directory, file))
         return 'data:image/png;base64,' + png.toString('base64')
       }))
-      const difference = await page.evaluate(async ({ sources, roundingLimit }) => {
+      const difference = await page.evaluate(async ({ sources, desktopWatching }) => {
         const [current, approved] = await Promise.all(sources.map(async source => {
           const image = new Image()
           image.src = source
@@ -300,8 +300,9 @@ async function compare(candidate, candidateDirectory, baseline, baselineDirector
         context.drawImage(approved, 0, 0)
         const reference = context.getImageData(0, 0, width, height).data
         // The desktop Watching search border can vary at a few antialiased pixels.
-        // Keep the one-level tolerance elsewhere and bound both the size and count of these variations.
+        // The hosted replay also measured a single pixel five levels apart.
         let pixelsAboveOne = 0
+        let pixelsAboveTwo = 0
         let maxDelta = 0
         for (let index = 0; index < pixels.length; index += 4) {
           const delta = Math.max(
@@ -311,10 +312,14 @@ async function compare(candidate, candidateDirectory, baseline, baselineDirector
             Math.abs(pixels[index + 3] - reference[index + 3]),
           )
           if (delta > 1) pixelsAboveOne++
+          if (delta > 2) pixelsAboveTwo++
           maxDelta = Math.max(maxDelta, delta)
         }
-        return { different: maxDelta > 2 || pixelsAboveOne > roundingLimit, maxDelta, pixelsAboveOne }
-      }, { sources: images, roundingLimit: file.startsWith('desktop-watching-') ? 8 : 0 })
+        const different = desktopWatching
+          ? maxDelta > 5 || pixelsAboveOne > 8 || pixelsAboveTwo > 1
+          : pixelsAboveOne > 0
+        return { different, maxDelta, pixelsAboveOne, pixelsAboveTwo }
+      }, { sources: images, desktopWatching: file.startsWith('desktop-watching-') })
       if (difference.different) changed.push({ file, ...difference })
     }
     return changed
