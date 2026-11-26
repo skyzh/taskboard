@@ -797,7 +797,9 @@ recurrence**. Choose a cadence in whole hours and the first run time.
 The ticket parks until that run is due. From the ticket, you can pause,
 resume with a new time or cadence, cancel future runs, or complete an
 outstanding review. Open **Activity** for Ready events, completed outcomes,
-skipped or missed slots, and links to earlier tickets.
+skipped or missed slots, and links to earlier tickets. Cancel an active
+or paused recurrence before moving, closing, or changing the ticket owner.
+Earlier runs stay in Activity, subject to project access.
 
 **Tasks → Schedules** lists recurring work for the selected project or
 All projects. Attached entries open their tickets. Unattached legacy and

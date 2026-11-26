@@ -152,9 +152,10 @@ def replay_project_tick(test, fixture, app, open_board):
 
 def replay_ticket_recurrence(test, fixture, app, open_board):
     owner, key = fixture.login(app, "Avery")
-    peer, _ = fixture.login(app, "Blake")
+    peer, peer_key = fixture.login(app, "Blake")
     with open_board() as db, write(db):
         tasks_projects.register(db, "COURSE", "Sample Course", key)
+        tasks_projects.register(db, "LAB", "Sample Lab", key)
     created = fixture.action(owner, "create-task", {
         "project": "COURSE", "title": "Review sample", "step": "Check the sample.",
     })
@@ -177,6 +178,17 @@ def replay_ticket_recurrence(test, fixture, app, open_board):
     test.assertEqual(record["recurrence"]["next_at"], FOUR)
     test.assertNotIn("unpark", record["transition_actions"])
     test.assertFalse(record["can_edit_parking"])
+    test.assertFalse(record["can_close"])
+    test.assertIn("Cancel recurrence", record["move_block_reason"])
+    test.assertIn("Cancel recurrence", record["ownership_block_reason"])
+    test.assertNotIn("move_destinations", record)
+    test.assertFalse(record["ownership_actions"])
+    fixture.action(owner, "close-task", {"id": ticket, "reason": "Close early."}, status=409)
+    fixture.action(owner, "move-task", {"id": ticket, "project": "LAB"}, status=409)
+    fixture.action(owner, "change-ownership", {"id": ticket, "action": "unassign", "reason": "Clear owner."}, status=409)
+    fixture.action(owner, "change-ownership", {
+        "id": ticket, "action": "reassign", "owner": peer_key, "reason": "Change owner.",
+    }, status=409)
     for transition, arguments in (("unpark", {}), ("remind", {"defer_until": FOUR})):
         fixture.action(owner, "advance-task", {
             "id": ticket, "transition": transition, "note": "Early return.", **arguments,
@@ -186,7 +198,13 @@ def replay_ticket_recurrence(test, fixture, app, open_board):
         tick = fixture.action(owner, "recurring-tick", {"project": "COURSE"})
         test.assertEqual((tick["issued"], tick["unissued"]), (1, 1))
         test.assertEqual(fixture.action(owner, "recurring-tick", {"project": "COURSE"})["issued"], 0)
+        fixture.action(owner, "handoff", {"id": ticket, "owner": peer_key, "note": "Hand off review."}, status=409)
         fixture.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Review the sample."})
+        ready_to_complete = fixture.call(owner, path).json
+        test.assertNotIn("done", ready_to_complete["transition_actions"])
+        fixture.action(owner, "advance-task", {
+            "id": ticket, "transition": "done", "note": "Sample passed.",
+        }, status=409)
         test.assertTrue(fixture.call(owner, path).json["recurrence"]["can_complete_review"])
         fixture.call(owner, path + "/recurrence", method="POST", json={"change": "complete", "note": "Sample passed."})
         fixture.call(owner, path + "/recurrence", method="POST", json={"change": "pause"})
@@ -204,6 +222,14 @@ def replay_ticket_recurrence(test, fixture, app, open_board):
     with patch("tasks_core.timestamp", return_value=TWELVE):
         test.assertEqual(fixture.action(owner, "recurring-tick", {"project": "COURSE"})["issued"], 0)
     test.assertEqual(fixture.call(owner, path).json["recurrence"]["state"], "canceled")
+    fixture.action(owner, "change-ownership", {
+        "id": ticket, "action": "reassign", "owner": peer_key, "reason": "Change owner after cancellation.",
+    })
+    moved = fixture.action(owner, "move-task", {"id": ticket, "project": "LAB"})["key"]
+    test.assertTrue(moved.startswith("LAB-"))
+    moved_activity = fixture.action(peer, "task-activity", query_string={"id": moved})
+    test.assertEqual([run["state"] for run in moved_activity["recurrence_runs"]], ["completed", "missed"])
+    test.assertEqual(moved_activity["recurrence_runs"][0]["task_key"], moved)
     dependent = fixture.action(owner, "create-task", {
         "project": "COURSE", "title": "Check dependent sample", "step": "Wait for sample.",
     })["receipt"].split()[0]

@@ -458,14 +458,19 @@ class BoardQueries:
 
     def ticket_recurrence(self, number, project, owner):
         definition = ledger.ticket_recurrence_definition(self.db, number)
-        if definition is None or self.visible_schedule(definition["id"], owner, project) is None:
+        if definition is None:
+            return None
+        scope = None if definition["state"] == "canceled" else project
+        schedule = self.visible_schedule(definition["id"], owner, scope)
+        if schedule is None:
             return None
         return {
             "id": f"R-{definition['id']}",
             "state": definition["state"],
             "cadence_hours": definition["cadence_hours"],
             "next_at": definition["next_at"] if definition["state"] == "active" else None,
-            "editable": owner is not None and owner == definition["owner"] == ledger.get_task(self.db, number)["dri"],
+            "editable": (owner is not None and schedule["project"] == project
+                         and owner == definition["owner"] == ledger.get_task(self.db, number)["dri"]),
             **recurring.review_fields(self.db, definition, owner, project,
                                       self.project_visibility("ticket.project_prefix")),
         }

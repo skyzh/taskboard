@@ -539,6 +539,8 @@ def close_task(db, args, links):
         raise PermissionError("Only the ticket owner or project manager can close it.")
     if task["state"] == "done":
         raise ValueError("Choose an open ticket to close.")
+    if has_live_ticket_recurrence(db, args.id):
+        raise ValueError("Cancel recurrence before closing this ticket.")
     reason = args.note.strip()
     if not reason or len(reason) > 180:
         raise ValueError("Provide a closure reason of up to 180 characters.")
@@ -577,6 +579,8 @@ def change_ownership(db, args, links, *, context=None):
         raise PermissionError("Only this project's manager can choose a different owner when reopening.")
     if action == "reassign" and owner == task["dri"]:
         raise ValueError("Choose a different owner.")
+    if owner != task["dri"] and has_live_ticket_recurrence(db, args.id):
+        raise ValueError("Cancel recurrence before changing this ticket's owner.")
     override = {}
     if action == "reopen" and not manager and args.by != task["dri"] and task["dri"]:
         override = transition_override(task, action, args.force_reason)
@@ -891,6 +895,8 @@ def change_task(db, args, links, *, automation=None):
         args = argparse.Namespace(**{**vars(args), "command": command})
     if args.command in ("unpark", "park", "remind") and parked_for_recurrence(db, task, projects.row_project(task)):
         raise ValueError("This ticket is parked for recurrence. Change the next run or cancel its recurrence.")
+    if args.command == "done" and has_live_ticket_recurrence(db, args.id):
+        raise ValueError("Use Complete review to finish this recurring run, or cancel recurrence to finish the ticket.")
     if args.command in ("done", "transfer") and peer_asks.find(db, task["id"]):
         raise ValueError("Use peer-ask result or peer-ask acknowledge to hand off or finish a linked request.")
     previous, state, label = TRANSITIONS[args.command]
@@ -1047,6 +1053,8 @@ def change_task(db, args, links, *, automation=None):
         request = db.execute("SELECT links FROM events WHERE id = ?", (task["event_id"],)).fetchone()
         links = [*json.loads(request["links"]), *links]
     if args.command == "transfer":
+        if has_live_ticket_recurrence(db, args.id):
+            raise ValueError("Cancel recurrence before handing off this ticket.")
         if args.dri == task["dri"]:
             raise ValueError("Choose a different owner for the handoff.")
         db.execute("UPDATE tasks SET dri = ? WHERE id = ?", (args.dri, args.id))
@@ -2094,6 +2102,11 @@ def ticket_recurrence_definition(db, number):
            JOIN recurring_review_tickets AS series ON series.definition_id = definition.id
            WHERE series.task_id = ?""", (number,),
     ).fetchone()
+
+
+def has_live_ticket_recurrence(db, number):
+    definition = ticket_recurrence_definition(db, number)
+    return definition is not None and definition["state"] != "canceled"
 
 
 def parked_for_recurrence(db, task, project):

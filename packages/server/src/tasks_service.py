@@ -1627,19 +1627,27 @@ def create_app(
             db(), number, principal=actor_key(), include_source=True,
         )):
             result["knowledge_stages"] = staged
+        live_recurrence = ledger.has_live_ticket_recurrence(db(), number)
         if allowed and not task.get("queued_for_release") and movable_ticket(
             task["key"], knowledge=is_note or (task["state"] == "done" and knowledge_records.DECISION_TAG in labels),
             goal=result["goal"], peer_request=task.get("peer_request"),
         ):
             if destinations := move_destinations(db(), task, key, project):
-                result["move_destinations"] = destinations
+                if live_recurrence:
+                    result["move_block_reason"] = "Cancel recurrence before moving this ticket to another project."
+                else:
+                    result["move_destinations"] = destinations
         ownership = ledger.ownership_actions(task) if allowed and ordinary else []
+        if live_recurrence and ownership:
+            ownership = [action for action in ownership if action == "reopen"]
+            result["ownership_block_reason"] = "Cancel recurrence before changing this ticket's owner."
         if collaborator and task["state"] == "done":
             ownership = ["reopen"]
         recurring_park = ledger.parked_for_recurrence(db(), task, project)
         transition_actions = [
             step for step in ledger.PROJECT_WRITER_TRANSITIONS
-            if step not in ("park", "remind") and task["state"] in ledger.TRANSITIONS[step][0]
+            if step not in ("park", "remind") and (step != "done" or not live_recurrence)
+            and task["state"] in ledger.TRANSITIONS[step][0]
         ] if not recurring_park and ordinary and task["dri"] and (owns or collaborator) else []
         needs_you_actions = []
         if owns and not is_note:
@@ -1648,7 +1656,7 @@ def create_app(
                 needs_you_actions.append("decision")
         return {
             **result, "ownership_actions": ownership,
-            "can_assign_on_reopen": allowed,
+            "can_assign_on_reopen": allowed and not live_recurrence,
             **({"can_ask_agent": True} if owns and not is_note and task.get("display_state") != "closed" else {}),
             "transition_actions": transition_actions,
             **({"needs_you_actions": needs_you_actions} if needs_you_actions else {}),
@@ -1656,7 +1664,7 @@ def create_app(
             "can_tag_decision_record": not is_note and editable,
             "can_edit_checklist": not is_note and editable,
             "can_edit_checklist_text": not is_note and details_editable,
-            "can_close": not is_note and may_close and task["state"] != "done",
+            "can_close": not live_recurrence and not is_note and may_close and task["state"] != "done",
             "can_edit_details": details_editable,
             "can_edit_parking": (
                 not recurring_park and not is_note and bool(task["dri"])
@@ -2020,6 +2028,8 @@ def create_app(
                 goal=ledger.task_goal_kind(connection, number), peer_request=peer_asks.find(connection, number),
             ):
                 raise RequestError("Choose a regular work ticket to move.", 409)
+            if ledger.has_live_ticket_recurrence(connection, number):
+                raise RequestError("Cancel recurrence before moving this ticket to another project.", 409)
             if not move_assignment_allowed(connection, task["dri"], destination):
                 raise RequestError("The current assignee cannot work in the destination project.", 409)
             if (projects.release_queue_enabled(submitted_project)
