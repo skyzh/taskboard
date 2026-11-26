@@ -1080,6 +1080,13 @@ class BoardQueries:
         for run in runs:
             run["worker_profile"] = identities.get(run["worker"])
         task = {**self.task_rows([row])[0], "record_kind": row["record_kind"], "eta": row["eta"]}
+        context = task["context"]
+        reminder = None
+        if instant := context.get("defer_until"):
+            reminder = {"kind": "exact", "at": instant}
+        elif day := context.get("review_after"):
+            reminder = {"kind": "date", "date": day}
+        task["reminder"] = reminder
         if owner and owner == task["dri"] and (peer := task.get("peer_request")):
             peer["review_run_id"] = peer_asks.find(self.db, number)["review_run_id"]
         result = {

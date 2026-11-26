@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Read back saved agent fields.** Ticket details and `tasks --shared show --json` expose current reminders and the viewer's watch state. Reconnect MCP after upgrading to read saved schedules, goals, wake subscriptions, Knowledge placement, and worker checkpoints. [Readback guide](INTERFACE-PARITY.md#read-back-saved-values)
+
 - **Long ticket drafts.** The board asks for text confirmation when ticket or workflow writing exceeds 4,000 characters. Retry the same draft with `--force-text` in the CLI or `force_text: true` in signed tools. Activity and Knowledge save long text directly. [Writing guide](USING.md)
 
 - **Reports Summary viewers.** The viewer count includes signed-in people in the selected Summary scope. Multiple tabs count as one person, and private project views stay in their own scope. Inactive views expire after 45 seconds.

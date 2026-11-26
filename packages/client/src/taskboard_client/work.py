@@ -118,7 +118,7 @@ def activity_details(note, details):
 
 
 def review_after_text(context):
-    if local := context.get("defer_at"):
+    if local := context.get("defer_at") or context.get("defer_until"):
         return f"Deferred until {local.replace('T', ' ', 1)}"
     day = context.get("review_after")
     return f"Review on or after {day}" if day else ""

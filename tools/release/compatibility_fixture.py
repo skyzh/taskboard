@@ -38,9 +38,9 @@ class NoRedirects(HTTPRedirectHandler):
         return None
 
 
-def request(origin, path, *, data=None, cookie=None, query=None, method=None, follow_redirects=True):
+def request(origin, path, *, data=None, cookie=None, query=None, method=None, follow_redirects=True, headers=None):
     expect(path.startswith(MOUNT + "/") and not path.startswith("//"), "The fixture action must use the mounted service.")
-    headers = dict(PORTAL)
+    headers = {**PORTAL, **(headers or {})}
     if cookie:
         headers["Cookie"] = cookie
     body = None
@@ -155,13 +155,21 @@ def serve_fixture(source, database, certificate, key, browser):
         },
         **options,
     )
+    if os.environ.get("TASKBOARD_COMPAT_DIRECT_READS") == "1":
+        app = server.app
+
+        def forwarded(environ, start_response):
+            environ["HTTP_X_PORTAL_UPSTREAM_TOKEN"] = PORTAL["X-Portal-Upstream-Token"]
+            return app(environ, start_response)
+
+        server.app = forwarded
     print(origin, flush=True)
     server.serve_forever()
 
 
 @contextmanager
 def fixture_server(python, source, directory, certificate, key, *, browser=None, database=None,
-                   project_admin=False, guidance=None):
+                   project_admin=False, guidance=None, direct_reads=False):
     directory.mkdir()
     database = database if database is not None else directory / "fixture.sqlite3"
     command = [python, "-B", SCRIPT, "serve", source, database, certificate, key]
@@ -171,6 +179,7 @@ def fixture_server(python, source, directory, certificate, key, *, browser=None,
         env = {
             **os.environ, "TASKBOARD_COMPAT_PROJECT_ADMIN": "1" if project_admin else "0",
             "TASKBOARD_COMPAT_GUIDANCE": str(guidance) if guidance else "",
+            "TASKBOARD_COMPAT_DIRECT_READS": "1" if direct_reads else "0",
         }
         with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=log, text=True, env=env) as process:
             try:

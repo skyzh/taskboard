@@ -1569,6 +1569,8 @@ def create_app(
             raise RequestError(str(error), 404) from error
         task = result["task"]
         task["decision_request_id"] = decision_request_id(task, actor)
+        if key is not None:
+            result["watching"] = watches.watches_task(db(), key, number)
         if not marketplace and task["key"] == release_queue_ticket:
             result["active_release"] = releases.active_release(db())
         project, _ = projects.identifier(task["key"])
@@ -3603,10 +3605,7 @@ def create_app(
             if type(selected) is not bool:
                 raise RequestError("Choose whether to watch this task.")
             mutate("watch" if selected else "unwatch", actor, {}, id=number)
-        watching = db().execute(
-            "SELECT 1 FROM task_watches WHERE task_id = ? AND watcher = ?", (number, actor["ledger_key"]),
-        ).fetchone() is not None
-        return {"watching": watching}
+        return {"watching": watches.watches_task(db(), actor["ledger_key"], number)}
 
     def local_question_recipient(profile, key):
         if profile["human_questions"] != local_dri.TASKBOARD:
@@ -4245,8 +4244,8 @@ def create_app(
             project = project_filter(data, use_default=True)
             with tasks_storage.read(db()) as connection:
                 result = {"goal": goals.get(connection, project, key),
-                          "milestones": goals.milestones(connection, project, key),
-                          "standing_goal": next(iter(goals.standing(connection, key, project)), None)}
+                          "milestones": goals.milestones(connection, project, key, include_ticket=True),
+                          "standing_goal": next(iter(goals.standing(connection, key, project, include_ticket=True)), None)}
                 if times := goal_cadence.review_times(connection, key, project):
                     result["review_times"] = times
                 return result
@@ -4474,9 +4473,10 @@ def create_app(
             number = record_id(data.get("id"), "R-", "Recurring ID")
             try:
                 with tasks_storage.read(db()) as connection:
-                    require_visible_schedule(number)
-                    return tasks_recurring.report(connection, number, key, ledger.timestamp(),
-                                                  task_scope=query().schedule_visibility("ticket.project_prefix"))
+                    project = require_visible_schedule(number)
+                    result = tasks_recurring.report(connection, number, key, ledger.timestamp(),
+                                                    task_scope=query().schedule_visibility("ticket.project_prefix"))
+                    return {**result, "project": project}
             except RequestError:
                 raise
             except ValueError as error:

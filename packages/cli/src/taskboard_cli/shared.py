@@ -129,6 +129,8 @@ def event_lines(event, url):
     if details := event.get("details"):
         lines.append("    Details")
         lines.extend(f"      {line}" for line in details.splitlines())
+    if event.get("action") == "park" and (reminder := ledger.review_after_text(event.get("context", {}))):
+        lines.append(f"    {reminder}")
     lines.extend(f"    {link['label']} · {link['url']}" for link in event["links"] if link["url"])
     return lines
 
@@ -831,6 +833,8 @@ def shared_command(args):
         result.setdefault("next_step", "Check the next occurrence and any open tickets.")
         return json.dumps(result)
     if command in ("show", "workers"):
+        if command == "show" and args.json:
+            return json.dumps(board.invoke("task", {"id": task_ref(args.id)}), ensure_ascii=False)
         workers_only = command == "workers"
         return task_details(board, url, args.id, workers_only=workers_only,
                             guidance=prompts.get("workers") if workers_only else None)

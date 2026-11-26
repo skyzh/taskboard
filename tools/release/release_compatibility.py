@@ -41,7 +41,7 @@ def certificate(directory):
     private, public = directory / "fixture-key.pem", directory / "fixture-cert.pem"
     subprocess.run(
         ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
-         "-subj", "/CN=127.0.0.1", "-keyout", private, "-out", public],
+         "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1", "-keyout", private, "-out", public],
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20,
     )
     return public, private

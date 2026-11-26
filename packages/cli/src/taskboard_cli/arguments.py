@@ -467,6 +467,7 @@ def arguments(argv=None):
     receipt.add_argument("receipt", type=Path)
     show = commands.add_parser("show", help="Read the current record and activity for one task.")
     show.add_argument("id", type=task_id)
+    show.add_argument("--json", action="store_true", help="Print the complete signed ticket detail as JSON in shared mode.")
     worker_list = commands.add_parser("workers", help="Read the reports and disposition of a task's worker runs.")
     worker_list.add_argument("id", type=task_id)
     commands.add_parser("context", help="Show your verified actor and shared board.")
@@ -630,6 +631,8 @@ def arguments(argv=None):
         parser.error(f"{args.command} requires the signed shared board.")
     if args.mode not in ("offline", "shared"):
         parser.error("TASKS_MODE must be offline or shared.")
+    if args.command == "show" and args.json and args.mode != "shared":
+        parser.error("Use --shared show --json for the signed ticket detail.")
     if args.command == PEER_ASK:
         if args.mode != "shared":
             parser.error("Use --shared peer-ask with a verified board actor.")

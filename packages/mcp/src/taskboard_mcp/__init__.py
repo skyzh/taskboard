@@ -86,8 +86,49 @@ def build_server(board: SharedBoard) -> MCPServer:
 
     @server.tool(annotations=read_only)
     def taskboard_ticket(ticket: Ticket) -> dict[str, Any]:
-        """Read one ticket, its current step, and its handoffs."""
+        """Read a signed ticket's saved fields, including its reminder, watch state, and handoffs."""
         return board.invoke("task", {"id": ticket})
+
+    @server.tool(annotations=read_only)
+    def taskboard_recurring_schedule(schedule: Annotated[str, Field(description="Owned schedule ID, such as R-1.")]) -> dict[str, Any]:
+        """Read an owned recurring definition, its saved first step, and its occurrence report."""
+        return board.invoke("recurring-show", {"id": schedule})
+
+    @server.tool(annotations=read_only)
+    def taskboard_maintenance_schedule(project: Project) -> dict[str, Any]:
+        """Read a project's maintenance schedule and roster as its manager."""
+        return board.invoke("maintenance-show", {"project": project})
+
+    @server.tool(annotations=read_only)
+    def taskboard_goals(project: Project | None = None) -> dict[str, Any]:
+        """Read your saved standing and dated goals and review times for a project."""
+        return board.invoke("my-goals", {"project": project} if project is not None else {})
+
+    @server.tool(annotations=read_only)
+    def taskboard_wake_subscriptions(project: Project | None = None) -> dict[str, Any]:
+        """Read your saved wake subscriptions where the signed agent action is available."""
+        return board.invoke("my-wake-subscriptions", {"project": project} if project is not None else {})
+
+    @server.tool(annotations=read_only)
+    def taskboard_knowledge_areas(project: Project | None = None) -> dict[str, Any]:
+        """Read accessible Knowledge area indexes."""
+        return board.invoke("knowledge-areas", {"project": project} if project is not None else {})
+
+    @server.tool(annotations=read_only)
+    def taskboard_knowledge_sweep(
+        project: Project | None = None, scope: Literal["board", "assigned"] = "board",
+        limit: Limit = 20, before: Cursor | None = None,
+    ) -> dict[str, Any]:
+        """List readable Knowledge entries, including their placement and maintenance assignment."""
+        return board.invoke("knowledge-sweep", {
+            key: value for key, value in {"project": project, "scope": scope, "limit": limit, "before": before}.items()
+            if value is not None
+        })
+
+    @server.tool(annotations=read_only)
+    def taskboard_worker_checkpoint(run: Annotated[str, Field(description="Your worker run ID, such as W-1.")]) -> dict[str, Any]:
+        """Read the saved wake checkpoint on your worker run."""
+        return board.invoke("worker-check-show", {"run": run})
 
     @server.tool(annotations=read_only)
     def taskboard_activity(ticket: Ticket, limit: Limit = 20, before: Cursor | None = None) -> dict[str, Any]:

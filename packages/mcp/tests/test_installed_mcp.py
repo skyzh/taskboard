@@ -18,6 +18,8 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_assign_human", "taskboard_raise_attention",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
             "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel", "taskboard_checkpoint",
+            "taskboard_recurring_schedule", "taskboard_maintenance_schedule", "taskboard_goals", "taskboard_wake_subscriptions",
+            "taskboard_knowledge_areas", "taskboard_knowledge_sweep", "taskboard_worker_checkpoint",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_context"].annotations.read_only_hint)
