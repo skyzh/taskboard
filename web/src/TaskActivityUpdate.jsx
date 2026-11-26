@@ -1,9 +1,10 @@
 import React, { useId, useState } from 'react'
 import { FieldHelp } from './FieldGuidance.jsx'
-import TransitionFeedback, { useTransitionRequest } from './TransitionFeedback.jsx'
+import TransitionFeedback, { recommendedTextLength, useTransitionRequest } from './TransitionFeedback.jsx'
 
 export default function TaskActivityUpdate({ task, onChanged, field, confirmBlocker = false }) {
   const activityHelpId = useId()
+  const lengthHelpId = `${activityHelpId}-length`
   const [note, setNote] = useState('')
   const [evidence, setEvidence] = useState('')
   const mutation = useTransitionRequest(() => {
@@ -13,6 +14,8 @@ export default function TaskActivityUpdate({ task, onChanged, field, confirmBloc
   }, confirmBlocker ? 'Blocker confirmed.' : 'Update added.')
   const evidenceRequired = confirmBlocker && !task.context?.blocked_by
   const canSubmit = note.trim() && (!evidenceRequired || evidence.trim()) && !mutation.blocked
+  const longUpdate = !confirmBlocker && [...note.trim()].length > recommendedTextLength
+  const description = [field && activityHelpId, longUpdate && lengthHelpId].filter(Boolean).join(' ')
 
   function submit(event) {
     event.preventDefault()
@@ -32,9 +35,13 @@ export default function TaskActivityUpdate({ task, onChanged, field, confirmBloc
         <label>
           {confirmBlocker ? 'Verified outcome' : 'Update'}
           <textarea value={note} onChange={event => { setNote(event.target.value); mutation.clear() }}
-            aria-describedby={field ? activityHelpId : undefined} rows={3} maxLength={4000} required disabled={mutation.blocked} />
+            aria-describedby={description || undefined} rows={3} required disabled={mutation.blocked} />
         </label>
         <FieldHelp field={field} id={activityHelpId} />
+        {longUpdate && <p className="field-guidance-help" id={lengthHelpId}>
+          This update exceeds the recommended length of {recommendedTextLength.toLocaleString()} characters.
+          You can still post the full text.
+        </p>}
         <label>
           {evidenceRequired ? 'Evidence link' : 'Evidence link (optional)'}
           <input type="url" value={evidence} onChange={event => { setEvidence(event.target.value); mutation.clear() }}

@@ -82,7 +82,7 @@ export default function TaskTransition({ task, actions, ownsTicket, onChanged })
         </>}
         {action && <label>{noteLabel}
           <textarea value={note} onChange={event => setNote(event.target.value)}
-            rows={2} maxLength={4000} required disabled={mutation.blocked} />
+            rows={2} required disabled={mutation.blocked} />
         </label>}
         <button type="submit" disabled={mutation.blocked || !ready}>{mutation.saving ? 'Saving…' : label || 'Save'}</button>
         <TransitionFeedback mutation={mutation} />
