@@ -18,6 +18,7 @@ from test_tasks_knowledge_sweeps import replay_knowledge_sweeps
 from test_tasks_project_move import replay_move
 from test_tasks_recurring import replay_project_tick
 import test_tasks_ring1 as ring1_fixture
+import test_tasks_reports_presence as presence_fixture
 from tasks_core import import_notification_on
 from tasks_service import create_app
 from tasks_storage import Postgres
@@ -347,6 +348,11 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual(self.board.call(owner, PUBLISHING).json, INSTRUCTIONS)
         self.assertEqual(self.board.call(owner, PUBLISHING, method="PUT", headers=ORIGIN, json=empty).json, empty)
         self.assertEqual(self.board.call(owner, PUBLISHING).json, empty)
+
+    def test_reports_presence_on_postgres(self):
+        root = self.board.provider.people["Sam"]["sub"]
+        app = self.postgres_app(self.postgres_fixture(), project_admin_subject=root)
+        presence_fixture.ReportsPresenceTest().replay(self.board, app)
 
     def test_ring1_project_visibility_on_postgres(self):
         root = self.board.provider.people["Sam"]["sub"]
