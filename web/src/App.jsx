@@ -257,7 +257,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
     }
   }, [needsOidcSignIn])
   const isAgent = session.data?.actor?.kind === 'agent'
-  const verified = ['agent', 'human'].includes(session.data?.actor?.kind)
+  const isHuman = session.data?.actor?.kind === 'human'
+  const verified = isAgent || isHuman
   const params = new URLSearchParams(taskContext ?? fragment)
   const logFilters = notificationLogFilters(fragment)
   const projectList = useResource(hasSession ? '/projects' : null, revision)
@@ -365,7 +366,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const integrationsProject = visibleProjects?.find(item => item.prefix === integrationsParams.get('project'))?.prefix
   const integrationsHref = allProjectRead ? '#integrations' : projectHref('#integrations', project)
   const reportsScopeReady = allReports || !requestedReportsProject || Boolean(visibleProjects)
-  const personalAgentsLink = reportsScopeReady && session.data?.actor?.kind === 'human'
+  const personalAgentsLink = reportsScopeReady && isHuman
     ? <BoardLink href={integrationsHref}>Personal Agents</BoardLink> : null
   const showAllReports = view === 'reports' && hasProjectChoices && allProjectRead
   const reportsPending = Boolean((allReports || requestedReportsProject) && projectsPending)
@@ -469,7 +470,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
       <header ref={appHeader} className={view === 'board' ? 'app-header tasks-header' : 'app-header'}>
         <div className="masthead">
           <BoardBrand href={reportsHref} />
-          <BoardViews current={activeTab} reportsHref={reportsHref} projectScope={navigationScope} isAgent={isAgent}
+          <BoardViews current={activeTab} reportsHref={reportsHref} projectScope={navigationScope} isAgent={isAgent} isHuman={isHuman}
             showNotifications={verified || session.data?.sign_in_available} showKnowledge={verified} />
           <TaskSearch query={search} fragment={fragment} />
           <div className={preview ? 'account account-with-tour' : 'account'}>

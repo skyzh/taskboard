@@ -7,6 +7,7 @@ import { createServer } from 'vite'
 
 let vite
 let App
+let BoardViews
 let WorkQueue
 let TaskDetail
 let Assignee
@@ -23,6 +24,7 @@ before(async () => {
   })
   const app = await vite.ssrLoadModule('/src/App.jsx')
   App = app.default
+  BoardViews = (await vite.ssrLoadModule('/src/BoardViews.jsx')).default
   const work = await vite.ssrLoadModule('/src/Work.jsx')
   WorkQueue = work.WorkQueue
   TaskDetail = work.TaskDetail
@@ -187,6 +189,21 @@ test('About has its own route and loads the running release', () => {
   assert.match(about, /id="about">About<\/h1>/)
   assert.match(about, /role="status">Loading release information…/)
   assert.doesNotMatch(about, /id="queue-heading"|github\.com\/skyzh\/taskboard\/commit\//)
+})
+
+test('the dashboard Notifications tab opens Project log for signed humans and Inbox for other viewers', () => {
+  for (const [identity, route] of [
+    [{ isHuman: true }, 'notifications-log'],
+    [{ isAgent: true }, 'notifications'],
+    [{}, 'notifications'],
+  ]) {
+    for (const [projectScope, query] of [['COURSE', 'project=COURSE'], ['all', 'scope=all']]) {
+      const markup = renderToStaticMarkup(React.createElement(BoardViews, {
+        ...identity, current: 'notifications', reportsHref: '#reports', projectScope, showNotifications: true,
+      }))
+      assert.ok(markup.includes(`href="#${route}?${query}" aria-current="page">Notifications</a>`))
+    }
+  }
 })
 
 test('a filtered Project log has the Notifications route', () => {
