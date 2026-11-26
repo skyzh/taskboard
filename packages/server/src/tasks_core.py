@@ -299,7 +299,7 @@ def event_time_sql(column):
     return f"RTRIM(REPLACE({column}, '+00:00', ''), 'Z')"
 
 
-def current_tasks_sql(db, *, include_knowledge=False, include_activity=False):
+def current_tasks_sql(db, *, include_knowledge=False, include_activity=False, staged_activity=None):
     # Read pre-migration databases without touching them.
     context = "events.context" if has_event_context(db) else "'{}'"
     columns = task_columns(db)
@@ -314,9 +314,15 @@ def current_tasks_sql(db, *, include_knowledge=False, include_activity=False):
         activity_fields = (", latest_activity.id AS activity_id, latest_activity.at AS activity_at, "
                            f"{event_time_sql('latest_activity.at')} AS activity_sort_at, "
                            f"latest_activity.action AS activity_action, {activity_context} AS activity_context")
+        candidates = "SELECT id, at FROM events WHERE task_id = tasks.id"
+        if staged_activity:
+            # A stage event ranks the destination only, even when its source is
+            # a completed work ticket that still appears as legacy Knowledge.
+            candidates += f" AND json_type(events.context, '$.knowledge_stage') IS NULL UNION ALL {staged_activity}"
         activity_join = f"""
             LEFT JOIN events AS latest_activity ON latest_activity.id = (
-                SELECT id FROM events WHERE task_id = tasks.id ORDER BY {event_time_sql('at')} DESC, id DESC LIMIT 1
+                SELECT id FROM ({candidates}) AS activity
+                ORDER BY {event_time_sql('at')} DESC, id DESC LIMIT 1
             )
         """
     return CURRENT_TASKS.format(
@@ -1298,6 +1304,10 @@ def event_label(action, context=None):
     if action == "log":
         if (context or {}).get("checkpoint") is True:
             return "Checkpoint"
+        if (context or {}).get("knowledge_stage") is True:
+            return "Staged work"
+        if "knowledge_source_event" in (context or {}):
+            return "Knowledge change applied"
         if ((context or {}).get("audit") or {}).get("action") == "move-project":
             return "Ticket moved to another project"
         return "Activity logged"

@@ -776,14 +776,28 @@ class BoardQueries:
         return result
 
     def maintained_decision_rows(self, *, search=None, entry=None, source_ticket=None, before=None, limit,
-                                 github_url=None, project=None, maintenance_dri=None, include_activity=False, updated_order=False):
+                                 github_url=None, project=None, maintenance_dri=None, source_project=None,
+                                 include_activity=False, updated_order=False):
         context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
         legacy = f"""({ledger.display_state_sql(context)} = 'done'
             AND tasks.id IN (SELECT task_id FROM task_tags WHERE tag = ?))"""
         typed = "tasks.record_kind = 'knowledge' OR " if "record_kind" in ledger.task_columns(self.db) else ""
         scope, bindings = self.project_visibility()
         terms = [f"({typed}{legacy})", scope]
-        args = [DECISION_RECORD_TAG, *bindings]
+        staged_activity = None
+        source_bindings = ()
+        if include_activity:
+            source_scope, source_bindings = self.project_visibility("source.project_prefix")
+            if source_project is not None:
+                source_scope += " AND source.project_prefix = ?"
+                source_bindings = (*source_bindings, source_project)
+            staged_activity = f"""
+                SELECT staged.id, staged.at FROM knowledge_stages AS stage
+                JOIN tasks AS source ON source.id = stage.source_id
+                JOIN events AS staged ON staged.id = stage.staged_event_id
+                WHERE stage.entry_id = tasks.id AND stage.applied_event_id IS NULL AND {source_scope}
+            """
+        args = [*source_bindings, DECISION_RECORD_TAG, *bindings]
         if project is not None:
             terms.append("tasks.project_prefix = ?")
             args.append(project)
@@ -792,7 +806,11 @@ class BoardQueries:
             args.append(maintenance_dri)
         if before is not None:
             if updated_order:
-                cursor = self.db.execute(f"SELECT {ledger.event_time_sql('at')} FROM events WHERE id = ?", (before,)).fetchone()
+                cursor = self.db.execute(f"""
+                    SELECT {ledger.event_time_sql('events.at')} FROM events
+                    JOIN tasks AS source ON source.id = events.task_id
+                    WHERE events.id = ? AND {source_scope}
+                """, (before, *source_bindings)).fetchone()
                 if cursor is None:
                     return []
                 terms.append(f"({ledger.event_time_sql('latest_activity.at')}, latest_activity.id) < (?, ?)")
@@ -821,7 +839,9 @@ class BoardQueries:
             terms.append(GITHUB_SOURCE_MATCH)
             args.extend((github_url, github_url + "/"))
         order = "activity_sort_at DESC, activity_id DESC" if updated_order else "events.id DESC"
-        base = ledger.current_tasks_sql(self.db, include_knowledge=True, include_activity=include_activity)
+        base = ledger.current_tasks_sql(
+            self.db, include_knowledge=True, include_activity=include_activity, staged_activity=staged_activity,
+        )
         if search:
             needle = search.casefold()
             area_matches = {row["task_id"] for row in self.db.execute("SELECT task_id, path FROM knowledge_entries")
@@ -862,7 +882,8 @@ class BoardQueries:
         with tasks_storage.read(self.db):
             rows = self.maintained_decision_rows(
                 search=search, entry=entry, source_ticket=source_ticket, before=before, limit=limit,
-                project=project, maintenance_dri=maintenance_dri, include_activity=True, updated_order=updated_order,
+                project=project, maintenance_dri=maintenance_dri, source_project=source_project,
+                include_activity=True, updated_order=updated_order,
             )
             return page(rows, limit, "activity_id" if updated_order else "event_id", render)
 

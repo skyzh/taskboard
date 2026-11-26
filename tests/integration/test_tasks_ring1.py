@@ -4,6 +4,7 @@ from contextlib import closing
 import unittest
 
 import test_tasks_service as service
+from tasks_core import record
 from tasks_projects import register
 from tasks_storage import open_sqlite, write
 
@@ -72,9 +73,15 @@ class Ring1Test(unittest.TestCase):
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (ids[entry], ids[source], "Original sample guidance.", "A fictional replacement.",
                       event, "2099-01-01T00:00:00Z"))
+            stage_event = record(db, ids[SECRET], "log", member_id, "done", "Staged fictional work.",
+                                 None, [], {"knowledge_stage": True}, at="2099-01-01T00:00:00Z")
+            db.execute("UPDATE knowledge_stages SET staged_event_id = ? WHERE source_id = ?",
+                       (stage_event, ids[SECRET]))
 
         self.assertEqual(call(shared, "/api/v1/knowledge", query_string=filters).json, before)
         self.assertEqual(call(shared, "/api/v1/knowledge", query_string=next_filter).json, next_before)
+        hidden_cursor = call(shared, "/api/v1/knowledge", query_string={**filters, "before": stage_event}).json
+        self.assertEqual(hidden_cursor, {"items": [], "next_cursor": None})
         for ticket in (public_note, public_source):
             self.assertNotIn("knowledge_stages", call(shared, f"/api/v1/tasks/{ticket}").json)
             self.assertNotIn("knowledge_stages", action(shared, "task", query_string={"id": ticket}))
@@ -92,6 +99,10 @@ class Ring1Test(unittest.TestCase):
         self.assertEqual(call(shared, "/api/v1/knowledge", query_string=next_filter).json, next_before)
         call(sam, MEMBERS, method="PUT", json={"principal": shared_id, "allowed": True})
         self.assertEqual(len(call(shared, f"/api/v1/tasks/{public_note}").json["knowledge_stages"]), 1)
+        visible = call(shared, "/api/v1/knowledge", query_string=filters).json
+        self.assertEqual(visible["next_cursor"], stage_event)
+        self.assertEqual(visible["items"][0]["key"], public_note)
+        self.assertEqual(visible["items"][0]["last_activity"]["label"], "Staged work")
         no_reconciliation(shared, "T")
         self.assertEqual(call(sam, "/api/v1/knowledge", query_string={"entry": private_note}).json["items"][0]["summary"],
                          "Original sample guidance.")
@@ -149,6 +160,17 @@ class Ring1Test(unittest.TestCase):
         })
         action(avery, "record-activity", {"id": "LAB-1", "note": "Fictional check recorded."})
         event_id = call(avery, "/api/v1/tasks/LAB-1/activity").json["items"][0]["id"]
+        before_stage = revision(quinn)
+        stage = {"id": "LAB-2", "source": "LAB-1"}
+        action(avery, "knowledge-stage", stage)
+        after_stage = revision(quinn)
+        self.assertNotEqual(after_stage, before_stage)
+        self.assertEqual(revision(anonymous), outsider_revision)
+        private_page = call(quinn, "/api/v1/knowledge?project=LAB&order=updated").json
+        self.assertEqual(private_page["items"][0]["last_activity"]["label"], "Staged work")
+        self.assertEqual(action(avery, "knowledge-stage", stage)["receipt"], "Knowledge stage unchanged.")
+        self.assertEqual(revision(quinn), after_stage)
+        self.assertEqual(revision(anonymous), outsider_revision)
         call(avery, "/api/v1/tasks/LAB-1/needs-you", method="POST", json={
             "kind": "attention", "recipient": quinn_id, "reason": "Check the fictional observation.",
         })
