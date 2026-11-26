@@ -22,6 +22,7 @@ import tasks_storage as storage
 import watches
 
 
+SIGNED_ACTION = "route-demo-review"
 WORKFLOW = ".github/workflows/summary-demo-verify.yml"
 COMMIT = re.compile(r"[0-9a-f]{40}")
 REPO = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9_.-]+")
@@ -95,6 +96,12 @@ class Provider:
         attachment = self.named_artifact(run, "evidence")
         return bool(attachment and attachment["id"] == receipt)
 
+    def download(self, attachment):
+        request = github_request(f"{self.path}/actions/artifacts/{attachment}/zip")
+        request.add_unredirected_header("Authorization", f"Bearer {self.token}")
+        with build_opener(ArtifactRedirect()).open(request, timeout=30) as response:
+            return response.read(ARCHIVE_LIMIT + 1)
+
     def artifact(self, run):
         entry = self.named_artifact(run, "comparison")
         if entry is None:
@@ -102,10 +109,7 @@ class Provider:
         attachment = entry["id"]
         if entry["size_in_bytes"] > ARCHIVE_LIMIT:
             raise ValueError("The comparison archive is over the evidence size limit.")
-        request = github_request(f"{self.path}/actions/artifacts/{attachment}/zip")
-        request.add_unredirected_header("Authorization", f"Bearer {self.token}")
-        with build_opener(ArtifactRedirect()).open(request, timeout=30) as response:
-            raw = response.read(ARCHIVE_LIMIT + 1)
+        raw = self.download(attachment)
         if len(raw) > ARCHIVE_LIMIT or sha256(raw).hexdigest() != str(entry["digest"]).removeprefix("sha256:"):
             raise ValueError("The downloaded comparison archive disagrees with GitHub's digest.")
         with ZipFile(BytesIO(raw)) as archive:
@@ -267,20 +271,56 @@ def read_verdict(provider, config, run):
     return "verified", report
 
 
-def route(db, provider, config, run, report, *, dry_run):
+def verified_route(provider, config, run, report):
     pull = provider.read(f"/pulls/{report['pull']}")
     if not current_pull(report, pull, config.repository):
-        return "superseded"
+        return None
     evidence, labels = None, ()
     if report["status"] == "changed":
         evidence = report.get("evidence")
         if type(evidence) is not int or not 0 < evidence < 10**19 or not provider.has_evidence(run, evidence):
             raise ValueError("The changed comparison must identify screenshots from its own attempt.")
         labels = surface_labels(report["details"])
-    return apply(db, config, run, report, evidence, labels, dry_run=dry_run)
+    return {
+        "repository": config.repository, "baseline": report["baseline"], "pull": report["pull"], "head": report["head"],
+        "run": run["id"], "run_number": run["run_number"], "attempt": run["run_attempt"],
+        "status": report["status"], "evidence": evidence, "labels": list(labels),
+    }
 
 
-def poll(db, provider, config, *, since, dry_run):
+def apply_verified(db, config, observation, *, dry_run):
+    """Accept an observation from the configured signed comparison operator."""
+    if not isinstance(observation, dict) or (
+        observation.get("repository"), observation.get("baseline")
+    ) != (config.repository, config.baseline):
+        raise ValueError("The observation must match the configured repository and approved baseline.")
+    for key in ("pull", "run", "run_number", "attempt"):
+        value = observation.get(key)
+        if type(value) is not int or not 0 < value < 10**19:
+            raise ValueError("The observation needs exact comparison identifiers.")
+    head = observation.get("head")
+    status = observation.get("status")
+    labels, evidence = observation.get("labels"), observation.get("evidence")
+    if not isinstance(head, str) or not COMMIT.fullmatch(head) or status not in ("pass", "changed"):
+        raise ValueError("The observation needs a full PR head and verified verdict.")
+    if not isinstance(labels, list) or not all(
+        isinstance(label, str) and (
+            SCREEN.fullmatch(label) or (
+                label.partition(": ")[0] in ("phone", "desktop") and LABEL.fullmatch(label.partition(": ")[2])
+            )
+        ) for label in labels
+    ):
+        raise ValueError("The observation has invalid review labels.")
+    if status == "changed":
+        if not labels or type(evidence) is not int or not 0 < evidence < 10**19:
+            raise ValueError("Changed comparisons need review labels and an exact evidence artifact.")
+    elif labels or evidence is not None:
+        raise ValueError("Passing comparisons do not take changed evidence.")
+    run = {"id": observation["run"], "run_number": observation["run_number"], "run_attempt": observation["attempt"]}
+    return apply(db, config, run, observation, evidence, labels, dry_run=dry_run)
+
+
+def poll_verified(provider, config, sink, *, since):
     results = Counter()
     current = {}
     for run in provider.runs(created=">=" + since):
@@ -301,11 +341,18 @@ def poll(db, provider, config, *, since, dry_run):
             current[key] = (run, report)
     for run, report in current.values():
         try:
-            outcome = route(db, provider, config, run, report, dry_run=dry_run)
+            observation = verified_route(provider, config, run, report)
+            outcome = "superseded" if observation is None else sink(observation)
         except (ValueError, KeyError, TypeError):
             outcome = "invalid"
         results[outcome] += 1
     return dict(results)
+
+
+def poll(db, provider, config, *, since, dry_run):
+    return poll_verified(
+        provider, config, lambda observation: apply_verified(db, config, observation, dry_run=dry_run), since=since,
+    )
 
 
 def main():

@@ -48,10 +48,13 @@ separate read-only job, then compares the static output with the reviewed
 browser harness. Only a verified result from that workflow can create or
 update a review ticket. Neither GitHub job needs Taskboard access.
 
-A Taskboard operator reads these receipts on the shared-board host.
-Use an existing repository-scoped read credential with GitHub Actions and
-pull-request read access. Set it as `TASKS_DEMO_ACTIONS_TOKEN` in the operator
-environment. Set `TASKS_DEMO_REVIEW` to a JSON object with:
+On the Mac, the poll uses the operator’s existing `gh` login to read and
+verify comparisons. It submits the verified result through the operator’s
+signed Taskboard connection. The shared-board operator enables this action
+with `TASKS_DEMO_REVIEW` and keeps the owner mapping on the board. It accepts
+only the configured signed project manager for a shared project.
+
+Set `TASKS_DEMO_REVIEW` to a JSON object with these fields.
 
 - `repository` and `project`, the exact GitHub repository and Taskboard project.
 - `baseline`, the reviewed commit in `web/demo/baseline.txt` on protected main.
@@ -59,7 +62,28 @@ environment. Set `TASKS_DEMO_REVIEW` to a JSON object with:
 - `owners`, a map of affected labels to existing UI owners' ledger keys.
 - `fallback`, the frontend DRI's ledger key.
 
-For the SQLite board, preview a read from the server release checkout:
+Keep the configured baseline aligned with the approved protected-main pin.
+Once the board advertises `route-demo-review`, run a preview from the Mac
+under the configured signed operator. Use the exact ledger key in `--owner`.
+
+```sh
+PYTHONPATH=packages/server/src:packages/client/src \
+  uv run --locked python -B tools/release/watch_demo_reviews.py \
+  --board "$taskboard_url" --owner "$demo_operator" \
+  --repository skyzh/taskboard --baseline "$(cat web/demo/baseline.txt)"
+```
+
+Add `--apply` only after a successful preview and owner-map review. Schedule
+this independently of the main CI failure poll. Use one applied routing
+scheduler for the configured project. The Mac validates the protected workflow,
+receipt digest, current PR and evidence artifact before sending a result.
+The board enforces the configured repository, baseline, signed owner and
+duplicate checks. The Mac uses its existing GitHub login, and the board
+does not receive that credential.
+
+For an operator already running directly against the ledger, the existing
+entry point still uses `TASKS_DEMO_ACTIONS_TOKEN` and `TASKS_DEMO_REVIEW`.
+On SQLite, preview it from the server release checkout.
 
 ```sh
 PYTHONPATH=packages/server/src:packages/client/src \
@@ -67,9 +91,8 @@ PYTHONPATH=packages/server/src:packages/client/src \
 ```
 
 Use `--postgres` with the existing `TASKS_POSTGRES_DSN` for PostgreSQL.
-After confirming the preview and the owner's routing, add `--commit` in the
-board operator's scheduler. Run it often enough to cover the default 24-hour
-lookback. A recent merged PR can still receive its review ticket. An older
+The direct operator entry point takes `--commit` to apply changes. Run the
+selected scheduler often enough to cover the default 24-hour lookback. A recent merged PR can still receive its review ticket. An older
 attempt or mismatched revision is counted without opening a ticket. Retries
 update one ticket per PR and preserve its existing owner. A later passing
 comparison records its outcome on an existing review ticket. The small
