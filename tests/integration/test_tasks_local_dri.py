@@ -310,8 +310,11 @@ class LocalDRIRoutingTest(unittest.TestCase):
         })["receipt"].split()[0]
         action(manager, "peer-ask", {**ask, "id": source}, status=409)
         self.assertTrue(readiness("active"))
-        self.assertTrue(directory("OPS")[perf["id"]]["agent_ask_delivery_ready"])
-        self.assertIn("Peer request opened", action(manager, "peer-ask", {**ask, "id": source})["receipt"])
+        self.assertFalse(directory("OPS")[perf["id"]]["agent_ask_delivery_ready"])
+        self.assertEqual(action(manager, "peer-ask", {**ask, "id": source}, status=409)["code"],
+                         "confirm_peer_delivery")
+        self.assertIn("Peer request opened",
+                      action(manager, "peer-ask", {**ask, "id": source, "force_delivery": True})["receipt"])
 
 
     def test_workflow_parity_keeps_local_identity_and_project(self):

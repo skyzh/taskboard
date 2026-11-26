@@ -36,7 +36,7 @@ class DeliveryConfirmationRequired(ValueError):
 
 def delivery_ready(db, recipient, project, requester):
     if registration := local_dri.registration(db, recipient):
-        return local_dri.ready(db, recipient, registration["project"], requester=requester)
+        return registration["project"] == project and local_dri.ready(db, recipient, project, requester=requester)
     return has_subscription(db, project, recipient, OWNED_READY)
 
 
