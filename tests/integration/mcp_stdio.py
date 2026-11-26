@@ -202,6 +202,65 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                     async with connect(env) as reader:
                         self.assertTrue((await reader.call_tool("taskboard_ticket", {"ticket": private})).is_error)
                         self.assertTrue((await reader.call_tool("taskboard_activity", {"ticket": private})).is_error)
+                local_id = signed_local["X-Taskboard-Local-DRI"]
+                async with connect(local_env) as reader:
+                    payload = {"prefix": "LOCAL", "title": "Fictional Local project"}
+                    self.assertTrue((await reader.call_tool("taskboard_create_project", payload)).is_error)
+                    read_json(origin, MOUNT + "/api/v1/admin/project-creation", cookie=sam,
+                              method="PUT", headers={"Origin": origin}, data={"principal": local_id, "allowed": True})
+                    created = await reader.call_tool("taskboard_create_project", payload)
+                    self.assertFalse(created.is_error, created.content)
+                    self.assertEqual(created.structured_content["project"]["dri"], local_id)
+                    params = {"project": "LAB", "role": "ring1"}
+                    self.assertTrue((await reader.call_tool("taskboard_project_access", params)).is_error)
+                    for path in ("ring1", "owners"):
+                        read_json(origin, MOUNT + f"/api/v1/projects/LAB/{path}", cookie=sam,
+                                  method="PUT", headers={"Origin": origin}, data={"principal": local_id, "allowed": True})
+                    members = await reader.call_tool("taskboard_project_access", params)
+                    self.assertFalse(members.is_error, members.content)
+                    self.assertIn(local_id, {member["id"] for member in members.structured_content["members"]})
+                    updated = await reader.call_tool("taskboard_set_project_access", {
+                        **params, "principal": avery, "allowed": False,
+                    })
+                    self.assertFalse(updated.is_error, updated.content)
+                    self.assertNotIn(avery, {member["id"] for member in updated.structured_content["members"]})
+                    usage = await reader.call_tool("taskboard_agent_usage", {})
+                    self.assertFalse(usage.is_error, usage.content)
+                    self.assertEqual(usage.structured_content["scope"], "board")
+                    source = await reader.call_tool("taskboard_create_ticket", {
+                        "project": "LOCAL", "title": "Verify a pinned result", "step": "Record the signed review.",
+                    })
+                    self.assertFalse(source.is_error, source.content)
+                    key = source.structured_content["receipt"].split()[0]
+                    pull = "https://github.com/example/fixture/pull/3"
+                    with request(origin, MOUNT + "/api/v1/raft/link-github", headers={
+                        **signed_local, "Origin": origin,
+                    }, data={"id": key, "github_url": pull}):
+                        pass
+                    review = await reader.call_tool("taskboard_manual_review", {
+                        "ticket": key, "change": "create", "note": "Review the fixture.",
+                        "pull": pull, "head": "a" * 40, "base": "b" * 40, "recipient": avery,
+                    })
+                    self.assertFalse(review.is_error, review.content)
+                    source = io_action(origin, "create-task", cookie=cookie, data={
+                        "project": "COURSE", "title": "Review the second fixture", "step": "Verify the linked result.",
+                    })["receipt"].split()[0]
+                    io_action(origin, "link-github", cookie=cookie, data={"id": source, "github_url": pull})
+                    pin = {"review_pr": pull, "review_head": "c" * 40, "review_base": "d" * 40}
+                    receipt = io_action(origin, "peer-ask", cookie=cookie, data={
+                        "id": source, "transition": "manual-create", "note": "Check the fixture.",
+                        "recipient": local_id, **pin,
+                    })["receipt"]
+                    ask = receipt.split()[0]
+                    started = await reader.call_tool("taskboard_start", {"ticket": ask, "note": "Check the fixture."})
+                    self.assertFalse(started.is_error, started.content)
+                    outcome = await reader.call_tool("taskboard_manual_review", {
+                        "ticket": ask, "change": "result", "note": "Verified the fictional result.",
+                        "pull": pull, "head": pin["review_head"], "base": pin["review_base"],
+                        "url": pull, "label": "Fictional evidence",
+                    })
+                    self.assertFalse(outcome.is_error, outcome.content)
+                    self.assertIn("Ready for acknowledgment", outcome.structured_content["receipt"])
 
     async def test_two_agent_workflow(self):
         # The HTTP fixture uses the application dependencies while the tool process uses its own locked SDK.
@@ -633,6 +692,8 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel", "taskboard_checkpoint",
             "taskboard_recurring_schedule", "taskboard_maintenance_schedule", "taskboard_goals", "taskboard_wake_subscriptions",
             "taskboard_knowledge_areas", "taskboard_knowledge_sweep", "taskboard_worker_checkpoint",
+            "taskboard_project_access", "taskboard_set_project_access", "taskboard_agent_usage",
+            "taskboard_delegate", "taskboard_manual_review",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_queue"].annotations.read_only_hint)
@@ -663,9 +724,8 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(started["receipt"], "T-2 · Started")
         self.assertIn("--eta", started["next_step"])
         for ticket in ("T-2", "T-1"):
-            io_action(origin, "delegate", cookie=cookie, data={
-                "id": ticket, "role": "review", "worker": blake["id"], "brief": "Verify the fixture.",
-            })
+            await value(owner, "taskboard_delegate", ticket=ticket, role="review",
+                        worker=blake["id"], brief="Verify the fixture.")
         assigned = await value(reviewer, "taskboard_reviews", project="T", limit=1)
         self.assertEqual([row["task_key"] for row in assigned["items"]], ["T-1"])
         run = f"W-{assigned['items'][0]['id']}"

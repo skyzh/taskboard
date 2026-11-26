@@ -127,10 +127,12 @@ class AgentUsageTest(unittest.TestCase):
         self.assertEqual(response.headers["Cache-Control"], "no-store")
         self.assertIsNone(response.json["window"])
         self.assertEqual(response.json["items"], [])
+        local_response = self.fixture.call(client, ACTION, headers=headers)
+        self.assertEqual(local_response.headers["Cache-Control"], "no-store")
+        self.assertEqual(local_response.json, response.json)
+        self.assertNotIn("agent-usage-report",
+                         self.fixture.action(client, "context", headers=headers)["unavailable_actions"])
         self.assertEqual(self.fixture.call(agent, "/api/v1/revision").json, before)
-        with patch.object(usage, "load", side_effect=AssertionError("Local DRIs must not read board-wide usage.")):
-            self.fixture.call(client, ACTION, headers=headers, status=403)
-        self.assertIn("agent-usage-report", self.fixture.action(client, "context", headers=headers)["unavailable_actions"])
 
     def test_unknown_cost_and_worker_coverage_remain_null(self):
         agent, _ = self.fixture.login(self.app, "Avery")

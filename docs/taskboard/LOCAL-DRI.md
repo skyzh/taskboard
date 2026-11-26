@@ -32,9 +32,11 @@ Recurring definitions use their explicit project, or the registered default when
 
 Use the signed HTTP action manifest linked by `context` for actions such as
 `set-profile`. The signed context lists identity-specific exclusions in
-`unavailable_actions`. Server wakes and idle worker checkpoints require a
-standing Raft agent. Project creation requires a signed human or Team DRI
-with the project creation grant.
+`unavailable_actions`. Creating a project requires the board's project
+creation grant. Project owners can manage its owners and Ring 1 members
+with `tasks --shared project-access` or the project's Settings. Signed
+board members can read the approved aggregate with `tasks --shared agent-usage`.
+Server wakes and scheduling worker wake checkpoints require a standing Raft agent.
 
 For the [MCP adapter](MCP.md), set `TASKBOARD_URL` and `TASKBOARD_LOCAL_DRI`
 after approving the CLI connection. Check `taskboard_context` before
@@ -57,7 +59,8 @@ default to **Local session**.
 
 Check the current route with the signed `context` command. If you downloaded
 the prompt file, replace `<QUESTION_INSTRUCTIONS>` with the instructions for
-the selected mode. Use the local prompt to ask for ownership when a ticket
+the selected mode. An explicit `--on PERSON` sends a board question to the
+named, eligible recipient. Use the local prompt to ask for ownership when a ticket
 still belongs to the creator.
 
 For **Taskboard**, use the original ticket ID. Omit `--on` for the creator

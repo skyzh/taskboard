@@ -131,10 +131,15 @@ empty list. The permission manager updates a grant using same-origin
 `PUT /api/v1/admin/project-creation` with `{principal, allowed}`; the response
 has the same shape as GET. Changes apply to subsequent signed requests.
 
-A browser-approved CLI connection carries the approving human’s existing create
-permission. A Team DRI uses its own grant. Local DRI identities and tailnet-only
-reporting connections are outside this permission. The configured human manages
-grants through the signed browser. See [rollout and recovery](SHARED-BOARD.md#create-projects-and-manage-creation-permissions).
+A browser-approved CLI connection carries the approving human’s own create
+permission. Team and Local DRIs use their own grants. The configured human
+manages grants through the signed browser. See [rollout and recovery](SHARED-BOARD.md#create-projects-and-manage-creation-permissions).
+
+Use `project-owners` or `ring1-members` with an explicit project prefix to
+read project access. Writes use `set-project-owner` and `set-ring1-member`
+with the exact principal ID and a boolean `allowed`. The shared CLI
+`project-access` command and MCP project access tools use the same
+project owner and membership checks as Settings.
 
 ## Move a work ticket
 

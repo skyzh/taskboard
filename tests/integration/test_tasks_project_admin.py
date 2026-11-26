@@ -1,7 +1,12 @@
 """Check shared project creation and its Settings grants on an isolated board."""
 
-from contextlib import closing
+from contextlib import closing, redirect_stdout
+from io import StringIO
+import json
 import unittest
+from unittest.mock import patch
+
+from taskboard_client.direct import DirectBoard
 
 import test_tasks_service as service
 from tasks_storage import open_sqlite
@@ -15,6 +20,68 @@ DENIED = "Taskboard project creation permission is required."
 
 
 class ProjectAdminTest(unittest.TestCase):
+    def test_signed_local_and_team_project_access_uses_the_same_grants(self):
+        fixture = service.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        call, action = fixture.call, fixture.action
+        root = fixture.provider.people["Sam"]["sub"]
+        app = fixture.app(portal_reader=True, project_admin_subject=root)
+        sam, sam_id = fixture.login(app, "Sam")
+        team, team_id = fixture.login(app, "Avery")
+        _, other_id = fixture.login(app, "Blake")
+        local_id = call(sam, "/api/v1/personal-agents/local-dris", method="POST", headers=ORIGIN,
+                        json={"name": "Fixture Local DRI", "project": "T"}).json["local_dri"]["id"]
+        token = call(sam, "/api/v1/personal-agents/connections", method="POST", headers=ORIGIN,
+                     json={"session": "Fixture"}).json["token"]
+        headers = {**ORIGIN, "Authorization": "Bearer " + token, "X-Taskboard-Local-DRI": local_id}
+        local = app.test_client()
+        call(sam, PROJECTS, method="POST", json={"prefix": "LAB", "title": "Private lab", "visibility": "ring1"})
+        payload = {"project": "LAB", "principal": other_id, "allowed": True}
+        for identity in (team_id, local_id):
+            call(sam, PROJECTS + "/LAB/owners", method="PUT", headers=ORIGIN, status=404,
+                 json={"principal": identity, "allowed": True})
+            call(sam, PROJECTS + "/LAB/ring1", method="PUT", headers=ORIGIN,
+                 json={"principal": identity, "allowed": True})
+        for client, auth in ((team, ORIGIN), (local, headers)):
+            action(client, "set-project-owner", payload, headers=auth, status=403)
+            action(client, "ring1-members", query_string={"project": "LAB"}, headers=auth, status=403)
+        for identity in (team_id, local_id):
+            call(sam, PROJECTS + "/LAB/owners", method="PUT", headers=ORIGIN,
+                 json={"principal": identity, "allowed": True})
+        for client, auth in ((team, ORIGIN), (local, headers)):
+            result = action(client, "project-owners", query_string={"project": "LAB"}, headers=auth)
+            self.assertEqual({owner["id"] for owner in result["owners"]}, {sam_id, team_id, local_id})
+            action(client, "set-project-owner", payload, headers=auth, status=404)
+            action(client, "set-ring1-member", payload, headers=auth)
+            action(client, "set-project-owner", payload, headers=auth)
+            action(client, "set-project-owner", {**payload, "allowed": False}, headers=auth)
+            action(client, "set-ring1-member", {**payload, "allowed": False}, headers=auth)
+        usage = action(team, "agent-usage-report")
+        self.assertEqual(action(local, "agent-usage-report", headers=headers), usage)
+        browser_usage = call(local, "/api/v1/reports/agent-usage", headers=headers).json
+        self.assertEqual(browser_usage, {key: value for key, value in usage.items() if key != "next_step"})
+        self.assertEqual(fixture.shared_cli(team, "project-access", "LAB", "owner", "show")[0], 0)
+        board = DirectBoard(service.ORIGIN + service.BASE, local_dri=local_id)
+
+        def signed_request(path, method="GET", body=None):
+            response = call(local, path, method=method, headers=headers, json=body)
+            return response.status_code, response.json
+
+        with (
+            patch.object(board, "request", side_effect=signed_request),
+            patch("taskboard_cli.shared.DirectBoard", return_value=board),
+            redirect_stdout(StringIO()) as output,
+        ):
+            command = ["--shared", "--url", board.base, "--local-dri", local_id]
+            self.assertEqual(service.tasks_main([*command, "project-access", "LAB", "owner", "show"]), 0)
+            self.assertTrue(json.loads(output.getvalue())["editable"])
+        call(sam, PROJECTS + "/LAB/owners", method="PUT", headers=ORIGIN,
+             json={"principal": local_id, "allowed": False})
+        call(sam, PROJECTS + "/LAB/ring1", method="PUT", headers=ORIGIN,
+             json={"principal": local_id, "allowed": False})
+        action(local, "project-owners", query_string={"project": "LAB"}, headers=headers, status=404)
+
     def test_shared_create_and_settings_permissions(self):
         fixture = service.TasksServiceTest()
         fixture.setUp()
@@ -91,7 +158,14 @@ class ProjectAdminTest(unittest.TestCase):
              headers={**ORIGIN, "X-Taskboard-Personal-Agent": "1", "X-Portal-Auth-Method": "tailscale"})
         local = call(sam, "/api/v1/personal-agents/local-dris", method="POST", headers=ORIGIN,
                      json={"name": "Fixture Local DRI", "project": "LAB"}).json["local_dri"]
-        grant(sam, local["id"], status=404)
+        local_headers = {**token_headers, "X-Taskboard-Local-DRI": local["id"]}
+        action(anonymous, "create-project", {"prefix": "LOCAL", "title": "Local project"},
+               headers=local_headers, status=403)
+        grant(sam, local["id"])
+        self.assertTrue(action(anonymous, "context", headers=local_headers)["can_create_project"])
+        self.assertEqual(action(anonymous, "create-project", {"prefix": "LOCAL", "title": "Local project"},
+                                headers=local_headers)["project"]["dri"], local["id"])
+        grant(sam, local["id"], False)
 
         with closing(open_sqlite(fixture.database)) as db, db:
             db.execute(
@@ -130,10 +204,10 @@ class ProjectAdminTest(unittest.TestCase):
         grant(sam, avery_id, False)
         self.assertEqual(action(avery, "create-project", payload, status=403)["error"], DENIED)
         state = call(sam, PROJECTS).json
-        self.assertEqual([row["prefix"] for row in state["items"]], ["T", "LAB", "Q", "S"])
+        self.assertEqual([row["prefix"] for row in state["items"]], ["T", "LAB", "LOCAL", "Q", "S"])
         evidence = fixture.audit_events()
         self.assertEqual([(row[1], row[4]) for row in evidence if row[2] == "create-project"],
-                         [(avery_id, "LAB"), (quinn_id, "Q"), (sam_id, "S")])
+                         [(avery_id, "LAB"), (quinn_id, "Q"), (sam_id, "S"), (local["id"], "LOCAL")])
 
     def test_project_owners_can_manage_prompts_and_transfer_access_without_moving_tickets(self):
         fixture = service.TasksServiceTest()
@@ -173,7 +247,7 @@ class ProjectAdminTest(unittest.TestCase):
 
         local = call(owner, "/api/v1/personal-agents/local-dris", method="POST", headers=ORIGIN,
                      json={"name": "Lab fixture", "project": "LAB"}).json["local_dri"]
-        change(sam, local["id"], True, status=404)
+        self.assertIn(local["id"], {item["id"] for item in call(owner, owners).json["choices"]})
         with closing(open_sqlite(fixture.database)) as db, db:
             db.execute(
                 "INSERT INTO board_principals (ledger_key, server_id, kind, subject, name) VALUES (?, ?, ?, ?, ?)",
@@ -220,13 +294,13 @@ class ProjectAdminTest(unittest.TestCase):
         self.assertTrue(admin_card[agent_id]["can_edit_create_projects"])
         self.assertTrue(admin_card[agent_id]["project_owner"])
         self.assertFalse(admin_card[sam_id]["can_edit_create_projects"])
-        self.assertFalse(admin_card[local["id"]]["can_edit_project_owner"])
+        self.assertTrue(admin_card[local["id"]]["can_edit_project_owner"])
         owner_card = card_people(owner, "LAB")
         self.assertTrue(owner_card[outsider_id]["can_edit_project_owner"])
         self.assertFalse(owner_card[outsider_id]["can_edit_create_projects"])
         self.assertNotIn("create_projects", owner_card[outsider_id]["permissions"])
         self.assertTrue(owner_card[owner_id]["permissions"]["create_projects"])
-        self.assertNotIn(local["id"], owner_card)
+        self.assertTrue(owner_card[local["id"]]["can_edit_project_owner"])
         read_card = card_people(outsider, "LAB")
         self.assertEqual(set(read_card), {owner_id, agent_id, outsider_id})
         self.assertTrue(read_card[agent_id]["permissions"]["edit_project_prompts"])

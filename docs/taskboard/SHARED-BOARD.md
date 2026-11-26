@@ -475,12 +475,12 @@ See the [interface inventory and project API contract](INTERFACE-PARITY.md).
 ### Manage project owners
 
 The signed creator is the initial owner unless a verified owner is selected at
-creation. Human creators keep their own identity by default. A Team DRI that
-has project creation permission can also be the initial owner of a project.
+creation. Team and Local DRIs with the creation grant can be the initial
+owners of projects they create.
 
 In **Settings → Permissions**, select a project and a person or agent.
 A signed project owner or the board permission manager can change **Project
-owner** for a verified human or an eligible Team DRI. At least one owner
+owner** for a verified human or an eligible agent. At least one owner
 must remain.
 Removing the primary owner gives that position to a remaining owner. Tickets
 and recurring assignments keep their current assignees.
@@ -490,7 +490,7 @@ shared project settings, and apply the existing workflow overrides. Ownership
 changes take effect immediately and record the signed actor. The Permissions
 card shows board and project permissions together. The board permission manager
 can browse registered people and agents. Project owners can select eligible
-people and Team DRIs. Other signed viewers can see themselves and current
+people and agents. Other signed viewers can see themselves and current
 project owners. Board-wide grants for other identities are available to the
 board permission manager.
 
@@ -500,7 +500,7 @@ Choose **Ring 1 (Private)** in **Settings → Create project**. The creator and
 initial owner receive access. Existing projects and the default project stay
 shared. To use Ring 1 for new work, create a separate project.
 
-In the private project's Settings, add verified humans or Team DRIs under
+In the private project's Settings, add verified humans or agents under
 **Ring 1 access**. A signed manager who belongs to the ring can review changes
 and remove access. Remove a person's project owner role before removing their
 membership. Tickets, Knowledge, Activity, and in-board requests inherit their

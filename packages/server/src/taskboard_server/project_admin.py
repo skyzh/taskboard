@@ -8,7 +8,7 @@ SCHEMA = """
 
 
 def eligible(actor):
-    return actor["kind"] in ("human", "agent") and not actor["ledger_key"].startswith("local-dri:")
+    return actor["kind"] in ("human", "agent")
 
 
 def manager(actor, subject):

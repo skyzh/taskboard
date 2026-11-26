@@ -194,8 +194,9 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertTrue(readiness("active"))
         self.assertTrue(directory("T")[perf["id"]]["accepts_agent_asks"])
         self.assertFalse(directory("OPS")[perf["id"]]["accepts_agent_asks"])
-        action(manager, "delegate", {"id": "T-1", "worker": perf["id"], "role": "review",
-                                     "brief": "Review the same request."}, status=403)
+        worker = action(manager, "delegate", {"id": "T-1", "worker": perf["id"], "role": "review",
+                                              "brief": "Review the same request."})
+        self.assertIn("Planned", worker["receipt"])
         action(manager, "peer-ask", {
             **ask, "transition": "manual-create", "review_pr": "https://github.com/example/repo/pull/1",
             "review_head": "a" * 40, "review_base": "b" * 40,
@@ -238,11 +239,10 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertEqual(current_report()["local_watcher"], "off")
         self.assertTrue(readiness("active"))
 
-        action(client, "raise-attention", {"id": "T-2", "recipient": sam_id, "reason": "Approve it."},
+        action(client, "raise-attention", {"id": "T-2", "reason": "Approve it."},
                headers=sender, status=403)
-        for transition in ("assign-human", "redirect-decision", "wait"):
-            action(client, "advance-task", {"id": "T-2", "transition": transition, "on": sam_id, "note": "Approve it."},
-                   headers=sender, status=403)
+        action(client, "advance-task", {"id": "T-2", "transition": "assign-human", "note": "Approve it."},
+               headers=sender, status=403)
         fixture.cli("register-project", "LAB", "Restricted lab", "--dri", manager_id)
         with closing(open_sqlite(fixture.database)) as db, db:
             tasks_ring1.mark_private(db, "LAB", [manager_id])
@@ -275,6 +275,16 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertEqual((code, error), (0, ""))
         self.assertIn("T-5", output)
         self.assertEqual(action(manager, "task", query_string={"id": "T-5"})["task"]["dri"], perf["id"])
+        self.assertFalse(readiness("stopped"))
+        run = worker["receipt"].split()[0]
+        linked = action(manager, "peer-ask", {**ask, "review": run})["receipt"].split()[0]
+        window = action(client, "worker-check-show", headers=sender, query_string={"run": run})
+        self.assertIsNone(window["checkpoint"])
+        action(client, "worker-handoff", {"run": run, "transition": "start", "handle": "fixture-worker"}, headers=sender)
+        action(client, "worker-handoff", {"run": run, "transition": "report", "result": "completed",
+                                          "note": "The fixture review passed."}, headers=sender)
+        self.assertEqual(action(manager, "task", query_string={"id": linked})["task"]["peer_request"]["phase"],
+                         "acknowledgment")
 
 
     def test_workflow_parity_keeps_local_identity_and_project(self):
@@ -413,7 +423,7 @@ class LocalDRIRoutingTest(unittest.TestCase):
 
         limits = local("context")["unavailable_actions"]
         self.assertIn("worker-check", limits)
-        self.assertIn("create-project", limits)
+        self.assertNotIn("create-project", limits)
         self.assertNotIn("confirm-blocker", limits)
         local("create-project", {"prefix": "OTHER", "title": "No project grant"}, status=403)
         local("my-wake-subscriptions", status=403)
@@ -449,7 +459,7 @@ class LocalDRIRoutingTest(unittest.TestCase):
             capabilities = output.getvalue()
             self.assertIn("confirm-blocker", capabilities)
             self.assertNotIn("wake-subscribe", capabilities)
-            self.assertNotIn("create-project", capabilities)
+            self.assertIn("create-project", capabilities)
             self.assertEqual(tasks_main([*command, "next"]), 0)
             self.assertEqual(tasks_main([*command, "edit", peer_note, "Clarify the title.",
                                          "--title", "Peer guidance for verified results"]), 0)
@@ -502,6 +512,11 @@ class LocalDRIRoutingTest(unittest.TestCase):
         decisions = "/api/v1/notifications/decisions"
         action(client, "advance-task", question, headers=sender, status=403)
         self.assertEqual(call(sam, decisions).json["items"], [])
+        explicit = action(client, "raise-attention", {
+            "id": "T-1", "recipient": quinn_id, "reason": "Check the source.",
+        }, headers=sender)
+        self.assertEqual([item["id"] for item in call(quinn, "/api/v1/notifications/requests").json["items"]],
+                         [explicit["id"]])
 
         saved = call(sam, settings, method="PUT", headers=ORIGIN, json=board_mode).json["local_dri"]
         self.assertEqual(saved, {**legacy, **board_mode})
@@ -588,6 +603,7 @@ class LocalDRIRoutingTest(unittest.TestCase):
         fixture.provider.roles.pop(role)
         action(client, "raise-attention", {**ask, "recipient": quinn_id}, headers=headers, status=403)
         action(client, "advance-task", {**question, "on_name": "Quinn"}, headers=headers, status=403)
+        action(team, "raise-attention", {**ask, "id": "T-2", "recipient": quinn_id}, status=403)
         action(client, "raise-attention", {**ask, "recipient": "unknown"}, headers=headers, status=404)
         fixture.provider.roles[role] = "member"
         self.assertNotIn("raise-attention", action(client, "context", headers=headers)["unavailable_actions"])

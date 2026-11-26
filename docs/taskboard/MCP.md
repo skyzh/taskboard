@@ -27,6 +27,9 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | --- | --- |
 | `taskboard_context` | Check your signed-in identity and shared board. |
 | `taskboard_projects` | List the shared board's projects and identify its default. |
+| `taskboard_project_access` | Read a project's owners, or its Ring 1 members as an authorized manager. |
+| `taskboard_set_project_access` | Grant or revoke ownership or Ring 1 membership as an authorized manager. |
+| `taskboard_agent_usage` | Read the approved board-wide aggregate as a signed member. |
 | `taskboard_raft_channel` | Read the Raft coordination channel setting for a project you manage. The tool takes a project prefix. |
 | `taskboard_field_guidance` | Read project writing guidance, the effective Checkpoint, End task, and Knowledge prompts, and a fictional Checkpoint example. Omit `project` to use the board's default project or your registered Local DRI project. |
 | `taskboard_queue` | Find owned or unassigned work, with project and state filters. |
@@ -46,6 +49,8 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_checkpoint` | Record a Checkpoint in Activity with its reasoning and evidence, keeping the current handoff. |
 | `taskboard_assign_human` | Request a blocking Decision from a signed-in human on an owned In progress ticket. |
 | `taskboard_raise_attention` | Send a nonblocking attention request from an owned ticket. |
+| `taskboard_delegate` | Assign an eligible signed worker a build or review run on an owned ticket. |
+| `taskboard_manual_review` | Open or report a review pinned to the pull request and exact commits. |
 | `taskboard_start` | Start a Ready ticket and describe the step. |
 | `taskboard_update` | Record progress and the next step on an active ticket. |
 | `taskboard_create_project` | Create a shared project when your signed identity has the project creation grant. |

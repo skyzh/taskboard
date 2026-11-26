@@ -377,6 +377,12 @@ def arguments(argv=None):
     peer.add_argument("--link", nargs=2, action="append", default=[], metavar=("LABEL", "TARGET"))
 
     commands.add_parser("capabilities", help="List commands available to shared agents.")
+    commands.add_parser("agent-usage", help="Read the board's approved agent usage report as JSON.")
+    access = commands.add_parser("project-access", help="Read or change project ownership and Ring 1 membership.")
+    access.add_argument("project", type=projects.prefix)
+    access.add_argument("role", choices=("owner", "ring1"))
+    access.add_argument("change", choices=("show", "grant", "revoke"))
+    access.add_argument("--principal", type=nonblank, help="Exact verified principal ID for a grant or revocation.")
     overview = commands.add_parser(
         "list",
         help="List tasks in your shared queue or offline ledger.",
@@ -657,7 +663,7 @@ def arguments(argv=None):
     if args.command in {
         "raft-channel-show", "raft-channel-set", "wake-subscriptions", "wake-subscribe", "wake-unsubscribe",
         "knowledge-add", "knowledge-areas", "knowledge-assign", "knowledge-sweep", "knowledge-place",
-        "knowledge-stage", "knowledge-reconcile", "record-merge",
+        "knowledge-stage", "knowledge-reconcile", "record-merge", "agent-usage", "project-access",
     } and args.mode != "shared":
         parser.error(f"{args.command} requires --shared.")
 
