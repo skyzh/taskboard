@@ -655,6 +655,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
                 revision={revision} canAssignOnReopen={record.can_assign_on_reopen} onChanged={onChanged} />
               {signedIn && record.move_destinations?.length > 0 &&
                 <TaskProjectMove key={task.key} task={task} destinations={record.move_destinations} onMoved={onMoved} />}
+              {signedIn && record.move_block_reason && <p className="section-message">{record.move_block_reason}</p>}
               {record.can_edit_details && <TaskDetailsEdit key={`details-${task.id}`} task={task} brief={record.brief}
                 onChanged={onChanged} fields={fields} />}
               {record.can_close && state !== 'closed' && state !== 'done' && (
