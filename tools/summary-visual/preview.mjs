@@ -58,7 +58,9 @@ const server = createServer(async (request, response) => {
         return send(200, 'text/html', index.replace('</body>', '<script defer src="/tasks/__measure.js"></script></body>'))
       }
       if (path === '/tasks/__measure.js') return send(200, 'text/javascript', measure + capture)
-      if (Object.hasOwn(api, path)) return send(200, 'application/json', JSON.stringify(api[path]))
+      if (url.pathname === '/tasks/api/v1/reports') url.searchParams.delete('summary')
+      const apiPath = url.pathname + url.search
+      if (Object.hasOwn(api, apiPath)) return send(200, 'application/json', JSON.stringify(api[apiPath]))
       if (assets.has(path)) return send(200, ...assets.get(path))
     }
     return send(404, 'text/plain', 'Preview route not found')

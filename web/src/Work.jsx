@@ -105,8 +105,9 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
   for (const task of visibleTasks) addFilterName(waitingOn, task.waiting_on, task.waiting_profile)
   const selectedOwnerProfile = visibleTasks.find(task => task.dri === filters.dri && task.dri_profile)?.dri_profile
   const otherFilterCount = [ownerSelection, filters.waiting_on, tag, filters.hide_requests].filter(Boolean).length
-  const filterCount = otherFilterCount + Number(Boolean(filters.state))
-  const collapsedStatus = filtersOpen ? '' : states[filters.state]
+  const groupedStatus = filters.current_work ? 'Current work' : filters.unfinished ? 'Unfinished' : ''
+  const filterCount = otherFilterCount + Number(Boolean(filters.state || groupedStatus))
+  const collapsedStatus = filtersOpen ? '' : groupedStatus || states[filters.state]
   const otherFiltersLabel = otherFilterCount > 0
     ? `, ${otherFilterCount} more active ${otherFilterCount === 1 ? 'filter' : 'filters'}` : ''
   const stateCounts = otherFilterCount === 0 ? overview?.counts : undefined
@@ -137,7 +138,11 @@ export function WorkQueue({ revision, overview, filters, setFilters, waitingLabe
         <div className="filters" id="queue-filters" data-open={filtersOpen}>
           <label>
             Status
-            <select value={filters.state || ''} onChange={event => update('state', event.target.value)}>
+            <select value={groupedStatus ? 'linked-work' : filters.state || ''} onChange={event => {
+              const state = event.target.value
+              setFilters(previous => ({ ...previous, state, current_work: undefined, unfinished: undefined }))
+            }}>
+              {groupedStatus && <option value="linked-work" disabled>{groupedStatus}</option>}
               <option value="">All statuses</option>
               {Object.entries(states).filter(([key]) => key !== 'closed' || closedAvailable).map(([key, label]) => (
                 <option key={key} value={key}>{label}{stateCounts?.[key] != null ? ` (${stateCounts[key]})` : ''}</option>

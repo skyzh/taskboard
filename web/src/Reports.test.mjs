@@ -127,8 +127,10 @@ test('Reports lead with progress and link to goals, outcomes and exact activity 
   assert.ok(primary.includes(unblock))
   assert.ok(primary.includes(release.replace('\n\n', '</p><p>')))
   assert.ok(primary.includes(step))
-  assert.ok(primary.includes(multiline))
-  assert.ok(primary.includes(longer))
+  assert.ok(!primary.includes(multiline))
+  assert.ok(!primary.includes(longer))
+  assert.match(primary, /4 in progress · 1 waiting/)
+  assert.match(primary, /href="#project=COURSE&amp;section=queue-heading&amp;owner=Avery&amp;current_work=all"[^>]+>\+2 more<\/a>/)
   const exact = zone.formatTimestamp(activityAt)
   assert.ok(primary.includes(`href="#event-35-log" aria-label="Last activity, ${exact}"><time dateTime="${activityAt}" title="${exact}">1m ago<span class="relative-time-accessible"> (${exact})</span></time>`))
   assert.ok(primary.includes(`aria-label="6m ago, ${zone.formatTimestamp(reportedAt)}"`))
@@ -143,7 +145,7 @@ test('Reports lead with progress and link to goals, outcomes and exact activity 
   assert.match(primary, /href="#event-34-log"/)
   assert.match(primary, /class="report-work-status"><span class="status waiting">Waiting<\/span>/)
   assert.match(primary, /class="report-work-status"><span class="status in_progress">In progress<\/span>/)
-  assert.equal((primary.match(/class="status in_progress/g) || []).length, 4)
+  assert.equal((primary.match(/class="status in_progress/g) || []).length, 2)
   assert.doesNotMatch(primary, /human_review-title|waiting-title|now-title|example\.test|Current step|Unblock condition/)
   assert.doesNotMatch(html, /Full decision record|Update and evidence for COURSE-11/)
   assert.match(html, /<details class="report-details"><summary aria-label="Worker report and evidence for W-3">/)
@@ -153,10 +155,24 @@ test('Reports lead with progress and link to goals, outcomes and exact activity 
   assert.equal(html.split(unblock).length, 2)
   assert.equal(html.split(release.replace('\n\n', '</p><p>')).length, 2)
   assert.equal(html.split(step).length, 2)
-  assert.match(html, /Current work<\/h3>[\s\S]*?<div class="report-owner-section report-goals-panel">.*?<h3>Goals<\/h3>/s)
+  assert.doesNotMatch(html, /Current work<\/h3>/)
+  assert.match(html, /aria-label="Current work for Avery"[\s\S]*?<div class="report-owner-section report-goals-panel">.*?<h3>Goals<\/h3>/s)
   assert.match(html, /href="#reports\?view=goal-activity&amp;project=COURSE&amp;agent=Avery">Goal activity<\/a>/)
   assert.match(html, /href="#task-COURSE-20"><span class="ticket-id">COURSE-20<\/span> <span>Verify the export\.<\/span>/)
   assert.match(html, /href="#dri=Avery&amp;section=dri-standing-goal-title&amp;project=COURSE">Make reports clear\./)
+})
+
+test('All projects links to scoped unfinished queues and one cross-project current-work list', () => {
+  const entry = {
+    owner: 'Avery', tasks: [], task_count: 5, projects: ['T', 'COURSE'],
+    project_unfinished_counts: { T: 3, COURSE: 4 },
+  }
+  const html = renderToStaticMarkup(React.createElement(AssigneeReport, {
+    entry, projectNames: new Map([['T', 'Taskboard'], ['COURSE', 'Course']]),
+    reportFilters: { hide_requests: true },
+  }))
+  assert.match(html, /class="owner-links"><a href="#scope=all&amp;section=queue-heading&amp;owner=Avery&amp;current_work=all&amp;hide_requests=true"[^>]+>\+5 more<\/a><a href="#project=T&amp;section=queue-heading&amp;owner=Avery&amp;unfinished=true&amp;hide_requests=true">Taskboard \(3\)<\/a>/)
+  assert.match(html, /#project=COURSE&amp;section=queue-heading&amp;owner=Avery&amp;unfinished=true&amp;hide_requests=true">Course \(4\)<\/a>/)
 })
 
 test('Reports leave legacy receipts and preceding narratives on the ticket while showing authored actions', () => {
