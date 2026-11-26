@@ -1,8 +1,8 @@
 name: Compare the Taskboard demo
 description: Build and replay the currently checked out demo against the approved commit
 inputs:
-  baseline:
-    description: Reviewed demo commit from the repository configuration
+  baseline-ref:
+    description: Base revision to read for a pull request. Defaults to the checked-out revision.
     required: false
   candidate-dist:
     description: Static candidate built on a separate runner, when provided
@@ -17,7 +17,7 @@ runs:
     - id: compare
       shell: bash
       env:
-        BASELINE: ${{ inputs.baseline }}
+        BASELINE_REF: ${{ inputs.baseline-ref }}
         CANDIDATE_DIST: ${{ inputs.candidate-dist }}
         EVIDENCE: ${{ runner.temp }}/demo-evidence
       run: bash tools/demo-publication/compare.sh

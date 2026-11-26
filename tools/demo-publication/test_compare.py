@@ -26,7 +26,7 @@ class CompareTest(unittest.TestCase):
         binaries.mkdir()
         for program, script in {
             "npm": "exit 0",
-            "git": "exit 0",
+            "git": 'if [[ "$1" == "show" ]]; then printf "%s\\n" "$FIXTURE_BASE_SHA"; fi',
             "tar": "cat > /dev/null",
             "node": 'if [[ " $* " == *" --baseline "* ]]; then exit "$FIXTURE_REPLAY_EXIT"; fi',
         }.items():
@@ -39,12 +39,16 @@ class CompareTest(unittest.TestCase):
         playwright.chmod(0o755)
         event = self.root / "event.json"
         event.write_text("{}")
+        demo = self.root / "web" / "demo"
+        demo.mkdir()
+        self.baseline = demo / "baseline.txt"
+        self.baseline.write_text(BASELINE + "\n")
         self.evidence = self.root / "evidence"
         self.summary = self.root / "summary"
         self.output = self.root / "output"
         self.env = {
             **os.environ, "RUNNER_TEMP": str(self.root), "PATH": f"{binaries}:{os.environ['PATH']}", "EVIDENCE": str(self.evidence),
-            "BASELINE": BASELINE, "GITHUB_EVENT_PATH": str(event), "GITHUB_SHA": "b" * 40,
+            "BASELINE_REF": "", "GITHUB_EVENT_PATH": str(event), "GITHUB_SHA": "b" * 40,
             "GITHUB_REPOSITORY": "example/board", "GITHUB_RUN_ID": "11", "GITHUB_RUN_ATTEMPT": "3",
             "GITHUB_OUTPUT": str(self.output), "GITHUB_STEP_SUMMARY": str(self.summary),
             "FIXTURE_REPLAY_EXIT": "0",
@@ -60,13 +64,20 @@ class CompareTest(unittest.TestCase):
         self.assertEqual((receipt["status"], receipt["run"], receipt["attempt"]), (status, 11, 3))
         return result.returncode
 
+    def test_pull_request_reads_the_base_file_instead_of_the_candidate_file(self):
+        self.baseline.write_text("invalid candidate value")
+        self.assertEqual(self.replay("pass", BASELINE_REF="c" * 40, FIXTURE_BASE_SHA=BASELINE), 0)
+        receipt = json.loads((self.evidence / "receipt.json").read_text())
+        self.assertEqual(receipt["baseline"], BASELINE)
+
     def test_compare_statuses(self):
         self.assertEqual(self.replay("pass"), 0)
         self.assertEqual(self.replay("changed", FIXTURE_REPLAY_EXIT="2"), 0)
         self.assertEqual(self.replay("error", FIXTURE_REPLAY_EXIT="1"), 1)
 
     def test_missing_baseline_keeps_the_automatic_result_unavailable(self):
-        self.assertEqual(self.replay("unavailable", BASELINE=""), 0)
+        self.baseline.unlink()
+        self.assertEqual(self.replay("unavailable"), 0)
 
     def test_failed_privacy_audit_stays_a_failure(self):
         self.assertEqual(self.replay("privacy_failed", FIXTURE_PRIVACY_EXIT="1"), 1)

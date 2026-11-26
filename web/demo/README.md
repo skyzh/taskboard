@@ -16,8 +16,9 @@ Before publishing, check the tour and direct links on phone and desktop, includi
 ## Refresh and publication
 
 **Taskboard demo comparison** runs for each pull request. It rebuilds the
-approved demo at the full commit in the repository variable
-`SUMMARY_DEMO_BASELINE`. It compares the proposed merge build with the approved
+approved demo at the full commit in `web/demo/baseline.txt`. The pull request
+comparison reads the file from the base commit. The checked-main verifier and
+publisher read it from their protected checkout. It compares the proposed merge build with the approved
 build on the same runner, including the tour's target visibility and highlight,
 navigation, focus, the Watching empty state, and matching screenshots at phone and desktop sizes. A
 one-level RGB rounding variation is treated as equal. Changes to dimensions
@@ -34,9 +35,8 @@ protected revision again after the Pages environment admits the job.
 To publish an intentionally changed demo, review the changed steps and
 screenshots, then run **Publish Summary demo** manually on main. Verify the
 published demo and record the exact checked commit and deployment link in the
-review ticket. Have the repository maintainer set `SUMMARY_DEMO_BASELINE` to
-that approved commit. Moving the baseline is an explicit approval step.
-Removing the variable pauses automatic publication and comparison while
+review ticket. Open a reviewed pull request to update `web/demo/baseline.txt`
+to that approved commit. Removing the file pauses automatic publication and comparison while
 leaving the checked manual publish available.
 
 ## Review ticket routing
@@ -53,7 +53,7 @@ pull-request read access. Set it as `TASKS_DEMO_ACTIONS_TOKEN` in the operator
 environment. Set `TASKS_DEMO_REVIEW` to a JSON object with:
 
 - `repository` and `project`, the exact GitHub repository and Taskboard project.
-- `baseline`, the same reviewed commit set in `SUMMARY_DEMO_BASELINE`.
+- `baseline`, the reviewed commit in `web/demo/baseline.txt` on protected main.
 - `actor`, the existing Taskboard project manager’s ledger key.
 - `owners`, a map of affected labels to existing UI owners' ledger keys.
 - `fallback`, the frontend DRI's ledger key.

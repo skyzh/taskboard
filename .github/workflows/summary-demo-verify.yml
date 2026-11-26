@@ -34,7 +34,7 @@ jobs:
 
   candidate:
     needs: identify
-    if: needs.identify.outputs.candidate != '' && vars.SUMMARY_DEMO_BASELINE != ''
+    if: needs.identify.outputs.candidate != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -87,7 +87,6 @@ jobs:
       - id: compare
         uses: ./.github/actions/compare-summary-demo
         with:
-          baseline: ${{ vars.SUMMARY_DEMO_BASELINE }}
           candidate-dist: ${{ runner.temp }}/demo-static-candidate
       - id: evidence
         if: steps.compare.outputs.status == 'changed'
