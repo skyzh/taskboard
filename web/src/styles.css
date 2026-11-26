@@ -1113,6 +1113,11 @@ button:disabled { opacity: .57; }
 .ticket-event-row .assignee-avatar { width: 1rem; height: 1rem; }
 .ticket-event-row .event-disclosure { margin-top: .1rem; font-size: .8rem; }
 .ticket-event-row summary { width: fit-content; min-height: 1.5rem; padding-block: .15rem; }
+.watcher-event-group > .event-list {
+  border-inline-start: 1px solid var(--line);
+  margin-block: .15rem .4rem;
+  padding-inline-start: .55rem;
+}
 .ticket-event-actions {
   display: flex;
   flex-wrap: wrap;
