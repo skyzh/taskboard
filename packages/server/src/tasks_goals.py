@@ -310,7 +310,7 @@ def report_summaries(db, project, owners, *, exclude_watched_by=None):
     return summaries
 
 
-def ticket_details(db, task):
+def ticket_details(db, task, *, signed_in=False):
     if not tasks_storage.table_columns(db, "task_goals"):
         return None
     row = db.execute("SELECT kind, deadline, ticket_ids FROM task_goals WHERE task_id=? AND retired=0",
@@ -319,11 +319,17 @@ def ticket_details(db, task):
         return None
     result = {"kind": row["kind"], "deadline": row["deadline"],
               "tickets": tickets(db, projects.row_project(task), task["dri"], json.loads(row["ticket_ids"]))}
+    resume_at_review = False
     if row["kind"] == "standing" and (criterion := exploration_criterion(db, task["id"])) is not None:
         result.update(keep_exploring=True, stopping_criterion=criterion)
-        if task["state"] == "parked" and ledger.event_context(task).get("goal_criterion_met"):
-            schedule = db.execute("SELECT review_time FROM goal_review_times WHERE task_id = ?", (task["id"],)).fetchone()
-            result["resume_review_time"] = schedule["review_time"] if schedule else None
+        resume_at_review = task["state"] == "parked" and ledger.event_context(task).get("goal_criterion_met")
+    if (signed_in and task["state"] != "done") or resume_at_review:
+        schedule = db.execute("SELECT review_time FROM goal_review_times WHERE task_id = ?", (task["id"],)).fetchone()
+        review_time = schedule["review_time"] if schedule else None
+        if signed_in and review_time:
+            result["review_time"] = review_time
+        if resume_at_review:
+            result["resume_review_time"] = review_time
     if (row["kind"] == "standing" and task["state"] == "parked"
             and task["note"] not in (LEGACY_GOAL_STEP, PREVIOUS_STANDING_EXPLORATION, STANDING_EXPLORATION)):
         result["parked_note"] = task["note"]

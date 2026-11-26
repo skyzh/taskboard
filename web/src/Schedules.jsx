@@ -25,7 +25,7 @@ function ScheduleDate({ value }) {
   return value ? <time dateTime={value}>{formatTimestamp(value)}</time> : '—'
 }
 
-export function ScheduleSummary({ schedule, project, showOwner = true, showTicket = true }) {
+export function ScheduleSummary({ schedule, project, showOwner = true, showTicket = true, showNextRun = true }) {
   const { owner_name: owner, cadence_hours: cadence, state, next_at: next } = schedule
   const recurringTicket = schedule.reusable_ticket
   const interval = cadence % 24 === 0
@@ -37,7 +37,7 @@ export function ScheduleSummary({ schedule, project, showOwner = true, showTicke
       {project && <div><dt>Project</dt><dd>{project}</dd></div>}
       <div><dt>Cadence</dt><dd>{interval}</dd></div>
       <div><dt>Status</dt><dd>{scheduleStates[state]}</dd></div>
-      {state === 'active' && <div><dt>Next run</dt><dd><ScheduleDate value={next} /></dd></div>}
+      {showNextRun && state === 'active' && <div><dt>Next run</dt><dd><ScheduleDate value={next} /></dd></div>}
       {recurringTicket && <>
         {showTicket && <div><dt>Recurring ticket</dt><dd><TaskLink id={recurringTicket.id} reference={recurringTicket.key} /></dd></div>}
         <div><dt>Last reviewed</dt><dd>{schedule.last_reviewed_at

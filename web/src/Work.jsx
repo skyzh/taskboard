@@ -370,13 +370,16 @@ function TicketIdentity({ task, state, children }) {
   )
 }
 
-function ticketProperties({ task, goal }, state, editingTags) {
+function ticketProperties({ task, goal, recurrence, recurring_runs: recurringRuns }, state, editingTags) {
   const { defer_until: deferUntil, review_after: reviewDate, readiness } = task.context || {}
+  const nextRun = recurrence ? recurrence.next_at : recurringRuns?.next_at
   return [
     deferUntil ? ['Defer until', <Timestamp at={deferUntil} />] :
       reviewDate && ['Review date', <time dateTime={reviewDate}>{reviewDate}</time>],
     state === 'parked' && readiness?.source_key && ['Review after',
       <TaskLink id={readiness.source_id} reference={readiness.source_key} />],
+    nextRun && ['Next run', <Timestamp at={nextRun} />],
+    goal?.review_time && ['Daily review', <><time dateTime={goal.review_time}>{goal.review_time}</time> Pacific</>],
     task.eta && state !== 'closed' && ['Estimated completion', <Timestamp at={task.eta} />],
     goal?.deadline && ['Due', <GoalDeadline deadline={goal.deadline} finished={state === 'done' || state === 'closed'} />],
     !editingTags && task.tags?.length && ['Tags', task.tags.join(', ')],

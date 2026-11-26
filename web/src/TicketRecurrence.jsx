@@ -64,7 +64,7 @@ export default function TicketRecurrence({ ticket, schedule, canEnable, signedIn
   return (
     <section className="ticket-recurrence" aria-labelledby="ticket-recurrence-title">
       <h3 id="ticket-recurrence-title">Recurrence</h3>
-      {schedule && <ScheduleSummary schedule={schedule} showOwner={false} showTicket={false} />}
+      {schedule && <ScheduleSummary schedule={schedule} showOwner={false} showTicket={false} showNextRun={false} />}
       <div className="ticket-recurrence-actions">
         {signedIn && !schedule && canEnable && <RecurrenceForm
           change="enable" disabled={mutation.blocked} onSubmit={submit} />}
