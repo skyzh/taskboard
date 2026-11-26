@@ -856,7 +856,7 @@ class BoardQueries:
                     "label": ledger.event_label(row["activity_action"], json.loads(row["activity_context"])),
                 } if row["activity_at"] else None,
                 "summary": row["brief"], "sources": self.decision_sources(row["id"], project=source_project),
-                **knowledge.metadata(self.db, row["id"], source_project=source_project),
+                **knowledge.metadata(self.db, row["id"], principal=self.principal, source_project=source_project),
             } for row in rows]
 
         with tasks_storage.read(self.db):
@@ -898,7 +898,7 @@ class BoardQueries:
                         item["decision"] = {
                             "summary": decisions[row["id"]]["brief"],
                             "sources": self.decision_sources(row["id"]),
-                            **knowledge.metadata(self.db, row["id"]),
+                            **knowledge.metadata(self.db, row["id"], principal=self.principal),
                         }
                     result.append(item)
                 return result

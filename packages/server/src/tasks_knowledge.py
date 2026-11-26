@@ -228,9 +228,11 @@ def directory(db, *, project=None, principal=None):
     )]
 
 
-def links(db, number, *, include_source=False, source_project=None):
+def links(db, number, *, principal, include_source=False, source_project=None):
     where = "(stage.entry_id = ? OR stage.source_id = ?)" if include_source else "stage.entry_id = ?"
     args = (number, number) if include_source else (number,)
+    source_scope, source_bindings = ring1.visibility(db, "source.project_prefix", principal)
+    entry_scope, entry_bindings = ring1.visibility(db, "entry.project_prefix", principal)
     if source_project is not None:
         where += " AND source.project_prefix = ?"
         args += (source_project,)
@@ -242,8 +244,9 @@ def links(db, number, *, include_source=False, source_project=None):
         JOIN tasks AS source ON source.id = stage.source_id
         JOIN tasks AS entry ON entry.id = stage.entry_id
         LEFT JOIN events AS source_event ON source_event.id = stage.source_event_id
-        WHERE {where} ORDER BY stage.staged_at DESC, stage.source_id DESC
-    """, args).fetchall()
+        WHERE {where} AND {source_scope} AND {entry_scope}
+        ORDER BY stage.staged_at DESC, stage.source_id DESC
+    """, (*args, *source_bindings, *entry_bindings)).fetchall()
     return [{
         "source": projects.row_reference(row), "source_title": row["source_title"],
         "entry": f"{row['entry_project']}-{row['entry_number']}", "entry_title": row["entry_title"],
@@ -252,7 +255,7 @@ def links(db, number, *, include_source=False, source_project=None):
     } for row in records]
 
 
-def metadata(db, number, *, source_project=None):
+def metadata(db, number, *, principal, source_project=None):
     area = db.execute(
         """SELECT entries.project, entries.path, areas.index_id FROM knowledge_entries AS entries
            JOIN tasks AS note ON note.id = entries.task_id AND note.project_prefix = entries.project
@@ -273,7 +276,7 @@ def metadata(db, number, *, source_project=None):
                 """, (area["project"], area["path"], area["project"], number, DECISION_TAG),
             ) if ledger.is_knowledge(row) or row["display_state"] == "done"
         ]
-    if staged := links(db, number, source_project=source_project):
+    if staged := links(db, number, principal=principal, source_project=source_project):
         result["staged_work"] = staged
     return result
 
@@ -289,6 +292,9 @@ def reconcile(db, project, actor, base, *, dri=None):
         JOIN tasks ON tasks.id = stage.entry_id
         JOIN tasks AS source ON source.id = stage.source_id
         WHERE tasks.project_prefix = ? AND applied_event_id IS NULL
+          AND (tasks.project_prefix = source.project_prefix OR NOT EXISTS (
+              SELECT 1 FROM project_ring1 WHERE project IN (tasks.project_prefix, source.project_prefix)
+          ))
           AND (? IS NULL OR EXISTS (
               SELECT 1 FROM knowledge_maintenance_assignments AS assignment
               WHERE assignment.task_id = stage.entry_id AND assignment.dri = ?
