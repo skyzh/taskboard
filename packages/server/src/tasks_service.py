@@ -1648,7 +1648,7 @@ def create_app(
         return {
             **result, "ownership_actions": ownership,
             "can_assign_on_reopen": allowed,
-            "can_ask_agent": bool(owns and not is_note and task.get("display_state") != "closed"),
+            **({"can_ask_agent": True} if owns and not is_note and task.get("display_state") != "closed" else {}),
             "transition_actions": transition_actions,
             **({"needs_you_actions": needs_you_actions} if needs_you_actions else {}),
             "tag_editable": details_editable,
