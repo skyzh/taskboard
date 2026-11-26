@@ -39,6 +39,7 @@ import { ReportTime } from './ReportTime.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
 import SegmentedControl from './SegmentedControl.jsx'
 import { projectFilters } from './projectScope.js'
+import { groupWatcherActivity } from './watcherActivity.js'
 
 const ownerOptionPrefix = 'owner:'
 const layoutOptions = [{ value: 'list', label: 'List' }, { value: 'kanban', label: 'Kanban' }]
@@ -295,12 +296,12 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
           {showTask && <p className="event-ticket"><TaskLink reference={event.task_key} id={event.task_id} title={event.task_title} /></p>}
           <ActivityChanges event={event} />
           <ClosureReference context={event.context} />
-          {children}
           <div className="ticket-event-actions">
             {firstEvidence && <EvidenceLinks links={[firstEvidence]} />}
             <OutcomeNote event={{ ...event, details, links: additionalEvidence }} disclosure="event-disclosure"
               disclosureLabel="Activity details" choiceShown={Boolean(choice)} waitShown={event.action === 'wait'} />
           </div>
+          {children}
         </div>
       </li>
     )
@@ -431,6 +432,8 @@ function TicketContext({ record, id, task, state, wide, detailed, properties, se
 }
 
 function RecordActivity({ id, task, activity, knowledge, children }) {
+  const events = activity.data?.items || []
+  const groups = knowledge ? events.map(event => [event]) : groupWatcherActivity(events)
   return (
     <section className="ticket-activity" aria-labelledby={`ticket-activity-${id}`}>
       <h3 id={`ticket-activity-${id}`}>Activity</h3>
@@ -438,7 +441,18 @@ function RecordActivity({ id, task, activity, knowledge, children }) {
       <ResourceStatus resource={activity} label={knowledge ? 'Knowledge activity' : 'task activity'} />
       {activity.data?.items.length === 0 && <p className="section-message">No activity yet.</p>}
       <ol className="event-list" role="list">
-        {activity.data?.items.map(event => <EventRow key={event.id} event={event} ticketActivity />)}
+        {groups.map(([latest, ...earlier]) => (
+          <EventRow key={latest.id} event={latest} ticketActivity>
+            {earlier.length > 0 && (
+              <details className="event-disclosure watcher-event-group">
+                <summary>{earlier.length + 1} matching entries</summary>
+                <ol className="event-list" role="list">
+                  {earlier.map(event => <EventRow key={event.id} event={event} ticketActivity />)}
+                </ol>
+              </details>
+            )}
+          </EventRow>
+        ))}
       </ol>
       <LoadMore page={activity} label={`activity for ${taskLabel(id, task.key)}`} />
     </section>

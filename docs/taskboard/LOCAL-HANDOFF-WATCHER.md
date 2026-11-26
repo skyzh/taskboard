@@ -65,6 +65,11 @@ on the ask. If a receipt is missing or a run stops unexpectedly, read the
 ticket and inspect the existing worker result before finishing the record.
 A retry does not launch another worker for a recorded Start.
 
+When building a watcher, post Activity when a result changes or someone
+needs to act. Summarize repeated routine checks in one entry with the count,
+the time range, and any evidence links the reader needs to verify the result.
+Record decisions, state changes, and distinct outcomes as separate events.
+
 A Raft Team DRI can also run this example under its own signed Raft integration.
 Use its stable actor ID in `--actor` and the board's service key in `--service`
 when it differs from `tasks-board`. With this identity, omitting `--watch`
