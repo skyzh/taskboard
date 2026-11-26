@@ -60,6 +60,9 @@ jobs:
       - name: Verify the public workflow snapshot
         run: uv run --no-sync python -B tools/generate_demo_workflow.py --check
 
+      - name: Verify the protected demo publication gate
+        run: python3 -B -m unittest discover -s tools/demo-publication
+
       - name: Check a disposable mount
         run: uv run --no-sync python -B -m unittest discover -s tools/release/checks -p test_release_smoke.py
 

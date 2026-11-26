@@ -2,6 +2,10 @@ name: Publish Summary demo
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: [Taskboard CI]
+    branches: [main]
+    types: [completed]
 
 permissions:
   contents: read
@@ -12,34 +16,85 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      checks: read
+      deployments: read
+    outputs:
+      publish: ${{ steps.publish.outputs.ready }}
+      revision: ${{ steps.publish.outputs.revision }}
+    env:
+      REVISION: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.REVISION }}
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - id: checked
+        env:
+          DEMO_GITHUB_READ_TOKEN: ${{ github.token }}
+        run: python3 tools/demo-publication/checked_main.py
+      - if: steps.checked.outputs.current == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.22.3'
           package-manager-cache: false
-      - run: npm --prefix web ci --no-audit --no-fund
-      - run: npm --prefix web run build:demo
-      - run: python3 tools/check_summary_demo.py web/dist-demo
-      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+      - id: compare
+        if: steps.checked.outputs.current == 'true' && github.event_name == 'workflow_run'
+        uses: ./.github/actions/compare-summary-demo
+        with:
+          baseline: ${{ vars.SUMMARY_DEMO_BASELINE }}
+      - if: steps.checked.outputs.current == 'true' && github.event_name == 'workflow_dispatch'
+        run: |
+          npm --prefix web ci --no-audit --no-fund
+          npm --prefix web run build:demo
+          python3 tools/check_summary_demo.py web/dist-demo
+      - id: publish
+        if: >-
+          steps.checked.outputs.current == 'true' &&
+          (github.event_name == 'workflow_dispatch' || steps.compare.outputs.status == 'pass')
+        run: |
+          printf 'ready=true\nrevision=%s\n' "$REVISION" >> "$GITHUB_OUTPUT"
+      - if: steps.publish.outputs.ready == 'true'
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
           path: web/dist-demo
 
   deploy:
     needs: build
+    if: needs.build.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.publish.outputs.page_url }}
     steps:
+      - id: fresh
+        env:
+          REVISION: ${{ needs.build.outputs.revision }}
+          DEMO_GITHUB_READ_TOKEN: ${{ github.token }}
+        run: |
+          branch=$(curl --fail --silent --show-error --max-time 15 \
+              --header "Authorization: Bearer $DEMO_GITHUB_READ_TOKEN" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/branches/main")
+          if jq -e --arg revision "$REVISION" \
+              '.name == "main" and .protected == true and .commit.sha == $revision' <<< "$branch"; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Skipped publication because the protected main revision changed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - id: publish
+        if: steps.fresh.outputs.current == 'true'
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

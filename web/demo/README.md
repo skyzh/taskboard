@@ -13,7 +13,74 @@ The demo uses the same React app as the live board and replays [Taskboard PR #23
 
 Before publishing, check the tour and direct links on phone and desktop, including keyboard focus after closing the tour. The static build should make no requests to a live board.
 
-The repository's **Publish Summary demo** workflow is started manually from the protected main branch after review. It publishes only the demo build.
+## Refresh and publication
+
+**Taskboard demo comparison** runs for each pull request. It rebuilds the
+approved demo at the full commit in the repository variable
+`SUMMARY_DEMO_BASELINE`. It compares the proposed merge build with the approved
+build on the same runner, including the tour's target visibility and highlight,
+navigation, focus, the Watching empty state, and matching screenshots at phone and desktop sizes. A
+one-level RGB rounding variation is treated as equal. Changes to dimensions
+or larger channel differences must reproduce on a second capture. A changed
+result includes the step or screen and matching evidence. Missing
+baselines, build errors and privacy audit failures have their own outcomes.
+
+After Taskboard CI passes for a push to protected main, **Publish Summary
+demo** verifies that commit against the required GitHub checks and repeats the
+comparison on that exact revision. Only an unchanged comparison and passing
+site privacy audit can publish automatically. Publication checks the current
+protected revision again after the Pages environment admits the job.
+
+To publish an intentionally changed demo, review the changed steps and
+screenshots, then run **Publish Summary demo** manually on main. Verify the
+published demo and record the exact checked commit and deployment link in the
+review ticket. Have the repository maintainer set `SUMMARY_DEMO_BASELINE` to
+that approved commit. Moving the baseline is an explicit approval step.
+Removing the variable pauses automatic publication and comparison while
+leaving the checked manual publish available.
+
+## Review ticket routing
+
+**Verify Taskboard demo comparison** runs from the default branch after the
+PR check. It resolves the current PR revision through GitHub, builds it in a
+separate read-only job, then compares the static output with the reviewed
+browser harness. Only a verified result from that workflow can create or
+update a review ticket. Neither GitHub job needs Taskboard access.
+
+A Taskboard operator reads these receipts on the shared-board host.
+Use an existing repository-scoped read credential with GitHub Actions and
+pull-request read access. Set it as `TASKS_DEMO_ACTIONS_TOKEN` in the operator
+environment. Set `TASKS_DEMO_REVIEW` to a JSON object with:
+
+- `repository` and `project`, the exact GitHub repository and Taskboard project.
+- `baseline`, the same reviewed commit set in `SUMMARY_DEMO_BASELINE`.
+- `actor`, the existing Taskboard project manager’s ledger key.
+- `owners`, a map of affected labels to existing UI owners' ledger keys.
+- `fallback`, the frontend DRI's ledger key.
+
+For the SQLite board, preview a read from the server release checkout:
+
+```sh
+PYTHONPATH=packages/server/src:packages/client/src \
+  uv run --locked python -B -m taskboard_server.demo_review --db "$board_db"
+```
+
+Use `--postgres` with the existing `TASKS_POSTGRES_DSN` for PostgreSQL.
+After confirming the preview and the owner's routing, add `--commit` in the
+board operator's scheduler. Run it often enough to cover the default 24-hour
+lookback. A recent merged PR can still receive its review ticket. An older
+attempt or mismatched revision is counted without opening a ticket. Retries
+update one ticket per PR and preserve its existing owner. A later passing
+comparison records its outcome on an existing review ticket. The small
+machine receipt and the screenshot archive are separate downloads.
+
+For coverage, count successful automatic Pages deployments and successful
+manual deployments in the same reporting period. Keep superseded, unavailable,
+failed, and changed comparisons visible as separate outcomes. The ticket poll
+reports changed receipts as created, updated, duplicate, or pending operator
+action in preview. Report counts per distinct current PR attempt when comparing
+coverage across multiple polls. The target is roughly half of routine
+refreshes, measured from actual deployments.
 
 
 ## Development workflow fixture

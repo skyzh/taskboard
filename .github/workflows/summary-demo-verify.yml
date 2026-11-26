@@ -1,0 +1,114 @@
+name: Verify Taskboard demo comparison
+
+on:
+  workflow_run:
+    workflows: [Taskboard demo comparison]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  identify:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      pull: ${{ steps.pr.outputs.pull }}
+      head: ${{ steps.pr.outputs.head }}
+      base: ${{ steps.pr.outputs.base }}
+      candidate: ${{ steps.pr.outputs.candidate }}
+      source-run: ${{ steps.pr.outputs.source_run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: pr
+        env:
+          DEMO_GITHUB_READ_TOKEN: ${{ github.token }}
+        run: python3 tools/demo-publication/verified_input.py
+
+  candidate:
+    needs: identify
+    if: needs.identify.outputs.candidate != '' && vars.SUMMARY_DEMO_BASELINE != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      artifact-id: ${{ steps.static.outputs.artifact-id }}
+    steps:
+      # Only this disposable, read-only job sees or runs candidate source.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.identify.outputs.candidate }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.3'
+          package-manager-cache: false
+      - run: |
+          npm --prefix web ci --no-audit --no-fund
+          npm --prefix web run build:demo
+      - id: static
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: demo-static-candidate-${{ github.run_attempt }}
+          path: web/dist-demo/
+          if-no-files-found: error
+          retention-days: 1
+
+  compare:
+    needs: [identify, candidate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      VERIFIED_PULL: ${{ needs.identify.outputs.pull }}
+      VERIFIED_HEAD: ${{ needs.identify.outputs.head }}
+      VERIFIED_BASE: ${{ needs.identify.outputs.base }}
+      VERIFIED_CANDIDATE: ${{ needs.identify.outputs.candidate }}
+      VERIFIED_SOURCE_RUN: ${{ needs.identify.outputs.source-run }}
+    steps:
+      # The verifier and all test scripts come from the default branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.22.3'
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.artifact-id }}
+          path: ${{ runner.temp }}/demo-static-candidate
+      - id: compare
+        uses: ./.github/actions/compare-summary-demo
+        with:
+          baseline: ${{ vars.SUMMARY_DEMO_BASELINE }}
+          candidate-dist: ${{ runner.temp }}/demo-static-candidate
+      - id: evidence
+        if: steps.compare.outputs.status == 'changed'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: summary-demo-evidence-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/demo-evidence/baseline/
+            ${{ runner.temp }}/demo-evidence/candidate/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Bind the evidence to the receipt
+        if: steps.evidence.outputs.artifact-id != ''
+        env:
+          EVIDENCE_ID: ${{ steps.evidence.outputs.artifact-id }}
+          EVIDENCE_DIR: ${{ runner.temp }}/demo-evidence
+        run: python3 tools/demo-publication/receipt.py --link-evidence
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always() && steps.compare.outcome != 'skipped'
+        with:
+          name: summary-demo-comparison-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/demo-evidence/receipt.json
+          if-no-files-found: error
+          retention-days: 14
