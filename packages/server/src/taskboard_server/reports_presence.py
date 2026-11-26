@@ -74,6 +74,7 @@ def active_agents(db, viewer, project, now):
               AND json_extract(activity.context, '$.recurring') IS NULL
               AND json_extract(activity.context, '$.extension') IS NULL
               AND json_extract(activity.context, '$.stamp_verdict') IS NULL
+              AND json_extract(activity.context, '$.stamp_imported_result') IS NULL
               AND json_extract(activity.context, '$.demo_comparison') IS NULL
               AND json_extract(activity.context, '$.watcher_measurements') IS NULL
               AND COALESCE(json_extract(activity.context, '$.audit.action'), '') <> 'worker-check'

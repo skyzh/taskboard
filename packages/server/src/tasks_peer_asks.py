@@ -448,15 +448,15 @@ def record_named_wait(db, source, request, args, links, context):
     db.execute("UPDATE peer_asks SET source_wait_event_id = ? WHERE task_id = ?", (event, request["id"]))
 
 
-def update_source(db, ask, actor, reference, note, *, awaiting_acknowledgment=False):
+def update_source(db, ask, actor, reference, note, *, awaiting_acknowledgment=False, event_context=None):
     import tasks_core as ledger
 
     source = ledger.get_task(db, ask["source_task_id"])
     if source["event_id"] != ask["source_wait_event_id"] or source["dri"] != ask["requester"]:
-        ledger.record(db, source["id"], "log", actor, source["state"], note, None, [])
+        ledger.record(db, source["id"], "log", actor, source["state"], note, None, [], event_context)
         return
 
-    context = {"peer_ask_ticket": reference}
+    context = {**(event_context or {}), "peer_ask_ticket": reference}
     if ledger.event_context(source).get("named_peer_wait"):
         context["named_peer_wait"] = True
     if awaiting_acknowledgment:
@@ -487,7 +487,7 @@ def submit_result(db, args, links, ask, task, *, stamp_verdict=None, manual_revi
     event = ledger.record(db, task["id"], "transfer", args.by, "ready", args.note, None, links, context)
     db.execute("UPDATE peer_asks SET result_event_id = ? WHERE task_id = ?", (event, task["id"]))
     update_source(db, ask, args.by, reference, "The peer result is ready for acknowledgment.",
-                  awaiting_acknowledgment=True)
+                  awaiting_acknowledgment=True, event_context={"stamp_imported_result": True} if stamp_verdict else None)
     return f"{reference} · Ready for acknowledgment"
 
 

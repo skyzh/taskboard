@@ -3,18 +3,21 @@
 from contextlib import closing
 from datetime import datetime, timezone
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from uuid import UUID
 
 import test_tasks_service as service
 from taskboard_server import reports_presence
 import tasks_core as ledger
 import tasks_storage as storage
+from tasks_extensions import STAMP_REVIEWS
+from tasks_stamp import Approval, refresh_approvals
 
 
 ROUTE = "/api/v1/reports/presence"
 ORIGIN = {"Origin": service.ORIGIN}
 ALL = {"scope": "all"}
+STAMP_PROJECT_EXTENSIONS = {"T": {STAMP_REVIEWS: "example/board"}}
 
 
 class ReportsPresenceTest(unittest.TestCase):
@@ -32,6 +35,62 @@ class ReportsPresenceTest(unittest.TestCase):
         admin = fixture.provider.people["Sam"]["sub"]
         app = fixture.app(portal_reader=True, project_admin_subject=admin)
         self.replay_agent_activity(fixture, app)
+
+    def test_stamp_poll_does_not_count_the_reviewer(self):
+        fixture = service.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        app = fixture.app(portal_reader=True, project_extensions=STAMP_PROJECT_EXTENSIONS)
+        self.replay_stamp_poll(fixture, app)
+
+    def replay_stamp_poll(self, fixture, app, *, postgres_dsn=None):
+        owner, owner_key = fixture.login(app, "Avery")
+        reviewer, reviewer_key = fixture.login(app, "Blake")
+        viewer, _ = fixture.login(app, "Sam")
+        pull = "https://github.com/example/board/pull/8"
+        head, base, evidence = "a" * 40, "b" * 40, "c" * 32
+        evidence_url = f"https://stamp.build/s/fixture/github/example/board/pull/8/approvals/{evidence}/evidence"
+        with patch.object(ledger, "timestamp", return_value="2025-01-01T00:00:00Z"):
+            fixture.action(owner, "create-task", {"title": "Review fixture", "step": "Prepare review."})
+            fixture.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Prepare review."})
+            fixture.action(owner, "link-reference", {"id": "T-1", "label": "Pull request", "url": pull})
+            status, output, errors = fixture.shared_cli(
+                owner, "peer-ask", "create", "T-1", "Review this change.", "--to", "Blake",
+                "--stamp-review", pull, head, base,
+            )
+            self.assertEqual((status, errors), (0, ""))
+            self.assertIn("T-2", output)
+
+        def active_agents():
+            return fixture.call(viewer, ROUTE, method="POST", headers=ORIGIN, json={
+                "view_id": str(UUID(int=1)), "visit": 1, "project": "T",
+            }).json["active_agents"]
+
+        now = datetime(2025, 1, 1, 0, 6, tzinfo=timezone.utc)
+        with (patch.object(reports_presence, "time", return_value=now.timestamp()),
+              patch.object(ledger, "timestamp", return_value="2025-01-01T00:06:00Z")):
+            self.assertEqual(active_agents(), 0)
+            subject = fixture.provider.people["Blake"]["sub"]
+            reader = Mock()
+            reader.approvals.return_value = [
+                Approval(evidence, evidence_url, subject, service.SERVER, head, base, ready_to_merge=True),
+            ]
+            connection = storage.Postgres(postgres_dsn) if postgres_dsn else storage.open_sqlite(fixture.database)
+            with closing(connection) as db:
+                self.assertEqual(refresh_approvals(db, reader, STAMP_PROJECT_EXTENSIONS, pull),
+                                 {"recorded": 1, "ready_for_acknowledgment": 1})
+
+            source = fixture.action(owner, "task", query_string={"id": "T-1"})["task"]
+            self.assertEqual((source["state"], source["dri"], source["note"]),
+                             ("waiting", owner_key, "The peer result is ready for acknowledgment."))
+            request = fixture.action(owner, "task", query_string={"id": "T-2"})["task"]
+            self.assertEqual((request["state"], request["dri"]), ("ready", owner_key))
+            self.assertEqual(fixture.action(owner, "my-next")["work"]["key"], "T-2")
+            self.assertEqual(active_agents(), 0)
+            fixture.action(reviewer, "record-activity", {"id": "T-1", "note": "Verified another sample."})
+            self.assertEqual(active_agents(), 1)
+            events = fixture.action(owner, "task-activity", query_string={"id": "T-1"})["items"]
+            self.assertEqual(events[0]["actor"], reviewer_key)
 
     def replay_agent_activity(self, fixture, app, *, postgres_dsn=None):
         sam, sam_id = fixture.login(app, "Sam")
