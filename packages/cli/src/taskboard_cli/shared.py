@@ -359,6 +359,8 @@ def shared_write(board, args, *, context):
         else:
             action = "advance-task"
             data["transition"] = command
+            if command == "resume" and args.review_wait is not None:
+                data["review_wait"] = args.review_wait
             if getattr(args, "standing_pass", False):
                 data["standing_pass"] = "complete"
             if getattr(args, "criterion_met", False):
@@ -502,6 +504,17 @@ def shared_next(board, url, filters, actor):
         command_line = "`./tasks --shared list --status ready --unassigned" + project_flag + "`."
         return f"No ready tasks in your queue ({actor['name']}).\nNext: Check shared Ready work with {command_line}"
     goal_lines = queue_goal_lines(result, url)
+    for candidate in result.get("wait_review", ()):
+        ticket = candidate["key"]
+        goal_lines.append(f"{ticket} · Review waiting work · {candidate['title']}")
+        if candidate.get("ask_recipient"):
+            goal_lines.append("  Open the ticket and send a linked ask if the named agent can act.")
+        else:
+            goal_lines.append("  Open the ticket and identify a concrete preparation step or a dated revisit.")
+        goal_lines.append(
+            f'  To start preparation now, run `./tasks --shared resume {ticket} "<what you can do now>" '
+            f'--review-wait {candidate["wait_event"]}`.'
+        )
     if work := result["work"]:
         details = task_details(board, url, work["key"], guidance=result.get("next_step"), context_lines=goal_lines)
         label = NEXT_LABELS.get(work["kind"])

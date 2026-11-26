@@ -160,6 +160,8 @@ def arguments(argv=None):
         command.add_argument("--by", type=nonblank)
         if action in PROJECT_WRITER_TRANSITIONS or action == "close":
             add_transition_override(command)
+        if action == "resume":
+            command.add_argument("--review-wait", type=int, help="Exact signed Inbox wait event to resume for preparation.")
         if action == "wait":
             command.add_argument("--force-delivery", action="store_true", help="Confirm the watcher delivery warning.")
         if action in STRUCTURED_ACTIVITY:

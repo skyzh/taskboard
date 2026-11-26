@@ -2329,6 +2329,8 @@ def save_task(db, path, args, links):
             output = change_subscription(db, args, links)
         else:
             output = change_task(db, args, links)
+            if args.command == "done" and (on_done := getattr(args, "on_done", None)):
+                on_done(db, args.id)
         unchanged_allowed = (
             args.command in tasks_recurring.EDITS
             or args.command in ("recurring-tick", maintenance.WRITE, peer_asks.COMMAND, "tag", "remind", "edit", "checklist")
@@ -2354,6 +2356,8 @@ def run_local(args):
         or args.command in tasks_recurring.EDITS or args.command in ("recurring-tick", maintenance.WRITE)
     )
     try:
+        if getattr(args, "review_wait", None) is not None:
+            raise ValueError("Use --shared to resume from a signed Inbox wait review.")
         if getattr(args, "force", False) or getattr(args, "force_reason", None) is not None:
             raise ValueError("Use --shared for a project-writer override.")
         if args.command in ("goals", "save-goal"):

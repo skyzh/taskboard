@@ -199,6 +199,7 @@ _ACTIONS = {
         "on_name": "Exact handle or display name of a signed-in human for assign-human or redirect-decision.",
         "attention_request_id": "Exact open Needs me request to wait for, instead of a named dependency.",
         "blocked_by": "Separate blocking ticket ID for a wait, such as T-49.",
+        "review_wait": "Exact wait event for an owner resuming concrete preparation from Inbox review.",
         "options": "Decision choices encoded as a JSON array of strings.",
         "automation": "Use true for a tracked automation wait.",
         "review_after": "Optional review date for a parked task in YYYY-MM-DD format.",

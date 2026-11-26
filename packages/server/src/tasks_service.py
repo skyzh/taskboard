@@ -1688,6 +1688,42 @@ def create_app(
             "blocked_by" in context or context.get("wait_kind") == "automation"
         )
 
+    def record_confirmed_blocker(connection, task, actor, note, links, override=None):
+        return ledger.record(
+            connection, task["id"], "resume", actor, "ready", note, None, links,
+            {"confirmed_blocker_event": task["event_id"], **(override or {})},
+        )
+
+    def release_linked_waits(connection, blocker_id):
+        blocker = ledger.get_task(connection, blocker_id)
+        if blocker["display_state"] != "done":
+            return
+        source_project = projects.row_project(blocker)
+        candidates = connection.execute(
+            f"""WITH current AS ({ledger.current_tasks_sql(connection)})
+                SELECT * FROM current
+                WHERE state = 'waiting' AND json_extract(context, '$.blocked_by') = ?
+                  AND json_extract(context, '$.peer_ask_ticket') IS NULL
+                  AND COALESCE(json_extract(context, '$.wait_kind'), '') <> 'automation'
+                  AND COALESCE(dri, '') <> ''""",
+            (blocker_id,),
+        ).fetchall()
+        for task in candidates:
+            target_project = projects.row_project(task)
+            if source_project != target_project and (
+                ring1.private(connection, source_project) or ring1.private(connection, target_project)
+            ):
+                continue
+            if ledger.task_goal_kind(connection, task["id"]):
+                continue
+            record_confirmed_blocker(
+                connection, task, "Taskboard",
+                f"{projects.row_reference(blocker)} is Done. Review its completion and start the next step.",
+                [("Blocker completion", f"{base}/#event-{blocker['event_id']}-log")],
+            )
+            if target_project != source_project:
+                ledger.bump_revision(connection, target_project)
+
     def confirm_blocker(actor, number, wait_event, note, links, force_reason=None):
         key = actor["ledger_key"]
         with tasks_storage.write(db()) as connection:
@@ -1715,10 +1751,7 @@ def create_app(
             override = {} if authorized or not task["dri"] else ledger.transition_override(
                 task, "confirm-blocker", force_reason,
             )
-            event = ledger.record(
-                connection, number, "resume", key, "ready", note, None, links,
-                {"confirmed_blocker_event": wait_event, **override},
-            )
+            event = record_confirmed_blocker(connection, task, key, note, links, override)
             ledger.bump_revision(connection, project)
         return {"receipt": f"{projects.row_reference(task)} · Blocker confirmed", "event_id": event}
 
@@ -1802,6 +1835,18 @@ def create_app(
             if project is None:
                 return
             require_visible_project(connection, project)
+            if getattr(args, "review_wait", None) is not None:
+                task = ledger.get_work_task(connection, args.id)
+                context = ledger.event_context(task)
+                if task["dri"] != args.by:
+                    raise RequestError("Only the ticket owner can record preparation from a wait review.", 403)
+                if (task["state"] != "waiting" or task["event_id"] != args.review_wait
+                        or context.get("peer_ask_ticket") or ledger.ticket_blocker(task)
+                        or connection.execute(
+                            "SELECT 1 FROM attention_wait_links WHERE event_id = ? AND ready_event_id IS NULL",
+                            (task["event_id"],),
+                        ).fetchone()):
+                    raise RequestError("This wait has changed or has a linked request. Review the current ticket.", 409)
             for recipient in (getattr(args, "dri", None), getattr(args, "worker", None), getattr(args, "peer_recipient", None),
                               getattr(args, "maintenance_owner", None), *(getattr(args, "maintenance_members", None) or ())):
                 if recipient:
@@ -1833,6 +1878,8 @@ def create_app(
             return project
 
         args.authorize = authorize
+        if command == "done":
+            args.on_done = release_linked_waits
         if command in (*ledger.PROJECT_WRITER_TRANSITIONS, "close", "reopen"):
             args.force_reason = transition_force_reason(data)
             args.can_transition = lambda connection, task: can_collaborate_on_transition(connection, actor, task)
@@ -2898,7 +2945,7 @@ def create_app(
     def task_transition(number):
         actor = current_actor(write=True, required=True)
         data = json_body({
-            "transition", "note", "on", "blocked_by", "automation", "attention_request_id", "details",
+            "transition", "note", "on", "blocked_by", "automation", "attention_request_id", "details", "review_wait",
             "steps", "started", "checked", "eta", "clear_eta", "review_after", "defer_until", "standing_pass",
             "review_on", "review_criteria", "feature_deferred", "label", "url", "force_delivery", *TRANSITION_OVERRIDE_FIELDS,
         }, writing=True)
@@ -4133,6 +4180,9 @@ def create_app(
             if command == "redirect-decision" and on is None:
                 raise RequestError("Choose a new recipient to redirect the decision.")
             on = question_recipient(actor, number, on)
+        review_wait = integer(data["review_wait"], "review_wait") if "review_wait" in data else None
+        if review_wait is not None and command != "resume":
+            raise RequestError("Use resume to record a concrete preparation step from wait review.")
         blocked_by = data.get("blocked_by")
         if "blocked_by" in data:
             try:
@@ -4189,7 +4239,7 @@ def create_app(
             raise RequestError("clear_eta must be true or false.")
         return mutate(
             command, actor, data, id=number, on=on, option=options,
-            blocked_by=blocked_by, peer_recipient=peer, human_wait=human_wait,
+            blocked_by=blocked_by, peer_recipient=peer, human_wait=human_wait, review_wait=review_wait,
             force_delivery=force_delivery(data),
             reason=reason, automation=automation == "true", **parking,
             checklist_step=steps, start_check=started, check=checked, attention_request_id=attention_request,
@@ -4415,6 +4465,8 @@ def create_app(
             with tasks_storage.read(db()) as connection:
                 work = first_actionable_work(key, project)
                 result = {"work": work, **goals.queue_context(connection, key, project, principal=actor_key())}
+                if candidates := query().wait_review_candidates(key, project):
+                    result["wait_review"] = candidates
                 cue = agent_guidance["ready-review"]
                 if cue and work and work["kind"] in ("ready", "shared_ready") and not peer_asks.find(connection, work["id"]):
                     result["next_step"] = f"{agent_guidance.next_step(name, data, result)} {cue}"

@@ -597,7 +597,9 @@ When you launch a runtime subagent yourself, delegate the run using your own ver
 
 Queued asks shows pending peer reviews with their reviewers and original tickets. Signed-in recipients also see their own open decision and attention requests, loaded from their Notifications feeds.
 
-Use `./tasks --shared wait T-1 "Review after the export is complete." --blocked-by T-2` when a separate ticket must move first. Reports, task detail, and the CLI show the blocker links and current states. The task keeps its owner, who uses `resume` when ready. Use `transfer` to hand off the same ticket.
+Use `./tasks --shared wait T-1 "Review after the export is complete." --blocked-by T-2` when a separate ticket must move first. Reports, task detail, and the CLI show the blocker links and current states. When a shared blocker becomes Done, the board returns matching Waiting tickets to Ready once, preserves their owners, and links the completion. Use Confirm blocker cleared for a wait on an already completed blocker. Use `transfer` to hand off the same ticket.
+
+In `./tasks --shared next`, **Review waiting work** lists up to five of your waits for inspection. If a named agent can act, use a linked peer ask and follow the receipt's delivery guidance. If you can start a concrete preparation step now, use the displayed `resume --review-wait` command and record any approval still needed for the later step. An external event can stay parked with a date or explicit return trigger.
 
 ### Park a ticket with a reminder or dependency review
 
