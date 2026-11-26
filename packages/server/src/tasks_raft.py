@@ -377,7 +377,8 @@ def _public_base(public_url):
 
 
 def register_actions(app: Flask, *, public_url: str, client_id: str,
-                     dispatch: Callable[[str, dict], dict], codex_snapshot_upload: bool = False) -> None:
+                     dispatch: Callable[[str, dict], dict], codex_snapshot_upload: bool = False,
+                     demo_review: bool = False) -> None:
     """Publish the action contract and delegate all authenticated work to dispatch."""
     origin, mount = _public_base(public_url)
     if not re.fullmatch(r"[a-z][a-z0-9-]{2,63}", client_id):
@@ -387,6 +388,14 @@ def register_actions(app: Flask, *, public_url: str, client_id: str,
         actions = {**actions, CODEX_SNAPSHOT_ACTION: _Action(
             "POST", "Install one approved private Codex snapshot outcome.",
             {"outcome": "One bounded JSON snapshot outcome encoded as text."},
+        )}
+    if demo_review:
+        from taskboard_server.demo_review import SIGNED_ACTION
+
+        actions = {**actions, SIGNED_ACTION: _Action(
+            "POST", "Route one verified demo comparison as the configured project manager.",
+            {"observation": "Bounded JSON comparison observation encoded as text."},
+            {"apply": "Send true to write the ticket. Omit to preview."},
         )}
     public_base = f"{origin}{mount}"
     manifest = {

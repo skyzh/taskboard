@@ -623,10 +623,18 @@ def create_app(
     progress_prompt_minutes=None,
     initial_project=None,
     browser_push_config=None,
+    demo_review_config=None,
 ):
     """Configure the board with Raft, OIDC, or one deployment-provided login adapter."""
     if login_provider is not None and oidc_config is not None:
         raise ValueError("Configure one browser login provider.")
+    if demo_review_config is not None:
+        from taskboard_server import demo_review
+
+        demo_config = Namespace(**demo_review.json_object(demo_review_config))
+        if not demo_review.REPO.fullmatch(demo_config.repository) or not demo_review.COMMIT.fullmatch(demo_config.baseline):
+            raise ValueError("Configure the exact demo repository and approved baseline.")
+        demo_config.roster = project_roster or {}
     member_mode = "external" if login_provider is not None else "oidc" if oidc_config is not None else None
     if initial_project is None:
         initial_project = projects.load_initial_project(os.environ.get("TASKS_SERVER_CONFIG") or None)
@@ -4346,6 +4354,23 @@ def create_app(
         if g.get("personal_agent_api") and name in STANDING_RAFT_ACTIONS:
             raise RequestError(STANDING_RAFT_REQUIRED, 403)
         key = actor["ledger_key"]
+        if demo_review_config is not None and name == demo_review.SIGNED_ACTION:
+            if profile is not None or actor["kind"] != "agent" or key != demo_config.actor:
+                raise RequestError("Use the configured signed demo comparison operator.", 403)
+            project = project_filter({"project": demo_config.project})
+            if ring1.private(db(), project):
+                raise RequestError("Demo comparison routing requires a shared project.", 403)
+            apply = str(data.get("apply", "false")).lower()
+            if apply not in ("true", "false"):
+                raise RequestError("Send apply as true or false.")
+            try:
+                observation = demo_review.json_object(text(data, "observation", maximum=demo_review.JSON_LIMIT))
+                outcome = demo_review.apply_verified(db(), demo_config, observation, dry_run=apply == "false", explain=True)
+            except PermissionError as error:
+                raise RequestError(str(error), 403) from error
+            except ValueError as error:
+                raise RequestError(str(error), 400) from error
+            return outcome if isinstance(outcome, dict) else {"outcome": outcome}
         if name == "list-projects":
             return project_directory(actor)
         if name == "context":
@@ -4748,7 +4773,8 @@ def create_app(
             return result
 
         register_actions(app, public_url=base, client_id=raft_config["client_id"], dispatch=dispatch,
-                         codex_snapshot_upload=codex_snapshot_uploader is not None)
+                         codex_snapshot_upload=codex_snapshot_uploader is not None,
+                         demo_review=demo_review_config is not None)
 
     if prefix:
         mounted = DispatcherMiddleware(NotFound(), {prefix: app.wsgi_app})
@@ -4860,6 +4886,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             browser_push_config=browser_push.operator_configuration(os.environ) if config and not marketplace else None,
             project_extensions=project_extensions,
             github_webhook_secrets=os.environ.get("TASKS_GITHUB_WEBHOOK_SECRETS"),
+            demo_review_config=os.environ.get("TASKS_DEMO_REVIEW") or None,
             public_raft_channel_urls=os.environ.get("TASKS_PUBLIC_RAFT_CHANNEL_URLS"),
             creation_default_subject=os.environ.get("TASKS_NEW_TASKS_DEFAULT_SUBJECT")
             if not (local_readonly or marketplace) else None,

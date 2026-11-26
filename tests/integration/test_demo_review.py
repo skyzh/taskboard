@@ -188,3 +188,50 @@ class DemoReviewTest(unittest.TestCase):
             self.assertEqual(review.archive_json(archive, "receipt.json"), {"status": "pass"})
             with self.assertRaisesRegex(ValueError, "Expected one bounded"):
                 review.archive_json(archive, "candidate/result.json")
+
+    def test_mac_signed_route_previews_and_applies_as_the_configured_manager(self):
+        from tools.release.watch_demo_reviews import poll
+
+        settings = {key: value for key, value in vars(self.config).items() if key != "roster"}
+        app = self.board.app(demo_review_config=json.dumps(settings))
+        self.board.provider.issued.clear()
+        client, _ = self.board.login(app, "Avery")
+        other, _ = self.board.login(app, "Blake")
+        manifest = self.board.call(client, "/.well-known/raft-agent-manifest.json").json
+        self.assertIn(review.SIGNED_ACTION, {action["name"] for action in manifest["actions"]})
+        fixtures_board = self.board
+
+        class SignedBoard:
+            def invoke(self, action, payload=None, *, write=False):
+                return fixtures_board.action(client, action, payload)
+
+        self.config.board = self.board.action(client, "context")["board"]
+        self.config.owner = self.config.actor
+        since = "2026-11-25T00:00:00Z"
+        self.provider.add("changed", 101)
+        self.assertEqual(poll(self.provider, SignedBoard(), self.config, since=since, apply=False), {
+            "would_create": 1, "routes": [{"pull": 42, "outcome": "would_create", "owner": self.owner, "ticket": None}],
+        })
+        self.assertEqual(self.tickets(), [])
+
+        run, report = self.provider.history[0]
+        observation = review.verified_route(self.provider, self.config, run, report)
+        payload = {"observation": json.dumps(observation), "apply": True}
+        self.board.action(other, review.SIGNED_ACTION, payload, status=403)
+        self.board.action(client, review.SIGNED_ACTION, {
+            **payload, "observation": json.dumps({**observation, "baseline": "f" * 40}),
+        }, status=400)
+        self.assertEqual(self.tickets(), [])
+
+        self.assertEqual(poll(self.provider, SignedBoard(), self.config, since=since, apply=True), {"created": 1})
+        ticket, = self.tickets()
+        self.assertEqual(ticket["dri"], self.owner)
+        self.assertEqual(poll(self.provider, SignedBoard(), self.config, since=since, apply=True), {"duplicate": 1})
+        self.provider.add("pass", 101, attempt=2)
+        self.assertEqual(poll(self.provider, SignedBoard(), self.config, since=since, apply=False), {
+            "superseded": 1, "would_update": 1,
+            "routes": [{"pull": 42, "outcome": "would_update", "owner": self.owner, "ticket": "LAB-1"}],
+        })
+        self.assertEqual(poll(self.provider, SignedBoard(), self.config, since=since, apply=True),
+                         {"superseded": 1, "pass_recorded": 1})
+        self.assertEqual(self.tickets()[0]["id"], ticket["id"])
