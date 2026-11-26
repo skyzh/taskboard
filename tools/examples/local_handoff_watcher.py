@@ -88,6 +88,8 @@ def watcher_queue(board, actor, url, project):
     if not isinstance(manifest, list):
         raise ValueError("The Taskboard action manifest is missing its action list.")
     unavailable = context.get("unavailable_actions", {})
+    if actor.startswith("local-dri:") and not isinstance(context.get("unavailable_actions"), dict):
+        raise ValueError("The board does not advertise signed Local DRI action limits. Update the board before restarting.")
     mount = urlsplit(context["board"]).path.rstrip("/")
     actions = {
         entry["name"]: entry for entry in manifest

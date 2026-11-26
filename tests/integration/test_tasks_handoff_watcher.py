@@ -17,12 +17,16 @@ class SignedBoard:
         self.omitted = set()
         self.queue_parameters = set()
         self.calls = []
+        self.denied = {}
 
     def invoke(self, action, params=None, *, write=False):
         self.calls.append((action, params or {}))
         if write:
             return self.fixture.action(self.session, action, params, headers=self.headers)
-        return self.fixture.action(self.session, action, query_string=params, headers=self.headers)
+        result = self.fixture.action(self.session, action, query_string=params, headers=self.headers)
+        if action == "context" and self.denied:
+            result["unavailable_actions"].update(self.denied)
+        return result
 
     def action_manifest(self, expected_url):
         base = service.ORIGIN + service.BASE
@@ -110,6 +114,12 @@ class LocalHandoffWatcherTest(unittest.TestCase):
             self.assertEqual(board.calls, [("context", {})])
             self.assertEqual(board.invoke("task", {"id": "T-2"})["task"]["state"], "ready")
             board.omitted.remove("peer-ask")
+            board.calls.clear()
+            board.denied["peer-ask"] = "This signed session cannot post results."
+            with self.assertRaisesRegex(ValueError, "signed session.*peer-ask"):
+                run_one(board, **args)
+            self.assertEqual(board.calls, [("context", {})])
+            board.denied.clear()
             board.calls.clear()
         self.assertIsNone(run_one(board, **{**args, "requester": agent_id}))
         self.assertFalse(launches)
