@@ -179,7 +179,7 @@ def edit(db, args, as_of):
     return f"{reference} · {target.capitalize()}"
 
 
-def tick(db, as_of, make_task, *, recorded_at, project=None, actor=None):
+def tick(db, as_of, make_task, *, recorded_at, project=None, actor=None, touched=None):
     now = utc(as_of)
     totals = {"expected": 0, "issued": 0, "unissued": 0}
     args = [utc_text(now)]
@@ -195,6 +195,8 @@ def tick(db, as_of, make_task, *, recorded_at, project=None, actor=None):
             WHERE state = 'active' AND next_at <= ? {scope} ORDER BY id""", args,
     ).fetchall()
     for definition in due:
+        if touched is not None:
+            touched.append(definition)
         for field, amount in record_due(db, definition, now, make_task).items():
             totals[field] += amount
         audit.record(db, scope="private" if actor is not None else "operator", actor=actor, operation="recurring-tick",

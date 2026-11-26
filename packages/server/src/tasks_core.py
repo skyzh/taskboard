@@ -1991,25 +1991,31 @@ def bump_revision(db, project=None):
     )
 
 
+def recurring_project(db, definition, schedule):
+    if schedule is not None:
+        return schedule["project"]
+    if definition["project_prefix"] is not None:
+        return definition["project_prefix"]
+    if watches.has_table(db, "local_dris") and (local := local_dri.registration(db, definition["owner"])):
+        return local["project"]
+    return projects.default_project(db) if watches.has_table(db, "board_settings") else projects.DEFAULT
+
+
 def issue_recurring_task(db, definition, due, as_of):
     schedule = maintenance.find(db, definition_id=definition["id"])
     args = argparse.Namespace(
+        project=recurring_project(db, definition, schedule),
         title=definition["title"], step=definition["step"], brief=None, dri=definition["owner"], by=None,
     )
     links = []
     if schedule is not None:
         from tasks_maintenance_report import build
 
-        args.project = schedule["project"]
         members = set(json.loads(schedule["members"]))
         if members:
             members.update(projects.owner_keys(db, args.project))
             members.add(schedule["owner"])
         args.brief, links = build(db, args.project, as_of, schedule["cadence_hours"], members or None)
-    elif definition["project_prefix"] is not None:
-        args.project = definition["project_prefix"]
-    elif watches.has_table(db, "local_dris") and (local := local_dri.registration(db, definition["owner"])):
-        args.project = local["project"]
     context = {"recurring": f"R-{definition['id']}", "due_at": due}
     return create_task_record(db, args, links, context=context, at=as_of)
 
@@ -2033,6 +2039,7 @@ def save_task(db, path, args, links):
         revision_project = authorize(db) if authorize else getattr(args, "project", None)
         live = path is None or live_board_url(db) is not None
         before_change = db.total_changes
+        touched_projects = set()
         if args.command == maintenance.WRITE:
             output = json.dumps(maintenance.update(db, args, timestamp(), live=live))
         elif args.command in tasks_recurring.EDITS:
@@ -2050,14 +2057,21 @@ def save_task(db, path, args, links):
             if project is None and args.deferrals_only:
                 result = {"as_of": as_of, "released_deferrals": release_due_deferrals(db, as_of)}
             else:
+                touched_definitions = [] if project is None else None
                 result = tasks_recurring.tick(
                     db, as_of, lambda definition, due: issue_recurring_task(db, definition, due, as_of),
                     recorded_at=now, project=project, actor=args.by if project is not None else None,
+                    touched=touched_definitions,
                 )
+                for definition in touched_definitions or ():
+                    schedule = maintenance.find(db, definition_id=definition["id"])
+                    touched_projects.add(recurring_project(db, definition, schedule))
                 if project is not None:
                     result["project"] = project
                 elif released := release_due_deferrals(db, as_of):
                     result["released_deferrals"] = released
+            for reference in result.get("released_deferrals", ()):
+                touched_projects.add(projects.identifier(reference)[0])
             output = json.dumps(result)
         elif args.command == peer_asks.COMMAND:
             output = peer_asks.change(db, args, links)
@@ -2106,7 +2120,11 @@ def save_task(db, path, args, links):
             or (args.command == "wait" and getattr(args, "peer_recipient", None) is not None)
         )
         if live and (not unchanged_allowed or db.total_changes != before_change):
-            bump_revision(db, revision_project)
+            if args.command == "recurring-tick" and revision_project is None:
+                for project in sorted(touched_projects):
+                    bump_revision(db, project)
+            else:
+                bump_revision(db, revision_project)
     if not live:
         refresh_board_after_save(db, path, "Record saved")
     return output
