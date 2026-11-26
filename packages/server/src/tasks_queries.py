@@ -635,9 +635,21 @@ class BoardQueries:
     def hide_peer_requests(self, hide_requests):
         return hide_requests and watches.has_table(self.db, "peer_asks")
 
+    def ready_peer_work(self, task, state, owner):
+        if not watches.has_table(self.db, "peer_asks"):
+            return "FALSE"
+        return f"""({state} = 'ready' AND EXISTS (
+            SELECT 1 FROM peer_asks
+            WHERE task_id = {task}.id AND recipient = {owner} AND result_event_id IS NULL
+        ))"""
+
+    def summary_current_work(self, task, state, owner):
+        return f"({state} IN ({ACTIVE_STATES}) OR {self.ready_peer_work(task, state, owner)})"
+
     def tasks(self, *, state=None, dri=None, waiting_on=None, before=None, limit=20, now=False,
               decided_by=None, search=None, priority_order=False, review_due=None, project=None, tag=None,
-              managed_by=None, hide_requests=False, exclude_goals=False, github_url=None, include_knowledge=False):
+              managed_by=None, hide_requests=False, exclude_goals=False, github_url=None, include_knowledge=False,
+              current_work=False, unfinished=False, summary_personal_owner=None):
         terms, args = [], []
         filter_search = None
         for column, value in (
@@ -650,6 +662,20 @@ class BoardQueries:
                 args.append(value)
         if self.hide_peer_requests(hide_requests):
             terms.append("NOT EXISTS (SELECT 1 FROM peer_asks WHERE peer_asks.task_id = tasks.id)")
+        if current_work:
+            terms.append(self.summary_current_work("tasks", "events.state", "tasks.dri"))
+        if unfinished:
+            terms.append("events.state <> 'done'")
+        if ((current_work or unfinished) and dri and dri != summary_personal_owner
+                and project in (None, projects.DEFAULT) and self.project_roster is not None):
+            allowed = dri in projects.roster_owners(self.db, self.project_roster)
+            if not allowed and watches.has_table(self.db, "local_dris"):
+                allowed = self.db.execute(
+                    "SELECT 1 FROM local_dris WHERE actor = ? AND project = ?", (dri, projects.DEFAULT),
+                ).fetchone() is not None
+            if not allowed:
+                terms.append("tasks.project_prefix <> ?")
+                args.append(projects.DEFAULT)
         if exclude_goals:
             terms.append("NOT EXISTS (SELECT 1 FROM task_goals WHERE task_goals.task_id = tasks.id AND retired = 0)")
         if managed_by is not None:
@@ -1741,11 +1767,14 @@ class BoardQueries:
         ).fetchall()
         return page(rows, limit, "id", self.report_task_rows)
 
-    def watching_reports(self, watcher, *, project, before, limit, hide_requests):
+    def watching_reports(self, watcher, *, project, before, limit, hide_requests, summary=False):
         followed, renderers = {}, {}
         group = {}
         for prefix in [project] if project is not None else self.report_projects():
-            rows, _, render = self.project_reports("watching", None, None, prefix, hide_requests, None, watcher=watcher)
+            rows, _, render = self.project_reports(
+                "watching", None, None, prefix, hide_requests, None, watcher=watcher,
+                summary_view="watching" if summary else None, viewer=watcher,
+            )
             renderers[prefix] = render
             for row in rows:
                 followed.setdefault(row["dri"], {})[prefix] = row
@@ -1766,7 +1795,9 @@ class BoardQueries:
             scopes = followed.get(owner, {})
             entries = [renderers[prefix]([row], combining=project is None)[0] for prefix, row in scopes.items()]
             if entries and project is None:
-                entry = self.combine_project_reports(owner, scopes, entries, hide_requests)
+                entry = self.combine_project_reports(
+                    owner, scopes, entries, hide_requests, summary_view="watching" if summary else None,
+                )
             elif entries:
                 entry = entries[0]
             else:
@@ -1790,21 +1821,91 @@ class BoardQueries:
                 task.update(note="", waiting_on=None, waiting_profile=None, context={}, links=[], event_id=None)
         return tasks
 
-    def reports(self, *, view, before, limit, project=projects.DEFAULT, hide_requests=False, personal_owner=None):
+    def summary_actionable(self, viewer):
+        if viewer is None:
+            return "FALSE", ()
+        ready = self.ready_peer_work("current", "state", "dri")
+        decision = "(state = 'human_review' AND waiting_on = ?)"
+        peer = f"({ready} AND dri = ?)"
+        attention = f"""(state IN ('waiting', 'in_progress') AND EXISTS (
+            SELECT 1 FROM attention_requests WHERE task_id = current.id AND recipient = ?
+              AND handled_at IS NULL AND {ATTENTION_DUE}
+        ))"""
+        return f"({decision} OR {peer} OR {attention})", (viewer, viewer, viewer, pacific_day(ledger.timestamp()))
+
+    def summary_report_candidates(self, current, project, owner, current_work, watch_args, viewer):
+        actionable, action_args = self.summary_actionable(viewer)
+        ready_peer = self.ready_peer_work("current", "state", "dri")
+        priority = ledger.PRIORITY_ORDER_SQL.replace("tasks.priority", "current.priority")
+        timestamp = ledger.event_time_sql
+        return self.db.execute(
+            f"""WITH current AS ({current}),
+                    work AS (
+                        SELECT current.*, {actionable} AS actionable,
+                               CASE WHEN state = 'in_progress' THEN 0 WHEN {ready_peer} THEN 1 ELSE 2 END AS bucket,
+                               {priority} AS priority_rank,
+                               {tasks_storage.greatest(self.db)}({timestamp('current.at')}, COALESCE((
+                                   SELECT {timestamp('progress.at')} FROM events AS progress
+                                   WHERE progress.id = ({self.owner_progress_event('current')})
+                               ), '')) AS meaningful_at
+                        FROM current WHERE dri = ? AND ({current_work})
+                    ), ranked AS (
+                        SELECT work.*,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY bucket ORDER BY priority_rank, meaningful_at DESC, event_id DESC
+                               ) AS bucket_rank,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY actionable ORDER BY priority_rank, meaningful_at DESC, event_id DESC
+                               ) AS action_rank
+                        FROM work
+                    )
+                SELECT * FROM ranked WHERE bucket_rank <= 3 OR (actionable AND action_rank = 1)""",
+            (project, *action_args, owner, *watch_args),
+        ).fetchall()
+
+    @staticmethod
+    def summary_ranked_rows(rows, tasks):
+        return [
+            (row["bucket"], (row["priority_rank"], -datetime.fromisoformat(row["meaningful_at"] + "+00:00").timestamp(),
+                             -row["event_id"]), bool(row["actionable"]), task)
+            for row, task in zip(rows, tasks, strict=True)
+        ]
+
+    @staticmethod
+    def summary_preview(rows, view):
+        candidates = list(rows)
+        reserved = min((row for row in candidates if row[2]), default=None, key=lambda row: row[1])
+        ordered = sorted(
+            (row for row in candidates if row is not reserved and (view != "active" or row[0] < 2)),
+            key=lambda row: row[:2],
+        )
+        result = [reserved[3]] if reserved is not None else []
+        return result + [row[3] for row in ordered[:3 - len(result)]]
+
+    def reports(self, *, view, before, limit, project=projects.DEFAULT, hide_requests=False, personal_owner=None,
+                summary=False, viewer=None):
+        summary_view = view if summary else None
         if project is None:
-            return self.all_project_reports(view, before, limit, hide_requests, personal_owner)
-        rows, order, render = self.project_reports(view, before, limit, project, hide_requests, personal_owner)
+            return self.all_project_reports(
+                view, before, limit, hide_requests, personal_owner, summary_view=summary_view, viewer=viewer,
+            )
+        rows, order, render = self.project_reports(
+            view, before, limit, project, hide_requests, personal_owner, summary_view=summary_view, viewer=viewer,
+        )
         return page(rows, limit, order, render)
 
     def report_projects(self):
         return [row["prefix"] for row in self.db.execute("SELECT prefix FROM projects ORDER BY prefix")]
 
-    def all_project_reports(self, view, before, limit, hide_requests, personal_owner):
+    def all_project_reports(self, view, before, limit, hide_requests, personal_owner, *, summary_view=None, viewer=None):
         scopes = {}
         owners = {}
         scoped_view = "recent" if view == "recent" else "all"
         for project in self.report_projects():
-            rows, _, render = self.project_reports(scoped_view, None, None, project, hide_requests, personal_owner)
+            rows, _, render = self.project_reports(
+                scoped_view, None, None, project, hide_requests, personal_owner,
+                summary_view=summary_view, viewer=viewer,
+            )
             scopes[project] = render
             for row in rows:
                 owners.setdefault(row["dri"], {})[project] = row
@@ -1826,14 +1927,20 @@ class BoardQueries:
         for _, owner in remaining[:limit]:
             project_rows = owners[owner]
             entries = [scopes[project]([row], combining=True)[0] for project, row in project_rows.items()]
-            items.append(self.combine_project_reports(owner, project_rows, entries, hide_requests))
+            items.append(self.combine_project_reports(
+                owner, project_rows, entries, hide_requests, summary_view=summary_view,
+            ))
         return {
             "items": items,
             "next_cursor": remaining[limit - 1][0] if len(remaining) > limit else None,
         }
 
-    def combine_project_reports(self, owner, project_rows, entries, hide_requests):
-        work = sorted((row for entry in entries for row in entry["ranked_work"]), key=lambda row: row[:2])
+    def combine_project_reports(self, owner, project_rows, entries, hide_requests, *, summary_view=None):
+        work = (row for entry in entries for row in entry["ranked_work"])
+        if summary_view:
+            selected = self.summary_preview(work, summary_view)
+        else:
+            selected = [task for _, _, task in sorted(work, key=lambda row: row[:2])[:10]]
         outcomes = sorted((event for entry in entries for event in entry["recent_outcomes"]),
                           key=lambda event: event["id"], reverse=True)
         waits = sorted((wait for entry in entries for wait in entry["legacy_peer_waits"]),
@@ -1851,7 +1958,10 @@ class BoardQueries:
             "goals": [goal for entry in entries for goal in entry["goals"]],
             "as_of": max(as_of, default=None),
             "last_activity": max(activity, key=lambda event: event["id"], default=None),
-            "tasks": [task for _, _, task in work[:10]],
+            "tasks": selected,
+            **({"project_unfinished_counts": {
+                project: row["unfinished_count"] for project, row in project_rows.items()
+            }} if summary_view else {}),
             "legacy_peer_waits": waits[:10],
             "task_count": sum(entry["task_count"] for entry in entries),
             "task_counts": {state: sum(entry["task_counts"][state] for entry in entries) for state in WORK_STATES},
@@ -1863,7 +1973,8 @@ class BoardQueries:
             "report_count": report_count,
         }
 
-    def project_reports(self, view, before, limit, project, hide_requests, personal_owner, *, owner=None, watcher=None):
+    def project_reports(self, view, before, limit, project, hide_requests, personal_owner, *, owner=None, watcher=None,
+                        summary_view=None, viewer=None):
         current = ledger.current_tasks_sql(self.db) + " WHERE tasks.project_prefix = ?"
         peer_work = watches.has_table(self.db, "peer_asks")
         exclude_requests = ""
@@ -1939,6 +2050,19 @@ class BoardQueries:
             current_work = f"({active_state}) AND NOT {self.ticket_watch_sql('current')}"
             exclude_watched_waits = f"AND NOT {self.ticket_watch_sql('tasks')}"
             watch_args = (watcher,)
+        summary_fields, summary_args, summary_total = "", (), ""
+        owner_active = """(COALESCE(work.task_count, 0) > 0 OR reports.dri IS NOT NULL
+                            OR legacy_waits.recipient IS NOT NULL
+                            OR COALESCE(runs.running_builds, 0) > 0 OR COALESCE(runs.running_reviews, 0) > 0)"""
+        if summary_view:
+            compact_work = self.summary_current_work("current", "state", "dri")
+            current_work = compact_work if not watcher else f"({compact_work}) AND NOT {self.ticket_watch_sql('current')}"
+            actionable, summary_args = self.summary_actionable(viewer)
+            ready_peer = self.ready_peer_work("current", "state", "dri")
+            summary_fields = f""", COUNT(CASE WHEN state <> 'done' THEN 1 END) AS unfinished_count,
+                COUNT(CASE WHEN state = 'in_progress' OR {ready_peer} OR {actionable} THEN 1 END) AS active_count"""
+            summary_total = ", COALESCE(work.unfinished_count, 0) AS unfinished_count"
+            owner_active = "(COALESCE(work.active_count, 0) > 0)"
         rank = "CASE WHEN is_active THEN '0:' ELSE '1:' END"
         rank_args = ()
         if personal_owner:
@@ -2015,7 +2139,7 @@ class BoardQueries:
                  work AS (
                      SELECT dri, {WORK_COUNTS},
                             COUNT(CASE WHEN {current_work} THEN 1 END) AS task_count,
-                            MAX(CASE WHEN {active_state} THEN at END) AS updated
+                            MAX(CASE WHEN {active_state} THEN at END) AS updated {summary_fields}
                      FROM current GROUP BY dri
                  ),
                  reports AS (
@@ -2046,10 +2170,7 @@ class BoardQueries:
                             NULLIF({tasks_storage.greatest(self.db)}(
                                 COALESCE(work.updated, ''), COALESCE(reports.updated, ''), COALESCE(legacy_waits.updated, '')
                             ), '') AS as_of,
-                            (COALESCE(work.task_count, 0) > 0 OR reports.dri IS NOT NULL
-                                OR legacy_waits.recipient IS NOT NULL
-                                OR COALESCE(runs.running_builds, 0) > 0
-                                OR COALESCE(runs.running_reviews, 0) > 0) AS is_active
+                            {owner_active} AS is_active {summary_total}
                      FROM {summary_owners}
                      LEFT JOIN work ON work.dri = owners.dri
                      LEFT JOIN reports ON reports.dri = owners.dri
@@ -2062,8 +2183,8 @@ class BoardQueries:
                  )
             SELECT * FROM ordered WHERE {order} > ?{view_filter}{owner_filter}
             ORDER BY {order} {paging}
-            """, (project, project, *watch_args, *watch_args, *owner_args, *recent_args, *rank_args, before or "", *filter_args,
-                  *owner_filter_args, *paging_args),
+            """, (project, project, *watch_args, *watch_args, *summary_args, *owner_args, *recent_args, *rank_args,
+                  before or "", *filter_args, *owner_filter_args, *paging_args),
         ).fetchall()
 
         def render(visible, *, combining=False):
@@ -2075,7 +2196,11 @@ class BoardQueries:
                 person = row["dri"]
                 profile = directory.get(person)
                 active = []
-                if row["task_count"]:
+                if row["task_count"] and summary_view:
+                    active = self.summary_report_candidates(
+                        current, project, person, current_work, watch_args, viewer,
+                    )
+                elif row["task_count"]:
                     work_order = "CASE state WHEN 'human_review' THEN 0 WHEN 'waiting' THEN 1 WHEN 'parked' THEN 1 ELSE 2 END"
                     work_args = ()
                     if recent_cutoff and profile and (profile["kind"] == "human" or profile.get("dri_kind") == "local"):
@@ -2099,13 +2224,18 @@ class BoardQueries:
                 if profile is None and person in names:
                     profile = projects.roster_profile(person, names[person])
                 owned = self.report_task_rows(active)
+                ranked = self.summary_ranked_rows(active, owned) if summary_view else [
+                    (source["report_rank"], -source["event_id"], task)
+                    for source, task in zip(active, owned, strict=True)
+                ]
                 results.append({
                     "owner": person,
                     "profile": profile,
                     "goals": goal_summaries.get(person, []),
                     "as_of": row["as_of"],
                     "last_activity": self.last_activity(owner=person, project=project),
-                    "tasks": owned,
+                    "tasks": self.summary_preview(ranked, summary_view) if summary_view and not combining else owned,
+                    **({"project_unfinished_counts": {project: row["unfinished_count"]}} if summary_view else {}),
                     "legacy_peer_waits": self.queued_peer_waits(
                         before=None, limit=10, project=project, legacy_recipient=person, watcher=watcher,
                     )["items"] if row["has_legacy_waits"] else [],
@@ -2118,10 +2248,7 @@ class BoardQueries:
                     "pending_reports": pending["items"],
                     "pending_reports_before": pending["next_cursor"],
                     "report_count": row["report_count"],
-                    **({"ranked_work": [
-                        (source["report_rank"], -source["event_id"], task)
-                        for source, task in zip(active, owned, strict=True)
-                    ]} if combining else {}),
+                    **({"ranked_work": ranked} if combining else {}),
                 })
             return results
 
