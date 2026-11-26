@@ -410,13 +410,24 @@ class StorageReplayTest(unittest.TestCase):
         app = self.postgres_app(self.postgres_fixture(), project_admin_subject=root)
         presence_fixture.ReportsPresenceTest().replay(self.board, app)
 
+    def test_recent_agent_activity_on_postgres(self):
+        root = self.board.provider.people["Sam"]["sub"]
+        dsn = self.postgres_fixture()
+        app = self.postgres_app(dsn, project_admin_subject=root)
+        presence_fixture.ReportsPresenceTest().replay_agent_activity(self.board, app, postgres_dsn=dsn)
+
+    def test_stamp_poll_does_not_count_the_reviewer_on_postgres(self):
+        dsn = self.postgres_fixture()
+        app = self.postgres_app(dsn, project_extensions=presence_fixture.STAMP_PROJECT_EXTENSIONS)
+        presence_fixture.ReportsPresenceTest().replay_stamp_poll(self.board, app, postgres_dsn=dsn)
+
     def test_reports_presence_rows_are_discarded_on_sqlite_import(self):
         source = self.board.app(portal_reader=True)
         sam, _ = self.board.login(source, "Sam")
         active_view = {"view_id": str(uuid4()), "visit": 1, "scope": "all"}
         route = presence_fixture.ROUTE
         self.assertEqual(self.board.call(sam, route, method="POST", headers=ORIGIN, json=active_view).json,
-                         {"count": 1})
+                         {"count": 1, "active_agents": 0})
         snapshot = self.board.database.with_name("presence-snapshot.sqlite3")
         with closing(sqlite3.connect(self.board.database)) as current, closing(sqlite3.connect(snapshot)) as backup:
             current.backup(backup)
@@ -430,7 +441,7 @@ class StorageReplayTest(unittest.TestCase):
         sam, _ = self.board.login(target, "Sam")
         unopened_view = {**active_view, "leave": True}
         self.assertEqual(self.board.call(sam, route, method="POST", headers=ORIGIN, json=unopened_view).json,
-                         {"count": 0})
+                         {"count": 0, "active_agents": 0})
 
     def test_ring1_project_visibility_on_postgres(self):
         root = self.board.provider.people["Sam"]["sub"]

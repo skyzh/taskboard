@@ -559,7 +559,7 @@ def close_task(db, args, links):
     return f"{projects.row_reference(task)} · Closed"
 
 
-def change_ownership(db, args, links):
+def change_ownership(db, args, links, *, context=None):
     task = get_work_task(db, args.id)
     action, reference = args.command, projects.row_reference(task)
     if peer_asks.find(db, task["id"]):
@@ -584,7 +584,8 @@ def change_ownership(db, args, links):
     task = get_task(db, task["id"])
     db.execute("UPDATE tasks SET dri = ? WHERE id = ?", (owner, args.id))
     label = OWNERSHIP_ACTIONS[action]
-    change = {"ownership_action": action, "previous_dri": task["dri"], "next_dri": owner, **override}
+    change = {**(context or {}), "ownership_action": action,
+              "previous_dri": task["dri"], "next_dri": owner, **override}
     if task["state"] in ("waiting", "human_review", "parked"):
         # Keep the original wait, request ID, or reminder as the current event.
         record(db, args.id, "log", args.by, task["state"], args.note, None, links, change)

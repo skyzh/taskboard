@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react'
 
 const renewEvery = 15000
+const agentActivityHelp = 'Counts agents with recorded Taskboard activity in this scope in the past five minutes.'
 let tabViewId
 let visitNumber = 0
 
 export default function ReportPresence({ scope }) {
-  const [count, setCount] = useState(null)
+  const [presence, setPresence] = useState(null)
 
   useEffect(() => {
     tabViewId ??= globalThis.crypto?.randomUUID?.()
@@ -33,13 +34,15 @@ export default function ReportPresence({ scope }) {
         const signal = AbortSignal.any([current.controller.signal, AbortSignal.timeout(5000)])
         const response = await post(current, false, signal)
         if (response.ok) {
-          const { count } = await response.json()
-          if (Number.isSafeInteger(count) && count > 0) next = count
+          const { count, active_agents: activeAgents } = await response.json()
+          if (Number.isSafeInteger(count) && count > 0) {
+            next = { count, activeAgents: Number.isSafeInteger(activeAgents) && activeAgents >= 0 ? activeAgents : null }
+          }
         }
       } catch {
         // Presence is optional on a usable Reports page.
       }
-      if (visit === current) setCount(next)
+      if (visit === current) setPresence(next)
     }
 
     function leave() {
@@ -53,7 +56,7 @@ export default function ReportPresence({ scope }) {
     function syncVisibility() {
       if (document.visibilityState !== 'visible') {
         leave()
-        setCount(null)
+        setPresence(null)
       } else if (!visit) {
         visit = { number: ++visitNumber, controller: new AbortController() }
         void renew()
@@ -74,7 +77,18 @@ export default function ReportPresence({ scope }) {
     }
   }, [scope])
 
-  return count == null ? null : (
-    <span className="reports-viewer-count">{count} {count === 1 ? 'person' : 'people'} viewing</span>
+  if (!presence) return null
+  const { count, activeAgents } = presence
+  return (
+    <span className="reports-viewer-count">
+      {count} {count === 1 ? 'person' : 'people'} viewing
+      {activeAgents != null && <>
+        {' · '}
+        <span title={agentActivityHelp}>
+          {activeAgents} {activeAgents === 1 ? 'agent' : 'agents'} active
+          <span className="visually-hidden">. {agentActivityHelp}</span>
+        </span>
+      </>}
+    </span>
   )
 }

@@ -186,9 +186,11 @@
     margin-bottom: .45rem;
   }
   .reports > .reports-heading > .page-heading { display: contents; }
+  .reports-heading .reports-title { display: contents; }
   .reports-heading h1 { grid-area: 1 / 1; }
   .reports-heading > .project-switcher { grid-area: 1 / 2; justify-self: end; min-width: 0; }
   .reports-heading > .project-switcher select { text-overflow: ellipsis; }
+  .reports-heading .reports-viewer-count { grid-column: 1 / -1; white-space: normal; }
   .reports-heading .report-controls { grid-column: 1 / -1; gap: 0 .65rem; }
   .reports-heading .report-controls > :is(a, label) {
     display: inline-flex;

@@ -3102,8 +3102,7 @@ def create_app(
             raise RequestError("Send leave as true or false.")
         with tasks_storage.write(db()) as connection:
             project = project_scope(data, use_default=False)
-            count = reports_presence.update(connection, actor["ledger_key"], view_id, visit, project, leave=leave)
-        return {"count": count}
+            return reports_presence.update(connection, actor["ledger_key"], view_id, visit, project, leave=leave)
 
     @app.get("/api/v1/reports/watched-tickets")
     def report_watched_tickets():

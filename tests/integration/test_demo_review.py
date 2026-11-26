@@ -125,6 +125,21 @@ class DemoReviewTest(unittest.TestCase):
         self.assertEqual(len(self.tickets()), 1)
         self.assertEqual(self.poll(), {"duplicate": 1})
 
+    def test_automated_reopen_retains_its_comparison_origin(self):
+        self.provider.add("changed", 101)
+        self.assertEqual(self.poll(), {"created": 1})
+        ticket, = self.tickets()
+        with write(self.db):
+            tasks_core.record(self.db, ticket["id"], "done", self.config.actor, "done", "Reviewed.", None, [])
+        self.provider.add("changed", 102)
+        self.assertEqual(self.poll(), {"superseded": 1, "updated": 1})
+        reopened = self.db.execute(
+            "SELECT context FROM events WHERE task_id = ? AND action = 'transfer'", (ticket["id"],),
+        ).fetchone()
+        context = json.loads(reopened["context"])
+        self.assertEqual(context["ownership_action"], "reopen")
+        self.assertEqual(context["demo_comparison"]["attempt"], [102, 1])
+
     def test_clean_privacy_and_newer_attempts(self):
         self.provider.add("changed", 101)
         self.provider.add("pass", 101, attempt=2)
