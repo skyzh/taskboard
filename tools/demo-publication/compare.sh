@@ -3,12 +3,27 @@ set -euo pipefail
 
 mkdir -p "$EVIDENCE"
 status=error
+BASELINE=
 record_result() {
     printf '%s\n' "status=$status" >> "$GITHUB_OUTPUT"
     printf 'Demo comparison: **%s**\n' "$status" >> "$GITHUB_STEP_SUMMARY"
     python3 tools/demo-publication/receipt.py "$EVIDENCE" "$status" "$BASELINE"
 }
 trap record_result EXIT
+
+baseline_file=web/demo/baseline.txt
+if [[ -n "${BASELINE_REF:-}" ]]; then
+    if [[ ! "$BASELINE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+        echo 'The pull request base must be a full Git commit SHA.' >&2
+        exit 1
+    fi
+    git fetch --no-tags --depth=1 origin "$BASELINE_REF"
+    if git cat-file -e "$BASELINE_REF:$baseline_file" 2>/dev/null; then
+        BASELINE=$(git show "$BASELINE_REF:$baseline_file")
+    fi
+elif [[ -f "$baseline_file" ]]; then
+    BASELINE=$(cat "$baseline_file")
+fi
 
 if [[ -z "$BASELINE" ]]; then
     status=unavailable

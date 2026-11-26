@@ -50,8 +50,6 @@ jobs:
       - id: compare
         if: steps.checked.outputs.current == 'true' && github.event_name == 'workflow_run'
         uses: ./.github/actions/compare-summary-demo
-        with:
-          baseline: ${{ vars.SUMMARY_DEMO_BASELINE }}
       - if: steps.checked.outputs.current == 'true' && github.event_name == 'workflow_dispatch'
         run: |
           npm --prefix web ci --no-audit --no-fund
