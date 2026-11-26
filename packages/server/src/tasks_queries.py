@@ -1881,6 +1881,8 @@ class BoardQueries:
             key=lambda row: row[:2],
         )
         result = [reserved[3]] if reserved is not None else []
+        if result and result[0]["state"] == "human_review":
+            result[0] = {**result[0], "summary_needs_decision": True}
         return result + [row[3] for row in ordered[:3 - len(result)]]
 
     def reports(self, *, view, before, limit, project=projects.DEFAULT, hide_requests=False, personal_owner=None,

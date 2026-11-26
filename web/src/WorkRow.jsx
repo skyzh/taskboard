@@ -79,7 +79,8 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
   const showRequester = reportSummary && ['asked', 'in_progress'].includes(ask?.phase)
   const parkedRequest = showRequester && state === 'parked'
   const cue = report ? reportTaskCue(task, parkedRequest) : null
-  const currentWork = report && (state === 'in_progress' || state === 'waiting')
+  const needsDecision = reportSummary && !publicPreview && task.summary_needs_decision
+  const currentWork = report && (state === 'in_progress' || state === 'waiting' || needsDecision)
   const showTaskStatus = !reportSummary || !ask || ask.phase === 'in_progress' || parkedRequest
   const dependency = task.waiting_on || task.blockers
   const exceptionalPriority = task.priority === 'high' || task.priority === 'low'
@@ -119,6 +120,7 @@ export function TaskRow({ task, owner = true, selected = false, report = false, 
       {dependency && (
         <p className="task-dependency"><Dependency task={task} publicPreview={publicPreview} /></p>
       )}
+      {needsDecision && <p className="task-dependency">Waiting on <strong>you</strong></p>}
       {!currentWork && step}
       {detailedReport && task.release_result && <ReportReleaseResult receipt={task.release_result} />}
       {detailedReport && cue?.text && ownReport && task.release_after_step && (

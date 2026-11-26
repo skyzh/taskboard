@@ -73,6 +73,8 @@ class ReportsSummaryTest(unittest.TestCase):
         row, = active
         self.assertEqual(row["owner"], self.owner)
         self.assertEqual(self.ids(row["tasks"]), [self.question, self.high, self.recent_progress])
+        self.assertTrue(row["tasks"][0]["summary_needs_decision"])
+        self.assertEqual(row["tasks"][0]["note"], "")
         self.assertEqual(row["task_count"], 19)
         self.assertEqual(row["task_counts"]["waiting"], 13)
         self.assertEqual(row["project_unfinished_counts"], {"T": 16, "OPS": 5})
@@ -138,8 +140,10 @@ class ReportsSummaryTest(unittest.TestCase):
         self.assertEqual(len(owner["tasks"]), 1)
         active = self.summary(view="active", project="T")
         self.assertEqual(self.ids(active["tasks"]), [self.question, self.recent_progress])
-        self.assertEqual(self.ids(self.summary(view="all", project="T")["tasks"]),
+        all_tasks = self.summary(view="all", project="T")["tasks"]
+        self.assertEqual(self.ids(all_tasks),
                          [self.question, self.recent_progress, self.other_question])
+        self.assertNotIn("summary_needs_decision", all_tasks[-1])
         legacy = next(row for row in self.rows("reports", view="all", project="T") if row["owner"] == self.owner)
         self.assertGreater(len(legacy["tasks"]), 3)
         self.assertNotIn("project_unfinished_counts", legacy)
