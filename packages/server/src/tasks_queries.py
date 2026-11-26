@@ -1852,7 +1852,8 @@ class BoardQueries:
                     ), ranked AS (
                         SELECT work.*,
                                ROW_NUMBER() OVER (
-                                   PARTITION BY bucket ORDER BY priority_rank, meaningful_at DESC, event_id DESC
+                                   PARTITION BY bucket, (bucket = 2 AND actionable)
+                                   ORDER BY priority_rank, meaningful_at DESC, event_id DESC
                                ) AS bucket_rank,
                                ROW_NUMBER() OVER (
                                    PARTITION BY actionable ORDER BY priority_rank, meaningful_at DESC, event_id DESC
@@ -1876,7 +1877,7 @@ class BoardQueries:
         candidates = list(rows)
         reserved = min((row for row in candidates if row[2]), default=None, key=lambda row: row[1])
         ordered = sorted(
-            (row for row in candidates if row is not reserved and (view != "active" or row[0] < 2)),
+            (row for row in candidates if row is not reserved and (row[0] < 2 or (view != "active" and not row[2]))),
             key=lambda row: row[:2],
         )
         result = [reserved[3]] if reserved is not None else []

@@ -95,6 +95,15 @@ class ReportsSummaryTest(unittest.TestCase):
         self.assertEqual(self.ids(self.rows("tasks", current_work="all", project="OPS", dri=self.owner,
                                            hide_requests="true")), [self.old_progress, self.high])
 
+    def test_all_reserves_only_one_viewer_wait_and_still_fills_with_ordinary_work(self):
+        with closing(open_sqlite(self.board.database)) as db, write(db):
+            for index in range(4):
+                newest = self.create(db, f"Viewer decision {index}", "human_review",
+                                     waiting_on=self.viewer, priority="high")
+        row = self.summary(view="all", project="T")
+        self.assertEqual(self.ids(row["tasks"]), [newest, self.recent_progress, self.other_question])
+        self.assertEqual(row["task_count"], 20)
+
     def test_meaningful_owner_update_breaks_priority_ties(self):
         with closing(open_sqlite(self.board.database)) as db, write(db):
             ledger.record(db, self.old_progress, "log", self.owner, "in_progress", "Checked the source.", None, [],
