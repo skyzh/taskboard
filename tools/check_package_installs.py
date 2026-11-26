@@ -124,7 +124,7 @@ print(json.dumps({{"ok": True, "data": {{"result": {{"actor": actor, "board": "h
         ledger.execute("ALTER TABLE board_principals DROP COLUMN short_role")
     upgraded = run([server / "taskboard-migrate", "--db", database, "upgrade"], cwd=directory,
                    environment=environment, capture_output=True, text=True)
-    assert json.loads(upgraded.stdout)["applied_revision"] == "0002_profile_short_role"
+    assert json.loads(upgraded.stdout)["applied_revision"] == "0003_recurring_review_tickets"
 
 
 if __name__ == "__main__":

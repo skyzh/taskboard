@@ -18,6 +18,7 @@ from tasks_storage import SCHEMA_REVISION_TABLE, open_sqlite
 
 PROFILE_BASELINE = "0001_profiles_baseline"
 PROFILE_SHORT_ROLE = "0002_profile_short_role"
+RECURRING_REVIEW_TICKETS = "0003_recurring_review_tickets"
 IDENTITY = ["server_id", "kind", "subject"]
 REQUIRED_TEXT = frozenset({*IDENTITY, "ledger_key", "username", "name"})
 OPTIONAL_TEXT = frozenset("""
@@ -101,16 +102,34 @@ def prepare_connection(connection):
         raise ValueError("The PostgreSQL Taskboard bootstrap version is unsupported.")
 
 
+def recognized_revision(connection):
+    profiles = profile_revision(connection)
+    catalog = inspect(connection)
+    tables = {
+        "recurring_review_tickets": {"definition_id", "task_id"},
+        "recurring_review_runs": {"definition_id", "due_at", "ready_event_id", "completed_event_id"},
+    }
+    present = set(tables) & set(catalog.get_table_names())
+    if present and (present != tables.keys() or any(
+        {column["name"] for column in catalog.get_columns(table)} != columns for table, columns in tables.items()
+    )):
+        raise ValueError("The Taskboard recurring review tables have an unsupported layout.")
+    if profiles == PROFILE_SHORT_ROLE and present:
+        return RECURRING_REVIEW_TICKETS
+    return profiles
+
+
 def migrate(engine, *, apply=False):
     with engine.connect() as connection:
         prepare_connection(connection)
-        baseline = profile_revision(connection)
+        baseline = recognized_revision(connection)
         options = {"version_table": SCHEMA_REVISION_TABLE}
         current = MigrationContext.configure(connection, opts=options).get_current_revision()
-        if current is not None and current != baseline:
-            raise ValueError("The recorded Taskboard revision does not match the recognized profile schema.")
+        adopted_at_startup = current == PROFILE_SHORT_ROLE and baseline == RECURRING_REVIEW_TICKETS
+        if current is not None and current != baseline and not adopted_at_startup:
+            raise ValueError("The recorded Taskboard revision does not match the recognized schema.")
 
-        report = {"recorded_revision": current, "recognized_revision": baseline, "target_revision": PROFILE_SHORT_ROLE}
+        report = {"recorded_revision": current, "recognized_revision": baseline, "target_revision": RECURRING_REVIEW_TICKETS}
         if not apply:
             return report
 
@@ -119,10 +138,10 @@ def migrate(engine, *, apply=False):
         config.attributes.update(connection=connection, **options)
         if current is None:
             command.stamp(config, baseline)
-        if baseline != PROFILE_SHORT_ROLE:
-            command.upgrade(config, PROFILE_SHORT_ROLE)
+        if (current or baseline) != RECURRING_REVIEW_TICKETS:
+            command.upgrade(config, RECURRING_REVIEW_TICKETS)
         connection.commit()
-        return {**report, "applied_revision": PROFILE_SHORT_ROLE}
+        return {**report, "applied_revision": RECURRING_REVIEW_TICKETS}
 
 
 def main(argv=None):

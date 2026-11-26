@@ -294,7 +294,7 @@ def arguments(argv=None):
     recurrence.add_argument("--project", type=nonblank)
     recurrence.add_argument("--cadence-hours", type=int, required=True)
     recurrence.add_argument("--next-at", required=True, metavar="UTC")
-    for change in ("pause", "resume", "cancel", "show"):
+    for change in ("pause", "resume", "cancel", "adopt", "show"):
         command = commands.add_parser(f"recurring-{change}", help=f"{change.capitalize()} an owned recurring definition.")
         command.add_argument("id", type=recurrence_id)
         command.add_argument("--by", type=nonblank)
@@ -302,6 +302,12 @@ def arguments(argv=None):
             command.add_argument("--next-at", required=True, metavar="UTC")
         if change == "show":
             command.add_argument("--as-of", metavar="UTC", help="Set a local fixture observation time.")
+    review = commands.add_parser("complete-recurring-review", help="Record the outcome and park the reusable ticket.")
+    review.add_argument("id", type=recurrence_id)
+    review.add_argument("note", type=nonblank)
+    review.add_argument("--by", type=nonblank)
+    add_details_flag(review)
+    add_link_flag(review)
     tick = commands.add_parser("recurring-tick", help="Issue due recurring work as a project manager or ledger operator.")
     tick.add_argument("--project", type=nonblank, help="Run a signed tick for a project you manage.")
     tick.add_argument("--as-of", metavar="UTC", help="Required observation time for an offline operator tick.")
@@ -586,7 +592,7 @@ def arguments(argv=None):
         "add", "start", "update", "wait", "resume", "done", "close", "edit", "transfer",
         "park", "unpark", "remind", "confirm-blocker", "raise-attention", "assign-human",
         "redirect-decision", "withdraw-decision", "reassign", "unassign", "reopen",
-        "recurring-add", "peer-ask", "delegate", "worker-start", "worker-report",
+        "recurring-add", "complete-recurring-review", "peer-ask", "delegate", "worker-start", "worker-report",
         "worker-collect", "worker-stop",
     ):
         commands.choices[name].add_argument(

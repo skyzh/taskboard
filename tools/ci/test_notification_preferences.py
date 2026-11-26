@@ -20,10 +20,10 @@ import test_tasks_github_webhooks as webhook_fixture
 from test_tasks_knowledge_sweeps import replay_knowledge_sweeps
 from test_tasks_migrations import reject_incompatible_profile_definition, replay_versioned_profiles
 from test_tasks_project_move import replay_move
-from test_tasks_recurring import replay_project_tick, replay_team_schedules
+from test_tasks_recurring import replay_project_tick, replay_reusable_upgrade, replay_team_schedules
 import test_tasks_ring1 as ring1_fixture
 import test_tasks_reports_presence as presence_fixture
-from taskboard_server.migrate import PROFILE_SHORT_ROLE, migrate
+from taskboard_server.migrate import RECURRING_REVIEW_TICKETS, migrate
 from tasks_core import import_notification_on
 from tasks_service import create_app
 from tasks_storage import Postgres, SCHEMA_REVISION_TABLE, open_sqlite
@@ -212,6 +212,12 @@ class StorageReplayTest(unittest.TestCase):
         dsn = self.postgres_fixture()
         replay_team_schedules(self, self.board, self.postgres_app(dsn), lambda: closing(Postgres(dsn)))
 
+    def test_postgres_upgrade_reuses_ticket_and_preserves_review_history(self):
+        dsn = self.postgres_fixture()
+        engine = create_engine(dsn.replace("postgresql://", "postgresql+psycopg://", 1), poolclass=NullPool)
+        self.addCleanup(engine.dispose)
+        replay_reusable_upgrade(self, self.board, lambda: self.postgres_app(dsn), lambda: closing(Postgres(dsn)), engine)
+
     def test_postgres_github_webhook(self):
         dsn = self.postgres_fixture()
         app = self.postgres_app(dsn, project_extensions=webhook_fixture.CONFIGURATION,
@@ -247,7 +253,7 @@ class StorageReplayTest(unittest.TestCase):
             source.backup(backup)
         source_engine = create_engine("sqlite+pysqlite://", creator=lambda: open_sqlite(snapshot), poolclass=NullPool)
         self.addCleanup(source_engine.dispose)
-        self.assertEqual(migrate(source_engine, apply=True)["applied_revision"], PROFILE_SHORT_ROLE)
+        self.assertEqual(migrate(source_engine, apply=True)["applied_revision"], RECURRING_REVIEW_TICKETS)
 
         dsn = self.postgres_fixture()
         imported = import_snapshot(snapshot, dsn)
@@ -256,7 +262,7 @@ class StorageReplayTest(unittest.TestCase):
         target_engine = create_engine(dsn.replace("postgresql://", "postgresql+psycopg://", 1), poolclass=NullPool)
         self.addCleanup(target_engine.dispose)
         self.assertIsNone(migrate(target_engine)["recorded_revision"])
-        self.assertEqual(migrate(target_engine, apply=True)["applied_revision"], PROFILE_SHORT_ROLE)
+        self.assertEqual(migrate(target_engine, apply=True)["applied_revision"], RECURRING_REVIEW_TICKETS)
 
         owner, signed_id = self.board.login(self.postgres_app(dsn), "Avery")
         task = self.board.action(owner, "task", query_string={"id": "T-1"})["task"]
