@@ -1352,7 +1352,9 @@ button:disabled { opacity: .57; }
 .schedule-panel { display: grid; gap: .65rem; }
 .schedule-heading { flex-wrap: wrap; }
 .schedule-heading h1 { min-width: 0; overflow-wrap: anywhere; }
+.schedule-owner h3 { margin: .25rem 0 .4rem; overflow-wrap: anywhere; }
 .schedule-item { display: grid; gap: .55rem; padding-block: .6rem; border-top: 1px solid var(--line); }
+.schedule-item h4 { margin: 0; font-size: .92rem; overflow-wrap: anywhere; }
 .schedule-summary { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin: 0; }
 .schedule-summary dt, .schedule-muted { color: var(--muted); font-size: .82rem; }
 .schedule-summary dd { margin: 0; }

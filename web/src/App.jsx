@@ -300,9 +300,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
     }
   }
   useContentTitle(view === 'reports' && (showGoalActivity ? 'Goal activity' : assigneeView === 'watching' ? 'Watching' : null))
-  const supportsAllProjects = ['reports', 'board', 'activity', 'team-overview', 'knowledge', 'stats', 'notifications', 'my-activity'].includes(view) ||
-    (view === 'schedules' && !scheduleId)
-  const scopedView = supportsAllProjects || ['assignee', 'task', 'schedules'].includes(view)
+  const supportsAllProjects = ['reports', 'board', 'activity', 'team-overview', 'knowledge', 'stats', 'notifications',
+    'my-activity', 'schedules'].includes(view)
+  const scopedView = supportsAllProjects || ['assignee', 'task'].includes(view)
   const canSelectProject = scopedView || ['settings', 'integrations'].includes(view)
   const knowledgeEntry = knowledgeFilters?.get('entry')
   const recordProject = namedTask?.split('-')[0] || knowledgeEntry?.match(/^([A-Z][A-Z0-9]{0,7})-\d+$/)?.[1]

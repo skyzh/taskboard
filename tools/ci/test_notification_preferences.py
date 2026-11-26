@@ -20,7 +20,7 @@ import test_tasks_github_webhooks as webhook_fixture
 from test_tasks_knowledge_sweeps import replay_knowledge_sweeps
 from test_tasks_migrations import reject_incompatible_profile_definition, replay_versioned_profiles
 from test_tasks_project_move import replay_move
-from test_tasks_recurring import replay_project_tick
+from test_tasks_recurring import replay_project_tick, replay_team_schedules
 import test_tasks_ring1 as ring1_fixture
 import test_tasks_reports_presence as presence_fixture
 from taskboard_server.migrate import PROFILE_SHORT_ROLE, migrate
@@ -207,6 +207,10 @@ class StorageReplayTest(unittest.TestCase):
     def test_postgres_signed_project_tick(self):
         dsn = self.postgres_fixture()
         replay_project_tick(self, self.board, self.postgres_app(dsn), lambda: closing(Postgres(dsn)))
+
+    def test_postgres_team_schedule_visibility(self):
+        dsn = self.postgres_fixture()
+        replay_team_schedules(self, self.board, self.postgres_app(dsn), lambda: closing(Postgres(dsn)))
 
     def test_postgres_github_webhook(self):
         dsn = self.postgres_fixture()

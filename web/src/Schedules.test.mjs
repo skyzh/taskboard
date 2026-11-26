@@ -23,7 +23,7 @@ before(async () => {
 after(() => vite?.close())
 
 const schedule = {
-  id: 'R-1', title: 'Review samples', owner: 'owner-id', owner_name: 'River',
+  id: 'R-1', title: 'Review samples', owner: 'owner-id', owner_name: 'River', editable: true,
   state: 'active', cadence_hours: 24, next_at: '2026-11-23T10:00:00Z',
   recent_occurrences: [
     { due_at: '2026-11-21T10:00:00Z', status: 'completed_on_time', task_id: 5, task_key: 'COURSE-1' },
@@ -37,11 +37,11 @@ function content(project, recurring, maintenance) {
   }))
 }
 
-test('renders only own recurring work and contextual links to issued tickets', () => {
+test('renders recurring work and keeps permitted edits and issued ticket links', () => {
   const html = content('COURSE', [schedule], { editable: false, schedule: null })
   assert.match(html, /Review samples/)
   assert.match(html, /href="#schedule-R-1\?project=COURSE">R-1 · Review samples<\/a>/)
-  assert.match(html, />River<\/dd>/)
+  assert.match(html, />River<\/h3>/)
   assert.match(html, /dateTime="2026-11-23T10:00:00Z"/)
   assert.match(html, /href="#task-COURSE-1">COURSE-1<\/a>/)
   assert.match(html, /No ticket issued/)
@@ -59,8 +59,31 @@ test('shows authorized maintenance edits and handles a project with no schedule'
   assert.match(html, /Edit maintenance schedule/)
   assert.match(html, /Cadence in hours/)
   assert.match(html, /href="#task-COURSE-1"/)
-  assert.match(html, /You have no recurring schedules in this project/)
+  assert.match(html, /No recurring schedules in this project/)
   assert.match(content('COURSE', [], { editable: true, schedule: null }), /This project has no maintenance schedule/)
+})
+
+test('groups schedules by owner across projects and preserves the All projects detail link', () => {
+  const html = renderToStaticMarkup(React.createElement(ScheduleContents, {
+    allProjects: true,
+    data: {
+      recurring: [
+        { ...schedule, project: 'COURSE', editable: false },
+        { ...schedule, id: 'R-2', title: 'Send the report', project: 'T', editable: false },
+        { ...schedule, id: 'R-3', owner: 'other-id', owner_name: 'Sam', project: 'T', editable: false },
+      ],
+      maintenance: { editable: false, schedule: null }, project_maintenance: [],
+    },
+  }))
+  assert.match(html, />Recurring work<\/h2>/)
+  assert.equal((html.match(/>River<\/h3>/g) || []).length, 1)
+  assert.match(html, />Sam<\/h3>/)
+  assert.match(html, /href="#schedule-R-1\?scope=all">R-1 · Review samples<\/a>/)
+  assert.match(html, /href="#schedule-R-2\?scope=all">R-2 · Send the report<\/a>/)
+  assert.match(html, /<dt>Project<\/dt><dd>COURSE<\/dd>/)
+  assert.match(html, /href="#task-COURSE-1">COURSE-1<\/a>/)
+  assert.match(html, />Project maintenance<\/h2>/)
+  assert.doesNotMatch(html, />Pause<\/button>|Cancel schedule|Your recurring work/)
 })
 
 test('returns to both schedule pages after sign-in', () => {
@@ -68,6 +91,8 @@ test('returns to both schedule pages after sign-in', () => {
     ['#schedules=&project=COURSE', '/schedules?project=COURSE'],
     ['#schedule-R-2', '/schedules/R-2'],
     ['#schedule-R-2?project=COURSE', '/schedules/R-2?project=COURSE'],
+    ['#schedules=&scope=all', '/schedules?scope=all'],
+    ['#schedule-R-2?scope=all', '/schedules/R-2?scope=all'],
   ]) {
     assert.equal(new URL(signInHref(fragment), 'https://example.test/tasks/').searchParams.get('return_to'), target)
   }

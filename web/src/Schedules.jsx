@@ -24,14 +24,15 @@ function ScheduleDate({ value }) {
   return value ? <time dateTime={value}>{formatTimestamp(value)}</time> : '—'
 }
 
-export function ScheduleSummary({ schedule }) {
+export function ScheduleSummary({ schedule, project, showOwner = true }) {
   const { owner_name: owner, cadence_hours: cadence, state, next_at: next } = schedule
   const interval = cadence % 24 === 0
     ? cadence === 24 ? 'Daily' : `Every ${cadence / 24} days`
     : cadence === 1 ? 'Hourly' : `Every ${cadence} hours`
   return (
     <dl className="schedule-summary">
-      <div><dt>Owner</dt><dd>{owner || 'Unavailable assignee'}</dd></div>
+      {showOwner && <div><dt>Owner</dt><dd>{owner || 'Unavailable assignee'}</dd></div>}
+      {project && <div><dt>Project</dt><dd>{project}</dd></div>}
       <div><dt>Cadence</dt><dd>{interval}</dd></div>
       <div><dt>Status</dt><dd>{scheduleStates[state]}</dd></div>
       {state === 'active' && <div><dt>Next run</dt><dd><ScheduleDate value={next} /></dd></div>}
@@ -178,27 +179,37 @@ function ScheduleControls({ project, schedule, ownerChoices, onChanged }) {
   )
 }
 
-function ScheduleLink({ schedule, project }) {
-  return <BoardLink href={scheduleHref(schedule.id, project)}>{schedule.id} · {schedule.title}</BoardLink>
+function ScheduleLink({ schedule, project, allProjects }) {
+  return <BoardLink href={scheduleHref(schedule.id, project, allProjects)}>{schedule.id} · {schedule.title}</BoardLink>
 }
 
 export function ScheduleContents({ data, project, allProjects, onChanged }) {
   const { recurring, maintenance, project_maintenance: projectMaintenance } = data
   const schedule = maintenance.schedule
+  const owners = new Map()
+  for (const item of recurring) {
+    if (!owners.has(item.owner)) owners.set(item.owner, { name: item.owner_name || 'Unavailable assignee', schedules: [] })
+    owners.get(item.owner).schedules.push(item)
+  }
+  const groups = [...owners].sort(([, left], [, right]) => left.name.localeCompare(right.name))
   return (
     <>
       <section className="panel schedule-panel" aria-labelledby="recurring-title">
-        <h2 id="recurring-title">Your recurring work</h2>
-        {recurring.length === 0 && <p>{allProjects
-          ? 'You have no recurring schedules.' : 'You have no recurring schedules in this project.'}</p>}
-        {recurring.map(item => (
-          <article key={item.id} className="schedule-item">
-            <h3><ScheduleLink schedule={item} project={item.project || project} /></h3>
-            {allProjects && <p>{item.project}</p>}
-            <ScheduleSummary schedule={item} />
-            <OccurrenceHistory occurrences={item.recent_occurrences} />
-            {!allProjects && <ScheduleControls schedule={item} onChanged={onChanged} />}
-          </article>
+        <h2 id="recurring-title">Recurring work</h2>
+        {groups.length === 0 && <p>{allProjects
+          ? 'No recurring schedules in your accessible projects.' : 'No recurring schedules in this project.'}</p>}
+        {groups.map(([owner, group]) => (
+          <section key={owner} className="schedule-owner" aria-label={group.name}>
+            <h3>{group.name}</h3>
+            {group.schedules.map(item => (
+              <article key={item.id} className="schedule-item">
+                <h4><ScheduleLink schedule={item} project={item.project || project} allProjects={allProjects} /></h4>
+                <ScheduleSummary schedule={item} project={item.project || project} showOwner={false} />
+                <OccurrenceHistory occurrences={item.recent_occurrences} />
+                {!allProjects && item.editable === true && <ScheduleControls schedule={item} onChanged={onChanged} />}
+              </article>
+            ))}
+          </section>
         ))}
       </section>
       <section className="panel schedule-panel" aria-labelledby="maintenance-title">
@@ -231,13 +242,13 @@ export function ScheduleContents({ data, project, allProjects, onChanged }) {
 }
 
 function ScheduleDetail({ data, onChanged }) {
-  const { kind, project, runs, schedule, owner_choices: ownerChoices } = data
+  const { kind, project, runs, schedule, editable, owner_choices: ownerChoices } = data
   return (
     <>
       <section className="panel schedule-panel" aria-label="Schedule details">
-        <ScheduleSummary schedule={schedule} />
-        <ScheduleControls project={project} schedule={schedule}
-          ownerChoices={kind === 'maintenance' ? ownerChoices : undefined} onChanged={onChanged} />
+        <ScheduleSummary schedule={schedule} project={project} />
+        {editable === true && <ScheduleControls project={project} schedule={schedule}
+          ownerChoices={kind === 'maintenance' ? ownerChoices : undefined} onChanged={onChanged} />}
       </section>
       <section className="panel schedule-panel" aria-labelledby="schedule-runs">
         <h2 id="schedule-runs">Recent runs</h2>
@@ -247,12 +258,14 @@ function ScheduleDetail({ data, onChanged }) {
   )
 }
 
-export default function Schedules({ id, project, requestedProject, projectPicker, session, verified, revision, onChanged, allProjects }) {
-  const login = useSignInHref(id ? scheduleHref(id, requestedProject) : schedulesHref(project, allProjects))
+export default function Schedules({
+  id, project, requestedProject, projectPicker, session, verified, revision, onChanged, allProjects,
+}) {
+  const login = useSignInHref(id ? scheduleHref(id, requestedProject, allProjects) : schedulesHref(project, allProjects))
   const path = id ? queryPath(`/schedules/${id}`, { project: requestedProject })
-    : queryPath('/schedules', allProjects ? { scope: 'all' } : { project })
+    : queryPath('/schedules', { view: 'team', ...(allProjects ? { scope: 'all' } : { project }) })
   const resource = useResource(verified ? path : null, revision)
-  const listProject = resource.data?.project || project
+  const listProject = requestedProject || resource.data?.project || project
   const detailTitle = resource.data?.schedule?.title
   const heading = id && detailTitle ? `${id} · ${detailTitle}` : id || 'Schedules'
   useContentTitle(id && detailTitle ? heading : null)
@@ -261,7 +274,7 @@ export default function Schedules({ id, project, requestedProject, projectPicker
     <>
       <div className="page-heading schedule-heading">
         <h1 id={id ? `schedule-${id}` : 'schedules'}>{heading}</h1>
-        {id ? <BoardLink href={schedulesHref(listProject)}>Back to Schedules</BoardLink> : <>
+        {id ? <BoardLink href={schedulesHref(listProject, allProjects)}>Back to Schedules</BoardLink> : <>
           {projectPicker}
           <BoardLink href={'#' + new URLSearchParams(allProjects ? { scope: 'all' } : { project })}>Back to Tasks</BoardLink>
         </>}
