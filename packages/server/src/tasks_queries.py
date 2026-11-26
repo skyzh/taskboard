@@ -322,10 +322,38 @@ class BoardQueries:
         )]
         return {**report, **maintenance.describe(row, project)["schedule"]}, choices
 
+    def scheduled_goal_reviews(self, project, owner):
+        visibility, bindings = self.schedule_visibility("tasks.project_prefix")
+        rows = self.db.execute(
+            f"""
+            SELECT tasks.id, tasks.project_prefix, tasks.project_number, tasks.dri AS owner,
+                   tasks.title, goal.kind, goal.deadline, review.review_time
+            FROM task_goals AS goal
+            JOIN tasks ON tasks.id = goal.task_id
+            JOIN events AS current ON current.id = (
+                SELECT MAX(id) FROM events WHERE task_id = tasks.id AND action NOT IN ('source-event', 'log')
+            )
+            LEFT JOIN goal_review_times AS review ON review.task_id = tasks.id
+            WHERE goal.retired = 0 AND current.state <> 'done'
+              AND (? IS NULL OR tasks.project_prefix = ?) AND {visibility}
+            ORDER BY tasks.project_prefix, tasks.title, tasks.id
+            """, (project, project, *bindings),
+        ).fetchall()
+        people = profiles.visible_by_keys(self.db, [row["owner"] for row in rows], self.base)
+        return [
+            {"ticket": projects.row_reference(row), "project": row["project_prefix"],
+             "title": row["title"], "kind": row["kind"], "deadline": row["deadline"],
+             "owner": row["owner"], "owner_name": (people.get(row["owner"]) or {}).get("name"),
+             "review_time": row["review_time"], "editable": row["owner"] == owner}
+            for row in rows
+        ]
+
     def schedules(self, project, owner, *, team=False):
         result = {"recurring": [], "maintenance": {"editable": False, "schedule": None, "owner_choices": []}}
         if owner is None:
             return result
+        if team:
+            result["goal_reviews"] = self.scheduled_goal_reviews(project, owner)
         as_of = ledger.timestamp()
         default = projects.default_project(self.db)
         visibility, bindings = self.schedule_visibility("owned.project")

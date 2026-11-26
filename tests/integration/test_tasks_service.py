@@ -2363,6 +2363,55 @@ class TasksServiceTest(unittest.TestCase):
             activity = self.call(avery, f"/api/v1/tasks/{reference}/activity").json["items"]
             self.assertIn("Goal reached.", [event["note"] for event in activity])
 
+    def test_team_schedules_show_and_edit_only_visible_active_goal_reviews(self):
+        from tasks_projects import register
+        from tasks_ring1 import mark_private
+
+        app = self.app(portal_reader=True)
+        owner, owner_key = self.login(app, "Avery")
+        manager, manager_key = self.login(app, "Sam")
+        with closing(open_sqlite(self.database)) as db, db:
+            register(db, "OPS", "Fictional operations", manager_key)
+            register(db, "LAB", "Fictional private lab", owner_key)
+            mark_private(db, "LAB", [owner_key])
+
+        self.action(owner, "save-goal", {"kind": "standing", "summary": "Check fictional handoffs"})
+        self.action(owner, "save-goal", {"project": "LAB", "kind": "standing", "summary": "Check the private lab"})
+        self.call(manager, "/api/v1/profile/milestone?project=OPS", method="PATCH", json={
+            "goal": {"summary": "Open fixture", "deadline": "2026-12-06", "tickets": []},
+        })
+        self.action(owner, "save-goal", {"kind": "dated", "summary": "Finished sample", "deadline": "2026-12-01"})
+        dated = self.action(owner, "my-next")["dated_goals"][0]["ticket"]
+        self.action(owner, "advance-task", {"id": dated, "transition": "start", "note": "Check the sample."})
+        self.action(owner, "advance-task", {"id": dated, "transition": "done", "note": "The sample passed."})
+
+        path = "/api/v1/schedules"
+        standing, = self.call(manager, path + "?view=team&project=T").json["goal_reviews"]
+        self.assertEqual((standing["owner"], standing["title"], standing["deadline"], standing["review_time"],
+                          standing["editable"]), (owner_key, "Check fictional handoffs", None, None, False))
+        all_goals = self.call(manager, path + "?view=team&scope=all").json["goal_reviews"]
+        self.assertEqual([(row["title"], row["deadline"], row["editable"]) for row in all_goals], [
+            ("Open fixture", "2026-12-06", True),
+            ("Check fictional handoffs", None, False),
+        ])
+        own_private, = self.call(owner, path + "?view=team&project=LAB").json["goal_reviews"]
+        self.assertTrue(own_private["editable"])
+        self.call(manager, path + "?view=team&project=LAB", status=404)
+        self.assertNotIn("goal_reviews", self.call(owner, path + "?project=T").json)
+        self.call(app.test_client(), path + "?view=team&project=T", status=401)
+
+        editor = path + f"/goals/{standing['ticket']}/review-time"
+        self.call(manager, editor, method="POST", json={"time": "09:15"}, status=403)
+        self.call(manager, path + f"/goals/{own_private['ticket']}/review-time",
+                  method="POST", json={"time": "09:15"}, status=404)
+        self.call(owner, editor, method="POST", json={"time": "24:00"}, status=400)
+        self.call(owner, editor, method="POST", json={"time": "09:15"})
+        self.assertEqual(self.action(owner, "my-goals")["review_times"], {standing["ticket"]: "09:15"})
+        reread, = self.call(manager, path + "?view=team&project=T").json["goal_reviews"]
+        self.assertEqual(reread["review_time"], "09:15")
+        self.call(owner, editor, method="POST", json={"time": ""})
+        self.assertFalse(self.action(owner, "my-goals").get("review_times"))
+
     def test_goal_activity_counts_recorded_checks_and_keeps_dated_outcomes(self):
         import tasks_goal_offers
 

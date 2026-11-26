@@ -1,5 +1,6 @@
 import React from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
+import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { TaskLink, Timestamp, scheduleHref } from './shared.jsx'
 
 const runLabels = {
@@ -20,8 +21,8 @@ function RunTime({ label, value, missing }) {
   )
 }
 
-function RunRow({ run, currentTaskId }) {
-  const { state, task_id: taskId, task_key: reference } = run
+function RunRow({ run, currentTaskId, showOutcome }) {
+  const { state, task_id: taskId, task_key: reference, outcome } = run
   const current = taskId != null && taskId === currentTaskId
   const terminal = state === 'completed' || state === 'closed'
   return (
@@ -39,15 +40,21 @@ function RunRow({ run, currentTaskId }) {
         <RunTime label={state === 'closed' ? 'Closed' : 'Finished'} value={run.terminal_at}
           missing={terminal ? 'Unavailable' : taskId == null ? 'Not applicable' : 'No outcome yet'} />
       </dl>
+      {showOutcome && outcome && (
+        <div className="recurring-run-outcome">
+          <p><MarkdownInline text={outcome.note} /></p>
+          {outcome.details && <Markdown text={outcome.details} />}
+        </div>
+      )}
     </li>
   )
 }
 
-export function RecurringRunList({ runs, currentTaskId }) {
+export function RecurringRunList({ runs, currentTaskId, showOutcome = false }) {
   if (runs.length === 0) return <p>No runs recorded yet.</p>
   return (
     <ol className="recurring-run-list" aria-label="Recurring runs" role="list">
-      {runs.map(run => <RunRow key={run.due_at} run={run} currentTaskId={currentTaskId} />)}
+      {runs.map(run => <RunRow key={run.due_at} run={run} currentTaskId={currentTaskId} showOutcome={showOutcome} />)}
     </ol>
   )
 }

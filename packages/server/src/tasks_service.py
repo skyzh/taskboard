@@ -2667,6 +2667,22 @@ def create_app(
             raise NotFound()
         return schedule
 
+    def save_goal_review_time(owner, identifier, value):
+        number = task_number(identifier)
+        try:
+            with tasks_storage.write(db()) as connection:
+                return goal_cadence.save_review_time(connection, owner, number, value)
+        except ValueError as error:
+            raise RequestError(str(error)) from error
+        except PermissionError as error:
+            raise RequestError(str(error), 403) from error
+
+    @app.post("/api/v1/schedules/goals/<identifier>/review-time")
+    def schedule_goal_review_time(identifier):
+        actor = current_actor(write=True)
+        data = json_body({"time"})
+        return save_goal_review_time(actor["ledger_key"], identifier, data.get("time"))
+
     @app.post("/api/v1/schedules/<number>/state")
     def recurring_schedule_state(number):
         actor = current_actor(write=True)
@@ -4268,14 +4284,7 @@ def create_app(
                     ordinary = next(board.actionable_work(key, ordinary_only=True, **scope), None) is not None
                 return goal_cadence.candidates(connection, key, project, now, busy=work is not None, ordinary_busy=ordinary)
         if name == "set-goal-review-time":
-            number = task_number(data.get("id"))
-            try:
-                with tasks_storage.write(db()) as connection:
-                    saved = goal_cadence.save_review_time(connection, key, number, data.get("time"))
-            except ValueError as error:
-                raise RequestError(str(error)) from error
-            except PermissionError as error:
-                raise RequestError(str(error), 403) from error
+            saved = save_goal_review_time(key, data.get("id"), data.get("time"))
             return {**saved, "receipt": f"{saved['ticket']} · Goal review time {'saved' if saved['review_time'] else 'cleared'}"}
         if name == "save-goal":
             project = project_filter(data, use_default=True)

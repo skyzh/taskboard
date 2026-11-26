@@ -1362,6 +1362,10 @@ button:disabled { opacity: .57; }
 .schedule-history li > * { margin-right: .65rem; }
 .schedule-actions, .schedule-actions form { display: flex; flex-wrap: wrap; align-items: end; gap: .4rem .65rem; }
 .schedule-editor form { margin-top: .4rem; }
+.schedule-review-form { display: grid; gap: .55rem; justify-items: start; }
+.schedule-review-form textarea { width: min(100%, 36rem); }
+.schedule-review-form label:has(textarea) { width: 100%; }
+.recurring-run-outcome { min-width: 0; overflow-wrap: anywhere; }
 .schedule-editor fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: .65rem; padding: 0; margin: 0 0 .6rem; border: 0; }
 .schedule-panel label { display: grid; gap: .2rem; }
 
