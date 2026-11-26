@@ -1,6 +1,7 @@
 """Exercise the Taskboard adapter with an official MCP client and a mounted fixture."""
 
 from contextlib import closing
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -18,7 +19,7 @@ from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools/release"))
-from compatibility_fixture import MOUNT, cli, cli_success, fixture_server, io_action, request, seed
+from compatibility_fixture import MOUNT, cli, cli_success, fixture_server, io_action, read_json, request, seed
 from release_compatibility import certificate
 
 
@@ -56,7 +57,146 @@ sys.exit(result.returncode)
     }
 
 
+def human_session(origin, name):
+    with request(origin, MOUNT + "/auth/login", follow_redirects=False) as response:
+        pending = response.headers["Set-Cookie"].split(";", 1)[0]
+        state = parse_qs(urlsplit(response.headers["Location"]).query)["state"][0]
+    with request(origin, MOUNT + "/auth/callback", cookie=pending, query={"code": name, "state": state},
+                 follow_redirects=False) as response:
+        cookie = response.headers["Set-Cookie"].split(";", 1)[0]
+    read_json(origin, MOUNT + "/api/v1/session", cookie=cookie)
+    return cookie
+
+
+def local_reader(origin, environment, folder, public_cert, sam):
+    site = MOUNT + "/api/v1/personal-agents/"
+    origin_header = {"Origin": origin}
+    local_dri = read_json(origin, site + "local-dris", cookie=sam, headers=origin_header,
+                          data={"name": "Local reader", "project": "COURSE"})["local_dri"]["id"]
+    token = read_json(origin, site + "connections", cookie=sam, headers=origin_header,
+                      data={"session": "Readback fixture"})["token"]
+    config = folder / "config"
+    sessions = config / "taskboard" / "sessions"
+    sessions.mkdir(mode=0o700, parents=True)
+    saved = sessions / (sha256((origin + MOUNT).encode()).hexdigest() + ".json")
+    saved.write_text(json.dumps({"token": token}))
+    saved.chmod(0o600)
+    return ({**environment, "TASKBOARD_URL": origin + MOUNT, "TASKBOARD_LOCAL_DRI": local_dri,
+             "XDG_CONFIG_HOME": str(config), "SSL_CERT_FILE": str(public_cert)},
+            {"Authorization": f"Bearer {token}", "X-Taskboard-Local-DRI": local_dri})
+
+
 class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
+    async def test_fresh_readers_see_saved_ticket_fields(self):
+        python = Path(os.environ["TASKBOARD_MCP_FIXTURE_PYTHON"]).absolute()
+        with TemporaryDirectory(prefix="taskboard-mcp-readback-") as temporary:
+            folder = Path(temporary)
+            public_cert, private_key = certificate(folder)
+            with fixture_server(python, ROOT, folder / "service", public_cert, private_key,
+                                project_admin=True, direct_reads=True) as mounted:
+                origin, cookie, database, environment = mounted
+                seed(python, ROOT, origin, cookie, database)
+                ticket, path = "COURSE-1", MOUNT + "/api/v1/tasks/COURSE-1"
+                day = "2099-01-05"
+                io_action(origin, "edit-task-details", cookie=cookie, data={
+                    "id": ticket, "brief": "Keep the whole fixture brief.", "reason": "Check stored text.",
+                })
+                io_action(origin, "edit-checklist", cookie=cookie, data={"id": ticket, "action": "add", "label": "Check receipt"})
+                io_action(origin, "task-tag", cookie=cookie, data={"id": ticket, "action": "add", "tag": "fixture"})
+                io_action(origin, "configure-ticket-fields", cookie=cookie, data={"project": "COURSE", "fields": json.dumps([
+                    {"key": "effort", "label": "Effort", "kind": "duration", "prompt": "Read the fixture evidence."},
+                ])})
+                io_action(origin, "set-ticket-field", cookie=cookie, data={
+                    "id": ticket, "field": "effort", "method": "measured", "coverage": "complete",
+                    "value": "120", "basis": "A two-minute sample.", "url": "https://example.test/sample",
+                })
+                io_action(origin, "advance-task", cookie=cookie, data={
+                    "id": ticket, "transition": "start", "note": "Check the fixture.",
+                })
+                io_action(origin, "advance-task", cookie=cookie, data={
+                    "id": ticket, "transition": "update", "note": "Check the fixture.",
+                    "eta": "2099-01-04T18:00:00Z", "started": "[1]",
+                })
+                io_action(origin, "advance-task", cookie=cookie, data={
+                    "id": ticket, "transition": "park", "note": "Wait for the sample.", "review_after": day,
+                    "review_on": "T-1", "review_criteria": "Resume after the sample is checked.",
+                })
+
+                # These readers sign in after the initial write.
+                with request(origin, MOUNT + "/auth/callback", query={"code": "Blake"}) as response:
+                    blake = response.headers["Set-Cookie"].split(";", 1)[0]
+                team_env = {**environment, "TASKBOARD_COMPAT_COOKIE": blake}
+                sam = human_session(origin, "Sam")
+                local_env, signed_local = local_reader(origin, environment, folder, public_cert, sam)
+                local_args = ("--local-dri", local_env["TASKBOARD_LOCAL_DRI"])
+                io_action(origin, "watch-task", cookie=blake, data={"id": ticket})
+
+                async def verify(expected):
+                    for env, credentials, browser_cookie, prefix, watching in (
+                        (team_env, {"cookie": blake}, blake, (), True),
+                        (local_env, {"headers": signed_local}, sam, local_args, False),
+                    ):
+                        signed = read_json(origin, MOUNT + "/api/v1/raft/task", query={"id": ticket}, **credentials)
+                        browser = read_json(origin, path, cookie=browser_cookie)
+                        self.assertEqual(browser["task"], signed["task"])
+                        self.assertEqual(browser["watching"], watching)
+                        self.assertEqual(signed["task"]["reminder"], expected)
+                        self.assertEqual(signed["task"]["eta"], "2099-01-04T18:00:00Z")
+                        self.assertEqual(signed["task"]["priority"], "high")
+                        self.assertEqual(signed["task"]["tags"], ["fixture"])
+                        self.assertEqual(signed["brief"], "Keep the whole fixture brief.")
+                        self.assertEqual(signed["checklist"][0]["label"], "Check receipt")
+                        field, = signed["ticket_fields"]["fields"]
+                        self.assertEqual((field["value"], field["basis"]), ("120", "A two-minute sample."))
+                        self.assertEqual(json.loads(cli_success(python, ROOT, env, *prefix, "show", ticket, "--json")), signed)
+                        async with connect(env) as reader:
+                            detail = await reader.call_tool("taskboard_ticket", {"ticket": ticket})
+                            self.assertFalse(detail.is_error, detail.content)
+                            self.assertEqual(detail.structured_content, signed)
+                            history = await reader.call_tool("taskboard_activity", {"ticket": ticket, "limit": 1})
+                            self.assertFalse(history.is_error, history.content)
+                            activity = read_json(origin, MOUNT + "/api/v1/raft/task-activity",
+                                                 query={"id": ticket, "limit": 1}, **credentials)
+                            self.assertEqual(history.structured_content, activity)
+                            context = activity["items"][0]["context"]
+                            self.assertEqual(context.get("review_after"), expected and expected.get("date"))
+                            self.assertEqual(context.get("defer_until"), expected and expected.get("at"))
+
+                await verify({"kind": "date", "date": day})
+                self.assertIn(f"Review on or after {day}", cli_success(python, ROOT, team_env, "show", ticket))
+                read_json(origin, path + "/reminder", cookie=cookie, method="PUT",
+                          data={"at": "2099-01-06T10:30", "time_zone": "America/Los_Angeles"})
+                await verify({"kind": "exact", "at": "2099-01-06T18:30:00Z"})
+                self.assertIn("Deferred until 2099-01-06", cli_success(python, ROOT, local_env, *local_args, "show", ticket))
+                cli_success(python, ROOT, environment, "remind", ticket, "--clear")
+                await verify(None)
+                denied = cli(python, ROOT, local_env, *local_args, "show", "T-1", "--json")
+                self.assertNotEqual(denied.returncode, 0)
+                with self.assertRaises(HTTPError) as denied_browser:
+                    read_json(origin, path, headers=signed_local)
+                self.assertEqual(denied_browser.exception.code, 403)
+
+                read_json(origin, MOUNT + "/api/v1/projects", cookie=sam, headers={"Origin": origin}, data={
+                    "prefix": "LAB", "title": "Private fixture", "visibility": "ring1",
+                })
+                avery = io_action(origin, "context", cookie=cookie)["actor"]["id"]
+                read_json(origin, MOUNT + "/api/v1/projects/LAB/ring1", cookie=sam, headers={"Origin": origin},
+                          method="PUT", data={"principal": avery, "allowed": True})
+                private = io_action(origin, "create-task", cookie=cookie, data={
+                    "project": "LAB", "title": "Private ticket", "step": "Read the fixture.",
+                })["receipt"].split()[0]
+                io_action(origin, "advance-task", cookie=cookie, data={
+                    "id": private, "transition": "park", "note": "Wait for the private sample.", "review_after": day,
+                })
+                self.assertEqual(io_action(origin, "task", cookie=cookie, query={"id": private})["task"]["reminder"],
+                                 {"kind": "date", "date": day})
+                with self.assertRaises(HTTPError) as hidden:
+                    io_action(origin, "task", cookie=blake, query={"id": private})
+                self.assertEqual(hidden.exception.code, 404)
+                async with connect(team_env) as reader:
+                    self.assertTrue((await reader.call_tool("taskboard_ticket", {"ticket": private})).is_error)
+                    self.assertTrue((await reader.call_tool("taskboard_activity", {"ticket": private})).is_error)
+
     async def test_two_agent_workflow(self):
         # The HTTP fixture uses the application dependencies while the tool process uses its own locked SDK.
         python = Path(os.environ["TASKBOARD_MCP_FIXTURE_PYTHON"]).absolute()
@@ -78,6 +218,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                     await self.verify_project_creation(owner, reviewer, python, origin, cookie, database, avery_environment)
                     await self.verify_ticket_tools(owner, reviewer, python, origin, cookie, blake_cookie,
                                                    avery_environment)
+                    await self.verify_saved_project_fields(owner, reviewer, python, origin, cookie, avery_environment)
                     await self.verify_needs_you(owner, reviewer, python, origin, cookie, avery_environment)
                 async with connect(with_lost_receipt(folder, avery_environment)) as owner:
                     lost = await owner.call_tool("taskboard_start", {"ticket": "T-1", "note": "Start the spare fixture."})
@@ -116,12 +257,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                 )
 
     async def verify_needs_you(self, owner, reviewer, python, origin, cookie, environment):
-        with request(origin, MOUNT + "/auth/login", follow_redirects=False) as response:
-            pending = response.headers["Set-Cookie"].split(";", 1)[0]
-            state = parse_qs(urlsplit(response.headers["Location"]).query)["state"][0]
-        with request(origin, MOUNT + "/auth/callback", cookie=pending, query={"code": "Sam", "state": state},
-                     follow_redirects=False) as response:
-            sam_cookie = response.headers["Set-Cookie"].split(";", 1)[0]
+        sam_cookie = human_session(origin, "Sam")
         with request(origin, MOUNT + "/api/v1/session", cookie=sam_cookie) as response:
             self.assertEqual(json.load(response)["actor"]["name"], "Sam")
         created = io_action(origin, "create-task", cookie=cookie, data={
@@ -418,6 +554,57 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         event, = io_action(origin, "task-activity", cookie=cookie, query={"id": entry, "limit": 1})["items"]
         self.assertEqual(event["actor"], expected_actor)
 
+    async def verify_saved_project_fields(self, owner, reviewer, python, origin, cookie, environment):
+        def action(name, data=None, **query):
+            return io_action(origin, name, cookie=cookie, data=data, query=query)
+
+        async def compare(tool, name, query, **params):
+            expected = action(name, **query)
+            result = await owner.call_tool(tool, params)
+            self.assertFalse(result.is_error, result.content)
+            self.assertEqual(result.structured_content, expected)
+            return expected
+
+        project = {"project": "COURSE"}
+        first = "2099-01-05T18:30:00Z"
+        recurrence = action("recurring-add", {**project, "title": "Check the next sample", "key": "sample-check",
+                                              "step": "Read the signed sample.", "cadence_hours": 24, "next_at": first})
+        schedule = recurrence["receipt"].split()[0]
+        definition = await compare("taskboard_recurring_schedule", "recurring-show", {"id": schedule}, schedule=schedule)
+        self.assertEqual((definition["step"], definition["first_at"], definition["next_at"]),
+                         ("Read the signed sample.", first, first))
+        shown = json.loads(cli_success(python, ROOT, environment, "recurring-show", schedule))
+        self.assertEqual(shown["step"], definition["step"])
+        browser = read_json(origin, MOUNT + "/api/v1/schedules/" + schedule, cookie=cookie, query=project)
+        self.assertEqual(browser["schedule"]["step"], definition["step"])
+        self.assertTrue((await reviewer.call_tool("taskboard_recurring_schedule", {"schedule": schedule})).is_error)
+
+        actor = action("context")["actor"]["id"]
+        action("maintenance-update", {**project, "owner": actor, "cadence_hours": 24, "next_at": first,
+                                      "members": json.dumps([actor]), "state": "active"})
+        maintenance = await compare("taskboard_maintenance_schedule", "maintenance-show", project, **project)
+        self.assertEqual(maintenance["schedule"]["members"], [actor])
+        self.assertTrue((await reviewer.call_tool("taskboard_maintenance_schedule", project)).is_error)
+
+        action("save-goal", {**project, "kind": "standing", "summary": "Improve fixture readback"})
+        standing = action("my-goals", **project)["standing_goal"]["ticket"]
+        action("set-goal-review-time", {"id": standing, "time": "09:15"})
+        goals = await compare("taskboard_goals", "my-goals", project, **project)
+        self.assertEqual(goals["review_times"], {standing: "09:15"})
+
+        action("set-wake-subscription", {**project, "event_type": "owned-ready", "enabled": "true"})
+        subs = await compare("taskboard_wake_subscriptions", "my-wake-subscriptions", project, **project)
+        self.assertTrue(subs["subscriptions"])
+
+        entry = action("create-knowledge", {**project, "title": "Fixture index", "brief": "Collect readbacks."})["id"]
+        action("knowledge-assign", {"id": entry, "dri": actor})
+        action("knowledge-place", {"id": entry, "area": "Readback", "index": "true"})
+        areas = await compare("taskboard_knowledge_areas", "knowledge-areas", project, **project)
+        self.assertTrue(areas["areas"])
+        sweep = await compare("taskboard_knowledge_sweep", "knowledge-sweep", {**project, "scope": "assigned", "limit": 20},
+                              **project, scope="assigned")
+        self.assertEqual([item["key"] for item in sweep["items"]], [entry])
+
     async def verify_workflow(self, owner, reviewer, python, origin, cookie, environment, blake):
         async def value(client, name, **params):
             result = await client.call_tool(name, params)
@@ -431,6 +618,8 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_assign_human", "taskboard_raise_attention",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
             "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel", "taskboard_checkpoint",
+            "taskboard_recurring_schedule", "taskboard_maintenance_schedule", "taskboard_goals", "taskboard_wake_subscriptions",
+            "taskboard_knowledge_areas", "taskboard_knowledge_sweep", "taskboard_worker_checkpoint",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_queue"].annotations.read_only_hint)
@@ -466,6 +655,10 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             })
         assigned = await value(reviewer, "taskboard_reviews", project="T", limit=1)
         self.assertEqual([row["task_key"] for row in assigned["items"]], ["T-1"])
+        run = f"W-{assigned['items'][0]['id']}"
+        checkpoint = await value(reviewer, "taskboard_worker_checkpoint", run=run)
+        self.assertIsNone(checkpoint["checkpoint"])
+        self.assertEqual(checkpoint, await value(owner, "taskboard_worker_checkpoint", run=run))
         self.assertIsInstance(assigned["next_cursor"], int)
         earlier = await value(reviewer, "taskboard_reviews", project="T", limit=1, before=assigned["next_cursor"])
         self.assertEqual([row["task_key"] for row in earlier["items"]], ["T-2"])

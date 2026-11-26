@@ -215,6 +215,12 @@ def unwatch(db, task_id, watcher):
     return bool(result.rowcount)
 
 
+def watches_task(db, watcher, task_id):
+    return db.execute(
+        "SELECT 1 FROM task_watches WHERE task_id = ? AND watcher = ?", (task_id, watcher),
+    ).fetchone() is not None
+
+
 def watches_assignee(db, watcher, owner):
     return db.execute(
         "SELECT 1 FROM assignee_watches WHERE watcher = ? AND owner = ?", (watcher, owner),

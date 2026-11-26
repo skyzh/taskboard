@@ -7,15 +7,15 @@ supported API paths. The server checks the actor’s permission on each request.
 
 | Operation family | HTTP and signed actions | Shared CLI | MCP |
 | --- | --- | --- | --- |
-| Identity, queue, reviews, ticket detail | Session, task and queue endpoints, and signed context, owned and unassigned queue, reviews, detail, and next work | Context, list, reviews, show, next | Context, queues, reviews, ticket detail |
+| Identity, queue, reviews, ticket detail | Session, task and queue endpoints, and signed context, owned and unassigned queue, reviews, detail, and next work | Context, list, reviews, `show` or `show --json`, next | Context, queues, reviews, ticket detail |
 | Project creation | `POST /api/v1/projects` and signed `create-project` | `create-project` | `taskboard_create_project` |
 | Project directory and project settings | Project list via `GET /api/v1/projects` and signed `list-projects`. Coordination channel, Summary links, writing guidance, Stamp review status and retry, maintenance read and update | `projects`, coordination channel, writing guidance read, and maintenance commands. Summary links, project guidance edits, and Stamp health actions use HTTP | `taskboard_projects`, `taskboard_field_guidance`, and `taskboard_raft_channel` for a manager's read. Other project settings tools pending |
 | Ticket changes, lifecycle, and Activity | Create, edit, checklist, priority, ownership, close, tag, Activity, Start, progress, completion, wait, reminder, parking, blocker, and evidence links | Dedicated shared commands for these actions. `show` includes recent Activity. Browser ticket history has an HTTP read path | Create, edit, log Activity, page through Activity, Start, progress, and completion. Other ticket tools pending |
 | Move a work ticket | `POST /api/v1/tasks/<key>/project` and signed `move-task` | Signed action via Raft | Use the browser |
 | Send a Needs You ask | `POST /api/v1/tasks/<key>/needs-you`, signed `advance-task` with `assign-human`, and `raise-attention` | `assign-human` and `raise-attention` | `taskboard_assign_human` and `taskboard_raise_attention` |
 | Peer requests, reviews, workers, and notifications | Linked peer asks, handoff, review queues, delegation, worker transitions and checkpoints, watches, Inbox and notification logs/preferences | Peer asks, transfer, review queues, worker commands, watches, and next work. Recipients use HTTP to answer or handle asks and edit notification preferences | Assigned review queue. Dedicated handoff, worker, and recipient notification tools pending |
-| Search, Knowledge, and sources | Ticket and Activity search, task suggestions, sources, Knowledge search/areas, creation, placement, staging and reconciliation | Search, tags, Knowledge areas and writes, and source/reference linking. Suggestions, standalone provider fetch, and some separate read shapes use HTTP | Dedicated tools pending |
-| Goals, schedules, and wake | Goal activity and current goals, review times and eligible cues, idle offers, recurring definitions, and wake subscriptions | Goals, goal review time, recurring and wake subscription commands. Runner cue actions use signed HTTP | Dedicated tools pending |
+| Search, Knowledge, and sources | Ticket and Activity search, task suggestions, sources, Knowledge search/areas, creation, placement, staging and reconciliation | Search, tags, Knowledge areas and writes, and source/reference linking. Suggestions, standalone provider fetch, and some separate read shapes use HTTP | Ticket detail, Knowledge areas and Knowledge sweep |
+| Goals, schedules, and wake | Goal activity and current goals, review times and eligible cues, idle offers, recurring definitions, and wake subscriptions | Goals, goal review time, recurring and wake subscription commands. Runner cue actions use signed HTTP | Goals, owned recurring definitions, managed maintenance schedules, and wake subscriptions |
 | Reports and project progress | Reports, outcomes and days, Stats, overview, project and assignee activity, release state, visibility filters, and worker/request history | Ticket and queue views. Aggregate Reports, Stats, release-state, and timeline readers use HTTP | Dedicated tools pending |
 | Account and project creation grants | Signed profile writes, avatar uploads, publishing instructions, Local DRI registration and watcher state, private account usage, and creation grant settings | Browser approval and logout, private instructions read, Local DRI selection, and direct HTTP for supported selected actions | Context and project creation. Account approval and grant management use the browser |
 | Deployment and maintenance execution | Health, build and revision readback, deployment/merge queue reads, and configured signed snapshot intake | Host launcher, local preview, backup and import, recurring ticks, release and notification receipt imports, legacy profile/ownership setup, and OpenID Connect admission run on the operator’s machine | Host operations stay with the operator |
@@ -29,7 +29,7 @@ signed browser session. A database file, backup, scheduler, or process on the
 host is managed through the operator’s local workflow.
 
 The remaining shared-tool gaps include checklist, priority, ownership, and
-handoff operations and Knowledge in MCP, plus aggregate reads and project
+handoff operations and Knowledge writes in MCP, plus aggregate reads and project
 settings in the shared CLI and MCP. Use the HTTP path for missing client
 commands when the connection has the right permissions. The host-side `register-project` path
 remains available for offline ledgers and recovery of older releases.
@@ -43,6 +43,32 @@ registered project from signed context.
 Writing guidance uses the signed `field-guidance` action in the shared CLI
 and MCP. The default project applies when omitted. Project managers edit the
 wording in project Settings.
+
+## Read back saved values
+
+Use the browser ticket details, signed `task` action, `tasks --shared show
+T-42 --json`, or `taskboard_ticket` to read the current saved ticket. These
+include the brief, owner, project key, state, priority, ETA, tags, checklist,
+links, configured fields and their evidence, and relevant handoffs. The
+`watching` flag belongs to the signed viewer. The Activity read retains the
+history and evidence even after a value changes. `show` includes recent
+Activity in its text output.
+
+`task.reminder` is `{kind: "date", date: "YYYY-MM-DD"}` for a review date,
+`{kind: "exact", at: "…Z"}` for a UTC defer time, or `null` when there is no
+current reminder. Older clients can read the existing `task.context` fields.
+Dates in Activity describe what was recorded at the time of that event.
+
+| Saved value | Scoped read |
+| --- | --- |
+| Recurring schedule and its initial step | Signed `recurring-show`, shared CLI `recurring-show`, or MCP `taskboard_recurring_schedule` for the owner. The browser schedule read exposes `step` and `first_at` with its schedule fields. |
+| Maintenance schedule and roster | Project manager's Schedules view, signed `maintenance-show`, shared CLI `maintenance-show`, or MCP `taskboard_maintenance_schedule`. |
+| Goals and daily review time | Owner's signed `my-goals`, shared CLI `goals`, or MCP `taskboard_goals`. |
+| Wake subscriptions and worker checkpoints | Signed `my-wake-subscriptions` and `worker-check-show`, shared CLI `wake-subscriptions` and `worker-check --show`, or the corresponding MCP tools. Worker checkpoints are available to the assigned worker and ticket owner. |
+| Knowledge placement and maintenance assignment | Browser Knowledge, signed `knowledge-areas` and `knowledge-sweep`, matching shared CLI commands, or MCP `taskboard_knowledge_areas` and `taskboard_knowledge_sweep`. |
+| Profile and project writing guidance | Signed `context` for your public profile fields and `field-guidance` for effective writing prompts and configured ticket fields, with equivalents on the shared CLI and MCP. |
+| Decision and attention delivery state | Signed browser Needs You only exposes each recipient's queue. Review ticket details and Activity for shared workflow evidence. |
+| Personal preferences, browser push, CLI consent and deployment | Use the account's signed settings or the documented operator path. The account and host scopes apply. |
 
 ## Send a Needs You ask
 

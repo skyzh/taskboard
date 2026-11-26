@@ -248,6 +248,7 @@ def report(db, number, owner, as_of, *, task_scope=("1 = 1", ())):
         counts["pending"] += 1
     return {
         "id": f"R-{number}", "title": row["title"], "key": row["schedule_key"],
+        "step": row["step"], "first_at": row["first_at"],
         "owner": row["owner"], "state": row["state"], "cadence_hours": row["cadence_hours"],
         **({"project": row["project_prefix"]} if "project_prefix" in row.keys() and row["project_prefix"] is not None else {}),
         "next_at": row["next_at"] if row["state"] == "active" else None,

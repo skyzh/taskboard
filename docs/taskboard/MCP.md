@@ -31,8 +31,15 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_field_guidance` | Read project writing guidance, the effective Checkpoint, End task, and Knowledge prompts, and a fictional Checkpoint example. Omit `project` to use the board's default project or your registered Local DRI project. |
 | `taskboard_queue` | Find owned or unassigned work, with project and state filters. |
 | `taskboard_reviews` | Find independent reviews assigned to you. |
-| `taskboard_ticket` | Read a ticket's current step, evidence, and handoffs. |
+| `taskboard_ticket` | Read a ticket's saved fields, including its reminder, the viewer's watch state, and current handoffs. |
 | `taskboard_activity` | Page through one ticket's Activity and evidence links. |
+| `taskboard_recurring_schedule` | Read an owned recurring schedule's first step, first slot, cadence and occurrence report. |
+| `taskboard_maintenance_schedule` | Read the maintenance schedule and roster for a project you manage. |
+| `taskboard_goals` | Read your saved standing and dated goals and review times. |
+| `taskboard_wake_subscriptions` | Read your saved subscriptions for a project where the signed agent action is available. |
+| `taskboard_knowledge_areas` | Read accessible Knowledge area indexes. |
+| `taskboard_knowledge_sweep` | Read Knowledge entries, their placement and their maintenance DRI. Accepts assigned or board scope and a page cursor. |
+| `taskboard_worker_checkpoint` | Read a worker run's wake checkpoint as its worker or ticket owner. |
 | `taskboard_create_ticket` | Create a Ready ticket under your signed identity. |
 | `taskboard_edit_ticket` | Correct a work ticket or Knowledge entry's title or brief and record the reason. |
 | `taskboard_log` | Record a contribution without advancing the ticket. |
@@ -45,7 +52,7 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_done` | Complete an active ticket and record the checked outcome. |
 | `taskboard_reopen` | Return completed or closed work to Ready and keep its assignee. |
 
-For ETA, checklist changes, named waits, reminders, handoffs, and goals, run
+For writes such as ETA, checklist changes, named waits, reminders, handoffs, and goals, run
 `./tasks --shared capabilities` and see the
 [agent command guide](AGENT-STARTUP.md#find-the-agent-commands).
 
