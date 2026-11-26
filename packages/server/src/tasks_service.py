@@ -2104,13 +2104,15 @@ def create_app(
         return {"build": meta[1].decode("ascii")}
 
     def read_revision():
+        scope, bindings = ring1.visibility(db(), "tasks.project_prefix", actor_key())
         row = db().execute(
-            """
-            SELECT COALESCE(MAX(id), 0), COALESCE((SELECT value FROM board_settings WHERE key = 'revision'), '0')
-            FROM events
-            """
+            f"""
+            SELECT COALESCE(MAX(events.id), 0), COALESCE((SELECT value FROM board_settings WHERE key = 'revision'), '0')
+            FROM events JOIN tasks ON tasks.id = events.task_id WHERE {scope}
+            """, bindings,
         ).fetchone()
-        return f"{row[0]}-{row[1]}-{pacific_day(ledger.timestamp())}"
+        value = f"{row[0]}-{row[1]}-{pacific_day(ledger.timestamp())}"
+        return sha256(value.encode()).hexdigest()
 
     release_source = CHECKOUT or PACKAGE
 
