@@ -9,6 +9,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError
@@ -22,6 +23,7 @@ from operator_deploy import (
 )
 from release_plan import ReleaseLayout, ReleaseRejected, copy_release, file_hash, verify_manifest
 from tasks_release_info import release_info
+from watch_main_ci import ACTIONS, API, REPO, WORKFLOW, poll
 
 
 class MainReleaseTest(unittest.TestCase):
@@ -412,3 +414,126 @@ class MainReleaseTest(unittest.TestCase):
         with closing(sqlite3.connect(database)) as db:
             self.assertEqual(db.execute("SELECT active, receipt_url FROM release_events").fetchall(),
                              [(candidate, activity)])
+
+
+COMMIT = "f" * 40
+BOARD = "https://example.test/tasks"
+SINCE = "2026-11-26"
+
+
+def run(attempt, conclusion, **overrides):
+    return {
+        "id": 42, "workflow_id": WORKFLOW, "event": "push", "head_branch": "main",
+        "head_repository": {"full_name": REPO}, "head_sha": COMMIT, "status": "completed",
+        "run_attempt": attempt, "conclusion": conclusion, **overrides,
+    }
+
+
+def page(field, *items):
+    return [{"total_count": len(items), field: list(items)}]
+
+
+class MainCIWatcherTest(unittest.TestCase):
+    def setUp(self):
+        scratch = TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.state = Path(scratch.name) / "main-ci.json"
+        self.latest = [run(1, "failure")]
+        self.history = {1: self.latest[0], 2: run(2, "failure")}
+        self.activities = []
+        self.writes = []
+        self.lose_response = False
+
+    def read(self, path, *, paginate=False):
+        if path == API + "/branches/main":
+            return {"name": "main", "protected": True, "commit": {"sha": COMMIT}}
+        if f"/workflows/{WORKFLOW}/runs?" in path:
+            self.assertTrue(paginate)
+            self.assertIn(f"created=%3E%3D{SINCE}", path)
+            return page("workflow_runs", *self.latest)
+        prefix = API + "/actions/runs/42/attempts/"
+        self.assertTrue(path.startswith(prefix))
+        attempt = int(path.removeprefix(prefix).split("/")[0])
+        if "/jobs?" in path:
+            return page("jobs", {
+                "id": 60 + attempt, "name": "Portable checks", "head_sha": COMMIT,
+                "status": "completed", "conclusion": "failure",
+            })
+        return self.history[attempt]
+
+    def invoke(self, action, payload, *, write=False):
+        if action == "context":
+            return {"actor": {"id": "Beacon"}, "board": BOARD}
+        if action == "search-activity":
+            return {"items": [{"task_key": key} for key, note in self.activities if payload["q"] in note],
+                    "next_cursor": None}
+        self.assertTrue(write)
+        self.writes.append((action, payload))
+        self.activities.append(("T-9", payload.get("note") or payload["step"]))
+        if self.lose_response:
+            raise ValueError("Write response lost after commit.")
+        return {"receipt": "Committed"}
+
+    def poll(self, *, dry_run=False, owner="Beacon"):
+        return poll(self.read, self.invoke, self.state, since=SINCE, board=BOARD, owner=owner, dry_run=dry_run)
+
+    def test_first_failure_then_retries_and_recovery_use_same_ticket(self):
+        self.assertEqual(self.poll()[0]["action"], "create-task")
+        first = self.writes[0][1]
+        self.assertEqual(first["project"], "T")
+        self.assertIn(COMMIT, first["brief"])
+        self.assertIn(f"{ACTIONS}/42/job/61", first["brief"])
+        self.assertEqual(self.poll(), [])
+        self.latest = [run(2, "failure")]
+        self.assertEqual(self.poll()[0]["ticket"], "T-9")
+        self.latest = [run(3, "success")]
+        self.assertEqual(self.poll()[0]["ticket"], "T-9")
+        self.assertIn("Passed", self.writes[-1][1]["note"])
+        self.assertEqual(self.poll(), [])
+        self.assertEqual([action for action, _ in self.writes], ["create-task", "record-activity", "record-activity"])
+
+    def test_uncertain_create_and_log_reconcile_without_local_state(self):
+        self.lose_response = True
+        with self.assertRaisesRegex(ValueError, "response lost"):
+            self.poll()
+        self.assertFalse(self.state.exists())
+        self.lose_response = False
+        self.assertEqual(self.poll()[0]["action"], "already-recorded")
+        self.latest = [run(2, "success")]
+        self.lose_response = True
+        with self.assertRaisesRegex(ValueError, "response lost"):
+            self.poll()
+        self.lose_response = False
+        self.state.unlink()
+        self.assertEqual([item["action"] for item in self.poll()], ["already-recorded", "already-recorded"])
+        self.assertEqual(len(self.writes), 2)
+
+    def test_pass_after_unseen_failure_is_visible_in_dry_run(self):
+        self.latest = [run(2, "success")]
+        self.assertEqual([item["action"] for item in self.poll(dry_run=True)], ["create-task", "record-activity"])
+        self.assertEqual(self.writes, [])
+        self.assertFalse(self.state.exists())
+
+    def test_pr_cancel_and_incomplete_runs_do_not_write(self):
+        self.latest = [
+            run(1, "failure", event="pull_request"),
+            run(1, "cancelled", id=43),
+            run(1, None, id=44, status="in_progress"),
+            run(1, "success", id=45),
+        ]
+        self.assertEqual(self.poll(), [])
+        self.assertEqual(self.writes, [])
+
+    def test_wrong_owner_duplicate_and_provider_failure_do_not_write(self):
+        with self.assertRaisesRegex(ValueError, "configured ticket owner"):
+            self.poll(owner="Loom")
+        self.activities = [("T-9", "Taskboard CI run 42."), ("T-10", "Taskboard CI run 42.")]
+        with self.assertRaisesRegex(ValueError, "Multiple tickets"):
+            self.poll()
+
+        def unavailable(path, **options):
+            raise OSError("Provider unavailable.")
+
+        with self.assertRaises(OSError):
+            poll(unavailable, self.invoke, self.state, since=SINCE, board=BOARD, owner="Beacon", dry_run=False)
+        self.assertEqual(self.writes, [])

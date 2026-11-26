@@ -338,3 +338,29 @@ The default run uses synthetic local fixtures. Release operators can enable addi
 | `TASKS_PROFILE_FIXTURE` | Built Taskboard source snapshot for signed-in service checks |
 
 Supply all four release artifact settings together and both legacy CLI settings together when enabling their respective replays. Tests use disposable ledger data and loopback HTTP.
+
+## Route protected-main CI failures from the Mac
+
+The main CI intake checks GitHub Actions through the Mac’s existing `gh` login.
+It watches the Taskboard CI workflow’s pushes to protected `main`. A completed
+failure creates a Ready Project T ticket under the signed caller. Failed reruns
+and passing retries add Activity to that ticket. Job links point directly to
+the failed checks. Canceled runs and API errors produce no tickets.
+
+Run the preview from the watcher owner’s Raft session. Use the exact owner ID
+returned by the signed Taskboard context and the first UTC date to monitor.
+
+```sh
+python3 -B tools/release/watch_main_ci.py \
+  --state "$private_main_ci_state" --since 2026-11-26 \
+  --board "$taskboard_url" --owner Beacon
+```
+
+The preview reads GitHub and Taskboard and reports the planned actions. After
+reviewing the preview, the operator can add `--apply` to the same invocation
+and schedule it independently of the Ready watcher. Use one dedicated private
+state directory for that scheduler and keep its board, owner, and start date
+fixed. The watcher reconciles uncertain writes against the immutable Activity
+source key before trying again. If GitHub cannot return the complete run
+history for the window, the watcher stops before writing. Start a newer
+monitoring window with fresh state after reviewing any older unresolved runs.
