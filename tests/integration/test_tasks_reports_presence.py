@@ -1,11 +1,15 @@
 """Exercise Summary presence with fictional signed sessions."""
 
+from contextlib import closing
+from datetime import datetime, timezone
 import unittest
 from unittest.mock import patch
 from uuid import UUID
 
 import test_tasks_service as service
 from taskboard_server import reports_presence
+import tasks_core as ledger
+import tasks_storage as storage
 
 
 ROUTE = "/api/v1/reports/presence"
@@ -20,6 +24,71 @@ class ReportsPresenceTest(unittest.TestCase):
         self.addCleanup(fixture.doCleanups)
         admin = fixture.provider.people["Sam"]["sub"]
         self.replay(fixture, fixture.app(portal_reader=True, project_admin_subject=admin))
+
+    def test_recent_agent_activity(self):
+        fixture = service.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        admin = fixture.provider.people["Sam"]["sub"]
+        app = fixture.app(portal_reader=True, project_admin_subject=admin)
+        self.replay_agent_activity(fixture, app)
+
+    def replay_agent_activity(self, fixture, app, *, postgres_dsn=None):
+        sam, sam_id = fixture.login(app, "Sam")
+        quinn, _ = fixture.login(app, "Quinn")
+        avery, avery_id = fixture.login(app, "Avery")
+        fixture.provider.issued.discard("Avery")
+        second_session, _ = fixture.login(app, "Avery")
+        blake, blake_id = fixture.login(app, "Blake")
+        fixture.call(sam, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Fictional restricted work", "visibility": "ring1",
+        })
+        for principal in (avery_id, blake_id):
+            fixture.call(sam, "/api/v1/projects/LAB/ring1", method="PUT", json={
+                "principal": principal, "allowed": True,
+            })
+
+        now = 1_800_000_000
+
+        def at(seconds):
+            return datetime.fromtimestamp(seconds, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+        with patch.object(ledger, "timestamp", return_value=at(now - 300)):
+            fixture.action(avery, "create-task", {"title": "Public fixture", "step": "Check the sample."})
+            fixture.action(second_session, "record-activity", {"id": "T-1", "note": "The same writer used a second session."})
+        with patch.object(ledger, "timestamp", return_value=at(now - 10)):
+            for writer in (avery, blake):
+                fixture.action(writer, "create-task", {"project": "LAB", "title": "Private fixture", "step": "Check it."})
+        fixture.action(blake, "my-next")
+        ticket = fixture.action(avery, "task", query_string={"id": "T-1"})["task"]["id"]
+        connection = storage.Postgres(postgres_dsn) if postgres_dsn else storage.open_sqlite(fixture.database)
+        with closing(connection) as db, storage.write(db):
+            ledger.record(db, ticket, "log", blake_id, "ready", "Expired contribution.", None, [], at=at(now - 301))
+            ledger.record(db, ticket, "log", sam_id, "ready", "Human contribution.", None, [], at=at(now - 5))
+            ledger.record(db, ticket, "source-event", blake_id, "ready", "Imported source.", None, [], at=at(now - 5))
+            for context in (
+                {"recurring": "R-1"}, {"extension": "github-events"}, {"stamp_verdict": {"id": "sample"}},
+                {"demo_comparison": {"pull": "sample"}}, {"watcher_measurements": {"sample": True}},
+                {"audit": {"action": "worker-check"}},
+            ):
+                ledger.record(db, ticket, "log", blake_id, "ready", "Automated fixture.", None, [], context, at=at(now - 5))
+
+        def presence(client, tab, scope, status=200):
+            return fixture.call(client, ROUTE, method="POST", headers=ORIGIN, json={
+                "view_id": str(UUID(int=tab)), "visit": 1, **scope,
+            }, status=status).json
+
+        with patch.object(reports_presence, "time", return_value=now) as clock:
+            self.assertEqual(presence(quinn, 1, ALL), {"count": 1, "active_agents": 1})
+            self.assertEqual(presence(sam, 1, ALL), {"count": 2, "active_agents": 2})
+            self.assertEqual(presence(sam, 2, {"project": "T"}), {"count": 1, "active_agents": 1})
+            self.assertEqual(presence(sam, 3, {"project": "LAB"}), {"count": 1, "active_agents": 2})
+            presence(quinn, 2, {"project": "LAB"}, status=404)
+            clock.return_value = now + 1
+            self.assertEqual(presence(quinn, 1, ALL), {"count": 2, "active_agents": 0})
+            self.assertEqual(presence(sam, 1, ALL), {"count": 2, "active_agents": 2})
+            clock.return_value = now + 291
+            self.assertEqual(presence(sam, 1, ALL), {"count": 1, "active_agents": 0})
 
     def replay(self, fixture, app):
         call = fixture.call
@@ -39,7 +108,7 @@ class ReportsPresenceTest(unittest.TestCase):
             return response.json
 
         def count(client, tab, scope, expected, **options):
-            self.assertEqual(post(client, tab, scope, **options), {"count": expected})
+            self.assertEqual(post(client, tab, scope, **options), {"count": expected, "active_agents": 0})
 
         t = {"project": "T"}
         lab = {"project": "LAB"}

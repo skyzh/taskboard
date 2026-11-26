@@ -244,7 +244,7 @@ def apply(db, config, run, report, attachment, labels, *, dry_run=False):
             task = ledger.get_task(db, ticket)
             if labels and task["state"] == "done":
                 args = argparse.Namespace(command="reopen", id=ticket, by=config.actor, dri=None, note=note)
-                ledger.change_ownership(db, args, links)
+                ledger.change_ownership(db, args, links, context={"demo_comparison": context["demo_comparison"]})
                 task = ledger.get_task(db, ticket)
             ledger.record(db, ticket, "log", config.actor, task["state"], note, None, links, context)
             action = "updated" if labels else "pass_recorded"
