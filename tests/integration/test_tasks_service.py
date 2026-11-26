@@ -691,6 +691,33 @@ class TasksServiceTest(unittest.TestCase):
             db.execute("INSERT INTO task_sources (task_id, source_id) VALUES (?, ?)", (task_id, source_id))
         return source_id
 
+    def test_wait_review_records_owner_preparation_without_inferring_approval(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        reviewer, _ = self.login(app, "Blake")
+        self.action(owner, "create-task", {"title": "Prepare the fixture", "step": "Inspect resources."})
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Read the draft."})
+        self.action(owner, "advance-task", {
+            "id": "T-1", "transition": "wait", "on": "Future approved deployment window",
+            "automation": "true", "note": "Wait for the live window.",
+        })
+        candidate, = self.action(owner, "my-next")["wait_review"]
+        preparation = {
+            "id": "T-1", "transition": "resume", "review_wait": candidate["wait_event"],
+            "note": "Refresh the disposable fixture now. Obtain live approval later.",
+        }
+        self.action(reviewer, "advance-task", preparation, status=403)
+        self.action(owner, "advance-task", {**preparation, "review_wait": candidate["wait_event"] - 1}, status=409)
+        code, output, errors = self.shared_cli(owner, "resume", "T-1", preparation["note"],
+                                               "--review-wait", str(candidate["wait_event"]))
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("T-1", output)
+        self.assertEqual(self.action(owner, "my-next")["work"]["key"], "T-1")
+        task = self.action(owner, "task", query_string={"id": "T-1"})["task"]
+        self.assertEqual((task["state"], task["note"]), ("in_progress", preparation["note"]))
+        self.assertNotIn("confirmed_blocker_event", task["context"])
+        self.action(owner, "advance-task", preparation, status=409)
+
     def test_confirm_blocker_checks_the_current_wait_and_returns_its_owner_to_ready(self):
         app = self.app(portal_reader=True)
         owner, owner_id = self.login(app, "Avery")
@@ -734,8 +761,23 @@ class TasksServiceTest(unittest.TestCase):
         advance("T-3", "wait", blocked_by="T-2")
         event = read(owner, "T-3")["task"]["event_id"]
         confirm(owner, "T-3", event, status=409)
+        self.action(owner, "close-task", {"id": "T-2", "reason": "The previous attempt was canceled."})
+        self.assertEqual(read(owner, "T-3")["task"]["event_id"], event)
+        self.action(owner, "change-ownership", {"id": "T-2", "action": "reopen", "reason": "Retry the verification."})
+        self.assertEqual(read(owner, "T-3")["task"]["event_id"], event)
         advance("T-2", "start")
         advance("T-2", "done")
+        completion = read(owner, "T-2")["task"]["event_id"]
+        task = read(owner, "T-3")["task"]
+        self.assertEqual((task["state"], task["dri"]), ("ready", owner_id))
+        self.assertEqual(task["context"]["confirmed_blocker_event"], event)
+        self.assertTrue(task["links"][0]["url"].endswith(f"/#event-{completion}-log"))
+        confirm(owner, "T-3", event, status=409)
+        self.assertEqual(read(owner, "T-3")["task"]["event_id"], task["event_id"])
+
+        advance("T-3", "start")
+        advance("T-3", "wait", blocked_by="T-2")
+        event = read(owner, "T-3")["task"]["event_id"]
         code, output, errors = self.shared_cli(owner, "confirm-blocker", "T-3", str(event), "T-2 is Done.")
         self.assertEqual((code, errors), (0, ""))
         self.assertIn("T-3 · Blocker confirmed", output)
@@ -4875,7 +4917,13 @@ class TasksServiceTest(unittest.TestCase):
         committed(blake, "done", "T-3", "Signature ready.")
         still_blocked = self.call(viewer, "/api/v1/tasks/1").json["task"]
         self.assertEqual(still_blocked["state"], "waiting")
-        self.assertEqual(still_blocked["blockers"]["tickets"][-1]["state"], "done")
+        self.assertEqual(still_blocked["blockers"]["tickets"], [{"id": 2, "state": "ready"}])
+        released = self.call(blake, "/api/v1/tasks/2").json["task"]
+        self.assertEqual((released["state"], released["dri"]), ("ready", blake_id))
+        committed(blake, "start", "T-2", "Use the signed sample.")
+        committed(blake, "done", "T-2", "The sample is verified.")
+        final = self.call(avery, "/api/v1/tasks/1").json["task"]
+        self.assertEqual((final["state"], final["dri"]), ("ready", avery_id))
 
     def test_signed_human_and_agent_edit_details_without_changing_work_or_history(self):
         app = self.app(portal_reader=True)
@@ -10296,6 +10344,10 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "create-task", {"title": "Review the sample", "step": "Prepare it."})
         advance = {"id": "T-1", "transition": "start", "note": "Sample is ready."}
         self.action(avery, "advance-task", advance)
+        self.cli("wait", "T-1", "Blake can review the prepared sample.", "--on", "Blake", "--by", avery_id)
+        candidate, = self.action(avery, "my-next")["wait_review"]
+        self.assertEqual((candidate["key"], candidate["ask_recipient"]), ("T-1", blake_id))
+        self.assertNotIn("wait_review", self.action(cedar, "my-next"))
 
         created = {"id": "T-1", "transition": "create", "force_delivery": True, "recipient": blake_id, "note": "Review the sample."}
         self.action(cedar, "peer-ask", created, status=403)
@@ -10315,6 +10367,11 @@ class TasksServiceTest(unittest.TestCase):
 
         self.assertEqual((read(1)["state"], read(1)["waiting_on"]), ("waiting", blake_id))
         self.assertEqual((read(2)["state"], read(2)["dri"]), ("ready", blake_id))
+        self.assertNotIn("wait_review", self.action(avery, "my-next"))
+        self.action(avery, "advance-task", {
+            "id": "T-1", "transition": "resume", "note": "Prepare a second sample.",
+            "review_wait": candidate["wait_event"],
+        }, status=409)
 
         result = {"id": "T-2", "transition": "result", "note": "Independent check passed."}
         ack = {"id": "T-2", "transition": "acknowledge", "note": "I applied the verified result."}
@@ -10357,19 +10414,29 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("Peer request for T-1 · Awaiting acknowledgment", output)
         self.assertIn("peer-ask acknowledge T-2", output)
         self.action(blake, "peer-ask", ack, status=403)
+        self.action(avery, "create-task", {"title": "Publish the checked sample", "step": "Check the dependent."})
+        self.action(avery, "advance-task", {**advance, "id": "T-4"})
+        self.action(avery, "advance-task", {
+            "id": "T-4", "transition": "wait", "blocked_by": "T-2", "note": "Wait for the acknowledgment.",
+        })
+        dependent_wait = read(4)["event_id"]
         self.action(avery, "peer-ask", ack)
         self.assertEqual(read(2)["state"], "done")
         self.assertEqual((read(1)["state"], read(1)["waiting_on"]), ("ready", None))
+        released = read(4)
+        self.assertEqual((released["state"], released["dri"]), ("ready", avery_id))
+        self.assertEqual(released["context"]["confirmed_blocker_event"], dependent_wait)
         self.assertIn("already acknowledged", self.action(avery, "peer-ask", ack)["receipt"])
+        self.assertEqual(read(4)["event_id"], released["event_id"])
 
         self.action(avery, "advance-task", advance)
         newer = self.action(avery, "peer-ask", {**created, "note": "Review the revised sample."})
-        self.assertIn("T-4", newer["receipt"])
-        canceled = {"id": "T-4", "transition": "cancel", "note": "The sample was replaced."}
+        self.assertIn("T-5", newer["receipt"])
+        canceled = {"id": "T-5", "transition": "cancel", "note": "The sample was replaced."}
         self.action(blake, "peer-ask", canceled, status=403)
         self.action(avery, "peer-ask", canceled)
         self.assertEqual(read(1)["state"], "ready")
-        self.assertEqual(read(4)["display_state"], "closed")
+        self.assertEqual(read(5)["display_state"], "closed")
 
     def test_handoff_receipts_use_the_senders_queue_and_preserve_peer_acknowledgment(self):
         app = self.app(portal_reader=True)

@@ -396,7 +396,7 @@ def wait_starts(db, rows):
 
 
 def record(db, number, action, actor, state, note, waiting_on, links, context=None, *, at=None):
-    return tasks_storage.insert_id(
+    event = tasks_storage.insert_id(
         db, """
         INSERT INTO events (task_id, action, actor, at, state, note, waiting_on, links, context)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -406,6 +406,45 @@ def record(db, number, action, actor, state, note, waiting_on, links, context=No
             json.dumps(context or {}),
         ),
     )
+    if action == "done" and state == "done" and (board_url := live_board_url(db)):
+        release_linked_waits(db, number, event, board_url)
+    return event
+
+
+def record_confirmed_blocker(db, task, actor, note, links, override=None):
+    return record(
+        db, task["id"], "resume", actor, "ready", note, None, links,
+        {"confirmed_blocker_event": task["event_id"], **(override or {})},
+    )
+
+
+def release_linked_waits(db, blocker_id, completion_event, board_url):
+    blocker = get_task(db, blocker_id)
+    if blocker["display_state"] != "done" or blocker["event_id"] != completion_event:
+        return
+    source_project = projects.row_project(blocker)
+    candidates = db.execute(
+        f"""WITH current AS ({current_tasks_sql(db)})
+            SELECT * FROM current
+            WHERE state = 'waiting' AND CAST(json_extract(context, '$.blocked_by') AS TEXT) = ?
+              AND json_extract(context, '$.peer_ask_ticket') IS NULL
+              AND COALESCE(json_extract(context, '$.wait_kind'), '') <> 'automation'
+              AND COALESCE(dri, '') <> ''""",
+        (str(blocker_id),),
+    ).fetchall()
+    for task in candidates:
+        linked = event_context(task).get("blocked_by")
+        if type(linked) is not int:
+            continue
+        target_project = projects.row_project(task)
+        if source_project != target_project and (ring1.private(db, source_project) or ring1.private(db, target_project)):
+            continue
+        record_confirmed_blocker(
+            db, task, "Taskboard", f"{projects.row_reference(blocker)} is Done. Review its completion and start the next step.",
+            [("Blocker completion", f"{board_url.rstrip('/')}/#event-{completion_event}-log")],
+        )
+        if target_project != source_project:
+            bump_revision(db, target_project)
 
 
 def create_task_record(db, args, links, *, context=None, at=None, state="ready"):
@@ -2354,6 +2393,8 @@ def run_local(args):
         or args.command in tasks_recurring.EDITS or args.command in ("recurring-tick", maintenance.WRITE)
     )
     try:
+        if getattr(args, "review_wait", None) is not None:
+            raise ValueError("Use --shared to resume from a signed Inbox wait review.")
         if getattr(args, "force", False) or getattr(args, "force_reason", None) is not None:
             raise ValueError("Use --shared for a project-writer override.")
         if args.command in ("goals", "save-goal"):

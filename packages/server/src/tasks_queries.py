@@ -2771,6 +2771,41 @@ class BoardQueries:
             if len(rows) > limit else None,
         }
 
+    def wait_review_candidates(self, owner, project):
+        visibility, scope = self.project_visibility("current.project_prefix")
+        project_filter = "" if project is None else "AND current.project_prefix = ?"
+        project_values = () if project is None else (project,)
+        rows = self.db.execute(
+            f"""WITH current AS ({ledger.current_tasks_sql(self.db)})
+                SELECT current.id, current.title, current.event_id, current.project_prefix,
+                       current.project_number, current.waiting_on, current.note,
+                       peer.ledger_key AS recipient
+                FROM current
+                LEFT JOIN board_principals AS peer ON peer.ledger_key = COALESCE(
+                    (SELECT ledger_key FROM board_principals WHERE ledger_key = current.waiting_on),
+                    (SELECT MIN(ledger_key) FROM board_principals
+                     WHERE username <> '' AND LOWER(username) = LOWER(current.waiting_on)
+                     HAVING COUNT(*) = 1)
+                ) AND peer.kind = 'agent' AND peer.ledger_key <> current.dri
+                  AND COALESCE(json_extract(current.context, '$.wait_kind'), '') <> 'automation'
+                WHERE current.dri = ? AND current.state = 'waiting'
+                  AND json_extract(current.context, '$.peer_ask_ticket') IS NULL
+                  AND json_extract(current.context, '$.blocked_by') IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM attention_wait_links AS link
+                      WHERE link.event_id = current.event_id AND link.ready_event_id IS NULL
+                  )
+                  AND {visibility} {project_filter}
+                ORDER BY current.event_id
+                LIMIT 5""",
+            (owner, *scope, *project_values),
+        )
+        return [{
+            "key": projects.row_reference(row), "title": row["title"], "wait_event": row["event_id"],
+            "waiting_on": row["waiting_on"], "step": row["note"],
+            **({"ask_recipient": row["recipient"]} if row["recipient"] else {}),
+        } for row in rows]
+
     def actionable_work(self, owner, *, today, project, ordinary_only=False):
         """Yield the first actionable item in each queue in pickup order."""
         scope = {"project": project, "limit": 1}
