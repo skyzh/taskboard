@@ -22,10 +22,5 @@
   scroll-margin-block: .75rem;
 }
 
-.demo-tour-agent {
-  display: inline-flex;
-  align-items: center;
-  gap: .2rem;
-  vertical-align: middle;
-  white-space: nowrap;
-}
+.demo-tour-agent { white-space: nowrap; }
+.demo-tour-agent > .assignee-avatar { margin-inline-end: .2rem; }
