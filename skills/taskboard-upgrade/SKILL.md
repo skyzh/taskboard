@@ -22,10 +22,12 @@ installation, follow the [installation guide](../../docs/taskboard/SETUP.md).
   Record the SQLite ledger path or PostgreSQL database and schema, service
   owner, gateway mount, and identity and session configuration. Keep secrets
   in the existing private runtime configuration.
-- Read the target's release and operator instructions for the exact pair.
-  Shipped schema changes run through the server startup path. Treat a proposed
-  migration framework as future work until its commands ship in the selected
-  release. Keep a database-engine move separate from an in-place upgrade.
+- Read the [development log](../../docs/taskboard/DEVELOPMENT_LOG.md) and
+  operator instructions for the exact release pair. When the target ships
+  `taskboard-migrate`, use its [database upgrade procedure](../../docs/taskboard/operators/DATABASE-MIGRATIONS.md)
+  before starting the target on an existing shared ledger. Rehearse with the
+  target release's tool against the restored copy. Keep a database-engine move
+  separate from an in-place upgrade.
   Use the [explicit SQLite-to-PostgreSQL import](../../docs/taskboard/SHARED-BOARD.md#use-a-postgresql-ledger)
   only when that move is the task.
 
@@ -40,6 +42,11 @@ installation, follow the [installation guide](../../docs/taskboard/SETUP.md).
   association and Activity records with the source. Match the production
   database type, relevant features, and release pair during rehearsal. Keep
   the copied service isolated from production identities and wake or sync jobs.
+- If the release changes scheduling, record an existing schedule ID, cadence,
+  next due time, and recent run outcomes and ticket links. Record which process
+  issues recurring work and whether Ready delivery is enabled. Include an active
+  goal with a saved review time or date-only deadline when the release changes
+  goals. Use these records to compare the restored copy before and after upgrade.
 - Start the target on the restored copy using the installation's real startup
   path. Run the checks below using fictional data and a synthetic signed
   session where the installation supports sign-in. For an isolated shared
@@ -69,6 +76,16 @@ installation, follow the [installation guide](../../docs/taskboard/SETUP.md).
   Exercise the changed feature on a disposable ticket in the rehearsal. For a
   standalone read-only preview, use the installed launcher to show the existing
   ticket and verify it in the loopback preview. [Shared CLI](../../docs/taskboard/SHARED-BOARD.md#use-the-shared-cli)
+- For a recurring-work change, compare the schedule and run history with the
+  baseline. In rehearsal, exercise a due run, retry, and restart. Verify the
+  resulting ticket, Ready event, and run outcome. On the live board, check the
+  first naturally due run and its Ready event. When Ready delivery is enabled,
+  verify the received cue separately. [Recurring work](../../docs/taskboard/SHARED-BOARD.md#recurring-work)
+- For a goal-review change, compare the saved Pacific review time and date-only
+  deadline with the baseline. With goal wakes enabled, check the due cue, the
+  agent's Start, and the recorded outcome on the existing goal ticket. An agent
+  already working can pick up the goal through its signed Inbox recheck.
+  [Goal wakes](../../docs/taskboard/READY-CHECKPOINT.md#try-goal-wakes)
 - Record the observed release pair, backup and restore receipt, signed read
   results, and any remaining verification on the upgrade ticket. Hand the
   operator the status and next action if the upgrade is blocked.
