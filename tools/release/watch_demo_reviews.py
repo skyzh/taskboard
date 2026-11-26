@@ -14,7 +14,7 @@ class MacProvider(demo_review.Provider):
         super().__init__(repository, token=None)
 
     def request(self, path):
-        result = subprocess.run(["gh", "api", self.path + path], capture_output=True, timeout=30)
+        result = subprocess.run(["gh", "api", "--hostname", "github.com", self.path + path], capture_output=True, timeout=30)
         if result.returncode:
             raise ValueError("GitHub CLI did not confirm the demo comparison read.")
         return result.stdout
@@ -33,12 +33,23 @@ def poll(provider, board, config, *, since, apply):
             or context["actor"]["id"] != config.owner):
         raise ValueError("Use the configured HTTPS board and signed comparison operator.")
 
-    def submit(observation):
-        return board.invoke(demo_review.SIGNED_ACTION, {
-            "observation": json.dumps(observation), "apply": apply,
-        }, write=True)["outcome"]
+    routes = []
 
-    return demo_review.poll_verified(provider, config, submit, since=since)
+    def submit(observation):
+        reply = board.invoke(demo_review.SIGNED_ACTION, {
+            "observation": json.dumps(observation), "apply": apply,
+        }, write=True)
+        if "owner" in reply:
+            routes.append({
+                "pull": observation["pull"], "outcome": reply["outcome"],
+                "owner": reply["owner"], "ticket": reply["ticket"],
+            })
+        return reply["outcome"]
+
+    result = demo_review.poll_verified(provider, config, submit, since=since)
+    if routes:
+        result["routes"] = routes
+    return result
 
 
 def main():

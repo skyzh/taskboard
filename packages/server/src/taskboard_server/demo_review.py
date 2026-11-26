@@ -199,7 +199,7 @@ def previous_ticket(db, project, url):
     return None, ()
 
 
-def apply(db, config, run, report, attachment, labels, *, dry_run=False):
+def apply(db, config, run, report, attachment, labels, *, dry_run=False, explain=False):
     repo, pull = config.repository, report["pull"]
     url = f"https://github.com/{repo}/pull/{pull}"
     run_id, _ = identity(run)
@@ -234,7 +234,14 @@ def apply(db, config, run, report, attachment, labels, *, dry_run=False):
             if owner not in verified and owner not in projects.roster_owners(db, config.roster):
                 raise ValueError("The review owner must be an existing verified board assignee.")
         if dry_run:
-            return "would_update" if ticket else "would_create"
+            outcome = "would_update" if ticket else "would_create"
+            if explain:
+                return {
+                    "outcome": outcome,
+                    "owner": ledger.get_task(db, ticket)["dri"] if ticket else owner,
+                    "ticket": projects.for_task(db, ticket) if ticket else None,
+                }
+            return outcome
         if ticket is None:
             args = argparse.Namespace(
                 title=f"Review Taskboard demo changes from PR #{pull}", step=note, brief=brief,
@@ -288,7 +295,7 @@ def verified_route(provider, config, run, report):
     }
 
 
-def apply_verified(db, config, observation, *, dry_run):
+def apply_verified(db, config, observation, *, dry_run, explain=False):
     """Accept an observation from the configured signed comparison operator."""
     if not isinstance(observation, dict) or (
         observation.get("repository"), observation.get("baseline")
@@ -317,7 +324,7 @@ def apply_verified(db, config, observation, *, dry_run):
     elif labels or evidence is not None:
         raise ValueError("Passing comparisons do not take changed evidence.")
     run = {"id": observation["run"], "run_number": observation["run_number"], "run_attempt": observation["attempt"]}
-    return apply(db, config, run, observation, evidence, labels, dry_run=dry_run)
+    return apply(db, config, run, observation, evidence, labels, dry_run=dry_run, explain=explain)
 
 
 def poll_verified(provider, config, sink, *, since):

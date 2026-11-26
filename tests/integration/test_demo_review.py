@@ -209,7 +209,9 @@ class DemoReviewTest(unittest.TestCase):
         self.config.owner = self.config.actor
         since = "2026-11-25T00:00:00Z"
         self.provider.add("changed", 101)
-        self.assertEqual(poll(self.provider, SignedBoard(), self.config, since=since, apply=False), {"would_create": 1})
+        self.assertEqual(poll(self.provider, SignedBoard(), self.config, since=since, apply=False), {
+            "would_create": 1, "routes": [{"pull": 42, "outcome": "would_create", "owner": self.owner, "ticket": None}],
+        })
         self.assertEqual(self.tickets(), [])
 
         run, report = self.provider.history[0]
@@ -226,6 +228,10 @@ class DemoReviewTest(unittest.TestCase):
         self.assertEqual(ticket["dri"], self.owner)
         self.assertEqual(poll(self.provider, SignedBoard(), self.config, since=since, apply=True), {"duplicate": 1})
         self.provider.add("pass", 101, attempt=2)
+        self.assertEqual(poll(self.provider, SignedBoard(), self.config, since=since, apply=False), {
+            "superseded": 1, "would_update": 1,
+            "routes": [{"pull": 42, "outcome": "would_update", "owner": self.owner, "ticket": "LAB-1"}],
+        })
         self.assertEqual(poll(self.provider, SignedBoard(), self.config, since=since, apply=True),
                          {"superseded": 1, "pass_recorded": 1})
         self.assertEqual(self.tickets()[0]["id"], ticket["id"])

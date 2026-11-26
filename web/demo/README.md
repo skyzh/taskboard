@@ -73,6 +73,7 @@ PYTHONPATH=packages/server/src:packages/client/src \
   --repository skyzh/taskboard --baseline "$(cat web/demo/baseline.txt)"
 ```
 
+The preview lists the proposed owner and existing ticket for each route.
 Add `--apply` only after a successful preview and owner-map review. Schedule
 this independently of the main CI failure poll. Use one applied routing
 scheduler for the configured project. The Mac validates the protected workflow,

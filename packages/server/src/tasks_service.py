@@ -4365,12 +4365,12 @@ def create_app(
                 raise RequestError("Send apply as true or false.")
             try:
                 observation = demo_review.json_object(text(data, "observation", maximum=demo_review.JSON_LIMIT))
-                outcome = demo_review.apply_verified(db(), demo_config, observation, dry_run=apply == "false")
+                outcome = demo_review.apply_verified(db(), demo_config, observation, dry_run=apply == "false", explain=True)
             except PermissionError as error:
                 raise RequestError(str(error), 403) from error
             except ValueError as error:
                 raise RequestError(str(error), 400) from error
-            return {"outcome": outcome}
+            return outcome if isinstance(outcome, dict) else {"outcome": outcome}
         if name == "list-projects":
             return project_directory(actor)
         if name == "context":
