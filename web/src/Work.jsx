@@ -435,7 +435,8 @@ function TicketContext({ record, id, task, state, wide, detailed, properties, se
 
 function RecordActivity({ id, task, activity, knowledge, children }) {
   const events = activity.data?.items || []
-  const recurringRuns = activity.data?.recurrence_runs
+  const recurringRuns = activity.data?.recurrence_runs?.filter(run =>
+    run.task_id !== task.id || run.state === 'missed' || run.state === 'skipped')
   const groups = knowledge ? events.map(event => [event]) : groupWatcherActivity(events)
   return (
     <section className="ticket-activity" aria-labelledby={`ticket-activity-${id}`}>
