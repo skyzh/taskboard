@@ -35,8 +35,8 @@ class DeliveryConfirmationRequired(ValueError):
 
 
 def delivery_ready(db, recipient, project, requester):
-    if local_dri.registration(db, recipient) is not None:
-        return local_dri.ready(db, recipient, project, requester=requester)
+    if registration := local_dri.registration(db, recipient):
+        return local_dri.ready(db, recipient, registration["project"], requester=requester)
     return has_subscription(db, project, recipient, OWNED_READY)
 
 
@@ -290,11 +290,8 @@ def create(db, args, links, *, named_wait=None):
     if args.recipient == args.by:
         raise ValueError("Choose another agent for the peer request.")
     project = projects.row_project(source)
-    if local := local_dri.registration(db, args.recipient):
-        if local["project"] != project:
-            raise PermissionError("Choose an agent registered for this project.")
-        if getattr(args, "stamp_review", None):
-            raise ValueError("Stamp import requires the reviewer's Raft identity. Use a manual pinned review for this recipient.")
+    if local_dri.registration(db, args.recipient) is not None and getattr(args, "stamp_review", None):
+        raise ValueError("Stamp import requires the reviewer's Raft identity. Use a manual pinned review for this recipient.")
     manual_review = getattr(args, "manual_review", None)
     if manual_review:
         if source["state"] not in ("ready", "in_progress", "waiting"):

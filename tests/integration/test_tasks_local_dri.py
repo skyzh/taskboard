@@ -164,7 +164,7 @@ class LocalDRIRoutingTest(unittest.TestCase):
 
         self.assertNotIn(ops["id"], directory("T"))
         self.assertIn(perf["id"], directory("OPS"))
-        self.assertFalse(directory("OPS")[perf["id"]]["accepts_agent_asks"])
+        self.assertTrue(directory("OPS")[perf["id"]]["accepts_agent_asks"])
         self.assertEqual(directory("T")[team_id]["dri_kind"], "team")
         self.assertTrue(directory("T")[perf["id"]]["accepts_agent_asks"])
         self.assertFalse(directory("T")[perf["id"]]["agent_ask_delivery_ready"])
@@ -193,7 +193,7 @@ class LocalDRIRoutingTest(unittest.TestCase):
 
         self.assertTrue(readiness("active"))
         self.assertTrue(directory("T")[perf["id"]]["agent_ask_delivery_ready"])
-        self.assertFalse(directory("OPS")[perf["id"]]["accepts_agent_asks"])
+        self.assertTrue(directory("OPS")[perf["id"]]["accepts_agent_asks"])
         worker = action(manager, "delegate", {"id": "T-1", "worker": perf["id"], "role": "review",
                                               "brief": "Review the same request."})
         self.assertIn("Planned", worker["receipt"])
@@ -293,6 +293,25 @@ class LocalDRIRoutingTest(unittest.TestCase):
         request = action(manager, "task", query_string={"id": receipt.split()[0]})["task"]
         self.assertEqual((request["state"], request["dri"], request["peer_request"]["requester"]),
                          ("ready", team_id, perf["id"]))
+
+        source = action(manager, "create-task", {
+            "project": "OPS", "title": "Review a cross-project fixture", "step": "Read the signed input.",
+        })["receipt"].split()[0]
+        pull = "https://github.com/example/repo/pull/31"
+        action(manager, "link-reference", {"id": source, "label": "Review target", "url": pull})
+        cross_project = action(manager, "peer-ask", {
+            "id": source, "transition": "manual-create", "recipient": perf["id"], "note": "Check the pinned change.",
+            "review_pr": pull, "review_head": "a" * 40, "review_base": "b" * 40,
+        })["receipt"].split()[0]
+        request = action(client, "task", headers=sender, query_string={"id": cross_project})["task"]
+        self.assertEqual((request["state"], request["dri"]), ("ready", perf["id"]))
+        source = action(manager, "create-task", {
+            "project": "OPS", "title": "Check the alternate work", "step": "Review the sample output.",
+        })["receipt"].split()[0]
+        action(manager, "peer-ask", {**ask, "id": source}, status=409)
+        self.assertTrue(readiness("active"))
+        self.assertTrue(directory("OPS")[perf["id"]]["agent_ask_delivery_ready"])
+        self.assertIn("Peer request opened", action(manager, "peer-ask", {**ask, "id": source})["receipt"])
 
 
     def test_workflow_parity_keeps_local_identity_and_project(self):

@@ -3997,8 +3997,7 @@ def create_app(
         for row in rows[:limit]:
             profile = profiles.public_profile(row, base)
             if requester is not None and row["kind"] == "agent":
-                local = local_dri.registration(connection, row["ledger_key"])
-                eligible = (local is None or local["project"] == project) and row["ledger_key"] != requester["ledger_key"]
+                eligible = project_agent(row, project) and row["ledger_key"] != requester["ledger_key"]
                 ready = eligible and peer_asks.delivery_ready(connection, row["ledger_key"], project, requester["ledger_key"])
                 profile.update(accepts_agent_asks=eligible, agent_ask_restriction=None,
                                agent_ask_delivery_ready=ready)
