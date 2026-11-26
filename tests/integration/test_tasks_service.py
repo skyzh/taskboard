@@ -7485,9 +7485,10 @@ class TasksServiceTest(unittest.TestCase):
         receipt(owner, first, status=403)
 
         with patch("tasks_core.timestamp", return_value="2026-11-21T12:00:00Z"):
-            self.call(sam, "/api/v1/tasks/T-1/decision", method="POST", json={
+            saved = self.call(sam, "/api/v1/tasks/T-1/decision", method="POST", json={
                 "request_id": first, "choice": "CSV", "note": "Use the simple format.",
-            })
+            }).json
+        self.assertIs(saved["agent_question"], True)
         self.assertIsNone(available_request(sam))
         posted, = self.call(sam, "/api/v1/notifications/decisions?state=answered").json["items"]
         answer = {"status": "answered", "answer": {

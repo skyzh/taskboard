@@ -1,0 +1,39 @@
+.answer-celebration {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: hidden;
+  pointer-events: none;
+}
+.answer-celebration i, .answer-celebration-ring {
+  position: absolute;
+  inset: 46% auto auto 50%;
+}
+.answer-celebration i {
+  width: clamp(.45rem, 1.4vmin, .85rem);
+  height: clamp(.75rem, 2vmin, 1.4rem);
+  border-radius: .15rem;
+  background: var(--color);
+  animation: answer-confetti 1.15s cubic-bezier(.1, .65, .2, 1) both;
+}
+.answer-celebration i:nth-of-type(3n) { border-radius: 50%; height: clamp(.45rem, 1.4vmin, .85rem); }
+.answer-celebration-ring {
+  width: 15vmin;
+  aspect-ratio: 1;
+  border: .25rem solid #49dcb1;
+  border-radius: 50%;
+  animation: answer-ring .62s ease-out both;
+}
+@keyframes answer-confetti {
+  0% { transform: translate(-50%, -50%) scale(.25); opacity: 0; }
+  18% { opacity: 1; }
+  63% { opacity: 1; }
+  100% { transform: translate(var(--x), var(--y)) rotate(var(--turn)); opacity: 0; }
+}
+@keyframes answer-ring {
+  from { transform: translate(-50%, -50%) scale(.2); opacity: .8; }
+  to { transform: translate(-50%, -50%) scale(3); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .answer-celebration { display: none; }
+}
