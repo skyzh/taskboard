@@ -380,6 +380,15 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         shown = cli_success(python, ROOT, environment, "show", ticket)
         self.assertIn("Compare fixture responses", shown)
         self.assertIn("https://example.test/readback", shown)
+        long_text = "## Results\n\n" + ("Keep a full **readable** paragraph.\n\n" * 130) + "End."
+        fields = {"ticket": ticket, "reason": "Retain the full scope.", "brief": long_text}
+        rejected = await owner.call_tool("taskboard_edit_ticket", fields)
+        self.assertTrue(rejected.is_error)
+        self.assertIn("force_text=true", rejected.content[0].text)
+        self.assertEqual(io_action(origin, "task", cookie=cookie, query={"id": ticket})["brief"], "")
+        saved = await owner.call_tool("taskboard_edit_ticket", {**fields, "force_text": True})
+        self.assertFalse(saved.is_error, saved.content)
+        self.assertEqual(io_action(origin, "task", cookie=cookie, query={"id": ticket})["brief"], long_text)
         checkpoint = await reviewer.call_tool("taskboard_checkpoint", {
             "ticket": ticket, "note": "Resume on the signed fixture.", "details": "Use the checked fixture because it is repeatable.",
             "label": "Fixture evidence", "url": "https://example.test/fixture",

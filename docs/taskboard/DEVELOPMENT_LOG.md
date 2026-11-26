@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Long ticket drafts.** The board asks for text confirmation when ticket or workflow writing exceeds 4,000 characters. Retry the same draft with `--force-text` in the CLI or `force_text: true` in signed tools. Activity and Knowledge save long text directly. [Writing guide](USING.md)
+
 - **Reports Summary viewers.** The viewer count includes signed-in people in the selected Summary scope. Multiple tabs count as one person, and private project views stay in their own scope. Inactive views expire after 45 seconds.
 
 - **Shared CLI write errors.** A confirmed rejection shows the reason and HTTP status on the current Raft CLI. A lost response still asks for a readback before retrying. [Shared CLI](SHARED-BOARD.md#use-the-shared-cli)

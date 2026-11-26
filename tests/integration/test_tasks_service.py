@@ -4571,6 +4571,95 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.shared_cli(avery, "next"), selection)
         self.assertEqual(self.cli("next", "--dri", avery_id), offline_selection)
 
+    def test_ticket_writing_confirmation_preserves_the_draft_and_permissions(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        peer, _ = self.login(app, "Blake")
+        long_text = "## Findings\n\n" + ("A readable paragraph with **Markdown**.\n\n" * 110) + "Last paragraph."
+        command = {"title": "Boundary", "step": "界" * 4000}
+        self.action(owner, "create-task", command)
+        rejection = self.action(owner, "create-task", {**command, "step": command["step"] + "界"}, status=400)
+        self.assertEqual((rejection["code"], rejection["field"], rejection["limit"]),
+                         ("TEXT_LENGTH_CONFIRMATION_REQUIRED", "step", 4000))
+        self.assertIn("force_text=true", rejection["error"])
+        self.assertEqual(len(self.action(owner, "my-queue")["items"]), 1)
+
+        def record():
+            detail = self.action(owner, "task", query_string={"id": "T-1"})
+            return {**detail["task"], "brief": detail["brief"]}
+
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Read the findings."})
+        before = record()
+        history = self.action(owner, "task-activity", query_string={"id": "T-1"})["items"]
+        body = {"id": "T-1", "transition": "update", "note": long_text}
+        rejection = self.action(owner, "advance-task", body, status=400)
+        self.assertEqual((rejection["code"], rejection["field"]), ("TEXT_LENGTH_CONFIRMATION_REQUIRED", "note"))
+        self.action(owner, "advance-task", {**body, "force_text": 1}, status=400)
+        peer_first = self.action(peer, "advance-task", {**body, "force_text": True}, status=409)
+        self.assertEqual(peer_first["code"], "TRANSITION_CONFIRMATION_REQUIRED")
+        peer_force = {"force": True, "force_reason": "The owner requested a correction."}
+        peer_second = self.action(peer, "advance-task", {**body, **peer_force}, status=400)
+        self.assertEqual(peer_second["code"], "TEXT_LENGTH_CONFIRMATION_REQUIRED")
+        self.assertEqual(record(), before)
+        self.assertEqual(self.action(owner, "task-activity", query_string={"id": "T-1"})["items"], history)
+
+        status, output, errors = self.shared_cli(owner, "update", "T-1", long_text, untyped_rejections=True)
+        self.assertEqual((status, output), (1, ""))
+        self.assertIn("--force-text", errors)
+        self.assertEqual(record(), before)
+        status, _, errors = self.shared_cli(owner, "update", "T-1", long_text, "--force-text")
+        self.assertEqual((status, errors), (0, ""))
+        self.assertEqual(record()["note"], long_text)
+        self.assertEqual(len(self.action(owner, "task-activity", query_string={"id": "T-1"})["items"]), len(history) + 1)
+
+        before = record()
+        edit = {"reason": "Record the full briefing.", "brief": long_text}
+        route = "/api/v1/tasks/T-1/details"
+        self.call(owner, route, method="POST", json=edit, status=400)
+        self.assertEqual(record(), before)
+        self.call(owner, route, method="POST", json={**edit, "force_text": True})
+        self.assertEqual(record()["brief"], long_text)
+        self.call(owner, route, method="POST", json={
+            **edit, "force_text": True, "brief": "x" * app.config["MAX_CONTENT_LENGTH"],
+        }, status=413)
+        self.assertEqual(record()["brief"], long_text)
+        peer_text = long_text + "\n\nFollow-up."
+        self.action(peer, "advance-task", {**body, **peer_force, "force_text": True, "note": peer_text})
+        self.assertEqual(record()["note"], peer_text)
+
+    def test_long_knowledge_and_activity_save_without_confirmation(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        self.cli("register-project", "T", "Tasks", "--dri", owner_id)
+        long_text = "## Findings\n\n" + ("A **readable** paragraph.\n\n" * 170) + "Last paragraph."
+        self.action(owner, "create-task", {"title": "Example", "step": "Read the findings."})
+        knowledge = self.action(owner, "create-knowledge", {"project": "T", "title": "Finding", "brief": long_text})
+        identifier = knowledge["id"]
+
+        def brief():
+            return self.action(owner, "task", query_string={"id": identifier})["brief"]
+
+        self.assertEqual(brief(), long_text)
+        changed = long_text + "\n\n## Review\n\nRetain these paragraphs."
+        self.action(owner, "edit-task-details", {"id": identifier, "reason": "Keep the full context.", "brief": changed})
+        self.assertEqual(brief(), changed)
+        source_event = self.action(owner, "task", query_string={"id": "T-1"})["task"]["event_id"]
+        self.action(owner, "knowledge-stage", {
+            "id": identifier, "source": "T-1", "brief": long_text, "source_event": source_event,
+        })
+        with closing(sqlite3.connect(self.database)) as db:
+            self.assertEqual(db.execute("SELECT proposed_brief FROM knowledge_stages").fetchone()[0], long_text)
+        self.action(owner, "record-activity", {"id": "T-1", "note": long_text})
+        status, _, errors = self.shared_cli(
+            owner, "log", "T-1", "Checkpoint with evidence.", "--checkpoint", "--details", long_text,
+        )
+        self.assertEqual((status, errors), (0, ""))
+        self.call(owner, "/api/v1/tasks/T-1/activity", method="POST", json={"note": "Browser note.", "details": changed})
+        events = self.action(owner, "task-activity", query_string={"id": "T-1"})["items"]
+        self.assertEqual(events[0]["details"], changed)
+        self.assertEqual(events[1]["details"], long_text)
+        self.assertEqual(events[2]["note"], long_text)
+
     def test_structured_activity_survives_shared_cli_and_compact_api(self):
         app = self.app(portal_reader=True)
         viewer = app.test_client()

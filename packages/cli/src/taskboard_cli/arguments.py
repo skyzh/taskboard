@@ -581,6 +581,17 @@ def arguments(argv=None):
     delivery.add_argument("delivery", type=nonblank, help="Stable event identifier from the source.")
     delivery.add_argument("note", type=nonblank)
     add_link_flag(delivery, OFFLINE_EVIDENCE_HELP)
+    for name in (
+        "add", "start", "update", "wait", "resume", "done", "close", "edit", "transfer",
+        "park", "unpark", "remind", "confirm-blocker", "raise-attention", "assign-human",
+        "redirect-decision", "withdraw-decision", "reassign", "unassign", "reopen",
+        "recurring-add", "peer-ask", "delegate", "worker-start", "worker-report",
+        "worker-collect", "worker-stop",
+    ):
+        commands.choices[name].add_argument(
+            "--force-text", action="store_true",
+            help="Confirm saving text longer than the 4,000-character recommendation.",
+        )
     args = parser.parse_args(argv)
     if args.local_dri is not None:
         args.board_url = args.board_url or os.environ.get("TASKBOARD_URL")

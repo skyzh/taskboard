@@ -214,10 +214,11 @@ def with_guidance(output, guidance):
 def shared_write(board, args, *, context):
     command = args.command
     data = evidence(args)
+    force_text = getattr(args, "force_text", False)
     if command == "raise-attention":
         return board.raise_attention(
             task_ref(args.id), args.reason, recipient=args.on, request_key=args.request_key,
-            unblocks=task_ref(args.unblocks) if args.unblocks is not None else None, **data,
+            unblocks=task_ref(args.unblocks) if args.unblocks is not None else None, force_text=force_text, **data,
         )
     if command == "save-goal":
         action = command
@@ -390,6 +391,8 @@ def shared_write(board, args, *, context):
         if not force or not force_reason or not force_reason.strip():
             raise ValueError("Use --force and a nonempty --force-reason together.")
         data.update(force=True, force_reason=force_reason)
+    if force_text:
+        data["force_text"] = True
     return board.invoke(action, {key: value for key, value in data.items() if value is not None}, write=True)
 
 

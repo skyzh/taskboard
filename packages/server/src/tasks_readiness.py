@@ -2,13 +2,15 @@
 
 import tasks_merges as merges
 import tasks_projects as projects
+from taskboard_client.work import check_text_length
 
 
-def register(db, task, dependency, criteria):
+def register(db, task, dependency, criteria, *, force_text=False):
     if dependency is None and criteria is None:
         return None
-    if dependency is None or not isinstance(criteria, str) or not 0 < len(criteria.strip()) <= 4000:
-        raise ValueError("Provide a dependency ticket and readiness criteria up to 4000 characters.")
+    if dependency is None or not isinstance(criteria, str) or not criteria.strip():
+        raise ValueError("Provide a dependency ticket and readiness criteria.")
+    check_text_length("review_criteria", criteria.strip(), force_text=force_text)
     source_id = projects.resolve(db, dependency)
     if source_id == task["id"]:
         raise ValueError("Choose a separate dependency ticket.")
