@@ -1980,7 +1980,9 @@ def live_board_url(db):
     return None
 
 
-def bump_revision(db):
+def bump_revision(db, project=None):
+    if ring1.bump_revision(db, project):
+        return
     db.execute(
         """
         INSERT INTO board_settings VALUES ('revision', '1')
@@ -2027,8 +2029,8 @@ def save_task(db, path, args, links):
     with tasks_storage.write(db):
         if path is not None:
             ensure_schema(db)
-        if authorize := getattr(args, "authorize", None):
-            authorize(db)
+        authorize = getattr(args, "authorize", None)
+        revision_project = authorize(db) if authorize else getattr(args, "project", None)
         live = path is None or live_board_url(db) is not None
         before_change = db.total_changes
         if args.command == maintenance.WRITE:
@@ -2104,7 +2106,7 @@ def save_task(db, path, args, links):
             or (args.command == "wait" and getattr(args, "peer_recipient", None) is not None)
         )
         if live and (not unchanged_allowed or db.total_changes != before_change):
-            bump_revision(db)
+            bump_revision(db, revision_project)
     if not live:
         refresh_board_after_save(db, path, "Record saved")
     return output

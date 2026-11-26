@@ -4,7 +4,8 @@ import tasks_storage
 
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS project_ring1 (
-        project TEXT PRIMARY KEY REFERENCES projects (prefix)
+        project TEXT PRIMARY KEY REFERENCES projects (prefix),
+        revision BIGINT NOT NULL DEFAULT 0
     )""",
     """CREATE TABLE IF NOT EXISTS project_ring1_members (
         project TEXT NOT NULL REFERENCES project_ring1 (project),
@@ -69,3 +70,21 @@ def set_member(db, project, principal, allowed):
     return db.execute(
         "DELETE FROM project_ring1_members WHERE project = ? AND principal = ?", (project, principal),
     ).rowcount > 0
+
+
+def bump_revision(db, project):
+    if not project or not tasks_storage.has_table(db, "project_ring1"):
+        return False
+    return db.execute(
+        "UPDATE project_ring1 SET revision = revision + 1 WHERE project = ?", (project,),
+    ).rowcount > 0
+
+
+def revisions(db, principal):
+    if principal is None or not tasks_storage.has_table(db, "project_ring1"):
+        return []
+    return [tuple(row) for row in db.execute(
+        """SELECT project_ring1.project, project_ring1.revision FROM project_ring1
+           JOIN project_ring1_members AS membership ON membership.project = project_ring1.project
+           WHERE membership.principal = ? ORDER BY project_ring1.project""", (principal,),
+    )]

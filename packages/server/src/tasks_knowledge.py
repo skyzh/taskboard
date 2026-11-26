@@ -74,7 +74,7 @@ def create(db, actor, project, title, brief):
     number = ledger.create_task_record(db, args, [], state="done", context={"record_kind": "knowledge"})
     db.execute("UPDATE tasks SET record_kind = 'knowledge' WHERE id = ?", (number,))
     db.execute("INSERT INTO task_tags (task_id, tag) VALUES (?, ?)", (number, DECISION_TAG))
-    ledger.bump_revision(db)
+    ledger.bump_revision(db, project)
     ticket = projects.for_task(db, number)
     return {"id": ticket, "record_kind": "knowledge", "receipt": f"{ticket} · Knowledge entry created."}
 
@@ -124,7 +124,7 @@ def set_maintenance_dri(db, note, actor, dri):
     message = f"Assigned Knowledge maintenance to {current['name']}." if current else "Cleared the Knowledge DRI."
     ledger.record(db, number, "log", actor, note["state"], message, None, [],
                   {"previous_knowledge_dri": previous, "knowledge_dri": dri})
-    ledger.bump_revision(db)
+    ledger.bump_revision(db, projects.row_project(note))
     return {"id": projects.row_reference(note), "maintenance_dri": current, "receipt": message}
 
 
@@ -168,7 +168,7 @@ def place(db, number, actor, area, *, index=False):
     )
     purpose = "Set as index for" if assigned_index else "Placed in"
     ledger.record(db, number, "log", actor, note["state"], f"{purpose} Knowledge area {path}.", None, [])
-    ledger.bump_revision(db)
+    ledger.bump_revision(db, project)
     return {"receipt": "Knowledge area saved.", "project": project, "area": path}
 
 
@@ -206,7 +206,7 @@ def stage(db, number, source_id, actor, brief, source_event):
     )
     ledger.record(db, source_id, "log", actor, source["state"],
                   f"Staged work for Knowledge entry {projects.row_reference(note)}.", None, [])
-    ledger.bump_revision(db)
+    ledger.bump_revision(db, projects.row_project(source))
     return {"receipt": "Knowledge change staged."}
 
 
@@ -339,7 +339,7 @@ def reconcile(db, project, actor, base, *, dri=None):
                 if row["conflict"] != conflict:
                     db.execute("UPDATE knowledge_stages SET conflict = ? WHERE entry_id = ? AND source_id = ?",
                                (conflict, number, row["source_id"]))
-                    ledger.bump_revision(db)
+                    ledger.bump_revision(db, project)
                 continue
             source_url = f"{base}/#event-{row['source_event_id']}-log"
             evidence = [("Settled Knowledge source", source_url)]
@@ -356,6 +356,6 @@ def reconcile(db, project, actor, base, *, dri=None):
                    WHERE entry_id = ? AND source_id = ?""",
                 (event, number, row["source_id"]),
             )
-            ledger.bump_revision(db)
+            ledger.bump_revision(db, project)
             applied.append({"entry": entry, "event_id": event, "source_event_id": row["source_event_id"]})
     return {"receipt": f"Applied {len(applied)} Knowledge changes.", "applied": applied, "unresolved": unresolved}

@@ -111,6 +111,12 @@ class Ring1Test(unittest.TestCase):
         avery, avery_id = fixture.login(app, "Avery")
         anonymous = app.test_client()
 
+        def revision(client):
+            return call(client, "/api/v1/revision").json["revision"]
+
+        outsider_revision = revision(anonymous)
+        quinn_revision = revision(quinn)
+
         def member(key, allowed, status=200):
             return call(sam, MEMBERS, method="PUT", json={"principal": key, "allowed": allowed}, status=status).json
 
@@ -118,6 +124,8 @@ class Ring1Test(unittest.TestCase):
             "prefix": "LAB", "title": "Fictional restricted project", "visibility": "ring1",
         }).json["project"]
         self.assertEqual(initial["visibility"], "ring1")
+        self.assertEqual(revision(anonymous), outsider_revision)
+        self.assertEqual(revision(quinn), quinn_revision)
         self.assertEqual([row["id"] for row in call(sam, MEMBERS).json["members"]], [sam_id])
         member(sam_id, False, 409)
         for client in (quinn, avery, anonymous):
@@ -127,9 +135,13 @@ class Ring1Test(unittest.TestCase):
         member(avery_id, True)
         call(avery, MEMBERS, status=403)
         self.assertEqual(call(sam, MEMBERS).json["history"][0]["operation"], "grant")
+        self.assertEqual(revision(quinn), quinn_revision)
         member(quinn_id, True)
+        self.assertNotEqual(revision(quinn), quinn_revision)
 
         action(avery, "create-task", {"title": SECRET + " public", "step": "Read LAB-1.", "project": "T"})
+        outsider_revision = revision(anonymous)
+        quinn_revision = revision(quinn)
         private = action(avery, "create-task", {"title": SECRET, "step": "Record a fictional result.", "project": "LAB"})
         self.assertTrue(private["receipt"].startswith("LAB-1"))
         call(sam, "/api/v1/knowledge", method="POST", status=201, json={
@@ -144,9 +156,14 @@ class Ring1Test(unittest.TestCase):
         self.assertEqual(call(quinn, "/api/v1/knowledge?project=LAB").json["items"][0]["key"], "LAB-2")
         self.assertEqual(action(avery, "search-tasks", query_string={"q": SECRET, "project": "LAB"})["items"][0]["key"], "LAB-2")
         self.assertTrue(call(quinn, "/api/v1/notifications/open-count?scope=all").json["count"])
+        self.assertEqual(revision(anonymous), outsider_revision)
+        self.assertNotEqual(revision(quinn), quinn_revision)
 
         for client, key in ((quinn, quinn_id), (avery, avery_id)):
+            previous = revision(client)
             member(key, False)
+            self.assertNotEqual(revision(client), previous)
+            self.assertEqual(revision(client), outsider_revision)
             for path in (
                 "/api/v1/tasks/LAB-1", "/api/v1/tasks?project=LAB", "/api/v1/tasks/LAB-1/activity",
                 "/api/v1/knowledge?entry=LAB-2", "/api/v1/knowledge/areas?project=LAB",

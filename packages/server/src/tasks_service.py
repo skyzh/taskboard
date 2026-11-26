@@ -1087,7 +1087,7 @@ def create_app(
             raise RequestError("enabled must be true or false.")
         with tasks_storage.write(db()) as connection:
             if wake_subscriptions.set_subscription(connection, project, owner, event_type, enabled == "true"):
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
                 audit.record(connection, scope="private", actor=owner, operation="set-wake-subscription",
                              record_type="wake_subscription", record_id=f"{project}/{event_type}", at=ledger.timestamp())
             saved = wake_subscriptions.subscriptions(connection, project, owner)
@@ -1122,7 +1122,7 @@ def create_app(
             if connection.total_changes != before:
                 audit.record(connection, scope="private", actor=actor["ledger_key"], operation="set-raft-channel",
                              record_type="project", record_id=project, at=ledger.timestamp())
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
         return {**result, "receipt": "Raft channel saved." if channel_id else "Raft channel cleared."}
 
     def project_scope(data, *, use_default=True):
@@ -1632,7 +1632,7 @@ def create_app(
                 connection, number, "resume", key, "ready", note, None, links,
                 {"confirmed_blocker_event": wait_event, **override},
             )
-            ledger.bump_revision(connection)
+            ledger.bump_revision(connection, project)
         return {"receipt": f"{projects.row_reference(task)} · Blocker confirmed", "event_id": event}
 
     def worker_check(actor, data, *, write):
@@ -1679,7 +1679,7 @@ def create_app(
                         connection, task["id"], "log", key, task["state"], f"W-{run_id} · {note}", None, [],
                         {"audit": {"action": "worker-check", "run_id": run_id, "mode": mode, "at": at}},
                     )
-                    ledger.bump_revision(connection)
+                    ledger.bump_revision(connection, projects.row_project(task))
                     checkpoint = None if mode == "clear" else {"id": event, "mode": mode, "at": at}
         result = {"run": f"W-{run_id}", "ticket": projects.row_reference(task), "checkpoint": checkpoint}
         if write:
@@ -1702,8 +1702,7 @@ def create_app(
 
         def authorize(connection):
             if command in tasks_recurring.EDITS - {"recurring-add"}:
-                require_visible_schedule(args.id)
-                return
+                return require_visible_schedule(args.id)
             project = getattr(args, "project", None)
             if project is None and getattr(args, "id", None) is not None:
                 project = require_visible_task(connection, args.id)
@@ -1744,6 +1743,7 @@ def create_app(
                 if related := internal_link_project(connection, url):
                     require_visible_project(connection, related)
                     require_same_ring(connection, project, related)
+            return project
 
         args.authorize = authorize
         if command in (*ledger.PROJECT_WRITER_TRANSITIONS, "close", "reopen"):
@@ -1818,6 +1818,8 @@ def create_app(
         if row is not None:
             require_visible_project(db(), row["project"])
             require_local_project(row["project"])
+            return row["project"]
+        return None
 
     def change_recurring(actor, data, identifier):
         change = text(data, "change", maximum=10)
@@ -1901,7 +1903,7 @@ def create_app(
                     {"audit": {"action": ticket_fields.ACTION, **last}},
                 )
                 ticket_fields.save_receipt(connection, event, project, value, links)
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
         return {"receipt": f"{projects.row_reference(task)} · Ticket field recorded", "event_id": event, "field": value}
 
     def move_ticket(actor, reference, data):
@@ -1944,7 +1946,7 @@ def create_app(
                 connection, number, "log", key, task["state"], f"Moved from {previous} to {new_key}.", None, [],
                 {"audit": {"action": "move-project", "previous": previous, "current": new_key}},
             )
-            ledger.bump_revision(connection)
+            ledger.bump_revision(connection, destination)
         return {"key": new_key, "previous": previous, "receipt": f"{new_key} · Moved from {previous}"}
 
     def edit_ticket_checklist(actor, number, data):
@@ -2116,8 +2118,8 @@ def create_app(
             FROM events JOIN tasks ON tasks.id = events.task_id WHERE {scope}
             """, bindings,
         ).fetchone()
-        value = f"{row[0]}-{row[1]}-{pacific_day(ledger.timestamp())}"
-        return sha256(value.encode()).hexdigest()
+        state = [row[0], row[1], pacific_day(ledger.timestamp()), ring1.revisions(db(), actor_key())]
+        return sha256(json.dumps(state, separators=(",", ":")).encode()).hexdigest()
 
     release_source = CHECKOUT or PACKAGE
 
@@ -2286,7 +2288,7 @@ def create_app(
                 maintenance.seed(connection, prefix, dri, None, now, live=True)
                 audit.record(connection, scope="private", actor=actor["ledger_key"], operation="create-project",
                              record_type="project", record_id=prefix, at=now)
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, prefix)
             if visibility == "ring1":
                 project["visibility"] = visibility
             return {"project": project, "receipt": f"Project {prefix} · Registered"}
@@ -2375,7 +2377,7 @@ def create_app(
                 audit.record(connection, scope="private", actor=actor["ledger_key"],
                              operation="grant" if allowed else "revoke", record_type="ring1-member",
                              record_id=f"{project}:{principal}", at=ledger.timestamp())
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
             if principal == actor["ledger_key"] and not allowed:
                 return {"receipt": "Ring 1 access removed."}
             return ring1_state(connection, project, actor)
@@ -2460,7 +2462,7 @@ def create_app(
                 audit.record(connection, scope="private", actor=key,
                              operation="grant-project-owner" if allowed else "revoke-project-owner",
                              record_type="project-owner", record_id=f"{project}:{principal}", at=ledger.timestamp())
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
             return project_owner_state(connection, actor, project)
 
     @app.route("/api/v1/projects/<project>/raft-channel", methods=("GET", "PUT"))
@@ -2488,7 +2490,7 @@ def create_app(
                 if connection.total_changes != before:
                     audit.record(connection, scope="private", actor=actor["ledger_key"], operation="set-project-links",
                                  record_type="project", record_id=project, at=ledger.timestamp())
-                    ledger.bump_revision(connection)
+                    ledger.bump_revision(connection, project)
 
         raft_link = public_raft_links.get(project)
         if raft_link is None:
@@ -2512,7 +2514,7 @@ def create_app(
                 if changed:
                     audit.record(connection, scope="private", actor=owner, operation="set-project-ticket-fields",
                                  record_type="project", record_id=project, at=ledger.timestamp())
-                    ledger.bump_revision(connection)
+                    ledger.bump_revision(connection, project)
         return {"project": project, "editable": editable, "fields": ticket_fields.definitions(db(), project)}
 
     @app.route("/api/v1/projects/<project>/ticket-fields", methods=("GET", "PUT"))
@@ -2563,7 +2565,7 @@ def create_app(
                 if changed:
                     audit.record(connection, scope="private", actor=owner, operation=operation,
                                  record_type="project", record_id=project, at=ledger.timestamp())
-                    ledger.bump_revision(connection)
+                    ledger.bump_revision(connection, project)
         return writing_guidance(project, owner)
 
     @app.route("/api/v1/projects/<project>/stamp-reviews", methods=("GET", "POST"))
@@ -3458,14 +3460,14 @@ def create_app(
             ).fetchone()
             if row is None:
                 raise NotFound()
-            require_visible_task(connection, row["task_id"])
+            project = require_visible_task(connection, row["task_id"])
             if row["handled_at"] is not None:
                 raise RequestError("This request is already handled.", 409)
             if row["remind_on"] != day:
                 connection.execute("UPDATE attention_requests SET remind_on = ? WHERE id = ?", (day, number))
                 audit.record(connection, scope="private", actor=actor["ledger_key"], operation="set-attention-reminder",
                              record_type="attention_request", record_id=number, at=ledger.timestamp())
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
         return {"id": number, "remind_on": day}
 
     @app.post("/api/v1/notifications/requests/<int:number>/handled")
@@ -3484,7 +3486,7 @@ def create_app(
             ).fetchone()
             if row is None:
                 raise NotFound()
-            require_visible_task(connection, row["origin_task"])
+            project = require_visible_task(connection, row["origin_task"])
             if row["task_id"] is not None:
                 require_visible_task(connection, row["task_id"])
             handled_at = row["handled_at"]
@@ -3504,7 +3506,7 @@ def create_app(
                         (ready_event, number),
                     )
                     unblocked_task = linked_task
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
         receipt = {"id": number, "handled_at": handled_at}
         if unblocked_task is not None:
             task = ledger.get_task(db(), unblocked_task)
@@ -3604,7 +3606,7 @@ def create_app(
                 "(task_id, sender, recipient, reason, links, raised_at, unblocks_task_id, request_key) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (number, sender, recipient, reason, links, raised_at, unblocks, request_key),
             )
-            ledger.bump_revision(connection)
+            ledger.bump_revision(connection, project)
         if push_delivery and not ring1.private(db(), project):
             push_delivery.submit("attention", number, identifier)
         return {"id": identifier, "task_id": number, "raised_at": raised_at, "receipt": receipt}
@@ -3691,7 +3693,7 @@ def create_app(
                     saved = goals.save_milestone(connection, project, owner, previous, goal)
                 else:
                     saved = goals.save(connection, project, owner, goal)
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
         except (ValueError, LookupError) as error:
             raise RequestError(str(error)) from error
         return saved
@@ -3709,7 +3711,7 @@ def create_app(
                 saved = goals.save_standing(connection, project, owner, summary)
             except ValueError as error:
                 raise RequestError(str(error)) from error
-            ledger.bump_revision(connection)
+            ledger.bump_revision(connection, project)
             return saved
 
     @app.patch("/api/v1/profile/standing-goal")
@@ -4067,7 +4069,7 @@ def create_app(
             if goal is None:
                 return {"offer": None, "receipt": "No standing goal is available."}
             goal_offers.record(connection, owner, handoff_id, goal["id"], now)
-            ledger.bump_revision(connection)
+            ledger.bump_revision(connection, goal["project_prefix"])
             offer = goal_offers.read_offer(connection, owner, handoff_id)
             return {"offer": offer, "receipt": "Idle goal offer recorded."}
 
