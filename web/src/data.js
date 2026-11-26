@@ -284,7 +284,7 @@ export function useLoadedPages(path, filters, revision, {
           const items = [...(data?.items || []), ...page.items]
           // Changes in priority, execution, or active work can move rows past a cursor.
           const rowKey = path === '/reports' ? 'owner' : 'id'
-          data = { ...page, items: cursor != null && ['/tasks', '/reports/workers', '/reports'].includes(path)
+          data = { ...data, ...page, items: cursor != null && ['/tasks', '/reports/workers', '/reports'].includes(path)
             ? [...new Map(items.map(item => [item[rowKey], item])).values()]
             : items }
           loaded += 1
