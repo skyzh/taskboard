@@ -118,18 +118,33 @@ def configuration(environ):
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import ec
     from py_vapid import Vapid
+    from py_vapid.jwt import sign
     from pywebpush import WebPushException, webpush
     from requests import RequestException, Session
 
     contact = environ.get("TASKS_WEB_PUSH_CONTACT", "")
-    if not contact.startswith("mailto:") or "@" not in contact:
-        raise ValueError("Set TASKS_WEB_PUSH_CONTACT to a mailto URI.")
+    email_contact = contact.startswith("mailto:") and "@" in contact
+    https_contact = False
+    if contact.startswith("https://") and contact.isascii() and contact.isprintable() and " " not in contact:
+        parsed = urlsplit(contact)
+        https_contact = bool(parsed.hostname and parsed.username is None and not parsed.fragment and "\\" not in contact)
+    if not (email_contact or https_contact):
+        raise ValueError("Set TASKS_WEB_PUSH_CONTACT to a mailto URI or a public HTTPS contact URL.")
     material = Path(key_file).read_bytes()
     key = serialization.load_pem_private_key(material, password=None)
     if not isinstance(key, ec.EllipticCurvePrivateKey) or not isinstance(key.curve, ec.SECP256R1):
         raise ValueError("Use a P-256 Web Push VAPID private key.")
     public = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
-    signing = Vapid.from_pem(material)
+    public_key = urlsafe_b64encode(public).decode().rstrip("=")
+
+    class HTTPSContactVapid(Vapid):
+        # pywebpush supplies the audience and expiry. The pinned Vapid signer
+        # rejects HTTPS contact paths before it reaches the ES256 signing step.
+        def sign(self, claims, crypto_key=None):
+            token = sign(claims, self.private_key)
+            return {"Authorization": f"vapid t={token},k={public_key}"}
+
+    signer = HTTPSContactVapid(key) if https_contact else Vapid(key)
 
     class PushTransport(Session):
         def post(self, url, *args, **kwargs):
@@ -141,7 +156,7 @@ def configuration(environ):
                 response = webpush(
                     {"endpoint": row["endpoint"], "keys": {"p256dh": row["p256dh"], "auth": row["auth"]}},
                     data=json.dumps({"enrollment": row["enrollment"]}),
-                    vapid_private_key=signing, vapid_claims={"sub": contact}, ttl=ttl,
+                    vapid_private_key=signer, vapid_claims={"sub": contact}, ttl=ttl,
                     content_encoding="aes128gcm", timeout=3, requests_session=transport,
                 )
             return response.status_code
@@ -150,7 +165,7 @@ def configuration(environ):
         except RequestException:
             return None
 
-    return Configuration(urlsafe_b64encode(public).decode().rstrip("="), send)
+    return Configuration(public_key, send)
 
 
 def operator_configuration(environ):

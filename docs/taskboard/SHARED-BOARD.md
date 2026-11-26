@@ -123,9 +123,12 @@ Agent sessions keep their 30-minute cap. [Raft sign-in contract](https://docs.ra
 On a fixed-server HTTPS board with Raft sign-in, install the optional `webpush`
 extra. Add it to the service’s existing extras. Give the service a private P-256
 VAPID key in PEM format through `TASKS_WEB_PUSH_VAPID_KEY_FILE`, and set
-`TASKS_WEB_PUSH_CONTACT` to the operator’s `mailto:` contact URI. Keep the
-key private and stable across upgrades. The board exposes only the public key
-to the browser. Without a usable configuration, the in-app workflow still works.
+`TASKS_WEB_PUSH_CONTACT` to the operator’s `mailto:` contact URI or a public
+HTTPS contact URL, such as `https://example.org/projects/taskboard`. The full
+URL, including its path, is sent to the push provider. Keep the key private and
+stable across upgrades. The board exposes only the public key to the browser.
+Without a usable configuration, the in-app workflow still works.
+[VAPID contact format](https://www.rfc-editor.org/rfc/rfc8292.html#section-2.1)
 
 Signed-in humans can enable or turn off alerts in **Notifications → Browser
 notifications**. Each browser opts in separately. On iPhone or iPad, add
