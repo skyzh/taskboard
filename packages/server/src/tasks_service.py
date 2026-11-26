@@ -997,9 +997,11 @@ def create_app(
             raise RequestError("Choose a verified member of this Ring 1 project.", 404)
 
     def query():
+        local = g.get("local_dri")
         return BoardQueries(
             db(), base, local_links=local_readonly, project_roster=project_roster, principal=actor_key(),
             standing_exploration=agent_guidance["standing-exploration"],
+            local_project=local["project"] if local is not None else None,
         )
 
     if webhook_secrets:
@@ -2026,7 +2028,7 @@ def create_app(
             return  # The generic shell still supports signing in to a private board.
         current_actor()
         g.checked_document = True
-        project_filter(request.args)
+        project = project_filter(request.args)
         try:
             if page.startswith(("tickets/", "knowledge/")):
                 number = task_number(page.split("/", 1)[1])
@@ -2040,7 +2042,7 @@ def create_app(
             elif page.startswith("schedules/") and actor_key() is not None:
                 # Signed-out viewers get the same sign-in shell for every schedule ID.
                 number = record_id(page.rsplit("/", 1)[1], "R-", "Recurring ID")
-                if query().visible_schedule(number, actor_key()) is None:
+                if query().visible_schedule(number, actor_key(), project) is None:
                     raise NotFound()
         except RequestError as error:
             if error.status == 404:
@@ -2644,10 +2646,13 @@ def create_app(
 
     @app.get("/api/v1/schedules")
     def schedules():
-        actor = current_actor()
+        view = text(request.args, "view", optional=True, maximum=4)
+        if view not in (None, "team"):
+            raise RequestError("Choose view=team or omit view for your schedules.")
+        actor = current_actor(required=view == "team")
         project = project_scope(request.args)
-        with tasks_storage.read(db()) as connection:
-            return query().schedules(project, actor["ledger_key"] if actor else None)
+        with tasks_storage.read(db()):
+            return query().schedules(project, actor["ledger_key"] if actor else None, team=view == "team")
 
     @app.get("/api/v1/schedules/<identifier>")
     def recurring_schedule(identifier):
@@ -4470,7 +4475,8 @@ def create_app(
             try:
                 with tasks_storage.read(db()) as connection:
                     require_visible_schedule(number)
-                    return tasks_recurring.report(connection, number, key, ledger.timestamp())
+                    return tasks_recurring.report(connection, number, key, ledger.timestamp(),
+                                                  task_scope=query().schedule_visibility("ticket.project_prefix"))
             except RequestError:
                 raise
             except ValueError as error:

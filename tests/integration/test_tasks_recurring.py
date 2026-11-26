@@ -21,6 +21,7 @@ import tasks_core
 import tasks_maintenance
 import tasks_projects
 import tasks_recurring
+import tasks_ring1
 from tasks_storage import open_sqlite, write
 import test_tasks_service as service_fixture
 
@@ -103,9 +104,13 @@ def replay_project_tick(test, fixture, app, open_board):
         test.assertEqual((managed_detail["project"], managed_detail["kind"], managed_detail["schedule"]),
                          ("OPS", "maintenance", managed))
         test.assertEqual(managed_detail["owner_choices"], managed_list["maintenance"]["owner_choices"])
+        test.assertTrue(managed_detail["editable"])
+        test.assertTrue(self_detail["editable"])
+        peer_detail = fixture.call(manager, f"{schedules}/{bound}", query_string=selection).json
+        test.assertEqual(peer_detail["runs"], self_detail["runs"])
+        test.assertFalse(peer_detail["editable"])
         for client, identifier, request_scope in (
             (owner, managed["id"], selection),
-            (manager, bound, selection),
             (owner, bound, {"project": "LAB"}),
             (owner, "R-9999", selection),
         ):
@@ -135,6 +140,77 @@ def replay_project_tick(test, fixture, app, open_board):
             )], [("LAB", 2), ("OPS", 2), ("T", 1)])
 
 
+def replay_team_schedules(test, fixture, app, open_board):
+    first, first_key = fixture.login(app, "Avery")
+    second, second_key = fixture.login(app, "Blake")
+    manager, manager_key = fixture.login(app, "Sam")
+    reader, _ = fixture.login(app, "Quinn")
+    with open_board() as db, write(db):
+        for project, owner in (("T", first_key), ("OPS", manager_key), ("LAB", manager_key)):
+            tasks_projects.register(db, project, project, owner)
+        tasks_ring1.mark_private(db, "LAB", [manager_key, second_key])
+        tasks_maintenance.seed(db, "OPS", second_key,
+                               Namespace(maintenance_next_at=TWELVE, maintenance_hours=4), ZERO, live=True)
+        personal, _ = tasks_recurring.create_definition(
+            db, manager_key, "personal", "Human schedule", "Check the sample.", 4, TWELVE, ZERO, project="T",
+        )
+        personal = f"R-{personal}"
+
+    def define(owner, project, key, next_at=TWELVE):
+        return fixture.action(owner, "recurring-add", {
+            "project": project, "key": key, "title": f"Run {key}", "step": "Check the sample.",
+            "cadence_hours": 4, "next_at": next_at,
+        })["receipt"].split()[0]
+
+    with patch("tasks_core.timestamp", return_value=ZERO):
+        public = define(first, "T", "public", FOUR)
+        operations = define(second, "OPS", "operations")
+        restricted = define(second, "LAB", "restricted")
+    for when in (FOUR, EIGHT):
+        with patch("tasks_core.timestamp", return_value=when):
+            fixture.action(first, "recurring-tick", {"project": "T"})
+    with open_board() as db, write(db):
+        tasks_projects.move(db, db.execute("SELECT * FROM tasks WHERE id = 1").fetchone(), "LAB")
+
+    path = "/api/v1/schedules"
+
+    def team(client, **scope):
+        return fixture.call(client, path, query_string={"view": "team", **scope}).json["recurring"]
+
+    with patch("tasks_core.timestamp", return_value=EIGHT):
+        all_visible = team(reader, scope="all")
+        test.assertEqual([(item["id"], item["owner"], item["project"], item["editable"]) for item in all_visible],
+                         [(personal, manager_key, "T", False), (public, first_key, "T", False),
+                          (operations, second_key, "OPS", False)])
+        test.assertEqual([item["id"] for item in team(second, scope="all")],
+                         [personal, public, operations, restricted])
+        scoped = team(first, project="T")
+        test.assertEqual([item["id"] for item in scoped], [personal, public])
+        public_summary = scoped[1]
+        test.assertTrue(public_summary["editable"])
+        test.assertEqual(public_summary["expected"], 1)
+        test.assertEqual([run["task_id"] for run in public_summary["recent_occurrences"]], [2])
+        detail = fixture.call(reader, f"{path}/{public}", query_string={"project": "T"}).json
+        test.assertFalse(detail["editable"])
+        test.assertEqual([run["task_key"] for run in detail["runs"]], ["T-2"])
+        visible_to_manager = fixture.call(manager, f"{path}/{public}").json
+        test.assertEqual([run["task_key"] for run in visible_to_manager["runs"]], ["T-2", "LAB-1"])
+        test.assertFalse(visible_to_manager["editable"])
+        human = fixture.call(reader, f"{path}/{personal}").json
+        test.assertEqual(human["schedule"]["owner"], manager_key)
+        test.assertFalse(human["editable"])
+        managed = fixture.call(manager, path, query_string={"view": "team", "scope": "all"}).json
+        test.assertEqual([item["project"] for item in managed["project_maintenance"]], ["OPS"])
+        own = fixture.call(manager, path, query_string={"project": "T"}).json["recurring"]
+        test.assertEqual([item["id"] for item in own], [personal])
+        fixture.call(first, f"{path}/{public}/state", method="POST", json={"change": "pause"})
+    fixture.call(reader, f"{path}/{public}/state", method="POST", json={"change": "pause"}, status=409)
+    fixture.call(reader, path, query_string={"view": "team", "project": "LAB"}, status=404)
+    fixture.call(reader, f"{path}/{restricted}", status=404)
+    fixture.call(reader, f"{path}/{public}", query_string={"project": "OPS"}, status=404)
+    fixture.call(reader, f"/schedules/{restricted}", status=404)
+    fixture.call(app.test_client(), path, query_string={"view": "team"}, status=401)
+
 class RecurringFixtureTest(unittest.TestCase):
     def setUp(self):
         directory = TemporaryDirectory()
@@ -147,6 +223,13 @@ class RecurringFixtureTest(unittest.TestCase):
         self.addCleanup(fixture.doCleanups)
         app = fixture.app(portal_reader=True)
         replay_project_tick(self, fixture, app, lambda: closing(open_sqlite(fixture.database)))
+
+    def test_signed_team_schedules_filter_projects_and_linked_runs(self):
+        fixture = service_fixture.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        app = fixture.app(portal_reader=True)
+        replay_team_schedules(self, fixture, app, lambda: closing(open_sqlite(fixture.database)))
 
     def command(self, *args, now=ZERO, status=0):
         out, errors = StringIO(), StringIO()
