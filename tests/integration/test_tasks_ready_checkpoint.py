@@ -931,7 +931,7 @@ class ReadyCheckpointTest(unittest.TestCase):
         next_item = shared("next")
         self.assertIn("New Inbox work", next_item)
         self.assertIn("Improve the queue.", next_item)
-        self.assertNotIn("Start this goal ticket", next_item)
+        self.assertNotIn("start this goal ticket for one focused pass", next_item)
         shared("start", "T-3", "Verify the new receipt.")
         shared("done", "T-3", "Verified the receipt.")
         self.assertIn("If your Inbox is clear and you have not explored this turn", shared("next"))

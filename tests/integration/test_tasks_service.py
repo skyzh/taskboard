@@ -2261,7 +2261,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("#task-5", ready_output)
         self.assertRegex(ready_output, r"T-1 · Own Ready · https?://[^\s]+#task-1")
         self.assertIn(f"Next: {next_work['next_step']}", ready_output)
-        self.assertNotIn("Start this goal ticket", ready_output)
+        self.assertNotIn("start this goal ticket for one focused pass", ready_output)
         self.assertNotIn("Improve course handoffs", ready_output)
         course_output = self.shared_cli(avery, "next", "--project", "COURSE")[1]
         self.assertIn("Improve course handoffs", course_output)
@@ -2282,7 +2282,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIsNone(fallback["work"])
         self.assertEqual(fallback["standing_goals"], [{**standing, "ticket": standing_ticket}])
         self.assertEqual(fallback["dated_goals"], dates)
-        self.assertIn("Start this goal ticket", fallback["next_step"])
+        self.assertIn("start this goal ticket for one focused pass", fallback["next_step"])
         fallback_output = self.shared_cli(avery, "next", "--project", "T")[1]
         self.assertIn("Improve the work queue", fallback_output)
         self.assertIn("Check the import", fallback_output)
@@ -2317,7 +2317,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(after_close["standing_goals"], [])
         self.assertEqual([goal["summary"] for goal in after_close["dated_goals"]],
                          ["Original dated goal", "Confirm the import"])
-        self.assertNotIn("Start this goal ticket", after_close["next_step"])
+        self.assertNotIn("start this goal ticket for one focused pass", after_close["next_step"])
 
     def test_completed_goals_leave_default_views_but_keep_their_dated_history(self):
         app = self.app(portal_reader=True)
