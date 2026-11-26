@@ -889,6 +889,8 @@ def change_task(db, args, links, *, automation=None):
         if replacing_human_wait and task["waiting_on"] != args.on:
             command = "redirect-decision"
         args = argparse.Namespace(**{**vars(args), "command": command})
+    if args.command in ("unpark", "park", "remind") and parked_for_recurrence(db, task, projects.row_project(task)):
+        raise ValueError("This ticket is parked for recurrence. Change the next run or cancel its recurrence.")
     if args.command in ("done", "transfer") and peer_asks.find(db, task["id"]):
         raise ValueError("Use peer-ask result or peer-ask acknowledge to hand off or finish a linked request.")
     previous, state, label = TRANSITIONS[args.command]
@@ -2094,13 +2096,22 @@ def ticket_recurrence_definition(db, number):
     ).fetchone()
 
 
+def parked_for_recurrence(db, task, project):
+    if task["state"] != "parked":
+        return False
+    definition = ticket_recurrence_definition(db, task["id"])
+    return (definition is not None and definition["state"] != "canceled"
+            and definition["owner"] == task["dri"]
+            and recurring_project(db, definition, None) == project)
+
+
 def can_enable_recurrence(db, task, owner):
     if (owner is None or owner != task["dri"] or is_knowledge(task)
             or task["state"] not in ("ready", "parked") or task_goal_kind(db, task["id"]) is not None
             or peer_asks.find(db, task["id"]) is not None):
         return False
     context = json.loads(task["context"])
-    if any(context.get(field) for field in ("defer_until", "review_after", "review_on", "feature_deferred")):
+    if any(context.get(field) for field in ("defer_until", "review_after", "readiness")):
         return False
     return db.execute(
         """SELECT 1 FROM recurring_review_tickets WHERE task_id = ?

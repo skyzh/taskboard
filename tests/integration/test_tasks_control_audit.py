@@ -80,7 +80,8 @@ class ControlAuditTest(unittest.TestCase):
             ("private", "Avery", "recurring-cancel", "recurrence", "R-1", LATER),
         ])
         with closing(sqlite3.connect(self.database)) as db:
-            self.assertEqual(db.execute("SELECT actor, action FROM events").fetchall(), [("Avery", "add")])
+            self.assertEqual(db.execute("SELECT actor, action FROM events ORDER BY id").fetchall(),
+                             [("Avery", "add"), ("Taskboard", "unpark")])
 
     def test_operator_settings_and_profile_import_record_no_sensitive_values(self):
         self.command("add", "Check a sample", "--dri", "Avery", "--step", "Check sample.")

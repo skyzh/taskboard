@@ -1636,10 +1636,11 @@ def create_app(
         ownership = ledger.ownership_actions(task) if allowed and ordinary else []
         if collaborator and task["state"] == "done":
             ownership = ["reopen"]
+        recurring_park = ledger.parked_for_recurrence(db(), task, project)
         transition_actions = [
             step for step in ledger.PROJECT_WRITER_TRANSITIONS
             if step not in ("park", "remind") and task["state"] in ledger.TRANSITIONS[step][0]
-        ] if ordinary and task["dri"] and (owns or collaborator) else []
+        ] if not recurring_park and ordinary and task["dri"] and (owns or collaborator) else []
         needs_you_actions = []
         if owns and not is_note:
             needs_you_actions.append("attention")
@@ -1658,7 +1659,8 @@ def create_app(
             "can_close": not is_note and may_close and task["state"] != "done",
             "can_edit_details": details_editable,
             "can_edit_parking": (
-                not is_note and bool(task["dri"]) and (owns or collaborator) and not result["goal"]
+                not recurring_park and not is_note and bool(task["dri"])
+                and (owns or collaborator) and not result["goal"]
                 and task["state"] in ledger.TRANSITIONS["park"][0]
             ),
             "can_confirm_blocker": not is_note and (editable or collaborator)

@@ -175,6 +175,12 @@ def replay_ticket_recurrence(test, fixture, app, open_board):
     record = fixture.call(owner, path).json
     test.assertEqual(record["task"]["state"], "parked")
     test.assertEqual(record["recurrence"]["next_at"], FOUR)
+    test.assertNotIn("unpark", record["transition_actions"])
+    test.assertFalse(record["can_edit_parking"])
+    for transition, arguments in (("unpark", {}), ("remind", {"defer_until": FOUR})):
+        fixture.action(owner, "advance-task", {
+            "id": ticket, "transition": transition, "note": "Early return.", **arguments,
+        }, status=409)
     test.assertFalse(fixture.call(peer, path).json["recurrence"]["editable"])
     with patch("tasks_core.timestamp", return_value=EIGHT):
         tick = fixture.action(owner, "recurring-tick", {"project": "COURSE"})
@@ -198,6 +204,17 @@ def replay_ticket_recurrence(test, fixture, app, open_board):
     with patch("tasks_core.timestamp", return_value=TWELVE):
         test.assertEqual(fixture.action(owner, "recurring-tick", {"project": "COURSE"})["issued"], 0)
     test.assertEqual(fixture.call(owner, path).json["recurrence"]["state"], "canceled")
+    dependent = fixture.action(owner, "create-task", {
+        "project": "COURSE", "title": "Check dependent sample", "step": "Wait for sample.",
+    })["receipt"].split()[0]
+    dependent_path = f"/api/v1/tasks/{dependent}"
+    fixture.call(owner, dependent_path + "/parking", method="POST", json={
+        "note": "Wait for the earlier sample.", "review_on": ticket, "review_criteria": "Wait for its outcome.",
+    })
+    before = fixture.call(owner, dependent_path).json
+    test.assertNotIn("can_enable_recurrence", before)
+    fixture.call(owner, dependent_path + "/recurrence", method="POST", json=enabled, status=409)
+    test.assertEqual(fixture.call(owner, dependent_path).json["task"]["context"], before["task"]["context"])
 
 
 def replay_team_schedules(test, fixture, app, open_board):
