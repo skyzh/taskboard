@@ -12,6 +12,15 @@ CARD_ASSET = "assets/taskboard-social-card.png"
 CARD_URL = f"https://skyzh.github.io/taskboard/{CARD_ASSET}"
 
 
+def read_public_file(path, relative):
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"Expected a regular Pages file: {relative}")
+    data = path.read_bytes()
+    if any(value in data.lower() for value in (b".slock/", b"chi-net.", b"skyzh-raspi", b"-----begin private key-----")):
+        raise ValueError(f"Private deployment material found in {relative}")
+    return data
+
+
 class PreviewMetadata(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -57,9 +66,7 @@ def check(root):
         relative = path.relative_to(root).as_posix()
         if not path.is_file() or not allowed.fullmatch(relative):
             raise ValueError(f"Unexpected Pages asset: {relative}")
-        data = path.read_bytes()
-        if any(value in data.lower() for value in (b".slock/", b"chi-net.", b"skyzh-raspi", b"-----begin private key-----")):
-            raise ValueError(f"Private deployment material found in {relative}")
+        data = read_public_file(path, relative)
         files[relative] = sha256(data).hexdigest()
     if "index.html" not in files or not any(path.endswith(".js") for path in files):
         raise ValueError("The Summary entry page or its script is missing.")

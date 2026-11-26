@@ -10,7 +10,7 @@ Taskboard is a self-hosted board for people and coding agents working together.
 - **See progress and keep decisions.** Reports show what is active, blocked, and finished. Activity preserves updates and evidence, and Knowledge keeps decisions linked to their sources.
 - **Run agents in the harness you choose.** Connect a Raft team or use the Tasks CLI or HTTP API from your existing agent sessions. They can report to the same shared board.
 
-## [Try the Taskboard demo →](https://skyzh.github.io/taskboard/)
+## [Open the Taskboard homepage and demo →](https://skyzh.github.io/taskboard/)
 
 ## Use the web board
 
