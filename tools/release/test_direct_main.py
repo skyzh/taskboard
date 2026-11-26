@@ -9,6 +9,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError
@@ -22,6 +23,7 @@ from operator_deploy import (
 )
 from release_plan import ReleaseLayout, ReleaseRejected, copy_release, file_hash, verify_manifest
 from tasks_release_info import release_info
+from watch_main_ci import ACTIONS, API, REPO, WORKFLOW, poll
 
 
 class MainReleaseTest(unittest.TestCase):
@@ -412,3 +414,186 @@ class MainReleaseTest(unittest.TestCase):
         with closing(sqlite3.connect(database)) as db:
             self.assertEqual(db.execute("SELECT active, receipt_url FROM release_events").fetchall(),
                              [(candidate, activity)])
+
+
+COMMIT = "f" * 40
+BOARD = "https://example.test/tasks"
+SINCE = "2026-11-26"
+
+
+def run(attempt, conclusion, **overrides):
+    return {
+        "id": 42, "workflow_id": WORKFLOW, "event": "push", "head_branch": "main",
+        "head_repository": {"full_name": REPO}, "head_sha": COMMIT, "status": "completed",
+        "run_attempt": attempt, "conclusion": conclusion, **overrides,
+    }
+
+
+def page(field, *items):
+    return [{"total_count": len(items), field: list(items)}]
+
+
+class MainCIWatcherTest(unittest.TestCase):
+    def setUp(self):
+        scratch = TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.state = Path(scratch.name) / "main-ci.json"
+        self.latest = [run(1, "failure")]
+        self.history = {1: self.latest[0]}
+        self.activities = []
+        self.writes = []
+        self.lose_response = False
+        self.jobs_missing = set()
+
+    def read(self, path, *, paginate=False):
+        if path == API + "/branches/main":
+            return {"name": "main", "protected": True, "commit": {"sha": COMMIT}}
+        if f"/workflows/{WORKFLOW}/runs?" in path:
+            self.assertTrue(paginate)
+            self.assertIn("created=%3E%3D", path)
+            return page("workflow_runs", *self.latest)
+        prefix = API + "/actions/runs/"
+        self.assertTrue(path.startswith(prefix))
+        parts = path.removeprefix(prefix).split("/")
+        key = int(parts[0])
+        if len(parts) == 1:
+            return self.history[max(self.history)]
+        attempt = int(parts[2])
+        if "/jobs?" in path:
+            if key in self.jobs_missing:
+                return page("jobs")
+            return page("jobs", {
+                "id": 60 + attempt, "name": "Portable checks", "head_sha": COMMIT,
+                "status": "completed", "conclusion": "failure",
+            })
+        return self.history[attempt]
+
+    def invoke(self, action, payload, *, write=False):
+        if action == "context":
+            return {"actor": {"id": "Beacon"}, "board": BOARD}
+        if action == "search-activity":
+            return {"items": [{"task_key": key, "id": row["id"]} for key, row in self.activities
+                              if payload["q"] in row["note"]], "next_cursor": None}
+        if action == "task-activity":
+            matches = [row for key, row in self.activities if key == payload["id"] and row["id"] < payload["before"]]
+            return {"items": matches[-1:]}
+        self.assertTrue(write)
+        self.writes.append((action, payload))
+        key = payload.get("id", f"T-{9 + sum(item[1]['action'] == 'add' for item in self.activities)}")
+        self.add_activity(key, "add" if action == "create-task" else "log",
+                          payload.get("note") or payload["step"], payload["url"])
+        if self.lose_response:
+            raise ValueError("Write response lost after commit.")
+        return {"receipt": "Committed"}
+
+    def add_activity(self, key, action, note, url, actor="Beacon"):
+        self.activities.append((key, {
+            "id": len(self.activities) + 1, "actor": actor, "action": action, "note": note,
+            "links": [{"label": "GitHub Actions attempt", "url": url}],
+        }))
+
+    def poll(self, *, dry_run=False, owner="Beacon", since=SINCE):
+        return poll(self.read, self.invoke, self.state, since=since, board=BOARD, owner=owner, dry_run=dry_run)
+
+    def test_first_failure_then_retries_and_recovery_use_same_ticket(self):
+        self.assertEqual(self.poll()[0]["action"], "create-task")
+        first = self.writes[0][1]
+        self.assertEqual(first["project"], "T")
+        self.assertIn(COMMIT, first["brief"])
+        self.assertIn(f"{ACTIONS}/42/job/61", first["brief"])
+        self.assertEqual(self.poll(), [])
+        self.latest = [run(2, "failure")]
+        self.assertEqual(self.poll()[0]["ticket"], "T-9")
+        self.latest = [run(3, "success")]
+        self.assertEqual(self.poll()[0]["ticket"], "T-9")
+        self.assertIn("Passed", self.writes[-1][1]["note"])
+        self.assertEqual(self.poll(), [])
+        self.assertEqual([action for action, _ in self.writes], ["create-task", "record-activity", "record-activity"])
+
+    def test_uncertain_create_and_log_reconcile_without_local_state(self):
+        self.lose_response = True
+        with self.assertRaisesRegex(ValueError, "response lost"):
+            self.poll()
+        self.assertFalse(self.state.exists())
+        self.lose_response = False
+        self.assertEqual(self.poll()[0]["action"], "already-recorded")
+        self.latest = [run(2, "success")]
+        self.lose_response = True
+        with self.assertRaisesRegex(ValueError, "response lost"):
+            self.poll()
+        self.lose_response = False
+        self.state.unlink()
+        self.assertEqual([item["action"] for item in self.poll()], ["already-recorded", "already-recorded"])
+        self.assertEqual(len(self.writes), 2)
+
+    def test_pass_after_unseen_failure_is_visible_in_dry_run(self):
+        self.latest = [run(2, "success")]
+        self.assertEqual([item["action"] for item in self.poll(dry_run=True)], ["create-task", "record-activity"])
+        self.assertEqual(self.writes, [])
+        self.assertFalse(self.state.exists())
+
+    def test_pr_cancel_and_incomplete_runs_do_not_write(self):
+        self.latest = [
+            run(1, "failure", event="pull_request"),
+            run(1, "cancelled", id=43),
+            run(1, None, id=44, status="in_progress"),
+            run(1, "success", id=45),
+        ]
+        self.assertEqual(self.poll(), [])
+        self.assertEqual(self.writes, [])
+
+    def test_wrong_owner_duplicate_and_provider_failure_do_not_write(self):
+        with self.assertRaisesRegex(ValueError, "configured ticket owner"):
+            self.poll(owner="Loom")
+        for key in ("T-9", "T-10"):
+            self.add_activity(key, "add", "Taskboard CI run 42. Attempt 1. Investigate.", f"{ACTIONS}/42/attempts/1")
+        with self.assertRaisesRegex(ValueError, "Multiple tickets"):
+            self.poll()
+
+        def unavailable(path, **options):
+            raise OSError("Provider unavailable.")
+
+        with self.assertRaises(OSError):
+            poll(unavailable, self.invoke, self.state, since=SINCE, board=BOARD, owner="Beacon", dry_run=False)
+        self.assertEqual(self.writes, [])
+
+    def test_ordinary_mentions_do_not_claim_a_run(self):
+        self.add_activity("T-7", "log", "Taskboard CI run 42. Attempt 1. Look here.", f"{ACTIONS}/42/attempts/1")
+        self.add_activity("T-8", "add", "Taskboard CI run 42. Attempt 1. Mention.", f"{ACTIONS}/42/attempts/1", "Other")
+        self.assertEqual(self.poll()[0]["action"], "create-task")
+
+    def test_missing_jobs_do_not_block_later_runs(self):
+        self.latest = [run(1, "failure", id=43), run(1, "failure")]
+        self.jobs_missing.add(42)
+        self.assertEqual([item["action"] for item in self.poll()], ["deferred", "create-task"])
+        saved = json.loads(self.state.read_text())
+        self.assertEqual(saved["attempts"], {"43": 1})
+        self.assertEqual(saved["pending"], [42, 43])
+
+    def test_forward_window_reconciles_old_runs_and_keeps_pending_retries(self):
+        self.poll()
+        self.latest = []
+        self.poll(since="2026-11-27")
+        saved = json.loads(self.state.read_text())
+        self.assertEqual((saved["since"], saved["pending"]), ("2026-11-27", [42]))
+        self.history[2] = run(2, "success")
+        self.assertEqual(self.poll(since="2026-11-27")[0]["ticket"], "T-9")
+        self.assertEqual(json.loads(self.state.read_text())["pending"], [])
+        with self.assertRaisesRegex(ValueError, "only move forward"):
+            self.poll()
+
+    def test_renewal_preserves_running_first_attempt_until_completion(self):
+        running = run(1, None, status="in_progress")
+        self.latest = [running]
+        self.history[1] = running
+        self.assertEqual(self.poll(), [])
+        self.assertEqual(self.poll(since="2026-11-27"), [])
+        saved = json.loads(self.state.read_text())
+        self.assertEqual(saved["incomplete"], [42])
+        self.assertEqual(saved["attempts"], {})
+        self.latest = []
+        self.history[1] = run(1, "failure")
+        self.assertEqual(self.poll(since="2026-11-27")[0]["action"], "create-task")
+        saved = json.loads(self.state.read_text())
+        self.assertEqual(saved["incomplete"], [])
+        self.assertEqual(saved["pending"], [42])
