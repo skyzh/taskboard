@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { queryPath, request, useResource } from './data.js'
 import { ResourceStatus } from './shared.jsx'
+import RingOneSettings from './RingOneSettings.jsx'
 
 const kinds = { human: 'Human', team_dri: 'Team DRI', local_dri: 'Local DRI' }
 const projectPermissions = {
@@ -29,7 +30,8 @@ export default function PermissionSettings({ actor, project, projects, revision,
   const [result, setResult] = useState(null)
   const items = directory.data && directory.data.project === project ? directory.data.items : []
   const person = items.find(item => item.id === selected) || items.find(item => item.id === actor.id) || items[0]
-  const title = projects?.find(item => item.prefix === project)?.title || project
+  const selectedProject = projects?.find(item => item.prefix === project)
+  const title = selectedProject?.title || project
   const names = new Map()
   for (const { kind, name } of items) {
     const key = `${kind}:${name}`
@@ -87,5 +89,7 @@ export default function PermissionSettings({ actor, project, projects, revision,
       </dl>
     </>}
     {result && <p role={result.error ? 'alert' : 'status'}>{result.message}</p>}
+    {selectedProject?.visibility === 'ring1' && selectedProject.can_manage_ring1 === true &&
+      <RingOneSettings key={project} project={project} revision={revision} onChanged={onChanged} />}
   </section>
 }
