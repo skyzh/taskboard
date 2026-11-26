@@ -105,6 +105,18 @@ export function MarkdownInline({ text, links = true, relatedTasks = [] }) {
     new Map(relatedTasks.map(task => [task.key, task])))
 }
 
+export function MarkdownExcerpt({ text, className }) {
+  const related = new Map()
+  const blocks = markdown.parse(text, {}).flatMap(token => {
+    if (token.type === 'inline') return [tokensToElements(token.children, false, related)]
+    if (token.type === 'fence' || token.type === 'code_block') return [<code>{token.content.trimEnd()}</code>]
+    return []
+  })
+  return <div className={className}>{blocks.map((block, index) => (
+    <React.Fragment key={index}>{index > 0 && <br />}{block}</React.Fragment>
+  ))}</div>
+}
+
 export function Markdown({ text, className = 'prose', relatedTasks = [], links = true }) {
   const related = new Map(relatedTasks.map(task => [task.key, task]))
   return <div className={className + ' markdown'}>{tokensToElements(markdown.parse(text ?? '', {}), links, related)}</div>
