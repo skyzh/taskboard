@@ -83,9 +83,18 @@ const workflowRecords = new Map(Object.entries(workflow.records).flatMap(([key, 
   [String(record.detail.task.id), record],
 ]))
 
-function workflowReports(view) {
-  if (view !== 'active' && view !== 'idle') return workflow.reports
-  return workflow.reports.filter(entry => (entry.task_count > 0) === (view === 'active'))
+function workflowReports(view, summary) {
+  const entries = view === 'active' || view === 'idle'
+    ? workflow.reports.filter(entry => (entry.task_count > 0) === (view === 'active'))
+    : workflow.reports
+  if (!summary) return entries
+  return entries.map(entry => {
+    if (!entry.tasks.some(task => task.key === 'FLOW-4')) return entry
+    // Keep the blocker example visible when the summary displays only three rows.
+    const tasks = ['FLOW-6', 'FLOW-1', 'FLOW-4']
+      .map(key => entry.tasks.find(task => task.key === key)).filter(Boolean)
+    return { ...entry, tasks }
+  })
 }
 
 export function previewRequest(path, method) {
@@ -113,7 +122,7 @@ export function previewRequest(path, method) {
   if (endpoint === '/reports') {
     const view = filters.get('view')
     if (view === 'watching') return page()
-    return page(workflowProject ? workflowReports(view) : reports)
+    return page(workflowProject ? workflowReports(view, filters.get('summary') === 'true') : reports)
   }
   if (endpoint === '/reports/request-log') return page(workflowProject ? workflow.request_log : [request])
   if (endpoint === '/projects/T/links') return { links: [{ kind: 'github', url: repository }] }
