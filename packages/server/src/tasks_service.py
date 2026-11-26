@@ -143,6 +143,15 @@ def force_text(data):
     raise RequestError("force_text must be true or false.")
 
 
+def force_delivery(data):
+    value = data.get("force_delivery", False)
+    if value is True or value == "true":
+        return True
+    if value is False or value == "false":
+        return False
+    raise RequestError("force_delivery must be true or false.")
+
+
 def integer(value, field, *, maximum=2**63 - 1):
     try:
         if type(value) is int:
@@ -842,6 +851,10 @@ def create_app(
     @app.errorhandler(ledger.TransitionConfirmationRequired)
     def transition_warning(error):
         return jsonify(error=str(error), code="TRANSITION_CONFIRMATION_REQUIRED"), 409
+
+    @app.errorhandler(peer_asks.DeliveryConfirmationRequired)
+    def peer_delivery_warning(error):
+        return jsonify(error=str(error), code="confirm_peer_delivery"), 409
 
     @app.errorhandler(ledger.TextLengthConfirmationRequired)
     def writing_warning(error):
@@ -1635,6 +1648,7 @@ def create_app(
         return {
             **result, "ownership_actions": ownership,
             "can_assign_on_reopen": allowed,
+            "can_ask_agent": bool(owns and not is_note and task.get("display_state") != "closed"),
             "transition_actions": transition_actions,
             **({"needs_you_actions": needs_you_actions} if needs_you_actions else {}),
             "tag_editable": details_editable,
@@ -1821,7 +1835,8 @@ def create_app(
         previous = ledger.find_task(db(), args.id) if push_decision else None
         try:
             receipt = ledger.save_task(db(), database_path(), args, links)
-        except (RequestError, ledger.TransitionConfirmationRequired, ledger.TextLengthConfirmationRequired):
+        except (RequestError, ledger.TransitionConfirmationRequired, ledger.TextLengthConfirmationRequired,
+                peer_asks.DeliveryConfirmationRequired):
             raise
         except PermissionError as error:
             raise RequestError(str(error), 403) from error
@@ -2848,11 +2863,17 @@ def create_app(
         data = json_body({
             "transition", "note", "on", "blocked_by", "automation", "attention_request_id", "details",
             "steps", "started", "checked", "eta", "clear_eta", "review_after", "defer_until", "standing_pass",
-            "review_on", "review_criteria", "feature_deferred", "label", "url", *TRANSITION_OVERRIDE_FIELDS,
+            "review_on", "review_criteria", "feature_deferred", "label", "url", "force_delivery", *TRANSITION_OVERRIDE_FIELDS,
         }, writing=True)
         if text(data, "transition", maximum=30) not in ledger.PROJECT_WRITER_TRANSITIONS:
             raise RequestError("Choose an ordinary task transition.")
         return advance(actor, data, task_number(number))
+
+    @app.post("/api/v1/tasks/<number>/peer-ask")
+    def task_peer_ask(number):
+        actor = current_actor(write=True, required=True)
+        data = json_body({"recipient", "note", "force_delivery", "label", "url"}, writing=True)
+        return change_peer_ask(actor, {**data, "transition": "create"}, task_number(number))
 
     @app.post("/api/v1/tasks/<number>/needs-you")
     def task_needs_you(number):
@@ -3976,11 +3997,11 @@ def create_app(
         for row in rows[:limit]:
             profile = profiles.public_profile(row, base)
             if requester is not None and row["kind"] == "agent":
-                is_local = local_dri.registration(connection, row["ledger_key"]) is not None
-                sender = requester["ledger_key"] if requester["kind"] == "agent" else None
-                ready = not is_local or local_dri.ready(connection, row["ledger_key"], project, requester=sender)
-                profile.update(accepts_agent_asks=ready,
-                               agent_ask_restriction=None if ready else local_dri.WATCHER_REQUIRED)
+                local = local_dri.registration(connection, row["ledger_key"])
+                eligible = (local is None or local["project"] == project) and row["ledger_key"] != requester["ledger_key"]
+                ready = eligible and peer_asks.delivery_ready(connection, row["ledger_key"], project, requester["ledger_key"])
+                profile.update(accepts_agent_asks=eligible, agent_ask_restriction=None,
+                               agent_ask_delivery_ready=ready)
             items.append(profile)
         return {
             "items": items,
@@ -4005,6 +4026,40 @@ def create_app(
             return exact_person_id(assignee_candidates(name, project), name, kind)
         except ValueError as error:
             raise RequestError(str(error)) from error
+
+    def change_peer_ask(actor, data, number):
+        change = text(data, "transition", maximum=20)
+        manual = change in ("manual-create", "manual-result")
+        if manual:
+            change = change.removeprefix("manual-")
+        if change not in peer_asks.TRANSITIONS:
+            raise RequestError("Choose a supported peer-request action.")
+        recipient = text(data, "recipient", optional=change != "create", maximum=160)
+        if change == "create":
+            recipient = require_person(recipient, "agent", task_id=number)
+        elif recipient is not None:
+            raise RequestError("Provide a recipient only when creating a peer request.")
+        review = record_id(data["review"], "W-", "review ID") if data.get("review") is not None else None
+        pin_fields = ("review_pr", "review_head", "review_base")
+        revision = None
+        if any(field in data for field in pin_fields):
+            revision = tuple(text(data, field) for field in pin_fields)
+        manual_review = revision if manual else None
+        stamp_review = None if manual else revision
+        if manual and manual_review is None:
+            raise RequestError("Provide the manual pull request, head, and base when opening or returning its review.")
+        if review is not None and change not in ("create", "correct-result"):
+            raise RequestError("Link a review when creating a peer request or correcting a recorded result.")
+        if review is not None and manual_review is not None:
+            raise RequestError("Use either a worker review or a manual PR review.")
+        if stamp_review is not None and change != "create":
+            raise RequestError("Pin a Stamp review only when creating or refreshing a peer request.")
+        if "force_delivery" in data and change != "create":
+            raise RequestError("Confirm delivery only when creating a peer request.")
+        return mutate(peer_asks.COMMAND, actor, data, id=number, change=change,
+                      note=writing_text(data, "note"), recipient=recipient, review_run=review, stamp_review=stamp_review,
+                      manual_review=manual_review, stamp_repositories=stamp_repositories,
+                      force_delivery=force_delivery(data))
 
     def advance(actor, data, number):
         command = text(data, "transition", maximum=30)
@@ -4072,6 +4127,8 @@ def create_app(
                 raise RequestError("Choose a different person for this wait.")
             if not human_wait:
                 peer = on
+        if "force_delivery" in data and peer is None:
+            raise RequestError("Confirm delivery only when waiting for a named agent.")
         parking = parking_fields(data, command)
         reason = writing_text(data, "reason", optional=command != "withdraw-decision")
         steps = [text({"step": value}, "step", maximum=240) for value in array_arg(data, "steps")]
@@ -4090,6 +4147,7 @@ def create_app(
         return mutate(
             command, actor, data, id=number, on=on, option=options,
             blocked_by=blocked_by, peer_recipient=peer, human_wait=human_wait,
+            force_delivery=force_delivery(data),
             reason=reason, automation=automation == "true", **parking,
             checklist_step=steps, start_check=started, check=checked, attention_request_id=attention_request,
             eta=eta, clear_eta=clear_eta == "true", standing_pass=text(data, "standing_pass", optional=True, maximum=14),
@@ -4566,35 +4624,7 @@ def create_app(
             )
         number = task_number(data.get("id"))
         if name == peer_asks.COMMAND:
-            change = text(data, "transition", maximum=20)
-            manual = change in ("manual-create", "manual-result")
-            if manual:
-                change = change.removeprefix("manual-")
-            if change not in peer_asks.TRANSITIONS:
-                raise RequestError("Choose a supported peer-request action.")
-            recipient = text(data, "recipient", optional=change != "create", maximum=160)
-            if change == "create":
-                recipient = require_person(recipient, "agent", task_id=number)
-            elif recipient is not None:
-                raise RequestError("Provide a recipient only when creating a peer request.")
-            review = record_id(data["review"], "W-", "review ID") if data.get("review") is not None else None
-            pin_fields = ("review_pr", "review_head", "review_base")
-            revision = None
-            if any(field in data for field in pin_fields):
-                revision = tuple(text(data, field) for field in pin_fields)
-            manual_review = revision if manual else None
-            stamp_review = None if manual else revision
-            if manual and manual_review is None:
-                raise RequestError("Provide the manual pull request, head, and base when opening or returning its review.")
-            if review is not None and change not in ("create", "correct-result"):
-                raise RequestError("Link a review when creating a peer request or correcting a recorded result.")
-            if review is not None and manual_review is not None:
-                raise RequestError("Use either a worker review or a manual PR review.")
-            if stamp_review is not None and change != "create":
-                raise RequestError("Pin a Stamp review only when creating or refreshing a peer request.")
-            return mutate(peer_asks.COMMAND, actor, data, id=number, change=change,
-                          note=writing_text(data, "note"), recipient=recipient, review_run=review, stamp_review=stamp_review,
-                          manual_review=manual_review, stamp_repositories=stamp_repositories)
+            return change_peer_ask(actor, data, number)
         if name == "change-ownership":
             return change_ownership(actor, number, data)
         if name == "close-task":

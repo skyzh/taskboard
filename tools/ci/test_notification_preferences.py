@@ -668,7 +668,7 @@ class StorageReplayTest(unittest.TestCase):
         reviewer, reviewer_id = self.board.login(client.application, "Blake")
         self.board.action(client, "advance-task", {"id": "T-1", "transition": "start", "note": "Ready for review."})
         opened = self.board.action(client, "peer-ask", {
-            "id": "T-1", "transition": "create", "recipient": reviewer_id, "note": "Check the existing task.",
+            "id": "T-1", "transition": "create", "force_delivery": True, "recipient": reviewer_id, "note": "Check the existing task.",
         })["receipt"]
         linked = opened.split()[0]
         self.assertIn("Peer request opened", opened)

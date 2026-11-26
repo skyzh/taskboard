@@ -209,6 +209,7 @@ _ACTIONS = {
         "clear_eta": "Use true with update to clear the estimated completion time.",
         "reason": "Reason for the transition when it requires one.",
         "details": "Handoff details for wait or done. With this field, note is a one-line headline.",
+        "force_delivery": "Explicitly send an agent ask after a watcher delivery warning.",
         **_EVIDENCE, **_TRANSITION_OVERRIDE,
     }),
     "peer-ask": _Action("POST", "Manage an actionable peer request as a linked ticket.", {
@@ -221,6 +222,7 @@ _ACTIONS = {
         "review_pr": "The GitHub pull request already linked to the source ticket.",
         "review_head": "The full review head commit.",
         "review_base": "The full review base commit.",
+        "force_delivery": "Explicitly send an agent ask after a watcher delivery warning.",
         **_EVIDENCE, **_TEXT_OVERRIDE,
     }),
     "handoff": _Action("POST", "Transfer assigned work in a project where you can work.", {

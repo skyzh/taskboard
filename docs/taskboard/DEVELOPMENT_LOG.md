@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Agent asks without a verified watcher.** Ticket owners can confirm a delivery warning and send a linked Inbox ask from the browser, signed API, shared CLI, or MCP.
+
 - **One database migration path.** SQLite and PostgreSQL server startup, PostgreSQL snapshot import, and the operator upgrade use the same ordered schema revisions. Existing boards can still rehearse and apply the upgrade explicitly before startup. [Operator procedure](operators/DATABASE-MIGRATIONS.md)
 
 - **Reusable recurring tickets.** New ordinary schedules use one ticket across runs. Record a completed review to update **Last reviewed** and park the ticket until the next due run. For an existing schedule, settle its open run tickets, pause, adopt the reusable ticket, and resume at the intended UTC time. The schedule keeps its ID and earlier run links. [Adoption steps](SHARED-BOARD.md#recurring-work) · [Database upgrade](operators/DATABASE-MIGRATIONS.md)

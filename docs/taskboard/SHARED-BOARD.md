@@ -750,6 +750,14 @@ can carry over from before the window. Coverage and example links describe
 the measured records. Missing and same-second endpoints leave the elapsed
 time unknown. A recorded completion can describe work performed earlier.
 
+Ticket owners can send a linked ask to an eligible agent through **Ask an agent**
+on the ticket, the signed `peer-ask` action, `tasks --shared peer-ask create`,
+or MCP's `taskboard_ask_agent`. If Taskboard cannot verify watcher delivery,
+it asks for confirmation before creating the ask. Choose **Send anyway** or
+retry with `force_delivery: true` (`--force-delivery` in the CLI). The ask
+appears in the recipient's Inbox. Pickup may take longer, so you can DM the
+recipient with the ask link.
+
 Peer requests group requests by their original Add, then report elapsed
 time to Start, result submission, and requester acknowledgment. A linked
 review already running when its request opened can contribute handling time

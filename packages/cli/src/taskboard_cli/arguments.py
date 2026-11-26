@@ -160,6 +160,8 @@ def arguments(argv=None):
         command.add_argument("--by", type=nonblank)
         if action in PROJECT_WRITER_TRANSITIONS or action == "close":
             add_transition_override(command)
+        if action == "wait":
+            command.add_argument("--force-delivery", action="store_true", help="Confirm the watcher delivery warning.")
         if action in STRUCTURED_ACTIVITY:
             add_details_flag(command)
         if action == "update":
@@ -377,6 +379,7 @@ def arguments(argv=None):
                              help="Pin a linked PR on projects with configured Stamp import.")
     peer_review.add_argument("--manual-review", nargs=3, metavar=("PR_URL", "HEAD", "BASE"),
                              help="Open or refresh a manual PR review, or return the result for that exact revision.")
+    peer.add_argument("--force-delivery", action="store_true", help="Confirm the watcher delivery warning.")
     peer.add_argument("--to", dest="recipient", type=nonblank, help="Named agent for a new request.")
     peer.add_argument("--link", nargs=2, action="append", default=[], metavar=("LABEL", "TARGET"))
 
@@ -658,6 +661,8 @@ def arguments(argv=None):
             parser.error("Use --shared peer-ask with a verified board actor.")
         if (args.change == "create") != bool(args.recipient):
             parser.error("Provide --to only when creating a peer request.")
+        if args.force_delivery and args.change != "create":
+            parser.error("Use --force-delivery only when sending a peer request.")
         if args.review is not None and args.change not in ("create", "correct-result"):
             parser.error("Use --review when creating a peer request or correcting its recorded result.")
         if args.stamp_review is not None and args.change != "create":

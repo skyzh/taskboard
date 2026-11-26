@@ -405,6 +405,8 @@ def shared_write(board, args, *, context):
         if not force or not force_reason or not force_reason.strip():
             raise ValueError("Use --force and a nonempty --force-reason together.")
         data.update(force=True, force_reason=force_reason)
+    if getattr(args, "force_delivery", False):
+        data["force_delivery"] = True
     if force_text:
         data["force_text"] = True
     return board.invoke(action, {key: value for key, value in data.items() if value is not None}, write=True)

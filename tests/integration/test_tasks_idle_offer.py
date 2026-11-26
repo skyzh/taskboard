@@ -41,7 +41,7 @@ class IdleOfferTest(unittest.TestCase):
 
     def ask(self, source, **fields):
         return self.avery.invoke("peer-ask", {
-            "id": source, "transition": "create", "recipient": self.blake_id,
+            "id": source, "transition": "create", "force_delivery": True, "recipient": self.blake_id,
             "note": "Review the sample.", **fields,
         }, write=True)["receipt"].split()[0]
 

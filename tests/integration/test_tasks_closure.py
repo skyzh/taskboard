@@ -166,7 +166,7 @@ class ClosureTest(unittest.TestCase):
         task = "/api/v1/tasks/T-1"
         f.action(self.avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Check the sample."})
         peer_ask = f.action(self.avery, "peer-ask", {
-            "id": "T-1", "transition": "create", "recipient": self.manager, "note": "Please review the sample.",
+            "id": "T-1", "transition": "create", "force_delivery": True, "recipient": self.manager, "note": "Please review the sample.",
         })["receipt"].split()[0]
         actor = f.call(self.quinn, "/api/v1/session").json["actor"]["id"]
         force = {"force": True, "force_reason": "I checked the sample."}

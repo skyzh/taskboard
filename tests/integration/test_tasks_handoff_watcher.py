@@ -80,7 +80,7 @@ class LocalHandoffWatcherTest(unittest.TestCase):
             board = SignedBoard(fixture, agent)
         fixture.action(asker, "create-task", {"title": "Verify the sample export", "step": "Check the records."})
         fixture.action(asker, "peer-ask", {
-            "id": "T-1", "transition": "create", "recipient": agent_id,
+            "id": "T-1", "transition": "create", "force_delivery": True, "recipient": agent_id,
             "note": "Read sample.txt in the fixture repo. Report the exact short receipt code it contains.",
         })
         fixture.action(asker, "create-task", {"title": "Separate high priority work", "step": "Inspect by hand."})

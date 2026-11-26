@@ -8,6 +8,7 @@ from taskboard_server import local_dri
 from taskboard_client.work import PEER_ASK as COMMAND, PEER_ASK_TRANSITIONS as TRANSITIONS
 
 import tasks_projects as projects
+from tasks_wake_subscriptions import OWNED_READY, has_subscription
 import workers
 
 
@@ -25,6 +26,20 @@ SCHEMA = (
     """,
     "CREATE INDEX IF NOT EXISTS peer_asks_source ON peer_asks (source_task_id, task_id)",
 )
+DELIVERY_WARNING = "Watcher delivery could not be verified. Pickup may take longer. You can DM the recipient with the ask link."
+
+
+class DeliveryConfirmationRequired(ValueError):
+    def __init__(self):
+        super().__init__(DELIVERY_WARNING + " Send anyway with force_delivery=true or CLI --force-delivery.")
+
+
+def delivery_ready(db, recipient, project, requester):
+    if local_dri.registration(db, recipient) is not None:
+        return local_dri.ready(db, recipient, project, requester=requester)
+    return has_subscription(db, project, recipient, OWNED_READY)
+
+
 PREVIOUS_TITLE_LIMIT = 120
 REVIEW_ACTION = re.compile(
     r"^(?:(?:please|independently|could you)\s+)*(?:review|re-?review|rebind|recheck|approve)\b", re.IGNORECASE,
@@ -258,7 +273,8 @@ def record_wait(db, source, args, links, context):
         retire_wait(db, previous, args.by, "The owner replaced this wait.", outcome="superseded")
     if recipient is None:
         return False
-    request = Namespace(id=source["id"], by=args.by, recipient=recipient, review_run=None, note=args.note)
+    request = Namespace(id=source["id"], by=args.by, recipient=recipient, review_run=None, note=args.note,
+                        force_delivery=getattr(args, "force_delivery", False))
     create(db, request, links, named_wait=context)
     return True
 
@@ -273,15 +289,12 @@ def create(db, args, links, *, named_wait=None):
         raise ValueError("Reopen the source task before asking a peer.")
     if args.recipient == args.by:
         raise ValueError("Choose another agent for the peer request.")
-    if local_dri.registration(db, args.recipient) is not None:
-        project = projects.row_project(source)
+    project = projects.row_project(source)
+    if local := local_dri.registration(db, args.recipient):
+        if local["project"] != project:
+            raise PermissionError("Choose an agent registered for this project.")
         if getattr(args, "stamp_review", None):
             raise ValueError("Stamp import requires the reviewer's Raft identity. Use a manual pinned review for this recipient.")
-        if not (args.review_run or getattr(args, "manual_review", None)):
-            sender = db.execute("SELECT kind FROM board_principals WHERE ledger_key = ?", (args.by,)).fetchone()
-            if (sender is not None and sender["kind"] == "agent"
-                    and not local_dri.ready(db, args.recipient, project, requester=args.by)):
-                raise PermissionError("Set up the Local DRI watcher for this requester before sending the ask.")
     manual_review = getattr(args, "manual_review", None)
     if manual_review:
         if source["state"] not in ("ready", "in_progress", "waiting"):
@@ -361,6 +374,10 @@ def create(db, args, links, *, named_wait=None):
             record_stamp_request(db, active["id"], args.by, active["state"], stamp_review)
             refresh_generated_titles(db, task_id=active["id"])
         return f"{projects.row_reference(active)} · Existing peer request"
+
+    if not (run or manual_review or stamp_review or getattr(args, "force_delivery", False)):
+        if not delivery_ready(db, args.recipient, project, args.by):
+            raise DeliveryConfirmationRequired()
 
     source_reference = projects.row_reference(source)
     pin = stamp_review or manual_review
