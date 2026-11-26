@@ -30,8 +30,8 @@ class ReportsPresenceTest(unittest.TestCase):
         avery, avery_id = fixture.login(app, "Avery")
         anonymous = app.test_client()
 
-        def post(client, tab, scope, *, leave=False, status=200, headers=ORIGIN):
-            data = {"view_id": str(UUID(int=tab)), **scope}
+        def post(client, tab, scope, *, visit=1, leave=False, status=200, headers=ORIGIN):
+            data = {"view_id": str(UUID(int=tab)), "visit": visit, **scope}
             if leave:
                 data["leave"] = True
             response = call(client, ROUTE, method="POST", json=data, headers=headers, status=status)
@@ -90,3 +90,10 @@ class ReportsPresenceTest(unittest.TestCase):
             clock.return_value += 25
             count(sam, 2, t, 1)
             count(sam, 1, lab, 0, leave=True)
+
+            count(sam, 1, ALL, 1)
+            count(sam, 1, ALL, 1, visit=2)
+            count(sam, 1, ALL, 1, leave=True)
+            count(sam, 1, t, 1)
+            count(quinn, 2, ALL, 2, visit=2)
+            count(sam, 1, ALL, 1, visit=2, leave=True)

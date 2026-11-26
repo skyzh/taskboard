@@ -3062,11 +3062,12 @@ def create_app(
         actor = current_actor("human", required=True, write=True, sync_profile=False)
         if g.get("personal_agent_api"):
             raise RequestError("Sign in to Taskboard in the browser to report Summary presence.", 403)
-        data = json_body({"view_id", "project", "scope", "leave"})
+        data = json_body({"view_id", "visit", "project", "scope", "leave"})
         try:
             view_id = str(UUID(text(data, "view_id", maximum=36)))
         except ValueError as error:
             raise RequestError("Provide a view ID UUID.") from error
+        visit = integer(data.get("visit"), "visit", maximum=2**53 - 1)
         if "scope" not in data:
             text(data, "project", maximum=8)
         elif data["scope"] != "all" or "project" in data:
@@ -3076,7 +3077,7 @@ def create_app(
             raise RequestError("Send leave as true or false.")
         with tasks_storage.write(db()) as connection:
             project = project_scope(data, use_default=False)
-            count = reports_presence.update(connection, actor["ledger_key"], view_id, project, leave=leave)
+            count = reports_presence.update(connection, actor["ledger_key"], view_id, visit, project, leave=leave)
         return {"count": count}
 
     @app.get("/api/v1/reports/watched-tickets")

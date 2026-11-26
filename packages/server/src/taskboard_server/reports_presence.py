@@ -10,6 +10,7 @@ SCHEMA = (
     """CREATE TABLE IF NOT EXISTS reports_presence (
         viewer TEXT NOT NULL REFERENCES board_principals (ledger_key),
         view_id TEXT NOT NULL,
+        visit BIGINT NOT NULL,
         project TEXT NOT NULL,
         expires_at BIGINT NOT NULL,
         PRIMARY KEY (viewer, view_id)
@@ -19,21 +20,22 @@ SCHEMA = (
 )
 
 
-def update(db, viewer, view_id, project, *, leave):
+def update(db, viewer, view_id, visit, project, *, leave):
     now = int(time())
     scope = project or ""
     db.execute("DELETE FROM reports_presence WHERE expires_at <= ?", (now,))
     if leave:
         db.execute(
-            "DELETE FROM reports_presence WHERE viewer = ? AND view_id = ? AND project = ?",
-            (viewer, view_id, scope),
+            "DELETE FROM reports_presence WHERE viewer = ? AND view_id = ? AND visit = ? AND project = ?",
+            (viewer, view_id, visit, scope),
         )
     else:
         db.execute(
-            """INSERT INTO reports_presence (viewer, view_id, project, expires_at) VALUES (?, ?, ?, ?)
+            """INSERT INTO reports_presence (viewer, view_id, visit, project, expires_at) VALUES (?, ?, ?, ?, ?)
                ON CONFLICT (viewer, view_id) DO UPDATE
-               SET project = excluded.project, expires_at = excluded.expires_at""",
-            (viewer, view_id, scope, now + TTL),
+               SET visit = excluded.visit, project = excluded.project, expires_at = excluded.expires_at
+               WHERE reports_presence.visit <= excluded.visit""",
+            (viewer, view_id, visit, scope, now + TTL),
         )
     membership = ""
     if ring1.private(db, project):

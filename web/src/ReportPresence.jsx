@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 
 const renewEvery = 15000
 let tabViewId
+let visitNumber = 0
 
 export default function ReportPresence({ scope }) {
   const [count, setCount] = useState(null)
@@ -12,12 +13,13 @@ export default function ReportPresence({ scope }) {
     const view = { view_id: tabViewId, ...(scope === 'all' ? { scope } : { project: scope }) }
     let visit = null
 
-    function post(leave, signal) {
+    function post(current, leave, signal) {
+      const payload = { ...view, visit: current.number }
       return fetch('./api/v1/reports/presence', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(leave ? { ...view, leave: true } : view),
+        body: JSON.stringify(leave ? { ...payload, leave: true } : payload),
         keepalive: leave,
         signal,
       })
@@ -28,7 +30,8 @@ export default function ReportPresence({ scope }) {
       if (!current) return
       let next = null
       try {
-        const response = await post(false, AbortSignal.any([current.signal, AbortSignal.timeout(5000)]))
+        const signal = AbortSignal.any([current.controller.signal, AbortSignal.timeout(5000)])
+        const response = await post(current, false, signal)
         if (response.ok) {
           const { count } = await response.json()
           if (Number.isSafeInteger(count) && count > 0) next = count
@@ -41,9 +44,10 @@ export default function ReportPresence({ scope }) {
 
     function leave() {
       if (!visit) return
-      visit.abort()
+      const current = visit
+      current.controller.abort()
       visit = null
-      void post(true).catch(() => {})
+      void post(current, true).catch(() => {})
     }
 
     function syncVisibility() {
@@ -51,7 +55,7 @@ export default function ReportPresence({ scope }) {
         leave()
         setCount(null)
       } else if (!visit) {
-        visit = new AbortController()
+        visit = { number: ++visitNumber, controller: new AbortController() }
         void renew()
       }
     }

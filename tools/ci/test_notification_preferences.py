@@ -357,7 +357,7 @@ class StorageReplayTest(unittest.TestCase):
     def test_reports_presence_rows_are_discarded_on_sqlite_import(self):
         source = self.board.app(portal_reader=True)
         sam, _ = self.board.login(source, "Sam")
-        active_view = {"view_id": str(uuid4()), "scope": "all"}
+        active_view = {"view_id": str(uuid4()), "visit": 1, "scope": "all"}
         route = presence_fixture.ROUTE
         self.assertEqual(self.board.call(sam, route, method="POST", headers=ORIGIN, json=active_view).json,
                          {"count": 1})
@@ -372,7 +372,7 @@ class StorageReplayTest(unittest.TestCase):
         self.assertNotIn("reports_presence", counts)
         target = self.postgres_app(dsn)
         sam, _ = self.board.login(target, "Sam")
-        unopened_view = {"view_id": str(uuid4()), "scope": "all", "leave": True}
+        unopened_view = {**active_view, "leave": True}
         self.assertEqual(self.board.call(sam, route, method="POST", headers=ORIGIN, json=unopened_view).json,
                          {"count": 0})
 
