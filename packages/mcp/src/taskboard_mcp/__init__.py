@@ -53,6 +53,26 @@ def build_server(board: SharedBoard) -> MCPServer:
         return board.invoke("list-projects")
 
     @server.tool(annotations=read_only)
+    def taskboard_project_access(project: Project, role: Literal["owner", "ring1"]) -> dict[str, Any]:
+        """Read owners or Ring 1 membership using the signed project access rules."""
+        action = "project-owners" if role == "owner" else "ring1-members"
+        return board.invoke(action, {"project": project})
+
+    @server.tool(annotations=ToolAnnotations(idempotent_hint=True))
+    def taskboard_set_project_access(
+        project: Project, role: Literal["owner", "ring1"], principal: str,
+        allowed: Annotated[bool, Field(strict=True)],
+    ) -> dict[str, Any]:
+        """Grant or revoke an exact principal's project owner role or Ring 1 membership."""
+        action = "set-project-owner" if role == "owner" else "set-ring1-member"
+        return board.invoke(action, {"project": project, "principal": principal, "allowed": allowed}, write=True)
+
+    @server.tool(annotations=read_only)
+    def taskboard_agent_usage() -> dict[str, Any]:
+        """Read the board's approved agent usage aggregate."""
+        return board.invoke("agent-usage-report")
+
+    @server.tool(annotations=read_only)
     def taskboard_raft_channel(project: Project) -> dict[str, Any]:
         """Read the Raft coordination channel setting for a project you manage."""
         return board.invoke("raft-channel-show", {"project": project})
@@ -233,6 +253,28 @@ def build_server(board: SharedBoard) -> MCPServer:
         return board.raise_attention(ticket, reason, recipient=recipient, request_key=request_key,
                                      unblocks=unblocks, url=url, label=label, force_text=force_text)
 
+    @server.tool(annotations=write)
+    def taskboard_delegate(
+        ticket: Ticket, worker: str, role: Literal["build", "review"], brief: str,
+        effort: str | None = None, force_text: ForceText = False,
+    ) -> dict[str, Any]:
+        """Record a delegated run for an eligible, signed-in worker. Pass its exact board ID."""
+        return ticket_write("delegate", id=ticket, worker=worker, role=role, brief=brief,
+                            effort=effort, force_text=force_text or None)
+
+    @server.tool(annotations=write)
+    def taskboard_manual_review(
+        ticket: Ticket, change: Literal["create", "result"], note: Note,
+        pull: str, head: str, base: str, recipient: str | None = None,
+        url: EvidenceUrl | None = None, label: EvidenceLabel | None = None,
+        force_text: ForceText = False,
+    ) -> dict[str, Any]:
+        """Open or return a review pinned to exact commits. For creation, pass the reviewer's exact board ID."""
+        return ticket_write("peer-ask", id=ticket, transition=f"manual-{change}", note=note,
+                            review_pr=pull, review_head=head, review_base=base, recipient=recipient,
+                            url=url, label=label, force_text=force_text or None)
+
+    @server.tool(annotations=ToolAnnotations(idempotent_hint=True))
     def taskboard_create_project(
         prefix: Project,
         title: Annotated[str, Field(description="One-line project title.")],
@@ -246,9 +288,6 @@ def build_server(board: SharedBoard) -> MCPServer:
         if visibility is not None:
             payload["visibility"] = visibility
         return board.invoke("create-project", payload, write=True)
-
-    if not local_dri:
-        server.tool(annotations=ToolAnnotations(idempotent_hint=True))(taskboard_create_project)
 
     @server.tool(annotations=write)
     def taskboard_start(

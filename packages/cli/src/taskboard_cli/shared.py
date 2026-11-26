@@ -22,7 +22,7 @@ ADVANCES = {
 }
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
          "search", "knowledge-areas", "knowledge-sweep", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance",
-         "worker-check", "projects", ledger.READ}
+         "worker-check", "projects", "agent-usage", "project-access", ledger.READ}
 WRITES = ADVANCES | {
     "confirm-blocker", "create-project", "raise-attention",
     "add", "transfer", "log", "record-merge", "priority", "watch", "unwatch", "link-source", "link-reference",
@@ -353,7 +353,8 @@ def shared_write(board, args, *, context):
             data["transition"] = command
             if command in ("assign-human", "redirect-decision"):
                 if context["actor"].get("dri_kind") == "local":
-                    if context.get("human_questions") != "taskboard":
+                    if (context.get("human_questions") != "taskboard"
+                            and (args.on is None or context.get("explicit_question_recipients") is not True)):
                         raise ValueError("Use your runtime's local question prompt.")
                     if context.get("local_question_recipients") is not True and (
                         command == "redirect-decision" or args.on is not None
@@ -544,12 +545,11 @@ def shared_command(args):
                 "wake-subscriptions": "my-wake-subscriptions",
                 "wake-subscribe": "set-wake-subscription",
                 "wake-unsubscribe": "set-wake-subscription",
-                "worker-check": "worker-check",
                 "create-project": "create-project",
                 "raise-attention": "raise-attention",
             }
             excluded = {command for command, action in action_names.items() if action in limits}
-            if context.get("human_questions") != "taskboard":
+            if context.get("human_questions") != "taskboard" and context.get("explicit_question_recipients") is not True:
                 excluded.update(("assign-human", "redirect-decision", "raise-attention"))
             elif context.get("local_question_recipients") is not True:
                 excluded.add("redirect-decision")
@@ -585,6 +585,20 @@ def shared_command(args):
     if command in ("add", "list", "next", "recurring-add"):
         assert_actor(args.dri, actor)
     prompts = context.get("cli_guidance", {})
+    if command == "agent-usage":
+        return json.dumps(board.invoke("agent-usage-report"), ensure_ascii=False)
+    if command == "project-access":
+        edit = args.change != "show"
+        if edit != (args.principal is not None):
+            raise ValueError("Supply --principal for a grant or revocation only.")
+        data = {"project": args.project}
+        if edit:
+            data.update(principal=args.principal, allowed=args.change == "grant")
+        if args.role == "owner":
+            action = "set-project-owner" if edit else "project-owners"
+        else:
+            action = "set-ring1-member" if edit else "ring1-members"
+        return json.dumps(board.invoke(action, data, write=edit), ensure_ascii=False)
     if command == "projects":
         directory = board.invoke("list-projects")
         if args.json:

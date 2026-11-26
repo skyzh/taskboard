@@ -897,7 +897,9 @@ def create_app(
         if selection is not None:
             if not bearer:
                 raise RequestError("Approve a Personal Agents CLI sign-in before selecting a Local DRI.", 401)
-            if request.endpoint != "project_notification_log" and not request.path.startswith("/api/v1/raft/"):
+            if (request.endpoint not in {"project_notification_log", "project_create", "project_owners",
+                                         "project_ring1", "report_agent_usage", "task_needs_you"}
+                    and not request.path.startswith("/api/v1/raft/")):
                 raise RequestError("Use the signed Local DRI workflow actions.", 403)
         tailnet_requested = not authorization and request.headers.get("X-Taskboard-Personal-Agent") == "1"
         if not (bearer or tailnet_requested):
@@ -1626,8 +1628,7 @@ def create_app(
             if step not in ("park", "remind") and task["state"] in ledger.TRANSITIONS[step][0]
         ] if ordinary and task["dri"] and (owns or collaborator) else []
         needs_you_actions = []
-        local = g.get("local_dri")
-        if owns and not is_note and (local is None or local["human_questions"] == local_dri.TASKBOARD):
+        if owns and not is_note:
             needs_you_actions.append("attention")
             if task["state"] in ledger.TRANSITIONS["assign-human"][0]:
                 needs_you_actions.append("decision")
@@ -2248,7 +2249,6 @@ def create_app(
     def registration_permissions(row, project, owners):
         administrator = project_admin.manager(row, project_admin_subject)
         may_create = project_admin_subject is not None and (administrator or row["project_creation_grant"] is not None)
-        local_project = row["local_project"]
         project_access = ring1.visible(db(), project, row["ledger_key"])
         owner = row["ledger_key"] in owners and project_access
         ordinary = project_access and project_writer(row, project)
@@ -2259,7 +2259,7 @@ def create_app(
             "edit_shared_content": owner or ordinary,
             "edit_project_prompts": owner,
             "manage_project_workflow": owner,
-            "manage_project_owners": local_project is None and (owner or administrator),
+            "manage_project_owners": owner or administrator,
         }
 
     @app.get("/api/v1/admin/registrations")
@@ -2378,7 +2378,7 @@ def create_app(
         return project_directory(current_actor())
 
     def can_manage_project_owners(connection, actor, project):
-        return (g.get("personal_agent_api") != "tailnet" and g.get("local_dri") is None
+        return (g.get("personal_agent_api") != "tailnet"
                 and (manages_project_admin_permissions(actor) or projects.manages(connection, project, actor["ledger_key"])))
 
     def project_owner_candidate(row, project):
@@ -2407,15 +2407,10 @@ def create_app(
                 "choices": [person for person in people if person["id"] not in members],
                 "history": history}
 
-    @app.route("/api/v1/projects/<project>/ring1", methods=("GET", "PUT"))
-    def project_ring1(project):
-        write = request.method == "PUT"
-        actor = current_actor(required=True, write=write)
-        project = project_filter({"project": project})
-        if not write:
+    def change_project_ring1(actor, project, data=None):
+        if data is None:
             with tasks_storage.read(db()) as connection:
                 return ring1_state(connection, project, actor)
-        data = json_body({"principal", "allowed"})
         principal = text(data, "principal", maximum=160)
         allowed = data.get("allowed")
         if type(allowed) is not bool:
@@ -2429,7 +2424,7 @@ def create_app(
             person = profiles.get(connection, principal)
             if allowed and (person is None or person["server_id"] != actor["server_id"]
                             or not project_admin.eligible(person)):
-                raise RequestError("Choose a verified person or Team DRI on this board.", 404)
+                raise RequestError("Choose a verified person or agent on this board.", 404)
             if not allowed and principal in projects.owner_keys(connection, project):
                 raise RequestError("Remove the person's project owner grant before removing Ring 1 access.", 409)
             if ring1.set_member(connection, project, principal, allowed):
@@ -2440,6 +2435,13 @@ def create_app(
             if principal == actor["ledger_key"] and not allowed:
                 return {"receipt": "Ring 1 access removed."}
             return ring1_state(connection, project, actor)
+
+    @app.route("/api/v1/projects/<project>/ring1", methods=("GET", "PUT"))
+    def project_ring1(project):
+        write = request.method == "PUT"
+        actor = current_actor(required=True, write=write)
+        data = json_body({"principal", "allowed"}) if write else None
+        return change_project_ring1(actor, project_filter({"project": project}), data)
 
     def project_owner_state(connection, actor, project):
         editable = can_manage_project_owners(connection, actor, project)
@@ -2490,16 +2492,11 @@ def create_app(
                 })
         return jsonify(project=project, items=items), {"Cache-Control": "no-store"}
 
-    @app.route("/api/v1/projects/<project>/owners", methods=("GET", "PUT"))
-    def project_owners(project):
-        write = request.method == "PUT"
-        actor = current_actor(required=True, write=write)
-        project = project_filter({"project": project})
-        if not write:
+    def change_project_owners(actor, project, data=None):
+        if data is None:
             with tasks_storage.read(db()) as connection:
                 return project_owner_state(connection, actor, project)
         key = actor["ledger_key"]
-        data = json_body({"principal", "allowed"})
         principal = text(data, "principal", maximum=160)
         allowed = data.get("allowed")
         if type(allowed) is not bool:
@@ -2512,7 +2509,7 @@ def create_app(
                 target = profiles.get(connection, principal)
                 if (target is None or target["server_id"] != actor["server_id"]
                         or not project_owner_candidate(target, project)):
-                    raise RequestError("Choose a verified person or Team DRI who can work in this project.", 404)
+                    raise RequestError("Choose a verified person or agent who can work in this project.", 404)
             try:
                 changed = projects.set_owner(connection, project, principal, allowed)
             except ValueError as error:
@@ -2523,6 +2520,13 @@ def create_app(
                              record_type="project-owner", record_id=f"{project}:{principal}", at=ledger.timestamp())
                 ledger.bump_revision(connection, project)
             return project_owner_state(connection, actor, project)
+
+    @app.route("/api/v1/projects/<project>/owners", methods=("GET", "PUT"))
+    def project_owners(project):
+        write = request.method == "PUT"
+        actor = current_actor(required=True, write=write)
+        data = json_body({"principal", "allowed"}) if write else None
+        return change_project_owners(actor, project_filter({"project": project}), data)
 
     @app.route("/api/v1/projects/<project>/raft-channel", methods=("GET", "PUT"))
     def project_raft_channel(project):
@@ -3231,8 +3235,6 @@ def create_app(
         actor = current_actor(required=True, sync_profile=False)
         if g.get("personal_agent_api") == "tailnet":
             raise RequestError("Sign in with Raft to view agent usage.", 403)
-        if g.get("local_dri") is not None:
-            raise RequestError("Open board-wide usage as a signed-in board member.", 403)
         server_id = actor["server_id"]
         snapshot = tasks_agent_usage.load(agent_usage_snapshot, server_id)
         with tasks_storage.read(db()) as connection:
@@ -3637,22 +3639,23 @@ def create_app(
             mutate("watch" if selected else "unwatch", actor, {}, id=number)
         return {"watching": watches.watches_task(db(), actor["ledger_key"], number)}
 
-    def local_question_recipient(profile, key):
-        if profile["human_questions"] != local_dri.TASKBOARD:
-            raise RequestError(local_dri.QUESTION_REQUIRED, 403)
-        if key is None or key == profile["owner"]:
-            # The Local DRI connection just verified the creator's human session.
-            return require_person(profile["owner"], "human")
+    def question_recipient(actor, number, key):
+        local = g.get("local_dri")
+        if key is None and local is not None:
+            if local["human_questions"] != local_dri.TASKBOARD:
+                raise RequestError(local_dri.QUESTION_REQUIRED, 403)
+            key = local["owner"]
+        key = require_person(key, "human", task_id=number)
         person = profiles.get(db(), key)
-        if (person is None or person["kind"] != "human"
-                or person["server_id"] != raft_config["server_id"]):
+        if person["server_id"] != actor["server_id"]:
             raise RequestError("Choose a human who has signed in to this board.", 404)
-        access = raft.human_recipient_access(person["subject"])
-        if access == "unavailable":
-            raise RequestError("The recipient's board access could not be verified. Try again later.", 503)
-        if access == "denied":
-            raise RequestError("Choose a human who has access to this board.", 403)
-        return person["ledger_key"]
+        if raft is not None and (local is None or key != local["owner"]):
+            access = raft.human_recipient_access(person["subject"])
+            if access == "unavailable":
+                raise RequestError("The recipient's board access could not be verified. Try again later.", 503)
+            if access == "denied":
+                raise RequestError("Choose a human who has access to this board.", 403)
+        return key
 
     def raise_attention(actor, number, data):
         local = g.get("local_dri")
@@ -3664,7 +3667,7 @@ def create_app(
             recipient = resolve_assignee(text(data, "recipient_name", maximum=101), "human", project)
         else:
             recipient = text(data, "recipient", optional=local is not None and "recipient" not in data, maximum=160)
-        recipient = local_question_recipient(local, recipient) if local else require_person(recipient, "human", task_id=number)
+        recipient = question_recipient(actor, number, recipient)
         reason = writing_text(data, "reason")
         evidence = one_link(data)
         links = json.dumps(evidence)
@@ -4000,8 +4003,6 @@ def create_app(
             raise RequestError("This transition does not take a dependency or recipient.")
         local = g.get("local_dri")
         decision = command in ("assign-human", "redirect-decision")
-        if decision and local is not None and local["human_questions"] != local_dri.TASKBOARD:
-            raise RequestError(local_dri.QUESTION_REQUIRED, 403)
         if "on_name" in data:
             if "on" in data or not decision:
                 raise RequestError("Use either a name or an exact ID when assigning or redirecting a human decision.")
@@ -4010,7 +4011,7 @@ def create_app(
         if decision:
             if command == "redirect-decision" and on is None:
                 raise RequestError("Choose a new recipient to redirect the decision.")
-            on = local_question_recipient(local, on) if local else require_person(on, "human", task_id=number)
+            on = question_recipient(actor, number, on)
         blocked_by = data.get("blocked_by")
         if "blocked_by" in data:
             try:
@@ -4041,12 +4042,11 @@ def create_app(
             person = peer_asks.named_person(db(), on)
             if person is None or person["kind"] not in ("agent", "human"):
                 raise RequestError("Choose one verified human or agent, or supply a blocking ticket or automation wait.")
-            on = require_person(person["ledger_key"], person["kind"], task_id=number)
+            human_wait = person["kind"] == "human"
+            on = (question_recipient(actor, number, person["ledger_key"]) if human_wait
+                  else require_person(person["ledger_key"], "agent", task_id=number))
             if on == actor["ledger_key"]:
                 raise RequestError("Choose a different person for this wait.")
-            human_wait = person["kind"] == "human"
-            if human_wait and local is not None:
-                on = local_question_recipient(local, on)
             if not human_wait:
                 peer = on
         parking = parking_fields(data, command)
@@ -4197,12 +4197,8 @@ def create_app(
             return {"project": project, "kind": "unavailable"}
         return {"project": project, "kind": "empty"}
 
-    def local_dri_action_limits(profile):
+    def local_dri_action_limits():
         limits = {name: STANDING_RAFT_REQUIRED for name in sorted(STANDING_RAFT_ACTIONS)}
-        limits["agent-usage-report"] = "Open board-wide usage as a signed-in board member."
-        limits["create-project"] = "Project creation requires a human or Team DRI with a project creation grant."
-        if profile["human_questions"] != local_dri.TASKBOARD:
-            limits["raise-attention"] = local_dri.QUESTION_REQUIRED
         if codex_snapshot_uploader is not None:
             limits[CODEX_SNAPSHOT_ACTION] = "Only the board's configured snapshot uploader can use this action."
         return limits
@@ -4213,11 +4209,17 @@ def create_app(
         write = request.method != "GET"
         actor = current_actor(write=write, required=True)
         profile = g.get("local_dri")
-        limits = local_dri_action_limits(profile) if profile is not None else {}
+        limits = local_dri_action_limits() if profile is not None else {}
         if name in limits:
             raise RequestError(limits[name], 403)
         if name == "create-project":
             return create_shared_project(actor, data)
+        if name in ("project-owners", "set-project-owner", "ring1-members", "set-ring1-member"):
+            project = project_filter({"project": text(data, "project", maximum=8)})
+            edit = name.startswith("set-")
+            handler = change_project_owners if name in ("project-owners", "set-project-owner") else change_project_ring1
+            result = handler(actor, project, data if edit else None)
+            return {"receipt": f"{project} · Project access saved", **result} if edit else result
         if name != "list-projects" and actor["kind"] != "agent" and not g.get("personal_agent_api"):
             raise RequestError("This action requires a signed-in agent or Personal Agents connection.", 403)
         if g.get("personal_agent_api") and name in STANDING_RAFT_ACTIONS:
@@ -4239,6 +4241,7 @@ def create_app(
                 context["project"] = profile["project"]
                 context["human_questions"] = profile["human_questions"]
                 context["local_question_recipients"] = True
+                context["explicit_question_recipients"] = True
                 context["unavailable_actions"] = limits
             if agent_guidance.cli:
                 context["cli_guidance"] = agent_guidance.cli
@@ -4600,8 +4603,6 @@ def create_app(
             if role not in ("build", "review"):
                 raise RequestError("Choose build or review.")
             worker = require_person(text(data, "worker", maximum=160), "agent", task_id=number)
-            if local_dri.registration(db(), worker) is not None:
-                raise RequestError("Choose a Team DRI for a worker delegation.", 403)
             return mutate(
                 "delegate", actor, data, id=number, worker=worker,
                 role=role, brief=writing_text(data, "brief"), effort=text(data, "effort", optional=True, maximum=30) or "high",

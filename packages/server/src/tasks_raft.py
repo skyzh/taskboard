@@ -12,6 +12,8 @@ _ACTION_PREFIX = "/api/v1/raft"
 ACTION_MANIFEST_PATH = "/.well-known/raft-agent-manifest.json"
 _TASK = {"id": "Task ID, such as T-1 or COURSE-1."}
 _PROJECT = {"project": "Optional Tasks project prefix, such as T or COURSE."}
+_PROJECT_ACCESS = {"project": "Project prefix.", "principal": "Exact verified board identity.",
+                   "allowed": "Send true to grant access or false to revoke it."}
 _SCOPE = {"scope": "Use all to read across projects. Omit scope and project for the legacy T queue."}
 _PAGINATION = {"before": "Cursor from the previous page.", "limit": "Maximum records to return."}
 _EVIDENCE = {"url": "HTTP(S) evidence link.", "label": "Display label for the evidence link."}
@@ -26,7 +28,7 @@ _DETAILS = "Optional handoff details. Send an empty string for a headline alone.
 CODEX_SNAPSHOT_ACTION = "install-codex-snapshot"
 STANDING_RAFT_ACTIONS = {
     "my-wake-subscriptions", "set-wake-subscription", "idle-goal-offer",
-    "my-wake-workers", "worker-check", "worker-check-show",
+    "my-wake-workers", "worker-check",
 }
 STANDING_RAFT_REQUIRED = "This action requires a standing Raft agent."
 
@@ -55,6 +57,10 @@ class _Action:
 _ACTIONS = {
     "context": _Action("GET", "Identify your signed-in Raft principal and board profile."),
     "list-projects": _Action("GET", "List accessible projects on the signed-in board. A Local DRI keeps its registered project as the default."),
+    "project-owners": _Action("GET", "Read the project's owners and eligible candidates.", _PROJECT),
+    "set-project-owner": _Action("POST", "Change a project owner grant as a project owner.", _PROJECT_ACCESS),
+    "ring1-members": _Action("GET", "Read Ring 1 membership as a project owner.", _PROJECT),
+    "set-ring1-member": _Action("POST", "Change Ring 1 membership as a project owner.", _PROJECT_ACCESS),
     "agent-usage-report": _Action("GET", "Read the approved daily agent usage aggregate as a signed board member."),
     "raft-channel-show": _Action("GET", "Show the selected project's Raft coordination channel.",
                                  {"project": "Taskboard project prefix."}),
@@ -124,7 +130,7 @@ _ACTIONS = {
     "assignees": _Action("GET", "Find board assignees and their stable IDs.", optional={
         "query": "Search by name or handle.", **_PROJECT, **_PAGINATION,
     }),
-    "create-project": _Action("POST", "Create a project using a human or Team DRI's project creation grant.", {
+    "create-project": _Action("POST", "Create a project using the signed principal's project creation grant.", {
         "prefix": "Unique project prefix of one to eight letters or digits, starting with a letter.",
         "title": "Project display title.",
     }, {"dri": "Exact verified project owner ID. Defaults to the signed creator.",
