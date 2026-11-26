@@ -164,10 +164,10 @@ class LocalDRIRoutingTest(unittest.TestCase):
 
         self.assertNotIn(ops["id"], directory("T"))
         self.assertIn(perf["id"], directory("OPS"))
-        self.assertFalse(directory("OPS")[perf["id"]]["accepts_agent_asks"])
+        self.assertTrue(directory("OPS")[perf["id"]]["accepts_agent_asks"])
         self.assertEqual(directory("T")[team_id]["dri_kind"], "team")
-        self.assertEqual(directory("T")[perf["id"]]["agent_ask_restriction"], "local_dri_watcher_required")
-        self.assertFalse(directory("T")[perf["id"]]["accepts_agent_asks"])
+        self.assertTrue(directory("T")[perf["id"]]["accepts_agent_asks"])
+        self.assertFalse(directory("T")[perf["id"]]["agent_ask_delivery_ready"])
 
         action(manager, "create-task", {"title": "Verify sample totals", "step": "Inspect the recorded totals."})
         ready = fixture.task_event(manager, "T-1")
@@ -179,9 +179,9 @@ class LocalDRIRoutingTest(unittest.TestCase):
         action(manager, "advance-task", {"id": "T-1", "transition": "start", "note": "Start the fixture."})
         ask = {"id": "T-1", "transition": "create", "recipient": perf["id"], "note": "Check the sample total."}
         original = action(manager, "task", query_string={"id": "T-1"})["task"]
-        action(manager, "peer-ask", ask, status=403)
+        self.assertEqual(action(manager, "peer-ask", ask, status=409)["code"], "confirm_peer_delivery")
         action(manager, "advance-task", {"id": "T-1", "transition": "wait", "on": perf["id"],
-                                         "note": "Wait for the sample total."}, status=403)
+                                         "note": "Wait for the sample total."}, status=409)
         self.assertEqual(action(manager, "task", query_string={"id": "T-1"})["task"]["event_id"], original["event_id"])
 
         watcher = str(uuid4())
@@ -192,8 +192,8 @@ class LocalDRIRoutingTest(unittest.TestCase):
             }, headers=sender)["watcher_ready"]
 
         self.assertTrue(readiness("active"))
-        self.assertTrue(directory("T")[perf["id"]]["accepts_agent_asks"])
-        self.assertFalse(directory("OPS")[perf["id"]]["accepts_agent_asks"])
+        self.assertTrue(directory("T")[perf["id"]]["agent_ask_delivery_ready"])
+        self.assertTrue(directory("OPS")[perf["id"]]["accepts_agent_asks"])
         worker = action(manager, "delegate", {"id": "T-1", "worker": perf["id"], "role": "review",
                                               "brief": "Review the same request."})
         self.assertIn("Planned", worker["receipt"])
@@ -260,13 +260,13 @@ class LocalDRIRoutingTest(unittest.TestCase):
 
         self.assertTrue(readiness("stopped", str(uuid4())))
         self.assertFalse(readiness("stopped"))
-        self.assertFalse(directory("T")[perf["id"]]["accepts_agent_asks"])
-        action(manager, "peer-ask", ask, status=403)
+        self.assertFalse(directory("T")[perf["id"]]["agent_ask_delivery_ready"])
+        self.assertEqual(action(manager, "peer-ask", ask, status=409)["code"], "confirm_peer_delivery")
         self.assertTrue(readiness("active"))
         with patch.object(local_dri, "now", return_value=local_dri.now() + timedelta(minutes=7)):
-            self.assertFalse(directory("T")[perf["id"]]["accepts_agent_asks"])
-            action(manager, "peer-ask", ask, status=403)
-        self.assertEqual(action(manager, "peer-ask", {**ask, "recipient": team_id})["receipt"].split()[0], "T-4")
+            self.assertFalse(directory("T")[perf["id"]]["agent_ask_delivery_ready"])
+            self.assertEqual(action(manager, "peer-ask", ask, status=409)["code"], "confirm_peer_delivery")
+        self.assertEqual(action(manager, "peer-ask", {**ask, "recipient": team_id, "force_delivery": True})["receipt"].split()[0], "T-4")
 
         action(manager, "create-task", {"title": "Manual assignment", "step": "Start locally."})
         code, output, error = fixture.shared_cli(
@@ -285,6 +285,36 @@ class LocalDRIRoutingTest(unittest.TestCase):
                                           "note": "The fixture review passed."}, headers=sender)
         self.assertEqual(action(manager, "task", query_string={"id": linked})["task"]["peer_request"]["phase"],
                          "acknowledgment")
+
+        outbound = {"id": "T-5", "transition": "create", "recipient": team_id, "note": "Check the local result."}
+        self.assertEqual(action(client, "peer-ask", outbound, headers=sender, status=409)["code"],
+                         "confirm_peer_delivery")
+        receipt = action(client, "peer-ask", {**outbound, "force_delivery": True}, headers=sender)["receipt"]
+        request = action(manager, "task", query_string={"id": receipt.split()[0]})["task"]
+        self.assertEqual((request["state"], request["dri"], request["peer_request"]["requester"]),
+                         ("ready", team_id, perf["id"]))
+
+        source = action(manager, "create-task", {
+            "project": "OPS", "title": "Review a cross-project fixture", "step": "Read the signed input.",
+        })["receipt"].split()[0]
+        pull = "https://github.com/example/repo/pull/31"
+        action(manager, "link-reference", {"id": source, "label": "Review target", "url": pull})
+        cross_project = action(manager, "peer-ask", {
+            "id": source, "transition": "manual-create", "recipient": perf["id"], "note": "Check the pinned change.",
+            "review_pr": pull, "review_head": "a" * 40, "review_base": "b" * 40,
+        })["receipt"].split()[0]
+        request = action(client, "task", headers=sender, query_string={"id": cross_project})["task"]
+        self.assertEqual((request["state"], request["dri"]), ("ready", perf["id"]))
+        source = action(manager, "create-task", {
+            "project": "OPS", "title": "Check the alternate work", "step": "Review the sample output.",
+        })["receipt"].split()[0]
+        action(manager, "peer-ask", {**ask, "id": source}, status=409)
+        self.assertTrue(readiness("active"))
+        self.assertFalse(directory("OPS")[perf["id"]]["agent_ask_delivery_ready"])
+        self.assertEqual(action(manager, "peer-ask", {**ask, "id": source}, status=409)["code"],
+                         "confirm_peer_delivery")
+        self.assertIn("Peer request opened",
+                      action(manager, "peer-ask", {**ask, "id": source, "force_delivery": True})["receipt"])
 
 
     def test_workflow_parity_keeps_local_identity_and_project(self):

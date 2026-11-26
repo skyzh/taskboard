@@ -88,6 +88,32 @@ def local_reader(origin, environment, folder, public_cert, sam):
 
 
 class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
+    async def test_peer_delivery_warning_and_confirmation(self):
+        python = Path(os.environ["TASKBOARD_MCP_FIXTURE_PYTHON"]).absolute()
+        with TemporaryDirectory(prefix="taskboard-mcp-peer-ask-") as temporary:
+            folder = Path(temporary)
+            with fixture_server(python, ROOT, folder / "service", *certificate(folder)) as mounted:
+                origin, cookie, database, environment = mounted
+                seed(python, ROOT, origin, cookie, database)
+                with request(origin, MOUNT + "/auth/callback", query={"code": "Blake"}) as response:
+                    blake_cookie = response.headers["Set-Cookie"].split(";", 1)[0]
+                blake = io_action(origin, "context", cookie=blake_cookie)["actor"]["id"]
+                draft = {"ticket": "T-1", "recipient": blake, "note": "Check the fixture."}
+                before = io_action(origin, "task", cookie=cookie, query={"id": "T-1"})
+                async with connect(environment) as owner:
+                    rejected = await owner.call_tool("taskboard_ask_agent", draft)
+                    self.assertTrue(rejected.is_error)
+                    self.assertIn("force_delivery", rejected.content[0].text)
+                    self.assertEqual(io_action(origin, "task", cookie=cookie, query={"id": "T-1"}), before)
+                    sent = await owner.call_tool("taskboard_ask_agent", {**draft, "force_delivery": True})
+                    self.assertFalse(sent.is_error, sent.content)
+                    retry = await owner.call_tool("taskboard_ask_agent", {**draft, "force_delivery": True})
+                    self.assertFalse(retry.is_error, retry.content)
+                    reference = sent.structured_content["receipt"].split()[0]
+                    self.assertEqual(retry.structured_content["receipt"], f"{reference} · Existing peer request")
+                task = io_action(origin, "task", cookie=blake_cookie, query={"id": reference})["task"]
+                self.assertEqual((task["state"], task["dri"]), ("ready", blake))
+
     async def test_fresh_readers_see_saved_ticket_fields(self):
         python = Path(os.environ["TASKBOARD_MCP_FIXTURE_PYTHON"]).absolute()
         with TemporaryDirectory(prefix="taskboard-mcp-readback-") as temporary:
@@ -710,7 +736,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_recurring_schedule", "taskboard_maintenance_schedule", "taskboard_goals", "taskboard_wake_subscriptions",
             "taskboard_knowledge_areas", "taskboard_knowledge_sweep", "taskboard_worker_checkpoint",
             "taskboard_project_access", "taskboard_set_project_access", "taskboard_agent_usage",
-            "taskboard_delegate", "taskboard_manual_review",
+            "taskboard_delegate", "taskboard_manual_review", "taskboard_ask_agent",
             "taskboard_save_standing_goal", "taskboard_standing_pass",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])

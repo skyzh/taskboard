@@ -101,9 +101,9 @@ class RaftActionRoutesTest(unittest.TestCase):
             "advance-task": (
                 "POST", "id transition note",
                 "on on_name attention_request_id blocked_by options automation review_after defer_until review_on review_criteria feature_deferred steps started checked eta "
-                "clear_eta reason details url label force force_reason force_text standing_pass",
+                "clear_eta reason details url label force force_reason force_text standing_pass force_delivery",
             ),
-            "peer-ask": ("POST", "id transition note", "recipient review review_pr review_head review_base label url force_text"),
+            "peer-ask": ("POST", "id transition note", "recipient review review_pr review_head review_base label url force_text force_delivery"),
             "handoff": ("POST", "id note", "owner owner_name url label force_text"),
             "change-ownership": ("POST", "id action reason", "owner url label force force_reason force_text"),
             "close-task": ("POST", "id reason", "related url label force force_reason force_text"),

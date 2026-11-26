@@ -41,7 +41,7 @@ class IdleOfferTest(unittest.TestCase):
 
     def ask(self, source, **fields):
         return self.avery.invoke("peer-ask", {
-            "id": source, "transition": "create", "recipient": self.blake_id,
+            "id": source, "transition": "create", "force_delivery": True, "recipient": self.blake_id,
             "note": "Review the sample.", **fields,
         }, write=True)["receipt"].split()[0]
 
@@ -83,7 +83,7 @@ class IdleOfferTest(unittest.TestCase):
         self.advance(self.blake, request, "start")
         accepted = self.assert_offer(self.blake, self.blake_id, request, "request")
         self.assertNotEqual(accepted["event_id"], ready["ready_event"])
-        self.advance(self.blake, request, "wait", on=self.avery_id)
+        self.advance(self.blake, request, "wait", on=self.avery_id, force_delivery=True)
         self.assertIsNone(offer_stalled_work(self.blake, self.blake_id))
         self.advance(self.blake, request, "resume")
         resumed = self.assert_offer(self.blake, self.blake_id, request, "request")

@@ -197,6 +197,16 @@ def build_server(board: SharedBoard) -> MCPServer:
         return board.invoke(operation, {key: value for key, value in fields.items() if value is not None}, write=True)
 
     @server.tool(annotations=write)
+    def taskboard_ask_agent(
+        ticket: Ticket,
+        recipient: Annotated[str, Field(description="Verified agent's stable board ID.")],
+        note: Note, force_delivery: bool = False, force_text: ForceText = False,
+    ) -> dict[str, Any]:
+        """Send a linked Inbox ask. Retry with force_delivery after a watcher delivery warning."""
+        return ticket_write("peer-ask", id=ticket, recipient=recipient, note=note, transition="create",
+                            force_delivery=force_delivery or None, force_text=force_text or None)
+
+    @server.tool(annotations=write)
     def taskboard_create_ticket(
         title: Annotated[str, Field(description="Actionable ticket title.")],
         step: Annotated[str, Field(description="First step for the ticket owner.")],

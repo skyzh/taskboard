@@ -21,7 +21,7 @@ export default function ParkingForm({ task, onChanged }) {
   const [dependency, setDependency] = useState(savedDependency?.source_key || '')
   const [criteria, setCriteria] = useState(savedDependency?.criteria || '')
   const [note, setNote] = useState(savedNote)
-  const mutation = useTransitionRequest(onChanged)
+  const mutation = useTransitionRequest(() => onChanged())
   const timed = mode === 'time'
   const reviewing = mode === 'dependency'
   const dated = mode === 'date' || timed

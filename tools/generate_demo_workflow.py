@@ -73,7 +73,7 @@ class Workflow:
         awaiting_review = self.start(self.add(
             "Run the signed Reports replay", "Prepare the command and recorded result.",
         ), "Prepare the signed fixture.")
-        self.advance(awaiting_review, "wait", "Review the signed fixture for scope drift.", on=self.reviewer_id)
+        self.advance(awaiting_review, "wait", "Review the signed fixture for scope drift.", on=self.reviewer_id, force_delivery=True)
 
         blocked = self.start(self.add(
             "Publish the Reports navigation notes", "Update the notes after the route checks pass.",
@@ -108,7 +108,7 @@ class Workflow:
             "Document the signed replay commands", "Review the commands before they enter Knowledge.",
         ), "Write the steps for the authenticated replay.")
         request = self.board.action(self.author, "peer-ask", {
-            "id": reviewed, "transition": "create", "recipient": self.reviewer_id,
+            "id": reviewed, "transition": "create", "force_delivery": True, "recipient": self.reviewer_id,
             "note": "Check the commands against the signed fixture.",
         })["receipt"].split()[0]
         self.advance(request, "start", "Run the documented commands.", client=self.reviewer)
@@ -131,7 +131,7 @@ class Workflow:
             "Verify Reports with one project", "Check that Reports opens directly without a project picker.",
         ), "Compare the single-project layout.")
         in_review = self.board.action(self.author, "peer-ask", {
-            "id": single_project, "transition": "create", "recipient": self.reviewer_id,
+            "id": single_project, "transition": "create", "force_delivery": True, "recipient": self.reviewer_id,
             "note": "Check whether the single-project layout still opens Reports directly.",
         })["receipt"].split()[0]
         self.advance(in_review, "start", "Check the single-project landing route.", client=self.reviewer)

@@ -398,7 +398,7 @@ class TasksServiceTest(unittest.TestCase):
 
         tasknote_url = "https://evidence.example.test/tasknotes/import-result"
         shared(sam_api, "link-reference", {"id": "OPS-1", "label": "Import TaskNote", "url": tasknote_url})
-        shared(sam_api, "peer-ask", {"id": "OPS-1", "transition": "create", "recipient": agent_key,
+        shared(sam_api, "peer-ask", {"id": "OPS-1", "transition": "create", "force_delivery": True, "recipient": agent_key,
                                      "note": "Verify the TaskNote result against the exact fixture."})
         queued = self.action(agent, "my-next", query_string={"project": "OPS"})["work"]
         self.assertEqual(queued["id"], 3)
@@ -915,11 +915,11 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "link-reference", {"id": stamp_source, "label": "Pull request", "url": pull})
         with patch("tasks_core.timestamp", return_value="2025-11-21T19:15:00Z"):
             stamp = self.action(avery, "peer-ask", {
-                "id": stamp_source, "transition": "create", "recipient": blake_key, "note": "Review the patch.",
+                "id": stamp_source, "transition": "create", "force_delivery": True, "recipient": blake_key, "note": "Review the patch.",
                 "review_pr": pull, "review_head": "a" * 40, "review_base": "b" * 40,
             })["receipt"].split()[0]
         self.action(avery, "peer-ask", {
-            "id": worker_source, "transition": "create", "recipient": blake_key, "note": "Provide the sample.",
+            "id": worker_source, "transition": "create", "force_delivery": True, "recipient": blake_key, "note": "Provide the sample.",
         })
         self.assertEqual(view(sam, project="T"), [("decision", decision, "Avery"), ("request", request, "Avery")])
         self.assertEqual(view(sam, project="COURSE"), [("request", course, "Avery")])
@@ -2083,7 +2083,7 @@ class TasksServiceTest(unittest.TestCase):
         def return_request(source, request):
             self.action(owner, "create-task", {"title": "Review a sample", "step": "Prepare the sample."})
             self.action(owner, "peer-ask", {
-                "id": source, "transition": "create", "recipient": peer_key, "note": "Check the sample.",
+                "id": source, "transition": "create", "force_delivery": True, "recipient": peer_key, "note": "Check the sample.",
             })
             opened = record(peer, request, peer_key)
             self.action(peer, "advance-task", {"id": request, "transition": "start", "note": "Read the sample."})
@@ -3644,7 +3644,7 @@ class TasksServiceTest(unittest.TestCase):
         original = self.call(avery, route).get_json()
         first_link = ("--link", "First", "https://example.test/one")
         second_link = ("--link", "Second", "https://example.test/two")
-        actions = (("start", ()), ("log", ()), ("wait", ("--on", "Blake")))
+        actions = (("start", ()), ("log", ()), ("wait", ("--on", "Blake", "--force-delivery")))
         for command, extra in actions:
             with self.subTest(command=command):
                 arguments = (command, "T-1", "Check evidence.", *extra)
@@ -4540,7 +4540,7 @@ class TasksServiceTest(unittest.TestCase):
             "id": "T-6", "transition": "park", "note": "Revisit later.", "review_after": "2099-01-01",
         })
         self.action(avery, advance, {"id": "T-7", "transition": "start", "note": "Start."})
-        self.action(avery, advance, {"id": "T-7", "transition": "wait", "note": "Review.", "on": "Blake"})
+        self.action(avery, advance, {"id": "T-7", "transition": "wait", "note": "Review.", "on": "Blake", "force_delivery": True})
         old_queue = self.action(avery, "my-queue", query_string={"state": "ready"})
         self.assertEqual([item["id"] for item in old_queue["items"]], [5, 4, 3, 2, 1])
         for next_task in (self.shared_cli(avery, "next")[1], self.cli("next", "--dri", avery_id)):
@@ -4794,7 +4794,7 @@ class TasksServiceTest(unittest.TestCase):
             "id": "T-1", "worker": reviewer_id, "role": "review", "brief": "Review the sample.",
         })["receipt"].split()[0]
         linked = self.action(owner, "peer-ask", {
-            "id": "T-1", "transition": "create", "recipient": reviewer_id, "review": run,
+            "id": "T-1", "transition": "create", "force_delivery": True, "recipient": reviewer_id, "review": run,
             "note": "Review this sample.",
         })["receipt"].split()[0]
         self.action(owner, "worker-handoff", {"run": run, "transition": "start", "handle": "fixture-review"})
@@ -5629,7 +5629,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Read the setup."})
         self.assertNotIn(cue, self.action(owner, "my-next")["next_step"])
         self.action(owner, "peer-ask", {
-            "id": "T-1", "transition": "create", "recipient": reviewer_id, "note": "Check the example.",
+            "id": "T-1", "transition": "create", "force_delivery": True, "recipient": reviewer_id, "note": "Check the example.",
         })
         peer_pickup = self.action(reviewer, "my-next")
         self.assertEqual(peer_pickup["work"]["key"], "T-2")
@@ -5681,7 +5681,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn(cue, self.shared_cli(avery, "next")[1])
         self.action(avery, "advance-task", {"id": "T-2", "transition": "start", "note": "Read the sample."})
         ask = self.action(avery, "peer-ask", {
-            "id": "T-2", "transition": "create", "recipient": recipient, "note": "Check the sample.",
+            "id": "T-2", "transition": "create", "force_delivery": True, "recipient": recipient, "note": "Check the sample.",
         })
         self.assertEqual(ask["next_step"], "Send one ticket link in the example coordination channel.")
         self.assertNotIn(cue, self.shared_cli(blake, "next")[1])
@@ -8763,7 +8763,7 @@ class TasksServiceTest(unittest.TestCase):
             self.action(owner, "create-task", {"title": title, "step": "Check it."})
             self.action(owner, "advance-task", {"id": f"T-{number}", "transition": "start", "note": "Check it."})
         self.action(owner, "create-task", {"project": "COURSE", "title": "Course task", "step": "Read it."})
-        self.action(owner, "peer-ask", {"id": "T-1", "transition": "create", "recipient": peer_id, "note": "Review this."})
+        self.action(owner, "peer-ask", {"id": "T-1", "transition": "create", "force_delivery": True, "recipient": peer_id, "note": "Review this."})
         work = self.call(peer, "/api/v1/notifications/work").json["items"]
         request_key = next(item["key"] for item in work if item["title"] == "Review this")
         self.action(peer, "advance-task", {"id": request_key, "transition": "start", "note": "Checking."})
@@ -8803,7 +8803,7 @@ class TasksServiceTest(unittest.TestCase):
             })["receipt"].split()[0]
             advance(owner, source, "start", "Ask for a review.")
             request = self.action(owner, "peer-ask", {
-                "id": source, "transition": "create", "recipient": peer_id, "note": "Verify the receipt.",
+                "id": source, "transition": "create", "force_delivery": True, "recipient": peer_id, "note": "Verify the receipt.",
             })["receipt"].split()[0]
             if start:
                 advance(peer, request, "start", "Verify the receipt.")
@@ -9215,7 +9215,7 @@ class TasksServiceTest(unittest.TestCase):
         requests = []
         for source in (first_work, second_work):
             requests.append(self.action(avery, "peer-ask", {
-                "id": source, "transition": "create", "recipient": blake_id, "note": "Check the fixture.",
+                "id": source, "transition": "create", "force_delivery": True, "recipient": blake_id, "note": "Check the fixture.",
             })["receipt"].split()[0])
         request_rows = pages(asks, scope="all")
         self.assertEqual([row["source_key"] for row in request_rows], [second_work, first_work])
@@ -9488,7 +9488,7 @@ class TasksServiceTest(unittest.TestCase):
             "title": "Source for a linked request", "step": "Prepare a sample.",
         })["receipt"].split()[0]
         request_ticket = self.action(avery, "peer-ask", {
-            "id": source, "transition": "create", "recipient": blake_id, "note": "Review the sample.",
+            "id": source, "transition": "create", "force_delivery": True, "recipient": blake_id, "note": "Review the sample.",
         })["receipt"].split()[0]
         for ticket in (watched_wait, request_ticket):
             self.call(sam, f"/api/v1/tasks/{ticket}/watch", method="POST", headers=origin, json={"watch": True})
@@ -10164,7 +10164,7 @@ class TasksServiceTest(unittest.TestCase):
         def ask(project, note):
             source = self.action(owner, "create-task", {"project": project, "title": "Prepare the export", "step": "Prepare it."})
             key = source["receipt"].split()[0]
-            created = self.action(owner, "peer-ask", {"id": key, "transition": "create", "recipient": recipient_id, "note": note})
+            created = self.action(owner, "peer-ask", {"id": key, "transition": "create", "force_delivery": True, "recipient": recipient_id, "note": note})
             return created["receipt"].split()[0]
 
         note = "Verify  the export on a phone.\n\nCompare it with the desktop result."
@@ -10210,7 +10210,7 @@ class TasksServiceTest(unittest.TestCase):
         note = f"Rebind exact PR #126 review to {'a' * 40} on {'b' * 40}. README and public HTML match."
         for opener in ("Please re-review", "Could you review", "Independently rereview"):
             self.assertEqual(request_title(f"{opener} PR #126 at {'a' * 40}.", "Review the change"), "Review PR #126")
-        self.action(owner, "peer-ask", {"id": "T-1", "transition": "create", "recipient": reviewer_id, "note": note})
+        self.action(owner, "peer-ask", {"id": "T-1", "transition": "create", "force_delivery": True, "recipient": reviewer_id, "note": note})
 
         def detail():
             return self.call(owner, "/api/v1/tasks/T-2").json["task"]
@@ -10233,12 +10233,51 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(detail()["title"], "Verify refreshed demo metadata")
 
         self.action(owner, "create-task", {"title": "Publish the next demo", "step": "Prepare."})
-        self.action(owner, "peer-ask", {"id": "T-3", "transition": "create", "recipient": reviewer_id, "note": note})
+        self.action(owner, "peer-ask", {"id": "T-3", "transition": "create", "force_delivery": True, "recipient": reviewer_id, "note": note})
         self.action(owner, "peer-ask", {"id": "T-4", "transition": "cancel", "note": "Use the next revision."})
         with closing(sqlite3.connect(self.database)) as db, db:
             db.execute("UPDATE tasks SET title = ? WHERE id = 4", (old_title,))
         self.app(portal_reader=True)
         self.assertEqual(self.call(owner, "/api/v1/tasks/T-4").json["task"]["title"], old_title)
+
+    def test_peer_delivery_warning_requires_explicit_confirmation(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Sam")
+        agent, recipient = self.login(app, "Blake")
+        action = self.action
+        self.cli("add", "Check the sample", "--dri", owner_id, "--step", "Prepare it.")
+        path = "/api/v1/tasks/T-1/peer-ask"
+        draft = {"recipient": recipient, "note": "Check the fictional sample."}
+        before = self.call(owner, "/api/v1/tasks/T-1").json["task"]
+        response = self.call(owner, path, method="POST", json=draft, status=409).json
+        self.assertEqual(response["code"], "confirm_peer_delivery")
+        self.assertIn("DM the recipient", response["error"])
+        self.assertEqual(self.call(owner, "/api/v1/tasks/T-1").json["task"], before)
+        action(agent, "task", query_string={"id": "T-2"}, status=404)
+        sent = self.call(owner, path, method="POST", json={**draft, "force_delivery": True}).json
+        self.assertIn("T-2 · Peer request opened", sent["receipt"])
+        receipt = self.call(owner, path, method="POST", json={**draft, "force_delivery": True}).json
+        self.assertEqual(receipt["receipt"], "T-2 · Existing peer request")
+        linked = action(agent, "task", query_string={"id": "T-2"})["task"]
+        self.assertEqual((linked["state"], linked["dri"]), ("ready", recipient))
+        action(agent, "task", query_string={"id": "T-3"}, status=404)
+        draft = {**draft, "note": "Long fictional context. " * 200}
+        self.cli("add", "Check again", "--dri", owner_id, "--step", "Prepare a second sample.")
+        path = "/api/v1/tasks/T-3/peer-ask"
+        warning = self.call(owner, path, method="POST", json=draft, status=400).json
+        self.assertEqual(warning["field"], "note")
+        warning = self.call(owner, path, method="POST", json={**draft, "force_text": True}, status=409).json
+        self.assertEqual(warning["code"], "confirm_peer_delivery")
+        sent = self.call(owner, path, method="POST",
+                         json={**draft, "force_text": True, "force_delivery": True}).json
+        self.assertIn("T-4 · Peer request opened", sent["receipt"])
+        saved = action(agent, "task", query_string={"id": "T-4"})["task"]
+        self.assertEqual(saved["note"], draft["note"].strip())
+        draft = {**draft, "note": "Check the third sample."}
+        self.cli("add", "Check once more", "--dri", owner_id, "--step", "Prepare a third sample.")
+        action(agent, "set-wake-subscription", {"event_type": "owned-ready", "enabled": "true"})
+        self.assertIn("T-6 · Peer request opened",
+                      self.call(owner, "/api/v1/tasks/T-5/peer-ask", method="POST", json=draft).json["receipt"])
 
     def test_linked_peer_request_lifecycle_returns_the_next_action_to_the_requester(self):
         app = self.app(portal_reader=True)
@@ -10252,9 +10291,13 @@ class TasksServiceTest(unittest.TestCase):
         advance = {"id": "T-1", "transition": "start", "note": "Sample is ready."}
         self.action(avery, "advance-task", advance)
 
-        created = {"id": "T-1", "transition": "create", "recipient": blake_id, "note": "Review the sample."}
+        created = {"id": "T-1", "transition": "create", "force_delivery": True, "recipient": blake_id, "note": "Review the sample."}
         self.action(cedar, "peer-ask", created, status=403)
-        code, output, errors = self.shared_cli(avery, "peer-ask", "create", "T-1", "Review the sample.", "--to", "Blake")
+        ask_args = ("peer-ask", "create", "T-1", "Review the sample.", "--to", "Blake")
+        code, _, errors = self.shared_cli(avery, *ask_args)
+        self.assertEqual(code, 1)
+        self.assertIn("--force-delivery", errors)
+        code, output, errors = self.shared_cli(avery, *ask_args, "--force-delivery")
         self.assertEqual((code, errors), (0, ""))
         self.assertIn("T-2 · Peer request opened", output)
         self.assertIn("When Raft is available and the recipient still needs a notice", output)
@@ -10278,7 +10321,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(blake, "advance-task", {**advance, "id": "T-2", "note": "Checking the sample."})
         self.assertEqual(read(2)["state"], "in_progress")
         self.action(blake, "advance-task", {
-            "id": "T-2", "transition": "wait", "on": avery_id, "note": "Need the updated sample.",
+            "id": "T-2", "transition": "wait", "on": avery_id, "note": "Need the updated sample.", "force_delivery": True,
         })
         paused = read(2)
         self.assertEqual((paused["state"], paused["peer_request"]["phase"]), ("waiting", "in_progress"))
@@ -10357,7 +10400,7 @@ class TasksServiceTest(unittest.TestCase):
         source = add(avery, "Request a result from Blake")
         self.action(avery, "advance-task", {"id": source, "transition": "start", "note": "Prepare the sample."})
         requested = self.action(avery, "peer-ask", {
-            "id": source, "transition": "create", "recipient": blake_id, "note": "Test the sample.",
+            "id": source, "transition": "create", "force_delivery": True, "recipient": blake_id, "note": "Test the sample.",
         })
         self.assertNotIn("next_action", requested)
         request_ticket = requested["receipt"].split()[0]
@@ -10397,13 +10440,13 @@ class TasksServiceTest(unittest.TestCase):
         asked_at = "2026-11-20T23:55:00Z"
         with patch("tasks_core.timestamp", return_value=asked_at):
             self.action(avery, "advance-task", {
-                "id": "T-1", "transition": "wait", "on": "Blake", "note": "Check the fixture.",
+                "id": "T-1", "transition": "wait", "on": "Blake", "note": "Check the fixture.", "force_delivery": True,
             })
         self.action(avery, "delegate", {
             "id": "T-1", "worker": blake_id, "role": "review", "brief": "Check the fixture.",
         })
         requested = {
-            "id": "T-1", "transition": "create", "recipient": blake_id, "note": "Check the fixture.", "review": "W-1",
+            "id": "T-1", "transition": "create", "force_delivery": True, "recipient": blake_id, "note": "Check the fixture.", "review": "W-1",
         }
         self.assertEqual(self.action(avery, "peer-ask", requested)["receipt"], "T-2 · Existing peer request")
         self.assertEqual(self.action(avery, "peer-ask", requested)["receipt"], "T-2 · Existing peer request")
@@ -10472,7 +10515,7 @@ class TasksServiceTest(unittest.TestCase):
                 "project": project, "title": f"Review the {project} sample", "step": "Read the draft.",
             })
             self.action(avery, "peer-ask", {
-                "id": original, "transition": "create", "recipient": blake_id, "note": "Private request note.",
+                "id": original, "transition": "create", "force_delivery": True, "recipient": blake_id, "note": "Private request note.",
             })
             self.action(blake, "advance-task", {"id": request, "transition": "start", "note": "Reviewing."})
             self.assertEqual(self.call(reader, route, query_string={"project": project}).json, {"items": []})
@@ -10507,7 +10550,7 @@ class TasksServiceTest(unittest.TestCase):
                 "project": project, "title": f"Review sample {number}", "step": "Read the draft.",
             })
             self.action(avery, "peer-ask", {
-                "id": source, "transition": "create", "recipient": blake_id, "note": "Read the private outline.",
+                "id": source, "transition": "create", "force_delivery": True, "recipient": blake_id, "note": "Read the private outline.",
             })
             return f"{project}-{number + 1}"
 
@@ -10580,7 +10623,7 @@ class TasksServiceTest(unittest.TestCase):
 
         def ask(source, note="Check the example."):
             return self.action(avery, "peer-ask", {
-                "id": source, "transition": "create", "recipient": blake_id, "note": note,
+                "id": source, "transition": "create", "force_delivery": True, "recipient": blake_id, "note": note,
             })["receipt"].split()[0]
 
         source = create("Check the sample")
@@ -10764,7 +10807,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(sam, decisions).json["items"], [])
         second, = self.call(quinn, decisions).json["items"]
         self.assertEqual(second["note"], "Verify the updated fixture.")
-        self.action(avery, "advance-task", {**wait, "on": reviewer})
+        self.action(avery, "advance-task", {**wait, "on": reviewer, "force_delivery": True})
         self.assertEqual(self.call(quinn, decisions).json["items"], [])
         self.assertEqual(self.action(blake, "my-next")["work"]["key"], "T-2")
         row = self.call(avery, path).json["task"]
@@ -10790,7 +10833,7 @@ class TasksServiceTest(unittest.TestCase):
         cedar, second_reviewer = self.login(app, "Cedar")
         self.action(avery, "create-task", {"title": "Check a peer fixture", "step": "Prepare."})
         self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Prepare."})
-        wait = {"id": "T-1", "transition": "wait", "on": "Blake", "note": "Review the fixture."}
+        wait = {"id": "T-1", "transition": "wait", "on": "Blake", "note": "Review the fixture.", "force_delivery": True}
         for _ in range(2):
             self.assertEqual(self.action(avery, "advance-task", wait)["receipt"], "T-1 · Wait recorded")
         self.action(avery, "advance-task", {**wait, "on": reviewer, "note": "Review the edited fixture."})
@@ -10834,7 +10877,7 @@ class TasksServiceTest(unittest.TestCase):
             receipt = self.action(owner, "create-task", {"title": "Review source", "step": "Prepare."})["receipt"]
             source = receipt.split()[0]
             advance(owner, source, "start")
-            advance(owner, source, "wait", on=reviewer_id, **wait)
+            advance(owner, source, "wait", on=reviewer_id, force_delivery=True, **wait)
             task = self.call(owner, f"/api/v1/tasks/{source}").json["task"]
             return source, task["context"]["peer_ask_ticket"]
 
@@ -10851,7 +10894,7 @@ class TasksServiceTest(unittest.TestCase):
         source, delivered_before_replacement = start_request()
         advance(reviewer, delivered_before_replacement, "start")
         peer(reviewer, delivered_before_replacement, "result")
-        advance(owner, source, "wait", on=next_reviewer)
+        advance(owner, source, "wait", on=next_reviewer, force_delivery=True)
         replacement = self.call(owner, f"/api/v1/tasks/{source}").json["task"]["context"]["peer_ask_ticket"]
 
         source, retired = start_request(url="https://github.com/example/board/pull/76")
@@ -11004,7 +11047,7 @@ class TasksServiceTest(unittest.TestCase):
                 ticket = self.action(owner, "create-task", {"title": "Review export", "step": "Review the PR."})["receipt"].split()[0]
                 self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Review the PR."})
                 self.action(owner, "link-reference", {"id": ticket, "label": "PR", "url": pr})
-                request = {"id": ticket, "transition": "create", "recipient": recipient, "note": "Review the PR."}
+                request = {"id": ticket, "transition": "create", "force_delivery": True, "recipient": recipient, "note": "Review the PR."}
                 response = self.action(owner, "peer-ask", {
                     **request, "review_pr": pr, "review_head": "a" * 40, "review_base": "b" * 40,
                 }, status=409)
@@ -11039,7 +11082,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(prism, "advance-task", {"id": "T-1", "transition": "start", "note": "Ready for review."})
         self.action(prism, "link-reference", {"id": "T-1", "label": "Progress PR", "url": pr})
         self.action(prism, "advance-task", {"id": "T-1", "transition": "wait", "on": reviewer,
-                                            "note": "Review the progress bar."})
+                                            "note": "Review the progress bar.", "force_delivery": True})
         request = ("peer-ask", "create", "T-1", "Review the progress bar.", "--to", "Blake", "--stamp-review", pr)
         old_head = "a" * 40
         for requested_head in (old_head, head):

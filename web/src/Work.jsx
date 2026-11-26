@@ -17,6 +17,7 @@ import ReminderDate from './ReminderDate.jsx'
 import RecurringRuns from './RecurringRuns.jsx'
 import Kanban from './Kanban.jsx'
 import NeedsYouSend from './NeedsYouSend.jsx'
+import PeerAskSend from './PeerAskSend.jsx'
 import TaskActivityUpdate from './TaskActivityUpdate.jsx'
 import TaskClosure from './TaskClosure.jsx'
 import TaskDetailsEdit from './TaskDetailsEdit.jsx'
@@ -607,6 +608,9 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
           {task && <>
             {signedIn && <NeedsYouSend key={`${id}:${session.data.actor.id}`} ticket={task.key || id}
               actions={record.needs_you_actions} project={taskProject} revision={revision} onChanged={onChanged} />}
+            {signedIn && <PeerAskSend key={`peer:${id}:${session.data.actor.id}`} ticket={task.key || id}
+              allowed={record.can_ask_agent === true} actor={session.data.actor.id}
+              project={taskProject} revision={revision} onChanged={onChanged} />}
             {record.goal?.tickets.length > 0 && (
               <ul className="context-list" aria-label="Work linked to this goal">
                 {record.goal.tickets.map(ticket => <li key={ticket.id}>
