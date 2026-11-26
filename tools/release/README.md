@@ -374,7 +374,7 @@ gh api 'repos/skyzh/taskboard/actions/workflows/426408905/runs?branch=main&event
 
 To advance the window, preview with a newer `--since` date and the same state
 directory. Use that date on the next applied pass. It drains the old window
-first and saves the new date. Failed runs and failures awaiting job evidence
-remain tracked by run ID even after they fall outside the new window. A passing
+first and saves the new date. In-progress runs, failed runs, and failures
+awaiting job evidence remain tracked by run ID outside the new window. A passing
 retry updates the original ticket and removes the run from outstanding tracking.
 If GitHub cannot return the full old window, the watcher stops before writing.

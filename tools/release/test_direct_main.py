@@ -581,3 +581,19 @@ class MainCIWatcherTest(unittest.TestCase):
         self.assertEqual(json.loads(self.state.read_text())["pending"], [])
         with self.assertRaisesRegex(ValueError, "only move forward"):
             self.poll()
+
+    def test_renewal_preserves_running_first_attempt_until_completion(self):
+        running = run(1, None, status="in_progress")
+        self.latest = [running]
+        self.history[1] = running
+        self.assertEqual(self.poll(), [])
+        self.assertEqual(self.poll(since="2026-11-27"), [])
+        saved = json.loads(self.state.read_text())
+        self.assertEqual(saved["incomplete"], [42])
+        self.assertEqual(saved["attempts"], {})
+        self.latest = []
+        self.history[1] = run(1, "failure")
+        self.assertEqual(self.poll(since="2026-11-27")[0]["action"], "create-task")
+        saved = json.loads(self.state.read_text())
+        self.assertEqual(saved["incomplete"], [])
+        self.assertEqual(saved["pending"], [42])

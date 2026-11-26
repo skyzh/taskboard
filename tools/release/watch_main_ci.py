@@ -73,6 +73,7 @@ def observations(read, since, seen, pending):
             if not main_run(run) or (run["id"], run["run_attempt"], run["head_sha"]) != (run_id, attempt, commit):
                 raise ValueError("GitHub did not confirm the exact main run attempt.")
             if run["status"] != "completed":
+                yield run_id, attempt, commit, "incomplete", []
                 break
             failed = []
             if run["conclusion"] == "failure":
@@ -168,9 +169,10 @@ def poll(read, invoke, state, *, since, board, owner, dry_run):
         raise ValueError("The monitoring window may only move forward.")
     attempts = saved["attempts"]
     pending = set(saved["pending"])
+    incomplete = set(saved.get("incomplete", []))
     results, planned = [], set()
     # Finish reconciling the old window once before a renewal can drop its runs.
-    events = list(observations(read, saved["since"], attempts, pending))
+    events = list(observations(read, saved["since"], attempts, pending | incomplete))
     if since > saved["since"]:
         # The new window is a subset. A failed old run remains in pending until it passes.
         saved["since"] = since
@@ -179,6 +181,10 @@ def poll(read, invoke, state, *, since, board, owner, dry_run):
             results.append(result)
         if not dry_run:
             run, attempt, _, outcome, _ = event
+            if outcome == "incomplete":
+                incomplete.add(run)
+                continue
+            incomplete.discard(run)
             if outcome != "missing_failed_jobs":
                 attempts[str(run)] = attempt
             if outcome in ("failure", "missing_failed_jobs"):
@@ -187,6 +193,7 @@ def poll(read, invoke, state, *, since, board, owner, dry_run):
                 pending.discard(run)
     if not dry_run:
         saved["pending"] = sorted(pending)
+        saved["incomplete"] = sorted(incomplete)
         write_json(state, saved)
     return results
 
