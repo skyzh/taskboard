@@ -1,7 +1,7 @@
-"""Bind verified OpenID Connect subjects to existing Taskboard principals."""
+"""Bind exact member provider subjects to existing Taskboard principals."""
 
 from urllib.parse import urlsplit
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import tasks_core as ledger
 import tasks_profiles as profiles
@@ -60,7 +60,7 @@ def member(db, issuer, subject):
     return profiles.get(db, row["ledger_key"]) if row else None
 
 
-def ensure_principal(db, ledger_key, name):
+def ensure_principal(db, issuer, ledger_key, name):
     if ledger_key is not None:
         current = profiles.get(db, ledger_key)
         if current is not None:
@@ -76,9 +76,11 @@ def ensure_principal(db, ledger_key, name):
             raise ValueError("This account key does not appear in the selected ledger.")
     account = str(uuid4())
     ledger_key = ledger_key or f"account:{account}"
+    # A configured adapter supplies one workspace. Keep original OIDC principal keys compatible.
+    workspace = str(uuid5(NAMESPACE_URL, issuer)) if issuer.startswith("external:") else account
     db.execute(
         "INSERT INTO board_principals (server_id, kind, subject, ledger_key, name) VALUES (?, 'human', ?, ?, ?)",
-        (account, account, ledger_key, name or ledger_key),
+        (workspace, account, ledger_key, name or ledger_key),
     )
     return ledger_key
 
@@ -101,7 +103,7 @@ def set_membership(db, issuer, subject, *, admitted, ledger_key=None, name=None)
         "SELECT 1 FROM oidc_members WHERE ledger_key = ?", (ledger_key,),
     ).fetchone():
         raise ValueError("This account already has an OpenID Connect subject binding.")
-    account = ensure_principal(db, ledger_key, name)
+    account = ensure_principal(db, issuer, ledger_key, name)
     db.execute("INSERT INTO oidc_members VALUES (?, ?, ?, 1)", (issuer, subject, account))
     return account, True
 
