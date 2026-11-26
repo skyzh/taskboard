@@ -67,7 +67,7 @@ from tasks_ui_routes import BoardPage, board_return_allowed
 
 from taskboard_client.connection import exact_person_id
 from taskboard_server.paths import CHECKOUT, DIST, PACKAGE
-from taskboard_server import local_dri, personal_agents, personal_codex, project_admin, project_links, raft_channels
+from taskboard_server import local_dri, personal_agents, personal_codex, project_admin, project_links, raft_channels, reports_presence
 FRONTEND_BUILD_META = re.compile(rb'<meta name="tasks-frontend-build" content="([0-9a-f]{64})">')
 # Some Linux systems expose the host's localtime file alongside IANA zones.
 TIME_ZONE_NAMES = available_timezones() - {"localtime"}
@@ -364,6 +364,8 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     if marketplace:
         db.execute("INSERT INTO board_settings VALUES ('marketplace_server_id', ?) ON CONFLICT (key) DO NOTHING", (server_id,))
     profiles.ensure_principals(db)
+    for statement in reports_presence.SCHEMA:
+        db.execute(statement)
     db.execute(project_admin.SCHEMA)
     db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
     local_dri.ensure_schema(db)
@@ -426,6 +428,8 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None, initial_project=No
             ledger.ensure_record_kind(db)
             ledger.ensure_checklist_schema(db)
             profiles.ensure_principals(db)
+            for statement in reports_presence.SCHEMA:
+                db.execute(statement)
             ensure_attention_requests(db)
             db.execute(ticket_fields.SCHEMA)
             projects.bootstrap(db, initial_project, required=require_initial)
@@ -930,6 +934,8 @@ def create_app(
     if marketplace or oidc is not None:
         @app.before_request
         def require_board_identity():
+            if request.endpoint == "report_presence":
+                return  # The heartbeat uses its own origin and human-session check.
             if request.endpoint == "decision_receipt":
                 current_actor("human", sync_profile=False)
             elif request.path.startswith("/api/v1/") and request.endpoint not in (
@@ -3048,6 +3054,31 @@ def create_app(
             viewer=actor["ledger_key"] if actor else None,
         )
         return {**result, "roster": True} if has_roster else result
+
+    @app.post("/api/v1/reports/presence")
+    def report_presence():
+        if request.headers.get("Origin") != origin:
+            raise RequestError("Send Summary presence from the board origin.", 403)
+        actor = current_actor("human", required=True, write=True, sync_profile=False)
+        if g.get("personal_agent_api"):
+            raise RequestError("Sign in to Taskboard in the browser to report Summary presence.", 403)
+        data = json_body({"view_id", "visit", "project", "scope", "leave"})
+        try:
+            view_id = str(UUID(text(data, "view_id", maximum=36)))
+        except ValueError as error:
+            raise RequestError("Provide a view ID UUID.") from error
+        visit = integer(data.get("visit"), "visit", maximum=2**53 - 1)
+        if "scope" not in data:
+            text(data, "project", maximum=8)
+        elif data["scope"] != "all" or "project" in data:
+            raise RequestError("Choose one project or scope=all.")
+        leave = data.get("leave", False)
+        if type(leave) is not bool:
+            raise RequestError("Send leave as true or false.")
+        with tasks_storage.write(db()) as connection:
+            project = project_scope(data, use_default=False)
+            count = reports_presence.update(connection, actor["ledger_key"], view_id, visit, project, leave=leave)
+        return {"count": count}
 
     @app.get("/api/v1/reports/watched-tickets")
     def report_watched_tickets():

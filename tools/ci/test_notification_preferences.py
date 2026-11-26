@@ -18,6 +18,7 @@ from test_tasks_knowledge_sweeps import replay_knowledge_sweeps
 from test_tasks_project_move import replay_move
 from test_tasks_recurring import replay_project_tick
 import test_tasks_ring1 as ring1_fixture
+import test_tasks_reports_presence as presence_fixture
 from tasks_core import import_notification_on
 from tasks_service import create_app
 from tasks_storage import Postgres
@@ -347,6 +348,33 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual(self.board.call(owner, PUBLISHING).json, INSTRUCTIONS)
         self.assertEqual(self.board.call(owner, PUBLISHING, method="PUT", headers=ORIGIN, json=empty).json, empty)
         self.assertEqual(self.board.call(owner, PUBLISHING).json, empty)
+
+    def test_reports_presence_on_postgres(self):
+        root = self.board.provider.people["Sam"]["sub"]
+        app = self.postgres_app(self.postgres_fixture(), project_admin_subject=root)
+        presence_fixture.ReportsPresenceTest().replay(self.board, app)
+
+    def test_reports_presence_rows_are_discarded_on_sqlite_import(self):
+        source = self.board.app(portal_reader=True)
+        sam, _ = self.board.login(source, "Sam")
+        active_view = {"view_id": str(uuid4()), "visit": 1, "scope": "all"}
+        route = presence_fixture.ROUTE
+        self.assertEqual(self.board.call(sam, route, method="POST", headers=ORIGIN, json=active_view).json,
+                         {"count": 1})
+        snapshot = self.board.database.with_name("presence-snapshot.sqlite3")
+        with closing(sqlite3.connect(self.board.database)) as current, closing(sqlite3.connect(snapshot)) as backup:
+            current.backup(backup)
+            self.assertEqual(backup.execute("SELECT COUNT(*) FROM reports_presence").fetchone()[0], 1)
+
+        dsn = self.postgres_fixture()
+        counts = import_snapshot(snapshot, dsn)
+        self.assertEqual(counts["board_principals"], 1)
+        self.assertNotIn("reports_presence", counts)
+        target = self.postgres_app(dsn)
+        sam, _ = self.board.login(target, "Sam")
+        unopened_view = {**active_view, "leave": True}
+        self.assertEqual(self.board.call(sam, route, method="POST", headers=ORIGIN, json=unopened_view).json,
+                         {"count": 0})
 
     def test_ring1_project_visibility_on_postgres(self):
         root = self.board.provider.people["Sam"]["sub"]
