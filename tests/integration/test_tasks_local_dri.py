@@ -365,6 +365,14 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertIn(source["url"], [link["url"] for link in referenced["sources"]])
         local("knowledge-place", {"id": note, "area": "Review", "index": "true"}, status=403)
         local("knowledge-stage", {"id": note, "source": foreign}, status=403)
+        before_stage = local("knowledge-sweep")
+        action(team, "knowledge-stage", {"id": note, "source": foreign})
+        shared_page = call(team, "/api/v1/knowledge", query_string={
+            "project": "OPS", "order": "updated", "limit": 1,
+        }).json
+        self.assertEqual(shared_page["items"][0]["key"], note)
+        self.assertEqual(shared_page["items"][0]["last_activity"]["label"], "Staged work")
+        self.assertEqual(local("knowledge-sweep"), before_stage)
         local("knowledge-reconcile", {"project": "T"}, status=403)
         local("create-task", {"project": "T", "title": "Wrong project", "step": "Check the scope."}, status=403)
         local("my-activity", query_string={"scope": "all"}, status=403)

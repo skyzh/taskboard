@@ -2946,6 +2946,69 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([item["key"] for item in default["items"]], ["T-3", "T-2", "T-1"])
         self.call(app.test_client(), route, query_string=filters, status=401)
 
+    def test_staged_knowledge_moves_before_pagination_only_when_the_proposal_changes(self):
+        app = self.app(portal_reader=True)
+        writer, writer_id = self.login(app, "Avery")
+        self.cli("register-project", "T", "Tasks Board", "--dri", writer_id)
+        route = "/api/v1/knowledge"
+
+        def page(**filters):
+            return self.call(writer, route, query_string={
+                "project": "T", "order": "updated", "q": "Runbook", **filters,
+            }).json
+
+        for title in ("Runbook alpha", "Runbook beta"):
+            self.action(writer, "create-knowledge", {"project": "T", "title": title, "brief": "Approved guidance."})
+        self.action(writer, "create-task", {"title": "Runbook evidence", "step": "Check the baseline."})
+        self.action(writer, "task-tag", {"id": "T-3", "action": "add", "tag": "decision-record"})
+        self.action(writer, "advance-task", {"id": "T-3", "transition": "start", "note": "Check the baseline."})
+        self.action(writer, "advance-task", {"id": "T-3", "transition": "done", "note": "Verified the baseline."})
+
+        def last_event(ticket):
+            return self.action(writer, "task-activity", query_string={"id": ticket, "limit": 1})["items"][0]["id"]
+
+        evidence = last_event("T-3")
+        stage = {"id": "T-1", "source": "T-3"}
+        same_second = "2099-01-01T09:00:00Z"
+        self.assertEqual([item["key"] for item in page()["items"]], ["T-3", "T-2", "T-1"])
+        with patch("tasks_core.timestamp", return_value=same_second):
+            self.action(writer, "knowledge-stage", stage)
+            first_stage = last_event("T-3")
+            first = page(limit=1)
+            self.assertEqual(first["next_cursor"], first_stage)
+            self.assertEqual(first["items"][0]["last_activity"], {
+                "id": first_stage, "at": same_second, "label": "Staged work",
+            })
+            self.assertEqual(first["items"][0]["summary"], "Approved guidance.")
+            second = page(limit=1, before=first_stage)
+            self.assertEqual([item["key"] for item in second["items"]], ["T-3"])
+            self.assertEqual(second["next_cursor"], evidence)
+            last = page(limit=1, before=evidence)
+            self.assertEqual([item["key"] for item in last["items"]], ["T-2"])
+            self.assertIsNone(last["next_cursor"])
+
+            self.action(writer, "record-activity", {"id": "T-2", "note": "Reviewed the other entry."})
+            before_retry = page(limit=1)
+            self.assertEqual([item["key"] for item in before_retry["items"]], ["T-2"])
+            self.assertEqual(self.action(writer, "knowledge-stage", stage)["receipt"], "Knowledge stage unchanged.")
+            self.assertEqual(page(limit=1), before_retry)
+            self.assertEqual(last_event("T-3"), first_stage)
+
+            revised = {**stage, "brief": "Apply the verified baseline.", "source_event": evidence}
+            self.action(writer, "knowledge-stage", revised)
+            proposal = page(limit=1)
+            self.assertEqual([item["key"] for item in proposal["items"]], ["T-1"])
+            self.assertGreater(proposal["next_cursor"], before_retry["next_cursor"])
+            self.assertEqual(proposal["items"][0]["summary"], "Approved guidance.")
+            self.assertEqual(proposal["items"][0]["last_activity"]["label"], "Staged work")
+
+            applied = self.action(writer, "knowledge-reconcile", {"project": "T"})["applied"][0]
+            final = page(limit=1)["items"][0]
+            self.assertEqual(final["summary"], revised["brief"])
+            self.assertEqual(final["last_activity"], {
+                "id": applied["event_id"], "at": same_second, "label": "Knowledge change applied",
+            })
+
     def test_first_class_knowledge_preserves_existing_identity_history_and_staged_links(self):
         roster = {self.provider.people["Blake"]["sub"]: "Blake"}
         app = self.app(portal_reader=True, project_roster=roster)

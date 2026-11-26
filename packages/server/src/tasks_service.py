@@ -381,8 +381,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     db.execute(INTAKE_ERRORS)
     for statement in (*extensions.SCHEMA, *github_webhooks.SCHEMA):
         db.execute(statement)
-    for statement in knowledge_records.SCHEMA:
-        db.execute(statement)
+    knowledge_records.ensure_schema(db)
     knowledge_records.migrate_records(db)
     ensure_attention_requests(db)
     db.execute(NOTIFICATION_PREFERENCES)
@@ -454,9 +453,9 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None, initial_project=No
             db.execute(goal_cadence.SCHEMA)
             db.execute(goal_offers.SCHEMA)
             db.execute(goal_offers.INDEX)
-            for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA,
-                              *github_webhooks.SCHEMA, *knowledge_records.SCHEMA):
+            for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA, *github_webhooks.SCHEMA):
                 db.execute(statement)
+            knowledge_records.ensure_schema(db)
             knowledge_records.migrate_records(db)
             db.execute(wake_subscriptions.SCHEMA)
             db.execute(watches.ASSIGNEE_SCHEMA)

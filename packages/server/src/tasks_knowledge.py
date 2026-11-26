@@ -5,6 +5,7 @@ from argparse import Namespace
 import tasks_core as ledger
 import tasks_projects as projects
 import tasks_ring1 as ring1
+from tasks_storage import table_columns
 import watches
 
 
@@ -34,6 +35,7 @@ SCHEMA = (
         proposed_brief TEXT,
         source_event_id BIGINT REFERENCES events (id),
         staged_at TEXT NOT NULL,
+        staged_event_id BIGINT REFERENCES events (id),
         applied_event_id BIGINT REFERENCES events (id),
         conflict TEXT,
         PRIMARY KEY (entry_id, source_id)
@@ -48,6 +50,13 @@ SCHEMA = (
     """,
     "CREATE INDEX IF NOT EXISTS knowledge_maintenance_dri ON knowledge_maintenance_assignments (dri, task_id)",
 )
+
+
+def ensure_schema(db):
+    for statement in SCHEMA:
+        db.execute(statement)
+    if "staged_event_id" not in table_columns(db, "knowledge_stages"):
+        db.execute("ALTER TABLE knowledge_stages ADD COLUMN staged_event_id BIGINT REFERENCES events (id)")
 
 
 def migrate_records(db):
@@ -192,20 +201,22 @@ def stage(db, number, source_id, actor, brief, source_event):
         return {"receipt": "Knowledge stage unchanged."}
     if old and old["applied_event_id"] is not None:
         raise ValueError("This ticket's staged change was applied. Link a new work ticket for its successor.")
+    staged_at = ledger.timestamp()
+    event = ledger.record(db, source_id, "log", actor, source["state"],
+                          f"Staged work for Knowledge entry {projects.row_reference(note)}.", None, [],
+                          {"knowledge_stage": True})
     db.execute(
         """
         INSERT INTO knowledge_stages
-            (entry_id, source_id, base_brief, proposed_brief, source_event_id, staged_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+            (entry_id, source_id, base_brief, proposed_brief, source_event_id, staged_at, staged_event_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (entry_id, source_id) DO UPDATE SET base_brief = excluded.base_brief,
             proposed_brief = excluded.proposed_brief, source_event_id = excluded.source_event_id,
-            staged_at = excluded.staged_at, conflict = NULL
+            staged_at = excluded.staged_at, staged_event_id = excluded.staged_event_id, conflict = NULL
         """,
         (number, source_id, old["base_brief"] if old and not old["conflict"] else note["brief"],
-         brief, source_event, ledger.timestamp()),
+         brief, source_event, staged_at, event),
     )
-    ledger.record(db, source_id, "log", actor, source["state"],
-                  f"Staged work for Knowledge entry {projects.row_reference(note)}.", None, [])
     ledger.bump_revision(db, projects.row_project(source))
     return {"receipt": "Knowledge change staged."}
 
