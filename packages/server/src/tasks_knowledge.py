@@ -239,14 +239,11 @@ def directory(db, *, project=None, principal=None):
     )]
 
 
-def links(db, number, *, principal, include_source=False, source_project=None):
+def links(db, number, *, principal, include_source=False):
     where = "(stage.entry_id = ? OR stage.source_id = ?)" if include_source else "stage.entry_id = ?"
     args = (number, number) if include_source else (number,)
     source_scope, source_bindings = ring1.visibility(db, "source.project_prefix", principal)
     entry_scope, entry_bindings = ring1.visibility(db, "entry.project_prefix", principal)
-    if source_project is not None:
-        where += " AND source.project_prefix = ?"
-        args += (source_project,)
     records = db.execute(f"""
         SELECT stage.*, source.id, source.title AS source_title, source.project_prefix, source.project_number,
                source_event.at AS source_at, entry.title AS entry_title,
@@ -266,7 +263,7 @@ def links(db, number, *, principal, include_source=False, source_project=None):
     } for row in records]
 
 
-def metadata(db, number, *, principal, source_project=None):
+def metadata(db, number, *, principal):
     area = db.execute(
         """SELECT entries.project, entries.path, areas.index_id FROM knowledge_entries AS entries
            JOIN tasks AS note ON note.id = entries.task_id AND note.project_prefix = entries.project
@@ -287,7 +284,7 @@ def metadata(db, number, *, principal, source_project=None):
                 """, (area["project"], area["path"], area["project"], number, DECISION_TAG),
             ) if ledger.is_knowledge(row) or row["display_state"] == "done"
         ]
-    if staged := links(db, number, principal=principal, source_project=source_project):
+    if staged := links(db, number, principal=principal):
         result["staged_work"] = staged
     return result
 

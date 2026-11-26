@@ -43,8 +43,8 @@ def replay_move(test, board, app, open_board):
     local_headers = {**origin, "Authorization": f"Bearer {token}", "X-Taskboard-Local-DRI": local}
     unsigned = app.test_client()
 
-    def local_read(key, status=200):
-        return action(unsigned, "task", query_string={"id": key}, headers=local_headers, status=status)
+    def local_read(key):
+        return action(unsigned, "task", query_string={"id": key}, headers=local_headers)
 
     test.assertEqual(local_read("T-1")["task"]["key"], "T-1")
 
@@ -106,8 +106,8 @@ def replay_move(test, board, app, open_board):
     current = detail("LAB-2")
     test.assertEqual(detail("1"), current)
     test.assertEqual(detail("T-1"), current)
-    local_read("T-1", status=403)
-    local_read("LAB-2", status=403)
+    test.assertEqual(local_read("T-1")["task"]["key"], "LAB-2")
+    test.assertEqual(local_read("LAB-2")["task"]["key"], "LAB-2")
     for field in ("id", "dri", "title", "state", "event_id", "note", "tags"):
         test.assertEqual(current["task"][field], original[field])
     test.assertEqual(current["task"]["dri"], owner_id)
@@ -172,10 +172,9 @@ def replay_move(test, board, app, open_board):
 
     with open_board() as db, write(db):
         db.execute("UPDATE tasks SET dri = ? WHERE id = ?", (local, original["id"]))
-    test.assertNotIn("move_destinations", detail("T-1"))
-    unchanged = revision()
-    move(manager, "T-1", "LAB", status=409)
-    test.assertEqual(revision(), unchanged)
+    test.assertEqual(detail("T-1")["move_destinations"], [{"prefix": "LAB", "title": "LAB"}])
+    moved_local = move(manager, "T-1", "LAB")["key"]
+    test.assertEqual(local_read(moved_local)["task"]["dri"], local)
 
 
 class ProjectMoveTest(unittest.TestCase):

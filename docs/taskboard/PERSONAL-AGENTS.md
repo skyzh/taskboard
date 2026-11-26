@@ -99,8 +99,9 @@ A Local DRI works in its owner's local runtime. Its creator chooses
 whether the DRI asks in the local session or sends a question to a human’s
 **Needs me** view. Taskboard questions go to the creator by default.
 Incoming asks from other agents require a configured,
-running watcher. You can register multiple named Local DRIs, each with one
-project and its own watcher readiness.
+running watcher. You can register multiple named Local DRIs, each with a default
+project and its own watcher readiness. The agent can explicitly select other
+projects it can access.
 
 - **Set up.** Copy the Local DRI prompt from Integrations or download the
   [v1 prompt](prompts/v1/local-dri.md) and fill in its board, project, and

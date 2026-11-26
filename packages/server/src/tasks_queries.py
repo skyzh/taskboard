@@ -283,14 +283,13 @@ def request_log_item(row, people, db, *, recover_title):
 
 class BoardQueries:
     def __init__(self, db, base, *, local_links=False, project_roster=None,
-                 standing_exploration=goals.STANDING_EXPLORATION, principal=None, local_project=None):
+                 standing_exploration=goals.STANDING_EXPLORATION, principal=None):
         self.db = db
         self.base = base
         self.local_links = local_links
         self.project_roster = project_roster
         self.standing_exploration = standing_exploration
         self.principal = principal
-        self.local_project = local_project
 
     def project_visibility(self, column="tasks.project_prefix"):
         return ring1.visibility(self.db, column, self.principal)
@@ -299,15 +298,9 @@ class BoardQueries:
         scope, bindings = self.project_visibility()
         return ledger.current_tasks_sql(self.db) + f" WHERE {scope}", bindings
 
-    def schedule_visibility(self, column):
-        visibility, bindings = self.project_visibility(column)
-        if self.local_project is not None:
-            return f"({visibility}) AND {column} = ?", (*bindings, self.local_project)
-        return visibility, bindings
-
     def schedule_report(self, number, owner, as_of, project):
         report = recurring.report(self.db, number, owner, as_of, viewer=self.principal, project=project,
-                                  task_scope=self.schedule_visibility("ticket.project_prefix"))
+                                  task_scope=self.project_visibility("ticket.project_prefix"))
         report.pop("key")
         profile = profiles.visible_by_keys(self.db, [owner], self.base).get(owner)
         report["owner_name"] = profile["name"] if profile else "Unknown owner"
@@ -324,7 +317,7 @@ class BoardQueries:
         return {**report, **maintenance.describe(row, project)["schedule"]}, choices
 
     def scheduled_goal_reviews(self, project, owner):
-        visibility, bindings = self.schedule_visibility("tasks.project_prefix")
+        visibility, bindings = self.project_visibility("tasks.project_prefix")
         rows = self.db.execute(
             f"""
             SELECT tasks.id, tasks.project_prefix, tasks.project_number, tasks.dri AS owner,
@@ -357,7 +350,7 @@ class BoardQueries:
             result["goal_reviews"] = self.scheduled_goal_reviews(project, owner)
         as_of = ledger.timestamp()
         default = projects.default_project(self.db)
-        visibility, bindings = self.schedule_visibility("owned.project")
+        visibility, bindings = self.project_visibility("owned.project")
         owner_filter = "1 = 1" if team else "definition.owner = ?"
         owner_bindings = () if team else (owner,)
         definitions = self.db.execute(
@@ -408,7 +401,7 @@ class BoardQueries:
             source = """definition.id = (SELECT definition_id FROM recurring_review_tickets WHERE task_id = ?
                     UNION SELECT definition_id FROM recurring_occurrences WHERE task_id = ?)"""
         default = projects.default_project(self.db)
-        visibility, bindings = self.schedule_visibility("schedule.project")
+        visibility, bindings = self.project_visibility("schedule.project")
         return self.db.execute(
             f"""
             WITH schedule AS (
@@ -451,7 +444,7 @@ class BoardQueries:
                 "project": schedule["project"], "items": self.schedule_runs(schedule["id"], current_task_id=number)}
 
     def schedule_runs(self, number, *, current_task_id=None):
-        visibility, bindings = self.schedule_visibility("linked.project_prefix")
+        visibility, bindings = self.project_visibility("linked.project_prefix")
         rows = self.db.execute(
             f"""
             WITH visible_occurrences AS (
@@ -758,7 +751,7 @@ class BoardQueries:
             allowed = dri in projects.roster_owners(self.db, self.project_roster)
             if not allowed and watches.has_table(self.db, "local_dris"):
                 allowed = self.db.execute(
-                    "SELECT 1 FROM local_dris WHERE actor = ? AND project = ?", (dri, projects.DEFAULT),
+                    "SELECT 1 FROM local_dris WHERE actor = ?", (dri,),
                 ).fetchone() is not None
             if not allowed:
                 terms.append("tasks.project_prefix <> ?")
@@ -840,7 +833,7 @@ class BoardQueries:
         return result
 
     def maintained_decision_rows(self, *, search=None, entry=None, source_ticket=None, before=None, limit,
-                                 github_url=None, project=None, maintenance_dri=None, source_project=None,
+                                 github_url=None, project=None, maintenance_dri=None,
                                  include_activity=False, updated_order=False):
         context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
         legacy = f"""({ledger.display_state_sql(context)} = 'done'
@@ -852,9 +845,6 @@ class BoardQueries:
         source_bindings = ()
         if include_activity:
             source_scope, source_bindings = self.project_visibility("source.project_prefix")
-            if source_project is not None:
-                source_scope += " AND source.project_prefix = ?"
-                source_bindings = (*source_bindings, source_project)
             staged_activity = f"""
                 SELECT staged.id, staged.at FROM knowledge_stages AS stage
                 JOIN tasks AS source ON source.id = stage.source_id
@@ -926,7 +916,7 @@ class BoardQueries:
         ).fetchall()
 
     def maintained_decisions(self, *, actor, search=None, entry=None, source_ticket=None, before=None, limit,
-                             project=None, maintenance_dri=None, source_project=None, updated_order=False):
+                             project=None, maintenance_dri=None, updated_order=False):
         def render(rows):
             assignments = knowledge.maintenance_assignments(self.db, [row["id"] for row in rows])
             managed = {row["prefix"] for row in self.db.execute(projects.MANAGED_BY, (actor, actor))}
@@ -939,14 +929,14 @@ class BoardQueries:
                     "at": row["activity_at"], "id": row["activity_id"],
                     "label": ledger.event_label(row["activity_action"], json.loads(row["activity_context"])),
                 } if row["activity_at"] else None,
-                "summary": row["brief"], "sources": self.decision_sources(row["id"], project=source_project),
-                **knowledge.metadata(self.db, row["id"], principal=self.principal, source_project=source_project),
+                "summary": row["brief"], "sources": self.decision_sources(row["id"]),
+                **knowledge.metadata(self.db, row["id"], principal=self.principal),
             } for row in rows]
 
         with tasks_storage.read(self.db):
             rows = self.maintained_decision_rows(
                 search=search, entry=entry, source_ticket=source_ticket, before=before, limit=limit,
-                project=project, maintenance_dri=maintenance_dri, source_project=source_project,
+                project=project, maintenance_dri=maintenance_dri,
                 include_activity=True, updated_order=updated_order,
             )
             return page(rows, limit, "activity_id" if updated_order else "event_id", render)
@@ -990,7 +980,7 @@ class BoardQueries:
 
             return page(ordered, limit, "event_id", render)
 
-    def decision_sources(self, task_id, *, project=None):
+    def decision_sources(self, task_id):
         prefix = f"{self.base}/#event-"
         sources = []
         for _, label, url, _ in watches.task_source_links(self.db, task_id):
@@ -1003,8 +993,7 @@ class BoardQueries:
                     + TASK_REFERENCE + " AS task_key FROM events JOIN tasks ON tasks.id = events.task_id "
                     "WHERE events.id = ?", (event_id,),
                 ).fetchone()
-                if (event is not None and project in (None, event["project_prefix"])
-                        and ring1.visible(self.db, event["project_prefix"], self.principal)):
+                if event is not None and ring1.visible(self.db, event["project_prefix"], self.principal):
                     sources.append({
                         "label": label, "url": url, "unavailable": False,
                         "event_id": event["id"], "at": event["at"], "task_id": event["task_id"],
@@ -1850,22 +1839,22 @@ class BoardQueries:
         )"""
 
     def watch_owner_scope(self, project, owner, *, require_profile=False):
-        # Local identities only belong to the project where they are registered.
-        local = f"EXISTS (SELECT 1 FROM local_dris WHERE actor = {owner} AND project = ?)"
-        scope = f"({owner} NOT LIKE 'local-dri:%' OR {local})"
+        scope = "TRUE"
+        if require_profile:
+            scope = f"""(
+                EXISTS (SELECT 1 FROM board_principals WHERE ledger_key = {owner})
+                OR EXISTS (SELECT 1 FROM board_assignee_imports WHERE ledger_key = {owner})
+            )"""
         if project != projects.DEFAULT or self.project_roster is None:
-            if require_profile:
-                scope += f""" AND (
-                    EXISTS (SELECT 1 FROM board_principals WHERE ledger_key = {owner})
-                    OR EXISTS (SELECT 1 FROM board_assignee_imports WHERE ledger_key = {owner})
-                )"""
-            return scope, (project,)
+            return scope, ()
         roster = tuple(projects.roster_owners(self.db, self.project_roster))
         members = (f" OR {owner} IN ({', '.join('?' for _ in roster)})" if roster else "")
-        scope += f""" AND ({local} OR EXISTS (
-            SELECT 1 FROM board_principals WHERE ledger_key = {owner} AND kind = 'human'
-        ){members})"""
-        return scope, (project, project, *roster)
+        scope += f""" AND (
+            EXISTS (SELECT 1 FROM local_dris WHERE actor = {owner})
+            OR EXISTS (SELECT 1 FROM board_principals WHERE ledger_key = {owner} AND kind = 'human')
+            {members}
+        )"""
+        return scope, roster
 
     def watchable_assignee(self, owner, project):
         scope, args = self.watch_owner_scope(project, "candidate.owner", require_profile=True)
@@ -2152,7 +2141,10 @@ class BoardQueries:
             owner_args += (project,)
             if roster:
                 local_owners = tuple(row["actor"] for row in self.db.execute(
-                    "SELECT actor FROM local_dris WHERE project = ?", (project,),
+                    """SELECT actor FROM local_dris
+                       WHERE project = ? OR EXISTS (
+                           SELECT 1 FROM tasks WHERE tasks.dri = local_dris.actor AND tasks.project_prefix = ?
+                       )""", (project, project),
                 ))
         if roster:
             owner_args = (*names, *local_owners)

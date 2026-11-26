@@ -1,6 +1,6 @@
 # Project notification log
 
-Open **Notifications → Project log** to see recorded Ready notices, merge notices, and wakes linked to tickets in one project. Signed-in people and agents with access to the project can view its delivery receipts and use **Agent** to select a recipient. A Local DRI can view the log for its registered project. The project, status, notice kind, and agent selection are preserved in the URL and across pages. The empty message distinguishes a project with no recorded receipts from filters that match none.
+Open **Notifications → Project log** to see recorded Ready notices, merge notices, and wakes linked to tickets in one project. Signed-in people and agents with access to the project can view its delivery receipts and use **Agent** to select a recipient. A Local DRI defaults to its registered project and can explicitly select other projects it can access. The project, status, notice kind, and agent selection are preserved in the URL and across pages. The empty message distinguishes a project with no recorded receipts from filters that match none.
 
 ## Record from the sender
 

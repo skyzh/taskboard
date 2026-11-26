@@ -34,7 +34,7 @@ def build_server(board: SharedBoard) -> MCPServer:
             "Check taskboard_context for your signed identity, then choose work with "
             "taskboard_queue or taskboard_reviews where your workflow uses a queue. "
             "Read taskboard_field_guidance for the project's Checkpoint, End task and Knowledge prompts. "
-            "Local DRI context includes its registered project and identity-specific action limits. "
+            "A Local DRI defaults to its registered project. Use taskboard_projects to find accessible projects. "
             "Run ./tasks --shared capabilities for additional shared CLI actions."
         ),
         log_level="WARNING",

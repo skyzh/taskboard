@@ -1000,11 +1000,9 @@ def create_app(
             raise RequestError("Choose a verified member of this Ring 1 project.", 404)
 
     def query():
-        local = g.get("local_dri")
         return BoardQueries(
             db(), base, local_links=local_readonly, project_roster=project_roster, principal=actor_key(),
             standing_exploration=agent_guidance["standing-exploration"],
-            local_project=local["project"] if local is not None else None,
         )
 
     if webhook_secrets:
@@ -1052,20 +1050,9 @@ def create_app(
             raise RequestError("Choose a known assignee who has signed in to this board.", 404)
         if task_id is not None and (project := require_visible_task(db(), task_id)) is not None:
             require_ring_member(db(), project, person["ledger_key"])
-        if person["kind"] == "agent" and task_id is not None:
-            profile = local_dri.registration(db(), key)
-            if profile is not None or (project_roster is not None and person["subject"] not in project_roster):
-                task = db().execute("SELECT project_prefix FROM tasks WHERE id = ?", (task_id,)).fetchone()
-                if task is not None:
-                    if profile is not None and profile["project"] != task["project_prefix"]:
-                        raise RequestError("Choose a Local DRI registered for this project.", 403)
-                    if profile is None and task["project_prefix"] == projects.DEFAULT:
-                        raise RequestError("Choose an agent from this project's roster.")
+            if person["kind"] == "agent" and not project_agent(person, project):
+                raise RequestError("Choose an agent from this project's roster.")
         return person["ledger_key"]
-
-    def require_local_project(project):
-        if (local := g.get("local_dri")) is not None and local["project"] != project:
-            raise RequestError("Use the Local DRI's registered project.", 403)
 
     def movable_ticket(reference, *, knowledge, goal, peer_request):
         return not (
@@ -1073,12 +1060,11 @@ def create_app(
         )
 
     def move_assignment_allowed(connection, owner, destination):
-        if local_dri.registration(connection, owner) is not None:
-            return False
-        if destination != projects.DEFAULT or project_roster is None:
-            return True
         person = profiles.get(connection, owner)
-        return person is None or person["kind"] != "agent" or person["subject"] in project_roster
+        return person is None or (
+            ring1.visible(connection, destination, owner)
+            and (person["kind"] != "agent" or project_agent(person, destination))
+        )
 
     def move_destinations(connection, task, actor, project):
         return [
@@ -1101,7 +1087,6 @@ def create_app(
         try:
             project = projects.prefix(value)
             require_visible_project(db(), project)
-            require_local_project(project)
             return projects.require(db(), project)
         except RequestError:
             raise
@@ -1169,7 +1154,6 @@ def create_app(
         scope = text(data, "scope", optional=True, maximum=3)
         if scope is None:
             return project_filter(data, use_default=use_default)
-        require_local_project(None)
         if scope != "all" or data.get("project") is not None:
             raise RequestError("Choose one project prefix or scope=all.")
         return None
@@ -1187,13 +1171,9 @@ def create_app(
         try:
             project = projects.identifier(value)[0]
             require_visible_project(db(), project)
-            require_local_project(project)
             number = projects.resolve(db(), value)
-            if tasks_storage.has_table(db(), "project_ring1") or g.get("local_dri") is not None:
-                row = db().execute("SELECT project_prefix FROM tasks WHERE id = ?", (number,)).fetchone()
-                if row is not None:
-                    require_visible_project(db(), row["project_prefix"])
-                    require_local_project(row["project_prefix"])
+            if tasks_storage.has_table(db(), "project_ring1"):
+                require_visible_task(db(), number)
             return number
         except RequestError:
             raise
@@ -1800,7 +1780,6 @@ def create_app(
         if command == "transfer":
             def project_collaboration(connection, task):
                 project = projects.row_project(task)
-                require_local_project(project)
                 require_person(args.dri, task_id=task["id"])
                 return can_collaborate_on_ticket(connection, actor, task, project)
             args.project_collaboration = project_collaboration
@@ -1824,8 +1803,6 @@ def create_app(
 
     def change_maintenance(actor, data, project, *, encoded_members=False):
         owner = text(data, "owner", optional=True, maximum=160)
-        if (local := local_dri.registration(db(), owner)) is not None and local["project"] != project:
-            raise RequestError("Choose a Local DRI registered for this project.", 403)
         hours = data.get("cadence_hours")
         state = text(data, "state", optional=True, maximum=6)
         if state is not None and state not in ("active", "paused"):
@@ -1859,7 +1836,6 @@ def create_app(
         ).fetchone()
         if row is not None:
             require_visible_project(db(), row["project"])
-            require_local_project(row["project"])
             return row["project"]
         return None
 
@@ -2201,9 +2177,7 @@ def create_app(
     def project_agent(actor, project):
         if actor is None or actor["kind"] != "agent":
             return False
-        if (local := g.get("local_dri")) is not None:
-            return local["project"] == project
-        return team_agent_access(actor, project)
+        return team_agent_access(actor, project) or local_dri.registration(db(), actor["ledger_key"]) is not None
 
     def project_writer(actor, project):
         return actor is not None and (actor["kind"] == "human" or project_agent(actor, project))
@@ -2214,7 +2188,6 @@ def create_app(
     def can_edit_shared_content(connection, actor, task, project):
         if actor is None:
             return False
-        require_local_project(project)
         key = actor["ledger_key"]
         if (not ledger.is_knowledge(task) and task["dri"] == key) or projects.manages(connection, project, key):
             return True
@@ -2226,7 +2199,6 @@ def create_app(
 
     def can_collaborate_on_transition(connection, actor, task):
         project = projects.row_project(task) if "project_prefix" in task.keys() else projects.identifier(task["key"])[0]
-        require_local_project(project)
         if not can_collaborate_on_ticket(connection, actor, task, project) or knowledge_records.is_maintained(connection, task):
             return False
         context = task["context"] if isinstance(task["context"], dict) else ledger.event_context(task)
@@ -2247,10 +2219,9 @@ def create_app(
         administrator = project_admin.manager(row, project_admin_subject)
         may_create = project_admin_subject is not None and (administrator or row["project_creation_grant"] is not None)
         local_project = row["local_project"]
-        project_access = local_project is None or local_project == project
+        project_access = ring1.visible(db(), project, row["ledger_key"])
         owner = row["ledger_key"] in owners and project_access
-        ordinary = (local_project == project if local_project is not None
-                    else row["kind"] == "human" or team_agent_access(row, project))
+        ordinary = project_access and project_writer(row, project)
         return {
             "create_projects": may_create,
             "manage_board_permissions": administrator,
@@ -2362,8 +2333,8 @@ def create_app(
         scope, bindings = ring1.visibility(db(), "projects.prefix", actor_key())
         rows = db().execute(
             f"""SELECT prefix, title, dri FROM projects
-                WHERE {scope} AND (? IS NULL OR prefix = ?) ORDER BY prefix <> ?, prefix""",
-            (*bindings, local["project"] if local is not None else None, default, default),
+                WHERE {scope} ORDER BY prefix <> ?, prefix""",
+            (*bindings, default),
         ).fetchall()
         return {"default_project": default, "items": [{
             **dict(row), **projects.project_features(row["prefix"]),
@@ -2895,7 +2866,7 @@ def create_app(
         if not values:
             raise NotFound()
         value, = values.values()
-        require_local_project(value["project"])
+        require_visible_project(db(), value["project"])
         return {**value, "links": query().links(value["links"])}
 
     @app.post("/api/v1/tasks/<number>/project")
@@ -3159,11 +3130,9 @@ def create_app(
         entry = text(data, "entry", optional=True, maximum=28)
         source = text(data, "source", optional=True, maximum=28)
         key = actor["ledger_key"]
-        local = g.get("local_dri")
         return query().maintained_decisions(
             actor=key, project=project, maintenance_dri=key if scope == "assigned" else None,
             updated_order=order == "updated",
-            source_project=local["project"] if local is not None else None,
             search=text(data, "q", optional=True, maximum=160),
             entry=task_number(entry) if entry else None,
             source_ticket=task_number(source) if source else None,
@@ -3925,9 +3894,7 @@ def create_app(
         term = text(data, "query", optional=True, maximum=100) or ""
         limit = paging["limit"]
         project = project_filter(data, use_default=True)
-        scope = """ AND NOT EXISTS (
-            SELECT 1 FROM local_dris WHERE actor = board_principals.ledger_key AND project <> ?
-        )"""
+        scope = ""
         subjects = []
         if project == projects.DEFAULT and project_roster is not None:
             subjects = list(project_roster)
@@ -3948,7 +3915,7 @@ def create_app(
             SELECT {sort} AS rowid, {profiles.FIELDS} FROM board_principals
             WHERE {sort} < ? AND ({username_match} > 0 OR {name_match} > 0){scope}
             ORDER BY {sort} DESC LIMIT ?
-            """, (paging["before"] or projects.MAX_ID, term, term, project, *subjects, limit + 1),
+            """, (paging["before"] or projects.MAX_ID, term, term, *subjects, limit + 1),
         ).fetchall()
         items = []
         for row in rows[:limit]:
@@ -4083,7 +4050,6 @@ def create_app(
             raise NotFound()
         project = projects.row_project(task)
         require_visible_project(connection, project)
-        require_local_project(project)
         if ring1.private(connection, project):
             raise NotFound()
         if task["dri"] != actor["ledger_key"] and connection.execute(
@@ -4506,7 +4472,7 @@ def create_app(
                     project = require_visible_schedule(number)
                     result = tasks_recurring.report(connection, number, key, ledger.timestamp(),
                                                     viewer=key, project=project,
-                                                    task_scope=query().schedule_visibility("ticket.project_prefix"))
+                                                    task_scope=query().project_visibility("ticket.project_prefix"))
                     return {**result, "project": project}
             except RequestError:
                 raise
@@ -4530,13 +4496,6 @@ def create_app(
                 raise RequestError("subagent must be true or false.")
             if subagent == "true" and (transition != "start" or actor["kind"] != "agent"):
                 raise RequestError("Only a signed agent can mark its worker start as a subagent.")
-            if profile is not None:
-                ticket = db().execute(
-                    "SELECT tasks.project_prefix FROM worker_runs JOIN tasks ON tasks.id = worker_runs.task_id "
-                    "WHERE worker_runs.id = ?", (run,),
-                ).fetchone()
-                if ticket is not None:
-                    require_local_project(ticket["project_prefix"])
             return mutate(
                 f"worker-{transition}", actor, data, run=run, subagent=subagent == "true",
                 note=writing_text(data, "note", optional=transition == "start"),

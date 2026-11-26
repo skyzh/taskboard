@@ -37,8 +37,8 @@ remains available for offline ledgers and recovery of older releases.
 The project directory lists the same default, ordering, and per-project fields
 on each interface. For the full signed response, run
 `tasks --shared projects --json` or call `taskboard_projects`. The
-board-wide signed action uses the shared account. A Local DRI receives its
-registered project from signed context.
+board-wide signed action uses the shared account. A Local DRI keeps its registered default from signed context and can
+select other projects returned by the signed project directory.
 
 Writing guidance uses the signed `field-guidance` action in the shared CLI
 and MCP. The default project applies when omitted. Project managers edit the

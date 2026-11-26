@@ -273,10 +273,8 @@ def create(db, args, links, *, named_wait=None):
         raise ValueError("Reopen the source task before asking a peer.")
     if args.recipient == args.by:
         raise ValueError("Choose another agent for the peer request.")
-    if profile := local_dri.registration(db, args.recipient):
+    if local_dri.registration(db, args.recipient) is not None:
         project = projects.row_project(source)
-        if profile["project"] != project:
-            raise PermissionError("Choose a Local DRI registered for this project.")
         if (args.review_run or getattr(args, "manual_review", None) or getattr(args, "stamp_review", None)):
             raise ValueError("Send pinned and worker-linked reviews to a Team DRI.")
         sender = db.execute("SELECT kind FROM board_principals WHERE ledger_key = ?", (args.by,)).fetchone()

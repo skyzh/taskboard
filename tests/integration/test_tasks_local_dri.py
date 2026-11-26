@@ -14,6 +14,7 @@ from taskboard_client.direct import DirectBoard
 from taskboard_server import local_dri
 from tasks_core import import_notification_on
 from tasks_notification_log import outbox_receipt
+import tasks_ring1
 from tasks_storage import open_sqlite
 import test_tasks_service as service
 
@@ -95,10 +96,10 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertEqual(call(manager, f"/api/v1/tasks/{peer}").json["task"]["dri"], human_id)
         core = action(manager, "create-task", {"project": "T", "title": "Outside sample",
                       "step": "Read the sample."})["receipt"].split()[0]
-        action(client, "handoff", {"id": core, "owner": human_id, "note": "Read."}, headers=local, status=403)
-        action(client, "advance-task", {"id": core, "transition": "start", "note": "Read.", **forced},
-               headers=local, status=403)
         action(foreign_agent, "handoff", {"id": core, "owner": human_id, "note": "Read."}, status=409)
+        action(client, "handoff", {"id": core, "owner": human_id, "note": "Read."}, headers=local)
+        action(client, "advance-task", {"id": core, "transition": "start", "note": "Read.", **forced},
+               headers=local)
         action(foreign_agent, "create-knowledge", {"project": "T", "title": "Outside note",
                "brief": "Use the sample."}, status=403)
 
@@ -141,16 +142,17 @@ class LocalDRIRoutingTest(unittest.TestCase):
                           context["human_questions"]), (perf["id"], "local", "T", "local_prompt"))
         local_directory = action(client, "list-projects", headers=sender)
         self.assertEqual(local_directory["default_project"], "T")
-        self.assertEqual([row["prefix"] for row in local_directory["items"]], ["T"])
+        self.assertEqual([row["prefix"] for row in local_directory["items"]], ["T", "OPS"])
         human_headers = {name: value for name, value in sender.items() if name != "X-Taskboard-Local-DRI"}
         directory_rows = action(client, "list-projects", headers=human_headers)["items"]
         self.assertEqual([row["prefix"] for row in directory_rows], ["T", "OPS"])
         call(client, "/api/v1/reports", headers=sender, status=403)
-        action(client, "task", query_string={"id": "OPS-1"}, headers=sender, status=403)
-        action(client, "my-queue", query_string={"scope": "all"}, headers=sender, status=403)
+        action(client, "task", query_string={"id": "OPS-1"}, headers=sender, status=404)
+        self.assertEqual(action(client, "my-queue", query_string={"scope": "all"}, headers=sender)["items"], [])
         project_log = "/api/v1/notifications/log"
-        call(client, project_log, query_string={"project": "OPS"}, headers=sender, status=403)
-        for path in (project_log, "/api/v1/overview", "/api/v1/schedules"):
+        call(client, project_log, query_string={"project": "OPS"}, headers=sender)
+        call(client, project_log, query_string={"scope": "all"}, headers=sender)
+        for path in ("/api/v1/overview", "/api/v1/schedules"):
             call(client, path, query_string={"scope": "all"}, headers=sender, status=403)
         call(client, project_log, headers={"X-Taskboard-Local-DRI": perf["id"]}, status=401)
         call(client, "/api/v1/notifications/watched", headers=sender, status=403)
@@ -159,8 +161,9 @@ class LocalDRIRoutingTest(unittest.TestCase):
             return {row["id"]: row for row in call(manager, "/api/v1/assignees",
                                                   query_string={"project": project}).json["items"]}
 
-        self.assertNotIn(ops["id"], directory("T"))
-        self.assertNotIn(perf["id"], directory("OPS"))
+        self.assertIn(ops["id"], directory("T"))
+        self.assertIn(perf["id"], directory("OPS"))
+        self.assertFalse(directory("OPS")[perf["id"]]["accepts_agent_asks"])
         self.assertEqual(directory("T")[team_id]["dri_kind"], "team")
         self.assertEqual(directory("T")[perf["id"]]["agent_ask_restriction"], "local_dri_watcher_required")
         self.assertFalse(directory("T")[perf["id"]]["accepts_agent_asks"])
@@ -189,6 +192,7 @@ class LocalDRIRoutingTest(unittest.TestCase):
 
         self.assertTrue(readiness("active"))
         self.assertTrue(directory("T")[perf["id"]]["accepts_agent_asks"])
+        self.assertFalse(directory("OPS")[perf["id"]]["accepts_agent_asks"])
         action(manager, "delegate", {"id": "T-1", "worker": perf["id"], "role": "review",
                                      "brief": "Review the same request."}, status=403)
         action(manager, "peer-ask", {
@@ -238,12 +242,15 @@ class LocalDRIRoutingTest(unittest.TestCase):
         for transition in ("assign-human", "redirect-decision", "wait"):
             action(client, "advance-task", {"id": "T-2", "transition": transition, "on": sam_id, "note": "Approve it."},
                    headers=sender, status=403)
-        action(manager, "create-task", {"project": "OPS", "title": "Separate project",
+        fixture.cli("register-project", "LAB", "Restricted lab", "--dri", manager_id)
+        with closing(open_sqlite(fixture.database)) as db, db:
+            tasks_ring1.mark_private(db, "LAB", [manager_id])
+        action(manager, "create-task", {"project": "LAB", "title": "Restricted sample",
                                         "step": "Check this other dependency."})
         action(client, "advance-task", {
             "id": "T-2", "transition": "park", "note": "Wait for another project.",
-            "review_on": "OPS-1", "review_criteria": "Wait for its outcome.",
-        }, headers=sender, status=403)
+            "review_on": "LAB-1", "review_criteria": "Wait for its outcome.",
+        }, headers=sender, status=404)
         self.assertEqual(action(client, "task-activity", query_string={"id": "T-2"}, headers=sender), original)
         self.assertIn("Ready for acknowledgment", action(client, "peer-ask", {
             "id": "T-2", "transition": "result", "note": "Verified the sample total.",
@@ -301,8 +308,6 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertTrue(own.startswith("OPS-"))
         local("advance-task", {"id": own, "transition": "start", "note": "Check the rows."})
         local("advance-task", {"id": own, "transition": "wait", "note": "Wait for the import.",
-                               "blocked_by": foreign}, status=403)
-        local("advance-task", {"id": own, "transition": "wait", "note": "Wait for the import.",
                                "on": "Fixture import", "automation": "true"})
         task = local("task", query_string={"id": own})["task"]
         proof = {"id": own, "wait_event": task["event_id"], "note": "The import completed.",
@@ -319,9 +324,10 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertEqual((transferred["actor"], edited["actor"]), (registered["OPS"], registered["OPS"]))
         self.assertEqual((transferred["context"]["previous_dri"], transferred["context"]["next_dri"]),
                          (team_id, registered["OPS"]))
-        local("edit-task-details", {"id": foreign, "brief": "Wrong project.", "reason": "Check the scope."}, status=403)
-        local("handoff", {"id": foreign, "note": "Check the scope.", "owner": registered["OPS"]}, status=403)
-        local("handoff", {"id": own, "note": "Use the imported rows.", "owner": registered["T"]}, status=403)
+        local("edit-task-details", {"id": foreign, "brief": "Verify the second project.", "reason": "Check the scope."})
+        local("handoff", {"id": foreign, "note": "Check the scope.", "owner": registered["OPS"]})
+        self.assertEqual(local("task", query_string={"id": foreign})["task"]["dri"], registered["OPS"])
+        local("handoff", {"id": own, "note": "Use the imported rows.", "owner": registered["T"]})
         local("handoff", {"id": own, "note": "Use the imported rows.", "owner": team_id})
         transferred = local("task", query_string={"id": own})["task"]
         self.assertEqual(transferred["dri"], team_id)
@@ -330,7 +336,7 @@ class LocalDRIRoutingTest(unittest.TestCase):
         local("save-goal", {"kind": "standing", "summary": "Verify the operations evidence."})
         goal = local("my-goals")["standing_goal"]
         self.assertEqual(goal["summary"], "Verify the operations evidence.")
-        local("my-goals", query_string={"project": "T"}, status=403)
+        self.assertIsNone(local("my-goals", query_string={"project": "T"})["standing_goal"])
         local("set-profile", {"role": "Operations review"})
         self.assertEqual(local("context")["actor"]["role"], "Operations review")
         self.assertEqual(action(client, "context", headers=auth)["actor"]["id"], sam_id)
@@ -345,7 +351,7 @@ class LocalDRIRoutingTest(unittest.TestCase):
         })["id"]
         self.assertTrue(local("task", query_string={"id": peer_note})["can_edit_details"])
         local("edit-task-details", {"id": peer_note, "brief": "Keep the verified result.", "reason": "Clarify guidance."})
-        local("edit-task-details", {"id": foreign_note, "brief": "Wrong project.", "reason": "Check scope."}, status=403)
+        local("edit-task-details", {"id": foreign_note, "brief": "Verify cross-project access.", "reason": "Check scope."})
         event = local("task-activity", query_string={"id": peer_note, "limit": 1})["items"][0]
         self.assertEqual(event["actor"], registered["OPS"])
         peer_work = action(team, "create-task", {
@@ -355,27 +361,47 @@ class LocalDRIRoutingTest(unittest.TestCase):
         local("edit-checklist", {"id": peer_work, "action": "remove", "position": 1}, status=403)
         self.assertEqual(local("task", query_string={"id": peer_work})["checklist"][0]["label"], "Check the source.")
         local("task-tag", {"id": peer_note, "tag": "replay", "action": "add"})
-        local("task-tag", {"id": foreign_note, "tag": "replay", "action": "add"}, status=403)
+        local("task-tag", {"id": foreign_note, "tag": "replay", "action": "add"})
         source = {"id": peer_note, "url": "https://example.test/replay", "label": "Replay guide"}
         local("link-reference", source)
-        local("link-reference", {**source, "id": foreign_note}, status=403)
+        local("link-reference", {**source, "id": foreign_note})
         local("link-reference", {**source, "url": "https://github.com/example/repo/issues/1"}, status=403)
         referenced = local("task", query_string={"id": peer_note})
         self.assertIn("replay", referenced["task"]["tags"])
         self.assertIn(source["url"], [link["url"] for link in referenced["sources"]])
         local("knowledge-place", {"id": note, "area": "Review", "index": "true"}, status=403)
-        local("knowledge-stage", {"id": note, "source": foreign}, status=403)
-        before_stage = local("knowledge-sweep")
-        action(team, "knowledge-stage", {"id": note, "source": foreign})
+        local("knowledge-stage", {"id": note, "source": foreign})
         shared_page = call(team, "/api/v1/knowledge", query_string={
             "project": "OPS", "order": "updated", "limit": 1,
         }).json
         self.assertEqual(shared_page["items"][0]["key"], note)
         self.assertEqual(shared_page["items"][0]["last_activity"]["label"], "Staged work")
-        self.assertEqual(local("knowledge-sweep"), before_stage)
-        local("knowledge-reconcile", {"project": "T"}, status=403)
-        local("create-task", {"project": "T", "title": "Wrong project", "step": "Check the scope."}, status=403)
-        local("my-activity", query_string={"scope": "all"}, status=403)
+        local_page = local("knowledge-sweep")
+        self.assertIn(foreign, {stage["source"] for item in local_page["items"] for stage in item.get("staged_work", [])})
+        self.assertEqual(local("knowledge-reconcile", {"project": "T"})["applied"], [])
+        core = local("create-task", {"project": "T", "title": "Explicit project", "step": "Check the scope."})["receipt"].split()[0]
+        self.assertTrue(core.startswith("T-"))
+        default_queue = local("my-queue")["items"]
+        self.assertTrue(all(item["key"].startswith("OPS-") for item in default_queue))
+        all_queue = {item["key"] for item in local("my-queue", query_string={"scope": "all"})["items"]}
+        self.assertIn(core, all_queue)
+        self.assertTrue(local("my-activity", query_string={"scope": "all"})["items"])
+        local("advance-task", {"id": core, "transition": "start", "note": "Verify both project scopes."})
+        self.assertEqual(local("task", query_string={"id": core})["task"]["dri"], registered["OPS"])
+
+        fixture.cli("register-project", "LAB", "Restricted lab", "--dri", team_id)
+        with closing(open_sqlite(fixture.database)) as db, db:
+            tasks_ring1.mark_private(db, "LAB", [team_id, sam_id])
+        private = create("LAB")
+        projects = local("list-projects")
+        self.assertEqual(projects["default_project"], "OPS")
+        self.assertEqual({item["prefix"] for item in projects["items"]}, {"OPS", "T"})
+        local("task", query_string={"id": private}, status=404)
+        local("advance-task", {"id": private, "transition": "start", "note": "Read the fixture."}, status=404)
+        local("create-task", {"project": "LAB", "title": "Restricted sample", "step": "Check the rows."}, status=404)
+        action(team, "handoff", {"id": private, "owner": registered["OPS"], "note": "Review membership."}, status=404)
+        self.assertEqual(action(team, "task", query_string={"id": private})["task"]["dri"], team_id)
+        self.assertNotIn("LAB", [item["prefix"] for item in local("list-projects")["items"]])
         local("maintenance-show", query_string={"project": "OPS"}, status=403)
         matches = local("search-with-decisions", query_string={"q": "Parity sample"})["items"]
         self.assertEqual({item["key"] for item in matches}, {own, note, peer_owned})
@@ -395,6 +421,11 @@ class LocalDRIRoutingTest(unittest.TestCase):
         with patch("tasks_core.timestamp", return_value=instant):
             occurrences = local("recurring-show", query_string={"id": recurring})["recent_occurrences"]
         ticket, = occurrences
+        explicit_schedule = local("recurring-add", {
+            "project": "T", "key": "second-project", "title": "Check Project T",
+            "step": "Review the fixture.", "cadence_hours": "24", "next_at": instant,
+        })["receipt"].split()[0]
+        self.assertEqual(local("recurring-show", query_string={"id": explicit_schedule})["project"], "T")
         self.assertTrue(ticket["task_key"].startswith("OPS-"))
         self.assertEqual(local("task", query_string={"id": ticket["task_key"]})["task"]["dri"], registered["OPS"])
 
@@ -471,7 +502,7 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertEqual(saved, {**legacy, **board_mode})
         self.assertEqual(call(sam, REGISTER, method="POST", headers=ORIGIN, json=payload).json["local_dri"], saved)
         self.assertEqual(action(client, "context", headers=sender)["human_questions"], "taskboard")
-        action(client, "advance-task", {**question, "id": "OPS-1"}, headers=sender, status=403)
+        action(client, "advance-task", {**question, "id": "OPS-1"}, headers=sender, status=409)
         action(client, "advance-task", {**question, "on": manager_id}, headers=sender, status=404)
         action(client, "advance-task", {**question, "on": quinn_id, "on_name": "Quinn"}, headers=sender, status=400)
         action(client, "advance-task", {**question, "id": "T-2"}, headers=sender, status=409)

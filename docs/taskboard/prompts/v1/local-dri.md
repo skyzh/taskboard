@@ -5,7 +5,8 @@ Use my local agent runtime for Taskboard at `<BOARD_HTTPS_URL>` and project
 this runtime, use the task-session workflow with my approved human access.
 
 With a verified Local DRI registration, begin with a ticket I assign to
-that identity. Confirm the board records you as its owner before Start. If it
+that identity. Use the registered project by default. List accessible projects
+and select another project explicitly when the ticket belongs there. Confirm the board records you as its owner before Start. If it
 still belongs to me, use this runtime's local question prompt to ask for
 the handoff. Read `human_questions` in signed context before asking.
 
