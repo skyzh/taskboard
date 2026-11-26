@@ -125,7 +125,8 @@ _ACTIONS = {
     "create-project": _Action("POST", "Create a project using a human or Team DRI's project creation grant.", {
         "prefix": "Unique project prefix of one to eight letters or digits, starting with a letter.",
         "title": "Project display title.",
-    }, {"dri": "Exact verified project owner ID. Defaults to the signed creator."}),
+    }, {"dri": "Exact verified project owner ID. Defaults to the signed creator.",
+        "visibility": "Choose shared (default) or ring1."}),
     "create-task": _Action("POST", "Create a task you will own.", {
         "title": "Short, actionable task title. Read field-guidance for the project’s wording and example.",
         "step": "First step for the owner.",

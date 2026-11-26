@@ -589,6 +589,8 @@ def shared_command(args):
         payload = {"prefix": args.prefix, "title": args.title}
         if args.dri is not None:
             payload["dri"] = args.dri
+        if args.visibility is not None:
+            payload["visibility"] = args.visibility
         result = board.invoke("create-project", payload, write=True)
         return with_guidance(result["receipt"], result.get("next_step"))
     if command == "context":

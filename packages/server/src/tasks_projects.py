@@ -5,6 +5,7 @@ from pathlib import Path
 import tomllib
 from uuid import UUID
 
+import tasks_ring1 as ring1
 import tasks_storage
 
 from taskboard_client.references import DEFAULT, MAX_ID, identifier, prefix
@@ -208,6 +209,7 @@ def ensure_schema(db, *, seed_legacy=True):
         """
     )
     db.execute(OWNER_GRANTS_SCHEMA)
+    ring1.ensure_schema(db)
     columns = tasks_storage.table_columns(db, "tasks")
     if "project_prefix" not in columns:
         db.execute("ALTER TABLE tasks ADD COLUMN project_prefix TEXT NOT NULL DEFAULT 'T'")
@@ -333,7 +335,7 @@ def find_reference(db, project, number, *, migrated, aliases=None):
         return None
     number_column = "id" if project == DEFAULT else "project_number"
     row = db.execute(
-        f"SELECT id, title FROM tasks WHERE project_prefix = ? AND {number_column} = ?", (project, number),
+        f"SELECT id, title, project_prefix FROM tasks WHERE project_prefix = ? AND {number_column} = ?", (project, number),
     ).fetchone()
     if row is not None:
         return row
@@ -341,7 +343,7 @@ def find_reference(db, project, number, *, migrated, aliases=None):
         aliases = tasks_storage.has_table(db, "task_project_aliases")
     if aliases:
         return db.execute(
-            """SELECT tasks.id, tasks.title FROM task_project_aliases AS aliases
+            """SELECT tasks.id, tasks.title, tasks.project_prefix FROM task_project_aliases AS aliases
                JOIN tasks ON tasks.id = aliases.task_id
                WHERE aliases.project_prefix = ? AND aliases.project_number = ?""",
             (project, number),

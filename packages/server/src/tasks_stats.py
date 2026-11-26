@@ -9,6 +9,7 @@ import json
 
 import tasks_profiles as profiles
 import tasks_projects as projects
+import tasks_ring1 as ring1
 import tasks_storage
 from tasks_core import current_tasks_sql, has_event_context, task_columns
 
@@ -34,16 +35,19 @@ def ledger_seconds(value):
         return None
 
 
-def task_scope(db, project):
+def task_scope(db, project, principal=None):
     columns = task_columns(db)
     prefix = "project_prefix" if "project_prefix" in columns else "'T'"
     number = "project_number" if "project_number" in columns else "NULL"
     query = f"SELECT id, title, {prefix} AS project_prefix, {number} AS project_number FROM tasks"
-    terms = ["record_kind = 'work'"] if "record_kind" in columns else []
+    visibility, bindings = ring1.visibility(db, prefix, principal)
+    terms = [visibility]
+    if "record_kind" in columns:
+        terms.append("record_kind = 'work'")
     if project is not None:
         terms.append(f"{prefix} = ?")
     where = " WHERE " + " AND ".join(terms) if terms else ""
-    return query + where, (project,) if project is not None else ()
+    return query + where, (*bindings, project) if project is not None else bindings
 
 
 def activity_counts(db, bounds, base, scope):
@@ -369,7 +373,7 @@ def bucket_peaks(intervals, first, width, count):
     return [simultaneous_peak(bucket) for bucket in buckets]
 
 
-def snapshot(db, period, now=None, *, base="", watcher_task=None, project=None):
+def snapshot(db, period, now=None, *, base="", watcher_task=None, project=None, principal=None):
     count, width = PERIODS[period]
     # Ledger timestamps have whole-second precision. Keep the upper bound
     # exclusive without dropping events from the current partial second.
@@ -378,7 +382,7 @@ def snapshot(db, period, now=None, *, base="", watcher_task=None, project=None):
     start_at, end_at = utc_text(first), utc_text(end)
     # Compare whole UTC seconds consistently for both Z and legacy +00:00 rows.
     bounds = (start_at[:-1], end_at[:-1])
-    scope = task_scope(db, project)
+    scope = task_scope(db, project, principal)
     selection, params = scope
     context = "events.context" if has_event_context(db) else "'{}'"
     active = bucket_peaks(dri_intervals(db, bounds, end, scope, context), first, width, count)

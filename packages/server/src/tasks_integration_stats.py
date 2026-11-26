@@ -3,6 +3,7 @@
 import tasks_extensions as extensions
 import tasks_github as github
 import tasks_projects as projects
+import tasks_ring1 as ring1
 import tasks_storage
 from tasks_core import has_event_context
 
@@ -21,9 +22,10 @@ def _github_identity(row):
     return None
 
 
-def _github_counts(db, bounds, project):
+def _github_counts(db, bounds, project, actor):
     if not has_event_context(db):
         return 0, False
+    visibility, bindings = ring1.visibility(db, "tasks.project_prefix", actor)
     scope = "AND tasks.project_prefix = ?" if project else ""
     rows = db.execute(
         f"""
@@ -37,11 +39,11 @@ def _github_counts(db, bounds, project):
             WHERE (
                 (action = 'log' AND actor = ? AND json_extract(context, '$.extension') = ?)
                 OR (action = 'source-event' AND actor = 'GitHub' AND json_extract(context, '$.source_kind') = 'github')
-            ) {scope}
+            ) AND {visibility} {scope}
         )
         SELECT DISTINCT repository, activity_id, kind, target FROM activity
         WHERE kind <> 'deployed' AND SUBSTR(provider_at, 1, 19) >= ? AND SUBSTR(provider_at, 1, 19) < ?
-        """, (extensions.ACTOR, extensions.EVENTS, *((project,) if project else ()), *bounds),
+        """, (extensions.ACTOR, extensions.EVENTS, *bindings, *((project,) if project else ()), *bounds),
     )
     identities = {_github_identity(row) for row in rows}
     older_records = None in identities
@@ -54,6 +56,7 @@ def _raft_notices(db, bounds, project, actor):
         return {"status": "sign_in", "count": None}
     if not tasks_storage.has_table(db, "notification_log"):
         return {"status": "unavailable", "count": None}
+    visibility, bindings = ring1.visibility(db, "tasks.project_prefix", actor)
     scope = "AND tasks.project_prefix = ?" if project else ""
     row = db.execute(
         f"""
@@ -64,8 +67,8 @@ def _raft_notices(db, bounds, project, actor):
         JOIN tasks ON tasks.id = events.task_id
         JOIN projects ON projects.prefix = tasks.project_prefix
         WHERE SUBSTR(log.send_confirmed_at, 1, 19) < ?
-          AND (projects.prefix IN ({projects.MANAGED_BY}) OR log.recipient = ?) {scope}
-        """, (bounds[0], bounds[1], actor, actor, actor, *((project,) if project else ())),
+          AND (projects.prefix IN ({projects.MANAGED_BY}) OR log.recipient = ?) AND {visibility} {scope}
+        """, (bounds[0], bounds[1], actor, actor, actor, *bindings, *((project,) if project else ())),
     ).fetchone()
     if not row["known"]:
         return {"status": "unavailable", "count": None}
@@ -81,7 +84,7 @@ def snapshot(db, bounds, *, project, actor, github_enabled, project_extensions):
     # Provider times are UTC. Compare whole-second prefixes so each instant on
     # a boundary, including a receipt with fractional seconds, has one window.
     bounds = tuple(at[:19] for at in bounds)
-    count, older_records = _github_counts(db, bounds, project)
+    count, older_records = _github_counts(db, bounds, project, actor)
     configured = (
         [project_extensions.get(project, {})] if project else project_extensions.values()
     )

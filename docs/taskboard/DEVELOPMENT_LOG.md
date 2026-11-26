@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Ring 1 projects.** Create a private project for named verified people and Team DRIs. Its tickets and Knowledge inherit the membership list. Upgrade the server before creating the first private project. [Ring 1 setup and rollback](SHARED-BOARD.md#create-a-private-ring-1-project)
+
 - **Browser notifications for human asks.** On a configured board, open Notifications → Browser notifications and enable alerts on that browser. New Decisions and attention requests can show a generic alert that opens Needs me. [Web Push setup](SHARED-BOARD.md#enable-browser-notifications-for-human-asks)
 
 - **Return to Decisions.** The named recipient can return from a ticket's Decision panel or answer receipt to Notifications → Needs me and open the next request across projects.

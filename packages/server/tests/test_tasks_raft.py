@@ -76,7 +76,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "knowledge-areas": ("GET", "", "project"),
             "knowledge-sweep": ("GET", "", "scope project before limit"),
             "knowledge-assign": ("POST", "id", "dri"),
-            "create-project": ("POST", "prefix title", "dri"),
+            "create-project": ("POST", "prefix title", "dri visibility"),
             "create-knowledge": ("POST", "brief project title", ""),
             "knowledge-place": ("POST", "area id", "index"),
             "knowledge-stage": ("POST", "id source", "brief source_event"),

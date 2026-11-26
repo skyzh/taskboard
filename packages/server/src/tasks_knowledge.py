@@ -4,6 +4,7 @@ from argparse import Namespace
 
 import tasks_core as ledger
 import tasks_projects as projects
+import tasks_ring1 as ring1
 import watches
 
 
@@ -209,7 +210,8 @@ def stage(db, number, source_id, actor, brief, source_event):
     return {"receipt": "Knowledge change staged."}
 
 
-def directory(db, *, project=None):
+def directory(db, *, project=None, principal=None):
+    visibility, bindings = ring1.visibility(db, "areas.project", principal)
     return [{
         "project": row["project"], "path": row["path"], "index": projects.row_reference(row),
         "title": row["title"], "available": bool(row["available"]),
@@ -221,8 +223,8 @@ def directory(db, *, project=None):
                 ))) AS available
             FROM knowledge_areas AS areas
             JOIN current ON current.id = areas.index_id AND current.project_prefix = areas.project
-            WHERE (? IS NULL OR areas.project = ?)
-            ORDER BY areas.project, areas.path""", (DECISION_TAG, project, project),
+            WHERE (? IS NULL OR areas.project = ?) AND {visibility}
+            ORDER BY areas.project, areas.path""", (DECISION_TAG, project, project, *bindings),
     )]
 
 

@@ -48,7 +48,7 @@ CANDIDATES = f"""
                CASE evidence.action WHEN 'done' THEN 'completed'
                     WHEN 'park' THEN 'deferred' ELSE 'merged' END AS event_kind
         FROM current_tasks AS task
-        JOIN tasks AS source ON source.id = json_extract(task.context, '$.readiness.source_id')
+        JOIN current_tasks AS source ON source.id = json_extract(task.context, '$.readiness.source_id')
         JOIN events AS evidence ON evidence.id = (
             SELECT MAX(change.id)
             FROM events AS change
@@ -83,10 +83,10 @@ def item(row):
     }
 
 
-def page(db, current_tasks, owner, project, before, limit):
+def page(db, current_tasks, owner, project, before, limit, *, bindings=()):
     rows = db.execute(
         query(current_tasks) + " WHERE (? IS NULL OR id < ?) ORDER BY id DESC LIMIT ?",
-        (owner, project, project, before, before, limit + 1),
+        (*bindings, owner, project, project, before, before, limit + 1),
     ).fetchall()
     visible = rows[:limit]
     return {
