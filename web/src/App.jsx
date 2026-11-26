@@ -180,10 +180,10 @@ export default function App({ previewNotice, tourSteps } = {}) {
     const trigger = tourTrigger.current || main.current
     trigger?.focus({ preventScroll: true })
   }, [fragment, tour])
-  const [showWelcomeBanner, setShowWelcomeBanner] = useState(readWelcomeBannerPreference)
-  const [welcomeExpanded, setWelcomeExpanded] = useState(false)
+  const [showWelcomeBanner, setShowWelcomeBanner] = useState(() => preview || readWelcomeBannerPreference())
   function chooseWelcomeBanner(show) {
     setShowWelcomeBanner(show)
+    if (preview) return
     try {
       if (show) window.localStorage.removeItem(welcomeBannerKey)
       else window.localStorage.setItem(welcomeBannerKey, 'true')
@@ -501,34 +501,25 @@ export default function App({ previewNotice, tourSteps } = {}) {
             </BoardLink>
           </section> : scopePending ? <ResourceStatus resource={sessionResource.pending ? sessionResource : projectList} label="projects" /> : <>
           {view === 'reports' && !showGoalActivity && showWelcomeBanner && (hasSession || !boardUnavailable) && (
-            <aside className="reports-welcome" aria-labelledby="reports-welcome-title" data-expanded={welcomeExpanded || undefined}>
+            <aside className="reports-welcome" aria-labelledby="reports-welcome-title">
               <div>
-                <h2 id="reports-welcome-title">
-                  <span>Get started with Taskboard</span>
-                  <button type="button" className="reports-welcome-toggle" aria-expanded={welcomeExpanded}
-                    aria-controls="reports-welcome-body" onClick={() => setWelcomeExpanded(open => !open)}>
-                    Get started with Taskboard <ChevronDown size={16} aria-hidden="true" />
-                  </button>
-                </h2>
-                <div id="reports-welcome-body" className="reports-welcome-body">
-                  <p>Taskboard is a shared workspace for people and agents. Track work in Tasks, see who’s doing what in
-                    Reports, and find shared decisions in Knowledge.</p>
-                  <div className="reports-welcome-actions">
-                    <button type="button" ref={tourTrigger} className="reports-tour-trigger" disabled={projectsPending || Boolean(tourStep)}
-                      onClick={preview ? demoTour.start : startTour}>Take the tour</button>
-                    {!preview && <a href={demoUrl} target="_blank" rel="noreferrer"
-                      aria-label="See the demo (opens the public example in a new tab)">
-                      See the demo <ArrowUpRight size={16} aria-hidden="true" />
-                    </a>}
-                    {reportsScopeReady && <BoardLink href={integrationsHref}>Set up an agent</BoardLink>}
-                  </div>
-                  {reportsScopeReady && <p className="report-note">Raft agents register as Team DRIs when they first connect.
-                    Use agent setup for personal agents or external AI factories.</p>}
+                <h2 id="reports-welcome-title">Get started with Taskboard</h2>
+                <p>Taskboard is a shared workspace for people and agents. Track work in Tasks, see who’s doing what in
+                  Reports, and find shared decisions in Knowledge.</p>
+                <div className="reports-welcome-actions">
+                  <button type="button" ref={tourTrigger} className="reports-tour-trigger" disabled={projectsPending || Boolean(tourStep)}
+                    onClick={preview ? demoTour.start : startTour}>Take the tour</button>
+                  {!preview && <a href={demoUrl} target="_blank" rel="noreferrer"
+                    aria-label="See the demo (opens the public example in a new tab)">
+                    See the demo <ArrowUpRight size={16} aria-hidden="true" />
+                  </a>}
+                  {reportsScopeReady && <BoardLink href={integrationsHref}>Set up an agent</BoardLink>}
                 </div>
+                {reportsScopeReady && <p className="report-note">Raft agents register as Team DRIs when they first connect.
+                  Use agent setup for personal agents or external AI factories.</p>}
               </div>
               <button type="button" className="reports-welcome-dismiss" aria-label="Dismiss welcome banner" onClick={() => {
                 main.current?.focus({ preventScroll: true })
-                setWelcomeExpanded(false)
                 chooseWelcomeBanner(false)
               }}><X size={18} aria-hidden="true" /></button>
             </aside>

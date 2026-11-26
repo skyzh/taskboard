@@ -132,7 +132,6 @@
   background: var(--wash);
 }
 .reports-welcome h2 { font-size: 1.05rem; }
-.reports-welcome-toggle { display: none; }
 .reports-welcome p { margin-block: .22rem .45rem; max-width: 65ch; }
 .reports-welcome-actions { display: flex; flex-wrap: wrap; gap: .15rem .7rem; }
 .reports-welcome-actions a {
@@ -169,27 +168,9 @@
     position: relative;
     grid-template-columns: minmax(0, 1fr);
     margin-bottom: .55rem;
-    padding: 0;
+    padding: .65rem .75rem .55rem;
   }
-  .reports-welcome h2 > span { display: none; }
-  .reports-welcome-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: .5rem;
-    width: 100%;
-    min-height: 2.75rem;
-    padding-inline: .75rem;
-    border: 0;
-    border-radius: .45rem;
-    font: inherit;
-    text-align: start;
-  }
-  .reports-welcome:not([data-expanded]) :is(.reports-welcome-body, .reports-welcome-dismiss) { display: none; }
-  .reports-welcome:not([data-expanded]) + .reports #reports { scroll-margin-top: 4.5rem; }
-  .reports-welcome[data-expanded] h2 { margin-inline-end: 2.75rem; }
-  .reports-welcome[data-expanded] .reports-welcome-toggle svg { rotate: 180deg; }
-  .reports-welcome-body { padding: 0 .75rem .55rem; }
+  .reports-welcome h2 { margin-inline-end: 2.75rem; }
   .reports-welcome-dismiss {
     position: absolute;
     inset-block-start: 0;

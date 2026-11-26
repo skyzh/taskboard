@@ -34,12 +34,15 @@ after(() => vite?.close())
 
 const teamSections = ['now-title', 'decisions-title', 'outcomes-title']
 
-function render(fragment) {
+function render(fragment, { welcomeHidden, ...props } = {}) {
   const previous = { window: globalThis.window, document: globalThis.document }
   try {
-    globalThis.window = { location: { hash: fragment }, matchMedia: () => ({ matches: false }) }
+    globalThis.window = {
+      location: { hash: fragment }, matchMedia: () => ({ matches: false }),
+      localStorage: { getItem: key => key === 'tasks-board.reports-welcome-hidden' ? welcomeHidden : null },
+    }
     globalThis.document = { documentElement: { dataset: {} } }
-    return renderToStaticMarkup(React.createElement(App))
+    return renderToStaticMarkup(React.createElement(App, props))
   } finally {
     Object.assign(globalThis, previous)
   }
@@ -89,6 +92,16 @@ test('Reports links to Team overview without embedding the board-wide feed', () 
 
 test('the direct Reports tour waits for the configured project', () => {
   assert.match(render('#reports'), /class="reports-tour-trigger" disabled="">Take the tour/)
+})
+
+test('the demo starts with the full welcome banner even when a real-board dismissal is saved', () => {
+  const welcomeHidden = 'true'
+  assert.doesNotMatch(render('#reports', { welcomeHidden }), /reports-welcome-title/)
+  const demo = render('#reports', { welcomeHidden, previewNotice: 'Fictional demo' })
+  assert.match(demo, /<h2 id="reports-welcome-title">Get started with Taskboard<\/h2>/)
+  assert.match(demo, /Taskboard is a shared workspace/)
+  assert.match(demo, /aria-label="Dismiss welcome banner"/)
+  assert.doesNotMatch(demo, /reports-welcome-toggle/)
 })
 
 test('the home URL and combined Reports link wait for the project list', () => {
