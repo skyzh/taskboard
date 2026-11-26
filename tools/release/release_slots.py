@@ -9,7 +9,7 @@ from tempfile import NamedTemporaryFile
 import time
 
 from release_compatibility import verify_rollback_ledger
-from release_plan import MountedCheckFailed, ReleaseRejected, verify_manifest
+from release_plan import MountedCheckFailed, ReleaseRejected, SlotCommandFailed, verify_manifest
 
 
 _UNIT = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.@-]*\.service")
@@ -112,17 +112,27 @@ class ReleaseSlots:
             self._launch(port, release)
         self._record_release(port, release)
 
+    def _run_slot_command(self, stage, command):
+        try:
+            self.run(command, check=True, capture_output=True, text=True, timeout=45)
+        except subprocess.CalledProcessError as error:
+            raise SlotCommandFailed(stage, "nonzero_exit", returncode=error.returncode) from None
+        except subprocess.TimeoutExpired:
+            raise SlotCommandFailed(stage, "timeout") from None
+        except OSError:
+            raise SlotCommandFailed(stage, "execution_error") from None
+
     def _launch(self, port, release):
         unit = self.units[port]
         if self._systemctl("show", unit, "--property=LoadState", "--value").stdout.strip() != "not-found":
-            self._systemctl("stop", unit)
-        self.run([
+            self._run_slot_command("stop", ["systemctl", "--user", "stop", unit])
+        self._run_slot_command("launch", [
             "systemd-run", "--user", "--collect", f"--unit={unit}", "--property=Type=exec",
             f"--property=WorkingDirectory={release}", f"--property=EnvironmentFile={self.environment}",
             *_SERVING_POLICY,
             self.python, "-B", release / "tasks", "--db", self.ledger, "serve",
             "--portal-reader", "--websocket-revisions", "--host", "127.0.0.1", "--port", str(port),
-        ], check=True, capture_output=True, text=True, timeout=45)
+        ])
         self.verify(port, release)
 
     def verify(self, port, release):
