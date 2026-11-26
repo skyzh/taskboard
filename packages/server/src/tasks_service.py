@@ -2171,13 +2171,11 @@ def create_app(
 
         register_revision_socket(app, origin, current_actor, lambda: json.dumps({"revision": read_revision()}))
 
-    def team_agent_access(actor, project):
-        return project != projects.DEFAULT or project_roster is None or actor["subject"] in project_roster
-
     def project_agent(actor, project):
-        if actor is None or actor["kind"] != "agent":
-            return False
-        return team_agent_access(actor, project) or local_dri.registration(db(), actor["ledger_key"]) is not None
+        return actor is not None and actor["kind"] == "agent" and (
+            project != projects.DEFAULT or project_roster is None
+            or actor["subject"] in projects.writer_roster(db(), project_roster)
+        )
 
     def project_writer(actor, project):
         return actor is not None and (actor["kind"] == "human" or project_agent(actor, project))
@@ -3896,13 +3894,12 @@ def create_app(
         project = project_filter(data, use_default=True)
         scope = ""
         subjects = []
-        if project == projects.DEFAULT and project_roster is not None:
-            subjects = list(project_roster)
-            members = ", ".join("?" for _ in subjects)
-            team = f"subject IN ({members})" if subjects else "FALSE"
-            scope += f""" AND (kind <> 'agent' OR {team}
-                OR EXISTS (SELECT 1 FROM local_dris WHERE actor = board_principals.ledger_key))"""
         connection = db()
+        if project == projects.DEFAULT and project_roster is not None:
+            subjects = list(projects.writer_roster(connection, project_roster))
+            members = ", ".join("?" for _ in subjects)
+            eligible = f"subject IN ({members})" if subjects else "FALSE"
+            scope += f" AND (kind <> 'agent' OR {eligible})"
         if ring1.private(connection, project):
             scope += """ AND EXISTS (SELECT 1 FROM project_ring1_members AS membership
                        WHERE membership.project = ? AND membership.principal = board_principals.ledger_key)"""

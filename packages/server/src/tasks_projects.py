@@ -149,6 +149,18 @@ def parse_roster(value):
         raise ValueError("Set TASKS_PROJECT_ROSTER to a JSON object mapping verified agent subject UUIDs to names.") from error
 
 
+def writer_roster(db, roster):
+    """Combine configured writers with registrations that already granted Project T work."""
+    if not tasks_storage.has_table(db, "local_dris"):
+        return roster
+    legacy = db.execute(
+        """SELECT principal.subject, local.name FROM local_dris AS local
+           JOIN board_principals AS principal ON principal.ledger_key = local.actor
+           WHERE local.project = ?""", (DEFAULT,),
+    )
+    return {**{row["subject"]: row["name"] for row in legacy}, **roster}
+
+
 def roster_owners(db, roster):
     """Resolve the squad's current ledger keys without changing legacy owners."""
     if not roster:

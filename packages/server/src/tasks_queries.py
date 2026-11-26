@@ -748,12 +748,8 @@ class BoardQueries:
                 args.append(watching_viewer)
         elif ((current_work or unfinished) and dri and dri != summary_personal_owner
                 and project in (None, projects.DEFAULT) and self.project_roster is not None):
-            allowed = dri in projects.roster_owners(self.db, self.project_roster)
-            if not allowed and watches.has_table(self.db, "local_dris"):
-                allowed = self.db.execute(
-                    "SELECT 1 FROM local_dris WHERE actor = ?", (dri,),
-                ).fetchone() is not None
-            if not allowed:
+            writer_roster = projects.writer_roster(self.db, self.project_roster)
+            if dri not in projects.roster_owners(self.db, writer_roster):
                 terms.append("tasks.project_prefix <> ?")
                 args.append(projects.DEFAULT)
         if exclude_goals:
@@ -1839,22 +1835,19 @@ class BoardQueries:
         )"""
 
     def watch_owner_scope(self, project, owner, *, require_profile=False):
-        scope = "TRUE"
+        if project == projects.DEFAULT and self.project_roster is not None:
+            writers = projects.writer_roster(self.db, self.project_roster)
+            roster = tuple(projects.roster_owners(self.db, writers))
+            members = f" OR {owner} IN ({', '.join('?' for _ in roster)})" if roster else ""
+            return f"""(EXISTS (
+                SELECT 1 FROM board_principals WHERE ledger_key = {owner} AND kind = 'human'
+            ){members})""", roster
         if require_profile:
-            scope = f"""(
+            return f"""(
                 EXISTS (SELECT 1 FROM board_principals WHERE ledger_key = {owner})
                 OR EXISTS (SELECT 1 FROM board_assignee_imports WHERE ledger_key = {owner})
-            )"""
-        if project != projects.DEFAULT or self.project_roster is None:
-            return scope, ()
-        roster = tuple(projects.roster_owners(self.db, self.project_roster))
-        members = (f" OR {owner} IN ({', '.join('?' for _ in roster)})" if roster else "")
-        scope += f""" AND (
-            EXISTS (SELECT 1 FROM local_dris WHERE actor = {owner})
-            OR EXISTS (SELECT 1 FROM board_principals WHERE ledger_key = {owner} AND kind = 'human')
-            {members}
-        )"""
-        return scope, roster
+            )""", ()
+        return "TRUE", ()
 
     def watchable_assignee(self, owner, project):
         scope, args = self.watch_owner_scope(project, "candidate.owner", require_profile=True)
@@ -2126,7 +2119,9 @@ class BoardQueries:
                       AND recipient = current.dri AND result_event_id IS NULL))"""
         work_columns = ", ".join(f"COALESCE(work.{state}, 0) AS {state}" for state in WORK_STATES)
         roster = project == projects.DEFAULT and self.project_roster is not None
-        names = projects.roster_owners(self.db, self.project_roster) if roster else {}
+        names = projects.roster_owners(
+            self.db, projects.writer_roster(self.db, self.project_roster),
+        ) if roster else {}
         local_dris = watches.has_table(self.db, "local_dris")
         team_only = "AND ledger_key NOT IN (SELECT actor FROM local_dris)" if local_dris else ""
         owner_source = f"""SELECT dri FROM project_tasks WHERE dri <> ''
@@ -2135,19 +2130,11 @@ class BoardQueries:
                            UNION SELECT recipient FROM legacy_waits
                            UNION SELECT dri FROM runs"""
         owner_args = (project, project, project)
-        local_owners = ()
         if local_dris:
             owner_source += " UNION SELECT actor FROM local_dris WHERE project = ?"
             owner_args += (project,)
-            if roster:
-                local_owners = tuple(row["actor"] for row in self.db.execute(
-                    """SELECT actor FROM local_dris
-                       WHERE project = ? OR EXISTS (
-                           SELECT 1 FROM tasks WHERE tasks.dri = local_dris.actor AND tasks.project_prefix = ?
-                       )""", (project, project),
-                ))
         if roster:
-            owner_args = (*names, *local_owners)
+            owner_args = tuple(names)
             if personal_owner and personal_owner not in names:
                 owner_args += (personal_owner,)
             if not owner_args and view not in ("recent", "watching"):

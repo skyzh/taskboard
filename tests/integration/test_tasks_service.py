@@ -9298,6 +9298,26 @@ class TasksServiceTest(unittest.TestCase):
                              {tickets["T"], tickets["OPS"]})
             self.assertIsNone(second["next_cursor"])
 
+    def test_configured_legacy_agent_can_be_watched_before_first_sign_in(self):
+        roster = {self.provider.people["Blake"]["sub"]: "Blake"}
+        app = self.app(portal_reader=True, project_roster=roster)
+        sam, _ = self.login(app, "Sam")
+        ticket = self.cli("add", "Verify legacy assignments", "--dri", "Blake", "--step", "Read the sample.").split()[0]
+        self.cli("start", ticket, "Read the sample.", "--by", "Blake")
+        profile = "/api/v1/assignee"
+        for scope in ({"project": "T"}, {"scope": "all"}):
+            params = {"owner": "Blake", **scope}
+            self.assertEqual(self.call(sam, profile, query_string=params).json["profile"]["name"], "Blake")
+            self.assertFalse(self.call(sam, profile, query_string=params).json["watching"])
+            self.assertTrue(self.call(sam, profile + "/watch", method="POST", query_string=params,
+                                      headers={"Origin": ORIGIN}, json={"watch": True}).json["watching"])
+            self.assertTrue(self.call(sam, profile, query_string=params).json["watching"])
+            watching = self.call(sam, "/api/v1/reports", query_string={**scope, "view": "watching"}).json["items"]
+            self.assertEqual(watching[0]["owner"], "Blake")
+            self.assertEqual(watching[0]["tasks"][0]["key"], ticket)
+            self.call(sam, profile + "/watch", method="POST", query_string=params,
+                      headers={"Origin": ORIGIN}, json={"watch": False})
+
     def test_watching_reports_combine_person_and_ticket_watches_before_paging(self):
         roster = {self.provider.people[name]["sub"]: name for name in ("Avery", "Blake")}
         app = self.app(portal_reader=True, project_roster=roster)
@@ -9331,7 +9351,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "change-ownership", {
             "id": unassigned, "action": "unassign", "reason": "Check the unassigned group.",
         })
-        other_local = add("Local DRI in its second project", local)
+        hidden = add("Outside registered Local DRI project", local)
 
         def follow(client, owner, selected=True, project="T", status=200, headers=origin):
             return self.call(client, "/api/v1/assignee/watch", method="POST", status=status,
@@ -9352,8 +9372,7 @@ class TasksServiceTest(unittest.TestCase):
         self.call(unsigned, "/api/v1/reports?view=watching", status=401)
         self.call(unsigned, "/api/v1/reports/watched-tickets", status=401)
         follow(unsigned, avery_id, status=401)
-        self.assertTrue(follow(sam, local).json["watching"])
-        follow(sam, local, False)
+        follow(sam, local, status=404)
         follow(sam, "Nonexistent", status=404, project="OPS")
         follow(sam, avery_id, status=403, headers={"Origin": "https://outside.example.test"})
         self.assertEqual(watching(sam)["items"], [])
@@ -9367,7 +9386,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(sam, "/api/v1/notifications/watched").json["items"], [])
         follow(sam, sam_id)
         follow(quinn, local, project="OPS")
-        for ticket in (transfer, unassigned, other_local):
+        for ticket in (transfer, unassigned, hidden):
             ticket_watch(sam, ticket)
 
         self.provider.issued.discard("Sam")
@@ -9377,9 +9396,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertTrue(self.call(second_browser, profile, query_string=args).json["watching"])
         self.assertFalse(self.call(quinn, profile, query_string=args).json["watching"])
         self.assertNotIn("watching", self.call(unsigned, profile, query_string=args).json)
-        local_profile = self.call(sam, profile, query_string={"owner": local, "scope": "all"}).json
-        self.assertFalse(local_profile["watching"])
-        self.assertEqual(set(local_profile["projects"]), {"T", "OPS"})
+        self.assertNotIn("watching", self.call(sam, profile, query_string={"owner": local}).json)
 
         def paged(client, project=None):
             items = []
@@ -9395,16 +9412,15 @@ class TasksServiceTest(unittest.TestCase):
             return {row["key"] for row in (entry[field]["items"] if field == "watched_tickets" else entry[field])}
 
         rows = paged(second_browser)
-        self.assertEqual(set(rows), {"", avery_id, sam_id, local})
-        self.assertEqual(keys(rows[local], "watched_tickets"), {other_local})
+        self.assertEqual(set(rows), {"", avery_id, sam_id})
         self.assertEqual(rows[avery_id]["projects"], ["OPS", "T"])
         self.assertEqual(keys(rows[avery_id], "tasks"), {ordinary, avery_ops})
         self.assertEqual(keys(rows[avery_id], "watched_tickets"), {transfer})
         self.assertEqual(keys(rows[""], "watched_tickets"), {unassigned})
         self.assertEqual(keys(rows[sam_id], "tasks"), {human})
         self.assertEqual(set(paged(sam, "OPS")), {avery_id})
-        self.assertEqual(keys(paged(quinn)[local], "tasks"), {same_name, other_local})
-        self.assertEqual(keys(paged(quinn, "T")[local], "tasks"), {other_local})
+        self.assertEqual(keys(paged(quinn)[local], "tasks"), {same_name})
+        self.assertEqual(paged(quinn, "T"), {})
         self.assertEqual(rows[avery_id]["profile"]["name"], paged(quinn)[local]["profile"]["name"])
 
         self.action(avery, "handoff", {"id": transfer, "owner": blake_id, "note": "Continue with the sample."})
@@ -9422,9 +9438,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(completed["recent_outcomes"], [])
         self.assertEqual(keys(completed, "tasks"), {blake_other})
         ticket_rows = "/api/v1/reports/watched-tickets"
-        self.assertEqual([row["key"] for row in self.call(
-            sam, ticket_rows, query_string={"scope": "all", "owner": local},
-        ).json["items"]], [other_local])
+        self.assertEqual(self.call(sam, ticket_rows, query_string={"scope": "all", "owner": local}).json["items"], [])
         self.assertEqual(self.call(quinn, ticket_rows, query_string={"scope": "all", "owner": blake_id}).json["items"], [])
         ticket_watch(sam, blake_other)
         one_ticket = {"scope": "all", "owner": blake_id, "limit": 1}

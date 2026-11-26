@@ -21,7 +21,9 @@ the commands for the selected identity. Queue, goal, watch, and search
 commands default to its registered project. Use `tasks --shared projects`
 to see accessible projects. Select another project with `--project` or use
 its project-qualified ticket ID. Ring 1 membership, ownership, and manager
-checks apply in the selected project. A Local DRI can create tickets, confirm blockers, save goals,
+checks apply in the selected project. A configured Project T writer roster applies
+to both Team and Local DRIs. Existing Project T registrations retain their
+writer access through that roster. A Local DRI can create tickets, confirm blockers, save goals,
 and publish Knowledge where it has the ordinary project role or ownership.
 People and Local DRIs use the same project-writer and ownership rules for
 ordinary ticket and Knowledge work. A project writer can hand off assigned
