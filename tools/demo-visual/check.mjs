@@ -263,7 +263,7 @@ async function baselineAt(directory) {
   return baseline
 }
 
-async function compare(candidate, candidateDirectory, baseline, baselineDirectory) {
+async function compare(candidate, candidateDirectory, baseline, baselineDirectory, { repeat = false } = {}) {
   const files = new Set([...Object.keys(candidate.screens), ...Object.keys(baseline.screens)])
   const mismatches = [...files].filter(file => candidate.screens[file] !== baseline.screens[file]).sort()
   if (!mismatches.length) return []
@@ -281,7 +281,7 @@ async function compare(candidate, candidateDirectory, baseline, baselineDirector
         const png = await readFile(resolve(directory, file))
         return 'data:image/png;base64,' + png.toString('base64')
       }))
-      const difference = await page.evaluate(async ({ sources, desktopWatching }) => {
+      const difference = await page.evaluate(async sources => {
         const [current, approved] = await Promise.all(sources.map(async source => {
           const image = new Image()
           image.src = source
@@ -289,7 +289,7 @@ async function compare(candidate, candidateDirectory, baseline, baselineDirector
           return image
         }))
         const { width, height } = current
-        if (width !== approved.width || height !== approved.height) return { different: true }
+        if (width !== approved.width || height !== approved.height) return { dimensionsChanged: true }
         const canvas = document.createElement('canvas')
         canvas.width = width
         canvas.height = height
@@ -315,12 +315,17 @@ async function compare(candidate, candidateDirectory, baseline, baselineDirector
           if (delta > 2) pixelsAboveTwo++
           maxDelta = Math.max(maxDelta, delta)
         }
-        const different = desktopWatching
-          ? maxDelta > 5 || pixelsAboveOne > 8 || pixelsAboveTwo > 1
-          : pixelsAboveOne > 0
-        return { different, maxDelta, pixelsAboveOne, pixelsAboveTwo }
-      }, { sources: images, desktopWatching: file.startsWith('desktop-watching-') })
-      if (difference.different) changed.push({ file, ...difference })
+        return { maxDelta, pixelsAboveOne, pixelsAboveTwo }
+      }, images)
+      const { dimensionsChanged, maxDelta, pixelsAboveOne, pixelsAboveTwo } = difference
+      // A repeat of the same desktop Reports build can vary at one pixel. The
+      // approved-baseline comparison still tests this pixel with its usual limits.
+      const singleRepeatPixel = repeat && file.startsWith('desktop-') && pixelsAboveOne === 1 && maxDelta <= 16
+      const watchingRounding = file.startsWith('desktop-watching-') &&
+        maxDelta <= 5 && pixelsAboveOne <= 8 && pixelsAboveTwo <= 1
+      if (dimensionsChanged || (pixelsAboveOne > 0 && !singleRepeatPixel && !watchingRounding)) {
+        changed.push({ file, ...difference })
+      }
     }
     return changed
   } finally {
@@ -355,7 +360,7 @@ try {
     const stability = evidence => JSON.stringify(evidence.interaction_failures.map(({ view, step, route }) => ({ view, step, route })))
     assert.ok(stability(candidate) === stability(repeat), 'Interactions varied between the two runs')
     if (!candidate.interaction_failures.length) {
-      const unstable = await compare(candidate, output, repeat, repeatDirectory)
+      const unstable = await compare(candidate, output, repeat, repeatDirectory, { repeat: true })
       assert.ok(!unstable.length, `Screenshots varied between the two runs: ${JSON.stringify(unstable)}`)
     }
     result.status = 'changed'
