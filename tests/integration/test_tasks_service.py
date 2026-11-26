@@ -2409,8 +2409,14 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.action(owner, "my-goals")["review_times"], {standing["ticket"]: "09:15"})
         reread, = self.call(manager, path + "?view=team&project=T").json["goal_reviews"]
         self.assertEqual(reread["review_time"], "09:15")
+        goal_path = f"/api/v1/tasks/{standing['ticket']}"
+        self.assertEqual(self.call(owner, goal_path).json["goal"]["review_time"], "09:15")
+        self.assertEqual(self.call(manager, goal_path).json["goal"]["review_time"], "09:15")
+        self.assertNotIn("review_time", self.call(app.test_client(), goal_path).json["goal"])
+        self.call(manager, f"/api/v1/tasks/{own_private['ticket']}", status=404)
         self.call(owner, editor, method="POST", json={"time": ""})
         self.assertFalse(self.action(owner, "my-goals").get("review_times"))
+        self.assertNotIn("review_time", self.call(owner, goal_path).json["goal"])
 
     def test_goal_activity_counts_recorded_checks_and_keeps_dated_outcomes(self):
         import tasks_goal_offers

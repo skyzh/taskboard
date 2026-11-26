@@ -65,7 +65,6 @@ export default function RecurringRuns({ history }) {
   const current = history.items.find(run => run.task_id === history.current_task_id)
   const runs = [
     ...(current ? [current] : []),
-    ...(history.next_at ? [{ state: 'scheduled', due_at: history.next_at }] : []),
     ...history.items.filter(run => run !== current),
   ]
   return (

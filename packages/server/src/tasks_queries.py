@@ -1179,7 +1179,7 @@ class BoardQueries:
             "checklist": steps,
             "related_tasks": related,
             "sources": sources,
-            "goal": goals.ticket_details(self.db, row),
+            "goal": goals.ticket_details(self.db, row, signed_in=owner is not None),
             "workers": runs,
             "last_activity": self.last_activity(task_id=number),
         }
