@@ -3,8 +3,10 @@ name = "raft-tasks-board"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "alembic>=1.20.1,<2",
     "flask>=3.1,<4",
     "pillow>=12,<13",
+    "sqlalchemy>=2,<3",
     "waitress>=3,<4",
 ]
 

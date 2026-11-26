@@ -5,6 +5,9 @@ import re
 import sqlite3
 
 
+SCHEMA_REVISION_TABLE = "taskboard_schema_revision"
+
+
 _SQL_TOKENS = re.compile(r"""'(?:''|[^'])*'|"(?:""|[^"])*"|\?|(?<!:):([a-zA-Z_]\w*)""")
 _JSON = re.compile(r"json_(extract|type)\(((?:\w+\.)?\w+|'\{\}'), '\$\.([a-z_.]+)'\)")
 _JSON_INT = {"readiness.source_id", "readiness.after_event", "request_event_id",

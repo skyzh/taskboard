@@ -14,6 +14,8 @@ Update this log at each development handoff with the verified result, any open i
 
 - **Return to Decisions.** The named recipient can return from a ticket's Decision panel or answer receipt to Notifications → Needs me and open the next request across projects.
 
+- **Versioned database upgrades.** Use `taskboard-migrate` to check and upgrade an existing ledger before starting the target release. The first Alembic revision handles profile short roles on SQLite and PostgreSQL. [Operator procedure](operators/DATABASE-MIGRATIONS.md)
+
 - **PostgreSQL profile upgrade.** Existing PostgreSQL boards add missing profile columns during startup, preserving signed-in profiles and ticket assignments. This fixes a signed request failure after upgrading a board created before short roles.
 
 - **Needs You sends across interfaces.** Use `assign-human` for a blocking Decision or `raise-attention` for a nonblocking request. MCP exposes both actions. Upgrade the board and clients together, and reconnect MCP to discover the tools. [Sending guide](INTERFACE-PARITY.md#send-a-needs-you-ask)
