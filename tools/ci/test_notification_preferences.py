@@ -17,6 +17,7 @@ import test_tasks_github_webhooks as webhook_fixture
 from test_tasks_knowledge_sweeps import replay_knowledge_sweeps
 from test_tasks_project_move import replay_move
 from test_tasks_recurring import replay_project_tick
+import test_tasks_ring1 as ring1_fixture
 from tasks_core import import_notification_on
 from tasks_service import create_app
 from tasks_storage import Postgres
@@ -346,6 +347,41 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual(self.board.call(owner, PUBLISHING).json, INSTRUCTIONS)
         self.assertEqual(self.board.call(owner, PUBLISHING, method="PUT", headers=ORIGIN, json=empty).json, empty)
         self.assertEqual(self.board.call(owner, PUBLISHING).json, empty)
+
+    def test_ring1_project_visibility_on_postgres(self):
+        root = self.board.provider.people["Sam"]["sub"]
+        app = self.postgres_app(self.postgres_fixture(), project_admin_subject=root)
+        ring1_fixture.Ring1Test().replay(self.board, app)
+
+    def test_ring1_legacy_knowledge_stages_on_postgres(self):
+        root = self.board.provider.people["Sam"]["sub"]
+        dsn = self.postgres_fixture()
+        app = self.postgres_app(dsn, project_admin_subject=root)
+        ring1_fixture.Ring1Test().replay_legacy_stages(self.board, app, lambda: Postgres(dsn))
+
+    def test_ring1_membership_survives_sqlite_import(self):
+        root = self.board.provider.people["Sam"]["sub"]
+        source = self.board.app(portal_reader=True, project_admin_subject=root)
+        sam, sam_id = self.board.login(source, "Sam")
+        self.board.call(sam, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Fictional private project", "visibility": "ring1",
+        })
+        self.board.call(sam, "/api/v1/knowledge", method="POST", status=201, json={
+            "project": "LAB", "title": "Fictional findings", "brief": "Disposable example.",
+        })
+        snapshot = self.board.database.with_name("ring1-snapshot.sqlite3")
+        with closing(sqlite3.connect(self.board.database)) as current, closing(sqlite3.connect(snapshot)) as backup:
+            current.backup(backup)
+        dsn = self.postgres_fixture()
+        counts = import_snapshot(snapshot, dsn)
+        self.assertEqual(counts["project_ring1"], 1)
+        self.assertEqual(counts["project_ring1_members"], 1)
+        target = self.postgres_app(dsn, project_admin_subject=root)
+        owner, _ = self.board.login(target, "Sam")
+        outsider, _ = self.board.login(target, "Quinn")
+        self.assertEqual(self.board.call(owner, "/api/v1/projects/LAB/ring1").json["members"][0]["id"], sam_id)
+        self.board.call(owner, "/api/v1/knowledge?entry=LAB-1")
+        self.board.call(outsider, "/api/v1/knowledge?entry=LAB-1", status=404)
 
     def test_project_admin_grants_survive_import_and_revoke_on_postgres(self):
         root = self.board.provider.people["Sam"]["sub"]

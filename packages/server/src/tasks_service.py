@@ -46,6 +46,7 @@ import tasks_oidc as oidc_auth
 import tasks_oidc_members as oidc_members
 import tasks_profiles as profiles
 import tasks_projects as projects
+import tasks_ring1 as ring1
 import tasks_peer_asks as peer_asks
 from tasks_release_info import release_info
 import tasks_recurring
@@ -432,6 +433,7 @@ def prepare_postgres(db, url, server_id, *, oidc_issuer=None, initial_project=No
             tasks_recurring.ensure_project_binding(db)
             projects.ensure_alias_schema(db)
             db.execute(projects.OWNER_GRANTS_SCHEMA)
+            ring1.ensure_schema(db)
             db.execute(project_admin.SCHEMA)
             db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
             local_dri.ensure_schema(db)
@@ -806,7 +808,9 @@ def create_app(
     def response_headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer" if request.path.startswith("/auth/") else "same-origin"
-        if request.path.startswith(("/api/v1", "/auth/")) and "Cache-Control" not in response.headers:
+        if g.get("checked_document"):
+            response.headers["Cache-Control"] = "no-store"
+        elif request.path.startswith(("/api/v1", "/auth/")) and "Cache-Control" not in response.headers:
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -934,9 +938,41 @@ def create_app(
             ):
                 current_actor(write=request.method not in ("GET", "HEAD", "OPTIONS"), required=True)
 
+    def actor_key():
+        actor = g.get("actor")
+        # Tailnet ingress has a configured default identity, not a per-person sign-in.
+        return actor["ledger_key"] if actor is not None and g.get("personal_agent_api") != "tailnet" else None
+
+    def require_visible_project(connection, project):
+        if tasks_storage.has_table(connection, "project_ring1") and not ring1.visible(connection, project, actor_key()):
+            raise NotFound()
+
+    def project_for_task(connection, number):
+        field = "project_prefix"
+        if local_readonly and "project_prefix" not in tasks_storage.table_columns(connection, "tasks"):
+            field = "'T' AS project_prefix"
+        row = connection.execute(f"SELECT {field} FROM tasks WHERE id = ?", (number,)).fetchone()
+        return row["project_prefix"] if row is not None else None
+
+    def require_visible_task(connection, number):
+        project = project_for_task(connection, number)
+        if project is not None:
+            require_visible_project(connection, project)
+        return project
+
+    def require_same_ring(connection, project, related):
+        if project is not None and related is not None and project != related and (
+            ring1.private(connection, project) or ring1.private(connection, related)
+        ):
+            raise RequestError("Keep links between Ring 1 records within their project.", 409)
+
+    def require_ring_member(connection, project, principal):
+        if ring1.private(connection, project) and not ring1.visible(connection, project, principal):
+            raise RequestError("Choose a verified member of this Ring 1 project.", 404)
+
     def query():
         return BoardQueries(
-            db(), base, local_links=local_readonly, project_roster=project_roster,
+            db(), base, local_links=local_readonly, project_roster=project_roster, principal=actor_key(),
             standing_exploration=agent_guidance["standing-exploration"],
         )
 
@@ -944,7 +980,7 @@ def create_app(
         @app.post("/api/v1/github/webhooks/<project>")
         def github_webhook(project):
             secret = webhook_secrets.get(project)
-            if secret is None:
+            if secret is None or ring1.private(db(), project):
                 raise NotFound()
             body = request.get_data()
             if not github_webhooks.authenticated(secret, body, request.headers.get("X-Hub-Signature-256", "")):
@@ -979,6 +1015,8 @@ def create_app(
         person = profiles.get(db(), key)
         if person is None or (kind is not None and person["kind"] != kind):
             raise RequestError("Choose a known assignee who has signed in to this board.", 404)
+        if task_id is not None and (project := require_visible_task(db(), task_id)) is not None:
+            require_ring_member(db(), project, person["ledger_key"])
         if person["kind"] == "agent" and task_id is not None:
             profile = local_dri.registration(db(), key)
             if profile is not None or (project_roster is not None and person["subject"] not in project_roster):
@@ -1013,7 +1051,8 @@ def create_app(
                 f"SELECT prefix, title FROM projects WHERE prefix IN ({projects.MANAGED_BY}) AND prefix <> ? ORDER BY title, prefix",
                 (actor, actor, project),
             )
-            if move_assignment_allowed(connection, task["dri"], row["prefix"])
+            if (not ring1.private(connection, project) and not ring1.private(connection, row["prefix"])
+                and move_assignment_allowed(connection, task["dri"], row["prefix"]))
         ]
 
     def project_filter(data, *, use_default=False):
@@ -1025,8 +1064,10 @@ def create_app(
         if value is None:
             return None
         try:
-            require_local_project(projects.prefix(value))
-            return projects.require(db(), value)
+            project = projects.prefix(value)
+            require_visible_project(db(), project)
+            require_local_project(project)
+            return projects.require(db(), project)
         except RequestError:
             raise
         except ValueError as error:
@@ -1039,6 +1080,8 @@ def create_app(
         owner = actor["ledger_key"]
         if project == projects.DEFAULT and project_roster is not None and actor["subject"] not in project_roster:
             raise RequestError("This action requires an agent from the project roster.", 403)
+        if ring1.private(db(), project):
+            raise NotFound()
         if not write:
             return {"project": project, "subscriptions": wake_subscriptions.subscriptions(db(), project, owner)}
         event_type = data["event_type"]
@@ -1049,13 +1092,15 @@ def create_app(
             raise RequestError("enabled must be true or false.")
         with tasks_storage.write(db()) as connection:
             if wake_subscriptions.set_subscription(connection, project, owner, event_type, enabled == "true"):
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
                 audit.record(connection, scope="private", actor=owner, operation="set-wake-subscription",
                              record_type="wake_subscription", record_id=f"{project}/{event_type}", at=ledger.timestamp())
             saved = wake_subscriptions.subscriptions(connection, project, owner)
         return {"project": project, "subscriptions": saved, "receipt": f"{project} · Wake subscriptions updated"}
 
     def project_channel(actor, project, data=None):
+        if ring1.private(db(), project):
+            raise NotFound()
         if not projects.manages(db(), project, actor["ledger_key"]):
             raise RequestError("Only this project's manager can access its Raft channel setting.", 403)
         server = g.tenant_server if marketplace else (raft_config or {}).get("server_id")
@@ -1082,7 +1127,7 @@ def create_app(
             if connection.total_changes != before:
                 audit.record(connection, scope="private", actor=actor["ledger_key"], operation="set-raft-channel",
                              record_type="project", record_id=project, at=ledger.timestamp())
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
         return {**result, "receipt": "Raft channel saved." if channel_id else "Raft channel cleared."}
 
     def project_scope(data, *, use_default=True):
@@ -1105,13 +1150,15 @@ def create_app(
 
     def task_number(value):
         try:
-            if g.get("local_dri") is None:
-                return projects.resolve(db(), value)
-            require_local_project(projects.identifier(value)[0])
+            project = projects.identifier(value)[0]
+            require_visible_project(db(), project)
+            require_local_project(project)
             number = projects.resolve(db(), value)
-            row = db().execute("SELECT project_prefix FROM tasks WHERE id = ?", (number,)).fetchone()
-            if row is not None:
-                require_local_project(row["project_prefix"])
+            if tasks_storage.has_table(db(), "project_ring1") or g.get("local_dri") is not None:
+                row = db().execute("SELECT project_prefix FROM tasks WHERE id = ?", (number,)).fetchone()
+                if row is not None:
+                    require_visible_project(db(), row["project_prefix"])
+                    require_local_project(row["project_prefix"])
             return number
         except RequestError:
             raise
@@ -1119,6 +1166,37 @@ def create_app(
             raise RequestError(str(error)) from error
         except LookupError as error:
             raise RequestError(str(error), 404) from error
+
+    def reference_project(connection, reference):
+        try:
+            project = projects.identifier(reference)[0]
+            if ring1.private(connection, project):
+                require_visible_project(connection, project)
+            number = projects.resolve(connection, reference)
+        except (LookupError, ValueError):
+            return None
+        return require_visible_task(connection, number)
+
+    def internal_link_project(connection, url):
+        if not url.startswith(base + "/"):
+            return None
+        parts = urlsplit(url)
+        path = parts.path.removeprefix(urlsplit(base).path)
+        if match := re.fullmatch(r"/(?:tickets|knowledge)/([^/]+)", path):
+            reference = match[1]
+        elif match := re.fullmatch(r"task-(.+)", parts.fragment):
+            reference = match[1]
+        elif match := re.fullmatch(r"(?:event-)?([1-9][0-9]{0,18})(?:-log)?", (
+            path.removeprefix("/activity/events/") if path.startswith("/activity/events/") else parts.fragment
+        )):
+            event_id = int(match[1])
+            if event_id > projects.MAX_ID:
+                return None
+            event = connection.execute("SELECT task_id FROM events WHERE id = ?", (event_id,)).fetchone()
+            return require_visible_task(connection, event["task_id"]) if event is not None else None
+        else:
+            return None
+        return reference_project(connection, reference)
 
     if personal_api_enabled:
         def personal_api_response(result, status=200):
@@ -1175,6 +1253,9 @@ def create_app(
             if project is None:
                 raise RequestError("Choose one project for the Local DRI.")
             with tasks_storage.write(db()) as connection:
+                require_visible_project(connection, project)
+                if ring1.private(connection, project):
+                    raise RequestError("Use a verified human or Team DRI for Ring 1 projects.", 403)
                 identifier = local_dri.register(connection, owner, raft_config["server_id"], project, name, mode)
                 saved = next(profile for profile in local_dri.owned(connection, owner) if profile["id"] == identifier)
             return personal_api_response({"local_dri": saved})
@@ -1449,6 +1530,7 @@ def create_app(
 
     def detail(number, actor):
         key = actor["ledger_key"] if actor is not None else None
+        require_visible_task(db(), number)
         try:
             result = query().detail(number, project_extensions=project_extensions, owner=key)
         except ValueError as error:
@@ -1477,7 +1559,9 @@ def create_app(
         labels = ledger.task_tags(db(), task["id"])
         if labels:
             task["tags"] = labels
-        if actor is not None and (staged := knowledge_records.links(db(), number, include_source=True)):
+        if key is not None and (staged := knowledge_records.links(
+            db(), number, principal=actor_key(), include_source=True,
+        )):
             result["knowledge_stages"] = staged
         if allowed and not task.get("queued_for_release") and movable_ticket(
             task["key"], knowledge=is_note or (task["state"] == "done" and knowledge_records.DECISION_TAG in labels),
@@ -1526,6 +1610,10 @@ def create_app(
         key = actor["ledger_key"]
         with tasks_storage.write(db()) as connection:
             task = ledger.get_task(connection, number)
+            project = projects.row_project(task)
+            require_visible_project(connection, project)
+            for _, url in links:
+                require_same_ring(connection, project, internal_link_project(connection, url))
             authorized = task["dri"] == key or projects.manages(connection, projects.row_project(task), key)
             if not authorized and not can_collaborate_on_transition(connection, actor, task):
                 raise RequestError("Only the ticket owner or project manager can confirm its blocker.", 403)
@@ -1533,6 +1621,7 @@ def create_app(
             if not has_verifiable_blocker(task["state"], context) or task["event_id"] != wait_event:
                 raise RequestError("This blocker has changed. Open the current ticket before confirming it.", 409)
             if blocker_id := context.get("blocked_by"):
+                require_same_ring(connection, project, require_visible_task(connection, blocker_id))
                 blocker = ledger.get_task(connection, blocker_id)
                 if blocker["display_state"] != "done":
                     raise RequestError("The linked ticket is not Done.", 409)
@@ -1548,7 +1637,7 @@ def create_app(
                 connection, number, "resume", key, "ready", note, None, links,
                 {"confirmed_blocker_event": wait_event, **override},
             )
-            ledger.bump_revision(connection)
+            ledger.bump_revision(connection, project)
         return {"receipt": f"{projects.row_reference(task)} · Blocker confirmed", "event_id": event}
 
     def worker_check(actor, data, *, write):
@@ -1571,6 +1660,7 @@ def create_app(
                 task = ledger.get_task(connection, run["task_id"])
             except ValueError as error:
                 raise RequestError(str(error), 404) from error
+            require_visible_project(connection, projects.row_project(task))
             if key not in (run["worker"], task["dri"]):
                 raise RequestError("Only the worker or ticket owner can access this checkpoint.", 403)
             checkpoint = workers.wake_check(connection, run_id)
@@ -1594,7 +1684,7 @@ def create_app(
                         connection, task["id"], "log", key, task["state"], f"W-{run_id} · {note}", None, [],
                         {"audit": {"action": "worker-check", "run_id": run_id, "mode": mode, "at": at}},
                     )
-                    ledger.bump_revision(connection)
+                    ledger.bump_revision(connection, projects.row_project(task))
                     checkpoint = None if mode == "clear" else {"id": event, "mode": mode, "at": at}
         result = {"run": f"W-{run_id}", "ticket": projects.row_reference(task), "checkpoint": checkpoint}
         if write:
@@ -1614,6 +1704,53 @@ def create_app(
 
     def mutate(command, actor, data, **fields):
         args = Namespace(command=command, by=actor["ledger_key"], **fields)
+
+        def authorize(connection):
+            if command in tasks_recurring.EDITS - {"recurring-add"}:
+                return require_visible_schedule(args.id)
+            project = getattr(args, "project", None)
+            if project is None and getattr(args, "id", None) is not None:
+                project = require_visible_task(connection, args.id)
+            if project is None and getattr(args, "run", None) is not None:
+                row = connection.execute(
+                    "SELECT task_id FROM worker_runs WHERE id = ?", (args.run,),
+                ).fetchone()
+                if row is not None:
+                    project = require_visible_task(connection, row["task_id"])
+            if project is None:
+                return
+            require_visible_project(connection, project)
+            for recipient in (getattr(args, "dri", None), getattr(args, "worker", None), getattr(args, "peer_recipient", None),
+                              getattr(args, "maintenance_owner", None), *(getattr(args, "maintenance_members", None) or ())):
+                if recipient:
+                    require_ring_member(connection, project, recipient)
+            if command in ("assign-human", "redirect-decision") or fields.get("human_wait"):
+                require_ring_member(connection, project, args.on)
+            if (request_id := getattr(args, "attention_request_id", None)) is not None:
+                row = connection.execute(
+                    "SELECT task_id FROM attention_requests WHERE id = ?", (request_id,),
+                ).fetchone()
+                if row is not None:
+                    require_same_ring(connection, project, require_visible_task(connection, row["task_id"]))
+            if (review_run := getattr(args, "review_run", None)) is not None:
+                row = connection.execute("SELECT task_id FROM worker_runs WHERE id = ?", (review_run,)).fetchone()
+                if row is not None:
+                    require_same_ring(connection, project, require_visible_task(connection, row["task_id"]))
+            if ring1.private(connection, project) and (
+                getattr(args, "stamp_review", None) or getattr(args, "manual_review", None)
+                or command == "link-source" and getattr(args, "kind", None) == "github"
+            ):
+                raise RequestError("Use in-board reviews and notes for Ring 1 work.", 409)
+            for name in ("blocked_by", "review_on", "related"):
+                if reference := getattr(args, name, None):
+                    require_same_ring(connection, project, reference_project(connection, reference))
+            for _, url in links:
+                if related := internal_link_project(connection, url):
+                    require_visible_project(connection, related)
+                    require_same_ring(connection, project, related)
+            return project
+
+        args.authorize = authorize
         if command in (*ledger.PROJECT_WRITER_TRANSITIONS, "close", "reopen"):
             args.force_reason = transition_force_reason(data)
             args.can_transition = lambda connection, task: can_collaborate_on_transition(connection, actor, task)
@@ -1643,7 +1780,8 @@ def create_app(
             raise RequestError(str(error), 409) from error
         if push_decision and previous:
             current = ledger.find_task(db(), args.id)
-            if current and current["state"] == "human_review" and current["event_id"] != previous["event_id"]:
+            if (current and not ring1.private(db(), projects.row_project(current))
+                    and current["state"] == "human_review" and current["event_id"] != previous["event_id"]):
                 push_delivery.submit("decision", args.id, current["event_id"])
         return {"receipt": receipt}
 
@@ -1673,6 +1811,20 @@ def create_app(
             maintenance_next_at=text(data, "next_at", optional=True, maximum=40),
             maintenance_state=state, maintenance_members=members, clear_members=False,
         )
+
+    def require_visible_schedule(number):
+        row = db().execute(
+            """SELECT COALESCE(managed.project, definition.project_prefix, local.project, ?) AS project
+               FROM recurring_definitions AS definition
+               LEFT JOIN project_maintenance AS managed ON managed.definition_id = definition.id
+               LEFT JOIN local_dris AS local ON local.actor = definition.owner
+               WHERE definition.id = ?""", (projects.default_project(db()), number),
+        ).fetchone()
+        if row is not None:
+            require_visible_project(db(), row["project"])
+            require_local_project(row["project"])
+            return row["project"]
+        return None
 
     def change_recurring(actor, data, identifier):
         change = text(data, "change", maximum=10)
@@ -1728,8 +1880,11 @@ def create_app(
             if task is None or ledger.is_knowledge(task):
                 raise NotFound()
             project = projects.row_project(task)
+            require_visible_project(connection, project)
             if not can_edit_shared_content(connection, actor, task, project):
                 raise RequestError("This ticket requires project write access.", 403)
+            for _, url in links:
+                require_same_ring(connection, project, internal_link_project(connection, url))
             field = next((item for item in ticket_fields.definitions(connection, project) if item["key"] == key), None)
             if field is None:
                 raise RequestError("This field is not configured for the ticket's project.", 404)
@@ -1753,7 +1908,7 @@ def create_app(
                     {"audit": {"action": ticket_fields.ACTION, **last}},
                 )
                 ticket_fields.save_receipt(connection, event, project, value, links)
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
         return {"receipt": f"{projects.row_reference(task)} · Ticket field recorded", "event_id": event, "field": value}
 
     def move_ticket(actor, reference, data):
@@ -1770,6 +1925,8 @@ def create_app(
             if not (projects.manages(connection, submitted_project, key)
                     and projects.manages(connection, destination, key)):
                 raise RequestError("Only a manager of both projects can move the ticket.", 403)
+            require_visible_project(connection, destination)
+            require_same_ring(connection, projects.row_project(task), destination)
             if projects.row_project(task) == destination:
                 return {"key": previous, "previous": submitted_key, "receipt": f"{previous} · Already in this project"}
             if submitted_key != previous:
@@ -1794,7 +1951,7 @@ def create_app(
                 connection, number, "log", key, task["state"], f"Moved from {previous} to {new_key}.", None, [],
                 {"audit": {"action": "move-project", "previous": previous, "current": new_key}},
             )
-            ledger.bump_revision(connection)
+            ledger.bump_revision(connection, destination)
         return {"key": new_key, "previous": previous, "receipt": f"{new_key} · Moved from {previous}"}
 
     def edit_ticket_checklist(actor, number, data):
@@ -1833,6 +1990,33 @@ def create_app(
             raise RequestError(str(error)) from error
         return {"actor": actor_profile(actor)}
 
+    def check_document_target(page):
+        if not (local_readonly or portal_reader or (raft is not None and raft.identity() is not None)
+                or (oidc is not None and oidc.actor() is not None)):
+            return  # The generic shell still supports signing in to a private board.
+        current_actor()
+        g.checked_document = True
+        project_filter(request.args)
+        try:
+            if page.startswith(("tickets/", "knowledge/")):
+                number = task_number(page.split("/", 1)[1])
+                if project_for_task(db(), number) is None:
+                    raise NotFound()
+            elif page.startswith("activity/events/"):
+                identifier = integer(page.rsplit("/", 1)[1], "event ID")
+                row = db().execute("SELECT task_id FROM events WHERE id = ?", (identifier,)).fetchone()
+                if row is None or require_visible_task(db(), row["task_id"]) is None:
+                    raise NotFound()
+            elif page.startswith("schedules/") and actor_key() is not None:
+                # Signed-out viewers get the same sign-in shell for every schedule ID.
+                number = record_id(page.rsplit("/", 1)[1], "R-", "Recurring ID")
+                if query().visible_schedule(number, actor_key()) is None:
+                    raise NotFound()
+        except RequestError as error:
+            if error.status == 404:
+                raise NotFound() from None
+            raise
+
     @app.get("/")
     @app.get("/<board_page:page>")
     def index(page=None):
@@ -1853,6 +2037,10 @@ def create_app(
                 login=login,
             )
         index_file = dist / "index.html"
+        if page and (request.args.get("project") or page.startswith((
+            "tickets/", "knowledge/", "activity/events/", "schedules/",
+        ))):
+            check_document_target(page)
         if not index_file.is_file():
             return jsonify(error="Build the React board with npm ci and npm run build in web/."), 503
         if page is None:
@@ -1940,13 +2128,15 @@ def create_app(
         return {"build": meta[1].decode("ascii")}
 
     def read_revision():
+        scope, bindings = ring1.visibility(db(), "tasks.project_prefix", actor_key())
         row = db().execute(
-            """
-            SELECT COALESCE(MAX(id), 0), COALESCE((SELECT value FROM board_settings WHERE key = 'revision'), '0')
-            FROM events
-            """
+            f"""
+            SELECT COALESCE(MAX(events.id), 0), COALESCE((SELECT value FROM board_settings WHERE key = 'revision'), '0')
+            FROM events JOIN tasks ON tasks.id = events.task_id WHERE {scope}
+            """, bindings,
         ).fetchone()
-        return f"{row[0]}-{row[1]}-{pacific_day(ledger.timestamp())}"
+        state = [row[0], row[1], pacific_day(ledger.timestamp()), ring1.revisions(db(), actor_key())]
+        return sha256(json.dumps(state, separators=(",", ":")).encode()).hexdigest()
 
     release_source = CHECKOUT or PACKAGE
 
@@ -2096,34 +2286,48 @@ def create_app(
             target = profiles.get(connection, dri)
             if target is None or target["server_id"] != actor["server_id"] or not project_admin.eligible(target):
                 raise RequestError("Choose a verified person or agent on this board as the owner.", 404)
+            visibility = text(data, "visibility", optional=True, maximum=8) or "shared"
+            if visibility not in ("shared", "ring1"):
+                raise RequestError("Choose shared or Ring 1 project access.")
+            if visibility == "ring1" and prefix == projects.DEFAULT:
+                raise RequestError("Use a different prefix for a Ring 1 project.")
             project = {"prefix": prefix, "title": title, "dri": dri}
             existing = connection.execute("SELECT prefix, title, dri FROM projects WHERE prefix = ?", (prefix,)).fetchone()
             if existing is not None:
-                if dict(existing) != project:
+                require_visible_project(connection, prefix)
+                if dict(existing) != project or ring1.private(connection, prefix) != (visibility == "ring1"):
                     raise RequestError(f"Project {prefix} is already registered.", 409)
             else:
                 projects.register(connection, prefix, title, dri)
+                if visibility == "ring1":
+                    ring1.mark_private(connection, prefix, (actor["ledger_key"], dri))
                 now = ledger.timestamp()
                 maintenance.seed(connection, prefix, dri, None, now, live=True)
                 audit.record(connection, scope="private", actor=actor["ledger_key"], operation="create-project",
                              record_type="project", record_id=prefix, at=now)
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, prefix)
+            if visibility == "ring1":
+                project["visibility"] = visibility
             return {"project": project, "receipt": f"Project {prefix} · Registered"}
 
     @app.post("/api/v1/projects")
     def project_create():
         actor = current_actor(required=True, write=True)
-        return create_shared_project(actor, json_body({"prefix", "title", "dri"}))
+        return create_shared_project(actor, json_body({"prefix", "title", "dri", "visibility"}))
 
     def project_directory(actor):
         local = g.get("local_dri")
         default = local["project"] if local is not None else projects.default_project(db())
-        if local is not None:
-            rows = db().execute("SELECT prefix, title, dri FROM projects WHERE prefix = ?", (default,))
-        else:
-            rows = db().execute("SELECT prefix, title, dri FROM projects ORDER BY prefix <> ?, prefix", (default,))
+        scope, bindings = ring1.visibility(db(), "projects.prefix", actor_key())
+        rows = db().execute(
+            f"""SELECT prefix, title, dri FROM projects
+                WHERE {scope} AND (? IS NULL OR prefix = ?) ORDER BY prefix <> ?, prefix""",
+            (*bindings, local["project"] if local is not None else None, default, default),
+        ).fetchall()
         return {"default_project": default, "items": [{
             **dict(row), **projects.project_features(row["prefix"]),
+            **({"visibility": "ring1", "can_manage_ring1": can_manage_project_owners(db(), actor, row["prefix"])}
+               if ring1.private(db(), row["prefix"]) else {}),
             "can_create_knowledge": can_create_knowledge(actor, row["prefix"]),
         } for row in rows]}
 
@@ -2136,7 +2340,64 @@ def create_app(
                 and (manages_project_admin_permissions(actor) or projects.manages(connection, project, actor["ledger_key"])))
 
     def project_owner_candidate(row, project):
-        return project_admin.eligible(row) and project_writer(row, project)
+        return (project_admin.eligible(row) and project_writer(row, project)
+                and ring1.visible(db(), project, row["ledger_key"]))
+
+    def ring1_state(connection, project, actor):
+        require_visible_project(connection, project)
+        if not ring1.private(connection, project):
+            raise NotFound()
+        if not can_manage_project_owners(connection, actor, project):
+            raise RequestError("Use a signed-in project manager.", 403)
+        members = ring1.members(connection, project)
+        owners = set(projects.owner_keys(connection, project))
+        people = [project_admin.registration(row)
+                  for row in project_admin.registered_principals(connection, actor["server_id"])
+                  if project_admin.eligible(row)]
+        history = [dict(row) for row in connection.execute(
+            """SELECT actor, operation, substr(record_id, ?) AS principal, at
+               FROM audit_events WHERE record_type = 'ring1-member' AND record_id LIKE ?
+               ORDER BY id DESC LIMIT 100""", (len(project) + 2, project + ":%"),
+        )]
+        return {"project": project,
+                "members": [{**person, "removable": person["id"] not in owners}
+                            for person in people if person["id"] in members],
+                "choices": [person for person in people if person["id"] not in members],
+                "history": history}
+
+    @app.route("/api/v1/projects/<project>/ring1", methods=("GET", "PUT"))
+    def project_ring1(project):
+        write = request.method == "PUT"
+        actor = current_actor(required=True, write=write)
+        project = project_filter({"project": project})
+        if not write:
+            with tasks_storage.read(db()) as connection:
+                return ring1_state(connection, project, actor)
+        data = json_body({"principal", "allowed"})
+        principal = text(data, "principal", maximum=160)
+        allowed = data.get("allowed")
+        if type(allowed) is not bool:
+            raise RequestError("Send allowed as true or false.")
+        with tasks_storage.write(db()) as connection:
+            require_visible_project(connection, project)
+            if not ring1.private(connection, project):
+                raise NotFound()
+            if not can_manage_project_owners(connection, actor, project):
+                raise RequestError("Use a signed-in project manager.", 403)
+            person = profiles.get(connection, principal)
+            if allowed and (person is None or person["server_id"] != actor["server_id"]
+                            or not project_admin.eligible(person)):
+                raise RequestError("Choose a verified person or Team DRI on this board.", 404)
+            if not allowed and principal in projects.owner_keys(connection, project):
+                raise RequestError("Remove the person's project owner grant before removing Ring 1 access.", 409)
+            if ring1.set_member(connection, project, principal, allowed):
+                audit.record(connection, scope="private", actor=actor["ledger_key"],
+                             operation="grant" if allowed else "revoke", record_type="ring1-member",
+                             record_id=f"{project}:{principal}", at=ledger.timestamp())
+                ledger.bump_revision(connection, project)
+            if principal == actor["ledger_key"] and not allowed:
+                return {"receipt": "Ring 1 access removed."}
+            return ring1_state(connection, project, actor)
 
     def project_owner_state(connection, actor, project):
         editable = can_manage_project_owners(connection, actor, project)
@@ -2202,6 +2463,7 @@ def create_app(
         if type(allowed) is not bool:
             raise RequestError("Send allowed as true or false.")
         with tasks_storage.write(db()) as connection:
+            require_visible_project(connection, project)
             if not can_manage_project_owners(connection, actor, project):
                 raise RequestError("Use a signed-in project owner or the board permission manager.", 403)
             if allowed and principal not in projects.owner_keys(connection, project):
@@ -2217,7 +2479,7 @@ def create_app(
                 audit.record(connection, scope="private", actor=key,
                              operation="grant-project-owner" if allowed else "revoke-project-owner",
                              record_type="project-owner", record_id=f"{project}:{principal}", at=ledger.timestamp())
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
             return project_owner_state(connection, actor, project)
 
     @app.route("/api/v1/projects/<project>/raft-channel", methods=("GET", "PUT"))
@@ -2245,7 +2507,7 @@ def create_app(
                 if connection.total_changes != before:
                     audit.record(connection, scope="private", actor=actor["ledger_key"], operation="set-project-links",
                                  record_type="project", record_id=project, at=ledger.timestamp())
-                    ledger.bump_revision(connection)
+                    ledger.bump_revision(connection, project)
 
         raft_link = public_raft_links.get(project)
         if raft_link is None:
@@ -2269,7 +2531,7 @@ def create_app(
                 if changed:
                     audit.record(connection, scope="private", actor=owner, operation="set-project-ticket-fields",
                                  record_type="project", record_id=project, at=ledger.timestamp())
-                    ledger.bump_revision(connection)
+                    ledger.bump_revision(connection, project)
         return {"project": project, "editable": editable, "fields": ticket_fields.definitions(db(), project)}
 
     @app.route("/api/v1/projects/<project>/ticket-fields", methods=("GET", "PUT"))
@@ -2320,7 +2582,7 @@ def create_app(
                 if changed:
                     audit.record(connection, scope="private", actor=owner, operation=operation,
                                  record_type="project", record_id=project, at=ledger.timestamp())
-                    ledger.bump_revision(connection)
+                    ledger.bump_revision(connection, project)
         return writing_guidance(project, owner)
 
     @app.route("/api/v1/projects/<project>/stamp-reviews", methods=("GET", "POST"))
@@ -2437,6 +2699,7 @@ def create_app(
             project = project_filter(request.args)
             result = tasks_stats.snapshot(
                 connection, period, base=base, watcher_task=watcher_task_id(connection), project=project,
+                principal=actor_key(),
             )
             result["integrations"] = integration_stats.snapshot(
                 connection, (result["from"], result["to"]), project=project,
@@ -2713,7 +2976,9 @@ def create_app(
                     or request.headers.get("Sec-Fetch-Site") not in (None, "same-origin", "none")
                     or event_id > 2**63 - 1):
                 raise NotFound()
-            event_row = db().execute("SELECT links FROM events WHERE id = ?", (event_id,)).fetchone()
+            event_row = db().execute("SELECT task_id, links FROM events WHERE id = ?", (event_id,)).fetchone()
+            if event_row is not None:
+                require_visible_task(db(), event_row["task_id"])
             links = json.loads(event_row["links"]) if event_row is not None else []
             if link_index >= len(links):
                 raise NotFound()
@@ -2851,6 +3116,7 @@ def create_app(
         brief = text(data, "brief")
         try:
             with tasks_storage.write(db()) as connection:
+                require_visible_project(connection, project)
                 if not can_create_knowledge(actor, project):
                     raise PermissionError("Only a signed project writer or project manager can create Knowledge entries.")
                 return knowledge_records.create(connection, actor["ledger_key"], project, title, brief)
@@ -2866,7 +3132,7 @@ def create_app(
 
     def knowledge_directory(project=None):
         with tasks_storage.read(db()) as connection:
-            return {"areas": knowledge_records.directory(connection, project=project)}
+            return {"areas": knowledge_records.directory(connection, project=project, principal=actor_key())}
 
     @app.get("/api/v1/knowledge/areas")
     def knowledge_areas():
@@ -2897,7 +3163,7 @@ def create_app(
         watching = owner is not None and args.get("watching") == "true"
         actor = current_actor(required=bool(owner and ("scope" in args or watching)))
         project = project_scope(args)
-        with tasks_storage.read(db()) as connection:
+        with tasks_storage.read(db()):
             summaries = query()
             if owner:
                 return summaries.owner_goal_activity(
@@ -2907,8 +3173,8 @@ def create_app(
                 )
             if project is not None:
                 return summaries.goal_activity(project)
-            prefixes = connection.execute("SELECT prefix FROM projects ORDER BY prefix")
-            return {"items": [item for row in prefixes for item in summaries.goal_activity(row["prefix"])["items"]]}
+            return {"items": [item for prefix in summaries.report_projects()
+                              for item in summaries.goal_activity(prefix)["items"]]}
 
     @app.get("/api/v1/reports/workers")
     def report_workers():
@@ -3010,7 +3276,7 @@ def create_app(
         project = project_scope(request.args)
         with tasks_storage.read(db()) as connection:
             roster = (project_roster or {}) if project in (None, projects.DEFAULT) else {}
-            agents = notification_log.project_agents(connection, project, roster)
+            agents = notification_log.project_agents(connection, project, roster, principal=actor_key())
             requested = request.args.get("recipient")
             recipient = None
             if requested is not None:
@@ -3018,11 +3284,11 @@ def create_app(
                 if selected is None:
                     raise RequestError("Choose an available agent for the selected projects.", 404)
                 recipient = selected["ledger_key"]
-            page = notification_log.listing(connection, project, recipient, state, kind, before_wake=before_wake, **page)
+            page = notification_log.listing(connection, project, recipient, state, kind, before_wake=before_wake, principal=actor_key(), **page)
             return {
                 **page,
                 "agent_options": [{"id": row["subject"], "name": row["name"]} for row in agents],
-                "has_receipts": bool(page["items"]) or notification_log.has_receipts(connection, project),
+                "has_receipts": bool(page["items"]) or notification_log.has_receipts(connection, project, principal=actor_key()),
             }
 
     @app.get("/api/v1/notifications/watched")
@@ -3102,7 +3368,7 @@ def create_app(
         with tasks_storage.read(db()) as connection:
             return {
                 "items": list(query().actionable_work(owner, today=pacific_day(ledger.timestamp()), project=project)),
-                **goals.queue_context(connection, owner, project),
+                **goals.queue_context(connection, owner, project, principal=actor_key()),
             }
 
     @app.get("/api/v1/notifications/needs-you")
@@ -3206,18 +3472,19 @@ def create_app(
         day = reminder_date(json_body({"date"}))
         with tasks_storage.write(db()) as connection:
             row = connection.execute(
-                "SELECT handled_at, remind_on FROM attention_requests WHERE id = ? AND recipient = ?",
+                "SELECT task_id, handled_at, remind_on FROM attention_requests WHERE id = ? AND recipient = ?",
                 (number, actor["ledger_key"]),
             ).fetchone()
             if row is None:
                 raise NotFound()
+            project = require_visible_task(connection, row["task_id"])
             if row["handled_at"] is not None:
                 raise RequestError("This request is already handled.", 409)
             if row["remind_on"] != day:
                 connection.execute("UPDATE attention_requests SET remind_on = ? WHERE id = ?", (day, number))
                 audit.record(connection, scope="private", actor=actor["ledger_key"], operation="set-attention-reminder",
                              record_type="attention_request", record_id=number, at=ledger.timestamp())
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
         return {"id": number, "remind_on": day}
 
     @app.post("/api/v1/notifications/requests/<int:number>/handled")
@@ -3226,7 +3493,7 @@ def create_app(
         with tasks_storage.write(db()) as connection:
             row = connection.execute(
                 """
-                SELECT requests.handled_at, links.event_id, links.ready_event_id, events.task_id
+                SELECT requests.task_id AS origin_task, requests.handled_at, links.event_id, links.ready_event_id, events.task_id
                 FROM attention_requests AS requests
                 LEFT JOIN attention_wait_links AS links ON links.request_id = requests.id
                 LEFT JOIN events ON events.id = links.event_id
@@ -3236,6 +3503,9 @@ def create_app(
             ).fetchone()
             if row is None:
                 raise NotFound()
+            project = require_visible_task(connection, row["origin_task"])
+            if row["task_id"] is not None:
+                require_visible_task(connection, row["task_id"])
             handled_at = row["handled_at"]
             ready_event = row["ready_event_id"]
             unblocked_task = row["task_id"] if ready_event is not None else None
@@ -3253,7 +3523,7 @@ def create_app(
                         (ready_event, number),
                     )
                     unblocked_task = linked_task
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
         receipt = {"id": number, "handled_at": handled_at}
         if unblocked_task is not None:
             task = ledger.get_task(db(), unblocked_task)
@@ -3306,9 +3576,10 @@ def create_app(
             recipient = resolve_assignee(text(data, "recipient_name", maximum=101), "human", project)
         else:
             recipient = text(data, "recipient", optional=local is not None and "recipient" not in data, maximum=160)
-        recipient = local_question_recipient(local, recipient) if local else require_person(recipient, "human")
+        recipient = local_question_recipient(local, recipient) if local else require_person(recipient, "human", task_id=number)
         reason = text(data, "reason")
-        links = json.dumps(one_link(data))
+        evidence = one_link(data)
+        links = json.dumps(evidence)
         request_key = text(data, "request_key", optional=True, maximum=100)
         if request_key is not None and not re.fullmatch(r"[A-Za-z0-9_-]+", request_key):
             raise RequestError("Use letters, digits, hyphens or underscores in the request key.")
@@ -3317,6 +3588,15 @@ def create_app(
             task = ledger.find_task(connection, number)
             if task is None:
                 raise NotFound()
+            project = projects.row_project(task)
+            require_visible_project(connection, project)
+            require_ring_member(connection, project, recipient)
+            if unblocks is not None:
+                require_same_ring(connection, project, require_visible_task(connection, unblocks))
+            for _, url in evidence:
+                if related := internal_link_project(connection, url):
+                    require_visible_project(connection, related)
+                    require_same_ring(connection, project, related)
             if ledger.is_knowledge(task):
                 raise RequestError("Raise attention from a linked work ticket.", 409)
             if task["dri"] != sender:
@@ -3343,8 +3623,8 @@ def create_app(
                 "(task_id, sender, recipient, reason, links, raised_at, unblocks_task_id, request_key) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (number, sender, recipient, reason, links, raised_at, unblocks, request_key),
             )
-            ledger.bump_revision(connection)
-        if push_delivery:
+            ledger.bump_revision(connection, project)
+        if push_delivery and not ring1.private(db(), project):
             push_delivery.submit("attention", number, identifier)
         return {"id": identifier, "task_id": number, "raised_at": raised_at, "receipt": receipt}
 
@@ -3410,6 +3690,7 @@ def create_app(
             raise RequestError("Choose the milestone to clear by name.")
         try:
             with tasks_storage.write(db()) as connection:
+                require_visible_project(connection, project)
                 goal = None
                 if value is not None:
                     if not isinstance(value, dict) or value.keys() - {"summary", "deadline", "tickets"}:
@@ -3423,13 +3704,13 @@ def create_app(
                     references = value.get("tickets", [])
                     if not isinstance(references, list) or len(references) > 50:
                         raise ValueError("Link up to 50 ticket IDs.")
-                    ids = list(dict.fromkeys(projects.resolve(connection, ref) for ref in references))
+                    ids = list(dict.fromkeys(task_number(ref) for ref in references))
                     goal = summary, deadline, ids
                 if named:
                     saved = goals.save_milestone(connection, project, owner, previous, goal)
                 else:
                     saved = goals.save(connection, project, owner, goal)
-                ledger.bump_revision(connection)
+                ledger.bump_revision(connection, project)
         except (ValueError, LookupError) as error:
             raise RequestError(str(error)) from error
         return saved
@@ -3439,6 +3720,7 @@ def create_app(
         if summary is not None and not summary.isprintable():
             raise RequestError("Provide a one-line goal summary.")
         with tasks_storage.write(db()) as connection:
+            require_visible_project(connection, project)
             previous = next(iter(goals.standing(connection, owner, project)), None)
             if (previous["summary"] if previous else None) == summary:
                 return previous
@@ -3446,7 +3728,7 @@ def create_app(
                 saved = goals.save_standing(connection, project, owner, summary)
             except ValueError as error:
                 raise RequestError(str(error)) from error
-            ledger.bump_revision(connection)
+            ledger.bump_revision(connection, project)
             return saved
 
     @app.patch("/api/v1/profile/standing-goal")
@@ -3561,6 +3843,10 @@ def create_app(
             scope += f""" AND (kind <> 'agent' OR {team}
                 OR EXISTS (SELECT 1 FROM local_dris WHERE actor = board_principals.ledger_key))"""
         connection = db()
+        if ring1.private(connection, project):
+            scope += """ AND EXISTS (SELECT 1 FROM project_ring1_members AS membership
+                       WHERE membership.project = ? AND membership.principal = board_principals.ledger_key)"""
+            subjects.append(project)
         sort = tasks_storage.principal_order(connection)
         username_match = tasks_storage.find_text(connection, "LOWER(username)", "LOWER(?)")
         name_match = tasks_storage.find_text(connection, "LOWER(name)", "LOWER(?)")
@@ -3630,12 +3916,12 @@ def create_app(
         if "on_name" in data:
             if "on" in data or not decision:
                 raise RequestError("Use either a name or an exact ID when assigning or redirecting a human decision.")
-            project = local["project"] if local else projects.default_project(db())
+            project = require_visible_task(db(), number) or projects.default_project(db())
             on = resolve_assignee(text(data, "on_name", maximum=101), "human", project)
         if decision:
             if command == "redirect-decision" and on is None:
                 raise RequestError("Choose a new recipient to redirect the decision.")
-            on = local_question_recipient(local, on) if local else require_person(on, "human")
+            on = local_question_recipient(local, on) if local else require_person(on, "human", task_id=number)
         blocked_by = data.get("blocked_by")
         if "blocked_by" in data:
             try:
@@ -3702,7 +3988,11 @@ def create_app(
         task = ledger.find_task(connection, number)
         if task is None:
             raise NotFound()
-        require_local_project(projects.row_project(task))
+        project = projects.row_project(task)
+        require_visible_project(connection, project)
+        require_local_project(project)
+        if ring1.private(connection, project):
+            raise NotFound()
         if task["dri"] != actor["ledger_key"] and connection.execute(
             "SELECT 1 FROM task_watches WHERE task_id = ? AND watcher = ?", (number, actor["ledger_key"]),
         ).fetchone() is None:
@@ -3786,16 +4076,17 @@ def create_app(
         project = project_filter(data)
         with tasks_storage.write(db()) as connection:
             if offer := goal_offers.read_offer(connection, owner, handoff_id):
+                require_visible_project(connection, offer["project"])
                 return {"offer": offer, "receipt": "Idle goal offer already recorded."}
             now = ledger.timestamp()
             if next(query().actionable_work(owner, today=pacific_day(now), project=None), None):
                 return {"offer": None, "receipt": "Actionable work is available."}
             goal = next((row for row in goals.goal_rows(connection, [owner], project, kind="standing")
-                         if row["state"] == "parked"), None)
+                         if row["state"] == "parked" and ring1.visible(connection, row["project_prefix"], actor_key())), None)
             if goal is None:
                 return {"offer": None, "receipt": "No standing goal is available."}
             goal_offers.record(connection, owner, handoff_id, goal["id"], now)
-            ledger.bump_revision(connection)
+            ledger.bump_revision(connection, goal["project_prefix"])
             offer = goal_offers.read_offer(connection, owner, handoff_id)
             return {"offer": offer, "receipt": "Idle goal offer recorded."}
 
@@ -3886,7 +4177,7 @@ def create_app(
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:
                 work = first_actionable_work(key, project)
-                result = {"work": work, **goals.queue_context(connection, key, project)}
+                result = {"work": work, **goals.queue_context(connection, key, project, principal=actor_key())}
                 cue = agent_guidance["ready-review"]
                 if cue and work and work["kind"] in ("ready", "shared_ready") and not peer_asks.find(connection, work["id"]):
                     result["next_step"] = f"{agent_guidance.next_step(name, data, result)} {cue}"
@@ -4061,8 +4352,10 @@ def create_app(
                             index=index == "true",
                         )
                     if name == "knowledge-stage":
+                        entry, source = task_number(data.get("id")), task_number(data.get("source"))
+                        require_same_ring(connection, project_for_task(connection, entry), project_for_task(connection, source))
                         return knowledge_records.stage(
-                            connection, task_number(data.get("id")), task_number(data.get("source")), key,
+                            connection, entry, source, key,
                             text(data, "brief", optional=True),
                             integer(data["source_event"], "source_event") if "source_event" in data else None,
                         )
@@ -4122,8 +4415,7 @@ def create_app(
             number = record_id(data.get("id"), "R-", "Recurring ID")
             try:
                 with tasks_storage.read(db()) as connection:
-                    if profile is not None and (schedule := maintenance.find(connection, definition_id=number)):
-                        require_local_project(schedule["project"])
+                    require_visible_schedule(number)
                     return tasks_recurring.report(connection, number, key, ledger.timestamp())
             except RequestError:
                 raise

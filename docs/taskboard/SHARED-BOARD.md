@@ -443,6 +443,29 @@ people and Team DRIs. Other signed viewers can see themselves and current
 project owners. Board-wide grants for other identities are available to the
 board permission manager.
 
+### Create a private Ring 1 project
+
+Choose **Ring 1 (Private)** in **Settings → Create project**. The creator and
+initial owner receive access. Existing projects and the default project stay
+shared. To use Ring 1 for new work, create a separate project.
+
+In the private project's Settings, add verified humans or Team DRIs under
+**Ring 1 access**. A signed manager who belongs to the ring can review changes
+and remove access. Remove a person's project owner role before removing their
+membership. Tickets, Knowledge, Activity, and in-board requests inherit their
+project's access. Unlisted viewers receive a 404 for private records and see
+only their accessible projects in search, Reports, and Notifications. Use a
+personal sign-in to reach the project even on boards with tailnet-only access.
+
+Keep ticket moves and record links within the same Ring 1 project. Review work
+and notifications stay in Taskboard. Use the usual project permissions to
+decide which actions each member can take.
+
+Upgrade the serving code before creating a private project. A supported
+SQLite-to-PostgreSQL import copies the membership records. Keep a closed
+pre-upgrade backup for rollback and use it with a predecessor server. A
+predecessor server cannot enforce Ring 1 against an upgraded ledger.
+
 ### Edit shared content and apply workflow permissions
 
 Signed-in human writers, eligible Team DRIs under the board’s project rules,

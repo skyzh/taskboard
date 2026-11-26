@@ -7947,24 +7947,35 @@ class TasksServiceTest(unittest.TestCase):
         asset = b'console.log("fixture");'
         (dist / "assets" / "fixture.js").write_bytes(asset)
 
-        client = self.app(portal_reader=True, dist=dist).test_client()
+        app = self.app(portal_reader=True, dist=dist, project_admin_subject=self.provider.people["Sam"]["sub"])
+        client, _ = self.login(app, "Sam")
+        self.call(client, "/api/v1/projects", method="POST", json={"prefix": "OPS", "title": "Sample project"})
+        agent, _ = self.login(app, "Avery")
+        self.action(agent, "create-task", {"project": "OPS", "title": "Sample task", "step": "Check the page."})
+        self.call(client, "/api/v1/knowledge", method="POST", status=201,
+                  json={"project": "OPS", "title": "Sample note", "brief": "Use the installed page."})
+        activity_id = self.call(client, "/api/v1/tasks/OPS-1/activity").json["items"][0]["id"]
+        maintenance = self.call(client, "/api/v1/schedules?project=OPS").json["maintenance"]["schedule"]["id"]
         with closing(self.call(client, "/")) as response:
             self.assertEqual(response.data, html)
         pages = (
             "/reports?project=OPS&view=watching", "/reports/agents/raft%3Aagent%3Afictional", "/tasks",
-            "/tickets/OPS-12", "/activity", "/activity/events/42", "/my-activity", "/knowledge",
-            "/knowledge/OPS-14", "/schedules", "/schedules/R-8", "/team-overview", "/stats",
+            "/tickets/OPS-1", "/activity", f"/activity/events/{activity_id}", "/my-activity", "/knowledge",
+            "/knowledge/OPS-2", "/schedules", f"/schedules/{maintenance}", "/team-overview", "/stats",
             "/notifications", "/settings", "/integrations", "/personal-codex", "/search", "/about",
         )
         nested_html = html.replace(b'href="./"', f'href="{BASE}/"'.encode())
+        for schedule in (maintenance, "R-999"):
+            with closing(self.call(app.test_client(), f"/schedules/{schedule}")) as response:
+                self.assertEqual(response.data, nested_html)
         for page in pages:
             with self.subTest(page=page), closing(self.call(client, page)) as response:
                 self.assertEqual((response.mimetype, response.data), ("text/html", nested_html))
-        with closing(self.call(client, "/tickets/OPS-12", method="HEAD")) as response:
+        with closing(self.call(client, "/tickets/OPS-1", method="HEAD")) as response:
             self.assertEqual(response.data, b"")
             self.assertEqual(response.content_length, len(nested_html))
             etag = response.headers["ETag"]
-        self.call(client, "/tickets/OPS-12", status=304, headers={"If-None-Match": etag}).close()
+        self.call(client, "/tickets/OPS-1", status=304, headers={"If-None-Match": etag}).close()
 
         with closing(self.call(client, "/assets/fixture.js")) as response:
             self.assertEqual(response.data, asset)
@@ -7972,10 +7983,10 @@ class TasksServiceTest(unittest.TestCase):
                         "/api/v1/nonexistent", "/assets/absent.js", "/auth/absent", "/ask-sw.js"):
             self.call(client, missing, status=404).close()
         self.call(client, "/unknown", method="POST", status=404).close()
-        self.assertEqual(client.get(BASE + "/tickets/OPS-12", base_url=ORIGIN).status_code, 403)
+        self.assertEqual(client.get(BASE + "/tickets/OPS-1", base_url=ORIGIN).status_code, 403)
 
         root_app = create_app(self.database, public_url="http://127.0.0.1", local_readonly=True, dist=dist)
-        with closing(root_app.test_client().get("/knowledge/OPS-14")) as response:
+        with closing(root_app.test_client().get("/knowledge/OPS-2")) as response:
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.data, html.replace(b'href="./"', b'href="/"'))
 

@@ -36,7 +36,7 @@ def save_review_time(db, owner, number, value):
             (number, value),
         ).rowcount
     if changed:
-        ledger.bump_revision(db)
+        ledger.bump_revision(db, projects.row_project(task))
     return {"ticket": projects.row_reference(task), "review_time": value or None}
 
 

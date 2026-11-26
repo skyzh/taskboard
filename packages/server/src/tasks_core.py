@@ -28,6 +28,7 @@ import tasks_audit as audit
 import tasks_maintenance as maintenance
 import tasks_merges as merges
 import tasks_projects as projects
+import tasks_ring1 as ring1
 import tasks_peer_asks as peer_asks
 import tasks_releases as releases
 import tasks_references as references
@@ -1221,7 +1222,7 @@ def reference_fields(task, steps, history):
             yield from audit["previous"].values()
 
 
-def resolve_task_references(db, task_id, fields, board_url):
+def resolve_task_references(db, task_id, fields, board_url, *, principal=None):
     """Resolve authored references without reading private requests or evidence."""
     board = urlsplit(board_url)
     keys = dict.fromkeys(
@@ -1240,14 +1241,16 @@ def resolve_task_references(db, task_id, fields, board_url):
             continue
         key = f"{prefix}-{number}"
         target = projects.find_reference(db, prefix, number, migrated=migrated, aliases=aliases)
-        if target is not None and target["id"] != task_id:
+        if target is not None and target["id"] != task_id and (
+            not migrated or (ring1.visible(db, prefix, principal) and ring1.visible(db, target["project_prefix"], principal))
+        ):
             anchor = str(number) if prefix == "T" else key
             result.append({"id": target["id"], "key": key, "title": target["title"],
                            "url": f"{board_url}#task-{anchor}"})
     return result
 
 
-def task_links(db, task, steps, board_url, history=None):
+def task_links(db, task, steps, board_url, history=None, *, principal=None):
     if history is None:
         history = list(activity(db, task["id"]))
     fields = list(reference_fields(task, steps, history))
@@ -1255,7 +1258,7 @@ def task_links(db, task, steps, board_url, history=None):
     explicit = list(watches.task_source_links(db, task["id"]))
     related = resolve_task_references(db, task["id"], (
         *fields, *(url for _, url in evidence), *(url for _, _, url, _ in explicit)
-    ), board_url)
+    ), board_url, principal=principal)
 
     sources = [(label, url, generated) for _, label, url, generated in explicit]
     seen = {match[0] for _, url, _ in sources if (match := references.pasted_source(url))}
@@ -1682,7 +1685,7 @@ def workstreams_html(db, tasks):
 
 
 def render_board(db, path):
-    tasks = list_tasks(db)
+    tasks = [task for task in list_tasks(db) if ring1.visible(db, projects.row_project(task), None)]
     names = board_display_names(db)
     tasks_by_id = {task["id"]: task for task in tasks}
     people = sorted({task["waiting_on"] for task in tasks if task["waiting_on"]}, key=str.casefold)
@@ -1977,7 +1980,9 @@ def live_board_url(db):
     return None
 
 
-def bump_revision(db):
+def bump_revision(db, project=None):
+    if ring1.bump_revision(db, project):
+        return
     db.execute(
         """
         INSERT INTO board_settings VALUES ('revision', '1')
@@ -1986,25 +1991,31 @@ def bump_revision(db):
     )
 
 
+def recurring_project(db, definition, schedule):
+    if schedule is not None:
+        return schedule["project"]
+    if definition["project_prefix"] is not None:
+        return definition["project_prefix"]
+    if watches.has_table(db, "local_dris") and (local := local_dri.registration(db, definition["owner"])):
+        return local["project"]
+    return projects.default_project(db) if watches.has_table(db, "board_settings") else projects.DEFAULT
+
+
 def issue_recurring_task(db, definition, due, as_of):
     schedule = maintenance.find(db, definition_id=definition["id"])
     args = argparse.Namespace(
+        project=recurring_project(db, definition, schedule),
         title=definition["title"], step=definition["step"], brief=None, dri=definition["owner"], by=None,
     )
     links = []
     if schedule is not None:
         from tasks_maintenance_report import build
 
-        args.project = schedule["project"]
         members = set(json.loads(schedule["members"]))
         if members:
             members.update(projects.owner_keys(db, args.project))
             members.add(schedule["owner"])
         args.brief, links = build(db, args.project, as_of, schedule["cadence_hours"], members or None)
-    elif definition["project_prefix"] is not None:
-        args.project = definition["project_prefix"]
-    elif watches.has_table(db, "local_dris") and (local := local_dri.registration(db, definition["owner"])):
-        args.project = local["project"]
     context = {"recurring": f"R-{definition['id']}", "due_at": due}
     return create_task_record(db, args, links, context=context, at=as_of)
 
@@ -2024,8 +2035,11 @@ def save_task(db, path, args, links):
     with tasks_storage.write(db):
         if path is not None:
             ensure_schema(db)
+        authorize = getattr(args, "authorize", None)
+        revision_project = authorize(db) if authorize else getattr(args, "project", None)
         live = path is None or live_board_url(db) is not None
         before_change = db.total_changes
+        touched_projects = set()
         if args.command == maintenance.WRITE:
             output = json.dumps(maintenance.update(db, args, timestamp(), live=live))
         elif args.command in tasks_recurring.EDITS:
@@ -2043,14 +2057,21 @@ def save_task(db, path, args, links):
             if project is None and args.deferrals_only:
                 result = {"as_of": as_of, "released_deferrals": release_due_deferrals(db, as_of)}
             else:
+                touched_definitions = [] if project is None else None
                 result = tasks_recurring.tick(
                     db, as_of, lambda definition, due: issue_recurring_task(db, definition, due, as_of),
                     recorded_at=now, project=project, actor=args.by if project is not None else None,
+                    touched=touched_definitions,
                 )
+                for definition in touched_definitions or ():
+                    schedule = maintenance.find(db, definition_id=definition["id"])
+                    touched_projects.add(recurring_project(db, definition, schedule))
                 if project is not None:
                     result["project"] = project
                 elif released := release_due_deferrals(db, as_of):
                     result["released_deferrals"] = released
+            for reference in result.get("released_deferrals", ()):
+                touched_projects.add(projects.identifier(reference)[0])
             output = json.dumps(result)
         elif args.command == peer_asks.COMMAND:
             output = peer_asks.change(db, args, links)
@@ -2099,7 +2120,11 @@ def save_task(db, path, args, links):
             or (args.command == "wait" and getattr(args, "peer_recipient", None) is not None)
         )
         if live and (not unchanged_allowed or db.total_changes != before_change):
-            bump_revision(db)
+            if args.command == "recurring-tick" and revision_project is None:
+                for project in sorted(touched_projects):
+                    bump_revision(db, project)
+            else:
+                bump_revision(db, revision_project)
     if not live:
         refresh_board_after_save(db, path, "Record saved")
     return output

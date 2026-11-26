@@ -11,6 +11,7 @@ import tasks_core as ledger
 from tasks_notification_log import ReceiptConflict, WAKE_SCHEMA
 import tasks_profiles as profiles
 import tasks_projects as projects
+import tasks_ring1 as ring1
 import tasks_storage
 from tasks_wake_subscriptions import OWNED_READY, has_subscription
 
@@ -55,6 +56,8 @@ def launch_ready_wake(
     with tasks_storage.read(db):
         owner = ready_wake_owner(db, recipient.identity)
         project = projects.require(db, project)
+        if ring1.private(db, project):
+            raise PermissionError("Ring 1 work is available in Taskboard.")
         current = ledger.get_task(db, projects.resolve(db, task))
         if projects.row_reference(current) != task or projects.row_project(current) != project:
             raise ValueError("Choose the exact ticket reference in the selected project.")

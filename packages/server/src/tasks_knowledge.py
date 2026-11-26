@@ -4,6 +4,7 @@ from argparse import Namespace
 
 import tasks_core as ledger
 import tasks_projects as projects
+import tasks_ring1 as ring1
 import watches
 
 
@@ -73,7 +74,7 @@ def create(db, actor, project, title, brief):
     number = ledger.create_task_record(db, args, [], state="done", context={"record_kind": "knowledge"})
     db.execute("UPDATE tasks SET record_kind = 'knowledge' WHERE id = ?", (number,))
     db.execute("INSERT INTO task_tags (task_id, tag) VALUES (?, ?)", (number, DECISION_TAG))
-    ledger.bump_revision(db)
+    ledger.bump_revision(db, project)
     ticket = projects.for_task(db, number)
     return {"id": ticket, "record_kind": "knowledge", "receipt": f"{ticket} · Knowledge entry created."}
 
@@ -123,7 +124,7 @@ def set_maintenance_dri(db, note, actor, dri):
     message = f"Assigned Knowledge maintenance to {current['name']}." if current else "Cleared the Knowledge DRI."
     ledger.record(db, number, "log", actor, note["state"], message, None, [],
                   {"previous_knowledge_dri": previous, "knowledge_dri": dri})
-    ledger.bump_revision(db)
+    ledger.bump_revision(db, projects.row_project(note))
     return {"id": projects.row_reference(note), "maintenance_dri": current, "receipt": message}
 
 
@@ -167,7 +168,7 @@ def place(db, number, actor, area, *, index=False):
     )
     purpose = "Set as index for" if assigned_index else "Placed in"
     ledger.record(db, number, "log", actor, note["state"], f"{purpose} Knowledge area {path}.", None, [])
-    ledger.bump_revision(db)
+    ledger.bump_revision(db, project)
     return {"receipt": "Knowledge area saved.", "project": project, "area": path}
 
 
@@ -205,11 +206,12 @@ def stage(db, number, source_id, actor, brief, source_event):
     )
     ledger.record(db, source_id, "log", actor, source["state"],
                   f"Staged work for Knowledge entry {projects.row_reference(note)}.", None, [])
-    ledger.bump_revision(db)
+    ledger.bump_revision(db, projects.row_project(source))
     return {"receipt": "Knowledge change staged."}
 
 
-def directory(db, *, project=None):
+def directory(db, *, project=None, principal=None):
+    visibility, bindings = ring1.visibility(db, "areas.project", principal)
     return [{
         "project": row["project"], "path": row["path"], "index": projects.row_reference(row),
         "title": row["title"], "available": bool(row["available"]),
@@ -221,14 +223,16 @@ def directory(db, *, project=None):
                 ))) AS available
             FROM knowledge_areas AS areas
             JOIN current ON current.id = areas.index_id AND current.project_prefix = areas.project
-            WHERE (? IS NULL OR areas.project = ?)
-            ORDER BY areas.project, areas.path""", (DECISION_TAG, project, project),
+            WHERE (? IS NULL OR areas.project = ?) AND {visibility}
+            ORDER BY areas.project, areas.path""", (DECISION_TAG, project, project, *bindings),
     )]
 
 
-def links(db, number, *, include_source=False, source_project=None):
+def links(db, number, *, principal, include_source=False, source_project=None):
     where = "(stage.entry_id = ? OR stage.source_id = ?)" if include_source else "stage.entry_id = ?"
     args = (number, number) if include_source else (number,)
+    source_scope, source_bindings = ring1.visibility(db, "source.project_prefix", principal)
+    entry_scope, entry_bindings = ring1.visibility(db, "entry.project_prefix", principal)
     if source_project is not None:
         where += " AND source.project_prefix = ?"
         args += (source_project,)
@@ -240,8 +244,9 @@ def links(db, number, *, include_source=False, source_project=None):
         JOIN tasks AS source ON source.id = stage.source_id
         JOIN tasks AS entry ON entry.id = stage.entry_id
         LEFT JOIN events AS source_event ON source_event.id = stage.source_event_id
-        WHERE {where} ORDER BY stage.staged_at DESC, stage.source_id DESC
-    """, args).fetchall()
+        WHERE {where} AND {source_scope} AND {entry_scope}
+        ORDER BY stage.staged_at DESC, stage.source_id DESC
+    """, (*args, *source_bindings, *entry_bindings)).fetchall()
     return [{
         "source": projects.row_reference(row), "source_title": row["source_title"],
         "entry": f"{row['entry_project']}-{row['entry_number']}", "entry_title": row["entry_title"],
@@ -250,7 +255,7 @@ def links(db, number, *, include_source=False, source_project=None):
     } for row in records]
 
 
-def metadata(db, number, *, source_project=None):
+def metadata(db, number, *, principal, source_project=None):
     area = db.execute(
         """SELECT entries.project, entries.path, areas.index_id FROM knowledge_entries AS entries
            JOIN tasks AS note ON note.id = entries.task_id AND note.project_prefix = entries.project
@@ -271,7 +276,7 @@ def metadata(db, number, *, source_project=None):
                 """, (area["project"], area["path"], area["project"], number, DECISION_TAG),
             ) if ledger.is_knowledge(row) or row["display_state"] == "done"
         ]
-    if staged := links(db, number, source_project=source_project):
+    if staged := links(db, number, principal=principal, source_project=source_project):
         result["staged_work"] = staged
     return result
 
@@ -287,6 +292,9 @@ def reconcile(db, project, actor, base, *, dri=None):
         JOIN tasks ON tasks.id = stage.entry_id
         JOIN tasks AS source ON source.id = stage.source_id
         WHERE tasks.project_prefix = ? AND applied_event_id IS NULL
+          AND (tasks.project_prefix = source.project_prefix OR NOT EXISTS (
+              SELECT 1 FROM project_ring1 WHERE project IN (tasks.project_prefix, source.project_prefix)
+          ))
           AND (? IS NULL OR EXISTS (
               SELECT 1 FROM knowledge_maintenance_assignments AS assignment
               WHERE assignment.task_id = stage.entry_id AND assignment.dri = ?
@@ -331,7 +339,7 @@ def reconcile(db, project, actor, base, *, dri=None):
                 if row["conflict"] != conflict:
                     db.execute("UPDATE knowledge_stages SET conflict = ? WHERE entry_id = ? AND source_id = ?",
                                (conflict, number, row["source_id"]))
-                    ledger.bump_revision(db)
+                    ledger.bump_revision(db, project)
                 continue
             source_url = f"{base}/#event-{row['source_event_id']}-log"
             evidence = [("Settled Knowledge source", source_url)]
@@ -348,6 +356,6 @@ def reconcile(db, project, actor, base, *, dri=None):
                    WHERE entry_id = ? AND source_id = ?""",
                 (event, number, row["source_id"]),
             )
-            ledger.bump_revision(db)
+            ledger.bump_revision(db, project)
             applied.append({"entry": entry, "event_id": event, "source_event_id": row["source_event_id"]})
     return {"receipt": f"Applied {len(applied)} Knowledge changes.", "applied": applied, "unresolved": unresolved}

@@ -15,6 +15,7 @@ from taskboard_client.work import nonblank
 from tasks_core import current_tasks_sql, timestamp
 from tasks_notification_log import outbox_receipt, publish_after_sender
 import tasks_projects as projects
+import tasks_ring1 as ring1
 
 
 SCHEMA = (
@@ -69,12 +70,13 @@ def ready_snapshot(ledger_path, owner, after):
         through = connection.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]
         if through < after:
             raise ValueError("Ledger history is behind this outbox. Check the source before continuing.")
+        visibility, bindings = ring1.visibility(connection, "tasks.project_prefix", None)
         rows = connection.execute(
-            current_tasks_sql(connection) + """
-            WHERE tasks.dri = ? AND events.state = 'ready' AND events.id > ?
+            current_tasks_sql(connection) + f"""
+            WHERE tasks.dri = ? AND events.state = 'ready' AND events.id > ? AND {visibility}
             ORDER BY events.id
             """,
-            (owner, after),
+            (owner, after, *bindings),
         ).fetchall()
         return through, rows
 

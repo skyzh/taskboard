@@ -305,6 +305,25 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Default project: T", human_output)
         self.assertIn("LAB · Fictional Lab", human_output)
 
+        private = await owner.call_tool("taskboard_create_project", {
+            "prefix": "RINGLAB", "title": "Fictional restricted lab", "visibility": "ring1",
+        })
+        self.assertFalse(private.is_error, private.content)
+        self.assertEqual(private.structured_content["project"]["visibility"], "ring1")
+        ticket = await owner.call_tool("taskboard_create_ticket", {
+            "project": "RINGLAB", "title": "Fictional specimen report", "step": "Record the sample result.",
+        })
+        self.assertFalse(ticket.is_error, ticket.content)
+        key = ticket.structured_content["receipt"].split()[0]
+        allowed = await owner.call_tool("taskboard_ticket", {"ticket": key})
+        self.assertFalse(allowed.is_error, allowed.content)
+        denied = await reviewer.call_tool("taskboard_ticket", {"ticket": key})
+        self.assertTrue(denied.is_error)
+        self.assertNotIn("Fictional specimen report", denied.content[0].text)
+        outsider = await reviewer.call_tool("taskboard_projects")
+        self.assertFalse(outsider.is_error, outsider.content)
+        self.assertNotIn("RINGLAB", [item["prefix"] for item in outsider.structured_content["items"]])
+
     async def verify_ticket_tools(self, owner, reviewer, python, origin, cookie, blake_cookie, environment):
         created = await owner.call_tool("taskboard_create_ticket", {
             "project": "COURSE", "title": "Check a fixture outcome",

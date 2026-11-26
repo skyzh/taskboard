@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import tasks_core as ledger
 import tasks_projects as projects
+import tasks_ring1 as ring1
 import tasks_storage
 from taskboard_client.work import task_title
 
@@ -286,13 +287,13 @@ def dated_goal(db, project, owner, row):
     }
 
 
-def queue_context(db, owner, project=None):
+def queue_context(db, owner, project=None, *, principal=None):
     standing_goals = []
     dated_goals = []
     for row in goal_rows(db, [owner], project):
-        if row["state"] == "closed":
-            continue
         prefix = row["project_prefix"]
+        if row["state"] == "closed" or not ring1.visible(db, prefix, principal):
+            continue
         reference = {"project": prefix, "ticket": projects.row_reference(row)}
         if row["kind"] == "standing":
             standing_goals.append({**reference, "summary": row["summary"]})
