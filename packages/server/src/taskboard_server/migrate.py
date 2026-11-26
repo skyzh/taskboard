@@ -1,19 +1,23 @@
 """Check or apply explicit Taskboard schema revisions on an initialized ledger."""
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+import sqlite3
+from threading import Lock
 
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from alembic.util import CommandError
 from sqlalchemy import BigInteger, Integer, LargeBinary, Text, create_engine, inspect
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 
-from tasks_storage import SCHEMA_REVISION_TABLE, open_sqlite
+from tasks_storage import Postgres, SCHEMA_REVISION_TABLE, open_sqlite
 
 
 PROFILE_BASELINE = "0001_profiles_baseline"
@@ -25,6 +29,7 @@ OPTIONAL_TEXT = frozenset("""
     picture role description avatar_digest provider_description provider_avatar_source provider_avatar_digest
 """.split())
 BINARY = frozenset({"avatar", "provider_avatar"})
+_ALEMBIC_COMMAND_LOCK = Lock()
 
 
 def validate_profile_columns(columns, *, postgres):
@@ -88,17 +93,42 @@ def profile_revision(connection):
     return PROFILE_SHORT_ROLE if "short_role" in profiles else PROFILE_BASELINE
 
 
-def prepare_connection(connection):
+def sqlite_engine(path, *, initialize=False):
+    def connect():
+        if not initialize:
+            return open_sqlite(path)
+        db = sqlite3.connect(path)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA foreign_keys = ON")
+        db.execute("PRAGMA journal_mode = WAL")
+        return db
+
+    return create_engine("sqlite+pysqlite://", creator=connect, poolclass=NullPool)
+
+
+def postgres_engine(dsn):
+    return create_engine("postgresql+psycopg://", creator=lambda: Postgres.connect(dsn), poolclass=NullPool)
+
+
+def prepare_connection(connection, *, initialize):
     if connection.dialect.name == "sqlite":
         connection.exec_driver_sql("BEGIN IMMEDIATE")
         return
     connection.exec_driver_sql(
         "SELECT pg_advisory_xact_lock(hashtext(current_database()), hashtext(current_schema()))"
     )
-    if not inspect(connection).has_table("taskboard_writer"):
+    if initialize:
+        connection.exec_driver_sql("""
+            CREATE TABLE IF NOT EXISTS taskboard_writer (
+                id SMALLINT PRIMARY KEY CHECK (id = 1),
+                schema_version INTEGER NOT NULL
+            )
+        """)
+        connection.exec_driver_sql("INSERT INTO taskboard_writer VALUES (1, 0) ON CONFLICT (id) DO NOTHING")
+    elif not inspect(connection).has_table("taskboard_writer"):
         raise ValueError("Initialize the PostgreSQL Taskboard ledger before checking its schema.")
     writer = connection.exec_driver_sql("SELECT schema_version FROM taskboard_writer WHERE id = 1 FOR UPDATE").scalar()
-    if writer != 1:
+    if writer != 1 and not (initialize and writer == 0):
         raise ValueError("The PostgreSQL Taskboard bootstrap version is unsupported.")
 
 
@@ -119,29 +149,53 @@ def recognized_revision(connection):
     return profiles
 
 
-def migrate(engine, *, apply=False):
+@contextmanager
+def migration(engine, *, apply=False, prepare=None):
     with engine.connect() as connection:
-        prepare_connection(connection)
+        prepare_connection(connection, initialize=prepare is not None)
+        if prepare is not None:
+            prepare(connection.connection.driver_connection)
         baseline = recognized_revision(connection)
         options = {"version_table": SCHEMA_REVISION_TABLE}
         current = MigrationContext.configure(connection, opts=options).get_current_revision()
-        adopted_at_startup = current == PROFILE_SHORT_ROLE and baseline == RECURRING_REVIEW_TICKETS
-        if current is not None and current != baseline and not adopted_at_startup:
+        legacy_startup_upgrade = current == PROFILE_SHORT_ROLE and baseline == RECURRING_REVIEW_TICKETS
+        if current is not None and current != baseline and not legacy_startup_upgrade:
             raise ValueError("The recorded Taskboard revision does not match the recognized schema.")
-
-        report = {"recorded_revision": current, "recognized_revision": baseline, "target_revision": RECURRING_REVIEW_TICKETS}
-        if not apply:
-            return report
 
         config = Config()
         config.set_main_option("script_location", str(Path(__file__).with_name("migrations")))
         config.attributes.update(connection=connection, **options)
-        if current is None:
-            command.stamp(config, baseline)
-        if (current or baseline) != RECURRING_REVIEW_TICKETS:
-            command.upgrade(config, RECURRING_REVIEW_TICKETS)
+        target = ScriptDirectory.from_config(config).get_current_head()
+        report = {"recorded_revision": current, "recognized_revision": baseline, "target_revision": target}
+        if not apply:
+            yield connection, report
+            return
+
+        # Alembic's context and op proxies are shared by concurrent tenant initializations.
+        with _ALEMBIC_COMMAND_LOCK:
+            if current is None:
+                command.stamp(config, baseline)
+            if (current or baseline) != target:
+                command.upgrade(config, target)
+        yield connection, {**report, "applied_revision": target}
         connection.commit()
-        return {**report, "applied_revision": RECURRING_REVIEW_TICKETS}
+
+
+def migrate(engine, *, apply=False):
+    with migration(engine, apply=apply) as (_, report):
+        return report
+
+
+def prepare_and_upgrade(engine, prepare, *, finish=None):
+    try:
+        with migration(engine, apply=True, prepare=prepare) as (connection, _):
+            if finish is not None:
+                return finish(connection.connection.driver_connection)
+    except SQLAlchemyError as error:
+        underlying = getattr(error, "orig", error)
+        raise ValueError(f"Taskboard schema migration failed ({type(underlying).__name__}).") from None
+    finally:
+        engine.dispose()
 
 
 def main(argv=None):
@@ -156,14 +210,10 @@ def main(argv=None):
             dsn = os.environ.get("TASKS_POSTGRES_DSN")
             if not dsn:
                 raise ValueError("Set TASKS_POSTGRES_DSN in the operator environment.")
-            try:
-                import psycopg
-            except ModuleNotFoundError:
-                raise ValueError("Install the Taskboard PostgreSQL extra.") from None
-            engine = create_engine("postgresql+psycopg://", creator=lambda: psycopg.connect(dsn), poolclass=NullPool)
+            engine = postgres_engine(dsn)
         else:
             path = args.db.expanduser().resolve()
-            engine = create_engine("sqlite+pysqlite://", creator=lambda: open_sqlite(path), poolclass=NullPool)
+            engine = sqlite_engine(path)
 
         try:
             report = migrate(engine, apply=args.operation == "upgrade")
@@ -172,6 +222,8 @@ def main(argv=None):
     except SQLAlchemyError as error:
         underlying = getattr(error, "orig", error)
         parser.exit(1, f"Taskboard schema migration failed ({type(underlying).__name__}).\n")
+    except ModuleNotFoundError:
+        parser.exit(1, "Install the Taskboard PostgreSQL extra.\n")
     except (CommandError, OSError, RuntimeError, ValueError) as error:
         parser.exit(1, f"Taskboard schema migration: {error}\n")
 

@@ -1,6 +1,7 @@
 """Copy a closed SQLite board snapshot into an empty PostgreSQL board."""
 
 from contextlib import closing
+from functools import partial
 import sqlite3
 
 from taskboard_server import personal_agents
@@ -9,7 +10,7 @@ from tasks_knowledge import migrate_records
 from tasks_oidc_members import bind_issuer
 import tasks_projects as projects
 from tasks_service import prepare_postgres
-from tasks_storage import Postgres, SCHEMA_REVISION_TABLE, write
+from tasks_storage import Postgres, SCHEMA_REVISION_TABLE
 
 
 # Parents precede their dependents. Operator and ledger settings are data too.
@@ -60,7 +61,7 @@ def reset_identity(destination, table, column):
 
 
 def import_snapshot(path, dsn):
-    with closing(source_snapshot(path)) as source, closing(Postgres(dsn)) as destination:
+    with closing(source_snapshot(path)) as source:
         tables = {row[0] for row in source.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
         )}
@@ -71,32 +72,35 @@ def import_snapshot(path, dsn):
         settings = dict(source.execute("SELECT key, value FROM board_settings")) if "board_settings" in tables else {}
         if settings.get("marketplace_server_id"):
             raise ValueError("Marketplace ledgers are outside this PostgreSQL import.")
-        prepare_postgres(destination, None, None)
-        with write(destination):
-            if destination.execute("SELECT COUNT(*) FROM board_settings").fetchone()[0]:
+        return prepare_postgres(dsn, None, None, finish=partial(copy_snapshot, source, tables, settings))
+
+
+def copy_snapshot(source, tables, settings, connection):
+    destination = Postgres(connection=connection)
+    if destination.execute("SELECT COUNT(*) FROM board_settings").fetchone()[0]:
+        raise ValueError("Use an empty PostgreSQL Taskboard schema.")
+    for table in TABLES:
+        if table not in ("projects", "board_settings") and destination.has_table(table):
+            if destination.execute(f"SELECT 1 FROM {identifier(table)} LIMIT 1").fetchone():
                 raise ValueError("Use an empty PostgreSQL Taskboard schema.")
-            for table in TABLES:
-                if table not in ("projects", "board_settings") and destination.has_table(table):
-                    if destination.execute(f"SELECT 1 FROM {identifier(table)} LIMIT 1").fetchone():
-                        raise ValueError("Use an empty PostgreSQL Taskboard schema.")
-            existing = destination.execute("SELECT prefix, title, dri FROM projects").fetchall()
-            if [tuple(row) for row in existing] not in ([], [(projects.DEFAULT, projects.LEGACY_TITLE, None)]):
-                raise ValueError("Use an empty PostgreSQL Taskboard schema.")
-            if "projects" in tables:
-                destination.execute("DELETE FROM projects")
-            if issuer := settings.get("oidc_issuer"):
-                bind_issuer(destination, issuer)
-                destination.execute("DELETE FROM board_settings WHERE key = 'oidc_issuer'")
-            counts = {}
-            for table in TABLES:
-                if table in tables:
-                    counts[table] = copy_table(source, destination, table)
-            projects.ensure_schema(destination, seed_legacy=False)
-            for table, column in IDENTITIES.items():
-                reset_identity(destination, table, column)
-            migrate_goal_tickets(destination)
-            migrate_records(destination)
-            return counts
+    existing = destination.execute("SELECT prefix, title, dri FROM projects").fetchall()
+    if [tuple(row) for row in existing] not in ([], [(projects.DEFAULT, projects.LEGACY_TITLE, None)]):
+        raise ValueError("Use an empty PostgreSQL Taskboard schema.")
+    if "projects" in tables:
+        destination.execute("DELETE FROM projects")
+    if issuer := settings.get("oidc_issuer"):
+        bind_issuer(destination, issuer)
+        destination.execute("DELETE FROM board_settings WHERE key = 'oidc_issuer'")
+    counts = {}
+    for table in TABLES:
+        if table in tables:
+            counts[table] = copy_table(source, destination, table)
+    projects.ensure_schema(destination, seed_legacy=False)
+    for table, column in IDENTITIES.items():
+        reset_identity(destination, table, column)
+    migrate_goal_tickets(destination)
+    migrate_records(destination)
+    return counts
 
 
 def copy_table(source, destination, table):

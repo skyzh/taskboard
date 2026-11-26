@@ -1887,7 +1887,7 @@ def ledger_command(path, command):
     return f"{entry}{flags} {command}"
 
 
-def ensure_schema(db, *, seed_legacy_project=True):
+def ensure_schema(db, *, seed_legacy_project=True, versioned=False):
     for sql in SCHEMA:
         db.execute(sql)
     if not has_event_context(db):
@@ -1904,6 +1904,9 @@ def ensure_schema(db, *, seed_legacy_project=True):
     ensure_checklist_schema(db)
     projects.ensure_schema(db, seed_legacy=seed_legacy_project)
     tasks_recurring.ensure_project_binding(db)
+    if not versioned:
+        for statement in tasks_recurring.REVIEW_SCHEMA:
+            db.execute(statement)
     db.execute(maintenance.SCHEMA)
     releases.ensure_schema(db)
     for sql in merges.SCHEMA:

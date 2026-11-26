@@ -30,7 +30,7 @@ class StatsTest(unittest.TestCase):
             self.db.execute(statement)
         for statement in tasks_peer_asks.SCHEMA:
             self.db.execute(statement)
-        self.db.execute(tasks_profiles.SCHEMA)
+        tasks_profiles.ensure_principals(self.db)
         self.db.execute(tasks_profiles.IMPORT_SCHEMA)
         self.db.executemany(
             "INSERT INTO tasks (id, title, dri, brief) VALUES (?, ?, ?, '')",

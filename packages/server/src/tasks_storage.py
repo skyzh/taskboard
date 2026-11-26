@@ -79,19 +79,21 @@ def postgres_row(cursor):
 
 
 class Postgres:
-    def __init__(self, connection_string):
+    def __init__(self, connection_string=None, *, connection=None):
+        self.connection = connection if connection is not None else self.connect(connection_string, autocommit=True)
+        self.total_changes = 0
+
+    @staticmethod
+    def connect(connection_string, *, autocommit=False):
         try:
             import psycopg
         except ModuleNotFoundError as error:
             raise ValueError("Install PostgreSQL support with uv sync --frozen --extra postgres.") from error
         try:
             # Some shared predicates bind a value only to an IS NULL comparison.
-            self.connection = psycopg.connect(
-                connection_string, autocommit=True, row_factory=postgres_row, cursor_factory=psycopg.ClientCursor,
-            )
+            return psycopg.connect(connection_string, autocommit=autocommit, cursor_factory=psycopg.ClientCursor)
         except psycopg.OperationalError:
             raise RuntimeError("Taskboard could not connect to the configured PostgreSQL board.") from None
-        self.total_changes = 0
 
     @property
     def in_transaction(self):
@@ -104,7 +106,7 @@ class Postgres:
 
     def execute(self, statement, parameters=()):
         statement = postgres_sql(statement, bound=bool(parameters))
-        cursor = self.connection.execute(statement, parameters or None)
+        cursor = self.connection.cursor(row_factory=postgres_row).execute(statement, parameters or None)
         if cursor.statusmessage and cursor.statusmessage.split(" ", 1)[0] in ("INSERT", "UPDATE", "DELETE"):
             self.total_changes += cursor.rowcount
         return cursor
@@ -121,20 +123,6 @@ class Postgres:
 
     def has_table(self, table):
         return bool(self.columns(table))
-
-    @contextmanager
-    def migrate(self):
-        with self.connection.transaction():
-            # Serialize first-time schema creation and subsequent upgrades on this board.
-            self.execute("SELECT pg_advisory_xact_lock(hashtext(current_database()), hashtext(current_schema()))")
-            self.execute("""
-                CREATE TABLE IF NOT EXISTS taskboard_writer (
-                    id SMALLINT PRIMARY KEY CHECK (id = 1),
-                    schema_version INTEGER NOT NULL
-                )
-            """)
-            self.execute("INSERT INTO taskboard_writer VALUES (1, 0) ON CONFLICT (id) DO NOTHING")
-            yield self
 
     @contextmanager
     def read(self):

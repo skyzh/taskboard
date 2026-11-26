@@ -5,6 +5,7 @@ from hashlib import sha256
 import os
 import sqlite3
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 from sqlalchemy import create_engine
@@ -23,11 +24,11 @@ from test_tasks_project_move import replay_move
 from test_tasks_recurring import replay_project_tick, replay_reusable_upgrade, replay_team_schedules
 import test_tasks_ring1 as ring1_fixture
 import test_tasks_reports_presence as presence_fixture
-from taskboard_server.migrate import RECURRING_REVIEW_TICKETS, migrate
+from taskboard_server.migrate import PROFILE_SHORT_ROLE, RECURRING_REVIEW_TICKETS, migrate
 from tasks_core import import_notification_on
 from tasks_service import create_app
 from tasks_storage import Postgres, SCHEMA_REVISION_TABLE, open_sqlite
-from tasks_storage_import import import_snapshot
+from tasks_storage_import import copy_table, import_snapshot
 from tasks_wake_subscriptions import OWNED_READY, has_subscription
 from tasks_goal_offers import idle_offer_counts
 
@@ -130,6 +131,9 @@ class StorageReplayTest(unittest.TestCase):
         action(owner, "create-task", {"title": "Verify the original ticket", "step": "Read the saved work."})
         with closing(Postgres(dsn)) as db:
             self.assertEqual(db.execute("SELECT schema_version FROM taskboard_writer WHERE id = 1").fetchone()[0], 1)
+            db.execute(f"DROP TABLE {SCHEMA_REVISION_TABLE}")
+            db.execute("DROP TABLE recurring_review_runs")
+            db.execute("DROP TABLE recurring_review_tickets")
             db.execute("ALTER TABLE board_principals DROP COLUMN short_role")
 
         owner, signed_id = self.board.login(self.postgres_app(dsn), "Avery")
@@ -253,15 +257,34 @@ class StorageReplayTest(unittest.TestCase):
             source.backup(backup)
         source_engine = create_engine("sqlite+pysqlite://", creator=lambda: open_sqlite(snapshot), poolclass=NullPool)
         self.addCleanup(source_engine.dispose)
-        self.assertEqual(migrate(source_engine, apply=True)["applied_revision"], RECURRING_REVIEW_TICKETS)
+        with source_engine.begin() as connection:
+            connection.exec_driver_sql("DROP TABLE recurring_review_runs")
+            connection.exec_driver_sql("DROP TABLE recurring_review_tickets")
+            connection.exec_driver_sql(f"UPDATE {SCHEMA_REVISION_TABLE} SET version_num = '{PROFILE_SHORT_ROLE}'")
+        self.assertEqual(migrate(source_engine)["recorded_revision"], PROFILE_SHORT_ROLE)
+        source_digest = sha256(snapshot.read_bytes()).digest()
 
         dsn = self.postgres_fixture()
+
+        def interrupt_copy(source, destination, table):
+            if table == "events":
+                raise RuntimeError("Fictional snapshot copy failure")
+            return copy_table(source, destination, table)
+
+        with patch("tasks_storage_import.copy_table", side_effect=interrupt_copy):
+            with self.assertRaisesRegex(RuntimeError, "Fictional snapshot copy failure"):
+                import_snapshot(snapshot, dsn)
+        with closing(Postgres(dsn)) as db:
+            self.assertFalse(db.has_table(SCHEMA_REVISION_TABLE))
+            self.assertFalse(db.has_table("tasks"))
+
         imported = import_snapshot(snapshot, dsn)
         self.assertEqual(imported["tasks"], 1)
+        self.assertEqual(sha256(snapshot.read_bytes()).digest(), source_digest)
         self.assertNotIn(SCHEMA_REVISION_TABLE, imported)
         target_engine = create_engine(dsn.replace("postgresql://", "postgresql+psycopg://", 1), poolclass=NullPool)
         self.addCleanup(target_engine.dispose)
-        self.assertIsNone(migrate(target_engine)["recorded_revision"])
+        self.assertEqual(migrate(target_engine)["recorded_revision"], RECURRING_REVIEW_TICKETS)
         self.assertEqual(migrate(target_engine, apply=True)["applied_revision"], RECURRING_REVIEW_TICKETS)
 
         owner, signed_id = self.board.login(self.postgres_app(dsn), "Avery")
