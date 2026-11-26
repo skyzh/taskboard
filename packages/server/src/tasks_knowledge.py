@@ -204,7 +204,7 @@ def stage(db, number, source_id, actor, brief, source_event):
     staged_at = ledger.timestamp()
     event = ledger.record(db, source_id, "log", actor, source["state"],
                           f"Staged work for Knowledge entry {projects.row_reference(note)}.", None, [],
-                          {"knowledge_stage": True}, at=staged_at)
+                          {"knowledge_stage": True})
     db.execute(
         """
         INSERT INTO knowledge_stages

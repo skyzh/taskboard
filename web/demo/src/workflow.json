@@ -174,9 +174,11 @@
         "username": "avery"
       },
       "at": "2026-11-24T05:59:40+00:00",
-      "context": {},
+      "context": {
+        "knowledge_stage": true
+      },
       "id": 45,
-      "label": "Activity logged",
+      "label": "Staged work",
       "links": [],
       "note": "Staged work for Knowledge entry FLOW-13.",
       "related_tasks": [
@@ -1434,9 +1436,9 @@
       "id": 18,
       "key": "FLOW-13",
       "last_activity": {
-        "at": "2026-11-24T05:59:00+00:00",
-        "id": 44,
-        "label": "Activity logged"
+        "at": "2026-11-24T05:59:40+00:00",
+        "id": 45,
+        "label": "Staged work"
       },
       "maintenance_dri": null,
       "project": "FLOW",
@@ -1960,7 +1962,7 @@
             },
             "at": "2026-11-24T05:59:40+00:00",
             "id": 45,
-            "label": "Activity logged"
+            "label": "Staged work"
           },
           "key": "FLOW-1",
           "next": null,
