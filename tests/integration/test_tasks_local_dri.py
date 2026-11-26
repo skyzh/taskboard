@@ -286,6 +286,14 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertEqual(action(manager, "task", query_string={"id": linked})["task"]["peer_request"]["phase"],
                          "acknowledgment")
 
+        outbound = {"id": "T-5", "transition": "create", "recipient": team_id, "note": "Check the local result."}
+        self.assertEqual(action(client, "peer-ask", outbound, headers=sender, status=409)["code"],
+                         "confirm_peer_delivery")
+        receipt = action(client, "peer-ask", {**outbound, "force_delivery": True}, headers=sender)["receipt"]
+        request = action(manager, "task", query_string={"id": receipt.split()[0]})["task"]
+        self.assertEqual((request["state"], request["dri"], request["peer_request"]["requester"]),
+                         ("ready", team_id, perf["id"]))
+
 
     def test_workflow_parity_keeps_local_identity_and_project(self):
         fixture = service.TasksServiceTest()
