@@ -172,6 +172,16 @@ class Ring1Test(unittest.TestCase):
             ):
                 with self.subTest(path=path):
                     call(client, path, status=404)
+            for hidden, missing in (
+                ("/tickets/LAB-1", "/tickets/MISSING-1"),
+                ("/knowledge/LAB-2", "/knowledge/MISSING-2"),
+                (f"/activity/events/{event_id}", "/activity/events/999"),
+                ("/reports?project=LAB", "/reports?project=MISSING"),
+            ):
+                denied = call(client, hidden, status=404)
+                absent = call(client, missing, status=404)
+                self.assertEqual(denied.json, absent.json)
+                self.assertEqual(denied.headers["Cache-Control"], "no-store")
             for path in (
                 "/api/v1/activity?scope=all", "/api/v1/reports?scope=all",
                 "/api/v1/reports/goal-activity?scope=all", "/api/v1/stats",

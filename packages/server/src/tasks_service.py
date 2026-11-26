@@ -808,7 +808,9 @@ def create_app(
     def response_headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer" if request.path.startswith("/auth/") else "same-origin"
-        if request.path.startswith(("/api/v1", "/auth/")) and "Cache-Control" not in response.headers:
+        if g.get("checked_document"):
+            response.headers["Cache-Control"] = "no-store"
+        elif request.path.startswith(("/api/v1", "/auth/")) and "Cache-Control" not in response.headers:
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -946,7 +948,10 @@ def create_app(
             raise NotFound()
 
     def project_for_task(connection, number):
-        row = connection.execute("SELECT project_prefix FROM tasks WHERE id = ?", (number,)).fetchone()
+        field = "project_prefix"
+        if local_readonly and "project_prefix" not in tasks_storage.table_columns(connection, "tasks"):
+            field = "'T' AS project_prefix"
+        row = connection.execute(f"SELECT {field} FROM tasks WHERE id = ?", (number,)).fetchone()
         return row["project_prefix"] if row is not None else None
 
     def require_visible_task(connection, number):
@@ -1985,6 +1990,32 @@ def create_app(
             raise RequestError(str(error)) from error
         return {"actor": actor_profile(actor)}
 
+    def check_document_target(page):
+        if not (local_readonly or portal_reader or (raft is not None and raft.identity() is not None)
+                or (oidc is not None and oidc.actor() is not None)):
+            return  # The generic shell still supports signing in to a private board.
+        current_actor()
+        g.checked_document = True
+        project_filter(request.args)
+        try:
+            if page.startswith(("tickets/", "knowledge/")):
+                number = task_number(page.split("/", 1)[1])
+                if project_for_task(db(), number) is None:
+                    raise NotFound()
+            elif page.startswith("activity/events/"):
+                identifier = integer(page.rsplit("/", 1)[1], "event ID")
+                row = db().execute("SELECT task_id FROM events WHERE id = ?", (identifier,)).fetchone()
+                if row is None or require_visible_task(db(), row["task_id"]) is None:
+                    raise NotFound()
+            elif page.startswith("schedules/"):
+                number = record_id(page.rsplit("/", 1)[1], "R-", "Recurring ID")
+                if actor_key() is None or query().visible_schedule(number, actor_key()) is None:
+                    raise NotFound()
+        except RequestError as error:
+            if error.status == 404:
+                raise NotFound() from None
+            raise
+
     @app.get("/")
     @app.get("/<board_page:page>")
     def index(page=None):
@@ -2005,25 +2036,10 @@ def create_app(
                 login=login,
             )
         index_file = dist / "index.html"
-        if page and not local_readonly and (project := request.args.get("project", "").upper()):
-            current_actor()
-            if ring1.private(db(), project):
-                require_visible_project(db(), project)
-        if page and (portal_reader or (raft is not None and raft.identity() is not None) or local_readonly):
-            if page.startswith(("tickets/", "knowledge/")):
-                reference = page.split("/", 1)[1]
-                project = projects.identifier(reference)[0]
-                if not local_readonly:
-                    current_actor()
-                if ring1.private(db(), project):
-                    require_visible_project(db(), project)
-            elif page.startswith("activity/events/"):
-                if not local_readonly:
-                    current_actor()
-                identifier = integer(page.rsplit("/", 1)[1], "event ID")
-                row = db().execute("SELECT task_id FROM events WHERE id = ?", (identifier,)).fetchone()
-                if row is not None:
-                    require_visible_task(db(), row["task_id"])
+        if page and (request.args.get("project") or page.startswith((
+            "tickets/", "knowledge/", "activity/events/", "schedules/",
+        ))):
+            check_document_target(page)
         if not index_file.is_file():
             return jsonify(error="Build the React board with npm ci and npm run build in web/."), 503
         if page is None:
