@@ -3644,7 +3644,7 @@ class TasksServiceTest(unittest.TestCase):
         original = self.call(avery, route).get_json()
         first_link = ("--link", "First", "https://example.test/one")
         second_link = ("--link", "Second", "https://example.test/two")
-        actions = (("start", ()), ("log", ()), ("wait", ("--on", "Blake")))
+        actions = (("start", ()), ("log", ()), ("wait", ("--on", "Blake", "--force-delivery")))
         for command, extra in actions:
             with self.subTest(command=command):
                 arguments = (command, "T-1", "Check evidence.", *extra)
@@ -10261,10 +10261,23 @@ class TasksServiceTest(unittest.TestCase):
         linked = action(agent, "task", query_string={"id": "T-2"})["task"]
         self.assertEqual((linked["state"], linked["dri"]), ("ready", recipient))
         action(agent, "task", query_string={"id": "T-3"}, status=404)
+        draft = {**draft, "note": "Long fictional context. " * 200}
         self.cli("add", "Check again", "--dri", owner_id, "--step", "Prepare a second sample.")
+        path = "/api/v1/tasks/T-3/peer-ask"
+        warning = self.call(owner, path, method="POST", json=draft, status=400).json
+        self.assertEqual(warning["field"], "note")
+        warning = self.call(owner, path, method="POST", json={**draft, "force_text": True}, status=409).json
+        self.assertEqual(warning["code"], "confirm_peer_delivery")
+        sent = self.call(owner, path, method="POST",
+                         json={**draft, "force_text": True, "force_delivery": True}).json
+        self.assertIn("T-4 · Peer request opened", sent["receipt"])
+        saved = action(agent, "task", query_string={"id": "T-4"})["task"]
+        self.assertEqual(saved["note"], draft["note"].strip())
+        draft = {**draft, "note": "Check the third sample."}
+        self.cli("add", "Check once more", "--dri", owner_id, "--step", "Prepare a third sample.")
         action(agent, "set-wake-subscription", {"event_type": "owned-ready", "enabled": "true"})
-        self.assertIn("T-4 · Peer request opened",
-                      self.call(owner, "/api/v1/tasks/T-3/peer-ask", method="POST", json=draft).json["receipt"])
+        self.assertIn("T-6 · Peer request opened",
+                      self.call(owner, "/api/v1/tasks/T-5/peer-ask", method="POST", json=draft).json["receipt"])
 
     def test_linked_peer_request_lifecycle_returns_the_next_action_to_the_requester(self):
         app = self.app(portal_reader=True)
@@ -10308,7 +10321,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(blake, "advance-task", {**advance, "id": "T-2", "note": "Checking the sample."})
         self.assertEqual(read(2)["state"], "in_progress")
         self.action(blake, "advance-task", {
-            "id": "T-2", "transition": "wait", "on": avery_id, "note": "Need the updated sample.",
+            "id": "T-2", "transition": "wait", "on": avery_id, "note": "Need the updated sample.", "force_delivery": True,
         })
         paused = read(2)
         self.assertEqual((paused["state"], paused["peer_request"]["phase"]), ("waiting", "in_progress"))
@@ -10427,7 +10440,7 @@ class TasksServiceTest(unittest.TestCase):
         asked_at = "2026-11-20T23:55:00Z"
         with patch("tasks_core.timestamp", return_value=asked_at):
             self.action(avery, "advance-task", {
-                "id": "T-1", "transition": "wait", "on": "Blake", "note": "Check the fixture.",
+                "id": "T-1", "transition": "wait", "on": "Blake", "note": "Check the fixture.", "force_delivery": True,
             })
         self.action(avery, "delegate", {
             "id": "T-1", "worker": blake_id, "role": "review", "brief": "Check the fixture.",
@@ -10794,7 +10807,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(sam, decisions).json["items"], [])
         second, = self.call(quinn, decisions).json["items"]
         self.assertEqual(second["note"], "Verify the updated fixture.")
-        self.action(avery, "advance-task", {**wait, "on": reviewer})
+        self.action(avery, "advance-task", {**wait, "on": reviewer, "force_delivery": True})
         self.assertEqual(self.call(quinn, decisions).json["items"], [])
         self.assertEqual(self.action(blake, "my-next")["work"]["key"], "T-2")
         row = self.call(avery, path).json["task"]
@@ -10864,7 +10877,7 @@ class TasksServiceTest(unittest.TestCase):
             receipt = self.action(owner, "create-task", {"title": "Review source", "step": "Prepare."})["receipt"]
             source = receipt.split()[0]
             advance(owner, source, "start")
-            advance(owner, source, "wait", on=reviewer_id, **wait)
+            advance(owner, source, "wait", on=reviewer_id, force_delivery=True, **wait)
             task = self.call(owner, f"/api/v1/tasks/{source}").json["task"]
             return source, task["context"]["peer_ask_ticket"]
 
@@ -10881,7 +10894,7 @@ class TasksServiceTest(unittest.TestCase):
         source, delivered_before_replacement = start_request()
         advance(reviewer, delivered_before_replacement, "start")
         peer(reviewer, delivered_before_replacement, "result")
-        advance(owner, source, "wait", on=next_reviewer)
+        advance(owner, source, "wait", on=next_reviewer, force_delivery=True)
         replacement = self.call(owner, f"/api/v1/tasks/{source}").json["task"]["context"]["peer_ask_ticket"]
 
         source, retired = start_request(url="https://github.com/example/board/pull/76")
@@ -11069,7 +11082,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(prism, "advance-task", {"id": "T-1", "transition": "start", "note": "Ready for review."})
         self.action(prism, "link-reference", {"id": "T-1", "label": "Progress PR", "url": pr})
         self.action(prism, "advance-task", {"id": "T-1", "transition": "wait", "on": reviewer,
-                                            "note": "Review the progress bar."})
+                                            "note": "Review the progress bar.", "force_delivery": True})
         request = ("peer-ask", "create", "T-1", "Review the progress bar.", "--to", "Blake", "--stamp-review", pr)
         old_head = "a" * 40
         for requested_head in (old_head, head):
