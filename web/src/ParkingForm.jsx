@@ -63,12 +63,12 @@ export default function ParkingForm({ task, onChanged }) {
             placeholder="T-123" maxLength={28} required disabled={mutation.blocked} /></label>
           <label>What should you check when it changes?
             <textarea value={criteria} onChange={event => setCriteria(event.target.value)}
-              rows={2} maxLength={4000} required disabled={mutation.blocked} />
+              rows={2} required disabled={mutation.blocked} />
           </label>
         </>}
         <label>Reason for parking
           <textarea value={note} onChange={event => setNote(event.target.value)}
-            rows={2} maxLength={4000} required disabled={mutation.blocked} />
+            rows={2} required disabled={mutation.blocked} />
         </label>
         <button type="submit" disabled={!canSave}>{mutation.saving ? 'Saving…' : parked ? 'Save parking' : 'Park task'}</button>
         {savedReminder && savedDependency && <button type="button" disabled={mutation.blocked}

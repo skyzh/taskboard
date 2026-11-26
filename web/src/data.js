@@ -39,6 +39,9 @@ export async function request(path, { signal, cache, body, method = body ? 'POST
       const error = new Error(typeof message === 'string' ? message : fallback)
       error.status = response.status
       if (typeof data?.code === 'string') error.code = data.code
+      if (error.code === 'TEXT_LENGTH_CONFIRMATION_REQUIRED' && Number.isSafeInteger(data.limit) && data.limit > 0) {
+        error.limit = data.limit
+      }
       if (!mutation && isBackendError(error) && path !== '/revision' && path !== '/frontend-build') {
         boardReads.dispatchEvent(new Event('backend-error'))
       }

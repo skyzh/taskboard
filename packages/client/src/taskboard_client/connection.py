@@ -175,13 +175,16 @@ class SharedBoard:
     def __init__(self, service):
         self.service = service
 
-    def raise_attention(self, ticket, reason, *, recipient=None, request_key=None, unblocks=None, url=None, label=None):
+    def raise_attention(self, ticket, reason, *, recipient=None, request_key=None, unblocks=None, url=None, label=None,
+                        force_text=False):
         params = {"id": ticket, "reason": reason, "request_key": request_key if request_key is not None else str(uuid4())}
         if recipient is not None:
             field = "recipient" if is_stable_person_id(recipient, "human") else "recipient_name"
             params[field] = recipient
         params.update({key: value for key, value in {"unblocks": unblocks, "url": url, "label": label}.items()
                        if value is not None})
+        if force_text:
+            params["force_text"] = True
         return self.invoke("raise-attention", params, write=True)
 
     def invoke(self, action, params=None, *, write=False):

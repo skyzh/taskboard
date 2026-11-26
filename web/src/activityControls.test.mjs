@@ -1788,7 +1788,7 @@ test('editing task details sends only changed fields and keeps the draft if the 
       { path: '/tasks/COURSE-7/details', method: 'POST', body: { brief: '', reason: 'Clear the old instructions.' } },
       { path: '/tasks/COURSE-7/details', method: 'POST', body: { title: 'Corrected title', reason: 'Correct the scope.' } },
     ])
-    assert.deepEqual(updates, [true, null, 'The edit could not be saved.', false])
+    assert.deepEqual(updates, [true, null, { error: true, text: 'The edit could not be saved.' }, false])
     fixture.state = [{ title: 'Corrected title' }, 'Correct the scope.', false, updates[2]]
     const failed = renderToStaticMarkup(React.createElement(TaskDetailsEdit, props))
     assert.match(failed, /value="Corrected title"/)
@@ -2115,6 +2115,58 @@ test('a writer reopens with the current owner and explicitly retries a warning w
     assert.deepEqual(sent, [expected, { ...expected,
       body: { ...expected.body, force: true, force_reason: 'Verified the regression in review.' },
     }])
+  } finally {
+    delete fixture.request
+    delete fixture.onSetState
+  }
+})
+
+test('text and workflow confirmations each add only their own override in either order', async () => {
+  const note = '# Full draft\n\n' + 'Keep this paragraph.\n\n'.repeat(210)
+  const reason = 'Evidence confirms the transition.'
+  const props = { task: { id: 7, key: 'COURSE-7' }, actions: ['update'], onChanged() {} }
+  const textWarning = Object.assign(new Error('Text is long.'), {
+    status: 400, code: 'TEXT_LENGTH_CONFIRMATION_REQUIRED', limit: 4000,
+  })
+  const workflowWarning = Object.assign(new Error('Review the workflow warning.'), {
+    status: 409, code: 'TRANSITION_CONFIRMATION_REQUIRED',
+  })
+  let feedback
+  fixture.onSetState = value => {
+    if (value?.pendingRequest) feedback = value
+  }
+  function form(warning = null) {
+    fixture.state = ['', note, 'ticket', '', false, warning, reason]
+    return React.Children.toArray(TaskTransition(props).props.children).find(child => child.type === 'form')
+  }
+  function confirm(warning) {
+    const feedbackNode = React.Children.toArray(form(warning).props.children)
+      .find(child => child.type === TransitionFeedback)
+    const controls = React.Children.toArray(TransitionFeedback(feedbackNode.props).props.children)
+      .flatMap(child => child.type === React.Fragment ? React.Children.toArray(child.props.children) : child)
+    const label = warning.confirmTextLength ? 'Keep full text' : 'Apply override'
+    return controls.find(child => child.props.children === label).props.onClick()
+  }
+  try {
+    for (const warnings of [[textWarning, workflowWarning], [workflowWarning, textWarning]]) {
+      const sent = []
+      fixture.request = async (path, options) => {
+        assert.equal(path, '/tasks/COURSE-7/transition')
+        sent.push(options.body)
+        const warning = warnings[sent.length - 1]
+        if (warning) throw warning
+      }
+      await form().props.onSubmit({ preventDefault() {} })
+      await confirm(feedback)
+      await confirm(feedback)
+      const original = { transition: 'update', note: note.trim() }
+      const workflow = { force: true, force_reason: reason }
+      assert.deepEqual(sent, [
+        original,
+        { ...original, ...(warnings[0] === textWarning ? { force_text: true } : workflow) },
+        { ...original, ...workflow, force_text: true },
+      ])
+    }
   } finally {
     delete fixture.request
     delete fixture.onSetState

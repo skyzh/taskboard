@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from taskboard_client.work import (
     CHECKLIST_EDITS, STATES, PRIORITIES, DEFAULT_PRIORITY, WORKER_WRITES, OWNERSHIP_ACTIONS, STRUCTURED_ACTIVITY,
     PROJECT_WRITER_TRANSITIONS,
+    TEXT_CONFIRMATION_CODE, TEXT_RECOMMENDATION, TextLengthConfirmationRequired, check_text_length,
     parse_eta, local_eta, activity_details, task_title,
     review_after_text, tag_name, blocker_key, blocker_lines, related_task_lines, readiness_line,
 )
@@ -483,8 +484,10 @@ def edit_task_details(db, args, links):
     if args.title is None and args.brief is None:
         raise ValueError("Provide a title or brief to change.")
     reason = args.note.strip()
-    if not reason or len(reason) > 4000:
-        raise ValueError("Provide a reason of up to 4000 characters.")
+    if not reason:
+        raise ValueError("Provide a reason.")
+    force_text = getattr(args, "force_text", False)
+    check_text_length("reason", reason, force_text=force_text)
     kind = task_goal_kind(db, args.id) if args.title is not None else None
     previous, current = {}, {}
     for field in ("title", "brief"):
@@ -495,9 +498,13 @@ def edit_task_details(db, args, links):
             if isinstance(value, str) and value.strip() == task["title"]:
                 continue
             value = task_title(value)
-        elif not isinstance(value, str) or len(value) > 4000:
-            raise ValueError("Provide brief as text up to 4000 characters.")
+        elif not isinstance(value, str):
+            raise ValueError("Provide brief as text.")
         else:
+            from tasks_knowledge import is_maintained
+
+            if not is_maintained(db, task):
+                check_text_length("brief", value, force_text=force_text)
             value = value.strip()
         if field == "title" and kind == "standing" and not value.isprintable():
             raise ValueError("Provide a one-line goal title.")
@@ -962,7 +969,9 @@ def change_task(db, args, links, *, automation=None):
             links = json.loads(task["current_links"])
         if not context:
             context.update((field, current[field]) for field in PARKED_REMINDER_FIELDS if field in current)
-        registration = readiness.register(db, task, review_source, review_criteria) or current.get("readiness")
+        registration = readiness.register(
+            db, task, review_source, review_criteria, force_text=getattr(args, "force_text", False),
+        ) or current.get("readiness")
         if registration is not None:
             context["readiness"] = registration
         if feature_deferred:

@@ -109,19 +109,23 @@ _FIELDS = {
         "Inline Markdown. Links are inactive inside ticket links. No block Markdown or Mermaid.",
     ),
     "brief": (
-        "Explain why the work matters, what is in scope, and how to tell when it is complete.",
+        "Explain why the work matters, what is in scope, and how to tell when it is complete. "
+        "Keep readable paragraphs and the context the reader needs. "
+        "If the board asks for text confirmation, retry the same draft with force_text=true or CLI --force-text.",
         "Ticket detail.",
         "Check the deployed review page at 390 and 1280 px and link the result.",
         "Block Markdown, including lists, code blocks and fenced mermaid diagrams.",
     ),
     "next_step": (
-        "Give the owner one concrete action they can take now.",
+        "Give the owner one concrete action they can take now. "
+        "Keep the context they need and confirm the same draft if it exceeds the 4,000-character recommendation.",
         "Current work under the title and the signed Inbox.",
         "Open the deployed review page and compare its links with the approved preview.",
         "Block Markdown and fenced mermaid diagrams in ticket details and Reports. Compact Tasks rows use inline Markdown.",
     ),
     "activity": (
-        "Lead with the change or verified result. Put supporting evidence in details and links.",
+        "Lead with the change or verified result. Put supporting evidence in details and links. "
+        "Aim for 4,000 characters and use readable paragraphs when the evidence needs more space.",
         "Ticket Activity and the board Activity feed when all entries are shown.",
         "The phone and desktop checks passed. The release receipt is attached.",
         "Inline Markdown in headlines. Details support block Markdown and fenced mermaid diagrams.",

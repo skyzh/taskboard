@@ -58,6 +58,16 @@ Use plain text when formatting adds nothing. Inline Markdown supports emphasis, 
 | Decision answer details and redirect or withdrawal reason | Block Markdown and Mermaid in the Activity entry. |
 | Activity headline | Inline Markdown. Write one line that stands on its own. |
 | Activity details, worker brief and report, and attention request reason | Block Markdown and Mermaid where the full text appears. |
+
+Use readable paragraphs and keep the context the reader needs. If a ticket brief,
+handoff, or workflow message exceeds the 4,000-character recommendation, the
+board asks for confirmation before saving. Confirm in the browser or retry the
+same draft with CLI `--force-text` or signed API and MCP `force_text: true`.
+Workflow transitions can require their own confirmation.
+
+Activity and Checkpoint details save on the first try, including when they
+exceed the recommendation. Knowledge saves long content directly. Keep
+structured Activity headlines short and put longer evidence in Details.
 | Checklist step label | Inline Markdown. Use one line per step. |
 | Goal and milestone names, schedule titles, display names, source labels, and writing guidance | Plain text. |
 | Profile short role | Plain text beside your name on Reports Summary. Set it in Settings → Profile and aim for two or three words. |

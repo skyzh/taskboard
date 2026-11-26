@@ -131,6 +131,15 @@ class RequestError(ValueError):
         self.status = status
 
 
+def force_text(data):
+    value = data.get("force_text", False)
+    if value is True or value == "true":
+        return True
+    if value is False or value == "false":
+        return False
+    raise RequestError("force_text must be true or false.")
+
+
 def integer(value, field, *, maximum=2**63 - 1):
     try:
         if type(value) is int:
@@ -253,6 +262,13 @@ def text(data, field, *, optional=False, maximum=4000, strip=True):
     return value.strip() if strip else value
 
 
+def writing_text(data, field, *, optional=False):
+    value = text(data, field, optional=optional, maximum=None, strip=False)
+    if value is not None:
+        ledger.check_text_length(field, value, force_text=force_text(data))
+        return value.strip()
+
+
 def shared_ticket_search(data):
     search = text(data, "q", maximum=400)
     try:
@@ -263,7 +279,7 @@ def shared_ticket_search(data):
 
 
 def activity_text(data, command):
-    note = text(data, "note")
+    note = text(data, "note", maximum=None) if command == "log" else writing_text(data, "note")
     if "details" not in data:
         return {"note": note}
     if command not in ledger.STRUCTURED_ACTIVITY:
@@ -793,6 +809,11 @@ def create_app(
     def transition_warning(error):
         return jsonify(error=str(error), code="TRANSITION_CONFIRMATION_REQUIRED"), 409
 
+    @app.errorhandler(ledger.TextLengthConfirmationRequired)
+    def writing_warning(error):
+        return jsonify(error=f"{error} Retry with force_text=true or CLI --force-text.", code=ledger.TEXT_CONFIRMATION_CODE,
+                       field=error.field, limit=ledger.TEXT_RECOMMENDATION), 400
+
     @app.errorhandler(RequestEntityTooLarge)
     def large_request(_error):
         return jsonify(error="This request is too large."), 413
@@ -1010,10 +1031,14 @@ def create_app(
                 return jsonify(duplicate=True, queued=0)
             return jsonify(duplicate=False, queued=count), 202
 
-    def json_body(allowed):
+    def json_body(allowed, *, writing=False):
         data = request.get_json(silent=True)
+        if writing:
+            allowed = allowed | {"force_text"}
         if not isinstance(data, dict) or data.keys() - allowed:
             raise RequestError("Send a JSON object with the documented fields.")
+        if writing:
+            force_text(data)
         return data
 
     def require_person(key, kind=None, task_id=None):
@@ -1700,7 +1725,7 @@ def create_app(
         force = str(data.get("force", False)).lower()
         if force not in ("true", "false"):
             raise RequestError("force must be true or false.")
-        reason = text(data, "force_reason", optional=True)
+        reason = writing_text(data, "force_reason", optional=True)
         if force == "true" and reason is None:
             raise RequestError("Provide a reason with force=true.")
         if force == "false" and "force_reason" in data:
@@ -1708,7 +1733,7 @@ def create_app(
         return reason
 
     def mutate(command, actor, data, **fields):
-        args = Namespace(command=command, by=actor["ledger_key"], **fields)
+        args = Namespace(command=command, by=actor["ledger_key"], force_text=force_text(data), **fields)
 
         def authorize(connection):
             if command in tasks_recurring.EDITS - {"recurring-add"}:
@@ -1777,7 +1802,7 @@ def create_app(
         previous = ledger.find_task(db(), args.id) if push_decision else None
         try:
             receipt = ledger.save_task(db(), database_path(), args, links)
-        except (RequestError, ledger.TransitionConfirmationRequired):
+        except (RequestError, ledger.TransitionConfirmationRequired, ledger.TextLengthConfirmationRequired):
             raise
         except PermissionError as error:
             raise RequestError(str(error), 403) from error
@@ -1851,7 +1876,7 @@ def create_app(
             raise RequestError("Only this project's manager can change task ownership.", 403)
         if action not in ledger.OWNERSHIP_ACTIONS:
             raise RequestError("Choose unassign, reassign, or reopen.")
-        reason = text(data, "reason")
+        reason = writing_text(data, "reason")
         if action == "unassign":
             if "owner" in data:
                 raise RequestError("Omit owner when clearing an assignment.")
@@ -1872,7 +1897,7 @@ def create_app(
                       related=related)
 
     def edit_ticket(actor, number, data):
-        return mutate("edit", actor, data, id=number, note=text(data, "reason"),
+        return mutate("edit", actor, data, id=number, note=writing_text(data, "reason"),
                       title=data.get("title"), brief=data.get("brief"))
 
     def set_ticket_field(actor, number, data):
@@ -2774,7 +2799,7 @@ def create_app(
     @app.post("/api/v1/tasks/<number>/ownership")
     def task_ownership(number):
         actor = current_actor(write=True)
-        data = json_body({"action", "owner", "reason", *TRANSITION_OVERRIDE_FIELDS})
+        data = json_body({"action", "owner", "reason", *TRANSITION_OVERRIDE_FIELDS}, writing=True)
         return change_ownership(actor, task_number(number), data)
 
     @app.post("/api/v1/tasks/<number>/transition")
@@ -2784,7 +2809,7 @@ def create_app(
             "transition", "note", "on", "blocked_by", "automation", "attention_request_id", "details",
             "steps", "started", "checked", "eta", "clear_eta", "review_after", "defer_until",
             "review_on", "review_criteria", "feature_deferred", "label", "url", *TRANSITION_OVERRIDE_FIELDS,
-        })
+        }, writing=True)
         if text(data, "transition", maximum=30) not in ledger.PROJECT_WRITER_TRANSITIONS:
             raise RequestError("Choose an ordinary task transition.")
         return advance(actor, data, task_number(number))
@@ -2792,35 +2817,35 @@ def create_app(
     @app.post("/api/v1/tasks/<number>/needs-you")
     def task_needs_you(number):
         actor = current_actor(write=True, required=True)
-        data = json_body({"kind", "note", "on", "options", "reason", "recipient", "request_key"})
+        data = json_body({"kind", "note", "on", "options", "reason", "recipient", "request_key"}, writing=True)
         kind = data.pop("kind", None)
-        if kind == "decision" and data.keys() <= {"note", "on", "options"}:
+        if kind == "decision" and data.keys() <= {"note", "on", "options", "force_text"}:
             if "options" in data:
                 data["options"] = json.dumps(data["options"])
             return advance(actor, {**data, "transition": "assign-human"}, task_number(number))
-        if kind == "attention" and data.keys() <= {"reason", "recipient", "request_key"}:
+        if kind == "attention" and data.keys() <= {"reason", "recipient", "request_key", "force_text"}:
             return raise_attention(actor, task_number(number), data)
         raise RequestError("Choose a Decision or attention request and send its documented fields.")
 
     @app.post("/api/v1/tasks/<number>/closure")
     def task_closure(number):
         actor = current_actor(write=True)
-        data = json_body({"reason", "related", *TRANSITION_OVERRIDE_FIELDS})
+        data = json_body({"reason", "related", *TRANSITION_OVERRIDE_FIELDS}, writing=True)
         return close_ticket(actor, task_number(number), data)
 
     @app.post("/api/v1/tasks/<number>/confirm-blocker")
     def task_confirm_blocker(number):
         actor = current_actor(write=True)
-        data = json_body({"wait_event", "note", "label", "url", *TRANSITION_OVERRIDE_FIELDS})
+        data = json_body({"wait_event", "note", "label", "url", *TRANSITION_OVERRIDE_FIELDS}, writing=True)
         return confirm_blocker(
             actor, task_number(number), integer(data.get("wait_event"), "wait_event"),
-            text(data, "note"), one_link(data), transition_force_reason(data),
+            writing_text(data, "note"), one_link(data), transition_force_reason(data),
         )
 
     @app.post("/api/v1/tasks/<number>/details")
     def task_details_edit(number):
         actor = current_actor(write=True)
-        return edit_ticket(actor, task_number(number), json_body({"title", "brief", "reason"}))
+        return edit_ticket(actor, task_number(number), json_body({"title", "brief", "reason"}, writing=True))
 
     @app.route("/api/v1/tasks/<number>/ticket-fields", methods=("GET", "PUT"))
     def task_field_value(number):
@@ -2863,8 +2888,8 @@ def create_app(
     @app.put("/api/v1/tasks/<number>/reminder")
     def task_reminder(number):
         actor = current_actor(write=True)
-        data = json_body({"date", "at", "time_zone", *TRANSITION_OVERRIDE_FIELDS})
-        fields = data.keys() - TRANSITION_OVERRIDE_FIELDS
+        data = json_body({"date", "at", "time_zone", *TRANSITION_OVERRIDE_FIELDS}, writing=True)
+        fields = data.keys() - TRANSITION_OVERRIDE_FIELDS - {"force_text"}
         if fields == {"at", "time_zone"}:
             day, instant = None, local_defer_time(data)
         elif fields == {"date"}:
@@ -2875,7 +2900,7 @@ def create_app(
 
     def parking_fields(data, command):
         review_on = text(data, "review_on", optional=True, maximum=28)
-        review_criteria = text(data, "review_criteria", optional=True)
+        review_criteria = writing_text(data, "review_criteria", optional=True)
         feature_deferred = str(data.get("feature_deferred", "false")).lower()
         if feature_deferred not in ("true", "false"):
             raise RequestError("feature_deferred must be true or false.")
@@ -2905,10 +2930,10 @@ def create_app(
     def task_parking(number):
         actor = current_actor(write=True)
         data = json_body({"note", "review_after", "at", "time_zone", "review_on", "review_criteria",
-                          *TRANSITION_OVERRIDE_FIELDS})
+                          *TRANSITION_OVERRIDE_FIELDS}, writing=True)
         if "at" in data or "time_zone" in data:
             data["defer_until"] = local_defer_time(data)
-        return mutate("park", actor, data, id=task_number(number), note=text(data, "note"),
+        return mutate("park", actor, data, id=task_number(number), note=writing_text(data, "note"),
                       keep_park_links=True, **parking_fields(data, "park"))
 
     @app.get("/api/v1/tasks/<number>/activity")
@@ -2949,7 +2974,7 @@ def create_app(
     @app.post("/api/v1/tasks/<number>/activity")
     def task_activity_add(number):
         actor = current_actor(write=True)
-        data = json_body({"note", "label", "url"})
+        data = json_body({"note", "details", "label", "url"})
         return record_activity(actor, task_number(number), data)
 
     @app.get("/api/v1/activity")
@@ -3142,8 +3167,8 @@ def create_app(
     def create_knowledge(actor, data):
         text(data, "project", maximum=8)
         project = project_filter(data)
-        title = text(data, "title")
-        brief = text(data, "brief")
+        title = text(data, "title", maximum=None)
+        brief = text(data, "brief", maximum=None)
         try:
             with tasks_storage.write(db()) as connection:
                 require_visible_project(connection, project)
@@ -3607,7 +3632,7 @@ def create_app(
         else:
             recipient = text(data, "recipient", optional=local is not None and "recipient" not in data, maximum=160)
         recipient = local_question_recipient(local, recipient) if local else require_person(recipient, "human", task_id=number)
-        reason = text(data, "reason")
+        reason = writing_text(data, "reason")
         evidence = one_link(data)
         links = json.dumps(evidence)
         request_key = text(data, "request_key", optional=True, maximum=100)
@@ -3991,7 +4016,7 @@ def create_app(
             if not human_wait:
                 peer = on
         parking = parking_fields(data, command)
-        reason = text(data, "reason", optional=command != "withdraw-decision")
+        reason = writing_text(data, "reason", optional=command != "withdraw-decision")
         steps = [text({"step": value}, "step", maximum=240) for value in array_arg(data, "steps")]
         started = [integer(value, "checklist position", maximum=10000) for value in array_arg(data, "started")]
         checked = [integer(value, "checklist position", maximum=10000) for value in array_arg(data, "checked")]
@@ -4320,7 +4345,7 @@ def create_app(
         if name == "confirm-blocker":
             return confirm_blocker(
                 actor, task_number(data.get("id")), integer(data.get("wait_event"), "wait_event"),
-                text(data, "note"), one_link(data), transition_force_reason(data),
+                writing_text(data, "note"), one_link(data), transition_force_reason(data),
             )
         if name == "task-activity":
             number = task_number(data.get("id"))
@@ -4386,7 +4411,7 @@ def create_app(
                         require_same_ring(connection, project_for_task(connection, entry), project_for_task(connection, source))
                         return knowledge_records.stage(
                             connection, entry, source, key,
-                            text(data, "brief", optional=True),
+                            text(data, "brief", optional=True, maximum=None),
                             integer(data["source_event"], "source_event") if "source_event" in data else None,
                         )
                     text(data, "project", maximum=8)
@@ -4410,7 +4435,7 @@ def create_app(
         if name == "create-task":
             return mutate(
                 "add", actor, data, dri=key, title=data.get("title"),
-                step=text(data, "step"), brief=text(data, "brief", optional=True),
+                step=writing_text(data, "step"), brief=writing_text(data, "brief", optional=True),
                 project=project_filter(data, use_default=True),
             )
         if name == "move-task":
@@ -4429,7 +4454,7 @@ def create_app(
         if name == "recurring-add":
             return mutate(
                 "recurring-add", actor, data, dri=key, key=text(data, "key", maximum=160),
-                title=text(data, "title"), step=text(data, "step"),
+                title=writing_text(data, "title"), step=writing_text(data, "step"),
                 cadence_hours=integer(data.get("cadence_hours"), "Cadence hours"),
                 next_at=text(data, "next_at", maximum=40),
                 project=project_filter(data, use_default=True), explicit_project="project" in data,
@@ -4478,7 +4503,7 @@ def create_app(
                     require_local_project(ticket["project_prefix"])
             return mutate(
                 f"worker-{transition}", actor, data, run=run, subagent=subagent == "true",
-                note=text(data, "note", optional=transition == "start"),
+                note=writing_text(data, "note", optional=transition == "start"),
                 handle=text(data, "handle", optional=transition != "start", maximum=200),
                 result=text(data, "result", optional=transition != "report", maximum=30),
             )
@@ -4511,7 +4536,7 @@ def create_app(
             if stamp_review is not None and change != "create":
                 raise RequestError("Pin a Stamp review only when creating or refreshing a peer request.")
             return mutate(peer_asks.COMMAND, actor, data, id=number, change=change,
-                          note=text(data, "note"), recipient=recipient, review_run=review, stamp_review=stamp_review,
+                          note=writing_text(data, "note"), recipient=recipient, review_run=review, stamp_review=stamp_review,
                           manual_review=manual_review, stamp_repositories=stamp_repositories)
         if name == "change-ownership":
             return change_ownership(actor, number, data)
@@ -4538,7 +4563,7 @@ def create_app(
             else:
                 owner = text(data, "owner", maximum=160)
             return mutate(
-                "transfer", actor, data, id=number, note=text(data, "note"),
+                "transfer", actor, data, id=number, note=writing_text(data, "note"),
                 dri=owner,
             )
         if name == "record-activity":
@@ -4555,7 +4580,7 @@ def create_app(
                 raise RequestError("Choose a Team DRI for a worker delegation.", 403)
             return mutate(
                 "delegate", actor, data, id=number, worker=worker,
-                role=role, brief=text(data, "brief"), effort=text(data, "effort", optional=True, maximum=30) or "high",
+                role=role, brief=writing_text(data, "brief"), effort=text(data, "effort", optional=True, maximum=30) or "high",
             )
         if name == "watch-task":
             watch = str(data.get("watch", "true")).lower()

@@ -62,7 +62,19 @@ CHECKLIST_EDITS = ("add", "rename", "reopen", "remove")
 ACTIVITY_HEADLINE_LIMIT = 180
 
 
-ACTIVITY_DETAILS_LIMIT = 4000
+TEXT_RECOMMENDATION = 4000
+TEXT_CONFIRMATION_CODE = "TEXT_LENGTH_CONFIRMATION_REQUIRED"
+
+
+class TextLengthConfirmationRequired(ValueError):
+    def __init__(self, field):
+        self.field = field
+        super().__init__(f"{field} exceeds the recommended {TEXT_RECOMMENDATION:,} characters.")
+
+
+def check_text_length(field, value, *, force_text=False):
+    if not force_text and len(value) > TEXT_RECOMMENDATION:
+        raise TextLengthConfirmationRequired(field)
 
 
 ACTIVITY_TECHNICAL = re.compile(r"(?:^|\s)(?:file://|/|[a-z]:\\)|\b[0-9a-f]{32,}\b|^W-\d+\s+·", re.I)
@@ -100,8 +112,8 @@ def is_activity_headline(note):
 def activity_details(note, details):
     if not is_activity_headline(note):
         raise ValueError(f"Use a one-line Activity headline up to {ACTIVITY_HEADLINE_LIMIT} characters.")
-    if not isinstance(details, str) or len(details) > ACTIVITY_DETAILS_LIMIT:
-        raise ValueError(f"Provide details as text up to {ACTIVITY_DETAILS_LIMIT} characters.")
+    if not isinstance(details, str):
+        raise ValueError("Provide details as text.")
     return details.strip()
 
 

@@ -63,11 +63,11 @@ function KnowledgeCreate({ projects, onCreated }) {
           </select>
         </label>
         <label>Title
-          <input value={title} onChange={event => setTitle(event.target.value)} maxLength={4000} required disabled={pending} />
+          <input value={title} onChange={event => setTitle(event.target.value)} required disabled={pending} />
         </label>
         <label>Brief
           <textarea value={brief} onChange={event => setBrief(event.target.value)}
-            rows={5} maxLength={4000} required disabled={pending} />
+            rows={5} required disabled={pending} />
         </label>
         {error && <p role="alert">{error}</p>}
         <button type="submit" disabled={pending || !title.trim() || !brief.trim()}>

@@ -81,7 +81,7 @@ export default function TaskOwnership({ task, actions, project, revision, canAss
         )}
         <label>
           Reason for the change
-          <textarea value={reason} rows={3} maxLength={4000} onChange={event => setReason(event.target.value)}
+          <textarea value={reason} rows={3} onChange={event => setReason(event.target.value)}
             disabled={mutation.blocked} required />
         </label>
         <p>The reason is recorded in the task’s activity.</p>

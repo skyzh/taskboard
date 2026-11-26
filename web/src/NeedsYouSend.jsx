@@ -79,7 +79,7 @@ export default function NeedsYouSend({ ticket, actions, project, revision, onCha
           <p className="section-message">No people who have signed in are available.</p>}
         <LoadMore page={assignees} label="recipients" />
         <label>{decision ? 'Decision question' : kind ? 'Reason for the request' : 'Message'}
-          <textarea required rows={3} maxLength={4000} value={message} disabled={mutation.blocked}
+          <textarea required rows={3} value={message} disabled={mutation.blocked}
             onChange={event => { setMessage(event.target.value); mutation.clear() }} />
         </label>
         {decision && <label>Choices (optional, one per line)

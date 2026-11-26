@@ -15,9 +15,11 @@ _PROJECT = {"project": "Optional Tasks project prefix, such as T or COURSE."}
 _SCOPE = {"scope": "Use all to read across projects. Omit scope and project for the legacy T queue."}
 _PAGINATION = {"before": "Cursor from the previous page.", "limit": "Maximum records to return."}
 _EVIDENCE = {"url": "HTTP(S) evidence link.", "label": "Display label for the evidence link."}
+_TEXT_OVERRIDE = {"force_text": "Use true to explicitly retry writing text longer than the 4,000-character recommendation."}
 _TRANSITION_OVERRIDE = {
     "force": "Use true when retrying a project-writer transition that requires confirmation.",
     "force_reason": "Reason to record for the explicit override. Supply with force=true.",
+    **_TEXT_OVERRIDE,
 }
 _NOTE = "Activity or decision to record."
 _DETAILS = "Optional handoff details. Send an empty string for a headline alone. With this field, note is a one-line headline."
@@ -130,7 +132,7 @@ _ACTIONS = {
     "create-task": _Action("POST", "Create a task you will own.", {
         "title": "Short, actionable task title. Read field-guidance for the project’s wording and example.",
         "step": "First step for the owner.",
-    }, {"brief": "Background and scope of the work.", **_PROJECT, **_EVIDENCE}),
+    }, {"brief": "Background and scope of the work.", **_PROJECT, **_EVIDENCE, **_TEXT_OVERRIDE}),
     "knowledge-areas": _Action("GET", "List Knowledge area indexes on the signed-in board.", optional=_PROJECT),
     "knowledge-sweep": _Action("GET", "List all accessible Knowledge or entries assigned to you for maintenance.",
                               optional={"scope": "Choose board (default) or assigned.", **_PROJECT, **_PAGINATION}),
@@ -155,7 +157,7 @@ _ACTIONS = {
         "step": "First step for each occurrence.",
         "cadence_hours": "Number of whole hours between slots.",
         "next_at": "First slot in UTC, including seconds.",
-    }, _PROJECT),
+    }, _PROJECT | _TEXT_OVERRIDE),
     "recurring-tick": _Action("POST", "Issue due recurring work in a project you manage using server time.", {
         "project": "Project prefix whose due recurring work to issue.",
     }),
@@ -206,14 +208,14 @@ _ACTIONS = {
         "review_pr": "The GitHub pull request already linked to the source ticket.",
         "review_head": "The full review head commit.",
         "review_base": "The full review base commit.",
-        **_EVIDENCE,
+        **_EVIDENCE, **_TEXT_OVERRIDE,
     }),
     "handoff": _Action("POST", "Transfer assigned work in a project where you can work.", {
         **_TASK, "note": "Next step for the new owner.",
     }, {
         "owner": "New owner's stable ID. Supply this or owner_name.",
         "owner_name": "New owner's exact handle or display name. Supply this or owner.",
-        **_EVIDENCE,
+        **_EVIDENCE, **_TEXT_OVERRIDE,
     }),
     "change-ownership": _Action("POST", "Reopen an ordinary ticket or manage its assignment.", {
         **_TASK, "action": "Choose unassign, reassign, or reopen.", "reason": "Reason for the change.",
@@ -230,7 +232,7 @@ _ACTIONS = {
     "edit-task-details": _Action("POST", "Edit the title or brief of a work ticket or Knowledge entry with project write access.", {
         **_TASK, "reason": "Reason for correcting the ticket.",
     }, {"title": "Short, actionable replacement title. Read field-guidance for the project’s wording and example.",
-        "brief": "Replacement brief. Empty clears it.", **_EVIDENCE}),
+        "brief": "Replacement brief. Empty clears it.", **_EVIDENCE, **_TEXT_OVERRIDE}),
     "move-task": _Action("POST", "Move a work ticket as a manager of both projects.", {
         **_TASK, "project": "Destination project prefix.",
     }),
@@ -249,14 +251,14 @@ _ACTIONS = {
     "delegate": _Action("POST", "Give a worker a build or review brief for a task you own.", {
         **_TASK, "worker": "Worker's stable ID from assignees.",
         "role": "Worker role, build or review.", "brief": "Scoped work for the worker to perform.",
-    }, {"effort": "Expected effort for the worker."}),
+    }, {"effort": "Expected effort for the worker.", **_TEXT_OVERRIDE}),
     "worker-handoff": _Action("POST", "Record the next step in a delegated worker run.", {
         "run": "Worker run ID, such as W-15.", "transition": "Worker run transition, such as report.",
     }, {
         "note": _NOTE, "handle": "Runtime handle for the worker run.",
         "result": "Worker report outcome, completed or blocked.",
         "subagent": "Pass true when starting a runtime subagent recorded under your own agent ID.",
-        **_EVIDENCE,
+        **_EVIDENCE, **_TEXT_OVERRIDE,
     }),
     "watch-task": _Action("POST", "Follow or unfollow task activity.", _TASK, {
         "watch": "Pass true to follow (the default) or false to unfollow.",
@@ -273,7 +275,7 @@ _ACTIONS = {
         "recipient": "Human's stable ID from assignees. A Taskboard-mode Local DRI defaults to its creator.",
         "recipient_name": "Exact handle or display name of a signed-in human, instead of recipient.",
         "request_key": "Optional unique key for this send. Reuse the same key and fields when retrying.",
-        "unblocks": "Optional ticket ID whose owner can link its wait to this request.", **_EVIDENCE,
+        "unblocks": "Optional ticket ID whose owner can link its wait to this request.", **_EVIDENCE, **_TEXT_OVERRIDE,
     }),
     "link-github": _Action("POST", "Link a GitHub issue or pull request to a task you own.", {
         **_TASK, "github_url": "GitHub HTTPS issue or pull request URL.",
