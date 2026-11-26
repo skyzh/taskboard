@@ -56,8 +56,6 @@ HISTORY_LIMIT = 25
 def ensure_project_binding(db):
     if "project_prefix" not in tasks_storage.table_columns(db, "recurring_definitions"):
         db.execute("ALTER TABLE recurring_definitions ADD COLUMN project_prefix TEXT REFERENCES projects (prefix)")
-    for statement in REVIEW_SCHEMA:
-        db.execute(statement)
 
 
 def review_ticket(db, definition_id):

@@ -26,7 +26,7 @@ import tasks_maintenance
 import tasks_projects
 import tasks_recurring
 import tasks_ring1
-from tasks_storage import open_sqlite, write
+from tasks_storage import SCHEMA_REVISION_TABLE, open_sqlite, write
 import test_tasks_service as service_fixture
 
 
@@ -248,6 +248,7 @@ def replay_reusable_upgrade(test, fixture, restart, open_board, engine):
     with open_board() as db, write(db):
         db.execute("DROP TABLE recurring_review_runs")
         db.execute("DROP TABLE recurring_review_tickets")
+        db.execute(f"UPDATE {SCHEMA_REVISION_TABLE} SET version_num = ?", (PROFILE_SHORT_ROLE,))
     test.assertEqual(migrate(engine)["recognized_revision"], PROFILE_SHORT_ROLE)
     test.assertEqual(migrate(engine, apply=True)["applied_revision"], RECURRING_REVIEW_TICKETS)
 

@@ -26,7 +26,6 @@ SCHEMA = """
         name TEXT NOT NULL DEFAULT '',
         picture TEXT,
         role TEXT,
-        short_role TEXT,
         description TEXT,
         avatar BLOB,
         avatar_digest TEXT,
@@ -55,15 +54,17 @@ FIELDS = (
 )
 
 
-def ensure_principals(db):
+def ensure_principals(db, *, versioned=False):
     db.execute(SCHEMA)
     existing = tasks_storage.table_columns(db, "board_principals")
     for field, column_type in (
-        ("description", "TEXT"), ("short_role", "TEXT"), ("provider_description", "TEXT"), ("provider_avatar_source", "TEXT"),
+        ("description", "TEXT"), ("provider_description", "TEXT"), ("provider_avatar_source", "TEXT"),
         ("provider_avatar", "BLOB"), ("provider_avatar_digest", "TEXT"),
     ):
         if field not in existing:
             db.execute(f"ALTER TABLE board_principals ADD COLUMN {field} {column_type}")
+    if not versioned and "short_role" not in existing:
+        db.execute("ALTER TABLE board_principals ADD COLUMN short_role TEXT")
 
 
 def retry_provider_photo(db, identity):

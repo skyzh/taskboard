@@ -1,10 +1,10 @@
 # Upgrade the Taskboard database
 
-Use `taskboard-migrate` from the target server release to check and upgrade an
-existing ledger before starting that release.
-The Alembic revisions add `board_principals.short_role` and the reusable
-recurrence tables to the supported Taskboard layout.
-Start a fresh board with the normal setup workflow before checking its schema.
+Taskboard runs the same ordered Alembic revisions when starting a SQLite or
+PostgreSQL server, preparing a PostgreSQL snapshot import, and applying an
+operator upgrade. Fresh setup runs the revisions and records the target
+revision before accepting requests. Use `taskboard-migrate` from the target
+release to check or apply those revisions ahead of startup.
 
 ## Rehearse on a restored backup
 
@@ -32,6 +32,9 @@ definitions, and identity constraints before it records a baseline. The
 upgrade applies any pending revision in one transaction. Rerunning it leaves
 the schema and records unchanged.
 An unsupported layout or a revision mismatch requires operator inspection.
+Startup also prepares the existing base tables and applies versioned changes
+under the same database lock. If startup fails during a migration, its schema
+and revision changes roll back together.
 
 Start the target release on the upgraded copy. Sign in and open an existing
 ticket. Compare its title and owner and read the original profile.
@@ -64,7 +67,8 @@ After enabling reusable recurring work, stop the recurring scheduler before
 rolling back. Restore and verify the pre-upgrade database with the old build
 before restarting its scheduler.
 
-This release still accepts ledgers upgraded by the existing startup procedure.
-A SQLite backup restored as SQLite keeps its revision. When importing a SQLite
-snapshot into PostgreSQL, run the versioned check and upgrade against the
-destination after import. Its revision is recorded from the PostgreSQL schema.
+A SQLite backup restored as SQLite keeps its recorded revision. A SQLite
+snapshot import prepares the destination's PostgreSQL schema and copies records
+in the same transaction. The original snapshot stays read-only and the
+destination gets its own revision record. Run `taskboard-migrate --postgres check`
+against the destination and confirm the recorded and target revisions match.

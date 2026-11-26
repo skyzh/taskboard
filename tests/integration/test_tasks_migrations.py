@@ -1,7 +1,9 @@
 """Exercise the supported Taskboard migration against populated ledgers."""
 
 import unittest
+from unittest.mock import patch
 
+from alembic import command
 from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.pool import NullPool
 
@@ -14,11 +16,25 @@ def replay_versioned_profiles(test, board, app, restart, engine):
     owner, owner_id = board.login(app, "Avery")
     board.action(owner, "set-profile", {"role": "Fixture release tester"})
     board.action(owner, "create-task", {"title": "Keep the existing ticket", "step": "Verify the upgrade."})
-    test.assertEqual(migrate(engine)["recognized_revision"], RECURRING_REVIEW_TICKETS)
-    test.assertFalse(inspect(engine).has_table(SCHEMA_REVISION_TABLE))
+    test.assertEqual(migrate(engine)["recorded_revision"], RECURRING_REVIEW_TICKETS)
 
     with engine.begin() as connection:
+        connection.exec_driver_sql(f"DROP TABLE {SCHEMA_REVISION_TABLE}")
+        connection.exec_driver_sql("DROP TABLE recurring_review_runs")
+        connection.exec_driver_sql("DROP TABLE recurring_review_tickets")
         connection.exec_driver_sql("ALTER TABLE board_principals DROP COLUMN short_role")
+    test.assertEqual(migrate(engine)["recognized_revision"], PROFILE_BASELINE)
+
+    upgrade = command.upgrade
+
+    def interrupt_startup(config, revision):
+        upgrade(config, revision)
+        raise RuntimeError("Fictional startup migration failure")
+
+    with patch.object(command, "upgrade", side_effect=interrupt_startup):
+        with test.assertRaisesRegex(RuntimeError, "Fictional startup migration failure"):
+            restart()
+    test.assertFalse(inspect(engine).has_table(SCHEMA_REVISION_TABLE))
     test.assertEqual(migrate(engine)["recognized_revision"], PROFILE_BASELINE)
 
     def interrupt_version_write(connection, cursor, statement, parameters, context, executemany):
@@ -34,10 +50,9 @@ def replay_versioned_profiles(test, board, app, restart, engine):
 
     test.assertFalse(inspect(engine).has_table(SCHEMA_REVISION_TABLE))
     test.assertEqual(migrate(engine)["recognized_revision"], PROFILE_BASELINE)
-    test.assertEqual(migrate(engine, apply=True)["applied_revision"], RECURRING_REVIEW_TICKETS)
-    test.assertEqual(migrate(engine, apply=True)["recorded_revision"], RECURRING_REVIEW_TICKETS)
 
     owner, signed_id = board.login(restart(), "Avery")
+    test.assertEqual(migrate(engine, apply=True)["recorded_revision"], RECURRING_REVIEW_TICKETS)
     profile = board.call(owner, "/api/v1/session").json["actor"]
     task = board.action(owner, "task", query_string={"id": "T-1"})["task"]
     test.assertEqual((signed_id, profile["role"]), (owner_id, "Fixture release tester"))
@@ -59,7 +74,9 @@ def reject_incompatible_profile_definition(test, engine, definition):
     for apply in (False, True):
         with test.assertRaisesRegex(ValueError, "unsupported.*role"):
             migrate(engine, apply=apply)
-    test.assertFalse(inspect(engine).has_table(SCHEMA_REVISION_TABLE))
+    with engine.connect() as connection:
+        test.assertEqual(connection.exec_driver_sql(f"SELECT version_num FROM {SCHEMA_REVISION_TABLE}").scalar(),
+                         RECURRING_REVIEW_TICKETS)
     test.assertEqual(profile_shape(), before)
 
 
@@ -86,7 +103,9 @@ class VersionedProfileMigrationTest(unittest.TestCase):
             connection.exec_driver_sql("ALTER TABLE board_principals ADD COLUMN short_role_extra TEXT")
         with self.assertRaisesRegex(ValueError, "unsupported layout"):
             migrate(self.engine, apply=True)
-        self.assertFalse(inspect(self.engine).has_table(SCHEMA_REVISION_TABLE))
+        with self.engine.connect() as connection:
+            self.assertEqual(connection.exec_driver_sql(f"SELECT version_num FROM {SCHEMA_REVISION_TABLE}").scalar(),
+                             RECURRING_REVIEW_TICKETS)
 
     def test_sqlite_rejects_wrong_profile_column_type_without_changes(self):
         self.board.app(portal_reader=True)
