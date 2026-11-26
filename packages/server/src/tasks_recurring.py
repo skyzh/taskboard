@@ -204,21 +204,24 @@ def tick(db, as_of, make_task, *, recorded_at, project=None, actor=None, touched
     return {"as_of": utc_text(now), **totals}
 
 
-def report(db, number, owner, as_of):
+def report(db, number, owner, as_of, *, task_scope=("1 = 1", ())):
     row = owned(db, number, owner)
     now = utc(as_of)
     cutoff = utc_text(now)
     counts = {"expected": 0, "completed": 0, "completed_on_time": 0, "completed_late": 0, "missed": 0, "pending": 0}
     recent = []
+    visibility, bindings = task_scope
     for occurrence in db.execute(
-        """
+        f"""
         SELECT o.due_at, o.deadline_at, CASE WHEN o.issued_at <= ? THEN o.task_id END AS task_id,
                (SELECT MIN(e.at) FROM events e WHERE e.task_id = o.task_id AND e.action = 'done'
                 AND e.at >= o.issued_at AND e.at <= ?) AS completed_at
         FROM recurring_occurrences o
+        LEFT JOIN tasks AS ticket ON ticket.id = o.task_id
         WHERE o.definition_id = ? AND o.due_at <= ?
+          AND (o.task_id IS NULL OR ({visibility}))
         ORDER BY o.due_at DESC
-        """, (cutoff, cutoff, number, cutoff),
+        """, (cutoff, cutoff, number, cutoff, *bindings),
     ):
         item = dict(occurrence)
         completed = item["completed_at"]
