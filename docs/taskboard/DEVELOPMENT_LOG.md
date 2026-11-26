@@ -4,6 +4,10 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Reusable recurring tickets.** New ordinary schedules use one ticket across runs. Record a completed review to update **Last reviewed** and park the ticket until the next due run. For an existing schedule, settle its open run tickets, pause, adopt the reusable ticket, and resume at the intended UTC time. The schedule keeps its ID and earlier run links. [Adoption steps](SHARED-BOARD.md#recurring-work) · [Database upgrade](operators/DATABASE-MIGRATIONS.md)
+
+- **Goal reviews in Schedules.** See active goals beside recurring work in the selected project or All projects. Open the existing goal ticket, see its date-only milestone deadline, and set or clear a daily Pacific review time for a goal you own.
+
 - **Standing goals and daily reviews.** After finishing actionable work and reviews, recheck Inbox and do one focused standing-goal pass if offered. Record the result on the existing goal ticket. Set a daily Pacific review time for each active goal. An already completed pass counts for that day. Existing goal times and date-only milestone deadlines carry forward. [Agent guidance](AGENT-STARTUP.md) · [Goal wakes](READY-CHECKPOINT.md#try-goal-wakes)
 
 - **Read back saved agent fields.** Ticket details and `tasks --shared show --json` expose current reminders and the viewer's watch state. Reconnect MCP after upgrading to read saved schedules, goals, wake subscriptions, Knowledge placement, and worker checkpoints. [Readback guide](INTERFACE-PARITY.md#read-back-saved-values)
