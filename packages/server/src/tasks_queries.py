@@ -305,15 +305,16 @@ class BoardQueries:
             return f"({visibility}) AND {column} = ?", (*bindings, self.local_project)
         return visibility, bindings
 
-    def schedule_report(self, number, owner, as_of):
-        report = recurring.report(self.db, number, owner, as_of, task_scope=self.schedule_visibility("ticket.project_prefix"))
+    def schedule_report(self, number, owner, as_of, project):
+        report = recurring.report(self.db, number, owner, as_of, viewer=self.principal, project=project,
+                                  task_scope=self.schedule_visibility("ticket.project_prefix"))
         report.pop("key")
         profile = profiles.visible_by_keys(self.db, [owner], self.base).get(owner)
         report["owner_name"] = profile["name"] if profile else "Unknown owner"
         return report
 
     def maintenance_report(self, row, project, as_of):
-        report = self.schedule_report(row["id"], row["owner"], as_of)
+        report = self.schedule_report(row["id"], row["owner"], as_of, project)
         choices = [dict(person) for person in self.db.execute(
             """
             SELECT ledger_key AS id, COALESCE(NULLIF(name, ''), NULLIF(username, ''), 'Unknown owner') AS name
@@ -372,7 +373,7 @@ class BoardQueries:
             """, (default, *owner_bindings, project, project, *bindings),
         )
         result["recurring"] = [
-            {**self.schedule_report(row["id"], row["owner"], as_of),
+            {**self.schedule_report(row["id"], row["owner"], as_of, row["project"]),
              **({"project": row["project"]} if team or project is None else {}),
              **({"editable": row["owner"] == owner} if team else {})}
             for row in definitions
@@ -386,7 +387,7 @@ class BoardQueries:
                     ORDER BY managed.project""", (owner, owner, *bindings),
             )
             result["project_maintenance"] = [
-                {**self.schedule_report(row["id"], row["owner"], as_of),
+                {**self.schedule_report(row["id"], row["owner"], as_of, row["project"]),
                  **maintenance.describe(row, row["project"])["schedule"], "project": row["project"]}
                 for row in maintenance_rows
             ]
@@ -404,7 +405,8 @@ class BoardQueries:
     def visible_schedule(self, number, owner, project=None, *, occurrence=False):
         source = "definition.id = ?"
         if occurrence:
-            source = "definition.id = (SELECT definition_id FROM recurring_occurrences WHERE task_id = ?)"
+            source = """definition.id = (SELECT definition_id FROM recurring_review_tickets WHERE task_id = ?
+                    UNION SELECT definition_id FROM recurring_occurrences WHERE task_id = ?)"""
         default = projects.default_project(self.db)
         visibility, bindings = self.schedule_visibility("schedule.project")
         return self.db.execute(
@@ -421,7 +423,8 @@ class BoardQueries:
                        OR managed.project IN ({projects.MANAGED_BY}))
             )
             SELECT * FROM schedule WHERE (? IS NULL OR project = ?) AND {visibility}
-            """, (default, number, owner, not occurrence, owner, owner, project, project, *bindings),
+            """, (default, *((number, number) if occurrence else (number,)), owner, not occurrence,
+                  owner, owner, project, project, *bindings),
         ).fetchone()
 
     def schedule_detail(self, number, owner, project=None):
@@ -434,7 +437,7 @@ class BoardQueries:
             schedule, choices = self.maintenance_report(managed, row["project"], as_of)
             kind = "maintenance"
         else:
-            schedule, choices = self.schedule_report(number, row["owner"], as_of), []
+            schedule, choices = self.schedule_report(number, row["owner"], as_of, row["project"]), []
             kind = "recurring"
         return {"project": row["project"], "kind": kind, "schedule": schedule, "owner_choices": choices,
                 "editable": kind == "maintenance" or row["owner"] == owner, "runs": self.schedule_runs(number)}
@@ -452,28 +455,31 @@ class BoardQueries:
         rows = self.db.execute(
             f"""
             WITH visible_occurrences AS (
-                SELECT occurrence.due_at, occurrence.issued_at, occurrence.task_id
-                FROM recurring_occurrences AS occurrence
+                SELECT occurrence.*
+                FROM ({recurring.history_sql(self.db)}) AS occurrence
                 LEFT JOIN tasks AS linked ON linked.id = occurrence.task_id
                 WHERE occurrence.definition_id = ? AND (occurrence.task_id IS NULL OR ({visibility}))
             ), recent AS (
-                SELECT due_at, issued_at, task_id
+                SELECT *
                 FROM visible_occurrences
                 ORDER BY due_at DESC LIMIT ?
             ),
             history AS (
-                SELECT due_at, issued_at, task_id FROM recent
+                SELECT * FROM recent
                 UNION
-                SELECT due_at, issued_at, task_id
-                FROM visible_occurrences WHERE task_id = ?
+                SELECT * FROM visible_occurrences WHERE task_id = ? AND ready_event_id IS NULL
             )
-            SELECT history.due_at, history.issued_at, history.task_id,
+            SELECT history.*,
                    ticket.id, ticket.project_prefix, ticket.project_number,
                    {ledger.display_state_sql("events.context")} AS display_state,
                    (SELECT at FROM events
                     WHERE events.task_id = history.task_id AND action = 'start'
+                      AND (history.ready_event_id IS NULL OR events.id > history.ready_event_id)
+                      AND (history.next_ready_event_id IS NULL OR events.id < history.next_ready_event_id)
+                      AND (history.completed_event_id IS NULL OR events.id < history.completed_event_id)
                     ORDER BY id LIMIT 1) AS started_at,
-                   CASE WHEN events.state = 'done' THEN (
+                   CASE WHEN history.ready_event_id IS NOT NULL THEN history.reviewed_at
+                   WHEN events.state = 'done' THEN (
                        SELECT at FROM events
                        WHERE events.task_id = history.task_id AND state = 'done'
                          AND (action = 'done' OR json_type(events.context, '$.closure') = 'object')
@@ -492,17 +498,28 @@ class BoardQueries:
         for row in rows:
             if row["task_id"] is None:
                 state = "missed"
+            elif row["ready_event_id"] is not None:
+                if row["completed_event_id"] is not None:
+                    state = "completed"
+                elif row["next_ready_event_id"] is not None or row["display_state"] in ("done", "closed"):
+                    state = "missed"
+                else:
+                    state = "started" if row["started_at"] is not None else "issued"
             elif row["display_state"] == "closed":
                 state = "closed"
             elif row["display_state"] == "done":
                 state = "completed"
             else:
                 state = "started" if row["started_at"] is not None else "issued"
-            items.append({
+            item = {
                 **{field: row[field] for field in ("due_at", "issued_at", "started_at", "terminal_at", "task_id")},
                 "state": state,
                 "task_key": projects.row_reference(row) if row["id"] is not None else None,
-            })
+            }
+            if row["completed_event_id"] is not None:
+                item["outcome"] = {"event_id": row["completed_event_id"], "note": row["outcome"],
+                                   "details": json.loads(row["outcome_context"]).get("activity_details")}
+            items.append(item)
         return items
 
     def links(self, pairs, *, event_id=None):

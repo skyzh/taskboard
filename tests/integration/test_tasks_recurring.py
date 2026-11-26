@@ -13,10 +13,14 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.parse import urlsplit
 
 import taskboard_cli
+from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
+from taskboard_server.migrate import PROFILE_SHORT_ROLE, RECURRING_REVIEW_TICKETS, migrate
+from taskboard_server.ready_wake import launch_ready_wake
 import tasks_core
 import tasks_maintenance
 import tasks_projects
@@ -157,10 +161,11 @@ def replay_team_schedules(test, fixture, app, open_board):
         personal = f"R-{personal}"
 
     def define(owner, project, key, next_at=TWELVE):
-        return fixture.action(owner, "recurring-add", {
-            "project": project, "key": key, "title": f"Run {key}", "step": "Check the sample.",
-            "cadence_hours": 4, "next_at": next_at,
-        })["receipt"].split()[0]
+        with patch("tasks_recurring.enable_reviews"):
+            return fixture.action(owner, "recurring-add", {
+                "project": project, "key": key, "title": f"Run {key}", "step": "Check the sample.",
+                "cadence_hours": 4, "next_at": next_at,
+            })["receipt"].split()[0]
 
     with patch("tasks_core.timestamp", return_value=ZERO):
         public = define(first, "T", "public", FOUR)
@@ -211,6 +216,116 @@ def replay_team_schedules(test, fixture, app, open_board):
     fixture.call(reader, f"/schedules/{restricted}", status=404)
     fixture.call(app.test_client(), path, query_string={"view": "team"}, status=401)
 
+def replay_reusable_upgrade(test, fixture, restart, open_board, engine):
+    app = restart()
+    manager, manager_key = fixture.login(app, "Avery")
+    owner, owner_key = fixture.login(app, "Blake")
+    with open_board() as db, write(db):
+        tasks_projects.register(db, "T", "Taskboard", manager_key)
+        number, _ = tasks_recurring.create_definition(
+            db, owner_key, "legacy-check", "Review an older sample", "Read the outcome.", 4, FOUR, ZERO, project="T",
+        )
+    schedule = f"R-{number}"
+    path = f"/api/v1/schedules/{schedule}"
+
+    def tick(at):
+        with patch("tasks_core.timestamp", return_value=at):
+            return fixture.action(manager, "recurring-tick", {"project": "T"})
+
+    def change(state, at, **fields):
+        with patch("tasks_core.timestamp", return_value=at):
+            return fixture.action(owner, "recurring-state", {"id": schedule, "change": state, **fields})
+
+    def advance(ticket, transition, at):
+        with patch("tasks_core.timestamp", return_value=at):
+            return fixture.action(owner, "advance-task", {"id": ticket, "transition": transition, "note": "Check the sample."})
+
+    test.assertEqual(tick(FOUR)["issued"], 1)
+    advance("T-1", "start", "2026-11-20T05:00:00Z")
+    advance("T-1", "done", "2026-11-20T06:00:00Z")
+    change("pause", "2026-11-20T06:00:00Z")
+    # Only the predecessor tables contain data before the upgrade.
+    with open_board() as db, write(db):
+        db.execute("DROP TABLE recurring_review_runs")
+        db.execute("DROP TABLE recurring_review_tickets")
+    test.assertEqual(migrate(engine)["recognized_revision"], PROFILE_SHORT_ROLE)
+    test.assertEqual(migrate(engine, apply=True)["applied_revision"], RECURRING_REVIEW_TICKETS)
+
+    app = restart()
+    manager, _ = fixture.login(app, "Avery")
+    owner, _ = fixture.login(app, "Blake")
+    before = fixture.call(owner, path).json
+    test.assertIsNone(before["schedule"]["reusable_ticket"])
+    test.assertEqual([(run["task_key"], run["state"]) for run in before["runs"]], [("T-1", "completed")])
+    change("adopt", "2026-11-20T07:00:00Z")
+    change("resume", "2026-11-20T07:00:00Z", next_at=EIGHT)
+    test.assertEqual((tick(EIGHT)["issued"], tick(EIGHT)["issued"]), (1, 0))
+    issued = fixture.call(owner, path).json
+    reusable = issued["schedule"]["reusable_ticket"]
+    test.assertEqual(reusable, {"id": 2, "key": "T-2"})
+    test.assertEqual(issued["runs"][-1], before["runs"][0])
+    test.assertFalse(issued["schedule"]["can_complete_review"])
+
+    advance("T-2", "start", "2026-11-20T09:00:00Z")
+    fixture.action(owner, "record-checkpoint", {"id": "T-2", "note": "Partial sample read."})
+    active = fixture.call(owner, path).json
+    test.assertEqual(active["runs"][0]["state"], "started")
+    test.assertIsNone(active["schedule"]["last_reviewed_at"])
+    test.assertTrue(active["schedule"]["can_complete_review"])
+    test.assertFalse(fixture.call(manager, path).json["schedule"]["can_complete_review"])
+    fixture.action(manager, "complete-recurring-review", {"id": schedule, "note": "Not my review."}, status=409)
+    test.assertEqual(tick(TWELVE)["issued"], 0)
+    completed_at = "2026-11-20T12:15:00Z"
+    with patch("tasks_core.timestamp", return_value=completed_at):
+        fixture.call(owner, path + "/complete-review", method="POST", json={
+            "note": "Recorded the reviewed outcome.", "details": "Two samples matched.",
+        })
+        fixture.action(owner, "complete-recurring-review", {"id": schedule, "note": "Recorded the reviewed outcome."},
+                       status=409)
+    parked = fixture.action(owner, "task", query_string={"id": "T-2"})
+    test.assertEqual(parked["task"]["state"], "parked")
+    reviewed = fixture.call(owner, path).json
+    test.assertEqual(reviewed["schedule"]["last_reviewed_at"], completed_at)
+    test.assertEqual([run["state"] for run in reviewed["runs"]], ["missed", "completed", "completed"])
+    test.assertEqual(reviewed["runs"][1]["outcome"], {
+        "event_id": parked["task"]["event_id"], "note": "Recorded the reviewed outcome.", "details": "Two samples matched.",
+    })
+    signed = fixture.action(owner, "recurring-show", query_string={"id": schedule})
+    test.assertEqual((signed["last_reviewed_at"], signed["reusable_ticket"]), (completed_at, reusable))
+
+    app = restart()
+    manager, _ = fixture.login(app, "Avery")
+    owner, _ = fixture.login(app, "Blake")
+    catchup = tick(TWENTY)
+    test.assertEqual((catchup["expected"], catchup["issued"], catchup["unissued"]), (2, 1, 1))
+    test.assertEqual(tick(TWENTY)["issued"], 0)
+    ready = fixture.action(owner, "task", query_string={"id": "T-2"})["task"]
+    test.assertEqual((ready["id"], ready["state"], ready["action"]), (2, "ready", "unpark"))
+    fixture.action(owner, "set-wake-subscription", {"event_type": "owned-ready", "enabled": "true"})
+    transport = Mock(return_value=(202, {"status": "queued"}))
+    with open_board() as db:
+        wake = {"project": "T", "task": "T-2", "event_id": ready["event_id"],
+                "recipient": fixture.provider.wake_recipient("Blake"), "transport": transport}
+        test.assertEqual((launch_ready_wake(db, **wake), launch_ready_wake(db, **wake)), ("accepted", "already_accepted"))
+        transport.assert_called_once()
+        test.assertEqual(db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 2)
+        test.assertEqual(db.execute("SELECT COUNT(*) FROM events WHERE task_id = 2 AND action = 'unpark'").fetchone()[0], 1)
+
+    latest = fixture.call(owner, path).json
+    test.assertEqual([(run["task_key"], run["state"]) for run in latest["runs"]], [
+        ("T-2", "issued"), (None, "missed"), (None, "missed"), ("T-2", "completed"), ("T-1", "completed"),
+    ])
+    advance("T-2", "start", "2026-11-20T20:10:00Z")
+    final_at = "2026-11-20T20:15:00Z"
+    with patch("tasks_core.timestamp", return_value=final_at):
+        code, output, errors = fixture.shared_cli(owner, "complete-recurring-review", schedule, "The second sample passed.")
+    test.assertEqual((code, errors), (0, ""))
+    test.assertIn("T-2 · Recurring review recorded", output)
+    final = fixture.call(owner, path).json
+    test.assertEqual(final["schedule"]["last_reviewed_at"], final_at)
+    test.assertEqual(final["runs"][0]["outcome"]["note"], "The second sample passed.")
+
+
 class RecurringFixtureTest(unittest.TestCase):
     def setUp(self):
         directory = TemporaryDirectory()
@@ -230,6 +345,19 @@ class RecurringFixtureTest(unittest.TestCase):
         self.addCleanup(fixture.doCleanups)
         app = fixture.app(portal_reader=True)
         replay_team_schedules(self, fixture, app, lambda: closing(open_sqlite(fixture.database)))
+
+    def test_sqlite_upgrade_reuses_ticket_and_preserves_review_history(self):
+        fixture = service_fixture.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+
+        def restart():
+            fixture.provider = service_fixture.FixtureRaft()
+            return fixture.app(portal_reader=True)
+
+        engine = create_engine("sqlite+pysqlite://", creator=lambda: open_sqlite(fixture.database), poolclass=NullPool)
+        self.addCleanup(engine.dispose)
+        replay_reusable_upgrade(self, fixture, restart, lambda: closing(open_sqlite(fixture.database)), engine)
 
     def command(self, *args, now=ZERO, status=0):
         out, errors = StringIO(), StringIO()
@@ -255,7 +383,8 @@ class RecurringFixtureTest(unittest.TestCase):
         return json.loads(self.command("recurring-show", "R-1", "--by", "Avery", "--as-of", when))
 
     def test_disposable_four_hour_loop_replay_and_late_completion(self):
-        self.define()
+        with patch("tasks_recurring.enable_reviews"):
+            self.define()
         self.assertEqual((self.tick(ZERO)["issued"], self.tick(ZERO)["issued"]), (1, 0))
         visible = self.command("next", "--dri", "Avery")
         self.assertIn("T-1 · Ready", visible)
@@ -289,7 +418,8 @@ class RecurringFixtureTest(unittest.TestCase):
         self.assertEqual(contexts, [{"recurring": "R-1", "due_at": due} for due in (ZERO, FOUR, EIGHT, TWENTY)])
 
     def test_pause_resume_cancel_preserve_history_and_owner_boundary(self):
-        self.define()
+        with patch("tasks_recurring.enable_reviews"):
+            self.define()
         self.tick(ZERO)
         self.assertIn("No recurring definition", self.command("recurring-pause", "R-1", "--by", "Blake", status=1))
         self.assertIn("No recurring definition", self.command("recurring-show", "R-1", "--by", "Blake", status=1))
@@ -455,10 +585,11 @@ class RecurringFixtureTest(unittest.TestCase):
         app = fixture.app(portal_reader=True)
         owner, owner_key = fixture.login(app, "Avery")
         other, _ = fixture.login(app, "Blake")
-        self.command(
-            "recurring-add", "recent-runs", "Review samples", "--dri", owner_key,
-            "--cadence-hours", "4", "--next-at", ZERO, "--step", "Review the samples.",
-        )
+        with patch("tasks_recurring.enable_reviews"):
+            self.command(
+                "recurring-add", "recent-runs", "Review samples", "--dri", owner_key,
+                "--cadence-hours", "4", "--next-at", ZERO, "--step", "Review the samples.",
+            )
         issued = "2026-11-20T01:00:00Z"
         started = "2026-11-20T02:00:00Z"
         finished = "2026-11-20T03:00:00Z"

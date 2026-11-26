@@ -1306,6 +1306,8 @@ def current_summary(task):
 def event_label(action, context=None):
     if action == "update" and "closure" in (context or {}):
         return "Closed"
+    if action == "park" and (context or {}).get("recurring_review_completed") is True:
+        return "Recurring review completed"
     ownership_action = (context or {}).get("ownership_action")
     if ownership_action in OWNERSHIP_ACTIONS:
         return OWNERSHIP_ACTIONS[ownership_action]
@@ -2040,6 +2042,60 @@ def issue_recurring_task(db, definition, due, as_of):
     return create_task_record(db, args, links, context=context, at=as_of)
 
 
+def issue_recurring_review(db, definition, due, as_of):
+    number = definition["id"]
+    linked = tasks_recurring.review_ticket(db, number)["task_id"]
+    if linked is None:
+        linked = issue_recurring_task(db, definition, due, as_of)
+        db.execute("UPDATE recurring_review_tickets SET task_id = ? WHERE definition_id = ?", (linked, number))
+        return get_task(db, linked)["event_id"]
+    task = get_task(db, linked)
+    if (task["state"] != "parked" or task["dri"] != definition["owner"]
+            or projects.row_project(task) != recurring_project(db, definition, None)):
+        return None
+    if (reviewed := tasks_recurring.last_review_at(db, number)) is not None and reviewed >= due:
+        return None
+    return record(db, linked, "unpark", "Taskboard", "ready", task["note"], None,
+                  json.loads(task["current_links"]), {"recurring": f"R-{number}", "due_at": due}, at=as_of)
+
+
+def complete_recurring_review(db, args, links):
+    definition = tasks_recurring.owned(db, args.id, args.by)
+    series = tasks_recurring.review_ticket(db, args.id)
+    run = tasks_recurring.active_review(db, args.id)
+    if series is None or series["task_id"] is None or run is None:
+        raise ValueError("This schedule has no outstanding reusable review.")
+    task = get_task(db, series["task_id"])
+    if task["dri"] != args.by or projects.row_project(task) != recurring_project(db, definition, None):
+        raise PermissionError("The schedule and reusable ticket must have the same owner and project.")
+    if task["state"] != "in_progress":
+        raise ValueError("Start the recurring ticket before recording the completed review.")
+    context = {"recurring": f"R-{args.id}", "due_at": run["due_at"], "recurring_review_completed": True}
+    if (details := getattr(args, "details", None)) is not None:
+        context["activity_details"] = details
+    outcome = record(db, task["id"], "park", args.by, "parked", args.note, None, links, context)
+    db.execute("UPDATE recurring_review_runs SET completed_event_id = ? WHERE definition_id = ? AND due_at = ?",
+               (outcome, args.id, run["due_at"]))
+    return f"{projects.row_reference(task)} · Recurring review recorded"
+
+
+def adopt_recurring_review(db, args):
+    definition = tasks_recurring.owned(db, args.id, args.by)
+    if tasks_recurring.review_ticket(db, args.id) is not None:
+        return f"R-{args.id} · Already uses a recurring review ticket"
+    if definition["state"] != "paused":
+        raise ValueError("Pause this schedule before adopting a reusable ticket.")
+    if db.execute(current_tasks_sql(db) + """
+        WHERE tasks.id IN (SELECT task_id FROM recurring_occurrences WHERE definition_id = ?)
+          AND events.state <> 'done' LIMIT 1
+    """, (args.id,)).fetchone() is not None:
+        raise ValueError("Finish or close this schedule's existing tickets before adopting a reusable ticket.")
+    tasks_recurring.enable_reviews(db, args.id)
+    audit.record(db, scope="private", actor=args.by, operation="recurring-adopt", record_type="recurrence",
+                 record_id=f"R-{args.id}", at=timestamp())
+    return f"R-{args.id} · Reusable review enabled"
+
+
 def release_due_deferrals(db, as_of):
     rows = db.execute(current_tasks_sql(db) + """
         WHERE events.state = 'parked' AND json_extract(events.context, '$.defer_until') <= ?
@@ -2062,6 +2118,12 @@ def save_task(db, path, args, links):
         touched_projects = set()
         if args.command == maintenance.WRITE:
             output = json.dumps(maintenance.update(db, args, timestamp(), live=live))
+        elif args.command == "complete-recurring-review":
+            output = complete_recurring_review(db, args, links)
+        elif args.command == "recurring-adopt":
+            if maintenance.find(db, definition_id=args.id) is not None:
+                raise ValueError("Project maintenance uses its existing schedule.")
+            output = adopt_recurring_review(db, args)
         elif args.command in tasks_recurring.EDITS:
             if args.command != "recurring-add" and maintenance.find(db, definition_id=args.id) is not None:
                 tasks_recurring.owned(db, args.id, args.by)
@@ -2080,6 +2142,7 @@ def save_task(db, path, args, links):
                 touched_definitions = [] if project is None else None
                 result = tasks_recurring.tick(
                     db, as_of, lambda definition, due: issue_recurring_task(db, definition, due, as_of),
+                    make_review=lambda definition, due: issue_recurring_review(db, definition, due, as_of),
                     recorded_at=now, project=project, actor=args.by if project is not None else None,
                     touched=touched_definitions,
                 )

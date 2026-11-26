@@ -161,9 +161,12 @@ _ACTIONS = {
     "recurring-tick": _Action("POST", "Issue due recurring work in a project you manage using server time.", {
         "project": "Project prefix whose due recurring work to issue.",
     }),
-    "recurring-state": _Action("POST", "Pause, resume, or cancel recurring work you own.", {
-        "id": "Definition ID, such as R-1.", "change": "Pause, resume, or cancel.",
+    "recurring-state": _Action("POST", "Pause, resume, cancel, or adopt a reusable ticket for recurring work you own.", {
+        "id": "Definition ID, such as R-1.", "change": "Pause, resume, cancel, or adopt.",
     }, {"next_at": "Next UTC slot when resuming."}),
+    "complete-recurring-review": _Action("POST", "Record a completed review and park its reusable ticket as the owner.", {
+        "id": "Definition ID, such as R-1.", "note": "One-line reviewed outcome.",
+    }, {"details": "Optional review details.", **_EVIDENCE, **_TEXT_OVERRIDE}),
     "recurring-show": _Action("GET", "Read an owned recurring definition and its occurrence report.", {
         "id": "Definition ID, such as R-1.",
     }),

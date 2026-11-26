@@ -2,8 +2,8 @@
 
 Use `taskboard-migrate` from the target server release to check and upgrade an
 existing ledger before starting that release.
-The first Alembic revision adds `board_principals.short_role` to the supported
-Taskboard profile layout. The application continues to use its existing SQL.
+The Alembic revisions add `board_principals.short_role` and the reusable
+recurrence tables to the supported Taskboard layout.
 Start a fresh board with the normal setup workflow before checking its schema.
 
 ## Rehearse on a restored backup
@@ -28,14 +28,22 @@ Replace `check` with `upgrade` to apply the revision.
 
 `check` reports the recognized layout, the recorded revision if present, and
 the target. The command validates the tables, writable profile column
-definitions, and identity constraints before it records a baseline. If the
-supported layout already has `short_role`, the upgrade records the current revision.
-For an older supported layout, it adds the column and records the revision in
-one transaction. Rerunning the upgrade leaves the schema and records unchanged.
+definitions, and identity constraints before it records a baseline. The
+upgrade applies any pending revision in one transaction. Rerunning it leaves
+the schema and records unchanged.
 An unsupported layout or a revision mismatch requires operator inspection.
 
 Start the target release on the upgraded copy. Sign in and open an existing
 ticket. Compare its title and owner and read the original profile.
+
+For `0003_recurring_review_tickets`, compare an older schedule's first slot,
+next slot, and issued ticket links before and after the upgrade. Adoption is
+per schedule. On the restored copy, pause one ordinary schedule whose prior
+issued tickets are settled, run `recurring-adopt`, then resume it. Check the
+first due run, Start the issued ticket, and record a completed review. At the
+next due slot, verify one Ready event on the same ticket and confirm the
+previous run and reviewed outcome still appear. Replay the tick once to check
+for duplicate events.
 
 ## Apply the checked upgrade
 
@@ -51,6 +59,10 @@ If a migration fails, inspect the reported error before starting the target
 release. If the service fails after a successful migration, restore the backup
 to a separate database, verify the prior release against that copy, then switch
 the service to the verified restore.
+
+After enabling reusable recurring work, stop the recurring scheduler before
+rolling back. Restore and verify the pre-upgrade database with the old build
+before restarting its scheduler.
 
 This release still accepts ledgers upgraded by the existing startup procedure.
 A SQLite backup restored as SQLite keeps its revision. When importing a SQLite

@@ -36,12 +36,54 @@ SCHEMA = (
     )
     """,
 )
+REVIEW_SCHEMA = (
+    """CREATE TABLE IF NOT EXISTS recurring_review_tickets (
+        definition_id BIGINT PRIMARY KEY REFERENCES recurring_definitions (id) NOT NULL,
+        task_id BIGINT UNIQUE REFERENCES tasks (id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS recurring_review_runs (
+        definition_id BIGINT NOT NULL REFERENCES recurring_review_tickets (definition_id),
+        due_at TEXT NOT NULL,
+        ready_event_id BIGINT NOT NULL UNIQUE REFERENCES events (id),
+        completed_event_id BIGINT UNIQUE REFERENCES events (id),
+        PRIMARY KEY (definition_id, due_at),
+        FOREIGN KEY (definition_id, due_at) REFERENCES recurring_occurrences (definition_id, due_at)
+    )""",
+)
 HISTORY_LIMIT = 25
 
 
 def ensure_project_binding(db):
     if "project_prefix" not in tasks_storage.table_columns(db, "recurring_definitions"):
         db.execute("ALTER TABLE recurring_definitions ADD COLUMN project_prefix TEXT REFERENCES projects (prefix)")
+    for statement in REVIEW_SCHEMA:
+        db.execute(statement)
+
+
+def review_ticket(db, definition_id):
+    return db.execute("SELECT task_id FROM recurring_review_tickets WHERE definition_id = ?", (definition_id,)).fetchone()
+
+
+def enable_reviews(db, definition_id):
+    return db.execute(
+        "INSERT INTO recurring_review_tickets (definition_id) VALUES (?) ON CONFLICT (definition_id) DO NOTHING",
+        (definition_id,),
+    ).rowcount > 0
+
+
+def active_review(db, definition_id):
+    row = db.execute(
+        """SELECT due_at, completed_event_id FROM recurring_review_runs
+           WHERE definition_id = ? ORDER BY due_at DESC LIMIT 1""", (definition_id,),
+    ).fetchone()
+    return row if row is not None and row["completed_event_id"] is None else None
+
+
+def last_review_at(db, definition_id):
+    return db.execute(
+        """SELECT MAX(event.at) FROM recurring_review_runs AS run
+           JOIN events AS event ON event.id = run.completed_event_id WHERE run.definition_id = ?""", (definition_id,),
+    ).fetchone()[0]
 
 
 def utc(value):
@@ -108,7 +150,7 @@ def due_slots(row, as_of):
     return start, spacing, total
 
 
-def record_due(db, definition, as_of, make_task=None):
+def record_due(db, definition, as_of, make_task=None, *, make_review=None):
     start, spacing, count = due_slots(definition, as_of)
     result = {"expected": count, "issued": 0, "unissued": 0}
     if not count:
@@ -117,6 +159,7 @@ def record_due(db, definition, as_of, make_task=None):
     latest = count - 1
     for offset in range(count):
         due = start + offset * spacing
+        ready = make_review(definition, utc_text(due)) if make_review is not None and offset == latest else None
         task_id = make_task(definition, utc_text(due)) if make_task is not None and offset == latest else None
         db.execute(
             """
@@ -125,7 +168,12 @@ def record_due(db, definition, as_of, make_task=None):
             """, (definition["id"], utc_text(due), utc_text(due + spacing), task_id,
                    utc_text(as_of) if task_id is not None else None),
         )
-        result["unissued" if task_id is None else "issued"] += 1
+        if ready is not None:
+            db.execute(
+                "INSERT INTO recurring_review_runs (definition_id, due_at, ready_event_id) VALUES (?, ?, ?)",
+                (definition["id"], utc_text(due), ready),
+            )
+        result["issued" if task_id is not None or ready is not None else "unissued"] += 1
     db.execute("UPDATE recurring_definitions SET next_at = ? WHERE id = ?",
                (utc_text(start + count * spacing), definition["id"]))
     return result
@@ -140,6 +188,7 @@ def edit(db, args, as_of):
             explicit_project=getattr(args, "explicit_project", project is not None),
         )
         if created:
+            enable_reviews(db, number)
             audit.record(db, scope="private", actor=args.dri, operation="recurring-add",
                          record_type="recurrence", record_id=f"R-{number}", at=as_of)
         result = "Recurrence created" if created else "Existing recurrence"
@@ -179,7 +228,7 @@ def edit(db, args, as_of):
     return f"{reference} · {target.capitalize()}"
 
 
-def tick(db, as_of, make_task, *, recorded_at, project=None, actor=None, touched=None):
+def tick(db, as_of, make_task, *, recorded_at, make_review=None, project=None, actor=None, touched=None):
     now = utc(as_of)
     totals = {"expected": 0, "issued": 0, "unissued": 0}
     args = [utc_text(now)]
@@ -197,14 +246,61 @@ def tick(db, as_of, make_task, *, recorded_at, project=None, actor=None, touched
     for definition in due:
         if touched is not None:
             touched.append(definition)
-        for field, amount in record_due(db, definition, now, make_task).items():
+        reusable = make_review is not None and review_ticket(db, definition["id"]) is not None
+        for field, amount in record_due(db, definition, now, None if reusable else make_task,
+                                        make_review=make_review if reusable else None).items():
             totals[field] += amount
         audit.record(db, scope="private" if actor is not None else "operator", actor=actor, operation="recurring-tick",
                      record_type="recurrence", record_id=f"R-{definition['id']}", at=recorded_at)
     return {"as_of": utc_text(now), **totals}
 
 
-def report(db, number, owner, as_of, *, task_scope=("1 = 1", ())):
+def history_sql(db):
+    if not tasks_storage.has_table(db, "recurring_review_runs"):
+        return """SELECT occurrence.*, NULL AS ready_event_id, NULL AS next_ready_event_id,
+                         NULL AS completed_event_id, NULL AS reviewed_at, NULL AS outcome,
+                         NULL AS outcome_context
+                  FROM recurring_occurrences AS occurrence"""
+    return """
+        SELECT occurrence.definition_id, occurrence.due_at, occurrence.deadline_at,
+               COALESCE(ready.task_id, occurrence.task_id) AS task_id,
+               COALESCE(ready.at, occurrence.issued_at) AS issued_at,
+               run.ready_event_id, run.completed_event_id,
+               (SELECT next_run.ready_event_id FROM recurring_review_runs AS next_run
+                WHERE next_run.definition_id = run.definition_id AND next_run.due_at > run.due_at
+                ORDER BY next_run.due_at LIMIT 1) AS next_ready_event_id,
+               reviewed.at AS reviewed_at, reviewed.note AS outcome, reviewed.context AS outcome_context
+        FROM recurring_occurrences AS occurrence
+        LEFT JOIN recurring_review_runs AS run ON run.definition_id = occurrence.definition_id
+                                             AND run.due_at = occurrence.due_at
+        LEFT JOIN events AS ready ON ready.id = run.ready_event_id
+        LEFT JOIN events AS reviewed ON reviewed.id = run.completed_event_id
+    """
+
+
+def review_fields(db, row, viewer, project, task_scope):
+    empty = {"reusable_ticket": None, "last_reviewed_at": None, "can_complete_review": False}
+    if not tasks_storage.has_table(db, "recurring_review_tickets"):
+        return empty
+    visibility, bindings = task_scope
+    task = db.execute(
+        f"""SELECT ticket.id, ticket.project_prefix, ticket.project_number, ticket.dri, events.state
+            FROM recurring_review_tickets AS series JOIN tasks AS ticket ON ticket.id = series.task_id
+            JOIN events ON events.id = (SELECT MAX(id) FROM events WHERE task_id = ticket.id
+                                       AND action NOT IN ('source-event', 'log'))
+            WHERE series.definition_id = ? AND ({visibility})""", (row["id"], *bindings),
+    ).fetchone()
+    if task is None:
+        return empty
+    return {
+        "reusable_ticket": {"id": task["id"], "key": projects.row_reference(task)},
+        "last_reviewed_at": last_review_at(db, row["id"]),
+        "can_complete_review": (viewer == row["owner"] == task["dri"] and task["state"] == "in_progress"
+                                and task["project_prefix"] == project and active_review(db, row["id"]) is not None),
+    }
+
+
+def report(db, number, owner, as_of, *, task_scope=("1 = 1", ()), viewer=None, project=None):
     row = owned(db, number, owner)
     now = utc(as_of)
     cutoff = utc_text(now)
@@ -214,14 +310,15 @@ def report(db, number, owner, as_of, *, task_scope=("1 = 1", ())):
     for occurrence in db.execute(
         f"""
         SELECT o.due_at, o.deadline_at, CASE WHEN o.issued_at <= ? THEN o.task_id END AS task_id,
-               (SELECT MIN(e.at) FROM events e WHERE e.task_id = o.task_id AND e.action = 'done'
-                AND e.at >= o.issued_at AND e.at <= ?) AS completed_at
-        FROM recurring_occurrences o
+               CASE WHEN o.ready_event_id IS NOT NULL THEN CASE WHEN o.reviewed_at <= ? THEN o.reviewed_at END
+                    ELSE (SELECT MIN(e.at) FROM events e WHERE e.task_id = o.task_id AND e.action = 'done'
+                          AND e.at >= o.issued_at AND e.at <= ?) END AS completed_at
+        FROM ({history_sql(db)}) AS o
         LEFT JOIN tasks AS ticket ON ticket.id = o.task_id
         WHERE o.definition_id = ? AND o.due_at <= ?
           AND (o.task_id IS NULL OR ({visibility}))
         ORDER BY o.due_at DESC
-        """, (cutoff, cutoff, number, cutoff, *bindings),
+        """, (cutoff, cutoff, cutoff, number, cutoff, *bindings),
     ):
         item = dict(occurrence)
         completed = item["completed_at"]
@@ -253,4 +350,5 @@ def report(db, number, owner, as_of, *, task_scope=("1 = 1", ())):
         **({"project": row["project_prefix"]} if "project_prefix" in row.keys() and row["project_prefix"] is not None else {}),
         "next_at": row["next_at"] if row["state"] == "active" else None,
         "as_of": cutoff, **counts, "unmaterialized": unmaterialized, "recent_occurrences": recent,
+        **review_fields(db, row, viewer, project, task_scope),
     }
