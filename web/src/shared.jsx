@@ -170,8 +170,9 @@ export function schedulesHref(project, allProjects = false) {
   return '#' + new URLSearchParams({ schedules: '', ...(allProjects ? { scope: 'all' } : project && { project }) })
 }
 
-export function scheduleHref(id, project) {
-  return `#schedule-${id}${project ? '?' + new URLSearchParams({ project }) : ''}`
+export function scheduleHref(id, project, allProjects = false) {
+  const params = allProjects ? { scope: 'all' } : project ? { project } : null
+  return `#schedule-${id}${params ? '?' + new URLSearchParams(params) : ''}`
 }
 
 export function ownerHref(owner, section, project) {
