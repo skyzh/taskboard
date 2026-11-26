@@ -3,7 +3,7 @@ import { BoardLink } from './BoardNavigation.jsx'
 import { DemoUnavailable } from './DemoControl.jsx'
 import { projectHref } from './projectScope.js'
 
-export default function BoardViews({ current, reportsHref, projectScope, isAgent, showNotifications, showKnowledge, preview = false }) {
+export default function BoardViews({ current, reportsHref, projectScope, isAgent, isHuman, showNotifications, showKnowledge, preview = false }) {
   const nav = useRef(null)
   useEffect(() => {
     const strip = nav.current
@@ -30,14 +30,14 @@ export default function BoardViews({ current, reportsHref, projectScope, isAgent
     ['activity', 'Activity'],
     ...(showKnowledge ? [['knowledge', 'Knowledge']] : []),
     ['stats', 'Stats'],
-    ...(showNotifications ? [['notifications', 'Notifications']] : []),
+    ...(showNotifications ? [['notifications', 'Notifications', isHuman ? 'notifications-log' : 'notifications']] : []),
     ...(isAgent ? [['my-activity', 'My activity']] : []),
   ]
   return (
     <nav ref={nav} className="board-views" aria-label="Taskboard views">
-      {links.map(([id, label]) => (
+      {links.map(([id, label, route = id]) => (
         preview && id !== current ? <DemoUnavailable key={id} className="offline-view">{label}</DemoUnavailable>
-          : <BoardLink key={id} href={id === 'reports' ? reportsHref : projectHref(`#${id}`, projectScope)}
+          : <BoardLink key={id} href={id === 'reports' ? reportsHref : projectHref(`#${route}`, projectScope)}
             aria-current={current === id ? 'page' : undefined}>{label}</BoardLink>
       ))}
     </nav>
