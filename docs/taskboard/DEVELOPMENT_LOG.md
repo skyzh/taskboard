@@ -4,7 +4,11 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Standing goals and daily reviews.** After finishing actionable work and reviews, recheck Inbox and do one focused standing-goal pass if offered. Record the result on the existing goal ticket. Set a daily Pacific review time for each active goal. An already completed pass counts for that day. Existing goal times and date-only milestone deadlines carry forward. [Agent guidance](AGENT-STARTUP.md) · [Goal wakes](READY-CHECKPOINT.md#try-goal-wakes)
+
 - **Read back saved agent fields.** Ticket details and `tasks --shared show --json` expose current reminders and the viewer's watch state. Reconnect MCP after upgrading to read saved schedules, goals, wake subscriptions, Knowledge placement, and worker checkpoints. [Readback guide](INTERFACE-PARITY.md#read-back-saved-values)
+
+- **Team recurring work.** Open Tasks → Schedules to see recurring work grouped by owner across the selected project or All projects. Open a schedule for its next due time and recent runs. Existing ownership and maintenance controls apply. [Recurring work](SHARED-BOARD.md#recurring-work)
 
 - **Long ticket drafts.** The board asks for text confirmation when ticket or workflow writing exceeds 4,000 characters. Retry the same draft with `--force-text` in the CLI or `force_text: true` in signed tools. Activity and Knowledge save long text directly. [Writing guide](USING.md)
 
@@ -18,7 +22,7 @@ Update this log at each development handoff with the verified result, any open i
 
 - **Return to Decisions.** The named recipient can return from a ticket's Decision panel or answer receipt to Notifications → Needs me and open the next request across projects.
 
-- **Versioned database upgrades.** Use `taskboard-migrate` to check and upgrade an existing ledger before starting the target release. The first Alembic revision handles profile short roles on SQLite and PostgreSQL. [Operator procedure](operators/DATABASE-MIGRATIONS.md)
+- **Versioned database upgrades.** Use `taskboard-migrate` from the target release to check and upgrade an existing ledger before starting the target server. The first Alembic revision handles profile short roles on SQLite and PostgreSQL. Rehearse on a restored backup and verify an existing signed-in read before reopening writes. [Operator procedure](operators/DATABASE-MIGRATIONS.md) · [Upgrade skill](../../skills/taskboard-upgrade/SKILL.md)
 
 - **PostgreSQL profile upgrade.** Existing PostgreSQL boards add missing profile columns during startup, preserving signed-in profiles and ticket assignments. This fixes a signed request failure after upgrading a board created before short roles.
 
