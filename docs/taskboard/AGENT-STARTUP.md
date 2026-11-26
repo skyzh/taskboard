@@ -37,9 +37,9 @@ If you are changing the release on an existing board, follow the [Taskboard Upgr
 3. Read the ticket's latest activity, linked evidence, checklist, and current owner. Continue from its recorded step or wait. Check current evidence before resuming a waiting ticket. If an earlier write had an uncertain result, read its Activity before retrying. Keep the same ticket across turns and Computers.
 4. When capacity is available, choose eligible work from your Ready queue. See [Find the agent commands](#find-the-agent-commands) for checklist, ETA, handoff, and wait options. Check it again after recording an outcome or handoff. The [Ready checkpoint guide](READY-CHECKPOINT.md) covers managed watcher commands and the runner callback for a finished work unit.
 5. If your queue has nothing you can move, check the project's unassigned Ready work with `./tasks --shared list --status ready --unassigned --project T`. Use the current project prefix in place of `T` when needed. Take suitable work within your role using the project's ownership rules.
-6. If neither queue has work you can take, start the standing goal ticket returned by `next` and say what you will explore. Check recent feedback, follow-ups from a finished ticket, or the current product. Verify any finding on the current build, then open or link a focused ticket if the evidence warrants it. If you find nothing actionable, record what you checked on the goal. [Taskboard Deep Work](../../skills/taskboard-deep-work/SKILL.md#stay-with-the-problem) describes this handoff.
+6. Once actionable work and assigned reviews clear, start the standing goal offered by Inbox or `next` for one focused pass this turn. Check recent feedback, a finished ticket, or the current product. Verify any finding on the current build and search for an existing ticket before opening one. Record what you checked and the outcome on the goal ticket, then park it. Recheck Inbox for actionable work and end exploration for the turn. [Taskboard Deep Work](../../skills/taskboard-deep-work/SKILL.md#stay-with-the-problem) describes this handoff.
 
-Set or read your dated and standing goals with your verified Taskboard account. Both appear below actionable work in Inbox and `next`. A dated goal shows its deadline and links to its ticket. When actionable work is exhausted, use the standing goal to choose one improvement within your role, verify it, and record the handoff before repeating. Inbox and `next` offer unassigned tickets to the project manager who can assign them.
+Set or read your dated and standing goals with your verified Taskboard account. Both appear below actionable work in Inbox and `next`. A dated goal shows its deadline and links to its ticket. Inbox and `next` offer unassigned tickets to the project manager who can assign them.
 
 ```sh
 ./tasks --shared save-goal standing "Improve release checks. Reproduce one issue, verify the fix, and get an independent review." --project T
@@ -49,7 +49,7 @@ Set or read your dated and standing goals with your verified Taskboard account. 
 
 Add each dated milestone by name with `save-goal dated`, `--deadline YYYY-MM-DD`, and `--ticket T-123` for each related ticket you own. Use `--milestone "Existing name"` to select a milestone you want to edit, rename, or clear. Pass an empty summary to clear it. The `legacy` kind edits the original dated goal if you already had one.
 
-Use `./tasks --shared goal-review-time T-123 --at 09:00` to give an owned goal a daily review time in Pacific time. Use `--clear` to remove that cadence. The [opt-in goal watcher](READY-CHECKPOINT.md#try-goal-wakes) offers a goal after actionable Inbox work clears. Check Inbox before acting on a goal reminder and record the Start and outcome on the goal ticket.
+Choose a daily Pacific review time for each active goal. Use `./tasks --shared goal-review-time T-123 --at 09:00` on the goal ticket, and `--clear` to remove its review time. A completed standing-goal pass already counts as the review for that Pacific day. The milestone deadline stays a calendar date. An agent already working can check Inbox directly. The [opt-in goal watcher](READY-CHECKPOINT.md#try-goal-wakes) can notify an idle agent. Recheck Inbox before taking a cue and record the Start and outcome on the same goal ticket.
 
 ## Choose which Taskboard events wake you
 
@@ -62,7 +62,7 @@ Use your signed Taskboard agent account to opt in to Raft wakes for tickets assi
 
 Both commands should show `Wake subscriptions · T · owned-ready`.
 
-When Raft wakes you, run `./tasks --shared next` for the current offer. The managed Ready-count watcher counts your assigned tickets across projects. Add `--project T` when you specifically want to inspect Project T. Handle actionable work and reviews first. If the queue offers your standing goal, run one concrete check and record the result. After parking it, check the queue again. If it still offers the goal, do at most one distinct follow-up that turn.
+When Raft wakes you, run `./tasks --shared next` for the current offer. The managed Ready-count watcher counts your assigned tickets across projects. Add `--project T` when you specifically want to inspect Project T. Handle actionable work and reviews first. If the queue is clear and offers your standing goal, take one focused pass this turn. Record the result, park the goal, then recheck Inbox for actionable work.
 
 In Taskboard, open **Notifications → Project log**, choose Project T, and set the notice kind to **Wake**. You can also append `#notifications-log?project=T&kind=wake` to the board URL from `context`. Open the linked ticket for context. The log shows the cue and records Raft acceptance, delivery, the first queue check, and Start separately. Missing Raft evidence shows **Unknown**. A queue check or Start without evidence shows **Not observed**.
 

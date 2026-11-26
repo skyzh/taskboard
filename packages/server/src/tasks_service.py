@@ -3427,9 +3427,12 @@ def create_app(
         owner = actor["ledger_key"]
         project = project_scope(request.args)
         with tasks_storage.read(db()) as connection:
+            items = list(query().actionable_work(owner, today=pacific_day(ledger.timestamp()), project=project))
+            goal_context = goals.queue_context(connection, owner, project, principal=actor_key())
             return {
-                "items": list(query().actionable_work(owner, today=pacific_day(ledger.timestamp()), project=project)),
-                **goals.queue_context(connection, owner, project, principal=actor_key()),
+                "items": items, **goal_context,
+                **({"standing_goal_guidance": agent_guidance["standing-exploration"]}
+                   if not items and goal_context["standing_goals"] else {}),
             }
 
     @app.get("/api/v1/notifications/needs-you")

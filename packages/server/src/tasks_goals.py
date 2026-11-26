@@ -55,11 +55,16 @@ GOAL_MIGRATION = "goal_tickets_migrated"
 LEGACY_GOAL_STEP = "Start or link a concrete investigation when there is work to do on this goal."
 DATED_GOAL_STEP = "Review progress toward this milestone and record the result by its deadline."
 STANDING_EXPLORATION_LABEL = "Explore this goal"
-STANDING_EXPLORATION_START = "Start this goal ticket if this turn still allows exploration, and note what you plan to check."
+STANDING_EXPLORATION_START = (
+    "Finish actionable work and reviews first. If your Inbox is clear and you have not explored this turn, "
+    "start this goal ticket for one focused pass and say what you will check."
+)
 STANDING_EXPLORATION = (
     f"{STANDING_EXPLORATION_START} Explore the product, recent changes, or workflow evidence. "
-    "Open or link a focused ticket if you find a bug or improvement. Otherwise, record what you checked. "
-    "If you open a ticket from this standing goal, add the spontaneous tag."
+    "If you find a bug or improvement, search for an existing ticket before opening a focused one. "
+    "If you open a ticket from this standing goal, add the spontaneous tag. "
+    "Record the result and park this goal ticket. The completed pass counts as today's Pacific daily review. "
+    "Recheck Inbox for actionable work and end exploration for the turn."
 )
 
 

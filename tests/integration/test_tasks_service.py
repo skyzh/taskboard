@@ -2237,6 +2237,7 @@ class TasksServiceTest(unittest.TestCase):
         path = "/api/v1/notifications/work"
         work = self.call(avery, path).json
         self.assertEqual([item["kind"] for item in work["items"]], ["ready", "review", "shared_ready"])
+        self.assertNotIn("standing_goal_guidance", work)
         standing_ticket = work["standing_goals"][0]["ticket"]
         self.assertEqual(work["standing_goals"], [{**standing, "ticket": standing_ticket}])
         self.assertEqual(self.call(blake, path).json["standing_goals"], [])
@@ -5601,7 +5602,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(human, "context", status=403)
         self.assertIn("Next: Check the example queue.", self.shared_cli(avery, "context")[1])
         self.assertEqual(self.action(blake, "my-next")["next_step"],
-                         "Check recent feedback or the product for a concrete improvement within your role.")
+                         "Check any other project queues and assigned reviews before ending the turn.")
 
         self.action(avery, "save-goal", {"kind": "standing", "summary": "Explore sample work."})
         self.assertIn("Next: Explore a sample and tag each new finding.", self.shared_cli(avery, "next")[1])
@@ -11500,6 +11501,7 @@ class TasksServiceTest(unittest.TestCase):
         code, output, errors = self.shared_cli(avery, "goals", "--project", "T")
         self.assertEqual((code, errors), (0, ""))
         self.assertIn(f"{goal} · Daily review at 09:15 Pacific time.", output)
+        self.assertIn("Choose a daily Pacific review time for each active goal", output)
         self.assertEqual(self.shared_cli(avery, "goal-review-time", goal, "--clear")[0], 0)
         self.assertFalse(self.action(avery, "my-goals").get("review_times"))
         self.assertEqual(self.action(avery, "my-next")["standing_goals"][0]["ticket"], goal)
