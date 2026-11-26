@@ -723,7 +723,8 @@ class BoardQueries:
     def tasks(self, *, state=None, dri=None, waiting_on=None, before=None, limit=20, now=False,
               decided_by=None, search=None, priority_order=False, review_due=None, project=None, tag=None,
               managed_by=None, hide_requests=False, exclude_goals=False, github_url=None, include_knowledge=False,
-              current_work=False, unfinished=False, summary_personal_owner=None, watching_viewer=None):
+              current_work=False, unfinished=False, summary_personal_owner=None, watching_viewer=None,
+              exclude_exploration=False):
         scope, bindings = self.project_visibility()
         terms, args = [scope], list(bindings)
         filter_search = None
@@ -756,6 +757,9 @@ class BoardQueries:
                 args.append(projects.DEFAULT)
         if exclude_goals:
             terms.append("NOT EXISTS (SELECT 1 FROM task_goals WHERE task_goals.task_id = tasks.id AND retired = 0)")
+        if exclude_exploration:
+            terms.append("NOT EXISTS (SELECT 1 FROM board_settings WHERE key = ? || CAST(tasks.id AS TEXT))")
+            args.append(goals.EXPLORATION_SETTING)
         if managed_by is not None:
             terms.append(f"tasks.project_prefix IN ({projects.MANAGED_BY})")
             args.extend((managed_by, managed_by))
@@ -2741,8 +2745,8 @@ class BoardQueries:
                 }
                 if kind == "in_progress" and not ordinary_only and goals.exploration_criterion(self.db, work["id"]) is not None:
                     exploration = work
-                    for ordinary in self.tasks(**scope, **filters, exclude_goals=True)["items"]:
-                        yield {"kind": kind, "id": ordinary["id"], "key": ordinary["key"], "title": ordinary["title"]}
+                    for current in self.tasks(**scope, **filters, exclude_exploration=True)["items"]:
+                        yield {"kind": kind, "id": current["id"], "key": current["key"], "title": current["title"]}
                 else:
                     yield work
         if exploration:

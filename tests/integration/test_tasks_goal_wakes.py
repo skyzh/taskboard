@@ -120,6 +120,10 @@ class GoalWakeReplay(unittest.TestCase):
         self.assertEqual(goal["stopping_criterion"], "")
         self.assertIn("update --standing-pass", action(client, "my-next")["next_step"])
         self.service.cli("register-project", "COURSE", "Fixture course", "--dri", self.owner)
+        action(client, "save-goal", {
+            "kind": "dated", "summary": "Review the fictional milestone", "deadline": "2026-12-01",
+        })
+        dated = action(client, "my-goals")["milestones"][0]["ticket"]
 
         def record(note, *, met=False, status=200):
             return action(client, "advance-task", {
@@ -127,9 +131,15 @@ class GoalWakeReplay(unittest.TestCase):
                 "standing_pass": "criterion-met" if met else "complete", "note": note,
             }, status=status)
 
+        with patch("tasks_core.timestamp", return_value="2026-11-21T16:29:00Z"):
+            self.transition(dated, "start", "Check the milestone evidence.")
         with patch("tasks_core.timestamp", return_value="2026-11-21T16:30:00Z"):
             self.transition(standing, "start", "Compare the latest handoff.")
             record("The latest handoff names its next owner.")
+            self.assertEqual(action(client, "my-next", query_string={"scope": "all"})["work"]["key"], dated)
+            items = self.service.call(client, "/api/v1/notifications/work", query_string={"scope": "all"}).json["items"]
+            self.assertEqual([item["key"] for item in items], [dated, standing])
+            self.transition(dated, "done", "The fixture milestone is verified.")
             self.assertEqual(action(client, "my-next", query_string={"scope": "all"})["work"]["key"], standing)
             urgent = self.ordinary_work("COURSE")
             self.assertEqual(action(client, "my-next", query_string={"scope": "all"})["work"]["key"], urgent)
