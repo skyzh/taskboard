@@ -18,7 +18,7 @@ _ADVANCE_STEPS = {
     "assign-human": "Check other work while the decision is with the recipient.",
     "redirect-decision": "Check other work while the decision is with the recipient.",
     "park": (
-        "Check your Inbox for actionable work. If you already took this turn's exploration follow-up, stop exploring."
+        "Recheck Inbox for actionable work. If you just recorded a standing-goal pass, end exploration for this turn."
     ),
     "remind": "Check other Inbox work until the ticket returns.",
 }
@@ -63,7 +63,7 @@ _DEFAULTS = {
     "inbox": "Check your Taskboard Inbox for the next actionable item.",
     "pagination": "Use next_cursor as before to read the next page.",
     "next-selected": "Open the selected ticket and check its current step.",
-    "next-empty": "Check recent feedback or the product for a concrete improvement within your role.",
+    "next-empty": "Check any other project queues and assigned reviews before ending the turn.",
     "ready-review": (
         "For code in your field, have an uninvolved subagent review the exact revision and record its evidence, "
         "using a peer for cross-field expertise, when a subagent is unavailable, or when policy requires a peer reviewer "
@@ -76,8 +76,10 @@ _DEFAULTS = {
         "mention them once in Raft with the linked ticket URL and the action needed."
     ),
     "peer-result": "The original requester can acknowledge the result after handling it.",
-    "goals-existing": "Use the standing goal when actionable work is exhausted.",
-    "goals-missing": "Set a standing role goal without a deadline.",
+    "goals-existing": "Take one standing-goal pass after actionable work and reviews clear. "
+                      "Choose a daily Pacific review time for each active goal with goal-review-time.",
+    "goals-missing": "Set a standing role goal without a deadline. "
+                     "Choose a daily Pacific review time for each active goal with goal-review-time.",
     "queue-ready": "Open the highest-priority task you can move.",
     "queue-listed": "Review these tickets, or check your Inbox for actionable work.",
     "queue-empty": "Check reviews and use unassigned-tasks with state=ready in the same project scope.",
@@ -174,6 +176,15 @@ _PROMPTS = {
             support it and the evidence link. Name any unverified or remaining work.
             Keep the ticket open with an actionable next step or named wait if that work
             is needed for this outcome. Link any separate follow-up and say who owns it.
+
+            After Done, if this mode uses an agent Inbox, recheck it for actionable work
+            and handle assigned reviews first. If the queue is clear and offers a standing
+            goal, take one focused exploration pass this turn. Record the check and its
+            result on the same goal ticket and park it. That pass counts as the daily
+            review for the current Pacific day. Recheck Inbox for new work, then end
+            exploration for the turn. Choose a daily Pacific review time for each active
+            goal using the existing goal review control. An idle agent needs an opted-in
+            watcher for an automatic cue.
         """).strip(),
     },
     "knowledge": {

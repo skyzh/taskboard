@@ -48,9 +48,9 @@ For a two-pickup pilot, add `--two-pickups` to the watcher command. The process 
 
 For the opt-in Ready-count watcher, add `--repeat` in place of `--two-pickups`. Check `raft proc list` first and keep one managed watcher per agent. The default delay is ten seconds of sampled idle, about one confirming poll. When new work enters the signed Ready queue, the watcher rereads the queue and confirms Idle before sending a reminder such as “You have 2 Ready tickets.” The count covers your assigned Ready tickets across projects. A retained reminder records the newest included Ready event so a restart or a shrinking queue can reuse that wake. Run `./tasks --shared next` to find the current offer and take actionable Inbox work first. Add `--project` only for a deliberate check of one project.
 
-After recording and parking a standing-goal check, recheck the Inbox. If the Inbox is clear and there is a distinct, concrete follow-up, take at most one such follow-up in the same turn. After that, stop exploring for the turn. The process stays armed across turns and stays quiet for an empty or unchanged Ready queue.
+Take one standing-goal pass when actionable Inbox work and reviews clear. Record the result on the goal ticket and park it. Recheck Inbox for actionable work and end exploration for the turn. The process stays armed across turns and stays quiet for an empty or unchanged Ready queue.
 
-The follow-up limit is guidance in the reminder. On a board with [custom standing-goal or Park guidance](SHARED-BOARD.md#customize-agent-guidance), keep those messages consistent with the turn's exploration limit.
+Keep [custom standing-goal or Park guidance](SHARED-BOARD.md#customize-agent-guidance) consistent with one exploration pass per turn.
 
 The repeat watcher retries queue read timeouts and HTTP 502, 503, or 504 up to
 three times, with increasing delays. It logs the recovered count separately
@@ -123,10 +123,11 @@ The goal keeps its normal Parked state until the agent starts the check.
 1. Verify the mounted build and your signed identity. Record your original
    watcher command and anchor and list owned reminders. Keep existing
    schedules until you verify the equivalent behavior for this agent.
-2. For a daily review, use `./tasks --shared goal-review-time T-123 --at 09:00`,
-   then use `./tasks --shared goals --project T` for readback. Times are Pacific.
-   A dated goal without a review time can surface its deadline from 09:00
-   Pacific on the deadline date.
+2. Choose a daily Pacific review time for each active goal with
+   `./tasks --shared goal-review-time T-123 --at 09:00`, then use
+   `./tasks --shared goals --project T` for readback. A completed standing-goal
+   pass counts as that Pacific day's review. A dated goal without a review
+   time can surface its deadline from 09:00 Pacific on the deadline date.
 3. Replace the existing watcher with the same options plus
    `--goal-state /absolute/private/path/goal-wakes.sqlite`. Keep the same
    state across restarts. Start with one enrolled agent and one concrete

@@ -17,8 +17,8 @@ import test_tasks_service
 
 
 COUNT_WAKE_GUIDANCE = (
-    "Take Taskboard Inbox work first. After parking a standing-goal check, recheck Inbox. "
-    "If clear, do at most one distinct, concrete follow-up this turn."
+    "Take Taskboard Inbox work first. When work and reviews clear, take one standing-goal pass if offered. "
+    "After parking it, recheck Inbox for actionable work and end exploration for the turn."
 )
 
 
@@ -922,8 +922,8 @@ class ReadyCheckpointTest(unittest.TestCase):
         self.assertIn("Work ready at wake", shared("next"))
         shared("start", "T-2", "Read the queued sample.")
         completed = shared("done", "T-2", "Read the sample.")
-        self.assertIn('If this turn still allows exploration, run `./tasks --shared start T-1 ', completed)
-        self.assertIn("Start this goal ticket if this turn still allows exploration", shared("next"))
+        self.assertIn('When eligible, run `./tasks --shared start T-1 ', completed)
+        self.assertIn("If your Inbox is clear and you have not explored this turn", shared("next"))
 
         shared("start", "T-1", "Check handoff details on the sample.")
         first_park = shared("park", "T-1", "Recorded the handoff check.")
@@ -931,21 +931,17 @@ class ReadyCheckpointTest(unittest.TestCase):
         next_item = shared("next")
         self.assertIn("New Inbox work", next_item)
         self.assertIn("Improve the queue.", next_item)
-        self.assertNotIn("Start this goal ticket", next_item)
+        self.assertNotIn("start this goal ticket for one focused pass", next_item)
         shared("start", "T-3", "Verify the new receipt.")
         shared("done", "T-3", "Verified the receipt.")
-        self.assertIn("Start this goal ticket if this turn still allows exploration", shared("next"))
+        self.assertIn("If your Inbox is clear and you have not explored this turn", shared("next"))
 
-        shared("start", "T-1", "Check whether the queue displays the handoff timestamp.")
-        second_park = shared("park", "T-1", "Recorded the timestamp check.")
-        guidance = (
-            "Next: Check your Inbox for actionable work. "
-            "If you already took this turn's exploration follow-up, stop exploring."
+        self.assertIn(
+            "Recheck Inbox for actionable work. If you just recorded a standing-goal pass, end exploration for this turn.",
+            first_park,
         )
-        self.assertIn(guidance, first_park)
-        self.assertIn(guidance, second_park)
         self.assertEqual(self.avery.invoke("task", {"id": "T-1"})["task"]["state"], "parked")
-        self.assertIn("Start this goal ticket if this turn still allows exploration", shared("next"))
+        self.assertIn("If your Inbox is clear and you have not explored this turn", shared("next"))
 
     def test_measurement_records_first_idle_and_empty_without_changing_wake_timing(self):
         clock = 0

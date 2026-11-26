@@ -1,6 +1,7 @@
 """Replay a goal wake and completion with the signed board and a disposable carrier."""
 
 import unittest
+from unittest.mock import patch
 
 import test_tasks_service
 from taskboard_cli.goal_wake import GoalWake, GoalWakeState, reminder_title
@@ -74,3 +75,35 @@ class GoalWakeReplay(unittest.TestCase):
         another = self.watcher().lookup()
         self.assertEqual(another["task"], standing)
         self.assertNotEqual(another["goal_key"], cue["goal_key"])
+
+
+    def test_standing_pass_before_review_time_counts_for_the_pacific_day(self):
+        self.board.invoke("save-goal", {"kind": "standing", "summary": "Improve fictional handoffs"}, write=True)
+        standing = self.board.invoke("my-next")["standing_goals"][0]["ticket"]
+        self.board.invoke("set-goal-review-time", {"id": standing, "time": "09:00"}, write=True)
+
+        def cues(at):
+            with patch("tasks_core.timestamp", return_value=at):
+                return self.board.invoke("my-goal-cues", {"project": "T"})
+
+        self.assertEqual(cues("2026-11-20T17:00:00Z")["cues"][0]["kind"], "standing-daily")
+        self.assertEqual(cues("2026-11-21T16:30:00Z")["cues"], [])
+        with patch("tasks_core.timestamp", return_value="2026-11-21T16:30:00Z"):
+            next_item = self.board.invoke("my-next", {"scope": "all"})
+            self.assertIsNone(next_item["work"])
+            inbox = self.service.call(self.board.client, "/api/v1/notifications/work",
+                                      query_string={"scope": "all"}).json
+            self.assertEqual(inbox["items"], [])
+            self.assertEqual(inbox["standing_goal_guidance"], next_item["next_step"])
+            self.assertIn("one focused pass", next_item["next_step"])
+            self.transition(standing, "start", "Check the fictional handoff.")
+        with patch("tasks_core.timestamp", return_value="2026-11-21T16:40:00Z"):
+            parked = self.transition(standing, "park", "The same ticket retained the handoff evidence.")
+            self.assertIn("end exploration for this turn", parked["next_step"])
+
+        same_day = cues("2026-11-22T06:00:00Z")
+        self.assertEqual(same_day["day"], "2026-11-21")
+        self.assertEqual(same_day["standing"]["completed_checks"], 1)
+        self.assertEqual(same_day["cues"], [])
+        next_day = cues("2026-11-22T17:00:00Z")
+        self.assertEqual([(cue["kind"], cue["ticket"]) for cue in next_day["cues"]], [("standing-daily", standing)])

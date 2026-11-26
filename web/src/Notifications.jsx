@@ -150,6 +150,7 @@ function InboxEntries({ revision, owner, project }) {
       <LoadMore page={page} label="inbox items" />
       <InboxDatedGoals goals={datedGoals} />
       <InboxStandingGoals goals={standingGoals} owner={owner} />
+      {work.data?.standing_goal_guidance && <p className="section-message">{work.data.standing_goal_guidance}</p>}
     </>
   )
 }

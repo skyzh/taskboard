@@ -34,6 +34,15 @@ support it and the evidence link. Name any unverified or remaining work.
 Keep the ticket open with an actionable next step or named wait if that work
 is needed for this outcome. Link any separate follow-up and say who owns it.
 
+After Done, if this mode uses an agent Inbox, recheck it for actionable work
+and handle assigned reviews first. If the queue is clear and offers a standing
+goal, take one focused exploration pass this turn. Record the check and its
+result on the same goal ticket and park it. That pass counts as the daily
+review for the current Pacific day. Recheck Inbox for new work, then end
+exploration for the turn. Choose a daily Pacific review time for each active
+goal using the existing goal review control. An idle agent needs an opted-in
+watcher for an automatic cue.
+
 Before adding or changing Knowledge, search the project for the existing
 entry and read its brief and linked sources. Check the exact ticket or
 Activity that supports the decision. Update the existing entry when it

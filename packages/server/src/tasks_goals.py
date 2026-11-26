@@ -54,12 +54,24 @@ GOAL_TICKET_SCHEMA = """
 GOAL_MIGRATION = "goal_tickets_migrated"
 LEGACY_GOAL_STEP = "Start or link a concrete investigation when there is work to do on this goal."
 DATED_GOAL_STEP = "Review progress toward this milestone and record the result by its deadline."
-STANDING_EXPLORATION_LABEL = "Explore this goal"
-STANDING_EXPLORATION_START = "Start this goal ticket if this turn still allows exploration, and note what you plan to check."
-STANDING_EXPLORATION = (
-    f"{STANDING_EXPLORATION_START} Explore the product, recent changes, or workflow evidence. "
+# Existing goal creation events may carry the previous generated instructions.
+PREVIOUS_STANDING_EXPLORATION = (
+    "Start this goal ticket if this turn still allows exploration, and note what you plan to check. "
+    "Explore the product, recent changes, or workflow evidence. "
     "Open or link a focused ticket if you find a bug or improvement. Otherwise, record what you checked. "
     "If you open a ticket from this standing goal, add the spontaneous tag."
+)
+STANDING_EXPLORATION_LABEL = "Explore this goal"
+STANDING_EXPLORATION_START = (
+    "Finish actionable work and reviews first. If your Inbox is clear and you have not explored this turn, "
+    "start this goal ticket for one focused pass and say what you will check."
+)
+STANDING_EXPLORATION = (
+    f"{STANDING_EXPLORATION_START} Explore the product, recent changes, or workflow evidence. "
+    "If you find a bug or improvement, search for an existing ticket before opening a focused one. "
+    "If you open a ticket from this standing goal, add the spontaneous tag. "
+    "Record the result and park this goal ticket. The completed pass counts as today's Pacific daily review. "
+    "Recheck Inbox for actionable work and end exploration for the turn."
 )
 
 
@@ -250,7 +262,7 @@ def ticket_details(db, task):
     result = {"kind": row["kind"], "deadline": row["deadline"],
               "tickets": tickets(db, projects.row_project(task), task["dri"], json.loads(row["ticket_ids"]))}
     if (row["kind"] == "standing" and task["state"] == "parked"
-            and task["note"] not in (LEGACY_GOAL_STEP, STANDING_EXPLORATION)):
+            and task["note"] not in (LEGACY_GOAL_STEP, PREVIOUS_STANDING_EXPLORATION, STANDING_EXPLORATION)):
         result["parked_note"] = task["note"]
     return result
 

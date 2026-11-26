@@ -439,7 +439,7 @@ def completion_guidance(board, reference, fallback=None, *, cue=None):
             if ticket := goal["ticket"]:
                 return (
                     f"Standing goal {ticket} · {goal['summary']}\n"
-                    f'{result["next_step"]}\nIf this turn still allows exploration, run '
+                    f'{result["next_step"]}\nWhen eligible, run '
                     f'`./tasks --shared start {ticket} "<what you will check>"`.'
                 )
     except (SharedActionUnavailable, SharedReadError, KeyError, TypeError):
@@ -702,10 +702,10 @@ def shared_command(args):
                 lines.append(f"  Related tasks: {links}")
         for ticket, at in sorted(saved.get("review_times", {}).items()):
             lines.append(f"{ticket} · Daily review at {at} Pacific time.")
-        guidance = "Use the standing goal when your actionable work is exhausted."
+        guidance = saved.get("next_step") or "Choose a daily Pacific review time for each active goal with goal-review-time."
         if not standing:
             flag = f" --project {projects.prefix(args.project)}" if args.project else ""
-            guidance = f'Save your role goal with `./tasks --shared save-goal standing "<summary>"{flag}`.'
+            guidance = f'Save your role goal with `./tasks --shared save-goal standing "<summary>"{flag}`. {guidance}'
         key = "goals-existing" if standing else "goals-missing"
         return with_guidance("\n".join(lines) or "No goals set.", prompts.get(key, guidance))
     if command == "knowledge-areas":

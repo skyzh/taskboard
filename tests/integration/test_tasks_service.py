@@ -1792,12 +1792,21 @@ class TasksServiceTest(unittest.TestCase):
         self.call(avery, "/api/v1/profile/milestone", method="PATCH", json={
             "goal": {"summary": "Ship the sample", "deadline": "2026-11-30", "tickets": ["T-3"]},
         })
+        previous_guidance = (
+            "Start this goal ticket if this turn still allows exploration, and note what you plan to check. "
+            "Explore the product, recent changes, or workflow evidence. "
+            "Open or link a focused ticket if you find a bug or improvement. Otherwise, record what you checked. "
+            "If you open a ticket from this standing goal, add the spontaneous tag."
+        )
+        self.assertNotIn("parked_note", self.call(avery, "/api/v1/tasks/T-1").json["goal"])
         with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("UPDATE events SET note = ? WHERE task_id = 1 AND action = 'add'", (previous_guidance,))
             db.execute("UPDATE events SET note = ? WHERE task_id = 2 AND action = 'add'", (LEGACY_GOAL_STEP,))
 
-        for reference, stored in (("T-1", STANDING_EXPLORATION), ("COURSE-1", LEGACY_GOAL_STEP)):
+        for reference, stored in (("T-1", previous_guidance), ("COURSE-1", LEGACY_GOAL_STEP)):
             with self.subTest(reference=reference):
                 detail = self.call(avery, f"/api/v1/tasks/{reference}").json
+                self.assertNotIn("parked_note", detail["goal"])
                 self.assertEqual((detail["task"]["summary_label"], detail["task"]["note"]),
                                  ("Explore this goal", STANDING_EXPLORATION))
                 show = self.shared_cli(avery, "show", reference)[1]
@@ -2237,6 +2246,7 @@ class TasksServiceTest(unittest.TestCase):
         path = "/api/v1/notifications/work"
         work = self.call(avery, path).json
         self.assertEqual([item["kind"] for item in work["items"]], ["ready", "review", "shared_ready"])
+        self.assertNotIn("standing_goal_guidance", work)
         standing_ticket = work["standing_goals"][0]["ticket"]
         self.assertEqual(work["standing_goals"], [{**standing, "ticket": standing_ticket}])
         self.assertEqual(self.call(blake, path).json["standing_goals"], [])
@@ -2260,7 +2270,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("#task-5", ready_output)
         self.assertRegex(ready_output, r"T-1 · Own Ready · https?://[^\s]+#task-1")
         self.assertIn(f"Next: {next_work['next_step']}", ready_output)
-        self.assertNotIn("Start this goal ticket", ready_output)
+        self.assertNotIn("start this goal ticket for one focused pass", ready_output)
         self.assertNotIn("Improve course handoffs", ready_output)
         course_output = self.shared_cli(avery, "next", "--project", "COURSE")[1]
         self.assertIn("Improve course handoffs", course_output)
@@ -2281,7 +2291,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIsNone(fallback["work"])
         self.assertEqual(fallback["standing_goals"], [{**standing, "ticket": standing_ticket}])
         self.assertEqual(fallback["dated_goals"], dates)
-        self.assertIn("Start this goal ticket", fallback["next_step"])
+        self.assertIn("start this goal ticket for one focused pass", fallback["next_step"])
         fallback_output = self.shared_cli(avery, "next", "--project", "T")[1]
         self.assertIn("Improve the work queue", fallback_output)
         self.assertIn("Check the import", fallback_output)
@@ -2316,7 +2326,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(after_close["standing_goals"], [])
         self.assertEqual([goal["summary"] for goal in after_close["dated_goals"]],
                          ["Original dated goal", "Confirm the import"])
-        self.assertNotIn("Start this goal ticket", after_close["next_step"])
+        self.assertNotIn("start this goal ticket for one focused pass", after_close["next_step"])
 
     def test_completed_goals_leave_default_views_but_keep_their_dated_history(self):
         app = self.app(portal_reader=True)
@@ -5601,7 +5611,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(human, "context", status=403)
         self.assertIn("Next: Check the example queue.", self.shared_cli(avery, "context")[1])
         self.assertEqual(self.action(blake, "my-next")["next_step"],
-                         "Check recent feedback or the product for a concrete improvement within your role.")
+                         "Check any other project queues and assigned reviews before ending the turn.")
 
         self.action(avery, "save-goal", {"kind": "standing", "summary": "Explore sample work."})
         self.assertIn("Next: Explore a sample and tag each new finding.", self.shared_cli(avery, "next")[1])
@@ -11500,6 +11510,7 @@ class TasksServiceTest(unittest.TestCase):
         code, output, errors = self.shared_cli(avery, "goals", "--project", "T")
         self.assertEqual((code, errors), (0, ""))
         self.assertIn(f"{goal} · Daily review at 09:15 Pacific time.", output)
+        self.assertIn("Choose a daily Pacific review time for each active goal", output)
         self.assertEqual(self.shared_cli(avery, "goal-review-time", goal, "--clear")[0], 0)
         self.assertFalse(self.action(avery, "my-goals").get("review_times"))
         self.assertEqual(self.action(avery, "my-next")["standing_goals"][0]["ticket"], goal)
