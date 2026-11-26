@@ -6,9 +6,29 @@ import unittest
 from unittest.mock import patch
 
 from taskboard_client.connection import SharedBoard, SharedReadError
+from taskboard_client.direct import ACTION_MANIFEST_PATH, DirectBoard
 
 
 class SharedConnectionTest(unittest.TestCase):
+    def test_action_manifest_is_bound_to_the_signed_board(self):
+        url = "https://board.example/tasks" + ACTION_MANIFEST_PATH
+        actions = [{"name": "my-queue"}]
+        data = {"manifestUrl": url, "actions": actions}
+        result = subprocess.CompletedProcess([], 0, json.dumps({"ok": True, "data": data}), "")
+        with patch("taskboard_client.connection.subprocess.run", return_value=result) as invoke:
+            board = SharedBoard("fixture-board")
+            self.assertEqual(board.action_manifest(url), actions)
+            self.assertIn("--list-actions", invoke.call_args.args[0])
+            with self.assertRaisesRegex(RuntimeError, "differs from the signed board"):
+                board.action_manifest("https://other.example" + ACTION_MANIFEST_PATH)
+
+        board = DirectBoard("https://board.example/tasks")
+        with patch.object(board, "request", return_value=(200, {"actions": actions})) as request:
+            self.assertEqual(board.action_manifest(url), actions)
+            with self.assertRaisesRegex(RuntimeError, "signed context did not name"):
+                board.action_manifest("https://other.example" + ACTION_MANIFEST_PATH)
+            request.assert_called_once_with(ACTION_MANIFEST_PATH, authenticate=False)
+
     def test_error_stream_preserves_confirmed_rejections_and_uncertain_writes(self):
         reason = "Cannot wait on a Ready ticket."
         cases = (

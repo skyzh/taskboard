@@ -175,6 +175,17 @@ class SharedBoard:
     def __init__(self, service):
         self.service = service
 
+    def action_manifest(self, expected_url):
+        call = ["raft", "integration", "invoke", "--service", self.service, "--list-actions", "--json"]
+        result = subprocess.run(call, capture_output=True, text=True, timeout=45)
+        reply = reply_json(result.stdout)
+        data = reply.get("data")
+        if result.returncode or reply.get("ok") is not True or not isinstance(data, dict):
+            raise RuntimeError("Could not read the registered Taskboard action manifest. Check the Raft integration.")
+        if data.get("manifestUrl") != expected_url:
+            raise RuntimeError("The registered Taskboard manifest differs from the signed board context.")
+        return data.get("actions")
+
     def raise_attention(self, ticket, reason, *, recipient=None, request_key=None, unblocks=None, url=None, label=None,
                         force_text=False):
         params = {"id": ticket, "reason": reason, "request_key": request_key if request_key is not None else str(uuid4())}

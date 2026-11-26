@@ -1,6 +1,7 @@
 """Pilot a local Codex worker for signed, assigned Taskboard handoffs."""
 
 import argparse
+from itertools import chain
 import json
 import os
 import signal
@@ -9,6 +10,7 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 from time import sleep
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from tools.checkout import add_packages
@@ -21,6 +23,13 @@ from taskboard_client.references import prefix
 
 
 START = "Start a read-only local handoff check."
+HANDOFF_ACTIONS = {
+    "my-queue": ("GET", {"project", "before"}),
+    "task": ("GET", {"id"}),
+    "task-activity": ("GET", {"id", "before"}),
+    "advance-task": ("POST", {"id", "transition", "note"}),
+    "peer-ask": ("POST", {"id", "transition", "note"}),
+}
 SCHEMA = {
     "type": "object",
     "properties": {"status": {"enum": ["done", "blocked"]}, "note": {"type": "string"}},
@@ -67,6 +76,43 @@ def verify_context(board, actor, url, project):
                 context["actor"].get("dri_kind") != "local" or context.get("project") != project
             ))):
         raise ValueError("The signed agent, board, or project differs from the selected watcher.")
+    return context
+
+
+def watcher_queue(board, actor, url, project):
+    context = verify_context(board, actor, url, project)
+    manifest_url = context.get("action_manifest")
+    if not manifest_url:
+        raise ValueError("The signed board context did not advertise an action manifest. Check the board version.")
+    manifest = board.action_manifest(manifest_url)
+    if not isinstance(manifest, list):
+        raise ValueError("The Taskboard action manifest is missing its action list.")
+    unavailable = context.get("unavailable_actions", {})
+    mount = urlsplit(context["board"]).path.rstrip("/")
+    actions = {
+        entry["name"]: entry for entry in manifest
+        if entry["name"] not in unavailable
+        and entry["endpoint"]["path"] == f"{mount}/api/v1/raft/{entry['name']}"
+    }
+    for name, (method, parameters) in HANDOFF_ACTIONS.items():
+        entry = actions.get(name)
+        if (entry is None or entry["endpoint"]["method"] != method
+                or not parameters.issubset(entry["parameters"])):
+            raise ValueError(
+                f"The signed session does not offer a compatible {name} action. "
+                "Check the board's watcher support and the selected sign-in before restarting."
+            )
+    directory = actions.get("list-projects")
+    if directory and directory["endpoint"]["method"] == "GET":
+        if not any(item["prefix"] == project for item in board.invoke("list-projects")["items"]):
+            raise ValueError("The selected project is unavailable to the signed-in watcher.")
+    fields = {"project": project}
+    optional = actions["my-queue"]["parameters"]
+    if "state" in optional:
+        fields["state"] = "ready"
+        if "order" in optional:
+            fields["order"] = "priority"
+    return fields
 
 
 def report_watcher(board, watcher, state, requester):
@@ -75,11 +121,18 @@ def report_watcher(board, watcher, state, requester):
     })
 
 
-def run_one(board, *, actor, url, project, requester, worker):
-    verify_context(board, actor, url, project)
-    for task in board.pages("my-queue", {"project": project, "state": "ready", "order": "priority"}):
+def run_one(board, *, actor, url, project, requester, worker, publish_readiness=None):
+    fields = watcher_queue(board, actor, url, project)
+    tasks = board.pages("my-queue", fields)
+    if publish_readiness is not None:
+        first = next(tasks, None)
+        publish_readiness()
+        if first is not None:
+            tasks = chain((first,), tasks)
+    for task in tasks:
         ask = task.get("peer_request") or {}
-        if ask.get("requester") == requester and ask.get("phase") == "asked":
+        if (task["state"] == "ready" and task["key"].startswith(project + "-")
+                and ask.get("requester") == requester and ask.get("phase") == "asked"):
             receipt = run_ask(board, task["key"], actor, project, requester, worker)
             if receipt:
                 return receipt
@@ -141,18 +194,21 @@ def main(argv=None):
         signal.signal(signal.SIGTERM, stop_watcher)
     try:
         board = DirectBoard(args.board, local_dri=args.actor) if local else SharedBoard(args.service)
-        verify_context(board, args.actor, args.board, args.project)
         if watcher and subprocess.run(
             [executable, "login", "status"], cwd=directory, capture_output=True, timeout=20,
         ).returncode:
             raise ValueError("Sign in to Codex on this Computer before starting the watcher.")
+
+        def publish_readiness():
+            nonlocal active
+            active = True
+            report_watcher(board, watcher, "active", args.requester)
+
         while True:
-            if watcher:
-                active = True
-                report_watcher(board, watcher, "active", args.requester)
             receipt = run_one(
                 board, actor=args.actor, url=args.board, project=args.project, requester=args.requester,
                 worker=lambda work: codex_worker(str(executable), directory, work),
+                publish_readiness=publish_readiness if watcher else None,
             )
             if receipt:
                 print(receipt, flush=True)
