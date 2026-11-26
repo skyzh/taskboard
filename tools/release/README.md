@@ -359,8 +359,22 @@ python3 -B tools/release/watch_main_ci.py \
 The preview reads GitHub and Taskboard and reports the planned actions. After
 reviewing the preview, the operator can add `--apply` to the same invocation
 and schedule it independently of the Ready watcher. Use one dedicated private
-state directory for that scheduler and keep its board, owner, and start date
-fixed. The watcher reconciles uncertain writes against the immutable Activity
-source key before trying again. If GitHub cannot return the complete run
-history for the window, the watcher stops before writing. Start a newer
-monitoring window with fresh state after reviewing any older unresolved runs.
+state directory for that scheduler and keep its board and owner fixed. The
+watcher reconciles uncertain writes against the original signed creation event
+and exact GitHub attempt link before trying again. A failure whose job records
+are missing is reported as deferred. The watcher continues with later runs.
+
+Review the window before it reaches 750 runs, leaving room below GitHub’s
+1,000-result limit for filtered run queries. Check the count with the Mac’s
+existing GitHub login, substituting the configured start date.
+
+```sh
+gh api 'repos/skyzh/taskboard/actions/workflows/426408905/runs?branch=main&event=push&created=%3E%3D2026-11-26&per_page=1' --jq .total_count
+```
+
+To advance the window, preview with a newer `--since` date and the same state
+directory. Use that date on the next applied pass. It drains the old window
+first and saves the new date. Failed runs and failures awaiting job evidence
+remain tracked by run ID even after they fall outside the new window. A passing
+retry updates the original ticket and removes the run from outstanding tracking.
+If GitHub cannot return the full old window, the watcher stops before writing.

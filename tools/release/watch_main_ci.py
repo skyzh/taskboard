@@ -3,6 +3,7 @@
 import argparse
 from datetime import date
 import json
+import re
 from pathlib import Path
 import subprocess
 
@@ -47,13 +48,18 @@ def number(value):
     return value
 
 
-def observations(read, since, seen):
+def observations(read, since, seen, pending):
     protected_tip({"repo": REPO}, read)
     pages = read(
         f"{API}/actions/workflows/{WORKFLOW}/runs?branch=main&event=push&created=%3E%3D{since}&per_page=100",
         paginate=True,
     )
-    for latest in reversed(all_items(pages, "workflow_runs")):
+    runs = all_items(pages, "workflow_runs")
+    listed = {number(run["id"]) for run in runs}
+    carried = [read(f"{API}/actions/runs/{number(run)}") for run in sorted(pending - listed)]
+    if {run["id"] for run in carried} != pending - listed or not all(main_run(run) for run in carried):
+        raise ValueError("GitHub did not confirm the outstanding CI runs.")
+    for latest in [*carried, *reversed(runs)]:
         if not main_run(latest):
             continue
         run_id = number(latest["id"])
@@ -77,30 +83,47 @@ def observations(read, since, seen):
                                         and job["conclusion"] in ("failure", "timed_out"))
                 ]
                 if not failed:
-                    raise ValueError("The failed CI attempt did not return evidence of a failed job.")
+                    yield run_id, attempt, commit, "missing_failed_jobs", []
+                    break
             yield run_id, attempt, commit, run["conclusion"], failed
 
 
-def activity_matches(invoke, marker):
+def activity_matches(invoke, marker, owner, run, *, attempt=None):
     response = invoke("search-activity", {"project": PROJECT, "q": marker, "limit": 100})
     if response["next_cursor"] is not None:
         raise ValueError("The CI source key has too many matching Activity entries.")
-    return {entry["task_key"] for entry in response["items"]}
+    run_url = f"{ACTIONS}/{run}/attempts/"
+    url_pattern = re.escape(run_url) + (str(attempt) if attempt else r"[1-9][0-9]*")
+    matches = set()
+    for candidate in response["items"]:
+        key = candidate["task_key"]
+        events = invoke("task-activity", {"id": key, "before": candidate["id"] + 1, "limit": 1})["items"]
+        if events:
+            event = events[0]
+            if (event["id"] == candidate["id"] and event["actor"] == owner
+                    and event["action"] in (("add", "log") if attempt else ("add",))
+                    and event["note"].startswith(marker + " ")
+                    and any(link["label"] == "GitHub Actions attempt" and re.fullmatch(url_pattern, link["url"])
+                            for link in event["links"])):
+                matches.add(key)
+    return matches
 
 
-def reconcile(invoke, event, *, dry_run, planned):
+def reconcile(invoke, event, *, owner, dry_run, planned):
     run, attempt, commit, outcome, failed = event
+    if outcome == "missing_failed_jobs":
+        return {"run": run, "attempt": attempt, "action": "deferred", "reason": outcome}
     if outcome not in ("failure", "success") or (outcome == "success" and attempt == 1):
         return None
     source = f"Taskboard CI run {run}."
     marker = f"{source} Attempt {attempt}."
-    targets = activity_matches(invoke, source)
+    targets = activity_matches(invoke, source, owner, run)
     if len(targets) > 1:
         raise ValueError(f"Multiple tickets match Taskboard CI run {run}.")
     target = next(iter(targets), None)
     if not target and run not in planned and outcome == "success":
         return None
-    if target and target in activity_matches(invoke, marker):
+    if target and target in activity_matches(invoke, marker, owner, run, attempt=attempt):
         return {"run": run, "attempt": attempt, "action": "already-recorded", "ticket": target}
 
     run_url = f"{ACTIONS}/{run}/attempts/{attempt}"
@@ -126,7 +149,7 @@ def reconcile(invoke, event, *, dry_run, planned):
             planned.add(run)
     else:
         result["receipt"] = invoke(action, payload, write=True)["receipt"]
-        if not activity_matches(invoke, marker):
+        if not activity_matches(invoke, marker, owner, run, attempt=attempt):
             raise ValueError("Taskboard did not confirm the CI observation in Activity.")
     return result
 
@@ -137,18 +160,34 @@ def poll(read, invoke, state, *, since, board, owner, dry_run):
         raise ValueError("Use the signed session for the configured HTTPS Taskboard.")
     if context["actor"]["id"] != owner:
         raise ValueError("Use the signed session for the configured ticket owner.")
-    binding = {"since": since, "board": board.rstrip("/"), "owner": owner}
-    saved = json.loads(state.read_text()) if state.is_file() else {**binding, "attempts": {}}
+    binding = {"board": board.rstrip("/"), "owner": owner}
+    saved = json.loads(state.read_text()) if state.is_file() else {**binding, "since": since, "attempts": {}, "pending": []}
     if any(saved.get(key) != value for key, value in binding.items()):
-        raise ValueError("Use the original owner, board, and start date for this watcher state.")
+        raise ValueError("Use the original owner and board for this watcher state.")
+    if since < saved["since"]:
+        raise ValueError("The monitoring window may only move forward.")
     attempts = saved["attempts"]
+    pending = set(saved["pending"])
     results, planned = [], set()
-    for event in list(observations(read, since, attempts)):
-        if result := reconcile(invoke, event, dry_run=dry_run, planned=planned):
+    # Finish reconciling the old window once before a renewal can drop its runs.
+    events = list(observations(read, saved["since"], attempts, pending))
+    if since > saved["since"]:
+        # The new window is a subset. A failed old run remains in pending until it passes.
+        saved["since"] = since
+    for event in events:
+        if result := reconcile(invoke, event, owner=owner, dry_run=dry_run, planned=planned):
             results.append(result)
         if not dry_run:
-            attempts[str(event[0])] = event[1]
-            write_json(state, saved)
+            run, attempt, _, outcome, _ = event
+            if outcome != "missing_failed_jobs":
+                attempts[str(run)] = attempt
+            if outcome in ("failure", "missing_failed_jobs"):
+                pending.add(run)
+            elif outcome == "success":
+                pending.discard(run)
+    if not dry_run:
+        saved["pending"] = sorted(pending)
+        write_json(state, saved)
     return results
 
 

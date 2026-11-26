@@ -439,22 +439,29 @@ class MainCIWatcherTest(unittest.TestCase):
         self.addCleanup(scratch.cleanup)
         self.state = Path(scratch.name) / "main-ci.json"
         self.latest = [run(1, "failure")]
-        self.history = {1: self.latest[0], 2: run(2, "failure")}
+        self.history = {1: self.latest[0]}
         self.activities = []
         self.writes = []
         self.lose_response = False
+        self.jobs_missing = set()
 
     def read(self, path, *, paginate=False):
         if path == API + "/branches/main":
             return {"name": "main", "protected": True, "commit": {"sha": COMMIT}}
         if f"/workflows/{WORKFLOW}/runs?" in path:
             self.assertTrue(paginate)
-            self.assertIn(f"created=%3E%3D{SINCE}", path)
+            self.assertIn("created=%3E%3D", path)
             return page("workflow_runs", *self.latest)
-        prefix = API + "/actions/runs/42/attempts/"
+        prefix = API + "/actions/runs/"
         self.assertTrue(path.startswith(prefix))
-        attempt = int(path.removeprefix(prefix).split("/")[0])
+        parts = path.removeprefix(prefix).split("/")
+        key = int(parts[0])
+        if len(parts) == 1:
+            return self.history[max(self.history)]
+        attempt = int(parts[2])
         if "/jobs?" in path:
+            if key in self.jobs_missing:
+                return page("jobs")
             return page("jobs", {
                 "id": 60 + attempt, "name": "Portable checks", "head_sha": COMMIT,
                 "status": "completed", "conclusion": "failure",
@@ -465,17 +472,28 @@ class MainCIWatcherTest(unittest.TestCase):
         if action == "context":
             return {"actor": {"id": "Beacon"}, "board": BOARD}
         if action == "search-activity":
-            return {"items": [{"task_key": key} for key, note in self.activities if payload["q"] in note],
-                    "next_cursor": None}
+            return {"items": [{"task_key": key, "id": row["id"]} for key, row in self.activities
+                              if payload["q"] in row["note"]], "next_cursor": None}
+        if action == "task-activity":
+            matches = [row for key, row in self.activities if key == payload["id"] and row["id"] < payload["before"]]
+            return {"items": matches[-1:]}
         self.assertTrue(write)
         self.writes.append((action, payload))
-        self.activities.append(("T-9", payload.get("note") or payload["step"]))
+        key = payload.get("id", f"T-{9 + sum(item[1]['action'] == 'add' for item in self.activities)}")
+        self.add_activity(key, "add" if action == "create-task" else "log",
+                          payload.get("note") or payload["step"], payload["url"])
         if self.lose_response:
             raise ValueError("Write response lost after commit.")
         return {"receipt": "Committed"}
 
-    def poll(self, *, dry_run=False, owner="Beacon"):
-        return poll(self.read, self.invoke, self.state, since=SINCE, board=BOARD, owner=owner, dry_run=dry_run)
+    def add_activity(self, key, action, note, url, actor="Beacon"):
+        self.activities.append((key, {
+            "id": len(self.activities) + 1, "actor": actor, "action": action, "note": note,
+            "links": [{"label": "GitHub Actions attempt", "url": url}],
+        }))
+
+    def poll(self, *, dry_run=False, owner="Beacon", since=SINCE):
+        return poll(self.read, self.invoke, self.state, since=since, board=BOARD, owner=owner, dry_run=dry_run)
 
     def test_first_failure_then_retries_and_recovery_use_same_ticket(self):
         self.assertEqual(self.poll()[0]["action"], "create-task")
@@ -527,7 +545,8 @@ class MainCIWatcherTest(unittest.TestCase):
     def test_wrong_owner_duplicate_and_provider_failure_do_not_write(self):
         with self.assertRaisesRegex(ValueError, "configured ticket owner"):
             self.poll(owner="Loom")
-        self.activities = [("T-9", "Taskboard CI run 42."), ("T-10", "Taskboard CI run 42.")]
+        for key in ("T-9", "T-10"):
+            self.add_activity(key, "add", "Taskboard CI run 42. Attempt 1. Investigate.", f"{ACTIONS}/42/attempts/1")
         with self.assertRaisesRegex(ValueError, "Multiple tickets"):
             self.poll()
 
@@ -537,3 +556,28 @@ class MainCIWatcherTest(unittest.TestCase):
         with self.assertRaises(OSError):
             poll(unavailable, self.invoke, self.state, since=SINCE, board=BOARD, owner="Beacon", dry_run=False)
         self.assertEqual(self.writes, [])
+
+    def test_ordinary_mentions_do_not_claim_a_run(self):
+        self.add_activity("T-7", "log", "Taskboard CI run 42. Attempt 1. Look here.", f"{ACTIONS}/42/attempts/1")
+        self.add_activity("T-8", "add", "Taskboard CI run 42. Attempt 1. Mention.", f"{ACTIONS}/42/attempts/1", "Other")
+        self.assertEqual(self.poll()[0]["action"], "create-task")
+
+    def test_missing_jobs_do_not_block_later_runs(self):
+        self.latest = [run(1, "failure", id=43), run(1, "failure")]
+        self.jobs_missing.add(42)
+        self.assertEqual([item["action"] for item in self.poll()], ["deferred", "create-task"])
+        saved = json.loads(self.state.read_text())
+        self.assertEqual(saved["attempts"], {"43": 1})
+        self.assertEqual(saved["pending"], [42, 43])
+
+    def test_forward_window_reconciles_old_runs_and_keeps_pending_retries(self):
+        self.poll()
+        self.latest = []
+        self.poll(since="2026-11-27")
+        saved = json.loads(self.state.read_text())
+        self.assertEqual((saved["since"], saved["pending"]), ("2026-11-27", [42]))
+        self.history[2] = run(2, "success")
+        self.assertEqual(self.poll(since="2026-11-27")[0]["ticket"], "T-9")
+        self.assertEqual(json.loads(self.state.read_text())["pending"], [])
+        with self.assertRaisesRegex(ValueError, "only move forward"):
+            self.poll()
