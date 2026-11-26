@@ -792,18 +792,32 @@ separately. The chart and duration estimates describe ledger evidence.
 
 ### Recurring work
 
-Open **Tasks → Schedules** in the selected project and choose an R-number
-to see its recorded runs. Recurring schedules appear in projects you can
-read. Their owners manage the schedule and complete reviews. A project's
-maintenance schedule is visible to its manager. Tickets issued from a
-schedule link back to it. Legacy schedules without an explicit project appear where the
-operator issues their tickets, typically the default project.
+Open any eligible ticket you own and select **Recurrence → Enable
+recurrence**. Choose a cadence in whole hours and the first run time.
+The ticket parks until that run is due. From the ticket, you can pause,
+resume with a new time or cadence, cancel future runs, or complete an
+outstanding review. Open **Activity** for Ready events, completed outcomes,
+skipped or missed slots, and links to earlier tickets.
+
+**Tasks → Schedules** lists recurring work for the selected project or
+All projects. Attached entries open their tickets. Unattached legacy and
+project maintenance entries open schedule details. Existing R-number links
+and commands continue to work.
+
+For example, to enable recurrence on an existing ticket or complete a run
+after starting that ticket:
+
+```sh
+./tasks --shared ticket-recurrence OPS-42 enable --cadence-hours 4 --next-at 2026-11-27T12:00:00Z
+./tasks --shared ticket-recurrence OPS-42 complete --note 'Both readings matched.'
+```
 
 Use a stable owner key to define a cadence in whole hours and the first
 slot in UTC. In shared mode the signed-in agent owns the definition.
 New shared definitions use `--project` or the signed-in agent's default
-project. A Local DRI uses its registered project when scope is omitted. A retry with the same
-key and settings returns the existing ID.
+project. A Local DRI uses its registered project when scope is omitted.
+The create receipt includes the parked ticket key and the R-number. A
+retry with the same key and settings returns the existing IDs.
 
 ```sh
 ./tasks --shared recurring-add sample-check 'Check the sample' \
@@ -826,9 +840,9 @@ project, including its maintenance schedule. The operator tick continues
 to handle unbound definitions and timed deferrals.
 
 An explicit local operator tick uses `./tasks --offline --db FILE
-recurring-tick --as-of UTC`. A new ordinary schedule creates one Ready
-ticket at its first due slot. Start the ticket and record a completed review
-from its schedule or with `complete-recurring-review`. Recording the outcome
+recurring-tick --as-of UTC`. At the first due slot, the scheduler returns
+the parked ticket to Ready. Start the ticket and record a completed review
+from its Recurrence panel or with `complete-recurring-review`. Recording the outcome
 parks the ticket and updates **Last reviewed**. The next due slot returns
 that ticket to Ready. An existing Ready or In progress ticket stays in its
 current state, and the scheduler records the skipped slot. Waiting and
@@ -842,12 +856,14 @@ when the owner has opted in to delivery.
 Pause retains already due slots and excludes the pause interval; cancel
 prevents future slots. Issued tasks keep their recorded history.
 
-To adopt a reusable ticket for a legacy ordinary schedule, finish or close
-its outstanding issued tickets, pause it, run `recurring-adopt R-1`, and
-resume it with the intended next UTC slot. The same R-number preserves all
-of its earlier run links. The first due slot after adoption creates the
-reusable ticket. Managed maintenance schedules keep their existing issuance
-flow.
+For an unattached ordinary schedule, run `recurring-show R-1` to preview
+the target project, saved next slot and outstanding issued tickets.
+Finish or close those tickets, pause the schedule and run
+`recurring-adopt R-1`. The receipt gives the newly attached parked ticket.
+Resume at the intended next UTC slot, after the last recorded slot.
+The same R-number preserves its earlier run links. See the
+[operator upgrade procedure](operators/DATABASE-MIGRATIONS.md#rehearse-on-a-restored-backup)
+for backup and rollback.
 
 `recurring-show` reports counts through its observation time and includes
 the most recent 25 materialized occurrences. A slot is missed after the

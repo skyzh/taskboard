@@ -81,15 +81,14 @@ installation, follow the [installation guide](../../docs/taskboard/SETUP.md).
   resulting ticket, Ready event, and run outcome. On the live board, check the
   first naturally due run and its Ready event. When Ready delivery is enabled,
   verify the received cue separately. [Recurring work](../../docs/taskboard/SHARED-BOARD.md#recurring-work)
-- When upgrading to reusable recurring tickets, rehearse adoption for one
-  existing ordinary schedule on the restored copy. Settle its old run tickets,
-  pause it, run `tasks --shared recurring-adopt R-1` with its actual schedule
-  ID, then resume at the intended future UTC time. Verify the same schedule ID
-  and old run links. Record a completed review on the first reusable ticket,
-  check **Last reviewed**, and verify that the next due run returns that same
-  ticket to Ready once. For rollback after adoption, stop the recurring
-  scheduler and verify the previous build against a restored backup before
-  restarting it. [Operator procedure](../../docs/taskboard/operators/DATABASE-MIGRATIONS.md)
+- For ticket-first recurrence, preview each candidate with
+  `tasks --shared recurring-show R-1` using its actual R-number. On the
+  restored copy, settle open issued tickets, pause and adopt. Verify the
+  receipt names one parked ticket and retrying preserves its ID. Resume at
+  the intended UTC slot. Verify one Ready event, the completed outcome,
+  **Last reviewed**, and old run links in Activity. For rollback after
+  adoption, stop the scheduler and verify the prior build against the
+  pre-adoption restore. [Operator procedure](../../docs/taskboard/operators/DATABASE-MIGRATIONS.md)
 - For a goal-review change, compare the saved Pacific review time and date-only
   deadline with the baseline. With goal wakes enabled, check the due cue, the
   agent's Start, and the recorded outcome on the existing goal ticket. An agent

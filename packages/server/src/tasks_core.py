@@ -2073,6 +2073,69 @@ def issue_recurring_task(db, definition, due, as_of):
     return create_task_record(db, args, links, context=context, at=as_of)
 
 
+def attach_recurring_ticket(db, definition, as_of):
+    args = argparse.Namespace(project=recurring_project(db, definition, None), title=definition["title"],
+                              step=definition["step"], brief=None, dri=definition["owner"], by=None)
+    linked = create_task_record(db, args, [], context={"recurring": f"R-{definition['id']}"},
+                                at=as_of, state="parked")
+    db.execute("UPDATE recurring_review_tickets SET task_id = ? WHERE definition_id = ?",
+               (linked, definition["id"]))
+    return linked
+
+
+def ticket_recurrence_definition(db, number):
+    return db.execute(
+        """SELECT definition.* FROM recurring_definitions AS definition
+           JOIN recurring_review_tickets AS series ON series.definition_id = definition.id
+           WHERE series.task_id = ?""", (number,),
+    ).fetchone()
+
+
+def can_enable_recurrence(db, task, owner):
+    if (owner is None or owner != task["dri"] or is_knowledge(task)
+            or task["state"] not in ("ready", "parked") or task_goal_kind(db, task["id"]) is not None
+            or peer_asks.find(db, task["id"]) is not None):
+        return False
+    context = json.loads(task["context"])
+    if any(context.get(field) for field in ("defer_until", "review_after", "review_on", "feature_deferred")):
+        return False
+    return db.execute(
+        """SELECT 1 FROM recurring_review_tickets WHERE task_id = ?
+           UNION ALL SELECT 1 FROM recurring_occurrences WHERE task_id = ?""", (task["id"], task["id"]),
+    ).fetchone() is None
+
+
+def edit_ticket_recurrence(db, args, links):
+    task = get_work_task(db, args.id)
+    project = projects.row_project(task)
+    if task["dri"] != args.by:
+        raise PermissionError("Only the ticket owner can change its recurrence.")
+    definition = ticket_recurrence_definition(db, args.id)
+    now = timestamp()
+    if args.change == "enable":
+        if not can_enable_recurrence(db, task, args.by):
+            raise ValueError("Enable recurrence on an eligible Ready or Parked ticket you own.")
+        # This internal key is stable across title edits and uses the ledger ID, not the project number.
+        number, created = tasks_recurring.create_definition(
+            db, args.by, f"ticket:{args.id}", task["title"], task["note"] or task["title"],
+            args.cadence_hours, args.next_at, now, project=project, explicit_project=True,
+        )
+        if not created:
+            raise ValueError("This ticket's recurrence key is already in use.")
+        db.execute("INSERT INTO recurring_review_tickets (definition_id, task_id) VALUES (?, ?)", (number, args.id))
+        record(db, args.id, "park", args.by, "parked", task["note"], None,
+               json.loads(task["current_links"]), {"recurring": f"R-{number}"}, at=now)
+        return f"{projects.row_reference(task)} · Recurrence enabled · R-{number}"
+    if (definition is None or definition["owner"] != args.by
+            or recurring_project(db, definition, None) != project):
+        raise ValueError("This ticket has no recurrence you can change.")
+    schedule_args = argparse.Namespace(**{**vars(args), "id": definition["id"],
+                                          "command": f"recurring-{args.change}"})
+    if args.change == "complete":
+        return complete_recurring_review(db, schedule_args, links)
+    return tasks_recurring.edit(db, schedule_args, now)
+
+
 def issue_recurring_review(db, definition, due, as_of):
     number = definition["id"]
     linked = tasks_recurring.review_ticket(db, number)["task_id"]
@@ -2110,21 +2173,28 @@ def complete_recurring_review(db, args, links):
     return f"{projects.row_reference(task)} · Recurring review recorded"
 
 
+def unsettled_recurring_tickets(db, definition_id):
+    return db.execute(current_tasks_sql(db) + """
+        WHERE tasks.id IN (SELECT task_id FROM recurring_occurrences WHERE definition_id = ?)
+          AND events.state <> 'done' ORDER BY tasks.id
+    """, (definition_id,)).fetchall()
+
+
 def adopt_recurring_review(db, args):
     definition = tasks_recurring.owned(db, args.id, args.by)
-    if tasks_recurring.review_ticket(db, args.id) is not None:
+    series = tasks_recurring.review_ticket(db, args.id)
+    if series is not None and series["task_id"] is not None:
         return f"R-{args.id} · Already uses a recurring review ticket"
     if definition["state"] != "paused":
         raise ValueError("Pause this schedule before adopting a reusable ticket.")
-    if db.execute(current_tasks_sql(db) + """
-        WHERE tasks.id IN (SELECT task_id FROM recurring_occurrences WHERE definition_id = ?)
-          AND events.state <> 'done' LIMIT 1
-    """, (args.id,)).fetchone() is not None:
+    if unsettled_recurring_tickets(db, args.id):
         raise ValueError("Finish or close this schedule's existing tickets before adopting a reusable ticket.")
     tasks_recurring.enable_reviews(db, args.id)
+    now = timestamp()
+    linked = attach_recurring_ticket(db, definition, now)
     audit.record(db, scope="private", actor=args.by, operation="recurring-adopt", record_type="recurrence",
-                 record_id=f"R-{args.id}", at=timestamp())
-    return f"R-{args.id} · Reusable review enabled"
+                 record_id=f"R-{args.id}", at=now)
+    return f"R-{args.id} · Reusable review enabled · {projects.for_task(db, linked)}"
 
 
 def release_due_deferrals(db, as_of):
@@ -2149,6 +2219,8 @@ def save_task(db, path, args, links):
         touched_projects = set()
         if args.command == maintenance.WRITE:
             output = json.dumps(maintenance.update(db, args, timestamp(), live=live))
+        elif args.command == "ticket-recurrence":
+            output = edit_ticket_recurrence(db, args, links)
         elif args.command == "complete-recurring-review":
             output = complete_recurring_review(db, args, links)
         elif args.command == "recurring-adopt":
@@ -2159,7 +2231,9 @@ def save_task(db, path, args, links):
             if args.command != "recurring-add" and maintenance.find(db, definition_id=args.id) is not None:
                 tasks_recurring.owned(db, args.id, args.by)
                 raise ValueError("Use maintenance-update to change a project schedule.")
-            output = tasks_recurring.edit(db, args, timestamp())
+            now = timestamp()
+            output = tasks_recurring.edit(db, args, now,
+                                          attach_review=lambda definition: attach_recurring_ticket(db, definition, now))
         elif args.command == "recurring-tick":
             project = getattr(args, "project", None)
             now = timestamp()

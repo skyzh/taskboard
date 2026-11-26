@@ -39,14 +39,33 @@ and revision changes roll back together.
 Start the target release on the upgraded copy. Sign in and open an existing
 ticket. Compare its title and owner and read the original profile.
 
-For `0003_recurring_review_tickets`, compare an older schedule's first slot,
-next slot, and issued ticket links before and after the upgrade. Adoption is
-per schedule. On the restored copy, pause one ordinary schedule whose prior
-issued tickets are settled, run `recurring-adopt`, then resume it. Check the
-first due run, Start the issued ticket, and record a completed review. At the
-next due slot, verify one Ready event on the same ticket and confirm the
-previous run and reviewed outcome still appear. Replay the tick once to check
-for duplicate events.
+Ticket-first recurrence uses the tables installed by
+`0003_recurring_review_tickets`. A schema upgrade creates those tables if
+needed. Adopting a specific schedule is a separate owner action. Existing
+attached ticket IDs, schedule IDs, and run records carry forward.
+
+1. On the restored copy, inventory active, paused and canceled ordinary
+   schedules, including unbound schedules and schedules in other projects.
+   Read `tasks --shared recurring-show R-1` for each owner. The `adoption`
+   preview gives the effective project, saved next UTC slot, last recorded
+   slot, and open issued tickets visible to the owner. Review those values
+   before choosing the next run. Unbound schedules use their existing
+   effective project. Leave canceled schedules terminal and handle
+   project-managed maintenance through its existing manager controls.
+2. Settle issued tickets, pause the chosen ordinary schedule, then run
+   `tasks --shared recurring-adopt R-1`. Verify the receipt names one parked
+   ticket and a repeated adopt returns the same attachment. Compare the
+   original R link and earlier occurrences before resuming.
+3. Resume at an explicit UTC slot after the last recorded slot. Check that
+   the ticket is parked before the due time, returns to Ready once at the
+   due time, and retains its identity and earlier links. Start it, complete
+   the review, and verify **Last reviewed** and Activity. Replay the same
+   tick and restart before the following slot to verify stable run history.
+4. In the rehearsal, stop the scheduler and restore the pre-adoption backup
+   to another disposable destination. Verify the prior release against
+   that restore. Keep the post-adoption ledger if useful for reconciling
+   activity after the backup. Bring the live mapping and next slot to the
+   operator for review before converting any live schedule.
 
 ## Apply the checked upgrade
 

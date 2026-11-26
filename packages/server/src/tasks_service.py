@@ -1897,6 +1897,23 @@ def create_app(
         number = record_id(identifier, "R-", "Recurring ID")
         return mutate(f"recurring-{change}", actor, data, id=number, next_at=next_at)
 
+    def change_ticket_recurrence(actor, number, data):
+        change = text(data, "change", maximum=10)
+        if change not in ("enable", "pause", "resume", "cancel", "complete"):
+            raise RequestError("Choose enable, pause, resume, cancel, or complete.")
+        optional = {"enable": {"cadence_hours", "next_at"}, "resume": {"cadence_hours", "next_at"},
+                    "complete": {"note", "details", "url", "label", "force_text"}}
+        if data.keys() - {"id", "change"} - optional.get(change, set()):
+            raise RequestError("Remove fields that do not apply to this recurrence action.")
+        fields = {}
+        if change in ("enable", "resume"):
+            fields["next_at"] = text(data, "next_at", maximum=40)
+            if change == "enable" or "cadence_hours" in data:
+                fields["cadence_hours"] = integer(data.get("cadence_hours"), "Cadence hours")
+        if change == "complete":
+            fields = activity_text(data, "done")
+        return mutate("ticket-recurrence", actor, data, id=number, change=change, **fields)
+
     def complete_recurring(actor, identifier, data):
         number = record_id(identifier, "R-", "Recurring ID")
         return mutate("complete-recurring-review", actor, data, id=number, **activity_text(data, "done"))
@@ -2997,10 +3014,17 @@ def create_app(
         return mutate("park", actor, data, id=task_number(number), note=writing_text(data, "note"),
                       keep_park_links=True, **parking_fields(data, "park"))
 
+    @app.post("/api/v1/tasks/<number>/recurrence")
+    def task_recurrence(number):
+        actor = current_actor(write=True)
+        data = json_body({"change", "cadence_hours", "next_at", "note", "details", "url", "label"}, writing=True)
+        return change_ticket_recurrence(actor, task_number(number), data)
+
     @app.get("/api/v1/tasks/<number>/activity")
     def task_activity(number):
-        current_actor()
-        return query().events(number=task_number(number), **page_args(request.args))
+        actor = current_actor()
+        return query().ticket_activity(task_number(number), actor["ledger_key"] if actor else None,
+                                       **page_args(request.args))
 
     @app.get("/api/v1/tasks/<number>/history/<event>")
     def task_history(number, event):
@@ -4465,7 +4489,7 @@ def create_app(
             )
         if name == "task-activity":
             number = task_number(data.get("id"))
-            activity = query().events(number=number, **page_args(data))
+            activity = query().ticket_activity(number, key, **page_args(data))
             recorded = merges.recorded_merges(db(), number, [event["id"] for event in activity["items"]])
             for event in activity["items"]:
                 if event["id"] in recorded:
@@ -4580,6 +4604,8 @@ def create_app(
             project = project_filter(data)
             result = mutate("recurring-tick", actor, data, project=project)
             return {"receipt": f"{project} · Recurring work checked", **json.loads(result["receipt"])}
+        if name == "ticket-recurrence":
+            return change_ticket_recurrence(actor, task_number(data.get("id")), data)
         if name == "recurring-state":
             return change_recurring(actor, data, data.get("id"))
         if name == "complete-recurring-review":
@@ -4592,7 +4618,8 @@ def create_app(
                     result = tasks_recurring.report(connection, number, key, ledger.timestamp(),
                                                     viewer=key, project=project,
                                                     task_scope=query().project_visibility("ticket.project_prefix"))
-                    return {**result, "project": project}
+                    preview = query().recurrence_adoption(number, key)
+                    return {**result, "project": project, **({"adoption": preview} if preview is not None else {})}
             except RequestError:
                 raise
             except ValueError as error:

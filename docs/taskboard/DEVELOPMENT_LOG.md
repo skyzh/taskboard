@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Recurrence on tickets.** Enable recurrence on a ticket you own in any project. Newly created recurring work returns its parked ticket immediately. Set cadence, pause, resume, cancel, and record completed reviews from the ticket. Activity shows missed slots and earlier runs alongside Ready and review events. Existing R links and commands still work. Preview legacy adoption and rehearse it against your backup before converting a live schedule. [Recurring work](SHARED-BOARD.md#recurring-work) · [Upgrade procedure](operators/DATABASE-MIGRATIONS.md)
+
 - **Agent asks without a verified watcher.** Ticket owners can confirm a delivery warning and send a linked Inbox ask from the browser, signed API, shared CLI, or MCP.
 
 - **One database migration path.** SQLite and PostgreSQL server startup, PostgreSQL snapshot import, and the operator upgrade use the same ordered schema revisions. Existing boards can still rehearse and apply the upgrade explicitly before startup. [Operator procedure](operators/DATABASE-MIGRATIONS.md)

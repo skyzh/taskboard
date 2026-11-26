@@ -173,6 +173,11 @@ _ACTIONS = {
     "recurring-state": _Action("POST", "Pause, resume, cancel, or adopt a reusable ticket for recurring work you own.", {
         "id": "Definition ID, such as R-1.", "change": "Pause, resume, cancel, or adopt.",
     }, {"next_at": "Next UTC slot when resuming."}),
+    "ticket-recurrence": _Action("POST", "Manage recurrence on a ticket you own.", {
+        "id": "Ticket key, such as T-1.", "change": "Enable, pause, resume, cancel, or complete.",
+    }, {"cadence_hours": "Cadence in whole hours. Required on enable, optional on resume.",
+        "next_at": "Next slot in UTC on enable or resume.", "note": "Outcome on complete.",
+        "details": "Optional review details.", **_EVIDENCE, **_TEXT_OVERRIDE}),
     "complete-recurring-review": _Action("POST", "Record a completed review and park its reusable ticket as the owner.", {
         "id": "Definition ID, such as R-1.", "note": "One-line reviewed outcome.",
     }, {"details": "Optional review details.", **_EVIDENCE, **_TEXT_OVERRIDE}),
