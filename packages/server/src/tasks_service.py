@@ -1871,8 +1871,11 @@ def create_app(
             if task is None or ledger.is_knowledge(task):
                 raise NotFound()
             project = projects.row_project(task)
+            require_visible_project(connection, project)
             if not can_edit_shared_content(connection, actor, task, project):
                 raise RequestError("This ticket requires project write access.", 403)
+            for _, url in links:
+                require_same_ring(connection, project, internal_link_project(connection, url))
             field = next((item for item in ticket_fields.definitions(connection, project) if item["key"] == key), None)
             if field is None:
                 raise RequestError("This field is not configured for the ticket's project.", 404)
@@ -3666,6 +3669,7 @@ def create_app(
             raise RequestError("Choose the milestone to clear by name.")
         try:
             with tasks_storage.write(db()) as connection:
+                require_visible_project(connection, project)
                 goal = None
                 if value is not None:
                     if not isinstance(value, dict) or value.keys() - {"summary", "deadline", "tickets"}:
@@ -3695,6 +3699,7 @@ def create_app(
         if summary is not None and not summary.isprintable():
             raise RequestError("Provide a one-line goal summary.")
         with tasks_storage.write(db()) as connection:
+            require_visible_project(connection, project)
             previous = next(iter(goals.standing(connection, owner, project)), None)
             if (previous["summary"] if previous else None) == summary:
                 return previous
