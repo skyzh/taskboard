@@ -1792,12 +1792,21 @@ class TasksServiceTest(unittest.TestCase):
         self.call(avery, "/api/v1/profile/milestone", method="PATCH", json={
             "goal": {"summary": "Ship the sample", "deadline": "2026-11-30", "tickets": ["T-3"]},
         })
+        previous_guidance = (
+            "Start this goal ticket if this turn still allows exploration, and note what you plan to check. "
+            "Explore the product, recent changes, or workflow evidence. "
+            "Open or link a focused ticket if you find a bug or improvement. Otherwise, record what you checked. "
+            "If you open a ticket from this standing goal, add the spontaneous tag."
+        )
+        self.assertNotIn("parked_note", self.call(avery, "/api/v1/tasks/T-1").json["goal"])
         with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute("UPDATE events SET note = ? WHERE task_id = 1 AND action = 'add'", (previous_guidance,))
             db.execute("UPDATE events SET note = ? WHERE task_id = 2 AND action = 'add'", (LEGACY_GOAL_STEP,))
 
-        for reference, stored in (("T-1", STANDING_EXPLORATION), ("COURSE-1", LEGACY_GOAL_STEP)):
+        for reference, stored in (("T-1", previous_guidance), ("COURSE-1", LEGACY_GOAL_STEP)):
             with self.subTest(reference=reference):
                 detail = self.call(avery, f"/api/v1/tasks/{reference}").json
+                self.assertNotIn("parked_note", detail["goal"])
                 self.assertEqual((detail["task"]["summary_label"], detail["task"]["note"]),
                                  ("Explore this goal", STANDING_EXPLORATION))
                 show = self.shared_cli(avery, "show", reference)[1]
