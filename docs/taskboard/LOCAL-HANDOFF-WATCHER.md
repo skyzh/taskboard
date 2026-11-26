@@ -57,7 +57,11 @@ remain available for a manual handoff.
 
 ## What the watcher handles
 
-The watcher checks its project's current offer. It starts ordinary Ready
+The watcher checks the selected project's signed queue. It checks the
+board's action manifest against the signed session before polling. If
+project directory discovery is unavailable, it uses the project-scoped
+queue. If a required handoff action is unavailable, the watcher reports
+which action is missing and exits before claiming an ask. It starts ordinary Ready
 handoffs from the configured requester and leaves reviews and stalled
 **In progress** tickets for their existing workflows. The board must accept
 Start before the worker launches. A worker that needs help returns a blocker

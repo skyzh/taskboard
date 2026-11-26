@@ -20,6 +20,7 @@ from .connection import APP_REJECTION, SharedBoard, SharedReadError, TEMPORARY_R
 TOKEN = re.compile(r"tbpa_[A-Za-z0-9_-]{43}")
 BOARD_PATH = re.compile(r"(?:/[A-Za-z0-9._~-]+)*")
 API_PATH = re.compile(r"/api/v1(?:/[A-Za-z0-9._~-]+)+")
+ACTION_MANIFEST_PATH = "/.well-known/raft-agent-manifest.json"
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -93,6 +94,14 @@ class DirectBoard(SharedBoard):
         if local_dri is not None and not re.fullmatch(r"local-dri:[0-9a-f-]{36}", local_dri):
             raise ValueError("Use the Local DRI ID shown in Taskboard Integrations.")
         self.local_dri = local_dri
+
+    def action_manifest(self, expected_url):
+        if expected_url != self.base + ACTION_MANIFEST_PATH:
+            raise RuntimeError("The signed context did not name this board's action manifest.")
+        status, data = self.request(ACTION_MANIFEST_PATH, authenticate=False)
+        if status != 200:
+            raise RuntimeError(f"Could not read the Taskboard action manifest (HTTP {status}).")
+        return data.get("actions")
 
     def request(self, path, method="GET", body=None, *, authenticate=True, token=None):
         headers = {"Accept": "application/json"}
