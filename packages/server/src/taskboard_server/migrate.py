@@ -13,10 +13,9 @@ from sqlalchemy import BigInteger, Integer, LargeBinary, Text, create_engine, in
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 
-from tasks_storage import open_sqlite
+from tasks_storage import SCHEMA_REVISION_TABLE, open_sqlite
 
 
-VERSION_TABLE = "taskboard_schema_revision"
 PROFILE_BASELINE = "0001_profiles_baseline"
 PROFILE_SHORT_ROLE = "0002_profile_short_role"
 IDENTITY = ["server_id", "kind", "subject"]
@@ -106,7 +105,7 @@ def migrate(engine, *, apply=False):
     with engine.connect() as connection:
         prepare_connection(connection)
         baseline = profile_revision(connection)
-        options = {"version_table": VERSION_TABLE}
+        options = {"version_table": SCHEMA_REVISION_TABLE}
         current = MigrationContext.configure(connection, opts=options).get_current_revision()
         if current is not None and current != baseline:
             raise ValueError("The recorded Taskboard revision does not match the recognized profile schema.")

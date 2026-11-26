@@ -6,8 +6,8 @@ from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.pool import NullPool
 
 import test_tasks_service as fixture
-from taskboard_server.migrate import PROFILE_BASELINE, PROFILE_SHORT_ROLE, VERSION_TABLE, migrate
-from tasks_storage import open_sqlite
+from taskboard_server.migrate import PROFILE_BASELINE, PROFILE_SHORT_ROLE, migrate
+from tasks_storage import SCHEMA_REVISION_TABLE, open_sqlite
 
 
 def replay_versioned_profiles(test, board, app, restart, engine):
@@ -15,14 +15,14 @@ def replay_versioned_profiles(test, board, app, restart, engine):
     board.action(owner, "set-profile", {"role": "Fixture release tester"})
     board.action(owner, "create-task", {"title": "Keep the existing ticket", "step": "Verify the upgrade."})
     test.assertEqual(migrate(engine)["recognized_revision"], PROFILE_SHORT_ROLE)
-    test.assertFalse(inspect(engine).has_table(VERSION_TABLE))
+    test.assertFalse(inspect(engine).has_table(SCHEMA_REVISION_TABLE))
 
     with engine.begin() as connection:
         connection.exec_driver_sql("ALTER TABLE board_principals DROP COLUMN short_role")
     test.assertEqual(migrate(engine)["recognized_revision"], PROFILE_BASELINE)
 
     def interrupt_version_write(connection, cursor, statement, parameters, context, executemany):
-        if statement.startswith(f"UPDATE {VERSION_TABLE}"):
+        if statement.startswith(f"UPDATE {SCHEMA_REVISION_TABLE}"):
             raise RuntimeError("Fictional version-write failure")
 
     event.listen(engine, "before_cursor_execute", interrupt_version_write)
@@ -32,7 +32,7 @@ def replay_versioned_profiles(test, board, app, restart, engine):
     finally:
         event.remove(engine, "before_cursor_execute", interrupt_version_write)
 
-    test.assertFalse(inspect(engine).has_table(VERSION_TABLE))
+    test.assertFalse(inspect(engine).has_table(SCHEMA_REVISION_TABLE))
     test.assertEqual(migrate(engine)["recognized_revision"], PROFILE_BASELINE)
     test.assertEqual(migrate(engine, apply=True)["applied_revision"], PROFILE_SHORT_ROLE)
     test.assertEqual(migrate(engine, apply=True)["recorded_revision"], PROFILE_SHORT_ROLE)
@@ -59,7 +59,7 @@ def reject_incompatible_profile_definition(test, engine, definition):
     for apply in (False, True):
         with test.assertRaisesRegex(ValueError, "unsupported.*role"):
             migrate(engine, apply=apply)
-    test.assertFalse(inspect(engine).has_table(VERSION_TABLE))
+    test.assertFalse(inspect(engine).has_table(SCHEMA_REVISION_TABLE))
     test.assertEqual(profile_shape(), before)
 
 
@@ -86,7 +86,7 @@ class VersionedProfileMigrationTest(unittest.TestCase):
             connection.exec_driver_sql("ALTER TABLE board_principals ADD COLUMN short_role_extra TEXT")
         with self.assertRaisesRegex(ValueError, "unsupported layout"):
             migrate(self.engine, apply=True)
-        self.assertFalse(inspect(self.engine).has_table(VERSION_TABLE))
+        self.assertFalse(inspect(self.engine).has_table(SCHEMA_REVISION_TABLE))
 
     def test_sqlite_rejects_wrong_profile_column_type_without_changes(self):
         self.board.app(portal_reader=True)

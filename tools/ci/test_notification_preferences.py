@@ -23,9 +23,10 @@ from test_tasks_project_move import replay_move
 from test_tasks_recurring import replay_project_tick
 import test_tasks_ring1 as ring1_fixture
 import test_tasks_reports_presence as presence_fixture
+from taskboard_server.migrate import PROFILE_SHORT_ROLE, migrate
 from tasks_core import import_notification_on
 from tasks_service import create_app
-from tasks_storage import Postgres
+from tasks_storage import Postgres, SCHEMA_REVISION_TABLE, open_sqlite
 from tasks_storage_import import import_snapshot
 from tasks_wake_subscriptions import OWNED_READY, has_subscription
 from tasks_goal_offers import idle_offer_counts
@@ -231,6 +232,33 @@ class StorageReplayTest(unittest.TestCase):
         old_link = self.board.action(author, "task", query_string={"id": "T-1"})
         new_link = self.board.action(author, "task", query_string={"id": "LAB-1"})
         self.assertEqual(old_link, new_link)
+
+    def test_postgres_import_adopts_its_own_schema_revision(self):
+        app = self.board.app(portal_reader=True)
+        owner, owner_id = self.board.login(app, "Avery")
+        self.board.action(owner, "set-profile", {"short_role": "Reviewer"})
+        self.board.action(owner, "create-task", {"title": "Keep the imported ticket", "step": "Verify the upgrade."})
+        snapshot = self.board.database.with_name("versioned.sqlite3")
+        with closing(sqlite3.connect(self.board.database)) as source, closing(sqlite3.connect(snapshot)) as backup:
+            source.backup(backup)
+        source_engine = create_engine("sqlite+pysqlite://", creator=lambda: open_sqlite(snapshot), poolclass=NullPool)
+        self.addCleanup(source_engine.dispose)
+        self.assertEqual(migrate(source_engine, apply=True)["applied_revision"], PROFILE_SHORT_ROLE)
+
+        dsn = self.postgres_fixture()
+        imported = import_snapshot(snapshot, dsn)
+        self.assertEqual(imported["tasks"], 1)
+        self.assertNotIn(SCHEMA_REVISION_TABLE, imported)
+        target_engine = create_engine(dsn.replace("postgresql://", "postgresql+psycopg://", 1), poolclass=NullPool)
+        self.addCleanup(target_engine.dispose)
+        self.assertIsNone(migrate(target_engine)["recorded_revision"])
+        self.assertEqual(migrate(target_engine, apply=True)["applied_revision"], PROFILE_SHORT_ROLE)
+
+        owner, signed_id = self.board.login(self.postgres_app(dsn), "Avery")
+        task = self.board.action(owner, "task", query_string={"id": "T-1"})["task"]
+        profile = self.board.call(owner, "/api/v1/session").json["actor"]
+        self.assertEqual((signed_id, task["dri"], profile["short_role"]), (owner_id, owner_id, "Reviewer"))
+        self.assertEqual(task["title"], "Keep the imported ticket")
 
     def test_postgres_worker_wake_checkpoint_matches_the_signed_run(self):
         app = self.postgres_app(self.postgres_fixture())

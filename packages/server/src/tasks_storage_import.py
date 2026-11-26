@@ -9,7 +9,7 @@ from tasks_knowledge import migrate_records
 from tasks_oidc_members import bind_issuer
 import tasks_projects as projects
 from tasks_service import prepare_postgres
-from tasks_storage import Postgres, write
+from tasks_storage import Postgres, SCHEMA_REVISION_TABLE, write
 
 
 # Parents precede their dependents. Operator and ledger settings are data too.
@@ -28,9 +28,10 @@ TABLES = (
     "wake_subscriptions", "wake_log", "goal_idle_offers",
     "knowledge_areas", "knowledge_entries", "knowledge_stages", "knowledge_maintenance_assignments",
 )
-# Browser sessions, watchers, and foreground report views belong to the source deployment.
+# Ephemeral deployment records and migration history belong to the source database.
 NON_PORTABLE_TABLES = {
     "personal_agent_connections", "personal_agent_cli_approvals", "local_dri_watchers", "reports_presence",
+    SCHEMA_REVISION_TABLE,
 }
 IDENTITIES = {
     "tasks": "id", "events": "id", "sources": "id", "worker_runs": "id",

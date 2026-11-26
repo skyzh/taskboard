@@ -375,6 +375,8 @@ Photo import is off by default. When enabled, a member's verified ID token can s
 
 ## Use a PostgreSQL ledger
 
+For an existing board, follow the [versioned database upgrade procedure](operators/DATABASE-MIGRATIONS.md).
+
 Install the optional driver with `uv sync --frozen --extra postgres`. Set `TASKS_POSTGRES_DSN` to the connection string in the service environment and select the ledger explicitly.
 
 ```sh
