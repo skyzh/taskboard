@@ -308,6 +308,15 @@ def arguments(argv=None):
             command.add_argument("--next-at", required=True, metavar="UTC")
         if change == "show":
             command.add_argument("--as-of", metavar="UTC", help="Set a local fixture observation time.")
+    ticket_recurrence = commands.add_parser("ticket-recurrence", help="Manage recurrence on a ticket you own.")
+    ticket_recurrence.add_argument("id", type=task_id)
+    ticket_recurrence.add_argument("change", choices=("enable", "pause", "resume", "cancel", "complete"))
+    ticket_recurrence.add_argument("--by", type=nonblank)
+    ticket_recurrence.add_argument("--cadence-hours", type=int)
+    ticket_recurrence.add_argument("--next-at", metavar="UTC")
+    ticket_recurrence.add_argument("--note", type=nonblank)
+    add_details_flag(ticket_recurrence)
+    add_link_flag(ticket_recurrence)
     review = commands.add_parser("complete-recurring-review", help="Record the outcome and park the reusable ticket.")
     review.add_argument("id", type=recurrence_id)
     review.add_argument("note", type=nonblank)
@@ -609,7 +618,7 @@ def arguments(argv=None):
         "add", "start", "update", "wait", "resume", "done", "close", "edit", "transfer",
         "park", "unpark", "remind", "confirm-blocker", "raise-attention", "assign-human",
         "redirect-decision", "withdraw-decision", "reassign", "unassign", "reopen",
-        "recurring-add", "complete-recurring-review", "peer-ask", "delegate", "worker-start", "worker-report",
+        "recurring-add", "ticket-recurrence", "complete-recurring-review", "peer-ask", "delegate", "worker-start", "worker-report",
         "worker-collect", "worker-stop",
     ):
         commands.choices[name].add_argument(
@@ -683,7 +692,7 @@ def arguments(argv=None):
     if args.command in {
         "raft-channel-show", "raft-channel-set", "wake-subscriptions", "wake-subscribe", "wake-unsubscribe",
         "knowledge-add", "knowledge-areas", "knowledge-assign", "knowledge-sweep", "knowledge-place",
-        "knowledge-stage", "knowledge-reconcile", "record-merge", "agent-usage", "project-access",
+        "knowledge-stage", "knowledge-reconcile", "record-merge", "agent-usage", "project-access", "ticket-recurrence",
     } and args.mode != "shared":
         parser.error(f"{args.command} requires --shared.")
 

@@ -25,7 +25,7 @@ function ScheduleDate({ value }) {
   return value ? <time dateTime={value}>{formatTimestamp(value)}</time> : '—'
 }
 
-export function ScheduleSummary({ schedule, project, showOwner = true }) {
+export function ScheduleSummary({ schedule, project, showOwner = true, showTicket = true }) {
   const { owner_name: owner, cadence_hours: cadence, state, next_at: next } = schedule
   const recurringTicket = schedule.reusable_ticket
   const interval = cadence % 24 === 0
@@ -39,7 +39,7 @@ export function ScheduleSummary({ schedule, project, showOwner = true }) {
       <div><dt>Status</dt><dd>{scheduleStates[state]}</dd></div>
       {state === 'active' && <div><dt>Next run</dt><dd><ScheduleDate value={next} /></dd></div>}
       {recurringTicket && <>
-        <div><dt>Recurring ticket</dt><dd><TaskLink id={recurringTicket.id} reference={recurringTicket.key} /></dd></div>
+        {showTicket && <div><dt>Recurring ticket</dt><dd><TaskLink id={recurringTicket.id} reference={recurringTicket.key} /></dd></div>}
         <div><dt>Last reviewed</dt><dd>{schedule.last_reviewed_at
           ? <ScheduleDate value={schedule.last_reviewed_at} /> : 'Not yet reviewed'}</dd></div>
       </>}
@@ -186,7 +186,9 @@ function ScheduleControls({ project, schedule, ownerChoices, onChanged }) {
   )
 }
 
-function ScheduleLink({ schedule, project, allProjects }) {
+function ScheduleLink({ schedule, project, allProjects, preferTicket = false }) {
+  const ticket = preferTicket && schedule.reusable_ticket
+  if (ticket) return <TaskLink id={ticket.id} reference={ticket.key} title={schedule.title} />
   return <BoardLink href={scheduleHref(schedule.id, project, allProjects)}>{schedule.id} · {schedule.title}</BoardLink>
 }
 
@@ -289,10 +291,12 @@ export function ScheduleContents({ data, project, allProjects, onChanged }) {
           ? 'No recurring schedules in your accessible projects.' : 'No recurring schedules in this project.'}</p>}
         <ScheduleOwnerGroups items={recurring} renderRow={item => (
           <article key={item.id} className="schedule-item">
-            <h4><ScheduleLink schedule={item} project={item.project || project} allProjects={allProjects} /></h4>
-            <ScheduleSummary schedule={item} project={item.project || project} showOwner={false} />
-            <OccurrenceHistory occurrences={item.recent_occurrences} />
-            {!allProjects && item.editable === true && <ScheduleControls schedule={item} onChanged={onChanged} />}
+            <h4><ScheduleLink schedule={item} project={item.project || project} allProjects={allProjects} preferTicket /></h4>
+            <ScheduleSummary schedule={item} project={item.project || project} showOwner={false} showTicket={false} />
+            {!item.reusable_ticket && <>
+              <OccurrenceHistory occurrences={item.recent_occurrences} />
+              {!allProjects && item.editable === true && <ScheduleControls schedule={item} onChanged={onChanged} />}
+            </>}
           </article>
         )} />
       </section>

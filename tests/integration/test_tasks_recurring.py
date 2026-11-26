@@ -63,7 +63,13 @@ def replay_project_tick(test, fixture, app, open_board):
     with patch("tasks_core.timestamp", return_value=ZERO):
         result = fixture.action(owner, "recurring-add", {**definition, "project": "OPS"})
         bound = result["receipt"].split()[0]
-        test.assertEqual(fixture.action(owner, "recurring-show", query_string={"id": bound})["project"], "OPS")
+        test.assertTrue(result["receipt"].endswith(" · OPS-1"))
+        schedule = fixture.action(owner, "recurring-show", query_string={"id": bound})
+        test.assertEqual((schedule["project"], schedule["reusable_ticket"]["key"]), ("OPS", "OPS-1"))
+        parked = fixture.action(owner, "task", query_string={"id": "OPS-1"})
+        test.assertEqual((parked["task"]["state"], parked["task"]["action"]), ("parked", "add"))
+        fixture.action(owner, "recurring-add", {**definition, "project": "OPS"})
+        test.assertIsNone(parked["task"]["reminder"])
         fixture.action(owner, "recurring-add", {**definition, "project": "LAB"}, status=409)
         fixture.action(owner, "recurring-add", {**definition, "key": "lab", "project": "LAB"})
 
@@ -102,7 +108,7 @@ def replay_project_tick(test, fixture, app, open_board):
                          ("OPS", "recurring", self_schedule, []))
         first_run, missed_run = self_detail["runs"]
         test.assertEqual((first_run["task_key"], first_run["due_at"], first_run["issued_at"], first_run["state"]),
-                         ("OPS-2", EIGHT, EIGHT, "issued"))
+                         ("OPS-1", EIGHT, EIGHT, "issued"))
         test.assertEqual((missed_run["task_key"], missed_run["due_at"], missed_run["state"]), (None, FOUR, "missed"))
         managed_detail = fixture.call(manager, f"{schedules}/{managed['id']}", query_string=selection).json
         test.assertEqual((managed_detail["project"], managed_detail["kind"], managed_detail["schedule"]),
@@ -121,7 +127,7 @@ def replay_project_tick(test, fixture, app, open_board):
             fixture.call(client, f"{schedules}/{identifier}", query_string=request_scope, status=404)
         fixture.call(app.test_client(), f"{schedules}/{bound}", status=401)
         for viewer, other_viewer, task, identifier in (
-            (manager, owner, "OPS-1", managed["id"]), (owner, manager, "OPS-2", bound),
+            (manager, owner, "OPS-2", managed["id"]), (owner, manager, "OPS-1", bound),
         ):
             detail = fixture.call(viewer, f"/api/v1/tasks/{task}").json["recurring_runs"]
             test.assertEqual((detail["schedule_id"], detail["project"]), (identifier, "OPS"))
@@ -130,7 +136,7 @@ def replay_project_tick(test, fixture, app, open_board):
         with open_board() as db:
             test.assertEqual([tuple(row) for row in db.execute(
                 "SELECT project_prefix, dri FROM tasks ORDER BY id",
-            )], [("OPS", manager_key), ("OPS", owner_key)])
+            )], [("OPS", owner_key), ("LAB", owner_key), ("OPS", manager_key)])
             test.assertEqual([tuple(row) for row in db.execute(
                 "SELECT next_at, COUNT(*) FROM recurring_definitions GROUP BY next_at ORDER BY next_at",
             )], [(FOUR, 3), (TWELVE, 2)])
@@ -142,6 +148,99 @@ def replay_project_tick(test, fixture, app, open_board):
             test.assertEqual([tuple(row) for row in db.execute(
                 "SELECT project_prefix, COUNT(*) FROM tasks GROUP BY project_prefix ORDER BY project_prefix",
             )], [("LAB", 2), ("OPS", 2), ("T", 1)])
+
+
+def replay_ticket_recurrence(test, fixture, app, open_board):
+    owner, key = fixture.login(app, "Avery")
+    peer, peer_key = fixture.login(app, "Blake")
+    with open_board() as db, write(db):
+        tasks_projects.register(db, "COURSE", "Sample Course", key)
+        tasks_projects.register(db, "LAB", "Sample Lab", key)
+    created = fixture.action(owner, "create-task", {
+        "project": "COURSE", "title": "Review sample", "step": "Check the sample.",
+    })
+    ticket = created["receipt"].split()[0]
+    path = f"/api/v1/tasks/{ticket}"
+    enabled = {"change": "enable", "cadence_hours": 4, "next_at": FOUR}
+    test.assertTrue(fixture.call(owner, path).json["can_enable_recurrence"])
+    test.assertNotIn("can_enable_recurrence", fixture.call(peer, path).json)
+    with patch("tasks_core.timestamp", return_value=ZERO):
+        fixture.call(peer, path + "/recurrence", method="POST", json=enabled, status=403)
+        code, output, errors = fixture.shared_cli(
+            owner, "ticket-recurrence", ticket, "enable", "--cadence-hours", "4", "--next-at", FOUR,
+        )
+        test.assertEqual((code, errors), (0, ""))
+        test.assertIn("Recurrence enabled", output)
+        fixture.action(owner, "ticket-recurrence", {"id": ticket, **enabled}, status=409)
+        test.assertEqual(fixture.action(owner, "recurring-tick", {"project": "COURSE"})["issued"], 0)
+    record = fixture.call(owner, path).json
+    test.assertEqual(record["task"]["state"], "parked")
+    test.assertEqual(record["recurrence"]["next_at"], FOUR)
+    test.assertNotIn("unpark", record["transition_actions"])
+    test.assertFalse(record["can_edit_parking"])
+    test.assertFalse(record["can_close"])
+    test.assertIn("Cancel recurrence", record["move_block_reason"])
+    test.assertIn("Cancel recurrence", record["ownership_block_reason"])
+    test.assertNotIn("move_destinations", record)
+    test.assertFalse(record["ownership_actions"])
+    fixture.action(owner, "close-task", {"id": ticket, "reason": "Close early."}, status=409)
+    fixture.action(owner, "move-task", {"id": ticket, "project": "LAB"}, status=409)
+    fixture.action(owner, "change-ownership", {"id": ticket, "action": "unassign", "reason": "Clear owner."}, status=409)
+    fixture.action(owner, "change-ownership", {
+        "id": ticket, "action": "reassign", "owner": peer_key, "reason": "Change owner.",
+    }, status=409)
+    for transition, arguments in (("unpark", {}), ("remind", {"defer_until": FOUR})):
+        fixture.action(owner, "advance-task", {
+            "id": ticket, "transition": transition, "note": "Early return.", **arguments,
+        }, status=409)
+    test.assertFalse(fixture.call(peer, path).json["recurrence"]["editable"])
+    with patch("tasks_core.timestamp", return_value=EIGHT):
+        tick = fixture.action(owner, "recurring-tick", {"project": "COURSE"})
+        test.assertEqual((tick["issued"], tick["unissued"]), (1, 1))
+        test.assertEqual(fixture.action(owner, "recurring-tick", {"project": "COURSE"})["issued"], 0)
+        fixture.action(owner, "handoff", {"id": ticket, "owner": peer_key, "note": "Hand off review."}, status=409)
+        fixture.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Review the sample."})
+        ready_to_complete = fixture.call(owner, path).json
+        test.assertNotIn("done", ready_to_complete["transition_actions"])
+        fixture.action(owner, "advance-task", {
+            "id": ticket, "transition": "done", "note": "Sample passed.",
+        }, status=409)
+        test.assertTrue(fixture.call(owner, path).json["recurrence"]["can_complete_review"])
+        fixture.call(owner, path + "/recurrence", method="POST", json={"change": "complete", "note": "Sample passed."})
+        fixture.call(owner, path + "/recurrence", method="POST", json={"change": "pause"})
+        fixture.call(owner, path + "/recurrence", method="POST", json={
+            "change": "resume", "cadence_hours": 6, "next_at": TWELVE,
+        })
+    record = fixture.call(owner, path).json
+    test.assertEqual((record["task"]["state"], record["recurrence"]["last_reviewed_at"],
+                      record["recurrence"]["cadence_hours"]), ("parked", EIGHT, 6))
+    activity = fixture.action(owner, "task-activity", query_string={"id": ticket})
+    test.assertEqual([run["state"] for run in activity["recurrence_runs"]], ["completed", "missed"])
+    test.assertEqual(sum(item["action"] == "unpark" for item in activity["items"]), 1)
+    with patch("tasks_core.timestamp", return_value=EIGHT):
+        fixture.call(owner, path + "/recurrence", method="POST", json={"change": "cancel"})
+    with patch("tasks_core.timestamp", return_value=TWELVE):
+        test.assertEqual(fixture.action(owner, "recurring-tick", {"project": "COURSE"})["issued"], 0)
+    test.assertEqual(fixture.call(owner, path).json["recurrence"]["state"], "canceled")
+    fixture.action(owner, "change-ownership", {
+        "id": ticket, "action": "reassign", "owner": peer_key, "reason": "Change owner after cancellation.",
+    })
+    moved = fixture.action(owner, "move-task", {"id": ticket, "project": "LAB"})["key"]
+    test.assertTrue(moved.startswith("LAB-"))
+    moved_activity = fixture.action(peer, "task-activity", query_string={"id": moved})
+    test.assertEqual([run["state"] for run in moved_activity["recurrence_runs"]], ["completed", "missed"])
+    test.assertEqual(moved_activity["recurrence_runs"][0]["task_key"], moved)
+    dependent = fixture.action(owner, "create-task", {
+        "project": "COURSE", "title": "Check dependent sample", "step": "Wait for sample.",
+    })["receipt"].split()[0]
+    dependent_path = f"/api/v1/tasks/{dependent}"
+    fixture.call(owner, dependent_path + "/parking", method="POST", json={
+        "note": "Wait for the earlier sample.", "review_on": ticket, "review_criteria": "Wait for its outcome.",
+    })
+    before = fixture.call(owner, dependent_path).json
+    test.assertNotIn("can_enable_recurrence", before)
+    fixture.call(owner, dependent_path + "/recurrence", method="POST", json=enabled, status=409)
+    test.assertEqual(fixture.call(owner, dependent_path).json["task"]["context"], before["task"]["context"])
 
 
 def replay_team_schedules(test, fixture, app, open_board):
@@ -241,6 +340,8 @@ def replay_reusable_upgrade(test, fixture, restart, open_board, engine):
             return fixture.action(owner, "advance-task", {"id": ticket, "transition": transition, "note": "Check the sample."})
 
     test.assertEqual(tick(FOUR)["issued"], 1)
+    preview = fixture.action(owner, "recurring-show", query_string={"id": schedule})["adoption"]
+    test.assertEqual((preview["project"], preview["open_tickets"], preview["can_adopt"]), ("T", ["T-1"], False))
     advance("T-1", "start", "2026-11-20T05:00:00Z")
     advance("T-1", "done", "2026-11-20T06:00:00Z")
     change("pause", "2026-11-20T06:00:00Z")
@@ -258,7 +359,13 @@ def replay_reusable_upgrade(test, fixture, restart, open_board, engine):
     before = fixture.call(owner, path).json
     test.assertIsNone(before["schedule"]["reusable_ticket"])
     test.assertEqual([(run["task_key"], run["state"]) for run in before["runs"]], [("T-1", "completed")])
-    change("adopt", "2026-11-20T07:00:00Z")
+    test.assertEqual(before["adoption"], {
+        "project": "T", "saved_next_at": EIGHT, "last_recorded_due_at": FOUR,
+        "open_tickets": [], "can_adopt": True,
+    })
+    test.assertTrue(change("adopt", "2026-11-20T07:00:00Z")["receipt"].endswith(" · T-2"))
+    test.assertIn("Already uses", change("adopt", "2026-11-20T07:00:00Z")["receipt"])
+    test.assertEqual(fixture.action(owner, "task", query_string={"id": "T-2"})["task"]["state"], "parked")
     change("resume", "2026-11-20T07:00:00Z", next_at=EIGHT)
     test.assertEqual((tick(EIGHT)["issued"], tick(EIGHT)["issued"]), (1, 0))
     issued = fixture.call(owner, path).json
@@ -310,7 +417,7 @@ def replay_reusable_upgrade(test, fixture, restart, open_board, engine):
         test.assertEqual((launch_ready_wake(db, **wake), launch_ready_wake(db, **wake)), ("accepted", "already_accepted"))
         transport.assert_called_once()
         test.assertEqual(db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], 2)
-        test.assertEqual(db.execute("SELECT COUNT(*) FROM events WHERE task_id = 2 AND action = 'unpark'").fetchone()[0], 1)
+        test.assertEqual(db.execute("SELECT COUNT(*) FROM events WHERE task_id = 2 AND action = 'unpark'").fetchone()[0], 2)
 
     latest = fixture.call(owner, path).json
     test.assertEqual([(run["task_key"], run["state"]) for run in latest["runs"]], [
@@ -339,6 +446,13 @@ class RecurringFixtureTest(unittest.TestCase):
         self.addCleanup(fixture.doCleanups)
         app = fixture.app(portal_reader=True)
         replay_project_tick(self, fixture, app, lambda: closing(open_sqlite(fixture.database)))
+
+    def test_sqlite_signed_ticket_recurrence(self):
+        fixture = service_fixture.TasksServiceTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        app = fixture.app(portal_reader=True)
+        replay_ticket_recurrence(self, fixture, app, lambda: closing(open_sqlite(fixture.database)))
 
     def test_signed_team_schedules_filter_projects_and_linked_runs(self):
         fixture = service_fixture.TasksServiceTest()
@@ -466,17 +580,17 @@ class RecurringFixtureTest(unittest.TestCase):
     def test_deferral_only_tick_leaves_due_recurring_definitions_untouched(self):
         self.define()
         self.command("add", "Check the scheduled sample", "--dri", "Avery", "--step", "Verify the result.")
-        self.command("remind", "T-1", "--until", FOUR, "--by", "Avery")
+        self.command("remind", "T-2", "--until", FOUR, "--by", "Avery")
 
         def deferrals(when):
             return json.loads(self.command("recurring-tick", "--deferrals-only", "--as-of", when))["released_deferrals"]
 
         before = self.report(FOUR)
         self.assertEqual(deferrals(ZERO), [])
-        self.assertEqual(deferrals(FOUR), ["T-1"])
+        self.assertEqual(deferrals(FOUR), ["T-2"])
         self.assertEqual(deferrals(FOUR), [])
         self.assertEqual(self.report(FOUR), before)
-        self.assertIn("T-1 · Ready", self.command("next", "--dri", "Avery"))
+        self.assertIn("T-2 · Ready", self.command("next", "--dri", "Avery"))
         self.assertEqual(self.tick(FOUR)["issued"], 1)
 
     def test_project_setup_retry_and_schedule_edits_preserve_occurrence_ids(self):

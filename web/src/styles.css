@@ -1373,6 +1373,14 @@ button:disabled { opacity: .57; }
 .schedule-review-form { display: grid; gap: .55rem; justify-items: start; }
 .schedule-review-form textarea { width: min(100%, 36rem); }
 .schedule-review-form label:has(textarea) { width: 100%; }
+.ticket-recurrence { margin-block-start: .8rem; }
+.ticket-recurrence h3 { margin-block-end: .35rem; }
+.ticket-recurrence-actions { display: grid; justify-items: start; gap: .4rem; margin-block-start: .5rem; }
+.ticket-recurrence-actions label { display: grid; gap: .25rem; }
+.ticket-recurrence-actions :is(input, textarea) { max-width: 100%; }
+@media (pointer: coarse), (max-width: 40rem) {
+  .ticket-recurrence-actions :is(input, button, summary) { min-height: 2.75rem; }
+}
 .recurring-run-outcome { min-width: 0; overflow-wrap: anywhere; }
 .schedule-editor fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: .65rem; padding: 0; margin: 0 0 .6rem; border: 0; }
 .schedule-panel label { display: grid; gap: .2rem; }

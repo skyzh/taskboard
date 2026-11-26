@@ -14,7 +14,7 @@ import { MergeQueue } from './MergeQueue.jsx'
 import ParkingForm from './ParkingForm.jsx'
 import RecordHistory, { historyHref } from './RecordHistory.jsx'
 import ReminderDate from './ReminderDate.jsx'
-import RecurringRuns from './RecurringRuns.jsx'
+import RecurringRuns, { RecurringRunList } from './RecurringRuns.jsx'
 import Kanban from './Kanban.jsx'
 import NeedsYouSend from './NeedsYouSend.jsx'
 import PeerAskSend from './PeerAskSend.jsx'
@@ -26,6 +26,7 @@ import TaskProjectMove from './TaskProjectMove.jsx'
 import TaskTags from './TaskTags.jsx'
 import TaskTransition from './TaskTransition.jsx'
 import TicketFields from './TicketFields.jsx'
+import TicketRecurrence from './TicketRecurrence.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import {
   actions, ActivityMark, addFilterName, Assignee, AssigneeAvatar, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, LoadMore, Options, OutcomeNote, PeerRequestContext, RecordedActivity, ResourceStatus, Status,
@@ -434,13 +435,15 @@ function TicketContext({ record, id, task, state, wide, detailed, properties, se
 
 function RecordActivity({ id, task, activity, knowledge, children }) {
   const events = activity.data?.items || []
+  const recurringRuns = activity.data?.recurrence_runs?.filter(run =>
+    run.task_id !== task.id || run.state === 'missed' || run.state === 'skipped')
   const groups = knowledge ? events.map(event => [event]) : groupWatcherActivity(events)
   return (
     <section className="ticket-activity" aria-labelledby={`ticket-activity-${id}`}>
       <h3 id={`ticket-activity-${id}`}>Activity</h3>
       {children}
       <ResourceStatus resource={activity} label={knowledge ? 'Knowledge activity' : 'task activity'} />
-      {activity.data?.items.length === 0 && <p className="section-message">No activity yet.</p>}
+      {activity.data?.items.length === 0 && !recurringRuns?.length && <p className="section-message">No activity yet.</p>}
       <ol className="event-list" role="list">
         {groups.map(([latest, ...earlier]) => (
           <EventRow key={latest.id} event={latest} ticketActivity>
@@ -456,6 +459,12 @@ function RecordActivity({ id, task, activity, knowledge, children }) {
         ))}
       </ol>
       <LoadMore page={activity} label={`activity for ${taskLabel(id, task.key)}`} />
+      {recurringRuns?.length > 0 && (
+        <details className="recurring-runs">
+          <summary>Other scheduled runs</summary>
+          <RecurringRunList runs={recurringRuns} currentTaskId={task.id} showOutcome />
+        </details>
+      )}
     </section>
   )
 }
@@ -644,8 +653,10 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
                 ownsTicket={ownsTicket} onChanged={onChanged} />
               <TaskOwnership key={task.event_id} task={task} actions={record.ownership_actions} project={taskProject}
                 revision={revision} canAssignOnReopen={record.can_assign_on_reopen} onChanged={onChanged} />
+              {signedIn && record.ownership_block_reason && <p className="section-message">{record.ownership_block_reason}</p>}
               {signedIn && record.move_destinations?.length > 0 &&
                 <TaskProjectMove key={task.key} task={task} destinations={record.move_destinations} onMoved={onMoved} />}
+              {signedIn && record.move_block_reason && <p className="section-message">{record.move_block_reason}</p>}
               {record.can_edit_details && <TaskDetailsEdit key={`details-${task.id}`} task={task} brief={record.brief}
                 onChanged={onChanged} fields={fields} />}
               {record.can_close && state !== 'closed' && state !== 'done' && (
@@ -654,13 +665,14 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
             </div>
             <TaskTags task={task} editable={editingTags} canTagDecisionRecord={record.can_tag_decision_record ?? record.tag_editable}
               onChanged={onChanged} />
+            <TicketRecurrence key={`recurrence:${task.key || id}`} ticket={task.key || id} schedule={record.recurrence}
+              canEnable={record.can_enable_recurrence === true} signedIn={signedIn} onChanged={onChanged} />
           </>}
         </div>
         {task && <TicketContext key={id} record={record} id={id} task={task} state={state} wide={sidebar} detailed={detailed} properties={properties}
           session={session} revision={revision} onChanged={onChanged} showActions={showActions} />}
         {task && (
           <div className="ticket-detail-history">
-            <RecurringRuns key={id} history={record.recurring_runs} />
             {session.data?.actor?.kind === 'human' && (
               <AttentionRequests key={`attention:${session.data.actor.id}:${id}`}
                 taskId={id} revision={revision} onChanged={onChanged} showControls={showActions} />
@@ -687,6 +699,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               </section>
             )}
             <RecordActivity id={id} task={task} activity={activity}>
+              {!record.recurrence && activity.data?.recurrence_runs == null && <RecurringRuns key={id} history={record.recurring_runs} />}
               {signedIn && <div hidden={!showActions}><TaskActivityUpdate task={task} onChanged={onChanged} field={fields?.activity} /></div>}
             </RecordActivity>
           </div>

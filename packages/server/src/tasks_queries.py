@@ -432,8 +432,56 @@ class BoardQueries:
         else:
             schedule, choices = self.schedule_report(number, row["owner"], as_of, row["project"]), []
             kind = "recurring"
-        return {"project": row["project"], "kind": kind, "schedule": schedule, "owner_choices": choices,
-                "editable": kind == "maintenance" or row["owner"] == owner, "runs": self.schedule_runs(number)}
+        result = {"project": row["project"], "kind": kind, "schedule": schedule, "owner_choices": choices,
+                  "editable": kind == "maintenance" or row["owner"] == owner, "runs": self.schedule_runs(number)}
+        if kind == "recurring" and result["editable"]:
+            if preview := self.recurrence_adoption(number, owner):
+                result["adoption"] = preview
+        return result
+
+    def recurrence_adoption(self, number, owner):
+        series = recurring.review_ticket(self.db, number)
+        if maintenance.find(self.db, definition_id=number) is not None or (series and series["task_id"] is not None):
+            return None
+        definition = recurring.owned(self.db, number, owner)
+        unsettled = ledger.unsettled_recurring_tickets(self.db, number)
+        return {
+            "project": ledger.recurring_project(self.db, definition, None),
+            "saved_next_at": definition["next_at"],
+            "last_recorded_due_at": self.db.execute(
+                "SELECT MAX(due_at) FROM recurring_occurrences WHERE definition_id = ?", (number,),
+            ).fetchone()[0],
+            "open_tickets": [projects.row_reference(task) for task in unsettled
+                             if ring1.visible(self.db, projects.row_project(task), self.principal)],
+            "can_adopt": definition["state"] == "paused" and not unsettled,
+        }
+
+    def ticket_recurrence(self, number, project, owner):
+        definition = ledger.ticket_recurrence_definition(self.db, number)
+        if definition is None:
+            return None
+        scope = None if definition["state"] == "canceled" else project
+        schedule = self.visible_schedule(definition["id"], owner, scope)
+        if schedule is None:
+            return None
+        return {
+            "id": f"R-{definition['id']}",
+            "state": definition["state"],
+            "cadence_hours": definition["cadence_hours"],
+            "next_at": definition["next_at"] if definition["state"] == "active" else None,
+            "editable": (owner is not None and schedule["project"] == project
+                         and owner == definition["owner"] == ledger.get_task(self.db, number)["dri"]),
+            **recurring.review_fields(self.db, definition, owner, project,
+                                      self.project_visibility("ticket.project_prefix")),
+        }
+
+    def ticket_activity(self, number, owner, *, limit, before):
+        result = self.events(number=number, limit=limit, before=before)
+        if before is None and owner is not None:
+            task = ledger.get_task(self.db, number)
+            if recurrence := self.ticket_recurrence(number, projects.row_project(task), owner):
+                result["recurrence_runs"] = self.schedule_runs(recurring.recurrence_id(recurrence["id"]))
+        return result
 
     def recurring_runs(self, number, owner):
         """Read a bounded history from the schedule linked to this occurrence."""
@@ -1135,6 +1183,11 @@ class BoardQueries:
             "workers": runs,
             "last_activity": self.last_activity(task_id=number),
         }
+        if owner is not None:
+            if ledger.can_enable_recurrence(self.db, row, owner):
+                result["can_enable_recurrence"] = True
+            if recurrence := self.ticket_recurrence(number, projects.row_project(row), owner):
+                result["recurrence"] = recurrence
         if owner is not None and (history := self.recurring_runs(number, owner)) is not None:
             result["recurring_runs"] = history
         return result

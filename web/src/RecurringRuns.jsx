@@ -8,6 +8,7 @@ const runLabels = {
   issued: 'Issued',
   started: 'Started',
   completed: 'Completed',
+  skipped: 'Skipped',
   missed: 'Missed',
   closed: 'Closed',
 }

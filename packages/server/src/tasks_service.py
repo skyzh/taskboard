@@ -1627,19 +1627,28 @@ def create_app(
             db(), number, principal=actor_key(), include_source=True,
         )):
             result["knowledge_stages"] = staged
+        live_recurrence = ledger.has_live_ticket_recurrence(db(), number)
         if allowed and not task.get("queued_for_release") and movable_ticket(
             task["key"], knowledge=is_note or (task["state"] == "done" and knowledge_records.DECISION_TAG in labels),
             goal=result["goal"], peer_request=task.get("peer_request"),
         ):
             if destinations := move_destinations(db(), task, key, project):
-                result["move_destinations"] = destinations
+                if live_recurrence:
+                    result["move_block_reason"] = "Cancel recurrence before moving this ticket to another project."
+                else:
+                    result["move_destinations"] = destinations
         ownership = ledger.ownership_actions(task) if allowed and ordinary else []
+        if live_recurrence and ownership:
+            ownership = [action for action in ownership if action == "reopen"]
+            result["ownership_block_reason"] = "Cancel recurrence before changing this ticket's owner."
         if collaborator and task["state"] == "done":
             ownership = ["reopen"]
+        recurring_park = ledger.parked_for_recurrence(db(), task, project)
         transition_actions = [
             step for step in ledger.PROJECT_WRITER_TRANSITIONS
-            if step not in ("park", "remind") and task["state"] in ledger.TRANSITIONS[step][0]
-        ] if ordinary and task["dri"] and (owns or collaborator) else []
+            if step not in ("park", "remind") and (step != "done" or not live_recurrence)
+            and task["state"] in ledger.TRANSITIONS[step][0]
+        ] if not recurring_park and ordinary and task["dri"] and (owns or collaborator) else []
         needs_you_actions = []
         if owns and not is_note:
             needs_you_actions.append("attention")
@@ -1647,7 +1656,7 @@ def create_app(
                 needs_you_actions.append("decision")
         return {
             **result, "ownership_actions": ownership,
-            "can_assign_on_reopen": allowed,
+            "can_assign_on_reopen": allowed and not live_recurrence,
             **({"can_ask_agent": True} if owns and not is_note and task.get("display_state") != "closed" else {}),
             "transition_actions": transition_actions,
             **({"needs_you_actions": needs_you_actions} if needs_you_actions else {}),
@@ -1655,10 +1664,11 @@ def create_app(
             "can_tag_decision_record": not is_note and editable,
             "can_edit_checklist": not is_note and editable,
             "can_edit_checklist_text": not is_note and details_editable,
-            "can_close": not is_note and may_close and task["state"] != "done",
+            "can_close": not live_recurrence and not is_note and may_close and task["state"] != "done",
             "can_edit_details": details_editable,
             "can_edit_parking": (
-                not is_note and bool(task["dri"]) and (owns or collaborator) and not result["goal"]
+                not recurring_park and not is_note and bool(task["dri"])
+                and (owns or collaborator) and not result["goal"]
                 and task["state"] in ledger.TRANSITIONS["park"][0]
             ),
             "can_confirm_blocker": not is_note and (editable or collaborator)
@@ -1897,6 +1907,23 @@ def create_app(
         number = record_id(identifier, "R-", "Recurring ID")
         return mutate(f"recurring-{change}", actor, data, id=number, next_at=next_at)
 
+    def change_ticket_recurrence(actor, number, data):
+        change = text(data, "change", maximum=10)
+        if change not in ("enable", "pause", "resume", "cancel", "complete"):
+            raise RequestError("Choose enable, pause, resume, cancel, or complete.")
+        optional = {"enable": {"cadence_hours", "next_at"}, "resume": {"cadence_hours", "next_at"},
+                    "complete": {"note", "details", "url", "label", "force_text"}}
+        if data.keys() - {"id", "change"} - optional.get(change, set()):
+            raise RequestError("Remove fields that do not apply to this recurrence action.")
+        fields = {}
+        if change in ("enable", "resume"):
+            fields["next_at"] = text(data, "next_at", maximum=40)
+            if change == "enable" or "cadence_hours" in data:
+                fields["cadence_hours"] = integer(data.get("cadence_hours"), "Cadence hours")
+        if change == "complete":
+            fields = activity_text(data, "done")
+        return mutate("ticket-recurrence", actor, data, id=number, change=change, **fields)
+
     def complete_recurring(actor, identifier, data):
         number = record_id(identifier, "R-", "Recurring ID")
         return mutate("complete-recurring-review", actor, data, id=number, **activity_text(data, "done"))
@@ -2001,6 +2028,8 @@ def create_app(
                 goal=ledger.task_goal_kind(connection, number), peer_request=peer_asks.find(connection, number),
             ):
                 raise RequestError("Choose a regular work ticket to move.", 409)
+            if ledger.has_live_ticket_recurrence(connection, number):
+                raise RequestError("Cancel recurrence before moving this ticket to another project.", 409)
             if not move_assignment_allowed(connection, task["dri"], destination):
                 raise RequestError("The current assignee cannot work in the destination project.", 409)
             if (projects.release_queue_enabled(submitted_project)
@@ -2997,10 +3026,17 @@ def create_app(
         return mutate("park", actor, data, id=task_number(number), note=writing_text(data, "note"),
                       keep_park_links=True, **parking_fields(data, "park"))
 
+    @app.post("/api/v1/tasks/<number>/recurrence")
+    def task_recurrence(number):
+        actor = current_actor(write=True)
+        data = json_body({"change", "cadence_hours", "next_at", "note", "details", "url", "label"}, writing=True)
+        return change_ticket_recurrence(actor, task_number(number), data)
+
     @app.get("/api/v1/tasks/<number>/activity")
     def task_activity(number):
-        current_actor()
-        return query().events(number=task_number(number), **page_args(request.args))
+        actor = current_actor()
+        return query().ticket_activity(task_number(number), actor["ledger_key"] if actor else None,
+                                       **page_args(request.args))
 
     @app.get("/api/v1/tasks/<number>/history/<event>")
     def task_history(number, event):
@@ -4465,7 +4501,7 @@ def create_app(
             )
         if name == "task-activity":
             number = task_number(data.get("id"))
-            activity = query().events(number=number, **page_args(data))
+            activity = query().ticket_activity(number, key, **page_args(data))
             recorded = merges.recorded_merges(db(), number, [event["id"] for event in activity["items"]])
             for event in activity["items"]:
                 if event["id"] in recorded:
@@ -4580,6 +4616,8 @@ def create_app(
             project = project_filter(data)
             result = mutate("recurring-tick", actor, data, project=project)
             return {"receipt": f"{project} · Recurring work checked", **json.loads(result["receipt"])}
+        if name == "ticket-recurrence":
+            return change_ticket_recurrence(actor, task_number(data.get("id")), data)
         if name == "recurring-state":
             return change_recurring(actor, data, data.get("id"))
         if name == "complete-recurring-review":
@@ -4592,7 +4630,8 @@ def create_app(
                     result = tasks_recurring.report(connection, number, key, ledger.timestamp(),
                                                     viewer=key, project=project,
                                                     task_scope=query().project_visibility("ticket.project_prefix"))
-                    return {**result, "project": project}
+                    preview = query().recurrence_adoption(number, key)
+                    return {**result, "project": project, **({"adoption": preview} if preview is not None else {})}
             except RequestError:
                 raise
             except ValueError as error:

@@ -109,7 +109,7 @@ test('shows goal review times and date-only deadlines and gives only owners the 
   assert.match(html, /href="#task-COURSE-8">COURSE-8 · Ship the fixture<\/a>/)
   assert.match(html, /dateTime="2026-12-06">2026-12-06<\/time>/)
   assert.equal((html.match(/Edit review time/g) || []).length, 1)
-  assert.match(html, /Recurring ticket<\/dt><dd><a href="#task-COURSE-12"><span class="ticket-id">COURSE-12<\/span>/)
+  assert.match(html, /<h4><a href="#task-COURSE-12"><span class="ticket-id">COURSE-12<\/span> Review samples<\/a><\/h4>/)
   assert.match(html, /<dt>Last reviewed<\/dt><dd><time dateTime="2026-11-22T10:00:00Z"/)
 })
 

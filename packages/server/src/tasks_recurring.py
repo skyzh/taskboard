@@ -177,7 +177,7 @@ def record_due(db, definition, as_of, make_task=None, *, make_review=None):
     return result
 
 
-def edit(db, args, as_of):
+def edit(db, args, as_of, *, attach_review=None):
     if args.command == "recurring-add":
         project = getattr(args, "project", None)
         number, created = create_definition(
@@ -189,8 +189,14 @@ def edit(db, args, as_of):
             enable_reviews(db, number)
             audit.record(db, scope="private", actor=args.dri, operation="recurring-add",
                          record_type="recurrence", record_id=f"R-{number}", at=as_of)
+            if attach_review is not None and review_ticket(db, number) is not None:
+                attach_review(owned(db, number, args.dri))
         result = "Recurrence created" if created else "Existing recurrence"
-        return f"R-{number} · {result} · {args.title}"
+        receipt = f"R-{number} · {result} · {args.title}"
+        series = review_ticket(db, number)
+        if series is not None and series["task_id"] is not None:
+            receipt += f" · {projects.for_task(db, series['task_id'])}"
+        return receipt
     row = owned(db, args.id, args.by)
     now = utc(as_of)
     state = row["state"]
@@ -207,9 +213,12 @@ def edit(db, args, as_of):
         ).fetchone()[0]
         if previous is not None and utc(previous) >= next_at:
             raise ValueError("Choose a resumed slot after the last recorded occurrence.")
-        checked_slot(next_at, row["cadence_hours"])
-        db.execute("UPDATE recurring_definitions SET state = 'active', next_at = ? WHERE id = ?",
-                   (utc_text(next_at), row["id"]))
+        hours = getattr(args, "cadence_hours", None)
+        if hours is None:
+            hours = row["cadence_hours"]
+        checked_slot(next_at, hours)
+        db.execute("UPDATE recurring_definitions SET state = 'active', next_at = ?, cadence_hours = ? WHERE id = ?",
+                   (utc_text(next_at), hours, row["id"]))
         audit.record(db, scope="private", actor=args.by, operation=args.command,
                      record_type="recurrence", record_id=reference, at=as_of)
         return f"{reference} · Active"
