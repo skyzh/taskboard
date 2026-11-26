@@ -2,10 +2,11 @@ import React, { useState } from 'react'
 import { useLoadedPages } from './data.js'
 import { LoadMore, ResourceStatus, TaskLink, WorkerAssignment, WorkerRunState, WorkerRunTiming } from './shared.jsx'
 import { ReportTime } from './ReportTime.jsx'
+import { projectFilters } from './projectScope.js'
 import './dri-workers.css'
 
-function WorkerRuns({ owner, revision, project }) {
-  const page = useLoadedPages('/reports/workers', { owner, project, order: 'execution' }, revision)
+function WorkerRuns({ owner, revision, scope }) {
+  const page = useLoadedPages('/reports/workers', { owner, ...scope, order: 'execution' }, revision)
   return (
     <div className="dri-runs-panel">
       <ResourceStatus resource={page} label="subagent runs" />
@@ -29,7 +30,7 @@ function WorkerRuns({ owner, revision, project }) {
   )
 }
 
-export default function DriWorkers({ owner, counts, revision, project }) {
+export default function DriWorkers({ owner, counts, revision, project, allProjects }) {
   const [open, setOpen] = useState(false)
   if (!counts?.recorded) return null
   const running = counts.running + counts.running_reviews
@@ -37,7 +38,7 @@ export default function DriWorkers({ owner, counts, revision, project }) {
   return (
     <details className="dri-runs" onToggle={event => setOpen(event.currentTarget.open)}>
       <summary>Subagent runs{Number.isFinite(running) && <> · {running} running · {started} started</>}</summary>
-      {open && <WorkerRuns owner={owner} revision={revision} project={project} />}
+      {open && <WorkerRuns owner={owner} revision={revision} scope={allProjects ? projectFilters() : { project }} />}
     </details>
   )
 }

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { BoardLink, useBoardLocation, useContentTitle } from './BoardNavigation.jsx'
 import { legacyLocation, routeAddress } from './boardRoutes.js'
-import { ArrowUpRight, ChevronDown, X } from 'lucide-react'
+import { ArrowUpRight, X } from 'lucide-react'
 import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from './data.js'
 import About from './About.jsx'
 import BoardTour from './BoardTour.jsx'
@@ -20,12 +20,13 @@ import { ReportTime } from './ReportTime.jsx'
 import { Outcomes, Overview } from './Overview.jsx'
 import PersonalCodex from './PersonalCodex.jsx'
 import Profile from './Profile.jsx'
+import ProjectPicker from './ProjectPicker.jsx'
 import Reports, { ReportsHeading } from './Reports.jsx'
 import Schedules from './Schedules.jsx'
 import Settings from './Settings.jsx'
 import Stats from './Stats.jsx'
 import { watchBoardSections } from './sectionIndex.js'
-import { BoardBrand, notificationLogFilters, ResourceStatus, schedulesHref, useSignInHref } from './shared.jsx'
+import { BoardBrand, notificationLogFilters, ownerHref, ResourceStatus, schedulesHref, useSignInHref } from './shared.jsx'
 import { SearchResults, TaskSearch } from './TaskSearch.jsx'
 import { KnowledgeRecordTools, TaskDetail, WorkLog, WorkQueue } from './Work.jsx'
 import { useTheme } from './theme.js'
@@ -301,8 +302,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
   }
   useContentTitle(view === 'reports' && (showGoalActivity ? 'Goal activity' : assigneeView === 'watching' ? 'Watching' : null))
   const supportsAllProjects = ['reports', 'board', 'activity', 'team-overview', 'knowledge', 'stats', 'notifications',
-    'my-activity', 'schedules'].includes(view)
-  const scopedView = supportsAllProjects || ['assignee', 'task'].includes(view)
+    'my-activity', 'schedules', 'assignee'].includes(view)
+  const scopedView = supportsAllProjects || view === 'task'
   const canSelectProject = scopedView || ['settings', 'integrations'].includes(view)
   const knowledgeEntry = knowledgeFilters?.get('entry')
   const recordProject = namedTask?.split('-')[0] || knowledgeEntry?.match(/^([A-Z][A-Z0-9]{0,7})-\d+$/)?.[1]
@@ -440,20 +441,14 @@ export default function App({ previewNotice, tourSteps } = {}) {
     saveTimeZonePreference(preference)
   }
   const projectPicker = hasProjectChoices && (
-    <label className="project-switcher embedded-picker">
-      <select aria-label="Project" value={allProjectRead ? 'all' : project} onChange={event => {
-        const value = event.target.value
+    <ProjectPicker projects={visibleProjects} value={allProjectRead ? 'all' : project} allProjects={supportsAllProjects}
+      onChange={value => {
         if (view === 'board') setQueueFilters(previous => ({ ...previous, tag: undefined }))
         const route = fragment ? `#${fragment}` : '#reports-all'
         navigate(view === 'schedules'
           ? schedulesHref(value === 'all' ? undefined : value, value === 'all')
           : projectHref(route, value, { replace: true }))
-      }}>
-        {supportsAllProjects && <option value="all">All projects</option>}
-        {visibleProjects.map(entry => <option key={entry.prefix} value={entry.prefix}>{entry.title}</option>)}
-      </select>
-      <ChevronDown size={14} aria-hidden="true" focusable="false" />
-    </label>
+      }} />
   )
   if (needsOidcSignIn) {
     return (
@@ -573,8 +568,10 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'personal-codex' && <PersonalCodex key={session.data?.actor?.id} session={session}
             reportsHref={reportsHref} />}
           {view === 'search' && <SearchResults query={search} revision={revision} />}
-          {view === 'assignee' && <AssigneePage key={`${project}:${owner}`} owner={owner} section={params.get('section')} revision={revision} project={project}
-            reportsHref={profileReportsHref} canEditGoal={verified && session.data.actor.id === owner}
+          {view === 'assignee' && <AssigneePage key={`${scope || project}:${owner}`} owner={owner} section={params.get('section')}
+            revision={revision} project={projectRead} allProjects={allProjectRead} projects={visibleProjects}
+            onProjectChange={value => navigate(ownerHref(owner, undefined, value))}
+            reportsHref={profileReportsHref} canEditGoal={!allProjectRead && verified && session.data.actor.id === owner}
             viewer={verified ? session.data.actor : null} onWatchChanged={refresh} />}
           {view === 'notifications' && <Notifications session={session} verified={verified} revision={revision}
             onChanged={refresh} fragment={fragment} project={projectRead} projectPicker={projectPicker} projects={visibleProjects} />}

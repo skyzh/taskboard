@@ -2437,21 +2437,53 @@ class BoardQueries:
             row.update(profile=profile, idle_offers=offers.get(number), outcomes=list(reversed(row["outcomes"])))
         return {"items": list(goals_by_id.values())}
 
-    def assignee(self, owner, *, project=projects.DEFAULT):
+    def assignee_projects(self, owner):
+        visibility, bindings = self.project_visibility("projects.prefix")
+        local = ""
+        local_args = ()
+        if watches.has_table(self.db, "local_dris"):
+            local = "UNION SELECT project FROM local_dris WHERE actor = ?"
+            local_args = (owner,)
+        return [row["prefix"] for row in self.db.execute(
+            f"""
+            WITH related(project) AS (
+                SELECT project_prefix FROM tasks WHERE dri = ?
+                UNION SELECT tasks.project_prefix FROM events JOIN tasks ON tasks.id = events.task_id
+                      WHERE events.actor = ? AND {ledger.work_records_sql(self.db)}
+                UNION SELECT prefix FROM projects WHERE dri = ?
+                UNION SELECT project FROM project_owner_grants WHERE principal = ?
+                {local}
+            )
+            SELECT prefix FROM projects JOIN related ON related.project = projects.prefix
+            WHERE {visibility} AND (? IS NULL OR projects.prefix = ?)
+            ORDER BY projects.title, projects.prefix
+            """, (owner, owner, owner, owner, *local_args, *bindings, self.local_project, self.local_project),
+        )]
+
+    def assignee_goals(self, owner, project):
+        return {
+            "goal": goals.get(self.db, project, owner),
+            "milestones": goals.milestones(self.db, project, owner, include_ticket=True),
+            "standing_goal": next(iter(goals.standing(self.db, owner, project, include_ticket=True)), None),
+        }
+
+    def assignee(self, owner, *, project=projects.DEFAULT, include_projects=False):
         profile = profiles.visible_by_keys(self.db, [owner], self.base).get(owner)
-        if profile is None and project == projects.DEFAULT and self.project_roster:
+        if profile is None and project in (None, projects.DEFAULT) and self.project_roster:
             name = projects.roster_owners(self.db, self.project_roster).get(owner)
             if name:
                 profile = projects.roster_profile(owner, name)
-        current = ledger.current_tasks_sql(self.db)
+        current, visible_args = self.current_visible_tasks()
+        current += " AND (? IS NULL OR tasks.project_prefix = ?)"
+        current_args = (*visible_args, project, project)
         counts = self.db.execute(
             f"""
             WITH current AS ({current})
             SELECT {WORKER_COUNTS}
             FROM worker_runs JOIN current ON current.id = worker_runs.task_id
             {self.subagent_launch_join()}
-            WHERE launch.actor = ? AND current.project_prefix = ?
-            """, (owner, project),
+            WHERE launch.actor = ?
+            """, (*current_args, owner),
         ).fetchone()
         visibility, bindings = self.project_visibility()
         if profile is None and not counts["recorded_runs"] and not self.db.execute(
@@ -2463,31 +2495,37 @@ class BoardQueries:
             f"""
             WITH current AS ({current})
             SELECT COUNT(*) FROM worker_runs JOIN current ON current.id = worker_runs.task_id
-            WHERE current.dri = ? AND current.project_prefix = ?
-              AND worker_runs.status = 'reported' AND current.display_state <> 'closed'
-            """, (owner, project),
+            WHERE current.dri = ? AND worker_runs.status = 'reported' AND current.display_state <> 'closed'
+            """, (*current_args, owner),
         ).fetchone()[0]
         reports = self.pending_reports(owner, project=project)
         task_counts = dict(self.db.execute(
-            f"SELECT {WORK_COUNTS} FROM ({current} WHERE tasks.dri = ? AND tasks.project_prefix = ?)",
-            (owner, project),
+            f"SELECT {WORK_COUNTS} FROM ({current} AND tasks.dri = ?)", (*current_args, owner),
         ).fetchone())
         has_outcomes = self.db.execute(
             "SELECT 1 FROM events JOIN tasks ON tasks.id = events.task_id "
-            f"WHERE tasks.dri = ? AND tasks.project_prefix = ? AND {OUTCOME_ACTIONS}"
-            f" AND {ledger.work_records_sql(self.db)} LIMIT 1", (owner, project),
+            "WHERE tasks.dri = ? AND (? IS NULL OR tasks.project_prefix = ?) "
+            f"AND {visibility} AND {OUTCOME_ACTIONS} AND {ledger.work_records_sql(self.db)} LIMIT 1",
+            (owner, project, project, *bindings),
         ).fetchone() is not None
-        return {
+        info = {
             "profile": profile, "report_count": count,
-            "goal": goals.get(self.db, project, owner),
-            "milestones": goals.milestones(self.db, project, owner, include_ticket=True),
-            "standing_goal": next(iter(goals.standing(self.db, owner, project, include_ticket=True)), None),
             "pending_reports": reports["items"], "pending_reports_before": reports["next_cursor"],
-            "in_progress": task_counts["in_progress"] > 0,
-            "task_counts": task_counts,
-            "has_outcomes": has_outcomes,
-            "worker_counts": worker_counts(counts),
+            "in_progress": task_counts["in_progress"] > 0, "task_counts": task_counts,
+            "has_outcomes": has_outcomes, "worker_counts": worker_counts(counts),
         }
+        if include_projects or project is None:
+            info["projects"] = self.assignee_projects(owner)
+        if project is None:
+            project_goals = []
+            for prefix in info["projects"]:
+                bundle = self.assignee_goals(owner, prefix)
+                if any(bundle.values()):
+                    project_goals.append({"project": prefix, **bundle})
+            info["project_goals"] = project_goals
+        else:
+            info.update(self.assignee_goals(owner, project))
+        return info
 
     def pending_reports(self, person, *, before=None, limit=10, project=None, project_prefixes=None, unlinked=False,
                         hide_requests=False):

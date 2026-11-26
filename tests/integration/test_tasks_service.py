@@ -9193,6 +9193,62 @@ class TasksServiceTest(unittest.TestCase):
         more = pages("/api/v1/reports/pending", owner=blake_id, **filters)
         self.assertEqual([result["run_id"] for result in more], [expected_run])
 
+    def test_agent_profile_scope_counts_only_visible_work_across_projects(self):
+        admin = self.provider.people["Sam"]["sub"]
+        app = self.app(portal_reader=True, project_admin_subject=admin)
+        avery, owner = self.login(app, "Avery")
+        sam, manager = self.login(app, "Sam")
+        quinn, _ = self.login(app, "Quinn")
+        self.cli("register-project", "OPS", "Example operations", "--dri", manager)
+        self.call(sam, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Restricted examples", "visibility": "ring1",
+        })
+        self.call(sam, "/api/v1/projects/LAB/ring1", method="PUT", json={"principal": owner, "allowed": True})
+
+        tickets = {}
+        for project in ("T", "OPS", "LAB"):
+            ticket = self.action(avery, "create-task", {
+                "title": f"Review samples in {project}", "step": "Compare the drafts.", "project": project,
+            })["receipt"].split()[0]
+            tickets[project] = ticket
+            self.action(avery, "advance-task", {"id": ticket, "transition": "start", "note": "Compare the drafts."})
+            run = self.action(avery, "delegate", {
+                "id": ticket, "worker": owner, "role": "build", "brief": "Review the examples.",
+            })["receipt"].split()[0]
+            self.action(avery, "worker-handoff", {"run": run, "transition": "start", "handle": "example", "subagent": True})
+            self.action(avery, "worker-handoff", {
+                "run": run, "transition": "report", "result": "completed", "note": "Examples reviewed.",
+            })
+            self.action(avery, "save-goal", {"project": project, "kind": "standing", "summary": f"Check {project} handoffs."})
+
+        profile = "/api/v1/assignee"
+        params = {"owner": owner, "scope": "all"}
+        self.call(app.test_client(), profile, query_string=params, status=401)
+        self.call(quinn, profile, query_string={"owner": owner, "project": "LAB"}, status=404)
+        mixed = self.call(quinn, profile, query_string=params).json
+        selected = self.call(quinn, profile, query_string={"owner": owner, "project": "OPS"}).json
+        self.assertEqual(mixed["profile"], selected["profile"])
+        self.assertEqual(set(mixed["projects"]), {"OPS", "T"})
+        self.assertEqual(mixed["task_counts"]["in_progress"], 2)
+        self.assertEqual(mixed["report_count"], 2)
+        self.assertEqual({row["task_key"] for row in mixed["pending_reports"]}, {tickets["T"], tickets["OPS"]})
+        self.assertEqual({row["project"] for row in mixed["project_goals"]}, {"OPS", "T"})
+        self.assertEqual(selected["task_counts"]["in_progress"], 1)
+        self.assertEqual(selected["standing_goal"]["summary"], "Check OPS handoffs.")
+        self.assertNotIn("LAB", json.dumps(mixed))
+        member = self.call(sam, profile, query_string=params).json
+        self.assertEqual(set(member["projects"]), {"LAB", "OPS", "T"})
+        self.assertEqual(member["report_count"], 3)
+
+        for path, extra in (("/api/v1/reports/workers", {"order": "execution"}),
+                            ("/api/v1/reports/pending", {"view": "profile"})):
+            filters = {**params, **extra, "limit": 1}
+            first = self.call(quinn, path, query_string=filters).json
+            second = self.call(quinn, path, query_string={**filters, "before": first["next_cursor"]}).json
+            self.assertEqual({row["task_key"] for row in first["items"] + second["items"]},
+                             {tickets["T"], tickets["OPS"]})
+            self.assertIsNone(second["next_cursor"])
+
     def test_watching_reports_combine_person_and_ticket_watches_before_paging(self):
         roster = {self.provider.people[name]["sub"]: name for name in ("Avery", "Blake")}
         app = self.app(portal_reader=True, project_roster=roster)

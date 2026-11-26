@@ -94,9 +94,9 @@ function GoalDetails({ goal }) {
   )
 }
 
-export default function DriGoal({ goal, project, standing = false, editable, onChanged }) {
+export default function DriGoal({ goal, project, standing = false, editable, onChanged, headingId, heading: Heading = 'h2' }) {
   const [editing, setEditing] = useState(false)
-  const heading = standing ? 'dri-standing-goal-title' : 'dri-goal-title'
+  const heading = headingId || (standing ? 'dri-standing-goal-title' : 'dri-goal-title')
   const label = standing ? 'Standing goal' : 'Original dated goal'
 
   function saved() {
@@ -107,7 +107,7 @@ export default function DriGoal({ goal, project, standing = false, editable, onC
   return (
     <section className="dri-goal" aria-labelledby={heading}>
       <div className="dri-goal-actions">
-        <h2 id={heading}>{label}</h2>
+        <Heading id={heading}>{label}</Heading>
         {editable && !editing && (
           <button type="button" onClick={() => setEditing(true)} aria-label={`${goal ? 'Edit' : 'Set'} ${label.toLowerCase()}`}>
             {goal ? 'Edit goal' : 'Set goal'}
@@ -125,7 +125,8 @@ export default function DriGoal({ goal, project, standing = false, editable, onC
   )
 }
 
-export function DriMilestones({ milestones, project, editable, onChanged }) {
+export function DriMilestones({ milestones, project, editable, onChanged,
+  headingId = 'dri-milestones-title', heading: Heading = 'h2', itemHeading: ItemHeading = 'h3' }) {
   const [editing, setEditing] = useState(null)
 
   function saved() {
@@ -137,15 +138,15 @@ export function DriMilestones({ milestones, project, editable, onChanged }) {
     onCancel={() => setEditing(null)} onSaved={saved} />
 
   return (
-    <section className="dri-goal" aria-labelledby="dri-milestones-title">
+    <section className="dri-goal" aria-labelledby={headingId}>
       <div className="dri-goal-actions">
-        <h2 id="dri-milestones-title">Dated milestones</h2>
+        <Heading id={headingId}>Dated milestones</Heading>
         {editable && editing === null && <button type="button" onClick={() => setEditing('')}>Add milestone</button>}
       </div>
       {milestones.map(goal => (
         <div className="dri-milestone" key={goal.ticket || goal.summary}>
           <div className="dri-goal-actions">
-            <h3>{goal.ticket ? <BoardLink href={taskHref(goal.ticket)}>{goal.summary}</BoardLink> : goal.summary}</h3>
+            <ItemHeading>{goal.ticket ? <BoardLink href={taskHref(goal.ticket)}>{goal.summary}</BoardLink> : goal.summary}</ItemHeading>
             {editable && editing === null && (
               <button type="button" aria-label={`Edit ${goal.summary}`} onClick={() => setEditing(goal.summary)}>Edit</button>
             )}
