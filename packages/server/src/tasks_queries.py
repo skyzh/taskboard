@@ -2273,33 +2273,46 @@ class BoardQueries:
 
         return rows, order, render
 
-    def report_project_prefixes(self, owner, view, hide_requests, personal_owner, *, watcher=None):
+    def report_project_prefixes(self, owner, view, hide_requests, personal_owner, *, watcher=None, project=None):
         scoped_view = view if view in ("recent", "watching") else "all"
         scopes = {}
-        for project in self.report_projects():
+        for prefix in [project] if project is not None else self.report_projects():
             rows, _, _ = self.project_reports(
-                scoped_view, None, 1, project, hide_requests, personal_owner if not watcher else None,
+                scoped_view, None, 1, prefix, hide_requests, personal_owner if not watcher else None,
                 owner=owner, watcher=watcher,
             )
             if rows:
-                scopes[project] = rows[0]
+                scopes[prefix] = rows[0]
         return list(scopes) if watcher or self.report_owner_visible(owner, scopes, view, personal_owner) else []
 
     def report_owner_visible(self, owner, rows, view, personal_owner):
         return (view in ("all", "recent") or owner == personal_owner
                 or any(row["is_active"] for row in rows.values()) == (view == "active"))
 
-    def goal_activity(self, project):
+    def owner_goal_activity(self, owner, project, *, personal_owner=None, watcher=None):
+        prefixes = self.report_project_prefixes(
+            owner, "watching" if watcher else "all", False, personal_owner, watcher=watcher, project=project,
+        )
+        by_project = {}
+        for row in goals.goal_rows(self.db, [owner], project, exclude_watched_by=watcher):
+            by_project.setdefault(row["project_prefix"], []).append(row["id"])
+        return {"items": [
+            item for prefix in prefixes if prefix in by_project
+            for item in self.goal_activity(prefix, goal_ids=by_project[prefix])["items"]
+        ]}
+
+    def goal_activity(self, project, *, goal_ids=None):
         """Summarize observed goal starts, outcomes and idle offers in one project."""
         roster = None
         if project == projects.DEFAULT and self.project_roster is not None:
             roster = projects.roster_owners(self.db, self.project_roster)
-            if not roster:
+            if not roster and goal_ids is None:
                 return {"items": []}
-        roster_filter = ""
-        if roster:
-            marks = ", ".join("?" for _ in roster)
-            roster_filter = f"AND tasks.dri IN ({marks})"
+        goal_filter, filter_args = "", ()
+        if goal_ids is not None or roster:
+            column, filter_args = ("tasks.id", goal_ids) if goal_ids is not None else ("tasks.dri", roster)
+            marks = ", ".join("?" for _ in filter_args)
+            goal_filter = f"AND {column} IN ({marks})"
         context = "events.context" if ledger.has_event_context(self.db) else "'{}'"
         rows = self.db.execute(
             f"""
@@ -2309,10 +2322,10 @@ class BoardQueries:
             FROM task_goals AS goal
             JOIN tasks ON tasks.id = goal.task_id
             LEFT JOIN events ON events.task_id = tasks.id AND events.action NOT IN ('source-event', 'log')
-            WHERE tasks.project_prefix = ? AND goal.retired = 0 {roster_filter}
+            WHERE tasks.project_prefix = ? AND goal.retired = 0 {goal_filter}
             ORDER BY tasks.dri, CASE goal.kind WHEN 'standing' THEN 0 ELSE 1 END,
                      goal.deadline, tasks.title, tasks.id, events.id
-            """, (project, *(roster or ())),
+            """, (project, *filter_args),
         )
         goals_by_id = {}
         for event, review in goals.review_events(rows):

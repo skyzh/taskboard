@@ -2,13 +2,15 @@ import React from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
 import { ChevronDown } from 'lucide-react'
 import { queryPath, useResource } from './data.js'
+import { projectFilters } from './projectScope.js'
 import { ResourceStatus, TaskLink, Timestamp, eventHref, profileName, taskHref } from './shared.jsx'
 import { MarkdownInline } from './Markdown.jsx'
 
-export function goalActivityFragment(project, agent, goal) {
-  const params = new URLSearchParams({ view: 'goal-activity', ...(project === null ? { scope: 'all' } : { project }) })
+export function goalActivityFragment(project, agent, goal, from) {
+  const params = new URLSearchParams({ view: 'goal-activity', ...projectFilters(project) })
   if (agent) params.set('agent', agent)
   if (goal) params.set('goal', goal)
+  if (from) params.set('from', from)
   return `reports?${params}`
 }
 
@@ -48,16 +50,19 @@ function GoalActivityRow({ goal }) {
   )
 }
 
-export default function GoalActivity({ project, revision, agent, goal, onFilter }) {
-  const resource = useResource(queryPath('/reports/goal-activity', project === null ? { scope: 'all' } : { project }), revision)
+export default function GoalActivity({ project, revision, agent, goal, from, onFilter }) {
+  const scope = projectFilters(project)
+  const resource = useResource(queryPath('/reports/goal-activity', {
+    ...scope, ...(from && { owner: agent, watching: from === 'watching' ? true : undefined }),
+  }), revision)
   const items = resource.data?.items ?? []
   const agents = [...new Map(items.map(item => [item.owner, profileName(item.owner, item.profile)]))]
     .sort((left, right) => left[1].localeCompare(right[1]))
-  const selectedAgent = agents.some(([key]) => key === agent) ? agent : ''
+  const selectedAgent = (from || agents.some(([key]) => key === agent)) ? agent : ''
   const matchingAgent = items.filter(item => !selectedAgent || item.owner === selectedAgent)
   const selectedGoal = matchingAgent.some(item => item.key === goal) ? goal : ''
   const matchingGoals = matchingAgent.filter(item => !selectedGoal || item.key === selectedGoal)
-  const back = project === null ? '#reports-all' : `#reports?${new URLSearchParams({ project })}`
+  const back = `#reports?${new URLSearchParams({ ...scope, ...(from && { view: from }) })}`
 
   return (
     <section className="reports goal-activity" aria-labelledby="reports">
@@ -68,13 +73,13 @@ export default function GoalActivity({ project, revision, agent, goal, onFilter 
       {items.length > 0 && (
         <>
           <div className="goal-activity-filters">
-            <label>Agent<span className="embedded-picker">
+            {!from && <label>Agent<span className="embedded-picker">
               <select value={selectedAgent} onChange={event => onFilter(event.target.value, '')}>
                 <option value="">All agents</option>
                 {agents.map(([key, name]) => <option key={key} value={key}>{name}</option>)}
               </select>
               <ChevronDown size={14} aria-hidden="true" focusable="false" />
-            </span></label>
+            </span></label>}
             <label>Goal<span className="embedded-picker">
               <select value={selectedGoal} onChange={event => onFilter(selectedAgent, event.target.value)}>
                 <option value="">All goals</option>

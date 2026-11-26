@@ -171,6 +171,14 @@ function ownerQueueHref(owner, project, filters = {}) {
   })}`
 }
 
+function compareSummaryGoals(left, right) {
+  if (left.kind === 'standing') return right.kind === 'standing' ? 0 : -1
+  if (right.kind === 'standing') return 1
+  if (!left.deadline) return right.deadline ? 1 : 0
+  if (!right.deadline) return -1
+  return left.deadline.localeCompare(right.deadline)
+}
+
 export function AssigneeReport({ entry, revision, project, projectTitle, publicPreview = false, tourTargets = {}, activeTarget,
   projectNames, reportFilters }) {
   const { owner, profile, tasks = [], task_count: taskCount, watching_person: watchingPerson,
@@ -186,7 +194,10 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
     waitingCount > 0 && `${waitingCount} waiting`,
   ].filter(Boolean).join(' · ')
   const previewTasks = tasks.slice(0, 3)
-  const more = (taskCount ?? tasks.length) - previewTasks.length
+  const moreTasks = (taskCount ?? tasks.length) - previewTasks.length
+  const goals = entry.goals || []
+  const previewGoals = [...goals].sort(compareSummaryGoals).slice(0, 3)
+  const moreGoals = goals.length - previewGoals.length
   const OwnerHeading = projectTitle ? 'h3' : 'h2'
   const WorkHeading = projectTitle ? 'h4' : 'h3'
   const projectChoices = entry.projects || []
@@ -199,6 +210,36 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
     ...(reportFilters?.hide_requests && { hide_requests: 'true' }),
     ...(reportFilters?.view === 'watching' && { watching: 'true' }),
   }
+  const ownerLinks = owner && (showProjectLinks || watchingPerson !== false) && (!publicPreview || entry.task_counts) && (
+    <div className="owner-links">
+      {moreTasks > 0 && !publicPreview && (
+        <BoardLink href={ownerQueueHref(owner, project, { current_work: 'all', ...queueFilters })}
+          aria-label={`+${moreTasks} more ${moreTasks === 1 ? 'task' : 'tasks'} for ${name}`}>
+          +{moreTasks} more {moreTasks === 1 ? 'task' : 'tasks'}
+        </BoardLink>
+      )}
+      {moreGoals > 0 && !publicPreview && (
+        <BoardLink href={`#${goalActivityFragment(project ?? null, owner, null, reportFilters?.view || 'active')}`}
+          aria-label={`+${moreGoals} more ${moreGoals === 1 ? 'goal' : 'goals'} for ${name}`}>
+          +{moreGoals} more {moreGoals === 1 ? 'goal' : 'goals'}
+        </BoardLink>
+      )}
+      {showProjectLinks ? projectChoices.map(prefix => {
+        const count = unfinishedCounts?.[prefix]
+        const href = count == null ? ownerHref(owner, undefined, prefix)
+          : ownerQueueHref(owner, prefix, { unfinished: 'true', ...queueFilters })
+        return <BoardLink key={prefix} href={href}>
+          {projectNames.get(prefix) || prefix}{count != null && ` (${count})`}
+        </BoardLink>
+      }) : <>
+        <OwnerWorkLinks owner={owner} counts={entry.task_counts} project={ownerProject} summary publicPreview={publicPreview} />
+        {outcomes.size > 0 && (publicPreview ? <DemoUnavailable>All outcomes</DemoUnavailable>
+          : <BoardLink href={ownerHref(owner, 'outcomes-title', ownerProject)}>All outcomes</BoardLink>)}
+        {publicPreview ? <DemoUnavailable>All tasks</DemoUnavailable> : <BoardLink href={ownerQueueHref(owner, ownerProject)}>All tasks</BoardLink>}
+      </>}
+      {!publicPreview && watchingPerson !== false && <BoardLink href={activityLink} aria-label={`Activity by ${name}`}>Activity</BoardLink>}
+    </div>
+  )
   return (
     <li className="report-owner">
       <div className="report-owner-heading" id={tourTargets.owner}
@@ -251,7 +292,8 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
           </ul>
         </div>
       )}
-      {entry.goals?.length > 0 && <ReportGoals goals={entry.goals} owner={owner}
+      {(previewGoals.length > 0 || outcomes.size > 0) && ownerLinks}
+      {previewGoals.length > 0 && <ReportGoals goals={previewGoals} owner={owner}
         project={multipleProjects ? undefined : ownerProject} publicPreview={publicPreview}
         target={tourTargets.goals} heading={WorkHeading} highlighted={tourTargets.goals === activeTarget && Boolean(activeTarget)} />}
       {outcomes.size > 0 && (
@@ -262,30 +304,11 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
           </ol>
         </div>
       )}
-      {owner && (showProjectLinks || watchingPerson !== false) && (!publicPreview || entry.task_counts) && <div className="owner-links">
-        {more > 0 && !publicPreview && (
-          <BoardLink href={ownerQueueHref(owner, project, { current_work: 'all', ...queueFilters })}
-            aria-label={`+${more} more current ${more === 1 ? 'ticket' : 'tickets'} for ${name}`}>+{more} more</BoardLink>
-        )}
-        {showProjectLinks ? projectChoices.map(prefix => {
-          const count = unfinishedCounts?.[prefix]
-          const href = count == null ? ownerHref(owner, undefined, prefix)
-            : ownerQueueHref(owner, prefix, { unfinished: 'true', ...queueFilters })
-          return <BoardLink key={prefix} href={href}>
-            {projectNames.get(prefix) || prefix}{count != null && ` (${count})`}
-          </BoardLink>
-        }) : <>
-          <OwnerWorkLinks owner={owner} counts={entry.task_counts} project={ownerProject} summary publicPreview={publicPreview} />
-          {outcomes.size > 0 && (publicPreview ? <DemoUnavailable>All outcomes</DemoUnavailable>
-            : <BoardLink href={ownerHref(owner, 'outcomes-title', ownerProject)}>All outcomes</BoardLink>)}
-          {publicPreview ? <DemoUnavailable>All tasks</DemoUnavailable> : <BoardLink href={ownerQueueHref(owner, ownerProject)}>All tasks</BoardLink>}
-        </>}
-        {!publicPreview && watchingPerson !== false && <BoardLink href={activityLink} aria-label={`Activity by ${name}`}>Activity</BoardLink>}
-      </div>}
       {!publicPreview && reports.length > 0 && (
         <PendingReports owner={owner} project={project} projectTitle={projectTitle} name={name} initial={reports}
           total={reportCount} cursor={before} reportFilters={reportFilters} />
       )}
+      {previewGoals.length === 0 && outcomes.size === 0 && ownerLinks}
     </li>
   )
 }

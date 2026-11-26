@@ -214,6 +214,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const showGoalActivity = requestedAssigneeView === 'goal-activity'
   const goalAgent = reportsParams?.get('agent')
   const goalKey = reportsParams?.get('goal')
+  const goalFrom = reportsParams?.get('from')
+  const goalSummaryView = goalAgent && ['active', 'all', 'watching'].includes(goalFrom) ? goalFrom : undefined
   const allReports = !fragment || taskAnchor === 'reports-all'
   const [preferredReportsMode, rememberReportsMode] = useState(allReports ? 'reports-all' : 'reports')
   const linkedEvent = fragmentId(taskAnchor, /^event-([1-9]\d*)-log$/)
@@ -532,8 +534,10 @@ export default function App({ previewNotice, tourSteps } = {}) {
             </section>
             : showGoalActivity
               ? <GoalActivity key={allGoalActivity ? 'all' : project} project={allGoalActivity ? null : project}
-                revision={revision} agent={goalAgent} goal={goalKey}
-                onFilter={(agent, goal) => writeFilterFragment(goalActivityFragment(allGoalActivity ? null : project, agent, goal))} />
+                revision={revision} agent={goalAgent} goal={goalKey} from={goalSummaryView}
+                onFilter={(agent, goal) => writeFilterFragment(goalActivityFragment(
+                  allGoalActivity ? null : project, agent, goal, goalSummaryView,
+                ))} />
               : <Reports revision={revision} project={projectsPending ? undefined : project}
                 assigneeView={assigneeView}
                 onAssigneeViewChange={value => writeFilterFragment(reportFragment(allProjectRead ? 'all' : project, value, requestedReportsProject ? null : defaultProject), false)}

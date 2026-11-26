@@ -5,6 +5,7 @@ from contextlib import closing
 import unittest
 
 import tasks_core as ledger
+import tasks_goals as goals
 import tasks_projects as projects
 from tasks_storage import open_sqlite, write
 import test_tasks_service as fixtures
@@ -170,6 +171,40 @@ class ReportsSummaryTest(unittest.TestCase):
         legacy = next(row for row in self.rows("reports", view="all", project="T") if row["owner"] == self.owner)
         self.assertGreater(len(legacy["tasks"]), 3)
         self.assertNotIn("project_unfinished_counts", legacy)
+
+    def test_goal_overflow_matches_the_visible_owner_in_each_scope(self):
+        roster = {self.board.provider.people["Avery"]["sub"]: "Avery"}
+        app = self.board.app(portal_reader=True, project_roster=roster)
+        self.board.provider.issued.discard("Avery")
+        self.client, _ = self.board.login(app, "Avery")
+        with closing(open_sqlite(self.board.database)) as db, write(db):
+            board_goal = goals.create_goal_ticket(db, "T", self.waiting_owner, "standing", "Followed goal", None, "[]")
+            watched = goals.create_goal_ticket(db, "T", self.waiting_owner, "milestone", "Watched goal", "2099-01-01", "[]")
+            operations_goal = goals.create_goal_ticket(db, "OPS", self.waiting_owner, "standing", "Operations goal", None, "[]")
+            completed = goals.create_goal_ticket(db, "OPS", self.waiting_owner, "milestone", "Completed goal", "2099-02-01", "[]")
+            ledger.record(db, completed, "done", self.waiting_owner, "done", "Completed", None, [])
+            personal = goals.create_goal_ticket(db, "T", self.viewer, "standing", "Personal goal", None, "[]")
+            ledger.record(db, board_goal, "start", self.waiting_owner, "in_progress", "Started a check", None, [])
+            ledger.record(db, board_goal, "park", self.waiting_owner, "parked", "Checked the goal", None, [])
+
+        def activity(owner, **scope):
+            return self.board.call(self.client, "/api/v1/reports/goal-activity", query_string={"owner": owner, **scope}).json["items"]
+
+        self.assertEqual(self.ids(activity(self.waiting_owner, scope="all")), [operations_goal])
+        self.assertEqual(self.ids(activity(self.viewer, project="T")), [personal])
+        self.assertEqual(activity(self.waiting_owner, scope="all", watching="true"), [])
+        headers = {"Origin": fixtures.ORIGIN}
+        self.board.call(self.client, "/api/v1/assignee/watch", method="POST", headers=headers,
+                        query_string={"owner": self.waiting_owner, "project": "T"}, json={"watch": True})
+        self.board.call(self.client, f"/api/v1/tasks/{watched}/watch", method="POST", headers=headers, json={"watch": True})
+
+        items = activity(self.waiting_owner, scope="all", watching="true")
+        self.assertCountEqual(self.ids(items), [operations_goal, board_goal])
+        scoped, = activity(self.waiting_owner, project="T", watching="true")
+        self.assertEqual((scoped["id"], scoped["starts"], scoped["completed_checks"]), (board_goal, 1, 1))
+        row = next(row for row in self.rows("reports", summary="true", view="watching", scope="all")
+                   if row["owner"] == self.waiting_owner)
+        self.assertCountEqual([item["key"] for item in items], [goal["ticket"] for goal in row["goals"]])
 
 
 if __name__ == "__main__":

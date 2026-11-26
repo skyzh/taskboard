@@ -39,7 +39,6 @@ test('Reports marks only dates before the selected board day overdue', t => {
       { kind: 'original', summary: 'Past deadline', deadline: '2026-11-20' },
       { kind: 'milestone', summary: 'Due today in Pacific time', deadline: '2026-11-21' },
       { kind: 'milestone', summary: 'Upcoming in Pacific time', deadline: '2026-11-22' },
-      { kind: 'standing', summary: 'Ongoing work' },
     ],
   }
   const render = zone => renderToStaticMarkup(React.createElement(
@@ -53,7 +52,6 @@ test('Reports marks only dates before the selected board day overdue', t => {
   assert.equal((utc.match(/<strong>Overdue<\/strong>/g) || []).length, 2)
   assert.match(utc, /goal-deadline is-overdue"><time dateTime="2026-11-21">/)
   assert.match(utc, /goal-deadline"><time dateTime="2026-11-22">/)
-  assert.match(utc, /Ongoing work<\/a><span>Standing goal<\/span>/)
 })
 
 test('Reports lead with progress and link to goals, outcomes and exact activity times', t => {
@@ -130,7 +128,7 @@ test('Reports lead with progress and link to goals, outcomes and exact activity 
   assert.ok(!primary.includes(multiline))
   assert.ok(!primary.includes(longer))
   assert.match(primary, /4 in progress · 1 waiting/)
-  assert.match(primary, /href="#project=COURSE&amp;section=queue-heading&amp;owner=Avery&amp;current_work=all"[^>]+>\+2 more<\/a>/)
+  assert.match(primary, /href="#project=COURSE&amp;section=queue-heading&amp;owner=Avery&amp;current_work=all"[^>]+>\+2 more tasks<\/a>/)
   const exact = zone.formatTimestamp(activityAt)
   assert.ok(primary.includes(`href="#event-35-log" aria-label="Last activity, ${exact}"><time dateTime="${activityAt}" title="${exact}">1m ago<span class="relative-time-accessible"> (${exact})</span></time>`))
   assert.ok(primary.includes(`aria-label="6m ago, ${zone.formatTimestamp(reportedAt)}"`))
@@ -171,7 +169,7 @@ test('All projects links to scoped unfinished queues and one cross-project curre
     entry, projectNames: new Map([['T', 'Taskboard'], ['COURSE', 'Course']]),
     reportFilters: { hide_requests: true },
   }))
-  assert.match(html, /class="owner-links"><a href="#scope=all&amp;section=queue-heading&amp;owner=Avery&amp;current_work=all&amp;hide_requests=true"[^>]+>\+5 more<\/a><a href="#project=T&amp;section=queue-heading&amp;owner=Avery&amp;unfinished=true&amp;hide_requests=true">Taskboard \(3\)<\/a>/)
+  assert.match(html, /class="owner-links"><a href="#scope=all&amp;section=queue-heading&amp;owner=Avery&amp;current_work=all&amp;hide_requests=true"[^>]+>\+5 more tasks<\/a><a href="#project=T&amp;section=queue-heading&amp;owner=Avery&amp;unfinished=true&amp;hide_requests=true">Taskboard \(3\)<\/a>/)
   assert.match(html, /#project=COURSE&amp;section=queue-heading&amp;owner=Avery&amp;unfinished=true&amp;hide_requests=true">Course \(4\)<\/a>/)
   const watched = renderToStaticMarkup(React.createElement(AssigneeReport, {
     entry, projectNames: new Map([['T', 'Taskboard'], ['COURSE', 'Course']]),
@@ -179,6 +177,30 @@ test('All projects links to scoped unfinished queues and one cross-project curre
   }))
   assert.match(watched, /current_work=all&amp;watching=true/)
   assert.match(watched, /unfinished=true&amp;watching=true/)
+})
+
+test('Summary ranks three goals and groups both overflow links before the next section', () => {
+  const milestone = (summary, deadline) => ({ kind: 'milestone', summary, deadline })
+  const goals = [
+    milestone('Later goal', '2099-09-01'), milestone('First deadline tie', '2099-01-01'),
+    { kind: 'standing', summary: 'Standing goal example' }, milestone('Second deadline tie', '2099-01-01'),
+    milestone('Farthest goal', '2099-12-02'),
+  ]
+  const render = (entry, options) => renderToStaticMarkup(React.createElement(AssigneeReport, {
+    entry: { owner: 'Avery', tasks: [], task_count: 4, projects: ['T'], ...entry },
+    projectNames: new Map([['T', 'Taskboard']]), ...options,
+  }))
+  const html = render({ goals }, { reportFilters: { view: 'watching' } })
+  assert.match(html, /class="owner-links">.*?\+4 more tasks<\/a>.*?scope=all&amp;agent=Avery&amp;from=watching"[^>]*>\+2 more goals<\/a>.*?Taskboard<\/a>.*?<\/div><div class="report-owner-section report-goals-panel">/s)
+  assert.match(html, /Standing goal example.*First deadline tie.*Second deadline tie/s)
+  assert.match(html, /Standing goal example<\/a><span>Standing goal<\/span>/)
+  assert.doesNotMatch(html, /Later goal|Farthest goal/)
+  assert.doesNotMatch(render({ goals: goals.slice(0, 3), task_count: 0 }), /more (goals?|tasks?)/)
+
+  const outcome = { id: 10, action: 'done', task_id: 11, task_key: 'T-11', task_title: 'Result', at: '2026-11-25T23:00:00Z' }
+  assert.match(render({ recent_outcomes: [outcome] }), /class="owner-links">.*?<\/div><div class="report-owner-section"><h3>Recent outcomes/s)
+  assert.match(render({}), /class="owner-links">.*?<\/div><\/li>$/s)
+  assert.match(render({ goals }, { projectNames: undefined, project: 'T' }), /project=T&amp;agent=Avery&amp;from=active/)
 })
 
 test('Reports leave legacy receipts and preceding narratives on the ticket while showing authored actions', () => {

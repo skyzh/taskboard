@@ -2892,10 +2892,19 @@ def create_app(
 
     @app.get("/api/v1/reports/goal-activity")
     def report_goal_activity():
-        current_actor()
-        project = project_scope(request.args)
+        args = request.args
+        owner = text(args, "owner", optional=True, maximum=160)
+        watching = owner is not None and args.get("watching") == "true"
+        actor = current_actor(required=bool(owner and ("scope" in args or watching)))
+        project = project_scope(args)
         with tasks_storage.read(db()) as connection:
             summaries = query()
+            if owner:
+                return summaries.owner_goal_activity(
+                    owner, project,
+                    personal_owner=actor["ledger_key"] if actor and actor["kind"] == "human" else None,
+                    watcher=actor["ledger_key"] if watching else None,
+                )
             if project is not None:
                 return summaries.goal_activity(project)
             prefixes = connection.execute("SELECT prefix FROM projects ORDER BY prefix")
