@@ -2447,7 +2447,7 @@ def create_app(
 
     @app.get("/api/v1/tasks")
     def tasks():
-        current_actor()
+        actor = current_actor()
         args = request.args
         state = status_arg(args)
         search = text(args, "q", optional=True, maximum=160)
@@ -2460,10 +2460,16 @@ def create_app(
         tag = tag_filter(args)
         if tag is not None and project is None:
             raise RequestError("Choose one project when filtering by tag.")
+        work = args.get("current_work")
+        unfinished = args.get("unfinished")
+        if work not in (None, "all") or unfinished not in (None, "true"):
+            raise RequestError("Use current_work=all or unfinished=true.")
         return query().tasks(
             state=state, dri=owner,
             waiting_on=text(args, "waiting_on", optional=True, maximum=160),
             search=search, project=project, tag=tag, hide_requests=args.get("hide_requests") == "true",
+            current_work=work == "all", unfinished=unfinished == "true",
+            summary_personal_owner=actor["ledger_key"] if actor and actor["kind"] == "human" else None,
             **queue_page_args(args, state),
         )
 
@@ -2756,16 +2762,21 @@ def create_app(
         actor = current_actor(required="scope" in args or watching)
         project = project_scope(args)
         has_roster, view, hide_requests, personal_owner = report_filters(args, actor, project)
+        summary = args.get("summary") == "true"
+        if summary and view == "recent":
+            view = "all"
         before = text(args, "before", optional=True, maximum=162 if view == "all" or personal_owner or watching else 160)
         limit = integer(args.get("limit", 10), "limit", maximum=20)
         board = query()
         if watching:
             return board.watching_reports(
                 actor["ledger_key"], project=project, before=before, limit=limit, hide_requests=hide_requests,
+                summary=summary,
             )
         result = board.reports(
             view=view, before=before, limit=limit, project=project,
-            hide_requests=hide_requests, personal_owner=personal_owner,
+            hide_requests=hide_requests, personal_owner=personal_owner, summary=summary,
+            viewer=actor["ledger_key"] if actor else None,
         )
         return {**result, "roster": True} if has_roster else result
 
