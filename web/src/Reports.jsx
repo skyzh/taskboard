@@ -10,7 +10,7 @@ import { projectHref } from './projectScope.js'
 
 import { TaskRows } from './WorkRow.jsx'
 import { groupOutcomes } from './Overview.jsx'
-import { ReportTime, useReportNow } from './ReportTime.jsx'
+import { ReportTime } from './ReportTime.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
 import { goalActivityFragment } from './GoalActivity.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
@@ -164,22 +164,41 @@ function WatchedTickets({ owner, name, project, initial, revision, projectNames,
   )
 }
 
+function ownerQueueHref(owner, project, filters = {}) {
+  return `#${new URLSearchParams({
+    ...(project ? { project } : { scope: 'all' }),
+    section: 'queue-heading', owner, ...filters,
+  })}`
+}
+
 export function AssigneeReport({ entry, revision, project, projectTitle, publicPreview = false, tourTargets = {}, activeTarget,
   projectNames, reportFilters }) {
   const { owner, profile, tasks = [], task_count: taskCount, watching_person: watchingPerson,
-    watched_tickets: watchedTickets, pending_reports: reports = [],
+    project_unfinished_counts: unfinishedCounts, watched_tickets: watchedTickets, pending_reports: reports = [],
     pending_reports_before: before, report_count: reportCount } = entry
   const name = owner ? profileName(owner, profile) : 'Unassigned'
   const outcomes = groupOutcomes(entry.recent_outcomes || [])
   const progressCount = entry.task_counts?.in_progress
   const inProgress = progressCount == null ? tasks.some(task => task.state === 'in_progress') : progressCount > 0
+  const waitingCount = (entry.task_counts?.waiting ?? 0) + (entry.task_counts?.human_review ?? 0)
+  const workCounts = [
+    progressCount > 0 && `${progressCount} in progress`,
+    waitingCount > 0 && `${waitingCount} waiting`,
+  ].filter(Boolean).join(' · ')
+  const previewTasks = tasks.slice(0, 3)
+  const more = (taskCount ?? tasks.length) - previewTasks.length
   const OwnerHeading = projectTitle ? 'h3' : 'h2'
   const WorkHeading = projectTitle ? 'h4' : 'h3'
   const projectChoices = entry.projects || []
   const multipleProjects = projectChoices.length > 1
+  const showProjectLinks = Boolean(projectNames && projectChoices.length)
   const ownerProject = project || projectChoices[0]
-  const activityLink = projectHref(`#activity?${new URLSearchParams({ actor: owner, detail: 'all' })}`, project)
-  const queueLink = `#${new URLSearchParams({ ...(ownerProject && { project: ownerProject }), section: 'queue-heading', owner })}`
+  const scope = projectNames ? 'all' : project
+  const activityLink = projectHref(`#activity?${new URLSearchParams({ actor: owner, detail: 'all' })}`, scope)
+  const queueFilters = {
+    ...(reportFilters?.hide_requests && { hide_requests: 'true' }),
+    ...(reportFilters?.view === 'watching' && { watching: 'true' }),
+  }
   return (
     <li className="report-owner">
       <div className="report-owner-heading" id={tourTargets.owner}
@@ -196,10 +215,13 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
             </OwnerHeading>
             {projectTitle && <span className="report-project-label">{projectTitle}</span>}
           </div>
-          {entry.last_activity && (
+          {(workCounts || entry.last_activity) && (
             <p className="last-activity">
-              Last activity {publicPreview ? <ReportTime at={entry.last_activity.at} />
-                : <ReportActivityTime event={entry.last_activity} label="Last activity" />}
+              {workCounts}
+              {entry.last_activity && <>
+                {workCounts && ' · '}Last activity {publicPreview ? <ReportTime at={entry.last_activity.at} />
+                  : <ReportActivityTime event={entry.last_activity} label="Last activity" />}
+              </>}
             </p>
           )}
         </div>
@@ -208,12 +230,11 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
         <WatchedTickets owner={owner} name={name} project={project} initial={watchedTickets}
           revision={revision} projectNames={projectNames} hideRequests={reportFilters?.hide_requests} />
       )}
-      {tasks.length > 0 && (
-        <div className="report-owner-section" id={tourTargets.current} data-tour-current={tourTargets.current === activeTarget && activeTarget ? true : undefined}>
-          <WorkHeading>Current work</WorkHeading>
-          <TaskRows items={tasks} owner={false} label={`Current work for ${name}`} report="summary" revision={revision}
+      {previewTasks.length > 0 && (
+        <div className="report-owner-section report-owner-current" id={tourTargets.current}
+          data-tour-current={tourTargets.current === activeTarget && activeTarget ? true : undefined}>
+          <TaskRows items={previewTasks} owner={false} label={`Current work for ${name}`} report="summary" revision={revision}
             publicPreview={publicPreview} projectNames={projectNames} />
-          {taskCount > tasks.length && <p className="report-note">Showing {tasks.length} of {taskCount} current tasks.</p>}
         </div>
       )}
       {!publicPreview && entry.legacy_peer_waits?.length > 0 && (
@@ -241,14 +262,23 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
           </ol>
         </div>
       )}
-      {owner && (multipleProjects || watchingPerson !== false) && (!publicPreview || entry.task_counts) && <div className="owner-links">
-        {multipleProjects ? projectChoices.map(prefix => (
-          <BoardLink key={prefix} href={ownerHref(owner, undefined, prefix)}>{projectNames?.get(prefix) || prefix}</BoardLink>
-        )) : <>
+      {owner && (showProjectLinks || watchingPerson !== false) && (!publicPreview || entry.task_counts) && <div className="owner-links">
+        {more > 0 && !publicPreview && (
+          <BoardLink href={ownerQueueHref(owner, project, { current_work: 'all', ...queueFilters })}
+            aria-label={`+${more} more current ${more === 1 ? 'ticket' : 'tickets'} for ${name}`}>+{more} more</BoardLink>
+        )}
+        {showProjectLinks ? projectChoices.map(prefix => {
+          const count = unfinishedCounts?.[prefix]
+          const href = count == null ? ownerHref(owner, undefined, prefix)
+            : ownerQueueHref(owner, prefix, { unfinished: 'true', ...queueFilters })
+          return <BoardLink key={prefix} href={href}>
+            {projectNames.get(prefix) || prefix}{count != null && ` (${count})`}
+          </BoardLink>
+        }) : <>
           <OwnerWorkLinks owner={owner} counts={entry.task_counts} project={ownerProject} summary publicPreview={publicPreview} />
           {outcomes.size > 0 && (publicPreview ? <DemoUnavailable>All outcomes</DemoUnavailable>
             : <BoardLink href={ownerHref(owner, 'outcomes-title', ownerProject)}>All outcomes</BoardLink>)}
-          {publicPreview ? <DemoUnavailable>All tasks</DemoUnavailable> : <BoardLink href={queueLink}>All tasks</BoardLink>}
+          {publicPreview ? <DemoUnavailable>All tasks</DemoUnavailable> : <BoardLink href={ownerQueueHref(owner, ownerProject)}>All tasks</BoardLink>}
         </>}
         {!publicPreview && watchingPerson !== false && <BoardLink href={activityLink} aria-label={`Activity by ${name}`}>Activity</BoardLink>}
       </div>}
@@ -378,26 +408,22 @@ export function NeedsYou({ project, revision, showAllAsks = false }) {
 }
 
 function ProjectReports({ revision, project, projectNames, hideRequests, viewer, view }) {
-  const now = useReportNow()
   const watching = view === 'watching'
-  // Recent owners can age out without creating a ledger revision.
-  const pageRevision = view === 'recent' ? `${revision}:${Math.floor(now / 60_000)}` : revision
   const filters = {
     view, ...(projectNames ? { scope: 'all' } : { project }), ...(hideRequests && { hide_requests: true }),
     ...(!watching && viewer?.kind === 'human' && { include_self: true }),
   }
-  const page = useLoadedPages('/reports', filters, pageRevision)
-  const label = watching ? 'Watching' : view === 'all' ? 'Assignees'
-    : view === 'recent' ? 'Recent and Team DRI reports' : 'Assignees with open work'
+  const page = useLoadedPages('/reports', { ...filters, summary: true }, revision)
+  const label = watching ? 'Watching' : view === 'all' ? 'Assignees' : 'Assignees with open work'
   const empty = watching ? 'Watch a person, DRI, or ticket to see their work here.' : view === 'all' ? 'No assignees.'
-    : view === 'recent' ? 'No recent or Team DRI reports.' : 'No open work to report.'
+    : 'No open work to report.'
   return (
     <ReportsLayout sidebar={watching ? null :
       <QueuedAsks revision={revision} project={project} projectNames={projectNames} viewer={viewer} />}>
       <ResourceStatus resource={page} label="reports" />
       {page.data?.items.length === 0 && <p className="section-message" role="status">{empty}</p>}
       <AssigneeReportList entries={page.data?.items} label={label} revision={revision} project={project}
-        projectNames={projectNames} reportFilters={projectNames || watching ? filters : undefined} />
+        projectNames={projectNames} reportFilters={filters} />
       <LoadMore page={page} label="assignees" />
     </ReportsLayout>
   )
@@ -406,7 +432,6 @@ function ProjectReports({ revision, project, projectNames, hideRequests, viewer,
 const assigneeViews = [
   { value: 'active', label: 'Active' },
   { value: 'all', label: 'All' },
-  { value: 'recent', label: 'Recent + team' },
 ]
 
 const signedAssigneeViews = [...assigneeViews, { value: 'watching', label: 'Watching' }]

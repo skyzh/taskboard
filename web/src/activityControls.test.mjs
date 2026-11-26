@@ -218,6 +218,10 @@ test('sign-in preserves supported scoped routes and their filters', () => {
   for (const [hash, target] of [
     ['#board?project=LAB', '/tasks?project=LAB'],
     ['#project=LAB&section=queue-heading&owner=Avery', '/tasks?project=LAB&owner=Avery#queue-heading'],
+    ['#scope=all&section=queue-heading&owner=Avery&current_work=all&hide_requests=true',
+      '/tasks?scope=all&owner=Avery&current_work=all&hide_requests=true#queue-heading'],
+    ['#project=LAB&section=queue-heading&owner=Avery&unfinished=true',
+      '/tasks?project=LAB&owner=Avery&unfinished=true#queue-heading'],
     ['#activity?detail=all&project=LAB', '/activity?detail=all&project=LAB'],
     ['#stats?period=week&scope=all', '/stats?period=week&scope=all'],
     ['#notifications-needs-me?project=LAB', '/notifications?project=LAB&view=needs-me'],
@@ -1116,7 +1120,7 @@ test('Summary uses the route’s assignee filter, including when the project has
   function render(project, roster, assigneeView, expectedView) {
     fixture.state = [false]
     fixture.pages = { '/reports': filters => {
-      assert.deepEqual(filters, { project, view: expectedView })
+      assert.deepEqual(filters, { project, view: expectedView, summary: true })
       return { data: { items: [], next_cursor: null, ...(roster && { roster }) } }
     } }
     return renderToStaticMarkup(React.createElement(Reports, { project, assigneeView }))
@@ -1126,14 +1130,13 @@ test('Summary uses the route’s assignee filter, including when the project has
     ['T', true, undefined, 'active'],
     ['T', true, 'all', 'all'],
     ['COURSE', false, 'all', 'all'],
-    ['COURSE', false, 'recent', 'recent'],
   ]) {
     const page = render(project, roster, selection, expected)
     assert.match(page, /role="group" aria-label="Assignees"/)
-    for (const [view, label] of [['active', 'Active'], ['all', 'All'], ['recent', 'Recent + team']]) {
+    for (const [view, label] of [['active', 'Active'], ['all', 'All']]) {
       assert.ok(page.includes(`aria-pressed="${view === expected}">${label}</button>`))
     }
-    assert.doesNotMatch(page, /Other assignees/)
+    assert.doesNotMatch(page, /Other assignees|Recent \+ team/)
     assert.match(page, /Team overview/)
   }
 })
@@ -1157,9 +1160,10 @@ test('All projects shows one assignee and one request log with project-specific 
   const secondary = report('DEMO', 2, 9)
   fixture.pages = {
     '/reports': filters => {
-      assert.deepEqual(filters, { view: 'active', scope: 'all' })
+      assert.deepEqual(filters, { view: 'active', scope: 'all', summary: true })
       return { data: { items: [{ ...primary, projects: ['T', 'DEMO'],
         tasks: [...primary.tasks, ...secondary.tasks], task_count: 2,
+        project_unfinished_counts: { T: 3, DEMO: 4 },
         pending_reports: [...secondary.pending_reports, ...primary.pending_reports], report_count: 3,
       }] } }
     },
@@ -1182,8 +1186,8 @@ test('All projects shows one assignee and one request log with project-specific 
   assert.equal((markup.match(/<h1 id="reports">Reports<\/h1>/g) || []).length, 1)
   assert.match(markup, /class="report-project-label">Tasks Board<\/span>/)
   assert.match(markup, /class="report-project-label">Demo project<\/span>/)
-  assert.match(markup, /href="#dri=Avery&amp;project=T">Tasks Board/)
-  assert.match(markup, /href="#dri=Avery&amp;project=DEMO">Demo project/)
+  assert.match(markup, /href="#project=T&amp;section=queue-heading&amp;owner=Avery&amp;unfinished=true">Tasks Board \(3\)/)
+  assert.match(markup, /href="#project=DEMO&amp;section=queue-heading&amp;owner=Avery&amp;unfinished=true">Demo project \(4\)/)
   assert.match(markup, /href="#task-DEMO-1"/)
   assert.match(markup, /href="#task-DEMO-2"[^>]*>Review the sample/)
   assert.match(markup, /More reports for Avery/)
@@ -1194,7 +1198,7 @@ test('Reports retains its route filter while loading or showing an error', () =>
   function render(project, assigneeView, result) {
     fixture.state = [false]
     fixture.pages = { '/reports': filters => {
-      assert.deepEqual(filters, { project, view: assigneeView })
+      assert.deepEqual(filters, { project, view: assigneeView, summary: true })
       return result
     } }
     return renderToStaticMarkup(React.createElement(Reports, { project, assigneeView }))
@@ -1205,7 +1209,6 @@ test('Reports retains its route filter while loading or showing an error', () =>
   assert.match(initialError, /Unable to load reports.*Retry/)
   assert.match(initialError, /aria-pressed="true">Active<\/button>/)
   assert.match(render('COURSE', 'all', { pending: true }), /aria-pressed="true">All<\/button>/)
-  assert.match(render('COURSE', 'recent', failure), /aria-pressed="true">Recent \+ team<\/button>/)
 })
 
 test('Reports shows linked and unlinked asks in one request log without recipient-only notices', () => {
