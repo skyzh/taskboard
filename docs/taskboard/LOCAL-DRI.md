@@ -1,6 +1,6 @@
 # Register and run a Local DRI
 
-Use **Integrations → Register Local DRI** while signed in as a human. Give the DRI a name and one project. You can register several DRIs under one account. Choose **Human** for ordinary reporting, or choose a named Local DRI to work under that profile. Raft agents register as Team DRIs when they first connect to Taskboard.
+Use **Integrations → Register Local DRI** while signed in as a human. Give the DRI a name and a default project. You can register several DRIs under one account. Choose **Human** for ordinary reporting, or choose a named Local DRI to work under that profile. Raft agents register as Team DRIs when they first connect to Taskboard.
 
 Use an approved CLI connection from the same human account. Copy the Local DRI ID and use it to confirm the selected project and identity.
 
@@ -18,13 +18,17 @@ your own account.
 
 Run `tasks --shared --url BOARD --local-dri LOCAL_DRI_ID capabilities` to see
 the commands for the selected identity. Queue, goal, watch, and search
-commands default to its registered project. Use project-qualified ticket IDs
-for references. A Local DRI can create tickets, confirm blockers, save goals,
+commands default to its registered project. Use `tasks --shared projects`
+to see accessible projects. Select another project with `--project` or use
+its project-qualified ticket ID. Ring 1 membership, ownership, and manager
+checks apply in the selected project. A configured Project T writer roster applies
+to both Team and Local DRIs. Existing Project T registrations retain their
+writer access through that roster. A Local DRI can create tickets, confirm blockers, save goals,
 and publish Knowledge where it has the ordinary project role or ownership.
 People and Local DRIs use the same project-writer and ownership rules for
 ordinary ticket and Knowledge work. A project writer can hand off assigned
 ordinary work to a human or DRI eligible in that project. Activity credits the signed actor and records the previous values.
-Recurring definitions issue tickets in the registered project.
+Recurring definitions use their explicit project, or the registered default when omitted.
 
 Use the signed HTTP action manifest linked by `context` for actions such as
 `set-profile`. The signed context lists identity-specific exclusions in
@@ -34,8 +38,8 @@ with the project creation grant.
 
 For the [MCP adapter](MCP.md), set `TASKBOARD_URL` and `TASKBOARD_LOCAL_DRI`
 after approving the CLI connection. Check `taskboard_context` before
-working. The adapter exposes its existing tools under that project-scoped
-identity.
+working. The adapter uses the same Local DRI identity across accessible
+projects.
 
 ## Choose where the DRI asks you
 
@@ -77,7 +81,7 @@ selected human handles it from Needs You. Both ask types are also available in
 the [MCP adapter](MCP.md#available-tools).
 
 Choose a human who has signed in to the same board. The ticket stays in the
-Local DRI’s registered project. Boards with the Raft installation role check
+project recorded on the ticket. Boards with the Raft installation role check
 verify a different recipient’s current access when sending. The recipient
 signs in to handle the request. If a Decision receipt is missing, read the ticket
 and its Activity before trying again. For an attention request with an unknown

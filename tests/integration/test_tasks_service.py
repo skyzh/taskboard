@@ -9298,6 +9298,26 @@ class TasksServiceTest(unittest.TestCase):
                              {tickets["T"], tickets["OPS"]})
             self.assertIsNone(second["next_cursor"])
 
+    def test_configured_legacy_agent_can_be_watched_before_first_sign_in(self):
+        roster = {self.provider.people["Blake"]["sub"]: "Blake"}
+        app = self.app(portal_reader=True, project_roster=roster)
+        sam, _ = self.login(app, "Sam")
+        ticket = self.cli("add", "Verify legacy assignments", "--dri", "Blake", "--step", "Read the sample.").split()[0]
+        self.cli("start", ticket, "Read the sample.", "--by", "Blake")
+        profile = "/api/v1/assignee"
+        for scope in ({"project": "T"}, {"scope": "all"}):
+            params = {"owner": "Blake", **scope}
+            self.assertEqual(self.call(sam, profile, query_string=params).json["profile"]["name"], "Blake")
+            self.assertFalse(self.call(sam, profile, query_string=params).json["watching"])
+            self.assertTrue(self.call(sam, profile + "/watch", method="POST", query_string=params,
+                                      headers={"Origin": ORIGIN}, json={"watch": True}).json["watching"])
+            self.assertTrue(self.call(sam, profile, query_string=params).json["watching"])
+            watching = self.call(sam, "/api/v1/reports", query_string={**scope, "view": "watching"}).json["items"]
+            self.assertEqual(watching[0]["owner"], "Blake")
+            self.assertEqual(watching[0]["tasks"][0]["key"], ticket)
+            self.call(sam, profile + "/watch", method="POST", query_string=params,
+                      headers={"Origin": ORIGIN}, json={"watch": False})
+
     def test_watching_reports_combine_person_and_ticket_watches_before_paging(self):
         roster = {self.provider.people[name]["sub"]: name for name in ("Avery", "Blake")}
         app = self.app(portal_reader=True, project_roster=roster)

@@ -471,7 +471,7 @@ predecessor server cannot enforce Ring 1 against an upgraded ledger.
 ### Edit shared content and apply workflow permissions
 
 Signed-in human writers, eligible Team DRIs under the board’s project rules,
-and Local DRIs in their registered project can edit the title or brief of a
+and Local DRIs with access to the project can edit the title or brief of a
 regular ticket or Knowledge entry. Open **Edit ticket** or **Edit Knowledge entry**
 in the browser, run `tasks --shared edit <id> <reason>`, or use
 `taskboard_edit_ticket` with a signed connection. Activity and History credit
@@ -742,7 +742,7 @@ operator issues their tickets, typically the default project.
 Use a stable owner key to define a cadence in whole hours and the first
 slot in UTC. In shared mode the signed-in agent owns the definition.
 New shared definitions use `--project` or the signed-in agent's default
-project. A Local DRI uses its registered project. A retry with the same
+project. A Local DRI uses its registered project when scope is omitted. A retry with the same
 key and settings returns the existing ID.
 
 ```sh

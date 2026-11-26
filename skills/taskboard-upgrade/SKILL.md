@@ -95,6 +95,12 @@ installation, follow the [installation guide](../../docs/taskboard/SETUP.md).
   agent's Start, and the recorded outcome on the existing goal ticket. An agent
   already working can pick up the goal through its signed Inbox recheck.
   [Goal wakes](../../docs/taskboard/READY-CHECKPOINT.md#try-goal-wakes)
+- For a Local DRI project-access change, confirm the existing identity,
+  creator and default project after upgrade. With that same signed identity,
+  read one existing ticket in the default project and one in an explicitly
+  selected accessible project. Rehearse a write in both projects and verify
+  that an inaccessible project stays denied. The existing local handoff
+  watcher keeps its project and requester binding. [Local DRI access](../../docs/taskboard/LOCAL-DRI.md#work-in-the-registered-project)
 - Record the observed release pair, backup and restore receipt, signed read
   results, and any remaining verification on the upgrade ticket. Hand the
   operator the status and next action if the upgrade is blocked.

@@ -141,10 +141,12 @@ def replay_knowledge_sweeps(test, board, app, open_board):
     board.action(unauthenticated, "knowledge-reconcile", {"project": "LAB"}, headers=human_headers)
     local_entry, = sweep(unauthenticated, "board", headers=headers)["items"]
     test.assertEqual(local_entry["key"], other)
-    test.assertEqual({row["source"] for row in local_entry["staged_work"]}, {source_tickets[other]})
-    test.assertEqual({row["event_id"] for row in local_entry["sources"]}, {staged[other]})
-    sweep(unauthenticated, "board", headers=headers, project="OPS", status=403)
-    board.action(manager, "knowledge-assign", {"id": owned, "dri": local}, status=403)
+    test.assertEqual({row["source"] for row in local_entry["staged_work"]}, {source_tickets[other], foreign})
+    test.assertEqual({row["event_id"] for row in local_entry["sources"]}, {staged[other], foreign_event})
+    other_project = sweep(unauthenticated, "board", headers=headers, project="OPS")
+    test.assertIn(owned, {row["key"] for row in other_project["items"]})
+    board.action(manager, "knowledge-assign", {"id": owned, "dri": local})
+    test.assertIn(owned, {row["key"] for row in sweep(unauthenticated, "assigned", headers=headers, project="OPS")["items"]})
     board.call(other_manager, f"/api/v1/knowledge/{other}/maintenance-dri", method="POST", json={"dri": local})
     assigned_local, = sweep(unauthenticated, "assigned", headers=headers)["items"]
     test.assertEqual((assigned_local["key"], assigned_local["maintenance_dri"]["id"]), (other, local))

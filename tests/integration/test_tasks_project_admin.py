@@ -121,7 +121,7 @@ class ProjectAdminTest(unittest.TestCase):
         self.assertEqual({key: value for key, value in registrations[local["id"]].items() if key != "permissions"}, {
             "id": local["id"], "name": "Fixture Local DRI", "handle": None, "kind": "local_dri",
         })
-        self.assertFalse(registrations[local["id"]]["permissions"]["view_project"])
+        self.assertTrue(registrations[local["id"]]["permissions"]["view_project"])
         self.assertEqual(call(sam, "/api/v1/revision").json, revision)
 
         action(anonymous, "create-project", {"prefix": "NO", "title": "Denied"},
@@ -202,7 +202,7 @@ class ProjectAdminTest(unittest.TestCase):
         self.assertTrue(lab[agent_id]["manage_project_owners"])
         self.assertTrue(lab[agent_id]["create_projects"])
         self.assertFalse(lab[agent_id]["manage_board_permissions"])
-        self.assertFalse(permissions("OPS")[local["id"]]["view_project"])
+        self.assertTrue(permissions("OPS")[local["id"]]["view_project"])
         self.assertTrue(lab[local["id"]]["edit_shared_content"])
         self.assertFalse(lab[local["id"]]["manage_project_owners"])
 

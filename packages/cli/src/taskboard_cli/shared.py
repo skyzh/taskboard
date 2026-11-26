@@ -555,7 +555,7 @@ def shared_command(args):
                 excluded.add("redirect-decision")
             reads, writes = reads - excluded, writes - excluded
             heading = f"Taskboard commands for Local DRI · {context['project']}"
-            guidance = ("Actions use your registered project and normal role and ownership checks. "
+            guidance = ("Actions default to your registered project. Explicit projects use their normal access and ownership checks. "
                         "Read context for your question route and the signed HTTP manifest.")
         return "\n".join((
             heading,

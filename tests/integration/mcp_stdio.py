@@ -171,8 +171,12 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("Deferred until 2099-01-06", cli_success(python, ROOT, local_env, *local_args, "show", ticket))
                 cli_success(python, ROOT, environment, "remind", ticket, "--clear")
                 await verify(None)
-                denied = cli(python, ROOT, local_env, *local_args, "show", "T-1", "--json")
-                self.assertNotEqual(denied.returncode, 0)
+                shared = json.loads(cli_success(python, ROOT, local_env, *local_args, "show", "T-1", "--json"))
+                self.assertEqual(shared["task"]["key"], "T-1")
+                async with connect(local_env) as reader:
+                    other_project = await reader.call_tool("taskboard_ticket", {"ticket": "T-1"})
+                    self.assertFalse(other_project.is_error, other_project.content)
+                    self.assertEqual(other_project.structured_content, shared)
                 with self.assertRaises(HTTPError) as denied_browser:
                     read_json(origin, path, headers=signed_local)
                 self.assertEqual(denied_browser.exception.code, 403)
@@ -194,9 +198,10 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(HTTPError) as hidden:
                     io_action(origin, "task", cookie=blake, query={"id": private})
                 self.assertEqual(hidden.exception.code, 404)
-                async with connect(team_env) as reader:
-                    self.assertTrue((await reader.call_tool("taskboard_ticket", {"ticket": private})).is_error)
-                    self.assertTrue((await reader.call_tool("taskboard_activity", {"ticket": private})).is_error)
+                for env in (team_env, local_env):
+                    async with connect(env) as reader:
+                        self.assertTrue((await reader.call_tool("taskboard_ticket", {"ticket": private})).is_error)
+                        self.assertTrue((await reader.call_tool("taskboard_activity", {"ticket": private})).is_error)
 
     async def test_two_agent_workflow(self):
         # The HTTP fixture uses the application dependencies while the tool process uses its own locked SDK.
