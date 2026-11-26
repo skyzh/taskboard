@@ -4,6 +4,7 @@ import { legacyLocation, routeAddress } from './boardRoutes.js'
 import { ArrowUpRight, X } from 'lucide-react'
 import { queryPath, useResource, watchBoardRevision, watchFrontendBuild } from './data.js'
 import About from './About.jsx'
+import { AnswerCelebrationsProvider } from './AnswerCelebrations.jsx'
 import BoardTour from './BoardTour.jsx'
 import { useDemoTour, withoutTour } from './DemoTour.jsx'
 import './demo-tour.css'
@@ -462,7 +463,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
     )
   }
   return (
-    <BoardOutageContext.Provider value={boardUnavailable}><TimeZoneContext.Provider value={timeZoneFormatters}>
+    <BoardOutageContext.Provider value={boardUnavailable}><TimeZoneContext.Provider value={timeZoneFormatters}><AnswerCelebrationsProvider>
       <header ref={appHeader} className={view === 'board' ? 'app-header tasks-header' : 'app-header'}>
         <div className="masthead">
           <BoardBrand href={reportsHref} />
@@ -621,6 +622,6 @@ export default function App({ previewNotice, tourSteps } = {}) {
           </>}
         </div>
       </main>
-    </TimeZoneContext.Provider></BoardOutageContext.Provider>
+    </AnswerCelebrationsProvider></TimeZoneContext.Provider></BoardOutageContext.Provider>
   )
 }

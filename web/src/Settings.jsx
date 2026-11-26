@@ -1,4 +1,5 @@
 import React, { useId } from 'react'
+import { useAnswerCelebrations } from './AnswerCelebrations.jsx'
 import CodexUsage from './CodexUsage.jsx'
 import FieldGuidanceSettings, { AgentPromptSettings } from './FieldGuidanceSettings.jsx'
 import { ProfileForm, ProfileSignIn } from './Profile.jsx'
@@ -49,6 +50,7 @@ export default function Settings({
   session, theme, timeZonePreference, chooseTimeZone, showWelcomeBanner, chooseWelcomeBanner,
   onProfileSaved, project, projects, revision, onProjectCreated, onPermissionProjectChange, fragment = '#settings',
 }) {
+  const celebrations = useAnswerCelebrations()
   const actor = session.data?.actor
   const canEdit = actor?.kind === 'agent' || actor?.kind === 'human'
   const prompt = new URLSearchParams(fragment.split('?', 2)[1]).get('prompt')
@@ -60,6 +62,11 @@ export default function Settings({
           <input type="checkbox" checked={showWelcomeBanner}
             onChange={event => chooseWelcomeBanner(event.currentTarget.checked)} />
           Show welcome banner on Reports
+        </label>
+        <label className="settings-preference settings-welcome-banner">
+          <input type="checkbox" checked={celebrations.enabled}
+            onChange={event => celebrations.choose(event.currentTarget.checked)} />
+          Answer celebrations
         </label>
       </AppearanceSettings>
       {(canEdit || session.pending || session.error || session.data?.sign_in_available) && (

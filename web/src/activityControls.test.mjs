@@ -88,6 +88,12 @@ before(async () => {
     plugins: [{
       name: 'activity-controls-fixture',
       setup(plugin) {
+        plugin.onResolve({ filter: /^\.\/AnswerCelebrations\.jsx$/ }, () => ({
+          path: 'answer-celebrations', namespace: 'celebration-fixture',
+        }))
+        plugin.onLoad({ filter: /.*/, namespace: 'celebration-fixture' }, () => ({
+          contents: 'export function useAnswerCelebrations() { return { celebrate() {} } }',
+        }))
         plugin.onResolve({ filter: /^(react|\.\/data\.js)$/ }, ({ path }) => ({
           path, namespace: 'fixture',
         }))

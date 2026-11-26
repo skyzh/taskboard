@@ -3744,11 +3744,21 @@ def create_app(
         note = data.get("note", "")
         if choice is not None and not other and isinstance(note, str) and not note.strip():
             note = choice
-        return mutate(
-            "decide", actor, data, id=task_number(number),
-            request_id=integer(data.get("request_id"), "request_id"), choice=choice, other=other,
+        task_id = task_number(number)
+        request_id = integer(data.get("request_id"), "request_id")
+        sender = db().execute(
+            """SELECT principal.kind FROM events AS ask
+               JOIN board_principals AS principal ON principal.ledger_key = ask.actor
+               WHERE ask.id = ? AND ask.task_id = ?""",
+            (request_id, task_id),
+        ).fetchone()
+        result = mutate(
+            "decide", actor, data, id=task_id, request_id=request_id, choice=choice, other=other,
             note=text({"note": note}, "note", maximum=None), details=details.strip() if "details" in data else None,
         )
+        if sender is not None and sender["kind"] == "agent":
+            result["agent_question"] = True
+        return result
 
     @app.patch("/api/v1/profile")
     def edit_profile_text():

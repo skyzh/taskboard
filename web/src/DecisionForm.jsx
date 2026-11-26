@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { useAnswerCelebrations } from './AnswerCelebrations.jsx'
 import { BoardLink } from './BoardNavigation.jsx'
 import { decisionRequest, isUncertainDecision, watchDecision } from './decisionRecovery.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
@@ -53,6 +54,7 @@ function DecisionResult({ attempt, draft, receiptAction }) {
 }
 
 export default function DecisionForm({ task, session, onChanged, onAnswerStarted, receiptAction }) {
+  const { celebrate } = useAnswerCelebrations()
   const [draft, setDraft] = useState(null)
   const [attempt, setAttempt] = useState(null)
   const posting = useRef(null)
@@ -130,13 +132,14 @@ export default function DecisionForm({ task, session, onChanged, onAnswerStarted
     setAttempt({ ...submission, status: 'saving' })
     onAnswerStarted?.()
     try {
-      await decisionRequest(request.path, active, { body: {
+      const result = await decisionRequest(request.path, active, { body: {
         request_id: request.id, note: answerText, details: details.trim(),
         ...(other ? { other: true } : request.choices.length && { choice }),
       } })
       if (posting.current !== active) return
       setDraft(null)
       setAttempt({ ...submission, status: 'saved' })
+      if (result?.agent_question === true) celebrate()
       onChanged()
     } catch (failure) {
       if (posting.current !== active) return
