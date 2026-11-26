@@ -2492,9 +2492,9 @@ class BoardQueries:
                 {local}
             )
             SELECT prefix FROM projects JOIN related ON related.project = projects.prefix
-            WHERE {visibility} AND (? IS NULL OR projects.prefix = ?)
+            WHERE {visibility}
             ORDER BY projects.title, projects.prefix
-            """, (owner, owner, owner, owner, *local_args, *bindings, self.local_project, self.local_project),
+            """, (owner, owner, owner, owner, *local_args, *bindings),
         )]
 
     def assignee_goals(self, owner, project):
