@@ -653,6 +653,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
                 ownsTicket={ownsTicket} onChanged={onChanged} />
               <TaskOwnership key={task.event_id} task={task} actions={record.ownership_actions} project={taskProject}
                 revision={revision} canAssignOnReopen={record.can_assign_on_reopen} onChanged={onChanged} />
+              {signedIn && record.ownership_block_reason && <p className="section-message">{record.ownership_block_reason}</p>}
               {signedIn && record.move_destinations?.length > 0 &&
                 <TaskProjectMove key={task.key} task={task} destinations={record.move_destinations} onMoved={onMoved} />}
               {signedIn && record.move_block_reason && <p className="section-message">{record.move_block_reason}</p>}
