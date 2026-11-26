@@ -52,6 +52,13 @@ test('the reviewer report shows the queued ask and the ask already in progress',
   }
 })
 
+test('the compact development report includes the blocker shown in the tour', () => {
+  const reports = get('/reports?project=FLOW&view=active&summary=true').items
+  const owner = reports.find(report => report.profile.name === 'Avery')
+  assert.deepEqual(owner.tasks.map(task => task.key), ['FLOW-6', 'FLOW-1', 'FLOW-4'])
+  assert.ok(owner.task_count > owner.tasks.length)
+})
+
 test('the demo reader has no watches in any report scope', () => {
   for (const scope of ['project=T', 'project=FLOW', 'scope=all']) {
     assert.deepEqual(get('/reports?view=watching&' + scope).items, [])
