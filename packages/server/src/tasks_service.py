@@ -2847,7 +2847,7 @@ def create_app(
         actor = current_actor(write=True, required=True)
         data = json_body({
             "transition", "note", "on", "blocked_by", "automation", "attention_request_id", "details",
-            "steps", "started", "checked", "eta", "clear_eta", "review_after", "defer_until",
+            "steps", "started", "checked", "eta", "clear_eta", "review_after", "defer_until", "standing_pass",
             "review_on", "review_criteria", "feature_deferred", "label", "url", *TRANSITION_OVERRIDE_FIELDS,
         }, writing=True)
         if text(data, "transition", maximum=30) not in ledger.PROJECT_WRITER_TRANSITIONS:
@@ -3458,10 +3458,11 @@ def create_app(
         with tasks_storage.read(db()) as connection:
             items = list(query().actionable_work(owner, today=pacific_day(ledger.timestamp()), project=project))
             goal_context = goals.queue_context(connection, owner, project, principal=actor_key())
+            standing = goal_context["standing_goals"]
             return {
                 "items": items, **goal_context,
-                **({"standing_goal_guidance": agent_guidance["standing-exploration"]}
-                   if not items and goal_context["standing_goals"] else {}),
+                **({"standing_goal_guidance": goals.KEEP_EXPLORING if standing[0].get("keep_exploring")
+                   else agent_guidance["standing-exploration"]} if not items and standing else {}),
             }
 
     @app.get("/api/v1/notifications/needs-you")
@@ -3816,17 +3817,29 @@ def create_app(
             raise RequestError(str(error)) from error
         return saved
 
-    def save_standing_goal(project, owner, value):
+    def save_standing_goal(project, owner, value, fields):
         summary = None if value is None else text({"summary": value}, "summary", maximum=goals.STANDING_LIMIT)
         if summary is not None and not summary.isprintable():
             raise RequestError("Provide a one-line goal summary.")
+        mode = fields.get("keep_exploring")
+        if "keep_exploring" in fields and type(mode) is not bool:
+            raise RequestError("Send keep_exploring as true or false.")
+        if mode is True and summary is None:
+            raise RequestError("Enable Keep exploring on an active standing goal.")
+        if "stopping_criterion" in fields and (mode is not True or summary is None):
+            raise RequestError("Enable Keep exploring on an active standing goal to save its criterion.")
+        criterion = fields.get("stopping_criterion", "")
+        if not isinstance(criterion, str) or len(criterion) > goals.CRITERION_LIMIT or (criterion and not criterion.isprintable()):
+            raise RequestError("Provide a one-line stopping criterion of up to 500 characters.")
+        criterion = criterion.strip()
         with tasks_storage.write(db()) as connection:
             require_visible_project(connection, project)
             previous = next(iter(goals.standing(connection, owner, project)), None)
-            if (previous["summary"] if previous else None) == summary:
+            if ((previous["summary"] if previous else None) == summary and
+                    (mode is None or (previous or {}).get("stopping_criterion") == (criterion if mode else None))):
                 return previous
             try:
-                saved = goals.save_standing(connection, project, owner, summary)
+                saved = goals.save_standing(connection, project, owner, summary, keep_exploring=mode, criterion=criterion)
             except ValueError as error:
                 raise RequestError(str(error)) from error
             ledger.bump_revision(connection, project)
@@ -3836,10 +3849,10 @@ def create_app(
     def edit_standing_goal():
         actor = current_actor(write=True)
         project = project_filter(request.args, use_default=True)
-        data = json_body({"summary"})
+        data = json_body({"summary", "keep_exploring", "stopping_criterion"})
         if "summary" not in data:
             raise RequestError("Provide a goal summary or null to clear it.")
-        return {"standing_goal": save_standing_goal(project, actor["ledger_key"], data["summary"])}
+        return {"standing_goal": save_standing_goal(project, actor["ledger_key"], data["summary"], data)}
 
     @app.post("/api/v1/profile/avatar")
     def edit_avatar():
@@ -4079,7 +4092,7 @@ def create_app(
             blocked_by=blocked_by, peer_recipient=peer, human_wait=human_wait,
             reason=reason, automation=automation == "true", **parking,
             checklist_step=steps, start_check=started, check=checked, attention_request_id=attention_request,
-            eta=eta, clear_eta=clear_eta == "true",
+            eta=eta, clear_eta=clear_eta == "true", standing_pass=text(data, "standing_pass", optional=True, maximum=14),
             **activity_text(data, command),
         )
 
@@ -4179,8 +4192,10 @@ def create_app(
             now = ledger.timestamp()
             if next(query().actionable_work(owner, today=pacific_day(now), project=None), None):
                 return {"offer": None, "receipt": "Actionable work is available."}
+            pacific = datetime.fromisoformat(now).astimezone(PACIFIC)
             goal = next((row for row in goals.goal_rows(connection, [owner], project, kind="standing")
-                         if row["state"] == "parked" and ring1.visible(connection, row["project_prefix"], actor_key())), None)
+                         if row["state"] == "parked" and ring1.visible(connection, row["project_prefix"], actor_key())
+                         and goals.exploration_available(connection, row, pacific)), None)
             if goal is None:
                 return {"offer": None, "receipt": "No standing goal is available."}
             goal_offers.record(connection, owner, handoff_id, goal["id"], now)
@@ -4189,17 +4204,20 @@ def create_app(
             return {"offer": offer, "receipt": "Idle goal offer recorded."}
 
     def first_actionable_work(owner, project):
-        return next(query().actionable_work(owner, today=pacific_day(ledger.timestamp()), project=project), None)
+        board = query()
+        args = {"today": pacific_day(ledger.timestamp()), "project": project}
+        return next(board.actionable_work(owner, **args), None)
 
     def next_action_after_write(owner, project):
         try:
             with tasks_storage.read(db()) as connection:
                 if work := first_actionable_work(owner, project):
                     return {"project": project, "kind": "work", "work": work}
-                if standing := goals.standing(connection, owner, project, include_ticket=True):
+                if standing := goals.queue_context(connection, owner, project, principal=actor_key())["standing_goals"]:
                     return {
                         "project": project, "kind": "standing_goal", "goal": standing[0],
-                        "instruction": agent_guidance["standing-exploration"],
+                        "instruction": (goals.KEEP_EXPLORING if standing[0].get("keep_exploring")
+                                        else agent_guidance["standing-exploration"]),
                     }
         except Exception:
             # This advisory read runs after the write commits and must preserve its receipt.
@@ -4315,12 +4333,14 @@ def create_app(
             if kind != "dated" and previous is not None:
                 raise RequestError("A milestone name applies only to a dated goal.")
             if kind == "standing" and ("deadline" in data or "tickets" in data):
-                raise RequestError("A standing goal takes only a summary.")
+                raise RequestError("A standing goal does not take a deadline or linked tickets.")
+            if kind != "standing" and ("keep_exploring" in data or "stopping_criterion" in data):
+                raise RequestError("Keep exploring applies to a standing goal.")
             summary = data.get("summary")
             if summary == "" and ("deadline" in data or "tickets" in data):
                 raise RequestError("Clear a goal without sending deadline or ticket fields.")
             if kind == "standing":
-                saved = save_standing_goal(project, key, None if summary == "" else summary)
+                saved = save_standing_goal(project, key, None if summary == "" else summary, data)
             else:
                 value = None
                 if summary != "":

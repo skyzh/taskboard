@@ -663,6 +663,23 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         action("set-goal-review-time", {"id": standing, "time": "09:15"})
         goals = await compare("taskboard_goals", "my-goals", project, **project)
         self.assertEqual(goals["review_times"], {standing: "09:15"})
+        opted = await owner.call_tool("taskboard_save_standing_goal", {
+            **project, "summary": "Improve fixture readback", "keep_exploring": True,
+            "stopping_criterion": "Two fictional receipts checked",
+        })
+        self.assertFalse(opted.is_error, opted.content)
+        saved = await compare("taskboard_goals", "my-goals", project, **project)
+        self.assertEqual(saved["standing_goal"]["stopping_criterion"], "Two fictional receipts checked")
+        action("advance-task", {"id": standing, "transition": "start", "note": "Review the first fixture receipt."})
+        continued = await owner.call_tool("taskboard_standing_pass", {
+            "ticket": standing, "note": "One receipt matched.",
+        })
+        self.assertFalse(continued.is_error, continued.content)
+        parked = await owner.call_tool("taskboard_standing_pass", {
+            "ticket": standing, "note": "Both fictional receipts matched.", "criterion_met": True,
+        })
+        self.assertFalse(parked.is_error, parked.content)
+        self.assertEqual(action("task", id=standing)["task"]["state"], "parked")
 
         action("set-wake-subscription", {**project, "event_type": "owned-ready", "enabled": "true"})
         subs = await compare("taskboard_wake_subscriptions", "my-wake-subscriptions", project, **project)
@@ -694,6 +711,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_knowledge_areas", "taskboard_knowledge_sweep", "taskboard_worker_checkpoint",
             "taskboard_project_access", "taskboard_set_project_access", "taskboard_agent_usage",
             "taskboard_delegate", "taskboard_manual_review",
+            "taskboard_save_standing_goal", "taskboard_standing_pass",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_queue"].annotations.read_only_hint)

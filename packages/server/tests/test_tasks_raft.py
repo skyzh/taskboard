@@ -67,7 +67,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "set-goal-review-time": ("POST", "id time", ""),
             "my-wake-subscriptions": ("GET", "", "project"),
             "set-wake-subscription": ("POST", "event_type enabled", "project"),
-            "save-goal": ("POST", "kind summary", "deadline milestone tickets project"),
+            "save-goal": ("POST", "kind summary", "deadline milestone tickets project keep_exploring stopping_criterion"),
             "my-queue": ("GET", "", "state order project scope before limit"),
             "unassigned-tasks": ("GET", "", "state order project scope before limit"),
             "my-reviews": ("GET", "", "project before limit"),
@@ -101,7 +101,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "advance-task": (
                 "POST", "id transition note",
                 "on on_name attention_request_id blocked_by options automation review_after defer_until review_on review_criteria feature_deferred steps started checked eta "
-                "clear_eta reason details url label force force_reason force_text",
+                "clear_eta reason details url label force force_reason force_text standing_pass",
             ),
             "peer-ask": ("POST", "id transition note", "recipient review review_pr review_head review_base label url force_text"),
             "handoff": ("POST", "id note", "owner owner_name url label force_text"),

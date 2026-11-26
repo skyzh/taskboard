@@ -226,6 +226,10 @@ def shared_write(board, args, *, context):
         action = command
         data.update(kind=args.kind, summary=args.summary, deadline=args.deadline, project=args.project, milestone=args.milestone,
                     tickets=json.dumps(args.ticket) if args.ticket else None)
+        if args.keep_exploring or args.one_pass:
+            data["keep_exploring"] = args.keep_exploring
+        if args.criterion is not None:
+            data["stopping_criterion"] = args.criterion
     elif command == "goal-review-time":
         action = "set-goal-review-time"
         data.update(id=task_ref(args.id), time="" if args.clear else args.at)
@@ -351,6 +355,10 @@ def shared_write(board, args, *, context):
         else:
             action = "advance-task"
             data["transition"] = command
+            if getattr(args, "standing_pass", False):
+                data["standing_pass"] = "complete"
+            if getattr(args, "criterion_met", False):
+                data["standing_pass"] = "criterion-met"
             if command in ("assign-human", "redirect-decision"):
                 if context["actor"].get("dri_kind") == "local":
                     if (context.get("human_questions") != "taskboard"
@@ -464,6 +472,9 @@ def queue_goal_lines(result, url):
             if deadline := goal.get("deadline"):
                 heading += f" · {deadline}"
             lines.extend((heading, f"  {goal['summary']}"))
+            if goal.get("keep_exploring"):
+                criterion = goal["stopping_criterion"]
+                lines.append(f"  Keep exploring · Stop when {criterion}" if criterion else "  Keep exploring")
             if ticket:
                 _, number = projects.identifier(ticket)
                 lines.append(f"  {task_url(url, {'id': number, 'key': ticket})}")
@@ -707,6 +718,10 @@ def shared_command(args):
         lines = []
         if standing:
             lines.append(f"Standing goal · {standing['summary']}")
+            if standing.get("keep_exploring"):
+                lines.append("Keep exploring")
+                if standing["stopping_criterion"]:
+                    lines.append(f"  Stop when {standing['stopping_criterion']}")
         if dated:
             lines.append(f"Original dated goal · {dated['deadline']} · {dated['summary']}")
             links = ", ".join(ticket["key"] for ticket in dated["tickets"])

@@ -618,7 +618,9 @@ class BoardQueries:
         if tasks_storage.table_columns(self.db, "task_goals"):
             goal_rows = {row["task_id"]: row for row in self.db.execute(
                 f"""
-                SELECT task_id, kind, deadline, ticket_ids FROM task_goals
+                SELECT task_id, kind, deadline, ticket_ids, exploration.value AS stopping_criterion FROM task_goals
+                LEFT JOIN board_settings AS exploration
+                  ON exploration.key = '{goals.EXPLORATION_SETTING}' || CAST(task_goals.task_id AS TEXT)
                 WHERE retired = 0 AND task_id IN ({placeholders})
                 """, ids,
             )}
@@ -721,7 +723,8 @@ class BoardQueries:
     def tasks(self, *, state=None, dri=None, waiting_on=None, before=None, limit=20, now=False,
               decided_by=None, search=None, priority_order=False, review_due=None, project=None, tag=None,
               managed_by=None, hide_requests=False, exclude_goals=False, github_url=None, include_knowledge=False,
-              current_work=False, unfinished=False, summary_personal_owner=None, watching_viewer=None):
+              current_work=False, unfinished=False, summary_personal_owner=None, watching_viewer=None,
+              exclude_exploration=False):
         scope, bindings = self.project_visibility()
         terms, args = [scope], list(bindings)
         filter_search = None
@@ -754,6 +757,9 @@ class BoardQueries:
                 args.append(projects.DEFAULT)
         if exclude_goals:
             terms.append("NOT EXISTS (SELECT 1 FROM task_goals WHERE task_goals.task_id = tasks.id AND retired = 0)")
+        if exclude_exploration:
+            terms.append("NOT EXISTS (SELECT 1 FROM board_settings WHERE key = ? || CAST(tasks.id AS TEXT))")
+            args.append(goals.EXPLORATION_SETTING)
         if managed_by is not None:
             terms.append(f"tasks.project_prefix IN ({projects.MANAGED_BY})")
             args.extend((managed_by, managed_by))
@@ -2726,16 +2732,25 @@ class BoardQueries:
             ("in_progress", self.tasks, {"dri": owner, "state": "in_progress"}),
             ("shared_ready", self.tasks, {"dri": "", "state": "ready", "priority_order": True, "managed_by": owner}),
         )
+        exploration = None
         for kind, query, filters in queues:
             if ordinary_only and kind in ("reminder", "in_progress"):
                 filters["exclude_goals"] = True
             for item in query(**scope, **filters)["items"]:
-                yield {
+                work = {
                     "kind": kind,
                     "id": item.get("task_id", item.get("id")),
                     "key": item.get("task_key") or item["key"],
                     "title": item.get("task_title") or item["title"],
                 }
+                if kind == "in_progress" and not ordinary_only and goals.exploration_criterion(self.db, work["id"]) is not None:
+                    exploration = work
+                    for current in self.tasks(**scope, **filters, exclude_exploration=True)["items"]:
+                        yield {"kind": kind, "id": current["id"], "key": current["key"], "title": current["title"]}
+                else:
+                    yield work
+        if exploration:
+            yield exploration
 
     def needs_you(self, actor, *, today, project, before, limit, reviews_only=False):
         owner = actor["ledger_key"]

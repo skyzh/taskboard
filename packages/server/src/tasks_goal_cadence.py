@@ -128,6 +128,8 @@ def candidates(db, owner, project, now, *, busy, ordinary_busy):
         summary = {"ticket": ticket, "summary": row["summary"], "completed_checks": counts[number]}
         standing = row["kind"] == "standing"
         if standing:
+            if not goals.exploration_available(db, row, now):
+                continue
             result["standing"] = summary
         review_time = times.get(ticket)
         deadline = row["deadline"]

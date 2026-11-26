@@ -162,6 +162,10 @@ def arguments(argv=None):
             add_transition_override(command)
         if action in STRUCTURED_ACTIVITY:
             add_details_flag(command)
+        if action == "update":
+            command.add_argument("--standing-pass", action="store_true", help="Record a completed Keep exploring pass.")
+        if action == "park":
+            command.add_argument("--criterion-met", action="store_true", help="Park a Keep exploring goal until its next daily review.")
         if action == "close":
             command.add_argument("--related", type=task_id, help="Related ticket, such as the duplicate or successor.")
         if action in ("assign-human", "redirect-decision"):
@@ -425,6 +429,10 @@ def arguments(argv=None):
     goal_save.add_argument("--deadline", help="YYYY-MM-DD deadline for a dated goal.")
     goal_save.add_argument("--ticket", type=nonblank, action="append", help="Link an owned project ticket. Repeat to add more.")
     goal_save.add_argument("--milestone", type=nonblank, help="Existing dated milestone name when editing or clearing it.")
+    exploration = goal_save.add_mutually_exclusive_group()
+    exploration.add_argument("--keep-exploring", action="store_true", help="Allow distinct passes while the Inbox is clear.")
+    exploration.add_argument("--one-pass", action="store_true", help="Restore the default of one pass this turn.")
+    goal_save.add_argument("--criterion", help="One-line stopping criterion for --keep-exploring. Omit to continue while free.")
     goal_review = commands.add_parser("goal-review-time", help="Set or clear an owned goal’s daily review in shared mode.")
     goal_review.add_argument("id", type=task_id, metavar="GOAL")
     review_time = goal_review.add_mutually_exclusive_group(required=True)
@@ -660,6 +668,13 @@ def arguments(argv=None):
         parser.error("Use --shared worker-start --subagent to verify the launcher.")
     if args.command == "capabilities" and args.mode != "shared":
         parser.error("Use --shared capabilities for shared agent commands.")
+    if (getattr(args, "standing_pass", False) or getattr(args, "criterion_met", False)) and args.mode != "shared":
+        parser.error("Record a standing-goal pass with --shared.")
+    if args.command == "save-goal":
+        if args.criterion is not None and not args.keep_exploring:
+            parser.error("--criterion requires --keep-exploring.")
+        if (args.keep_exploring or args.one_pass) and (args.kind != "standing" or not args.summary.strip()):
+            parser.error("Exploration settings require an active standing goal summary.")
     if args.command in {
         "raft-channel-show", "raft-channel-set", "wake-subscriptions", "wake-subscribe", "wake-unsubscribe",
         "knowledge-add", "knowledge-areas", "knowledge-assign", "knowledge-sweep", "knowledge-place",

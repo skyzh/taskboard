@@ -22,6 +22,7 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_knowledge_areas", "taskboard_knowledge_sweep", "taskboard_worker_checkpoint",
             "taskboard_project_access", "taskboard_set_project_access", "taskboard_agent_usage",
             "taskboard_delegate", "taskboard_manual_review",
+            "taskboard_save_standing_goal", "taskboard_standing_pass",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_context"].annotations.read_only_hint)
