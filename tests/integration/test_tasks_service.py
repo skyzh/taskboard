@@ -1568,7 +1568,7 @@ class TasksServiceTest(unittest.TestCase):
 
     def shared_cli(
         self, client, *arguments, lose_receipt=False, entrypoint=tasks_main, actions=None,
-        unavailable=(), carrier_errors=None, carrier_results=None,
+        unavailable=(), carrier_errors=None, carrier_results=None, untyped_rejections=False,
     ):
         def invoke(command, *, input, capture_output, text, timeout):
             self.assertEqual(command[:3], ["raft", "integration", "invoke"])
@@ -1594,6 +1594,13 @@ class TasksServiceTest(unittest.TestCase):
                 data = (carrier_results or {}).get(name, result.get_json())
                 envelope = {"ok": True, "data": {"result": data}}
                 return subprocess.CompletedProcess(command, 0, json.dumps(envelope), "")
+            if untyped_rejections:
+                envelope = {"ok": False, "error": {
+                    "message": f"service action failed (HTTP {result.status_code}); response body: "
+                               f"{json.dumps(result.get_json())}",
+                    "correlation_id": None, "effect": None, "fault_domain": None, "layer": None, "retryable": None,
+                }}
+                return subprocess.CompletedProcess(command, 1, "", json.dumps(envelope))
             envelope = {"ok": False, "error": {
                 "code": "INTEGRATION_INVOKE_FAILED",
                 "message": f"service action failed (HTTP {result.status_code})",
@@ -5131,6 +5138,51 @@ class TasksServiceTest(unittest.TestCase):
             "Local file links are available offline.",
             self.shared_cli(avery, "log", "T-1", "Offline path", "--link", "Note", "/tmp/local-note")[2],
         )
+
+    def test_shared_cli_reports_definite_rejection_from_current_raft_carrier(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        self.action(owner, "create-task", {"title": "Review samples", "step": "Read the results."})
+        self.call(
+            owner, "/api/v1/tasks/T-1/parking", method="POST", headers={"Origin": ORIGIN},
+            json={"note": "Inspect tomorrow's samples.", "at": "2030-04-01T12:30", "time_zone": "America/Los_Angeles"},
+        )
+
+        def history():
+            return self.action(owner, "task-activity", query_string={"id": "T-1"})["items"]
+
+        before = history()
+        actions = []
+        status, output, errors = self.shared_cli(
+            owner, "start", "T-1", "Read the results.", actions=actions, untyped_rejections=True,
+        )
+        self.assertEqual((status, output), (1, ""))
+        self.assertIn("Shared write rejected.", errors)
+        self.assertIn("Parked", errors)
+        self.assertIn("HTTP 409", errors)
+        self.assertNotIn("outcome unknown", errors)
+        self.assertEqual(actions.count("advance-task"), 1)
+        self.assertEqual(history(), before)
+
+    def test_shared_cli_surfaces_the_signed_validation_hint(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        response = self.action(owner, "create-task", {"title": "Missing next step"}, status=400)
+        self.assertEqual(response["error"], "MISSING_PARAMETER")
+        rejected = json.dumps({"ok": False, "error": {
+            "message": f"service action failed (HTTP 400); response body: {json.dumps(response)}",
+        }})
+
+        actions = []
+        status, output, errors = self.shared_cli(
+            owner, "add", "Missing next step", "--step", "Check the sample.",
+            actions=actions, carrier_errors={"create-task": rejected},
+        )
+        self.assertEqual((status, output), (1, ""))
+        self.assertIn("Supply the required parameters step. (HTTP 400)", errors)
+        self.assertNotIn("outcome unknown", errors)
+        self.assertEqual(actions.count("create-task"), 1)
+        self.assertEqual(self.action(owner, "my-queue")["items"], [])
 
     def test_shared_action_guidance_preserves_receipts_and_the_project_queue(self):
         from taskboard_cli.shared import READS, WRITES

@@ -533,8 +533,9 @@ JSON output include a `next_step` field. Completing a ticket points to the next
 Inbox check in that project. An empty owned queue on the older board points to
 `./tasks --shared list --status ready --unassigned`, with the project flag
 carried over when supplied. Successful Agent Login actions include
-`next_step` alongside their normal result. If a write outcome is unknown, read
-the ticket or queue before retrying. Each cue leaves the next action to the caller.
+`next_step` alongside their normal result. If the board rejects a write, the
+CLI shows the board's reason and HTTP status. If a write outcome is unknown,
+read the ticket or queue before retrying. Each cue leaves the next action to the caller.
 
 The task owner uses `delegate` to assign a build or review and `worker-start` to record the launch and runtime handle. The named reviewer may also use `worker-start` for their assigned review. Only the named worker uses `worker-report` to submit the result, then the owner uses `worker-collect` to record the disposition. A launched run with no report stays Running until the worker reports or the owner uses `worker-stop`. Reports and task detail show the run's state and transition times alongside the task's status.
 
