@@ -327,6 +327,7 @@ LONG_FOLLOW_UP_IDLE_SECONDS = 30 * 60
 FOLLOW_UP_POLL_SECONDS = 30
 STALLED_READ = "stalled work"
 GOAL_READ = "goal cues"
+ASK_RECHECK_READ = "ask recheck"
 MANAGED_RESTART = 75
 
 
@@ -347,7 +348,8 @@ class ReadyReadStopped(RuntimeError):
 
 
 def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_delay=10, *, observe_status=None,
-                      notify_stalled=None, goal_state=None, notify_goal=None, report_health=None, measure_status=True):
+                      notify_stalled=None, goal_state=None, notify_goal=None, notify_ask=None,
+                      report_health=None, measure_status=True):
     """Wake for new Ready work, then check recovery paths during Idle."""
     try:
         context = agent_context(board, owner)
@@ -370,6 +372,26 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     next_planned_check = next_stalled_check = 0
     long_idle = False
     stage = "eligible queue"
+    ask_wakes = notify_ask is not None and goal_wake is not None and context.get("ask_recheck_cues") is True
+
+    def ask_offer():
+        nonlocal stage
+        stage = ASK_RECHECK_READ
+        try:
+            ask = board.invoke("my-next", {"scope": "all"}).get("ask_recheck")
+        except SharedActionUnavailable as error:
+            raise SharedReadError(str(error), reason="action-unavailable") from error
+        if ask is None:
+            return None
+        if not isinstance(ask, dict) or not (
+            isinstance(ask.get("ticket"), str) and re.fullmatch(r"[A-Z][A-Z0-9]*-[1-9][0-9]*", ask["ticket"])
+            and ask.get("kind") in ("decision", "attention")
+            and type(ask.get("request_id")) is int and ask["request_id"] > 0
+            and isinstance(ask.get("remind_on"), str) and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", ask["remind_on"])
+            and ask.get("cue_key") == f"{ask['kind']}:{ask['request_id']}:{ask['remind_on']}"
+        ):
+            raise SharedReadError("The board returned an invalid ask recheck cue.", reason="queue-scope")
+        return {field: ask[field] for field in ("ticket", "kind", "request_id", "remind_on", "cue_key")}
 
     def ready_events(read_stage):
         nonlocal stage
@@ -462,6 +484,10 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
             long_idle = idle_seconds >= LONG_FOLLOW_UP_IDLE_SECONDS
             if offer := stalled_offer():
                 return offer
+        if ask_wakes and not current and (offer := ask_offer()):
+            if goal_wake.state.ask_available(offer["cue_key"]):
+                return offer
+            return None
         if goal_wake is not None and not current:
             stage = GOAL_READ
             return goal_wake.lookup()
@@ -470,6 +496,22 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     def notify_current(notice, can_wake):
         if "ready_count" in notice:
             return notify_count(notice, can_wake)
+        if "cue_key" in notice:
+            candidate = {key: value for key, value in notice.items() if key != "board"}
+
+            def reserve_current_ask():
+                return (can_wake() and ask_offer() == candidate and can_wake()
+                        and goal_wake.state.reserve_ask(candidate))
+
+            def record_ask(reference):
+                goal_wake.state.record_ask_wake(candidate["cue_key"], reference)
+                emit({"kind": "ask-recheck-wake-requested", "owner": actor, "at": observation_time(),
+                      "ticket": candidate["ticket"], "cue_key": candidate["cue_key"], "reminder": reference})
+
+            outcome = notify_ask(notice, reserve_current_ask, record_ask)
+            if outcome == "already-queued":
+                reserve_current_ask()
+            return outcome
         if "goal_key" in notice:
             return goal_wake.notify(notice, can_wake, notify_goal)
 
@@ -528,6 +570,8 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
                     goal_wake = None
                 else:
                     recover_ready_read(goal_wake.lookup, stage, error, emit, interval)
+            elif stage == ASK_RECHECK_READ:
+                recover_ready_read(ask_offer, stage, error, emit, interval)
             elif stage == STALLED_READ:
                 recover_ready_read(stalled_offer, stage, error, emit, interval)
             else:
@@ -541,7 +585,7 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
             noticed_workers.add((result["worker_status"], result["worker_run"], result["check_event"]))
         elif "goal_key" in result:
             result.update(at=observation_time(), owner=actor, reminder=goal_wake.state.reminder(result))
-        elif not result.get("requires_disposition"):
+        elif "cue_key" not in result and not result.get("requires_disposition"):
             noticed_stalled.add(result["event_id"])
         emit(result)
 
@@ -851,6 +895,12 @@ def main(*, managed_child=False):
                     return wake_with_title(reminder_title(offer), args.channel, args.message_id, can_wake,
                                            record_wake=record_wake, previous_title=reminder_title(offer, legacy=True))
 
+                def notify_ask(offer, can_wake, record_wake):
+                    title = (f"Finish the due Taskboard ask recheck for {offer['ticket']}. "
+                             "Read signed Inbox, record the outcome or real blocker, then recheck Inbox. "
+                             f"[Taskboard ask {offer['cue_key']}]")
+                    return wake_with_title(title, args.channel, args.message_id, can_wake, record_wake=record_wake)
+
                 health = watcher_reporter(board, args.report_status, stalled=True, goals=True,
                                           emit=emit) if args.report_status else None
                 observe = raft_status
@@ -863,7 +913,8 @@ def main(*, managed_child=False):
                         idle_delay=10 if args.idle_delay_seconds is None else args.idle_delay_seconds,
                         observe_status=observe, measure_status=args.measure,
                         notify_stalled=notify_stalled,
-                        goal_state=args.goal_state, notify_goal=notify_goal, report_health=health,
+                        goal_state=args.goal_state, notify_goal=notify_goal, notify_ask=notify_ask,
+                        report_health=health,
                     )
                 except (KeyError, RuntimeError, ValueError) as error:
                     if health and not (isinstance(error, ReadyReadStopped) and error.reason == "interrupted"):

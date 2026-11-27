@@ -5,7 +5,7 @@ from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from taskboard_cli.goal_wake import GoalWake, GoalWakeState, reminder_title
 from taskboard_cli.ready_checkpoint import offer_stalled_work, watch_ready_count
@@ -269,6 +269,46 @@ class GoalWakeTest(unittest.TestCase):
             GoalWakeState(ledger, BOARD, OWNER)
         with closing(sqlite3.connect(ledger)) as db:
             self.assertEqual(db.execute("SELECT name FROM sqlite_master").fetchall(), [("tasks",)])
+
+    def test_due_ask_wake_precedes_goal_and_survives_watcher_restart(self):
+        class AskFixture(SignedFixture):
+            def invoke(self, action, data=None, *, write=False):
+                if action == "context":
+                    return {**super().invoke(action, data, write=write), "ask_recheck_cues": True}
+                if action == "my-next" and data == {"scope": "all"} and not write:
+                    return {"ask_recheck": {"kind": "decision", "request_id": 44, "ticket": "T-12",
+                                            "remind_on": DAY, "cue_key": f"decision:44:{DAY}",
+                                            "question": "Private question stays out of the wake."}}
+                return super().invoke(action, data, write=write)
+
+        board = AskFixture()
+        ready = Mock(side_effect=AssertionError("No Ready work"))
+        goal = Mock(side_effect=AssertionError("The ask takes priority over exploration"))
+
+        def notify(offer, eligible, record_wake):
+            self.assertTrue(eligible())
+            self.assertNotIn("question", offer)
+            record_wake("#00110022")
+            return "wake-requested"
+
+        sent = Mock(side_effect=notify)
+        seen = []
+
+        def observe(event):
+            seen.append(event)
+            if event.get("outcome") == "wake-requested":
+                raise KeyboardInterrupt
+
+        with self.assertRaises(KeyboardInterrupt):
+            watch_ready_count(board, OWNER, lambda _: True, ready, observe,
+                              interval=0, idle_delay=0, goal_state=self.path, notify_goal=goal, notify_ask=sent)
+        with patch("taskboard_cli.ready_checkpoint.sleep", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                watch_ready_count(board, OWNER, lambda _: True, ready, Mock(),
+                                  interval=0, idle_delay=0, goal_state=self.path, notify_goal=goal, notify_ask=sent)
+        sent.assert_called_once()
+        goal.assert_not_called()
+        self.assertEqual(seen[0]["reminder"], "#00110022")
 
 
 if __name__ == "__main__":
