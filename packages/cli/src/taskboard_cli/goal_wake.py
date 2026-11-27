@@ -61,6 +61,7 @@ class GoalWakeState:
         self.path = Path(path).expanduser().absolute()
         self.project = project
         self.scope = f"{board_url}\n{owner}\n{project}"
+        self.working_seen = False
         try:
             fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
         except FileExistsError:
@@ -110,37 +111,48 @@ class GoalWakeState:
         with self.transaction() as db:
             db.execute("UPDATE handoff SET busy = 1 WHERE id = 1 AND busy = 0")
 
+    def observe_working(self):
+        self.working_seen = True
+
     def select(self, snapshot):
         if snapshot["ordinary_busy"]:
             self.observe_busy()
-        if snapshot["busy"]:
             return None
+        standing = snapshot["standing"]
+        continuation = standing.get("continuation_event") if standing else None
+        exploring_turn = self.working_seen and standing and standing.get("keep_exploring")
         day = snapshot["day"]
         drain_event = snapshot["drain_event"]
         with self.transaction() as db:
             busy, episode, previous = db.execute(
                 "SELECT busy, episode, drain_event FROM handoff WHERE id = 1"
             ).fetchone()
-            if not episode or busy or drain_event > previous:
+            if not episode or busy or exploring_turn or drain_event > previous:
                 episode += 1
                 db.execute("UPDATE handoff SET busy = 0, episode = ?, drain_event = ? WHERE id = 1",
                            (episode, max(drain_event, previous)))
+            if exploring_turn:
+                self.working_seen = False
             for row in snapshot["cues"]:
                 offer = _candidate(row, day, episode)
                 if self.available(db, offer):
                     return offer
-            if not snapshot["standing"]:
+            if not standing or (snapshot["busy"] and continuation is None):
                 return None
-            standing = snapshot["standing"]
-            offer = _candidate({
-                **standing, "kind": "standing-drain", "key": f"drain:{standing['ticket']}:{episode}",
-            }, day, episode)
+            ticket = standing["ticket"]
+            kind, key = ("standing-drain", f"drain:{ticket}:{episode}")
+            if continuation is not None:
+                kind, key = ("standing-continuation", f"continue:{ticket}:{continuation}")
+            offer = _candidate({**standing, "kind": kind, "key": key}, day, episode)
             return offer if self.available(db, offer) else None
 
     @staticmethod
     def available(db, offer):
         if db.execute("SELECT 1 FROM cue WHERE key = ?", (offer["goal_key"],)).fetchone():
             return False
+        if offer["goal_kind"] == "standing-continuation":
+            episode_key = f"drain:{offer['task']}:{offer['goal_episode']}"
+            return db.execute("SELECT 1 FROM cue WHERE key = ?", (episode_key,)).fetchone() is None
         if offer["goal_kind"] == "timed":
             return True
         previous = db.execute(
@@ -159,7 +171,7 @@ class GoalWakeState:
             db.execute("INSERT INTO cue VALUES (?, ?, ?, ?, 'unknown', NULL)", (
                 offer["goal_key"], offer["task"], offer["goal_day"], offer["completed_checks"],
             ))
-            if offer["goal_kind"] == "standing-daily":
+            if offer["goal_kind"] in ("standing-daily", "standing-continuation"):
                 drain = f"drain:{offer['task']}:{offer['goal_episode']}"
                 db.execute("INSERT OR IGNORE INTO cue VALUES (?, ?, ?, ?, 'coalesced', NULL)", (
                     drain, offer["task"], offer["goal_day"], offer["completed_checks"],
@@ -201,6 +213,14 @@ class GoalWake:
         standing = result.get("standing")
         if standing is not None and (not isinstance(standing, dict) or not _ticket(standing.get("ticket"), project)
                                      or not _checks(standing.get("completed_checks"))):
+            return False
+        if standing is not None and (
+            ("keep_exploring" in standing and type(standing["keep_exploring"]) is not bool)
+            or ("continuation_event" in standing and (
+                standing.get("keep_exploring") is not True
+                or not _checks(standing["continuation_event"]) or not standing["continuation_event"]
+            ))
+        ):
             return False
         for cue in result["cues"]:
             if (not isinstance(cue, dict) or not _ticket(cue.get("ticket"), project) or cue.get("kind") not in _DUE_KINDS
@@ -281,5 +301,6 @@ def reminder_title(offer):
         "standing-daily": "Daily standing-goal review",
         "timed": "Scheduled goal review",
         "standing-drain": "Standing goal after the Inbox cleared",
+        "standing-continuation": "Resume the interrupted standing goal",
     }[offer["goal_kind"]]
     return f"{reason} for {ref}. Check Inbox first, then open {url} and record one concrete outcome. [goal {marker}]"

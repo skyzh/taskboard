@@ -200,12 +200,17 @@ def candidates(db, owner, project, now, *, busy, ordinary_busy, include_timed=Fa
         "busy": busy, "ordinary_busy": ordinary_busy, "day": today,
         "standing": None, "cues": [], "drain_event": drain_event(db, owner),
     }
-    if busy:
+    if ordinary_busy:
         return result
 
-    result["standing"], result["cues"] = due_reviews(db, owner, project, now, principal=owner,
-                                                    include_timed=include_timed)
+    standing, cues = due_reviews(db, owner, project, now, principal=owner, include_timed=include_timed)
+    if not busy or (standing and "continuation_event" in standing):
+        result.update(standing=standing, cues=cues)
     return result
+
+
+def continues_standing(row):
+    return row["kind"] == "standing" and row["state"] == "in_progress" and bool(row["stopping_criterion"])
 
 
 def due_reviews(db, owner, project, now, *, principal, include_timed=True):
@@ -214,7 +219,8 @@ def due_reviews(db, owner, project, now, *, principal, include_timed=True):
     instant = now.astimezone(timezone.utc)
     active = [
         row for row in goals.goal_rows(db, [owner], project)
-        if row["state"] == "parked" and ring1.visible(db, row["project_prefix"], principal)
+        if (row["state"] == "parked" or continues_standing(row))
+        and ring1.visible(db, row["project_prefix"], principal)
     ]
     if not active:
         return None, []
@@ -230,7 +236,12 @@ def due_reviews(db, owner, project, now, *, principal, include_timed=True):
         if standing:
             if not goals.exploration_available(db, row, now):
                 continue
+            if row["stopping_criterion"]:
+                summary["keep_exploring"] = True
             standing_offer = summary
+            if continues_standing(row):
+                summary["continuation_event"] = row["event_id"]
+                continue
         if include_timed and (until := ledger.event_context(row).get("defer_until")):
             due = datetime.fromisoformat(until)
             if instant >= due:

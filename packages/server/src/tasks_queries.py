@@ -2928,8 +2928,6 @@ class BoardQueries:
                         yield {"kind": kind, "id": current["id"], "key": current["key"], "title": current["title"]}
                 else:
                     yield work
-        if exploration:
-            yield exploration
         if include_goal_reviews and not ordinary_only:
             now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
             _, due = goal_cadence.due_reviews(self.db, owner, project, now, principal=self.principal)
@@ -2937,6 +2935,8 @@ class BoardQueries:
                 cue = due[0]
                 number = projects.resolve(self.db, cue["ticket"])
                 yield {"kind": "goal_review", "id": number, "key": cue["ticket"], "title": cue["summary"]}
+        if exploration:
+            yield exploration
 
     def needs_you(self, actor, *, today, project, before, limit, reviews_only=False):
         owner = actor["ledger_key"]

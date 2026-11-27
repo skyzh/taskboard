@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock
 
 from taskboard_cli.goal_wake import GoalWake, GoalWakeState, reminder_title
-from taskboard_cli.ready_checkpoint import watch_ready_count
+from taskboard_cli.ready_checkpoint import offer_stalled_work, watch_ready_count
 
 
 BOARD = "https://tasks.example.test/tasks/"
@@ -104,6 +104,44 @@ class GoalWakeTest(unittest.TestCase):
         daily = cue("T-4", "daily", tomorrow, day=tomorrow)
         later = self.open_state().select(snapshot(standing=None, cues=[deadline, daily], day=tomorrow))
         self.assertEqual(later["goal_key"], "daily:T-4:2026-11-24")
+
+    def test_exploration_resumes_a_new_interrupted_turn_without_repeating_unchanged_work(self):
+        exploring = {**STANDING, "keep_exploring": True}
+        first = self.state.select(snapshot(standing=exploring))
+        self.assertTrue(self.state.reserve(first))
+        interrupted = {**exploring, "continuation_event": 381}
+        current = snapshot(standing=interrupted, busy=True)
+        self.assertIsNone(self.state.select(current))
+        self.state.observe_working()
+        continuation = self.state.select(current)
+        self.assertEqual(continuation["goal_key"], "continue:T-15:381")
+        self.assertTrue(self.state.reserve(continuation))
+        self.assertIsNone(self.state.select(current))
+        restarted = self.open_state()
+        restarted.observe_working()
+        self.assertIsNone(restarted.select(current))
+        reviewed = {**exploring, "completed_checks": 1}
+        restarted.observe_working()
+        next_pass = restarted.select(snapshot(standing=reviewed))
+        self.assertEqual(next_pass["goal_kind"], "standing-drain")
+        self.assertTrue(restarted.reserve(next_pass))
+        self.assertIsNone(restarted.select(snapshot(standing=reviewed)))
+
+    def test_stalled_recovery_leaves_supported_exploration_to_the_goal_watcher(self):
+        standing, ordinary = [
+            {"key": f"T-{number}", "id": number, "dri": OWNER, "state": "in_progress", "event_id": number + 30}
+            for number in (15, 16)
+        ]
+        standing["goal_kind"] = "standing"
+        board = Mock()
+        board.pages.side_effect = lambda *args: iter((standing, ordinary))
+        board.invoke.side_effect = lambda name, data: {
+            "task": standing if data["id"] == "T-15" else ordinary,
+            "goal": {"kind": "standing", "keep_exploring": True} if data["id"] == "T-15" else None,
+            "workers": [],
+        }
+        self.assertEqual(offer_stalled_work(board, OWNER)["task"], "T-15")
+        self.assertEqual(offer_stalled_work(board, OWNER, goal_project="T")["task"], "T-16")
 
     def test_standing_daily_does_not_repeat_that_days_drain(self):
         first = self.state.select(snapshot())

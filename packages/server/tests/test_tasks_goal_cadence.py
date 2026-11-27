@@ -170,6 +170,117 @@ class GoalCadenceTest(unittest.TestCase):
             self.assertEqual(self.board.shared_cli(self.avery, "remind", date_only, "--clear")[0], 0)
             self.assertIsNone(self.action("task", query_string={"id": date_only})["task"]["reminder"])
 
+    def test_due_date_only_goal_reminder_blocks_standing_continuation(self):
+        with patch("tasks_core.timestamp", return_value=PRE_REVIEW):
+            standing = self.standing()
+            self.action("save-goal", {
+                "kind": "standing", "summary": "Review the role.", "keep_exploring": True,
+                "stopping_criterion": "Stop after two reviewed outcomes.",
+            })
+            dated = self.dated("2026-12-20")
+            self.assertEqual(self.board.shared_cli(
+                self.avery, "remind", dated, "--on", "2026-11-25",
+            )[0], 0)
+            self.advance(standing, "start")
+            self.assertEqual(self.action("my-next")["work"]["key"], standing)
+            self.assertEqual(self.action("my-goal-cues")["standing"]["ticket"], standing)
+        with patch("tasks_core.timestamp", return_value=OVERDUE):
+            next_work = self.action("my-next")["work"]
+            self.assertEqual((next_work["kind"], next_work["key"]), ("reminder", dated))
+            result = self.action("my-goal-cues", query_string={"include_timed": "true"})
+            self.assertTrue(result["ordinary_busy"])
+            self.assertIsNone(result["standing"])
+            self.assertEqual(result["cues"], [])
+            offer = self.action("idle-goal-offer", {"handoff_id": str(uuid4()), "project": "T"})
+            self.assertIsNone(offer["offer"])
+
+    def test_default_standing_pass_blocks_timed_cue_until_inbox_offers_it(self):
+        with patch("tasks_core.timestamp", return_value=PRE_REVIEW):
+            standing = self.standing()
+            timed = self.dated("2026-12-20")
+            self.advance(timed, "park", defer_until=DUE)
+            self.advance(standing, "start")
+        with patch("tasks_core.timestamp", return_value=DUE):
+            self.assertEqual(self.action("my-next")["work"]["key"], standing)
+            snapshot = self.action("my-goal-cues", query_string={"include_timed": "true"})
+            self.assertTrue(snapshot["busy"])
+            self.assertFalse(snapshot["ordinary_busy"])
+            self.assertIsNone(snapshot["standing"])
+            self.assertEqual(snapshot["cues"], [])
+            self.advance(standing, "park", "Recorded the default standing-goal pass.")
+            self.assertEqual(self.action("my-next")["work"]["key"], timed)
+            cue = self.action("my-goal-cues", query_string={"include_timed": "true"})["cues"][0]
+            self.assertEqual(cue["key"], f"timed:{timed}:{DUE}")
+
+    def test_interrupted_exploration_and_due_review_follow_signed_inbox_priority(self):
+        test = self
+
+        class SignedBoard:
+            def invoke(self, name, data, *, write=False):
+                return test.action(name, data) if write else test.action(name, query_string=data)
+
+        with patch("tasks_core.timestamp", return_value=PRE_REVIEW):
+            standing = self.standing()
+            self.action("save-goal", {
+                "kind": "standing", "summary": "Review the role.", "keep_exploring": True,
+                "stopping_criterion": "Stop after two reviewed outcomes.",
+            })
+            self.review_time(standing, "09:30")
+            self.assertEqual(self.cue(PRE_REVIEW)["standing"]["ticket"], standing)
+            timed = self.dated("2026-12-20")
+            self.advance(timed, "park", defer_until=DUE)
+            self.advance(standing, "start")
+            self.assertEqual(self.action("my-next")["work"]["key"], standing)
+            interrupted = self.action("my-goal-cues")
+            self.assertTrue(interrupted["busy"])
+            self.assertFalse(interrupted["ordinary_busy"])
+            self.assertTrue(GoalWake.valid_snapshot(interrupted))
+            self.assertGreater(interrupted["standing"]["continuation_event"], 0)
+            with TemporaryDirectory() as folder:
+                state_path = Path(folder) / "goal-watcher.sqlite3"
+                watch = GoalWake(SignedBoard(), GoalWakeState(state_path, fixture.BASE, self.avery_id))
+                offer = {**watch.lookup(), "board": fixture.BASE}
+                deliveries = []
+
+                def carrier(candidate, before_send, record):
+                    if before_send():
+                        deliveries.append(candidate["task"])
+                        record("#00110022")
+                        return "wake-requested"
+                    return None
+
+                self.assertIsNone(watch.notify(offer, lambda: False, carrier))
+                self.assertEqual(watch.notify(offer, lambda: True, carrier), "goal-wake-requested")
+                self.assertEqual(deliveries, [standing])
+                restarted = GoalWake(SignedBoard(), GoalWakeState(state_path, fixture.BASE, self.avery_id))
+                self.assertIsNone(restarted.lookup())
+                self.advance(standing, "update", "Recorded a distinct outcome.", standing_pass="complete")
+                self.assertIsNone(restarted.lookup())
+                restarted.state.observe_working()
+                next_pass = restarted.lookup()
+                self.assertEqual(next_pass["completed_checks"], 1)
+                self.assertNotEqual(next_pass["goal_key"], offer["goal_key"])
+            self.action("set-cue-pause", {"id": standing, "kind": "goal", "minutes": "5", "reason": "Review is active."})
+            self.assertIsNone(self.action("my-goal-cues")["standing"])
+            offer = self.action("idle-goal-offer", {"handoff_id": str(uuid4()), "project": "T"})
+            self.assertIsNone(offer["offer"])
+
+        with patch("tasks_core.timestamp", return_value=OVERDUE):
+            timed_cue = self.action("my-goal-cues", query_string={"include_timed": "true"})
+            self.assertEqual(timed_cue["standing"]["ticket"], standing)
+            self.assertEqual(timed_cue["cues"][0]["key"], f"timed:{timed}:{DUE}")
+            self.assertEqual(self.action("my-next")["work"]["key"], timed)
+            self.action("create-task", {"title": "Check the report", "step": "Do the Ready work first."})
+            self.assertEqual(self.action("my-next")["work"]["key"], "T-3")
+            blocked = self.action("my-goal-cues", query_string={"include_timed": "true"})
+            self.assertTrue(blocked["ordinary_busy"])
+            self.assertIsNone(blocked["standing"])
+            self.assertEqual(blocked["cues"], [])
+            self.advance("T-3", "start")
+            self.advance("T-3", "done")
+            self.advance(standing, "park", standing_pass="criterion-met")
+            self.assertIsNone(self.action("my-goal-cues")["standing"])
+
     def test_parked_exploration_goal_reminder_preserves_stopping_gate(self):
         ticket = self.standing()
         self.action("save-goal", {

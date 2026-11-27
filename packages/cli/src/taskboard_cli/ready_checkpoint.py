@@ -94,7 +94,8 @@ def offer_work(board, actor):
     return None
 
 
-def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), acknowledged=None, include_goals=True, prefer_goals=False):
+def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), acknowledged=None,
+                       include_goals=True, prefer_goals=False, goal_project=None):
     """Find an owned In progress event that can still use the agent's attention."""
     ordinary = None
     for queued in board.pages("my-queue", {"scope": "all", "state": "in_progress"}):
@@ -111,6 +112,9 @@ def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), acknowledg
         acknowledged_event = (acknowledged or {}).get(queued["key"])
         if (task["dri"] != actor or task["state"] != "in_progress" or
                 task["event_id"] == acknowledged_event or task["event_id"] in exclude_events):
+            continue
+        goal = detail.get("goal")
+        if goal_project and task["key"].startswith(f"{goal_project}-") and goal and goal.get("keep_exploring"):
             continue
         if any(run["execution_state"] == "running" for run in detail["workers"]):
             continue
@@ -332,7 +336,7 @@ class ReadyReadStopped(RuntimeError):
 
 
 def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_delay=10, *, observe_status=None,
-                      notify_stalled=None, goal_state=None, notify_goal=None, report_health=None):
+                      notify_stalled=None, goal_state=None, notify_goal=None, report_health=None, measure_status=True):
     """Wake for new Ready work, then check recovery paths during Idle."""
     try:
         context = agent_context(board, owner)
@@ -383,7 +387,7 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
         return max(ready, default=0) > noticed_ready_event
 
     def notify_count(notice, can_wake):
-        if observe_status is not None:
+        if observe_status is not None and measure_status:
             notice = {**notice, "owner": actor}
         outcome = notify(notice, lambda: ready_events("eligible queue") == current and can_wake())
         return None if outcome == "pending-ready-wake" else outcome
@@ -422,8 +426,14 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
             for event, retry in list(next_stalled_attempt.items()):
                 if retry <= now:
                     del next_stalled_attempt[event]
-            return offer_stalled_work(board, actor, exclude_events=noticed_stalled | next_stalled_attempt.keys(),
-                                      paused=paused, acknowledged=acknowledged, include_goals=long_idle, prefer_goals=long_idle)
+            goal_project = (
+                goal_wake.state.project if goal_wake and context.get("goal_continuation_cues") is True else None
+            )
+            return offer_stalled_work(
+                board, actor, exclude_events=noticed_stalled | next_stalled_attempt.keys(),
+                paused=paused, acknowledged=acknowledged, include_goals=long_idle, prefer_goals=long_idle,
+                goal_project=goal_project,
+            )
         except SharedActionUnavailable as error:
             raise SharedReadError(str(error), reason="action-unavailable") from error
 
@@ -479,7 +489,15 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
         return True
 
     if observe_status is not None:
-        is_idle = measured_idle(observe_status, actor, lambda: ready_events("idle sample"), emit)
+        def observed_status(handle):
+            status = observe_status(handle)
+            if status == "working" and goal_wake is not None:
+                goal_wake.state.observe_working()
+            return status
+
+        is_idle = measured_idle(
+            observed_status, actor, lambda: ready_events("idle sample"), emit if measure_status else None,
+        )
     if report_health and context.get("watcher_health_reports") is True:
         read_idle = is_idle
 
@@ -556,7 +574,7 @@ def measured_idle(get_status, owner, ready_events, emit):
             status = get_status(handle)
         except RuntimeError:
             status = "unavailable"
-        if status != previous:
+        if emit is not None and status != previous:
             event = {"kind": "status", "owner": owner, "at": observation_time(), "status": status}
             if status == "idle":
                 try:
@@ -798,18 +816,14 @@ def main(*, managed_child=False):
                 health = watcher_reporter(board, args.report_status, stalled=True, goals=True,
                                           emit=emit) if args.report_status else None
                 observe = raft_status
-                idle = raft_idle
                 if args.report_runtime:
                     observe = runtime_observer(board, args.report_runtime, observe, emit)
 
-                    def idle(handle):
-                        return observe(handle) == "idle"
-
                 try:
                     watch_ready_count(
-                        board, args.by, idle, notify_count, emit,
+                        board, args.by, raft_idle, notify_count, emit,
                         idle_delay=10 if args.idle_delay_seconds is None else args.idle_delay_seconds,
-                        observe_status=observe if args.measure else None,
+                        observe_status=observe, measure_status=args.measure,
                         notify_stalled=notify_stalled,
                         goal_state=args.goal_state, notify_goal=notify_goal, report_health=health,
                     )

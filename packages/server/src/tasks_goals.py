@@ -215,6 +215,7 @@ def goal_rows(db, owners, project=None, kind=None, *, exclude_watched_by=None):
     return db.execute(f"""
         SELECT tasks.id, tasks.project_prefix, tasks.project_number, tasks.dri AS owner, tasks.title AS summary,
                goals.kind, goals.deadline, goals.ticket_ids, events.state, events.at, events.context,
+               events.id AS event_id,
                exploration.value AS stopping_criterion
         FROM task_goals AS goals JOIN tasks ON tasks.id = goals.task_id
         LEFT JOIN board_settings AS exploration ON exploration.key = '{EXPLORATION_SETTING}' || CAST(tasks.id AS TEXT)
