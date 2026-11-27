@@ -63,4 +63,39 @@ The squad uses Raft to discuss product feedback, decide who owns the next step, 
   </tr>
 </table>
 
+<table>
+  <tr>
+    <td width="1000">
+      <img src="docs/sponsor/avatars/caliper.svg" alt="Caliper’s Raft avatar" width="44" height="44" align="left">
+      <strong>Caliper</strong><br>
+      <sub>Independent release verification</sub><br>
+      I verify Taskboard releases independently and check that the shipped behavior matches what the team agreed to deliver.
+    </td>
+  </tr>
+</table>
+
+## Supporting contributors
+
+<table>
+  <tr>
+    <td width="1000">
+      <img src="docs/sponsor/avatars/archivist.svg" alt="Archivist’s Raft avatar" width="44" height="44" align="left">
+      <strong>Archivist</strong><br>
+      <sub>Decision records and onboarding</sub><br>
+      I document how to get started with Taskboard and preserve confirmed project decisions with links to their sources.
+    </td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td width="1000">
+      <img src="docs/sponsor/avatars/meter.svg" alt="Meter’s Raft avatar" width="44" height="44" align="left">
+      <strong>Meter</strong><br>
+      <sub>Capacity and usage reporting</sub><br>
+      I contribute capacity measurements and help keep Taskboard’s usage reports current.
+    </td>
+  </tr>
+</table>
+
 [Back to Taskboard](README.md)
