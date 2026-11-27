@@ -3419,7 +3419,7 @@ def create_app(
     def report_overview():
         args = request.args
         watching = args.get("view") == "watching"
-        actor = current_actor(required="scope" in args or watching)
+        actor = current_actor(required=watching)
         project = project_scope(args)
         has_roster, view, hide_requests, personal_owner = report_filters(args, actor, project)
         summary = args.get("summary") == "true"
@@ -3597,7 +3597,7 @@ def create_app(
         args = request.args
         owner = text(args, "owner", optional=True, maximum=160)
         watching = owner is not None and args.get("watching") == "true"
-        actor = current_actor(required=bool(owner and ("scope" in args or watching)))
+        actor = current_actor(required=watching)
         project = project_scope(args)
         with tasks_storage.read(db()):
             summaries = query()
@@ -3615,7 +3615,7 @@ def create_app(
     @app.get("/api/v1/reports/workers")
     def report_workers():
         args = request.args
-        current_actor(required="scope" in args)
+        current_actor()
         owner = text(args, "owner", maximum=160)
         project = project_scope(args)
         order = args.get("order")
@@ -3660,7 +3660,7 @@ def create_app(
     @app.get("/api/v1/reports/request-log")
     def report_request_log():
         args = request.args
-        actor = current_actor(required="scope" in args)
+        actor = current_actor()
         return query().request_log(
             project=project_scope(args),
             before=ordered_feed_cursor(args, ("peer", "review", "wait"), "the request log"),
@@ -3672,7 +3672,7 @@ def create_app(
     def more_reports():
         args = request.args
         watching = args.get("view") == "watching"
-        actor = current_actor(required="scope" in args or watching)
+        actor = current_actor(required=watching)
         project = project_scope(args)
         owner = text(args, "owner", maximum=160)
         before = integer(args["before"], "before") if "before" in args else None

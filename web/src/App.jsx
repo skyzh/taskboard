@@ -275,13 +275,6 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const params = new URLSearchParams(taskContext ?? fragment)
   const logFilters = notificationLogFilters(fragment)
   const owner = params.get('dri')
-  const publicProfile = owner && !preview && !needsMemberSignIn && !sessionResource.pending
-  const projectList = useResource(hasSession || publicProfile ? '/projects' : null, revision)
-  const visibleProjects = projectList.data?.items
-  const defaultProject = projectList.data?.default_project
-    || visibleProjects?.find(entry => entry.prefix === 'T')?.prefix || visibleProjects?.[0]?.prefix || 'T'
-  const projectsPending = !visibleProjects && !projectList.error && (sessionResource.pending || hasSession)
-  const hasProjectChoices = visibleProjects?.length > 1
   const knowledgeFilters = taskAnchor === 'knowledge' ? new URLSearchParams(taskContext) : null
   const knowledgeScope = !preview && knowledgeFilters?.get('scope') === 'assigned' ? 'assigned' : 'board'
   const knowledgeOrder = !preview && knowledgeFilters?.get('order') === 'updated' ? 'updated' : ''
@@ -320,6 +313,13 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const scopedView = supportsAllProjects || showAgentManagement || view === 'task'
   const canSelectProject = scopedView || ['settings', 'integrations'].includes(view)
   const knowledgeEntry = knowledgeFilters?.get('entry')
+  const publicReport = ['assignee', 'reports'].includes(view) && !preview && !needsMemberSignIn && !sessionResource.pending
+  const projectList = useResource(hasSession || publicReport ? '/projects' : null, revision)
+  const visibleProjects = projectList.data?.items
+  const defaultProject = projectList.data?.default_project
+    || visibleProjects?.find(entry => entry.prefix === 'T')?.prefix || visibleProjects?.[0]?.prefix || 'T'
+  const projectsPending = !visibleProjects && !projectList.error && (sessionResource.pending || hasSession || publicReport)
+  const hasProjectChoices = visibleProjects?.length > 1
   const recordProject = namedTask?.split('-')[0] || knowledgeEntry?.match(/^([A-Z][A-Z0-9]{0,7})-\d+$/)?.[1]
   const requestedProject = recordProject || (canSelectProject ? params.get('project') : null)
   const defaultsToAll = ['activity', 'knowledge', 'stats', 'notifications', 'my-activity'].includes(view) && !logFilters

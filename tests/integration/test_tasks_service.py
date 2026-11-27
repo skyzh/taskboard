@@ -10350,8 +10350,11 @@ class TasksServiceTest(unittest.TestCase):
         reports = "/api/v1/reports"
         asks = "/api/v1/reports/request-log"
         unsigned = app.test_client()
-        self.call(unsigned, reports, query_string={"scope": "all"}, status=401)
-        self.call(unsigned, asks, query_string={"scope": "all"}, status=401)
+        unsigned_reports = self.call(unsigned, reports, query_string={"scope": "all"}).json["items"]
+        public_work = next(row for row in unsigned_reports if row["owner"] == avery_id)
+        self.assertEqual({task["key"] for task in public_work["tasks"]}, {first_work, second_work})
+        self.call(unsigned, asks, query_string={"scope": "all"})
+        self.call(unsigned, reports, query_string={"scope": "all", "view": "watching"}, status=401)
         self.call(avery, reports, query_string={"scope": "all", "project": "T"}, status=400)
 
         def pages(path, **options):
@@ -10539,11 +10542,12 @@ class TasksServiceTest(unittest.TestCase):
         for path, extra in (("/api/v1/reports/workers", {"order": "execution"}),
                             ("/api/v1/reports/pending", {"view": "profile"})):
             filters = {**params, **extra, "limit": 1}
-            first = self.call(quinn, path, query_string=filters).json
-            second = self.call(quinn, path, query_string={**filters, "before": first["next_cursor"]}).json
-            self.assertEqual({row["task_key"] for row in first["items"] + second["items"]},
-                             {tickets["T"], tickets["OPS"]})
-            self.assertIsNone(second["next_cursor"])
+            for viewer in (quinn, anonymous):
+                first = self.call(viewer, path, query_string=filters).json
+                second = self.call(viewer, path, query_string={**filters, "before": first["next_cursor"]}).json
+                self.assertEqual({row["task_key"] for row in first["items"] + second["items"]},
+                                 {tickets["T"], tickets["OPS"]})
+                self.assertIsNone(second["next_cursor"])
 
     def test_configured_legacy_agent_can_be_watched_before_first_sign_in(self):
         roster = {self.provider.people["Blake"]["sub"]: "Blake"}
