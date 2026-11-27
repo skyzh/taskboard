@@ -5734,7 +5734,7 @@ class TasksServiceTest(unittest.TestCase):
                 def advance(seconds):
                     nonlocal clock
                     clock += seconds
-                    if clock >= 8:
+                    if clock >= 70:
                         raise KeyboardInterrupt
 
                 def invoke(command, **_options):

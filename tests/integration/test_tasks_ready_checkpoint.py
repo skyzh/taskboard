@@ -676,6 +676,7 @@ class ReadyCheckpointTest(unittest.TestCase):
         self.assertEqual(checkpoint(self.avery, "Avery", self.fail), {"outcome": "empty"})
 
 
+    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_watcher_skips_a_busy_turn_and_wakes_once_after_rechecking_idle(self):
         self.avery.invoke("create-task", {"title": "Ready before the watcher", "step": "Read it."}, write=True)
         states = iter([False, True, False, True, True])
@@ -712,6 +713,7 @@ class ReadyCheckpointTest(unittest.TestCase):
             {"outcome": "timed-out"},
         )
 
+    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_one_watcher_verifies_two_preexisting_ready_tickets(self):
         for title in ("First wait-free ticket", "Second wait-free ticket"):
             self.avery.invoke("create-task", {"title": title, "step": "Read it."}, write=True)
@@ -731,6 +733,7 @@ class ReadyCheckpointTest(unittest.TestCase):
         self.assertNotEqual(wakes[0][1], wakes[1][1])
         self.assertEqual([offer["task"] for offer in result["pickups"]], ["T-1", "T-2"])
 
+    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_two_pickup_watcher_stops_without_reoffering_unconfirmed_first_wake(self):
         self.avery.invoke("create-task", {"title": "Still Ready", "step": "Read it."}, write=True)
         notices = []
@@ -742,6 +745,7 @@ class ReadyCheckpointTest(unittest.TestCase):
         result = watch_two_pickups(self.avery, "Avery", lambda handle: True, notify, duration=0.3, interval=0.01)
         self.assertEqual((result["outcome"], result["pickups"], notices), ("unconfirmed-start", [], ["T-1"]))
 
+    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_two_pickup_watcher_stops_on_exact_recorded_deferral(self):
         for title in ("Blocked ticket", "Another ready ticket"):
             self.avery.invoke("create-task", {"title": title, "step": "Read it."}, write=True)
@@ -767,9 +771,11 @@ class ReadyCheckpointTest(unittest.TestCase):
 
         def sample_idle(handle):
             self.assertEqual(handle, "avery")
-            if clock == 4:
+            if clock == 35:
                 raise RuntimeError("Raft status unavailable.")
-            return clock != 2
+            if clock == 20:
+                return None
+            return clock != 10
 
         def advance_clock(seconds):
             nonlocal clock
@@ -782,10 +788,31 @@ class ReadyCheckpointTest(unittest.TestCase):
 
         with patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock), \
                 patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance_clock):
-            result = watch_idle(self.avery, "Avery", sample_idle, notify, duration=10, interval=1, idle_delay=2)
-        self.assertEqual(notified_at, [7])
-        self.assertEqual((result["idle_seconds"], result["status_checks"]), (2, 9))
+            result = watch_idle(self.avery, "Avery", sample_idle, notify, duration=80, interval=1, idle_delay=2)
+        self.assertEqual(notified_at, [67])
+        self.assertEqual((result["idle_seconds"], result["status_checks"]), (31, 69))
 
+    def test_one_shot_preserves_a_longer_configured_delay(self):
+        self.avery.invoke("create-task", {"title": "Already Ready", "step": "Read it."}, write=True)
+        clock = 0
+
+        def sleep_for(seconds):
+            nonlocal clock
+            clock += seconds
+
+        def notify(offer, can_wake):
+            self.assertTrue(can_wake())
+            self.assertEqual(clock, 120)
+            return "wake-requested"
+
+        with (
+            patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+            patch("taskboard_cli.ready_checkpoint.sleep", side_effect=sleep_for),
+        ):
+            result = watch_idle(self.avery, "Avery", lambda _: True, notify, duration=140, idle_delay=120)
+        self.assertEqual((result["outcome"], result["idle_seconds"]), ("wake-requested", 120))
+
+    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_count_watcher_stays_quiet_for_empty_and_unchanged_queues(self):
         self.blake.invoke("create-task", {"title": "Other owner’s work", "step": "Read it."}, write=True)
         clock = 0
@@ -813,7 +840,7 @@ class ReadyCheckpointTest(unittest.TestCase):
                               interval=1, idle_delay=2)
         self.assertEqual(wakes, [(3, 1), (8, 2)])
 
-    def test_fast_ready_default_rechecks_the_signed_queue_before_delivery(self):
+    def test_ready_default_waits_past_thirty_seconds_and_rechecks_the_signed_queue(self):
         self.avery.invoke("create-task", {"title": "Ready before Idle", "step": "Read it."}, write=True)
         clock = 0
         attempts = []
@@ -821,7 +848,7 @@ class ReadyCheckpointTest(unittest.TestCase):
         def advance_clock(seconds):
             nonlocal clock
             clock += seconds
-            if clock > 30:
+            if clock > 40:
                 raise KeyboardInterrupt
 
         def notify(notice, can_wake):
@@ -833,8 +860,9 @@ class ReadyCheckpointTest(unittest.TestCase):
         with patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock), \
                 patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance_clock), self.assertRaises(KeyboardInterrupt):
             watch_ready_count(self.avery, "Avery", lambda _: True, notify, self.fail)
-        self.assertEqual(attempts, [(10, 1)])
+        self.assertEqual(attempts, [(40, 1)])
 
+    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def watch_through_carrier(self, queue_failure, stops_at, *, measure=True, context_failure=None, owner="Avery"):
         clock = 0
         observations = []
@@ -1066,6 +1094,7 @@ class ReadyCheckpointTest(unittest.TestCase):
                 })
                 self.assertNotRegex(repr(observations) + str(outcome), r"(?i)private[_ -]fixture")
 
+    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_repeat_checker_sends_an_anchored_recovery_wake_only_on_terminal_failure(self):
         argv = ["ready-checkpoint", "--watch-idle", "--repeat", "--by", "Avery",
                 "--channel", "#example", "--message-id", "12345678", "--idle-delay-seconds", "0"]
@@ -1147,6 +1176,7 @@ class ReadyCheckpointTest(unittest.TestCase):
             ):
                 self.assertEqual(main(managed_child=managed), expected)
 
+    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_interrupting_a_signed_carrier_read_exits_without_recovery_wake(self):
         argv = ["ready-checkpoint", "--watch-idle", "--repeat", "--by", "Avery",
                 "--channel", "#example", "--message-id", "12345678", "--idle-delay-seconds", "0"]
@@ -1178,6 +1208,7 @@ class ReadyCheckpointTest(unittest.TestCase):
             "--channel", "#example", "--message-id", "12345678",
         ))
 
+    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_count_wake_guidance_carries_through_inbox_and_two_parks(self):
         self.avery.invoke("save-goal", {"kind": "standing", "summary": "Improve the queue."}, write=True)
         self.avery.invoke("create-task", {"title": "Work ready at wake", "step": "Read the sample."}, write=True)
@@ -1227,6 +1258,7 @@ class ReadyCheckpointTest(unittest.TestCase):
         self.assertEqual(self.avery.invoke("task", {"id": "T-1"})["task"]["state"], "parked")
         self.assertIn("If your Inbox is clear and you have not explored this turn", shared("next"))
 
+    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_measurement_records_first_idle_and_empty_without_changing_wake_timing(self):
         clock = 0
         observations = []
@@ -1288,6 +1320,7 @@ class ReadyCheckpointTest(unittest.TestCase):
                 )
                 self.assertEqual((outcome, refs), ("wake-requested", [reference]))
 
+    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_changed_same_count_can_wake_after_the_previous_reminder_fires(self):
         self.avery.invoke("create-task", {"title": "Original Ready ticket", "step": "Read it."}, write=True)
         clock = 0
@@ -1358,15 +1391,46 @@ class ReadyCheckpointTest(unittest.TestCase):
                 self.assertEqual(result["outcome"], "timed-out")
 
 
+    def test_online_without_idle_resets_the_window_and_blocks_dispatch(self):
+        self.avery.invoke("create-task", {"title": "Already Ready", "step": "Read it."}, write=True)
+        clock = 0
+        attempts = []
+        wakes = []
+
+        def sleep_for(seconds):
+            nonlocal clock
+            clock += seconds
+
+        def read_raft(*_):
+            qualifier = "" if clock == 10 or (clock == 60 and attempts) else ": Idle"
+            return f"## User\n\nUser: @Avery\nKind: agent\nStatus: active; online{qualifier}\n"
+
+        def notify(offer, can_wake):
+            attempts.append(clock)
+            if can_wake():
+                wakes.append(clock)
+                return "wake-requested"
+            return None
+
+        with (
+            patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+            patch("taskboard_cli.ready_checkpoint.sleep", side_effect=sleep_for),
+            patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=read_raft),
+        ):
+            result = watch_idle(self.avery, "Avery", raft_idle, notify, duration=130)
+        self.assertEqual(attempts, [60, 110])
+        self.assertEqual(wakes, [110])
+        self.assertEqual(result["outcome"], "wake-requested")
+
     def test_raft_idle_uses_status_header_and_exact_identity(self):
-        idle = "## User\n\nUser: @Avery\nKind: agent\nStatus: active; online\n"
-        busy = idle.replace("active; online", "active; working: Tool finished")
-        description = "Description (written by them, not by Raft): Example\nStatus: active; online\n"
-        explicit_idle = idle.replace("active; online", "active; online: Idle")
-        stopped = idle.replace("active; online", "stopped")
-        statuses = [idle, explicit_idle, busy + description, stopped, explicit_idle]
+        online = "## User\n\nUser: @Avery\nKind: agent\nStatus: active; online\n"
+        busy = online.replace("active; online", "active; working: Tool finished")
+        description = "Description (written by them, not by Raft): Example\nStatus: active; online: Idle\n"
+        explicit_idle = online.replace("active; online", "active; online: Idle")
+        stopped = online.replace("active; online", "stopped")
+        statuses = [online, explicit_idle, busy + description, stopped, explicit_idle]
         with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=statuses):
-            self.assertTrue(raft_idle("avery"))
+            self.assertFalse(raft_idle("avery"))
             self.assertTrue(raft_idle("avery"))
             self.assertFalse(raft_idle("avery"))
             self.assertFalse(raft_idle("avery"))
