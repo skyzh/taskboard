@@ -364,7 +364,8 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
             paused = set()
             if context.get("watcher_cue_pauses") is True:
                 pauses = board.invoke("my-cue-pauses")["items"]
-                paused = {item["ticket"] for item in pauses if item["kind"] == "stalled"}
+                # An in-progress goal also qualifies for automatic stalled recovery.
+                paused = {item["ticket"] for item in pauses}
             if offer := worker_offer("running", paused):
                 return offer
             return offer_stalled_work(board, actor, exclude_events=noticed_stalled, paused=paused)
