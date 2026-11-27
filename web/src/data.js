@@ -294,7 +294,11 @@ export function useLoadedPages(path, filters, revision, {
         cached.current = snapshot
         setResult({ key, firstPage, snapshot })
       } catch (error) {
-        if (!controller.signal.aborted) setResult({ key, firstPage, snapshot: previous, error })
+        if (controller.signal.aborted) return
+        // Restricted projects return 404 to callers who cannot see them.
+        const unavailable = [401, 403, 404].includes(error.status)
+        if (unavailable) cached.current = null
+        setResult({ key, firstPage, snapshot: unavailable ? null : previous, error })
       }
     }
 
