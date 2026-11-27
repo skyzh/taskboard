@@ -79,6 +79,12 @@ _ACTIONS = {
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE | {
         "refresh_guidance": "Use true when the client displays the daily Inbox guidance cue.",
     }),
+    "my-requested-asks": _Action("GET", "Read your pending attention and decision requests.", optional=_PROJECT | _SCOPE | {
+        "cue_key": "Read the exact ask and current outcome from a due recheck cue.",
+    }),
+    "acknowledge-ask-recheck": _Action("POST", "Acknowledge a due recheck without changing the original ask.", {
+        "cue_key": "Exact due cue key returned by the signed Inbox.",
+    }),
     "decision-delivery": _Action("GET", "Read the effective route for an original decision you requested.", {
         **_TASK, "request_id": "Exact open decision event from the original signed write.",
     }),
