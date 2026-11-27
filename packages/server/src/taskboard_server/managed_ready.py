@@ -21,10 +21,11 @@ from taskboard_server.ready_wake import (
 )
 import tasks_projects as projects
 import tasks_storage
-from tasks_wake_subscriptions import OWNED_READY, has_subscription
+from tasks_notification_log import WAKE_SCHEMA
+from tasks_wake_subscriptions import MANAGED_READY_PROJECT, OWNED_READY, has_subscription
 
 
-_PROJECT = "T"
+_PROJECT = MANAGED_READY_PROJECT
 _ATTEMPTS = 4
 _RETRY_WINDOW = 5 * 60
 _DELAY = 10
@@ -202,6 +203,13 @@ class ManagedReadySender:
         renewed = saved["renewed"] if current_attempt else 0
         ready_at = datetime.fromisoformat(row["at"]).timestamp()
         if attempts >= _ATTEMPTS or now >= first_attempt + _RETRY_WINDOW or now >= ready_at + _MAX_READY_AGE:
+            if attempts or (receipt is not None and receipt["acceptance"] == "pending"):
+                ledger.import_notification_on(self.db, {
+                    "schema": WAKE_SCHEMA,
+                    "source": {"task": projects.row_reference(row), "event": event, "at": row["at"]},
+                    "recipient": saved["owner"],
+                    "observations": {"acceptance": {"status": "unknown", "at": ledger.timestamp()}},
+                })
             self._finish(event)
             return "attempt_window_ended", event
         with self.state:

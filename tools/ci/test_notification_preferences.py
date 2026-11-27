@@ -96,6 +96,10 @@ class StorageReplayTest(unittest.TestCase):
     def test_postgres(self):
         self.replay(self.postgres_app(self.postgres_fixture()))
 
+    def test_postgres_owned_ready_outbox(self):
+        dsn = self.postgres_fixture()
+        self.board.replay_owned_ready_outbox(self.postgres_app(dsn), lambda: Postgres(dsn))
+
     def test_postgres_watched_fyi_acknowledgment(self):
         self.board.replay_watched_fyi(self.postgres_app(self.postgres_fixture()))
 

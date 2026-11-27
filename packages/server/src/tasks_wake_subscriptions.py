@@ -1,6 +1,7 @@
 """Agent-owned wake preferences for a project."""
 
 OWNED_READY = "owned-ready"
+MANAGED_READY_PROJECT = "T"
 
 SCHEMA = """
     CREATE TABLE IF NOT EXISTS wake_subscriptions (

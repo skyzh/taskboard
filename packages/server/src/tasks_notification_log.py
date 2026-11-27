@@ -10,6 +10,7 @@ from tasks_merges import ACCEPTED_SQUASHES
 import tasks_projects as projects
 import tasks_ring1 as ring1
 import tasks_storage
+from tasks_wake_subscriptions import MANAGED_READY_PROJECT, OWNED_READY
 
 
 RECEIPT_SCHEMA = "taskboard-notification/v1"
@@ -78,6 +79,29 @@ RECEIPT_REF = re.compile(r"[0-9a-f]{64}")
 
 class ReceiptConflict(ValueError):
     """An observation contradicts evidence already recorded for this event."""
+
+
+def queue_owned_ready(db, task, event, at):
+    """Persist an opted-in Ready cue inside the transition's transaction."""
+    if not tasks_storage.has_table(db, "wake_subscriptions") or not tasks_storage.has_table(db, "wake_log"):
+        return
+    row = db.execute("""
+        SELECT tasks.dri, tasks.project_prefix
+        FROM tasks
+        JOIN wake_subscriptions AS subscription
+          ON subscription.project = tasks.project_prefix AND subscription.owner = tasks.dri
+        JOIN board_principals AS recipient ON recipient.ledger_key = tasks.dri
+        WHERE tasks.id = ? AND tasks.project_prefix = ?
+          AND subscription.event_type = ? AND recipient.kind = 'agent'
+          AND tasks.record_kind = 'work'
+        """, (task, MANAGED_READY_PROJECT, OWNED_READY)).fetchone()
+    if row is None or ring1.private(db, row["project_prefix"]):
+        return
+    db.execute("""
+        INSERT INTO wake_log (source_event_id, recipient, acceptance, acceptance_at)
+        VALUES (?, ?, 'pending', ?)
+        ON CONFLICT (source_event_id) DO NOTHING
+        """, (event, row["dri"], observed_time(at)))
 
 
 def outbox_receipt(kind, event, task, source_at, recipient, pending, confirmation=None):
@@ -440,6 +464,8 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
                CASE WHEN peer_asks.result_event_id = events.id THEN 'review_result'
                     WHEN peer_asks.review_run_id IS NOT NULL THEN 'review_request'
                     WHEN peer_asks.task_id IS NOT NULL THEN 'follow_up'
+                    WHEN events.action = 'unpark' AND json_extract(events.context, '$.deferred_event_id') IS NOT NULL
+                         THEN 'timed_ready'
                     ELSE 'ready' END AS wake_reason,
                acknowledged.id AS request_ack_event_id, acknowledged.at AS request_ack_at
         FROM receipts AS notices

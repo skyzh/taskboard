@@ -123,7 +123,10 @@ class ManagedReadyTest(unittest.TestCase):
             key = f"taskboard-ready-{sha256(BOARD.encode()).hexdigest()}-{event}"
             self.assertEqual(list(carrier.accepted), [key])
             self.assertEqual(carrier.inbox, [])
-            self.assertEqual(self.receipts(), [])
+            pending_receipt, = self.receipts()
+            self.assertEqual((pending_receipt["source_event_id"], pending_receipt["acceptance"]), (event, "pending"))
+            self.assertIsNone(pending_receipt["delivery"])
+            self.assertIsNone(pending_receipt["start_event_id"])
 
             # Each invocation opens and closes the same ledger and outbox files.
             self.assertEqual(self.signal(owner, "scan")["queued"], [])
@@ -265,6 +268,9 @@ class ManagedSenderTest(unittest.TestCase):
         with closing(open_sqlite(self.ledger, write_existing=False)) as db:
             return [dict(row) for row in db.execute("SELECT * FROM wake_log ORDER BY source_event_id")]
 
+    def outcomes(self):
+        return [(row["source_event_id"], row["acceptance"]) for row in self.receipts()]
+
     def calls(self):
         return [name for name, _ in self.provider.calls]
 
@@ -283,7 +289,7 @@ class ManagedSenderTest(unittest.TestCase):
 
         self.provider.on_event = lose_reply
         self.assertEqual(self.tick(), ("retry", event_id))
-        self.assertEqual(self.receipts(), [])
+        self.assertEqual(self.outcomes(), [(old["event"], "pending"), (event_id, "pending")])
         self.assertEqual(self.tick(), ("waiting", None))
         self.now += 10
         self.provider.on_event = self.provider.accept
@@ -293,7 +299,8 @@ class ManagedSenderTest(unittest.TestCase):
         attempts = [body for route, body in self.provider.calls if route == "agent-events"]
         self.assertEqual(attempts, [attempts[0]] * 2)
         self.assertTrue(attempts[0]["externalEventId"].endswith(f"-{event_id}"))
-        receipt, = self.receipts()
+        old_receipt, receipt = self.receipts()
+        self.assertEqual(old_receipt["acceptance"], "pending")
         self.assertEqual((receipt["source_event_id"], receipt["recipient"], receipt["acceptance"]),
                          (event_id, self.owner, "accepted"))
         for field in ("delivery", "next_result", "start_event_id"):
@@ -310,7 +317,34 @@ class ManagedSenderTest(unittest.TestCase):
         self.assertEqual(self.tick(), ("attempt_window_ended", first))
         self.provider.on_event = self.provider.accept
         self.assertEqual(self.tick(), ("accepted", second))
-        self.assertEqual([row["source_event_id"] for row in self.receipts()], [second])
+        self.assertEqual(self.outcomes(), [(first, "unknown"), (second, "accepted")])
+
+    def test_pending_scope_matches_managed_sender_project(self):
+        self.baseline()
+        self.service.cli("register-project", "OPS", "Fixture operations", "--dri", self.owner)
+        self.board.invoke("set-wake-subscription", {
+            "project": "OPS", "event_type": OWNED_READY, "enabled": "true",
+        }, write=True)
+        self.create("OPS")
+        self.assertEqual(self.tick(), ("idle", None))
+        self.assertEqual(self.outcomes(), [])
+        self.assertEqual(self.calls(), [])
+
+    def test_expired_pending_wake_without_an_attempt_leaves_acceptance_unknown(self):
+        self.baseline()
+        event = self.create()["event"]
+        self.now += 24 * 60 * 60 + 1
+        self.assertEqual(self.tick(), ("attempt_window_ended", event))
+        self.assertEqual(self.tick(), ("idle", None))
+        receipt, = self.receipts()
+        self.assertEqual((receipt["source_event_id"], receipt["acceptance"]), (event, "unknown"))
+        self.assertIsNone(receipt["delivery"])
+        self.assertIsNone(receipt["start_event_id"])
+        self.assertEqual(self.calls(), [])
+        pending = self.service.call(self.board.client, "/api/v1/notifications/log", query_string={
+            "kind": "wake", "state": "pending",
+        }).json
+        self.assertEqual(pending["items"], [])
 
     def test_rate_limit_delay_survives_restart(self):
         for status, expected in ((429, "retry"), (401, "renewal_needed"), (200, "retry")):
@@ -363,11 +397,11 @@ class ManagedSenderTest(unittest.TestCase):
 
     def test_subscription_removed_during_oauth_stops_before_exchange(self):
         self.baseline()
-        self.create()
+        event = self.create()["event"]
         self.provider.on_request = lambda: self.subscribe(False)
         self.assertEqual(self.tick(), ("subscription_stopped", None))
         self.assertEqual(self.calls(), ["agent"])
-        self.assertEqual(self.receipts(), [])
+        self.assertEqual(self.outcomes(), [(event, "pending")])
         self.subscribe(True)
         self.assertEqual(self.tick(), ("subscription_stopped", None))
         self.assertEqual(self.calls(), ["agent"])
@@ -381,6 +415,7 @@ class ManagedSenderTest(unittest.TestCase):
         self.assertEqual(self.calls(), [])
 
     def test_pending_grant_or_exchange_stays_stopped_on_restart(self):
+        queued = []
         for request_status, exchange_status, calls in (
             ("pending", 200, ["agent"]),
             ("approved", 400, ["agent", "token"]),
@@ -388,14 +423,14 @@ class ManagedSenderTest(unittest.TestCase):
             with self.subTest(request_status=request_status, exchange_status=exchange_status):
                 self.state = self.ledger.with_name(f"managed-{exchange_status}.sqlite")
                 self.baseline()
-                self.create()
+                queued.append((self.create()["event"], "pending"))
                 self.provider.request_status = request_status
                 self.provider.exchange_status = exchange_status
                 self.provider.calls.clear()
                 self.assertEqual(self.tick(), ("grant_stopped", None))
                 self.assertEqual(self.tick(), ("grant_stopped", None))
                 self.assertEqual(self.calls(), calls)
-                self.assertEqual(self.receipts(), [])
+                self.assertEqual(self.outcomes(), queued)
 
     def test_ready_event_rechecked_after_exchange(self):
         self.baseline()
@@ -407,7 +442,7 @@ class ManagedSenderTest(unittest.TestCase):
         self.provider.on_exchange = start
         self.assertEqual(self.tick(), ("superseded", ready["event"]))
         self.assertEqual(self.calls(), ["agent", "token"])
-        self.assertEqual(self.receipts(), [])
+        self.assertEqual(self.outcomes(), [(ready["event"], "pending")])
 
     def test_a_second_401_stops_after_one_renewal(self):
         self.baseline()
@@ -419,4 +454,4 @@ class ManagedSenderTest(unittest.TestCase):
         self.assertEqual(self.tick(grant), ("grant_stopped", None))
         self.assertEqual(self.tick(), ("grant_stopped", None))
         self.assertEqual(self.calls(), ["agent", "token", "agent-events"] * 2)
-        self.assertEqual(self.receipts(), [])
+        self.assertEqual(self.outcomes(), [(event, "pending")])

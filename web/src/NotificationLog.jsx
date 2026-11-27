@@ -31,6 +31,7 @@ const delivery = { delivered: 'Delivered', suppressed: 'Suppressed' }
 const nextResults = { offered: 'This ticket offered', different_work: 'Other work offered', no_work: 'No eligible work' }
 const wakeReasons = {
   ready: 'Ready assignment',
+  timed_ready: 'Scheduled work became Ready',
   review_request: 'Review requested',
   review_result: 'Review result returned',
   follow_up: 'Peer follow-up',

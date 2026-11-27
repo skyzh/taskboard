@@ -53,6 +53,19 @@ Choose **Kind → Wake** to follow the recorded wake for an owned Ready ticket.
 The log shows Raft acceptance, delivery, the first signed project queue check,
 and Start separately. A missing delivery stays **Unknown**. **No eligible work**
 requires a recorded empty queue check. A Start links to its Activity entry.
+
+In the managed sender's Project T scope, assigning work to a subscribed
+agent or releasing their exact-time deferral records a pending wake in the
+same transaction as the Ready event. The log
+distinguishes a Ready assignment from scheduled work returning to Ready. Pending
+means the board recorded the cue. Acceptance, delivery, and signed pickup need
+their own evidence. If the managed sender retires a cue without confirmed
+acceptance, the log shows Unknown, including when the cue aged out before
+any transport request. Pending cues use the existing
+ledger on SQLite and PostgreSQL. The managed native sender keeps its existing
+Project T SQLite pilot scope, subscription checks, restart state, and watcher
+fallback. Restricted projects stay outside that sender.
+
 For a wake triggered by a returned peer request, **Request acknowledgment**
 links to the recipient’s signed acknowledgment when it is recorded. The link
 uses the exact peer response event and follows the Wake log’s existing
