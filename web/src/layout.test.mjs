@@ -87,7 +87,7 @@ test('Reports links to Team overview without embedding the board-wide feed', () 
     assert.match(overview, /href="#reports" aria-current="page">Reports/)
     assert.match(overview, /class="section-index"/)
     assert.doesNotMatch(overview, /id="queue-heading"|href="#queue-heading"|class="task-detail"/)
-    for (const id of teamSections) assert.ok(overview.includes(`id="${id}"`))
+    for (const id of teamSections) assert.ok(overview.includes(`<h2 id="${id}" tabindex="-1">`))
     assert.doesNotMatch(overview, /Dependency map|Workstreams|href="#workstreams-title"/)
   }
 })
@@ -131,11 +131,12 @@ test('Tasks and a directly linked ticket have separate main content', () => {
   assert.doesNotMatch(ticket, /class="workspace"|id="queue-heading"|id="now-title"|id="outcomes-title"/)
 })
 
-test('page and section headings remain fragment targets without becoming focusable', () => {
+test('only Team overview section headings can receive programmatic focus', () => {
   for (const fragment of ['#reports', '#board', '#queue-heading', '#team-overview', '#workstreams-title',
     '#activity', '#stats', '#notifications', '#notifications-needs-me', '#notifications-log', '#settings', '#dri=Avery', '#search=fixture', '#schedules=']) {
     const markup = render(fragment)
-    assert.doesNotMatch(markup, /<h[1-6]\b[^>]*\btabindex=/, fragment)
+    const otherHeadings = markup.replace(/<h2 id="(?:now-title|decisions-title|outcomes-title)" tabindex="-1">/g, '')
+    assert.doesNotMatch(otherHeadings, /<h[1-6]\b[^>]*\btabindex=/, fragment)
     assert.doesNotMatch(markup, /<header id="assignee-title"[^>]*\btabindex=/, fragment)
   }
 })
