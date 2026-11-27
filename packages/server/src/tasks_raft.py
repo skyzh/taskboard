@@ -74,7 +74,9 @@ _ACTIONS = {
     "configure-ticket-fields": _Action("POST", "Replace the project ticket field list as its manager.", {
         "project": "Tasks project prefix.", "fields": "Full field list encoded as a JSON array.",
     }),
-    "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE),
+    "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE | {
+        "refresh_guidance": "Use true when the client displays the daily Inbox guidance cue.",
+    }),
     "decision-delivery": _Action("GET", "Read the effective route for an original decision you requested.", {
         **_TASK, "request_id": "Exact open decision event from the original signed write.",
     }),

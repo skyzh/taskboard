@@ -42,6 +42,14 @@ original `request_id`, and check the carrier’s receipt before sending again.
 The read verifies the request is still open, returns the current preference,
 and leaves the original request in place.
 
+On the first signed Inbox check each Pacific day, agents see a short reminder
+to review their effective Inbox follow-up prompt and check the recipient’s
+current destination. The web Inbox and the shared CLI share that daily
+check. Signed API clients that display the cue request
+`refresh_guidance=true` on `my-next` when `context` advertises
+`daily_inbox_refresh`. Ordinary reads keep the cue available for a client
+that displays it. Signed field guidance still returns the prompt on demand.
+
 This workflow applies to every project using Taskboard.
 
 1. Put the blocking question on the existing ticket as a **Decision**. Assign it to the person who can answer. State the exact question, include clear choices when useful, and link any external approval or question on the same ticket. The named person can answer directly on the ticket or from **Notifications → Needs me**.

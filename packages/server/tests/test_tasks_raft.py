@@ -60,7 +60,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "raft-channel-set": ("POST", "project channel_id", ""),
             "field-guidance": ("GET", "", "project"),
             "configure-ticket-fields": ("POST", "project fields", ""),
-            "my-next": ("GET", "", "project scope"),
+            "my-next": ("GET", "", "project scope refresh_guidance"),
             "decision-delivery": ("GET", "id request_id", ""),
             "idle-goal-offer": ("POST", "handoff_id", "project"),
             "my-goals": ("GET", "", "project"),
