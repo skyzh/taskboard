@@ -168,6 +168,10 @@ function InboxEntries({ revision, owner, project, openCount, onChanged }) {
       {openCount.error && <ResourceStatus resource={openCount} label="Inbox action count" />}
       {work.error && !legacyWorkEndpoint && <ResourceStatus resource={work} label="next actionable work" />}
       <InboxWork items={actionable} />
+      {work.data?.goal_review_prompt && <>
+        <h3>Goal review</h3>
+        <Markdown text={work.data.goal_review_prompt.prompt} />
+      </>}
       {work.data?.inbox_refresh && <>
         <p className="section-message">{work.data.inbox_refresh}</p>
         <Markdown text={work.data.inbox_follow_up?.prompt} />

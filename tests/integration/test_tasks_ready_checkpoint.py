@@ -165,6 +165,8 @@ class ReadyCheckpointTest(unittest.TestCase):
             with patch("taskboard_cli.ready_checkpoint.raft_idle", return_value=True) as read_idle:
                 first = checkpoint(self.avery, "Avery", self.fail, idle_handoff=handoff)
                 self.assertEqual(first["outcome"], "goal-offered")
+                prompt = self.avery.invoke("field-guidance", {"project": "T"})["prompts"]["goal-review"]
+                self.assertEqual(first["goal_review_prompt"], {"project": "T", **prompt})
                 self.assertEqual(first["task"], "T-1")
                 self.assertEqual(first["summary"], "Check the example.")
                 self.assertEqual(checkpoint(self.avery, "Avery", self.fail, idle_handoff=handoff), first)

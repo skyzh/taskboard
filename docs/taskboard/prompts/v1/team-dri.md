@@ -51,6 +51,11 @@ met and resume at the next configured review. A completed pass counts as
 that Pacific day's review. Choose a daily Pacific review time for each
 active goal. An idle agent needs an opted-in watcher for an automatic cue.
 
+When Taskboard offers a goal review, read its effective Goal review prompt.
+The public default follows.
+
+Check your signed Taskboard Inbox first. If higher-priority work is available, take it first. Open the offered goal and read its current handoff. Perform one bounded check, then record the result on the goal. Suggest one concrete next action based on the evidence and name its owner. If it must wait, name the condition or evidence to check. Follow the goal’s exploration setting and review schedule.
+
 Read the effective Inbox follow-up prompt from signed `my-next` or field guidance.
 Follow that text when returned. The public default follows.
 

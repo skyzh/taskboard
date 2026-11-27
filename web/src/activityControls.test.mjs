@@ -833,6 +833,12 @@ test('Inbox handles dated goals as its only content and accepts older work respo
   assert.match(datedOnly, /href="#task-COURSE-7".*Review the draft/)
   assert.doesNotMatch(datedOnly, /Your inbox is empty|aria-label="Next actionable work"/)
 
+  const guided = render({
+    standing_goals: [{ project: 'T', summary: 'Improve handoffs', ticket: 'T-5' }],
+    goal_review_prompt: { project: 'T', source: 'project', prompt: 'Check the **sample**.' },
+  })
+  assert.match(guided, /Check the <strong>sample<\/strong>/)
+
   const older = render({ standing_goals: [{ project: 'T', summary: 'Improve handoffs' }] })
   assert.match(older, /#dri=Avery&amp;section=dri-standing-goal-title&amp;project=T.*Improve handoffs/)
   assert.doesNotMatch(older, /Your inbox is empty|aria-label="Dated goals"/)

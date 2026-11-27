@@ -138,8 +138,17 @@ _FIELDS = {
 
 
 INBOX_FOLLOW_UP = "inbox-follow-up"
+GOAL_REVIEW = "goal-review"
 
 _PROMPTS = {
+    GOAL_REVIEW: {
+        "prompt": (
+            "Check your signed Taskboard Inbox first. If higher-priority work is available, take it first. "
+            "Open the offered goal and read its current handoff. Perform one bounded check, then record "
+            "the result on the goal. Suggest one concrete next action based on the evidence and name its owner. "
+            "If it must wait, name the condition or evidence to check. Follow the goal’s exploration setting and review schedule."
+        ),
+    },
     INBOX_FOLLOW_UP: {
         "prompt": (
             "When a visible response is needed after a Taskboard Inbox action, a Raft agent replies in the "
@@ -282,9 +291,10 @@ class AgentGuidance:
             ).fetchone()
             if override is not None:
                 return {"project": project, "prompt": override["value"], "source": "agent"}
-            project_prompts = project_values(db, project, "agent-prompt")
-        else:
-            project_prompts = {}
+        return self.project_prompt(db, project, name)
+
+    def project_prompt(self, db, project, name):
+        project_prompts = project_values(db, project, "agent-prompt") if project is not None else {}
         return {
             "project": project,
             "prompt": project_prompts.get(name, self.prompts.get(name, _PROMPTS[name]["prompt"])),
@@ -379,7 +389,7 @@ def set_writing_field(db, project, field, value):
 
 def set_agent_prompt(db, project, prompt, value):
     if prompt not in _PROMPTS:
-        raise ValueError("Choose checkpoint, end-task, knowledge, or inbox-follow-up.")
+        raise ValueError("Choose checkpoint, end-task, knowledge, inbox-follow-up, or goal-review.")
     return set_project_value(db, f"agent-prompt:{project}:{prompt}", value)
 
 
