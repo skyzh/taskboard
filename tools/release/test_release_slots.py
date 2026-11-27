@@ -10,11 +10,13 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 
+from operator_deploy import checked_main_receipt, receive_checked_main
 from publish_receipt import publish_outcome, release_event
 from release_plan import (
     MountedCheckFailed, ReleaseLayout, file_hash, run_release, switch_current, write_json,
 )
 from release_slots import ReleaseSlots
+from stage_transfer import stage_transfer
 
 
 PRIOR_PORT = 4397
@@ -153,6 +155,57 @@ class ReleaseSlotsTest(unittest.TestCase):
         self.assertEqual(result["failed_checks"], [{"name": "slot", "reason": "http_403"}])
         self.assertEqual((self.slots.selected(), self.layout.current.resolve()), (PRIOR_PORT, self.previous))
         self.assertEqual(self.events[-1], ("direct", CANDIDATE_PORT, PRIOR_PORT, self.previous))
+
+    def test_checked_retry_preserves_original_slot_journal_and_rolls_back_independently(self):
+        root = self.journal.parent
+        config = {"queue": str(root / "queue"), "queue_ticket": "T-1149"}
+        commit = "a" * 40
+        archive = root / "fixture.tar"
+        stage_transfer(self.artifact, self.digest, archive)
+        original = checked_main_receipt(config, commit)
+
+        def run(arguments, **options):
+            if arguments[:3] == ["systemctl", "--user", "stop"]:
+                self.processes.pop(arguments[3], None)
+                return CompletedProcess(arguments, 0, stdout="")
+            return self.systemd(arguments, **options)
+
+        self.slots.run = run
+        verified = Mock(return_value=[{
+            "schema_version": 1, "status": "pass", "manifest_sha256": self.digest,
+            "checks": [{"status": "pass"}],
+        }])
+        preflight = Mock()
+
+        def submit(attempt=None, healthy=self.smoke):
+            self.journal = checked_main_receipt(config, commit, attempt).with_suffix(".activation")
+            with archive.open("rb") as source:
+                return receive_checked_main(
+                    config, self.layout, commit, self.digest, self.base, source, verified, self.fail, healthy,
+                    slots=self.slots, attempt=attempt, preflight=preflight if attempt else None,
+                )
+
+        self.unhealthy_slot = CANDIDATE_PORT
+        rejected = submit()
+        self.assertEqual((rejected["status"], rejected["reason_code"]), ("rejected", "candidate_slot_unavailable"))
+        original_bytes = original.read_bytes()
+        journal_bytes = original.with_suffix(".activation").read_bytes()
+        self.assertEqual(submit(), rejected)
+        self.unhealthy_slot = None
+        rolled = submit("1" * 32, lambda digest: digest == self.base)
+        self.assertEqual((rolled["status"], rolled["active"]), ("rolled_back", self.base))
+        self.assertEqual((self.slots.selected(), self.layout.current.resolve()), (PRIOR_PORT, self.previous))
+        self.assertEqual(rolled["retry_of"], rejected["release_id"])
+        events = list(self.events)
+        self.assertEqual(submit("1" * 32), rolled)
+        self.assertEqual(self.events, events)
+        released = submit("2" * 32)
+        self.assertEqual((released["status"], released["active"]), ("released", self.digest))
+        self.assertEqual((self.slots.selected(), self.layout.current.resolve()), (CANDIDATE_PORT, self.candidate))
+        self.assertEqual(preflight.call_count, 2)
+        self.assertEqual(verified.call_count, 3)
+        self.assertEqual(original.read_bytes(), original_bytes)
+        self.assertEqual(original.with_suffix(".activation").read_bytes(), journal_bytes)
 
     def check_command_failure(self, stage, error, expected):
         command = "systemctl" if stage == "stop" else "systemd-run"
