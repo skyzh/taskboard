@@ -6452,6 +6452,56 @@ class TasksServiceTest(unittest.TestCase):
             })
             self.assertEqual(self.action(owner, "my-goal-occurrences")["items"], [])
 
+    def test_signed_standing_explore_and_review_keep_separate_occurrences(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        ticket = "T-1"
+
+        def occurrences():
+            return self.action(owner, "my-goal-occurrences")["items"]
+
+        def complete(item, note):
+            return self.action(owner, "complete-goal-occurrence", {
+                "id": ticket, "occurrence_key": item["key"], "note": note,
+            })
+
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.action(owner, "save-goal", {
+                "project": "T", "kind": "standing", "summary": "Improve the sample release.",
+            })
+            self.action(owner, "set-goal-review-time", {"id": ticket, "time": "09:00"})
+            explore, review = occurrences()
+            self.assertEqual((explore["kind"], review["kind"]), ("explore", "review"))
+            first = complete(explore, "Check one release sample.")
+            self.assertEqual(complete(explore, "Check one release sample."), first)
+            self.assertEqual(occurrences(), [review])
+            self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "parked")
+
+            self.action(owner, "save-goal", {
+                "project": "T", "kind": "standing", "summary": "Improve the sample release.",
+                "keep_exploring": True, "stopping_criterion": "Stop after checking two release samples.",
+            })
+            continued, scheduled = occurrences()
+            self.assertNotEqual(continued["key"], explore["key"])
+            self.assertEqual(scheduled, review)
+            self.action(owner, "advance-task", {
+                "id": ticket, "transition": "start", "note": "Take the second sample.",
+            })
+            self.assertEqual(complete(continued, "Check the second sample.")["occurrence_key"], continued["key"])
+            self.action(owner, "advance-task", {
+                "id": ticket, "transition": "park", "note": "Two samples checked.", "standing_pass": "criterion-met",
+            })
+            self.assertEqual(occurrences(), [review])
+            self.assertNotEqual(complete(review, "Record the scheduled synthesis.")["event_id"], first["event_id"])
+            self.assertEqual(occurrences(), [])
+            self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "parked")
+
+        with patch("tasks_core.timestamp", return_value="2030-04-02T16:00:00Z"):
+            next_explore, next_review = occurrences()
+            self.assertEqual((next_explore["kind"], next_review["kind"]), ("explore", "review"))
+            self.assertNotEqual(next_explore["key"], continued["key"])
+            self.assertNotEqual(next_review["key"], review["key"])
+
     def test_workflow_prompts_follow_signed_work_without_changing_selection(self):
         from tasks_guidance import AgentGuidance
 

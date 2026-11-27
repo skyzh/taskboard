@@ -148,16 +148,16 @@ def occurrence_receipt(db, number, occurrence_key):
 
 
 def occurrences(db, owner, project, now):
-    """Offer the dated goal's daily Explore and each due scheduled Review independently."""
+    """Offer daily Explore and scheduled Review independently on the same goal."""
     daily = {row["id"]: row["review_time"] for row in schedule_rows(db, owner, project)}
     day = now.date().isoformat()
     for row in goals.goal_rows(db, [owner], project):
         number = row["id"]
         review_time = daily.get(number)
-        if not ring1.visible(db, row["project_prefix"], owner):
+        if row["state"] == "closed" or not ring1.visible(db, row["project_prefix"], owner):
             continue
         ticket = projects.row_reference(row)
-        if row["kind"] != "standing" and goals.exploration_available(db, row, now):
+        if row["state"] in ("parked", "ready", "in_progress") and goals.exploration_available(db, row, now):
             key = f"explore:{ticket}:{day}"
             completed = occurrence_receipt(db, number, key)
             if completed is None:

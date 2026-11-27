@@ -1031,9 +1031,9 @@ def change_task(db, args, links, *, automation=None):
                 review = db.execute("SELECT review_time FROM goal_review_times WHERE task_id = ?", (task["id"],)).fetchone()
                 if review is None:
                     raise ValueError("Set a daily Pacific goal review time before parking for the criterion.")
-                goal_pass_context.update(goal_criterion_met=True, goal_review_time=review["review_time"])
-                if goal_kind != "standing":
-                    goal_pass_context["goal_explore_only"] = True
+                goal_pass_context.update(
+                    goal_criterion_met=True, goal_review_time=review["review_time"], goal_explore_only=True,
+                )
             else:
                 raise ValueError("Record a pass with progress, or park after the saved stopping criterion is met.")
         elif criterion is not None and (
