@@ -184,7 +184,10 @@ def checkpoint(board, owner, handle_offer, *, idle_handoff=None):
         if idle_handoff is not None and raft_idle(actor["username"]):
             result = board.invoke("idle-goal-offer", {"handoff_id": str(idle_handoff)}, write=True)
             if goal := result["offer"]:
-                return {"outcome": "goal-offered", "board": context["board"], **goal}
+                offered = {"outcome": "goal-offered", "board": context["board"], **goal}
+                if prompt := result.get("goal_review_prompt"):
+                    offered["goal_review_prompt"] = prompt
+                return offered
         return {"outcome": "empty"}
 
     decision = handle_offer({**offer, "board": context["board"]})
