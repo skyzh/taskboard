@@ -61,7 +61,7 @@ raft proc logs taskboard-ready-pilot
 
 The watcher waits until the verified agent has been observed Idle for more than 30 continuous seconds before selecting work. It confirms Idle again before requesting a wake. It polls at ten-second intervals for at most five minutes, deduplicates scheduled and fired reminders for the same Ready event or named review run, and exits after one request. Read the recipient's resulting turn to confirm delivery. The watcher never changes task ownership or starts a ticket on behalf of the agent. The receiving turn claims or records a concrete deferral using the checkpoint above.
 
-Add `--idle-delay-seconds 120` to wait two minutes from the first Idle sample. Busy, stopped, or unavailable status resets the timer. A shorter setting still requires more than 30 seconds. With a configured delay, the result records the observed idle time and number of status checks.
+Add `--idle-delay-seconds 120` to wait two minutes from the first Idle sample. Busy, stopped, or unavailable status resets the timer. An online status without an Idle qualifier is unavailable for this check. A shorter setting still requires more than 30 seconds. With a configured delay, the result records the observed idle time and number of status checks.
 
 For a two-pickup pilot, add `--two-pickups` to the watcher command. The process waits for Taskboard to record the first Start, then begins a new idle check for the next Ready ticket. It returns `two-pickups-confirmed` only after verifying both starts. A concrete deferral on that exact Ready event ends the pilot with `deferred`. The same five-minute limit covers both turns, and an unconfirmed offer ends without sending another.
 

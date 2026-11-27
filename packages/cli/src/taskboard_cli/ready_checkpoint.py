@@ -628,7 +628,7 @@ def raft_status(handle):
     status = next((line for line in header if line.startswith("Status: ")), None)
     if "Kind: agent" not in header or not any(line.casefold() == f"user: @{handle}".casefold() for line in header):
         return "unavailable"
-    if status in {"Status: active; online", "Status: active; online: Idle"}:
+    if status == "Status: active; online: Idle":
         return "idle"
     if status and status.startswith("Status: active; working"):
         return "working"

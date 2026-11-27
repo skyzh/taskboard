@@ -1391,15 +1391,46 @@ class ReadyCheckpointTest(unittest.TestCase):
                 self.assertEqual(result["outcome"], "timed-out")
 
 
+    def test_online_without_idle_resets_the_window_and_blocks_dispatch(self):
+        self.avery.invoke("create-task", {"title": "Already Ready", "step": "Read it."}, write=True)
+        clock = 0
+        attempts = []
+        wakes = []
+
+        def sleep_for(seconds):
+            nonlocal clock
+            clock += seconds
+
+        def read_raft(*_):
+            qualifier = "" if clock == 10 or (clock == 60 and attempts) else ": Idle"
+            return f"## User\n\nUser: @Avery\nKind: agent\nStatus: active; online{qualifier}\n"
+
+        def notify(offer, can_wake):
+            attempts.append(clock)
+            if can_wake():
+                wakes.append(clock)
+                return "wake-requested"
+            return None
+
+        with (
+            patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+            patch("taskboard_cli.ready_checkpoint.sleep", side_effect=sleep_for),
+            patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=read_raft),
+        ):
+            result = watch_idle(self.avery, "Avery", raft_idle, notify, duration=130)
+        self.assertEqual(attempts, [60, 110])
+        self.assertEqual(wakes, [110])
+        self.assertEqual(result["outcome"], "wake-requested")
+
     def test_raft_idle_uses_status_header_and_exact_identity(self):
-        idle = "## User\n\nUser: @Avery\nKind: agent\nStatus: active; online\n"
-        busy = idle.replace("active; online", "active; working: Tool finished")
-        description = "Description (written by them, not by Raft): Example\nStatus: active; online\n"
-        explicit_idle = idle.replace("active; online", "active; online: Idle")
-        stopped = idle.replace("active; online", "stopped")
-        statuses = [idle, explicit_idle, busy + description, stopped, explicit_idle]
+        online = "## User\n\nUser: @Avery\nKind: agent\nStatus: active; online\n"
+        busy = online.replace("active; online", "active; working: Tool finished")
+        description = "Description (written by them, not by Raft): Example\nStatus: active; online: Idle\n"
+        explicit_idle = online.replace("active; online", "active; online: Idle")
+        stopped = online.replace("active; online", "stopped")
+        statuses = [online, explicit_idle, busy + description, stopped, explicit_idle]
         with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=statuses):
-            self.assertTrue(raft_idle("avery"))
+            self.assertFalse(raft_idle("avery"))
             self.assertTrue(raft_idle("avery"))
             self.assertFalse(raft_idle("avery"))
             self.assertFalse(raft_idle("avery"))
