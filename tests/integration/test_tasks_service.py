@@ -5664,6 +5664,31 @@ class TasksServiceTest(unittest.TestCase):
         self.action(client, "context", status=401)
         self.action(client, "context", status=401)
 
+    def test_signed_preflight_reports_mismatched_registration_and_fresh_access_recovers(self):
+        app = self.app()
+        agent, _ = self.login(app, "Avery")
+        self.action(agent, "context")
+        self.action(agent, "my-next", query_string={"project": "T"})
+
+        new_binding = "fixture-replacement-client"
+        self.provider.people["Avery"]["client_id"] = new_binding
+        self.call(app.test_client(), "/api/v1/release")
+        for check in ("context", "my-next"):
+            response = self.call(agent, "/api/v1/raft/" + check, status=403 if check == "context" else 401)
+            self.assertNotIn(new_binding, response.get_data(as_text=True))
+            if check == "context":
+                self.assertEqual(response.json["error"], "WRONG_RAFT_CLIENT")
+                self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.provider.issued.remove("Avery")
+        self.call(app.test_client(), "/auth/callback", query_string={"code": "Avery"}, status=403)
+
+        self.provider.people["Avery"]["client_id"] = CLIENT
+        self.provider.issued.remove("Avery")
+        recovered, _ = self.login(app, "Avery")
+        self.action(recovered, "context")
+        self.action(recovered, "create-task", {"title": "Recovery fixture", "step": "Check signed pickup."})
+        self.assertEqual(self.action(recovered, "my-next", query_string={"project": "T"})["work"]["key"], "T-1")
+
     def test_ready_watcher_recovers_from_userinfo_outage_and_stops_on_denial(self):
         app = self.app()
         for name, provider_status, action_status in (("Avery", 503, 503), ("Blake", 401, 401)):

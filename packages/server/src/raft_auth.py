@@ -140,7 +140,7 @@ class _Failure(Enum):
     PROVIDER = (502, "RAFT_UNAVAILABLE", "Try again when Raft is available.")
     IDENTITY = (403, "IDENTITY_REJECTED", "Raft did not verify a valid board identity.")
     SERVER = (403, "WRONG_RAFT_SERVER", "Sign in through this board's Raft Server.")
-    CLIENT = (403, "WRONG_RAFT_CLIENT", "Sign in to the Raft App for this board.")
+    CLIENT = (403, "WRONG_RAFT_CLIENT", "Ask the operator to verify the Raft app registration and Taskboard binding.")
     SCOPE = (403, "RAFT_SCOPE_REQUIRED", "Sign in with the openid and profile scopes.")
     ORIGIN = (403, "ORIGIN_REJECTED", "Sign out from the board's origin.")
 
@@ -568,6 +568,11 @@ class RaftAuth:
     def identity_temporarily_unavailable(self) -> bool:
         return g.get("_raft_board_identity_temporarily_unavailable", False)
 
+    def client_binding_error(self) -> Response | None:
+        if g.get("_raft_board_client_mismatch"):
+            return self._error(_Failure.CLIENT)
+        return None
+
     def identity_uses_saved_profile(self) -> bool:
         return g.get("_raft_board_identity_uses_saved_profile", False)
 
@@ -612,6 +617,8 @@ class RaftAuth:
         except _Rejected as error:
             if error.temporary:
                 g._raft_board_identity_temporarily_unavailable = True
+            if error.failure == _Failure.CLIENT:
+                g._raft_board_client_mismatch = True
             # Transient provider failures deny the request but allow a later
             # check to recover. Failed identity gates invalidate the session.
             if error.failure != _Failure.PROVIDER:

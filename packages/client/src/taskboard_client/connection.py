@@ -14,7 +14,16 @@ BEFORE_DISPATCH = {"INTEGRATION_NOT_FOUND", "INTEGRATION_ACTION_NOT_FOUND", "INV
 APP_REJECTION = {400, 401, 403, 404, 405, 409, 413, 415, 422}
 TEMPORARY_READ_STATUS = {502, 503, 504}
 READ_FAILURE = "Shared read failed. Check the registered app and your Raft session."
+RAFT_BINDING_GUIDANCE = (
+    "Ask the operator to verify the Raft app registration and Taskboard binding. "
+    "After recovery, verify a fresh signed queue read."
+)
 ACTION_RESPONSE = re.compile(r"(?:Error: )?service action failed \(HTTP ([1-5][0-9]{2})\)")
+SESSION_HANDOFF_FAILED = "INTEGRATION_SESSION_HANDOFF_FAILED"
+HANDOFF_BINDING_RESPONSE = re.compile(
+    r"(?:Error: )?Raft grant is active, but the service session handoff failed before a session was stored "
+    r"\(callback http/HTTP_403 at [^\r\n]+\)\. Service response: WRONG_RAFT_CLIENT(?: — [^\r\n]*)?"
+)
 CORRELATION_ID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
 
 
@@ -112,10 +121,10 @@ def carrier_diagnostic(result, reply, failure, code):
         output = "empty"
     diagnostic = {"exit_code": result.returncode, "output": output}
     if code:
-        known = code in BEFORE_DISPATCH or code == "INTEGRATION_INVOKE_FAILED"
+        known = code in BEFORE_DISPATCH or code in {"INTEGRATION_INVOKE_FAILED", SESSION_HANDOFF_FAILED}
         diagnostic["error_code"] = code if known else "other"
     domain = failure.get("fault_domain")
-    if domain in ("integration_action", "integration_action_transport"):
+    if domain in ("integration_action", "integration_action_transport", "integration_session_transport"):
         diagnostic["fault_domain"] = domain
     return diagnostic
 
@@ -147,6 +156,8 @@ def invocation_failure(result, reply, failure, code, service, action):
         code is None and reply.get("ok") is False and isinstance(reply.get("error"), dict)
     )
     carrier_message = message if failure else result.stderr.partition("\n")[0]
+    if code == SESSION_HANDOFF_FAILED and HANDOFF_BINDING_RESPONSE.fullmatch(str(carrier_message).strip()):
+        return RAFT_BINDING_GUIDANCE, 403, "raft-client-binding"
     header, _, embedded_body = str(carrier_message).partition("; response body: ")
     match = ACTION_RESPONSE.fullmatch(header.strip())
     status = int(match[1]) if carrier_response and domain != "integration_action_transport" and match else None
@@ -164,6 +175,8 @@ def invocation_failure(result, reply, failure, code, service, action):
         if not isinstance(body, dict):
             body = {}
         explanation = body.get("error")
+        if status == 403 and (body.get("code") == "WRONG_RAFT_CLIENT" or explanation == "WRONG_RAFT_CLIENT"):
+            return RAFT_BINDING_GUIDANCE, status, "raft-client-binding"
         if isinstance(explanation, dict):
             explanation = explanation.get("message")
         for text in (body.get("hint"), explanation):
@@ -267,7 +280,7 @@ class SharedBoard:
                 raise RuntimeError(f"Shared write rejected. {reason}" if reason else unknown)
             raise SharedReadError(
                 f"Shared read failed. {reason}" if reason else unknown,
-                reason=f"http-{status}" if status is not None else category,
+                reason=category or (f"http-{status}" if status is not None else "unclassified"),
                 retryable=status in TEMPORARY_READ_STATUS,
                 carrier=carrier_diagnostic(result, reply, failure, code),
             )

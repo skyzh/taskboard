@@ -167,6 +167,26 @@ portal route in a reviewed operator window before removing `slots`.
 
 A service can take a few seconds to accept requests after its restart command returns. The operator retries temporary mount health failures up to eight times with a one-second pause. A wrong bundle, avatar, or access result fails the release immediately. Private outcome receipts record check names and reasons for both activation and rollback failures.
 
+### Check a Raft app binding change
+
+Before changing a registered Raft app client, the registration owner and
+Taskboard operator agree on the target registration, the paired slot update,
+and the rollback. From the designated agent's registered session, record
+whether `./tasks --shared context` and `./tasks --shared next --project T`
+succeed against the expected board. Use the same signed checks from a fresh
+session immediately after the paired change, before restarting managed
+watchers. Use the deployment's project prefix in place of `T` when needed.
+
+`WRONG_RAFT_CLIENT` means the client in Raft's verified response differs from
+the one Taskboard expects. Public health can still pass. The owner and operator
+compare the registered client and each slot's binding using their authorized
+surfaces. If the change was accidental, restore the prior registration. If it
+was intended, update the paired slot settings and reload through the operator
+path. Verify signed Context and Inbox, then restore the existing watcher and
+record its first eligible pickup. Record only timestamps, check outcomes and the
+typed reason in shared receipts. Keep settings, tokens and upstream bodies in
+the authorized operator path.
+
 Each completed job has an outcome JSON under the private queue's `results/` directory. It includes the candidate, resulting active manifest, check or stale-base reason, queue time and review-to-result time. Re-running the operator after a receipt delivery failure sends the saved result without a second activation. To forward a stored outcome independently, run `publish_receipt.py <outcome.json>` through the already signed-in operator integration.
 
 Before changing the active release, the operator records the prior release and passing checks in the private activation journal. A retry checks the active release, the recorded restart and mounted health. When the restart was interrupted or unconfirmed, the operator restarts the selected release before reporting success.
