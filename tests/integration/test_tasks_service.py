@@ -8030,10 +8030,15 @@ class TasksServiceTest(unittest.TestCase):
                 first = self.call(client, route, query_string={**params, "limit": 1}).json["items"][0]
                 self.assertEqual(first["key"], key)
                 self.assertEqual(self.call(client, route + "/next", query_string=params).json,
-                                 {"count": expected_count, "next": {"id": first["id"], "key": key}})
+                                 {"count": expected_count, "next": {
+                                     "id": first["id"], "key": key, "decision_request_id": first["event_id"],
+                                 }})
         self.action(agent, "advance-task", {"id": "T-2", "transition": "withdraw-decision", "reason": "Closed elsewhere.", "note": "Read the next step."})
+        remaining, = self.call(sam, route, query_string={"project": "T"}).json["items"]
         self.assertEqual(self.call(sam, route + "/next", query_string={"project": "T"}).json,
-                         {"count": 1, "next": {"id": 1, "key": "T-1"}})
+                         {"count": 1, "next": {
+                             "id": 1, "key": "T-1", "decision_request_id": remaining["event_id"],
+                         }})
         self.action(agent, "advance-task", {"id": "T-1", "transition": "withdraw-decision", "reason": "Closed elsewhere.", "note": "Read the next step."})
         self.assertEqual(self.call(sam, route + "/next", query_string={"project": "T"}).json, {"count": 0, "next": None})
 

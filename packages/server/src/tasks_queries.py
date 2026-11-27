@@ -2726,7 +2726,7 @@ class BoardQueries:
         row = self.db.execute(
             f"""
             WITH current_tasks AS ({current})
-            SELECT id, project_prefix, project_number, COUNT(*) OVER () AS total
+            SELECT id, project_prefix, project_number, event_id, COUNT(*) OVER () AS total
             FROM current_tasks
             WHERE state = 'human_review' AND waiting_on = ?
               AND (? IS NULL OR project_prefix = ?)
@@ -2735,7 +2735,9 @@ class BoardQueries:
         ).fetchone()
         if row is None:
             return {"count": 0, "next": None}
-        return {"count": row["total"], "next": {"id": row["id"], "key": projects.row_reference(row)}}
+        return {"count": row["total"], "next": {
+            "id": row["id"], "key": projects.row_reference(row), "decision_request_id": row["event_id"],
+        }}
 
     def open_notification_count(self, recipient, *, today, project=None):
         scope, bindings = self.project_visibility()

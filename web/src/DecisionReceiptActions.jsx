@@ -6,6 +6,7 @@ import { taskHref } from './shared.jsx'
 
 export function decisionTicketHref(task, project) {
   const context = new URLSearchParams({ 'decision-scope': project || 'all' })
+  if (task.decision_request_id) context.set('decision-request', task.decision_request_id)
   return `${taskHref(task.id, task.key)}?${context}`
 }
 
@@ -13,7 +14,7 @@ export function decisionsHref(project) {
   return projectHref('#notifications-needs-me', project)
 }
 
-export default function DecisionReceiptActions({ project, revision }) {
+export default function DecisionReceiptActions({ project, revision, showReturn = true }) {
   const path = queryPath('/notifications/decisions/next', projectFilters(project))
   const queue = useResource(path, revision)
   const navigate = useBoardNavigation()
@@ -64,7 +65,7 @@ export default function DecisionReceiptActions({ project, revision }) {
       {next && <button className="decision-return" type="button" disabled={checking} onClick={openNext}>
         Next decision ({queue.data.count} in inbox)
       </button>}
-      {' '}<BoardLink className="decision-return" href={decisionsHref(project)} onClick={cancelNavigation}>Return to decisions</BoardLink>
+      {showReturn && <> <BoardLink className="decision-return" href={decisionsHref(project)} onClick={cancelNavigation}>Return to decisions</BoardLink></>}
       {message && <p className="section-message" role="status">{message}</p>}
     </>
   )

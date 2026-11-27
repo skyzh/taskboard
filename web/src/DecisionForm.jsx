@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useAnswerCelebrations } from './AnswerCelebrations.jsx'
 import { BoardLink } from './BoardNavigation.jsx'
+import { useResource } from './data.js'
 import { decisionRequest, isUncertainDecision, watchDecision } from './decisionRecovery.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
-import { eventHref, ResourceStatus, signInHref, taskHref } from './shared.jsx'
+import { EvidenceLinks, eventHref, ResourceStatus, signInHref, taskHref, useSignInHref } from './shared.jsx'
 
 const emptyDraft = { choice: '', other: false, note: '', details: '' }
 
@@ -51,6 +52,34 @@ function DecisionResult({ attempt, draft, receiptAction }) {
       )}
     </>
   )
+}
+
+export function LinkedDecision({ ticket, requestId, task, session, revision, onChanged, receiptAction }) {
+  const viewer = recipient(session)
+  const login = useSignInHref(`${taskHref(ticket)}?decision-request=${requestId}`)
+  const receipt = useResource(viewer ? `/tasks/${encodeURIComponent(ticket)}/decision/${requestId}` : null, revision)
+  if (session.pending || (session.error && session.error.status !== 401)) {
+    return <ResourceStatus resource={session} label="your session" />
+  }
+  if (session.error?.status === 401 || (!viewer && session.data?.actor?.kind !== 'agent')) {
+    return <p><a href={login}>Sign in to open this decision</a></p>
+  }
+  if (!viewer || receipt.error?.status === 404 || receipt.error?.status === 403) {
+    return <p role="status">This decision request is unavailable to your account.</p>
+  }
+  if (receipt.error?.status === 401) return <p><a href={login}>Sign in to open this decision</a></p>
+  if (!receipt.data || receipt.error) return <ResourceStatus resource={receipt} label="this decision request" />
+  if (receipt.data.status !== 'open') {
+    return <DecisionResult attempt={{ ...receipt.data, request: { id: requestId } }} receiptAction={receiptAction} />
+  }
+  const current = task && String(actionableRequestId(task, viewer)) === requestId
+  return <>
+    {current ? <>
+      <Markdown text={task.note} />
+      <EvidenceLinks links={task.links} />
+    </> : <ResourceStatus resource={{ pending: true }} label="this decision request" />}
+    <DecisionForm task={current ? task : undefined} session={session} onChanged={onChanged} receiptAction={receiptAction} />
+  </>
 }
 
 export default function DecisionForm({ task, session, onChanged, onAnswerStarted, receiptAction }) {
