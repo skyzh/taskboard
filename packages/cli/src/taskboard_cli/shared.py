@@ -349,7 +349,11 @@ def shared_write(board, args, *, context):
         if getattr(args, "details", None) is not None:
             data["details"] = args.details
         if command == "log":
-            action = "record-checkpoint" if args.checkpoint else "record-activity"
+            action = "record-activity"
+            if args.decision:
+                action = "record-decision"
+            elif args.checkpoint:
+                action = "record-checkpoint"
         elif command == "transfer":
             action = "handoff"
             if context.get("handoff_recipient_lookup") is True and not is_stable_person_id(args.dri, None):
@@ -602,7 +606,7 @@ def shared_command(args):
         raise ValueError("Open the task on the shared board and sign in as the assigned human.")
     if command not in READS | WRITES:
         raise ValueError(f"{command} is unavailable in shared mode. Use the appropriate offline or board workflow.")
-    if command == "log" and not args.checkpoint:
+    if command == "log" and not (args.checkpoint or args.decision):
         merge_details(args.details)
     service = os.environ.get("TASKS_RAFT_SERVICE", "tasks-board")
     board = DirectBoard(direct_url, **direct_options) if direct_url else SharedBoard(service)

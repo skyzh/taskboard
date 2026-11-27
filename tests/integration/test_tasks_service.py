@@ -4207,6 +4207,46 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((paused["state"], paused["note"]), ("waiting", example["current_handoff"]))
         self.assertEqual(self.call(fresh, "/api/v1/activity", query_string={"action": "checkpoint"}).json["items"], [entry])
 
+    def test_ticket_decision_reuses_inbox_answer_and_preserves_checkpoint_and_handoff(self):
+        app = self.app(portal_reader=True, project_roster={self.provider.people["Avery"]["sub"]: "Avery"})
+        owner, owner_id = self.login(app, "Avery")
+        human, human_id = self.login(app, "Sam")
+        reader, _ = self.login(app, "Blake")
+        self.action(owner, "create-task", {"title": "Choose an export format", "step": "Review examples."})
+        task = "/api/v1/tasks/T-1"
+        decision = {"note": "Keep the export ID", "details": "Filenames repeat. Update the retry fixture.",
+                    "url": "https://example.test/fixture"}
+        self.call(app.test_client(), f"{task}/activity/decision", method="POST", json=decision, status=401)
+        self.action(reader, "record-decision", {"id": "T-1", **decision}, status=403)
+        self.action(owner, "record-checkpoint", {"id": "T-1", "note": "Found a repeated filename."})
+        handoff = self.call(owner, task).json["task"]
+        self.call(human, f"{task}/activity/decision", method="POST", json=decision)
+        code, output, error = self.shared_cli(
+            owner, "log", "T-1", "Keep both formats", "--decision", "--details", "Both readers need their format.",
+        )
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("T-1 · Decision", output)
+        self.assertEqual(self.call(owner, task).json["task"], handoff)
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Review examples."})
+        self.action(owner, "advance-task", {
+            "id": "T-1", "transition": "assign-human", "on": human_id, "note": "Which format goes first?",
+        })
+        request, = self.call(human, "/api/v1/notifications/decisions").json["items"]
+        self.call(human, f"{task}/decision", method="POST",
+                  json={"request_id": request["event_id"], "note": "CSV comes first."})
+        answer = self.call(human, f"{task}/decision/{request['event_id']}").json["answer"]
+        events = self.call(owner, f"{task}/activity").json["items"]
+        self.assertIn("Checkpoint", [event["label"] for event in events])
+        direct = [event for event in events if event["context"].get("decision")]
+        self.assertEqual([(event["label"], event["actor"]) for event in direct], [
+            ("Decision", owner_id), ("Decision", human_id),
+        ])
+        self.assertEqual(direct[1]["details"], decision["details"])
+        self.assertEqual(direct[1]["links"][0]["url"], decision["url"])
+        filtered = self.call(owner, "/api/v1/activity", query_string={"action": "decision"}).json["items"]
+        self.assertEqual([event["id"] for event in filtered], [answer["event_id"], *[event["id"] for event in direct]])
+        self.assertEqual(filtered[0]["context"]["request_event_id"], request["event_id"])
+
     def test_default_prompts_match_every_standalone_integration_template(self):
         app = self.app(portal_reader=True)
         author, _ = self.login(app, "Avery")

@@ -30,6 +30,7 @@ export const actions = {
   update: 'Progress',
   log: 'Activity logged',
   checkpoint: 'Checkpoint',
+  decision: 'Decision',
   wait: 'Wait recorded',
   resume: 'Resumed',
   'assign-human': 'Decision requested',
@@ -103,6 +104,10 @@ export function isCheckpointActivity(event) {
   return event.action === 'log' && event.context?.checkpoint === true
 }
 
+export function isDecisionActivity(event) {
+  return event.action === 'decide' || (event.action === 'log' && event.context?.decision === true)
+}
+
 export function ActivityMark({ event }) {
   const context = event.context
   let kind = event.action
@@ -121,6 +126,10 @@ export function ActivityMark({ event }) {
     kind = 'report'
     label = 'Worker report disposition'
     Icon = ClipboardList
+  } else if (event.action === 'log' && isDecisionActivity(event)) {
+    kind = 'decide'
+    label = actions.decision
+    Icon = activityIcons.decide
   } else if (isCheckpointActivity(event)) {
     kind = 'checkpoint'
     label = actions.checkpoint

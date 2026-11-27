@@ -114,6 +114,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "edit-checklist": ("POST", "id action", "position label"),
             "set-priority": ("POST", "id priority", ""),
             "record-activity": ("POST", "id note", "details url label"),
+            "record-decision": ("POST", "id note details", "url label"),
             "record-checkpoint": ("POST", "id note", "details url label"),
             "delegate": ("POST", "id worker role brief", "effort force_text"),
             "worker-handoff": ("POST", "run transition", "note handle result subagent url label force_text"),

@@ -17,6 +17,7 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_start", "taskboard_update", "taskboard_done", "taskboard_reopen", "taskboard_create_project",
             "taskboard_assign_human", "taskboard_raise_attention",
             "taskboard_activity", "taskboard_create_ticket", "taskboard_edit_ticket", "taskboard_log",
+            "taskboard_record_decision",
             "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel", "taskboard_checkpoint",
             "taskboard_recurring_schedule", "taskboard_maintenance_schedule", "taskboard_goals", "taskboard_wake_subscriptions",
             "taskboard_knowledge_areas", "taskboard_knowledge_sweep", "taskboard_worker_checkpoint",
@@ -35,6 +36,15 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(tools["taskboard_checkpoint"].annotations.idempotent_hint)
         self.assertEqual(tools["taskboard_checkpoint"].input_schema["required"], ["ticket", "note"])
         self.assertFalse(tools["taskboard_create_ticket"].annotations.idempotent_hint)
+
+    async def test_record_decision_routes_choice_and_rationale(self):
+        board = SharedBoard("tasks-board")
+        args = {"ticket": "T-1", "note": "Use CSV", "details": "Keep it tabular. Update the export."}
+        with patch.object(board, "invoke", return_value={"receipt": "T-1 · Decision"}) as invoke:
+            await build_server(board).call_tool("taskboard_record_decision", args)
+            invoke.assert_called_once_with("record-decision", {
+                "id": "T-1", "note": args["note"], "details": args["details"],
+            }, write=True)
 
     async def test_local_dri_tools_expose_project_actions_and_keep_the_default_queue(self):
         board = DirectBoard("https://example.test/tasks", local_dri="local-dri:11111111-1111-1111-1111-111111111111")

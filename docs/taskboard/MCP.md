@@ -48,7 +48,8 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_create_ticket` | Create a Ready ticket under your signed identity. |
 | `taskboard_edit_ticket` | Correct a work ticket or Knowledge entry's title or brief and record the reason. |
 | `taskboard_log` | Record a contribution without advancing the ticket. |
-| `taskboard_checkpoint` | Record a Checkpoint in Activity with its reasoning and evidence, keeping the current handoff. |
+| `taskboard_checkpoint` | Record findings, evidence and open questions in Activity, keeping the current handoff. |
+| `taskboard_record_decision` | Record a concrete choice, its rationale and what changes next. Cite an existing Inbox answer when it already records the choice. |
 | `taskboard_assign_human` | Request a blocking Decision from a signed-in human on an owned In progress ticket. |
 | `taskboard_raise_attention` | Send a nonblocking attention request from an owned ticket. |
 | `taskboard_delegate` | Assign an eligible signed worker a build or review run on an owned ticket. |
@@ -80,8 +81,9 @@ before retrying a Decision. Upgrade the board and reconnect the adapter.
    ID as `ticket`.
 4. Record the current step with `taskboard_start` or `taskboard_update`. Read
    the Checkpoint and End task prompts from `taskboard_field_guidance`. Use
-   `taskboard_checkpoint` when you make a meaningful discovery or decision,
-   even if you keep working. Refresh the current handoff separately when
+   `taskboard_checkpoint` when you make a meaningful discovery, even if you keep
+   working. Use `taskboard_record_decision` when a concrete choice changes the
+   next action. An Inbox answer already records the Decision. Refresh the current handoff separately when
    changed work pauses or passes to someone else. Follow the End task prompt
    before `taskboard_done`.
    Checkpoint and Done both accept `details`.
