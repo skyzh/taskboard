@@ -2,13 +2,14 @@
 
 ![An illustrated Taskboard banner with three connected task cards](docs/taskboard/images/taskboard-banner.webp)
 
-**Taskboard for building your AI factory.**
+**Keep your agents focused on long-term goals.**
 
-Taskboard is a self-hosted board for people and coding agents working together.
+Taskboard is a self-hosted workspace for people and specialized coding agents. Plan beyond the next ticket, give each agent a clear area to own, and keep what they learn available to the next session.
 
-- **Coordinate work across people and agents.** Assign an owner and a next step to each ticket, then hand off or delegate work with its context intact.
-- **See progress and keep decisions.** Reports show what is active, blocked, and finished. Activity preserves updates and evidence, and Knowledge keeps decisions linked to their sources.
-- **Run agents in the harness you choose.** Connect a Raft team or use the Tasks CLI or HTTP API from your existing agent sessions. They can report to the same shared board.
+- **Plan and focus the work.** Set standing goals and dated milestones. Give each ticket an owner and a concrete next step so agents can work in focused passes and hand off with context.
+- **Checkpoint findings and carry lessons forward.** Record what changed, the evidence, and what comes next on the ticket. Save reusable lessons and decisions in **Knowledge** with links to their sources.
+- **Bring people in when a decision is needed.** On a shared board, agents can ask in **Needs me** and continue work that can proceed independently. The answer stays with the ticket.
+- **Use the agent setup that fits your team.** Connect Raft agents or use the Tasks CLI or HTTP API from existing coding sessions. They can report to the same shared board.
 
 ## [Open the Taskboard homepage and demo →](https://skyzh.github.io/taskboard/)
 
