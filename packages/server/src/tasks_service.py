@@ -3841,6 +3841,40 @@ def create_app(
             actor["ledger_key"], today=pacific_day(ledger.timestamp()), project=project_scope(request.args),
         )}
 
+    def daily_inbox_refresh(actor):
+        if actor["kind"] != "agent":
+            return None
+        today = pacific_day(ledger.timestamp())
+        key = "inbox-guidance-day:" + actor["ledger_key"]
+        try:
+            connection = db()
+            previous = connection.execute("SELECT value FROM board_settings WHERE key = ?", (key,)).fetchone()
+            if previous and previous["value"] >= today:
+                return None
+            with tasks_storage.write(connection):
+                claimed = connection.execute(
+                    """
+                    INSERT INTO board_settings (key, value) VALUES (?, ?)
+                    ON CONFLICT (key) DO UPDATE SET value = excluded.value
+                    WHERE board_settings.value < excluded.value
+                    RETURNING key
+                    """, (key, today),
+                ).fetchone()
+        except Exception:
+            app.logger.exception("Could not record today's Inbox guidance check.")
+            return None
+        if claimed:
+            return "Review your Inbox follow-up prompt. Check the recipient’s current destination when sending or retrying a decision."
+        return None
+
+    def inbox_follow_up(connection, project, work, standing, actor):
+        if project is None:
+            if work:
+                project, _ = projects.identifier(work["key"])
+            elif standing:
+                project = standing[0]["project"]
+        return agent_guidance.inbox_follow_up(connection, project, actor)
+
     @app.get("/api/v1/notifications/work")
     def notification_work():
         actor = current_actor(required=True)
@@ -3850,11 +3884,14 @@ def create_app(
             items = list(query().actionable_work(owner, today=pacific_day(ledger.timestamp()), project=project))
             goal_context = goals.queue_context(connection, owner, project, principal=actor_key())
             standing = goal_context["standing_goals"]
-            return {
+            result = {
                 "items": items, **goal_context,
                 **({"standing_goal_guidance": goals.KEEP_EXPLORING if standing[0].get("keep_exploring")
                    else agent_guidance["standing-exploration"]} if not items and standing else {}),
             }
+            if actor["kind"] == "agent":
+                result["inbox_follow_up"] = inbox_follow_up(connection, project, items[0] if items else None, standing, owner)
+        return {**result, "inbox_refresh": daily_inbox_refresh(actor)}
 
     @app.get("/api/v1/notifications/needs-you")
     def needs_you():
@@ -4817,19 +4854,13 @@ def create_app(
             with tasks_storage.read(db()) as connection:
                 work = first_actionable_work(key, project)
                 result = {"work": work, **goals.queue_context(connection, key, project, principal=actor_key())}
-                guidance_project = project
-                if guidance_project is None:
-                    if work:
-                        guidance_project, _ = projects.identifier(work["key"])
-                    elif result["standing_goals"]:
-                        guidance_project = result["standing_goals"][0]["project"]
-                result["inbox_follow_up"] = agent_guidance.inbox_follow_up(connection, guidance_project, key)
+                result["inbox_follow_up"] = inbox_follow_up(connection, project, work, result["standing_goals"], key)
                 if candidates := query().wait_review_candidates(key, project):
                     result["wait_review"] = candidates
                 cue = agent_guidance["ready-review"]
                 if cue and work and work["kind"] in ("ready", "shared_ready") and not peer_asks.find(connection, work["id"]):
                     result["next_step"] = f"{agent_guidance.next_step(name, data, result)} {cue}"
-                return result
+            return {**result, "inbox_refresh": daily_inbox_refresh(actor)}
         if name == "my-goals":
             project = project_filter(data, use_default=True)
             with tasks_storage.read(db()) as connection:

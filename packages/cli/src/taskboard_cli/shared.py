@@ -462,27 +462,30 @@ def completion_guidance(board, reference, fallback=None, *, cue=None):
     project, _ = projects.identifier(reference)
     inbox = f"`./tasks --shared next --project {project}`"
     unavailable = f"Check your Inbox with {inbox}. The next item could not be loaded."
+    daily_guidance = ""
     try:
         result = completion_queue(cue, project)
         if result is None:
             result = board.invoke("my-next", {"project": project})
         if result.get("unavailable"):
             return unavailable
+        if result.get("inbox_refresh"):
+            daily_guidance = "\n".join(inbox_guidance_lines(result)) + "\n"
         if work := result["work"]:
             label = NEXT_LABELS.get(work["kind"], "Start Ready work")
-            return f"{label} on {work['key']} · {work['title']}. Read it with {inbox}."
+            return f"{daily_guidance}{label} on {work['key']} · {work['title']}. Read it with {inbox}."
         if result["standing_goals"]:
             goal = result["standing_goals"][0]
             if ticket := goal["ticket"]:
                 return (
-                    f"Standing goal {ticket} · {goal['summary']}\n"
+                    f"{daily_guidance}Standing goal {ticket} · {goal['summary']}\n"
                     f'{result["next_step"]}\nWhen eligible, run '
                     f'`./tasks --shared start {ticket} "<what you will check>"`.'
                 )
     except (SharedActionUnavailable, SharedReadError, KeyError, TypeError):
         # A failed or incomplete read cannot invalidate the earlier write receipt.
         return unavailable
-    return fallback or f"Check your Inbox with {inbox}."
+    return daily_guidance + (fallback or f"Check your Inbox with {inbox}.")
 
 
 def queue_goal_lines(result, url):
@@ -510,6 +513,18 @@ def queue_goal_lines(result, url):
     return lines
 
 
+def inbox_guidance_lines(result):
+    refresh = result.get("inbox_refresh")
+    if "inbox_refresh" in result and not refresh:
+        return []
+    lines = [refresh] if refresh else []
+    if follow_up := result.get("inbox_follow_up"):
+        scope = follow_up.get("project")
+        label = f"Inbox follow-up for {scope}" if scope else "Inbox follow-up"
+        lines.append(f"{label} · {follow_up['prompt']}")
+    return lines
+
+
 def shared_next(board, url, filters, actor):
     try:
         result = board.invoke("my-next", filters)
@@ -532,10 +547,7 @@ def shared_next(board, url, filters, actor):
             f'  To start preparation now, run `./tasks --shared resume {ticket} "<what you can do now>" '
             f'--review-wait {candidate["wait_event"]}`.'
         )
-    if follow_up := result.get("inbox_follow_up"):
-        scope = follow_up.get("project")
-        label = f"Inbox follow-up for {scope}" if scope else "Inbox follow-up"
-        goal_lines.append(f"{label} · {follow_up['prompt']}")
+    goal_lines.extend(inbox_guidance_lines(result))
     if work := result["work"]:
         details = task_details(board, url, work["key"], guidance=result.get("next_step"), context_lines=goal_lines)
         label = NEXT_LABELS.get(work["kind"])

@@ -168,6 +168,10 @@ function InboxEntries({ revision, owner, project, openCount, onChanged }) {
       {openCount.error && <ResourceStatus resource={openCount} label="Inbox action count" />}
       {work.error && !legacyWorkEndpoint && <ResourceStatus resource={work} label="next actionable work" />}
       <InboxWork items={actionable} />
+      {work.data?.inbox_refresh && <>
+        <p className="section-message">{work.data.inbox_refresh}</p>
+        <Markdown text={work.data.inbox_follow_up?.prompt} />
+      </>}
       <WatchedUpdatePreference preference={preference} history={history} setHistory={setHistory} onChanged={onChanged} />
       {showEmpty && !history && <p className="section-message">Your inbox is empty.</p>}
       {history && page.data && !page.pending && !page.error && items.length === 0 &&

@@ -6292,11 +6292,45 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(effective(avery, scope="all")["prompt"], different_message)
         code, output, errors = self.shared_cli(avery, "next", "--project", "T")
         self.assertEqual((code, errors), (0, ""))
-        self.assertIn(different_message, output)
+        self.assertNotIn(different_message, output)
         self.assertEqual(save(None, avery_id), {"prompt": project_message, "source": "project"})
         self.assertEqual(effective(avery, project="T")["prompt"], project_message)
         self.assertEqual(save(None), {"prompt": board_message, "source": "board"})
         self.assertEqual(effective(blake, project="T")["prompt"], board_message)
+
+    def test_inbox_refresh_is_once_per_signed_agent_and_pacific_day(self):
+        app = self.app(portal_reader=True)
+        manager, manager_id = self.login(app, "Sam")
+        avery, avery_id = self.login(app, "Avery")
+        blake, _ = self.login(app, "Blake")
+        self.cli("register-project", "T", "Tasks Board", "--dri", manager_id)
+        guidance_path = "/api/v1/projects/T/field-guidance"
+        settings = {"prompt": "inbox-follow-up", "guidance": "Use the original sample thread."}
+        self.call(manager, guidance_path, method="PUT", json=settings)
+        self.call(manager, guidance_path, method="PUT",
+                  json={**settings, "agent": avery_id, "guidance": "Acknowledge the original sample."})
+        query = {"project": "T"}
+        work_path = "/api/v1/notifications/work"
+        with patch("tasks_core.timestamp", return_value="2026-11-28T07:59:00Z"):
+            code, output, errors = self.shared_cli(avery, "next", "--project", "T")
+            self.assertEqual((code, errors), (0, ""))
+            self.assertIn("Check the recipient’s current destination", output)
+            self.assertIn("Acknowledge the original sample.", output)
+            code, output, errors = self.shared_cli(avery, "next", "--project", "T")
+            self.assertEqual((code, errors), (0, ""))
+            self.assertNotIn("Acknowledge the original sample.", output)
+            avery_work = self.call(avery, work_path, query_string=query).json
+            self.assertIsNone(avery_work["inbox_refresh"])
+            self.assertEqual(avery_work["inbox_follow_up"]["source"], "agent")
+            blake_work = self.call(blake, work_path, query_string=query).json
+            self.assertIn("Check the recipient’s current destination", blake_work["inbox_refresh"])
+            self.assertEqual(blake_work["inbox_follow_up"]["prompt"], "Use the original sample thread.")
+            self.assertIsNone(self.action(blake, "my-next", query_string=query)["inbox_refresh"])
+            self.assertIsNone(self.call(manager, work_path, query_string=query).json["inbox_refresh"])
+        with patch("tasks_core.timestamp", return_value="2026-11-28T08:00:00Z"):
+            fresh = self.action(avery, "my-next", query_string=query)
+            self.assertIn("Check the recipient’s current destination", fresh["inbox_refresh"])
+            self.assertIsNone(self.action(avery, "my-next", query_string=query)["inbox_refresh"])
 
     def test_next_guides_an_assigned_review_even_on_a_completed_ticket(self):
         app = self.app()
