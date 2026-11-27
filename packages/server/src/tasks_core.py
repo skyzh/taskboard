@@ -996,6 +996,22 @@ def change_task(db, args, links, *, automation=None):
         if getattr(args, "start_check", None) or getattr(args, "check", None):
             raise ValueError("Only the ticket owner can start or complete its checklist steps.")
         override = transition_override(task, args.command, args.force_reason)
+    reviewed_event = getattr(args, "reviewed_event", None)
+    reviewed_registration = None
+    if reviewed_event is not None:
+        if args.command != "park" or task["state"] != "parked" or args.by != task["dri"]:
+            raise ValueError("Only the owner of a parked ticket can acknowledge dependency readiness.")
+        if any((review_source, review_criteria, feature_deferred, standing_pass,
+                getattr(args, "review_after", None), getattr(args, "defer_until", None))):
+            raise ValueError("Acknowledge dependency readiness separately from changing the schedule or dependency.")
+        parked_context = event_context(task)
+        registration = parked_context.get("readiness")
+        if parked_context.get("reviewed_readiness_event") == reviewed_event:
+            return f"{projects.row_reference(task)} · Dependency event already reviewed"
+        pending = readiness.pending_event(db, current_tasks_sql(db), args.by, projects.row_project(task), args.id)
+        if pending != reviewed_event:
+            raise ValueError("Refresh Inbox and choose the current pending dependency event.")
+        reviewed_registration = {**registration, "after_event": reviewed_event}
     goal_pass_context = {}
     if standing_pass or goal_kind == "standing" and args.command in ("start", "park", "remind"):
         import tasks_goals as goals
@@ -1063,15 +1079,17 @@ def change_task(db, args, links, *, automation=None):
                                       outcome="superseded")
     if args.command == "park":
         current = event_context(task) if task["state"] == "parked" else {}
-        if getattr(args, "keep_park_links", False):
+        if getattr(args, "keep_park_links", False) or (reviewed_event is not None and not links):
             links = json.loads(task["current_links"])
         if not context:
             context.update((field, current[field]) for field in PARKED_REMINDER_FIELDS if field in current)
-        registration = readiness.register(
+        registration = reviewed_registration or readiness.register(
             db, task, review_source, review_criteria, force_text=getattr(args, "force_text", False),
         ) or current.get("readiness")
         if registration is not None:
             context["readiness"] = registration
+        if reviewed_event is not None:
+            context["reviewed_readiness_event"] = reviewed_event
         if feature_deferred:
             context["feature_deferred"] = True
     eta, clear_eta = getattr(args, "eta", None), getattr(args, "clear_eta", False)

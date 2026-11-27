@@ -95,3 +95,10 @@ def page(db, current_tasks, owner, project, before, limit, *, bindings=()):
         "items": [item(row) for row in visible],
         "next_cursor": visible[-1]["id"] if len(rows) > limit else None,
     }
+
+
+def pending_event(db, current_tasks, owner, project, task_id):
+    row = db.execute(
+        query(current_tasks) + " WHERE id = ?", (owner, project, project, task_id),
+    ).fetchone()
+    return row["event_id"] if row is not None else None

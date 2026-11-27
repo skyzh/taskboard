@@ -3200,6 +3200,9 @@ def create_app(
         return mutate("remind", actor, data, id=task_number(number), note="", review_after=day, defer_until=instant)
 
     def parking_fields(data, command):
+        reviewed_event = integer(data["reviewed_event"], "reviewed_event") if "reviewed_event" in data else None
+        if reviewed_event is not None and command != "park":
+            raise RequestError("Record a reviewed dependency event with Park.")
         review_on = text(data, "review_on", optional=True, maximum=28)
         review_criteria = writing_text(data, "review_criteria", optional=True)
         feature_deferred = str(data.get("feature_deferred", "false")).lower()
@@ -3225,6 +3228,7 @@ def create_app(
         return {
             "review_after": review, "defer_until": defer_until, "review_on": review_on,
             "review_criteria": review_criteria, "feature_deferred": feature_deferred == "true",
+            "reviewed_event": reviewed_event,
         }
 
     @app.post("/api/v1/tasks/<number>/parking")

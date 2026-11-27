@@ -1635,9 +1635,35 @@ class TasksServiceTest(unittest.TestCase):
         self.action(owner, "advance-task", {"id": "COURSE-2", "transition": "park",
                     "note": "Leave parked until the next evidence.", "review_on": "T-1", "review_criteria": reason})
         self.assertEqual([item["key"] for item in self.action(owner, "my-readiness")["items"]], ["COURSE-1"])
-        self.action(owner, "advance-task", {"id": "COURSE-1", "transition": "unpark",
-                    "note": "Begin the audit."})
+        completion = next(item for item in completed if item["key"] == "COURSE-1")
+        acknowledge = {"id": "COURSE-1", "transition": "park", "note": "Reviewed. Keep the audit parked.",
+                       "reviewed_event": completion["event_id"]}
+        self.action(owner, "advance-task", {**acknowledge, "reviewed_event": deferred[0]["event_id"]}, status=409)
+        self.action(dependency_owner, "advance-task", acknowledge, status=409)
+        code, output, errors = self.shared_cli(
+            owner, "park", "COURSE-1", acknowledge["note"], "--reviewed-event", str(completion["event_id"]),
+        )
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("Parked", output)
         self.assertEqual(self.action(owner, "my-readiness")["items"], [])
+        reviewed = self.action(owner, "task", query_string={"id": "COURSE-1"})["task"]
+        self.assertEqual(reviewed["state"], "parked")
+        self.assertEqual(reviewed["context"]["review_after"], "2099-11-25")
+        self.assertEqual(reviewed["context"]["readiness"]["after_event"], completion["event_id"])
+        self.action(owner, "advance-task", acknowledge)
+        repeat = self.action(owner, "task", query_string={"id": "COURSE-1"})["task"]
+        self.assertEqual(repeat["event_id"], reviewed["event_id"])
+
+        self.action(dependency_owner, "change-ownership", {"id": "T-1", "action": "reopen",
+                    "reason": "Run the follow-up check."})
+        self.action(dependency_owner, "advance-task", {"id": "T-1", "transition": "start",
+                    "note": "Verify the follow-up."})
+        self.action(dependency_owner, "advance-task", {"id": "T-1", "transition": "done",
+                    "note": "The follow-up passed."})
+        self.action(owner, "advance-task", acknowledge)
+        later = self.action(owner, "my-readiness")["items"]
+        again = next(item for item in later if item["key"] == "COURSE-1")
+        self.assertGreater(again["event_id"], completion["event_id"])
 
     def audit_events(self):
         with closing(sqlite3.connect(self.database)) as db:

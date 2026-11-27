@@ -111,7 +111,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "maintenance-update": ("POST", "project", "owner cadence_hours next_at state members"),
             "advance-task": (
                 "POST", "id transition note",
-                "on on_name attention_request_id blocked_by options automation review_after defer_until review_on review_criteria feature_deferred steps started checked eta "
+                "on on_name attention_request_id blocked_by options automation review_after defer_until review_on review_criteria reviewed_event feature_deferred steps started checked eta "
                 "clear_eta reason details url label force force_reason force_text standing_pass force_delivery review_wait",
             ),
             "peer-ask": ("POST", "id transition note", "recipient review review_pr review_head review_base label url force_text force_delivery"),
