@@ -4495,6 +4495,11 @@ def create_app(
         info = board.assignee(owner, project=project, include_projects=True)
         if info is None:
             raise RequestError("Assignee not found.", 404)
+        info["postboard_available"] = bool(
+            project and (info.get("profile") or {}).get("kind") == "agent"
+            and tasks_storage.has_table(db(), "dri_postboards")
+            and project in board.assignee_projects(owner)
+        )
         watch_projects = info["projects"] if project is None else (project,)
         if actor and any(board.watchable_assignee(owner, prefix) for prefix in watch_projects):
             info["watching"] = watches.watches_assignee(db(), actor["ledger_key"], owner)
@@ -4518,44 +4523,30 @@ def create_app(
 
     def dri_postboard(actor, project, dri, operation, data):
         key = actor_key()
-        if key is None:
-            raise RequestError("Sign in directly to view a postboard.", 403)
         project = project_filter({"project": project})
         if (local := g.get("local_dri")) is not None and local["project"] != project:
             raise NotFound()
-        writing = operation in ("settings", "append")
+        writing = operation == "append"
         with (tasks_storage.write(db()) if writing else tasks_storage.read(db())) as connection:
             require_visible_project(connection, project)
+            if not tasks_storage.has_table(connection, "dri_postboards"):
+                raise NotFound()
             owner = require_person(dri, kind="agent")
             require_ring_member(connection, project, owner)
             if project not in query().assignee_projects(owner):
                 raise NotFound()
-            enabled = postboards.enabled(connection, project, owner)
-            can_manage = projects.manages(connection, project, key)
-            can_edit = actor["kind"] == "agent" and key == owner and enabled
+            can_edit = actor is not None and actor["kind"] == "agent" and key == owner
             if operation == "history":
                 paging = page_args(data)
                 rows = postboards.revisions(connection, project, owner, before=paging["before"], limit=paging["limit"] + 1)
                 items = [postboards.public_revision(connection, row, project, base) for row in rows[:paging["limit"]]]
                 return {"items": items, "next_cursor": items[-1]["revision_id"] if len(rows) > len(items) else None}
 
-            if operation == "settings":
-                if not can_manage:
-                    raise RequestError("Only a project manager can configure a postboard.", 403)
-                enabled = data.get("autonomous_enabled")
-                if type(enabled) is not bool:
-                    raise RequestError("Set autonomous_enabled to true or false.")
-                if postboards.set_enabled(connection, project, owner, enabled):
-                    audit.record(connection, scope="private", actor=key, operation="set-postboard-permission",
-                                 record_type="dri_postboard", record_id=f"{project}/{owner}", at=ledger.timestamp())
-                    ledger.bump_revision(connection, project)
-                can_edit = actor["kind"] == "agent" and key == owner and enabled
-
             rows = postboards.revisions(connection, project, owner)
             current = rows[0] if rows else None
             if operation == "append":
                 if not can_edit:
-                    raise RequestError("Only the signed DRI can update their postboard while enabled.", 403)
+                    raise RequestError("Only the signed DRI can update their own postboard.", 403)
                 if "expected_revision_id" not in data:
                     raise RequestError("Provide the current revision ID, or null for the first save.")
                 expected = data["expected_revision_id"]
@@ -4571,23 +4562,17 @@ def create_app(
                 ledger.bump_revision(connection, project)
                 current = postboards.revisions(connection, project, owner)[0]
             return {
-                "project": project, "dri": owner, "autonomous_enabled": enabled,
-                "can_manage": can_manage, "can_edit": can_edit,
+                "project": project, "dri": owner, "can_edit": can_edit,
                 "current": postboards.public_revision(connection, current, project, base) if current else None,
             }
 
     @app.get("/api/v1/projects/<project>/postboards/<dri>")
     def postboard_read(project, dri):
-        return dri_postboard(current_actor(required=True), project, dri, "read", request.args)
+        return dri_postboard(current_actor(), project, dri, "read", request.args)
 
     @app.get("/api/v1/projects/<project>/postboards/<dri>/revisions")
     def postboard_history(project, dri):
-        return dri_postboard(current_actor(required=True), project, dri, "history", request.args)
-
-    @app.put("/api/v1/projects/<project>/postboards/<dri>/settings")
-    def postboard_settings(project, dri):
-        actor = current_actor(write=True, required=True)
-        return dri_postboard(actor, project, dri, "settings", json_body({"autonomous_enabled"}))
+        return dri_postboard(current_actor(), project, dri, "history", request.args)
 
     @app.post("/api/v1/projects/<project>/postboards/<dri>/revisions")
     def postboard_append(project, dri):

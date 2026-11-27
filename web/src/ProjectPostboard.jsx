@@ -79,33 +79,12 @@ export default function ProjectPostboard({ owner, project, revision }) {
   const resource = useResource(path, revision)
   const board = resource.data
   const [draft, setDraft] = useState(null)
-  const [changing, setChanging] = useState(false)
-  const [error, setError] = useState(null)
   const [localRevision, setLocalRevision] = useState(0)
-
-  async function updateSetting(event) {
-    const autonomous_enabled = event.target.checked
-    setError(null)
-    setChanging(true)
-    try {
-      await request(`${path}/settings`, { method: 'PUT', body: { autonomous_enabled } })
-      resource.retry()
-    } catch (failure) {
-      setError(failure.message)
-    } finally {
-      setChanging(false)
-    }
-  }
 
   return <section className="feed-section" aria-labelledby="postboard-title">
     <h2 id="postboard-title" tabIndex={-1}>Postboard</h2>
     <ResourceStatus resource={resource} label="postboard" />
     {board && <>
-      {board.can_manage
-        ? <label><input type="checkbox" checked={board.autonomous_enabled} disabled={changing || resource.pending}
-          onChange={updateSetting} /> Allow this DRI to update their postboard</label>
-        : <p className="section-message">Autonomous updates {board.autonomous_enabled ? 'on' : 'off'}.</p>}
-      {error && <p role="alert">{error}</p>}
       {board.current ? <>
         <p className="section-message">Updated <Timestamp at={board.current.updated_at} /></p>
         <Revision value={board.current} />

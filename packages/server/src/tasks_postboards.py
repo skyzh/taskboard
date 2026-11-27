@@ -26,27 +26,6 @@ SCHEMA = (
 )
 
 
-def enabled(db, project, dri):
-    return db.execute(
-        "SELECT 1 FROM dri_postboards WHERE project = ? AND dri = ? AND autonomous_enabled = 1",
-        (project, dri),
-    ).fetchone() is not None
-
-
-def set_enabled(db, project, dri, value):
-    if not value:
-        return db.execute(
-            "UPDATE dri_postboards SET autonomous_enabled = 0 WHERE project = ? AND dri = ? AND autonomous_enabled = 1",
-            (project, dri),
-        ).rowcount != 0
-    return db.execute(
-        """INSERT INTO dri_postboards VALUES (?, ?, 1)
-           ON CONFLICT (project, dri) DO UPDATE SET autonomous_enabled = 1
-           WHERE dri_postboards.autonomous_enabled = 0""",
-        (project, dri),
-    ).rowcount != 0
-
-
 def revisions(db, project, dri, *, before=None, limit=1):
     return db.execute(
         """SELECT revision_id, content, source_ids, updated_at, updated_by
@@ -57,6 +36,11 @@ def revisions(db, project, dri, *, before=None, limit=1):
 
 
 def append(db, project, dri, number, content, source_ids, at):
+    # Keep the legacy column for rollback while new writes use signed ownership.
+    db.execute(
+        """INSERT INTO dri_postboards (project, dri, autonomous_enabled) VALUES (?, ?, 0)
+           ON CONFLICT (project, dri) DO NOTHING""", (project, dri),
+    )
     db.execute(
         """INSERT INTO dri_postboard_revisions
            (project, dri, revision_id, content, source_ids, updated_at, updated_by)
