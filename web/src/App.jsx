@@ -108,10 +108,12 @@ function useFragment(preview) {
   return [fragment, rawFragment]
 }
 
-function SectionIndex({ overview, scope }) {
+function SectionIndex({ overview, scope, headingsReady }) {
   const nav = useRef(null)
   const [current, setCurrent] = useState(null)
-  useEffect(() => watchBoardSections(nav.current, setCurrent), [])
+  useEffect(() => {
+    if (headingsReady) return watchBoardSections(nav.current, setCurrent)
+  }, [headingsReady])
 
   const now = overview?.now
   const decisions = overview?.decisions
@@ -336,6 +338,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
     ? allProjectRead ? 'all' : (requestedProject || (visibleProjects && project)) : undefined
   const navigationScope = scopedView ? scope : requestedProject && !projectUnavailable ? requestedProject : lastScope
   const projectRead = allProjectRead ? undefined : project
+  const teamOverviewScope = projectRead ?? 'all'
   const reportsProject = project
   const settingsProject = visibleProjects?.find(item => item.prefix === project)?.prefix || defaultProject
   const settingsHref = settingsFragment(navigationScope && navigationScope !== 'all' ? navigationScope : null)
@@ -497,7 +500,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
         </div>
         {hasSession && !preview && !boardUnavailable && <BoardConnection {...connection} />}
         {demoTour.panel}
-        {view === 'team-overview' && !projectUnavailable && <SectionIndex key={project} overview={overview.data} scope={navigationScope} />}
+        {view === 'team-overview' && !projectUnavailable && <SectionIndex key={teamOverviewScope}
+          overview={overview.data} scope={navigationScope} headingsReady={!scopePending} />}
         {tourStep && <BoardTour step={tourStep} index={tourIndex} total={tour.length}
           onMove={index => writeFilterFragment(tour[index].route, false)} onClose={closeTour} />}
       </header>
@@ -631,9 +635,10 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'team-overview' && (
             <>
               <div className="page-heading"><h1 id="team-overview">Team overview</h1></div>
-              <Overview key={allProjectRead ? 'all' : project} resource={overview} revision={revision} project={project}
-                allProjects={allProjectRead} />
-              <Outcomes key={allProjectRead ? 'all' : project} revision={revision} project={project} allProjects={allProjectRead} />
+              <React.Fragment key={teamOverviewScope}>
+                <Overview resource={overview} revision={revision} project={project} allProjects={allProjectRead} />
+                <Outcomes revision={revision} project={project} allProjects={allProjectRead} />
+              </React.Fragment>
             </>
           )}
           </>}
