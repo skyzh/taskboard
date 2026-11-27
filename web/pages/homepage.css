@@ -162,6 +162,7 @@ h1 {
 h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: -0.04em; }
 
 .review-loop {
+  --loop-cycle: 5.4s;
   max-width: 38rem;
   margin: clamp(2rem, 4vw, 3rem) auto 0;
   padding: 1.15rem clamp(0.5rem, 3vw, 1.5rem);
@@ -188,28 +189,48 @@ h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: 
   font-weight: 675;
 }
 .flow-pulse { opacity: 0; stroke: #f8f7ff; stroke-width: 2.4; stroke-dasharray: 15 85; }
-.review-loop.is-visible .flow-pulse { animation: flow-signal 1.35s ease-in-out 1; }
+.review-loop.is-visible .flow-pulse { animation: flow-signal var(--loop-cycle) linear infinite; }
 .review-loop.is-visible .work-ticket { animation-delay: 1.35s; }
 .review-loop.is-visible .review-in { animation-delay: 2.95s; }
 
 @keyframes flow-signal {
   0% { stroke-dashoffset: 100; opacity: 0; }
-  10%, 85% { opacity: 1; }
-  100% { stroke-dashoffset: 0; opacity: 0; }
+  2.5%, 21.25% { opacity: 1; }
+  25%, 100% { stroke-dashoffset: 0; opacity: 0; }
 }
 
 .review-loop figcaption { color: #c6c9e0; font-size: 0.9rem; line-height: 1.45; }
 .review-loop figcaption span { display: block; }
 .review-loop figcaption strong { color: var(--accent-on-dark); margin-inline-end: 0.25rem; }
-.review-loop.is-visible .work-caption strong { animation: phase-emphasis 2.7s ease-in-out; }
-.review-loop.is-visible .review-caption strong { animation: phase-emphasis 1.35s ease-in-out 2.95s; }
+.review-loop.is-visible .work-caption strong { animation: work-emphasis var(--loop-cycle) ease-in-out infinite; }
+.review-loop.is-visible .review-caption strong { animation: review-emphasis var(--loop-cycle) ease-in-out 2.95s infinite; }
 
-@keyframes phase-emphasis {
-  0%, 100% { color: var(--accent-on-dark); }
-  10%, 90% { color: #f8f7ff; }
+@keyframes work-emphasis {
+  0%, 50%, 100% { color: var(--accent-on-dark); }
+  5%, 45% { color: #f8f7ff; }
 }
 
+@keyframes review-emphasis {
+  0%, 25%, 100% { color: var(--accent-on-dark); }
+  2.5%, 22.5% { color: #f8f7ff; }
+}
+
+.loop-motion-toggle {
+  margin-top: 0.65rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid #a5b4fc70;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.loop-motion-toggle:hover { border-color: currentColor; }
+.review-loop.is-visible.is-paused :is(.flow-pulse, figcaption strong) { animation-play-state: paused; }
+
 @media (prefers-reduced-motion: reduce) {
+  .loop-motion-toggle { display: none; }
   .review-loop.is-visible .flow-pulse,
   .review-loop.is-visible .work-caption strong,
   .review-loop.is-visible .review-caption strong { animation: none; }
