@@ -106,6 +106,14 @@ _ACTIONS = {
         "handoff_id": "Stable runner handoff UUID. Use only after observing Idle and reuse the same ID on retry.",
     }, {**_PROJECT, "for_wake": "Apply Idle delivery eligibility before recording a standing offer."}),
     "my-goals": _Action("GET", "Read your standing and dated goals for one project.", optional=_PROJECT),
+    "my-goal-occurrences": _Action("GET", "Read your available goal Explore passes and scheduled Reviews.", optional=_PROJECT | _SCOPE),
+    "complete-goal-occurrence": _Action("POST", "Record the outcome of one exact goal Explore or Review.", {
+        **_TASK, "occurrence_key": "Exact key returned by my-goal-occurrences.",
+        "note": "Goal outcome and next action.",
+    }, {**_EVIDENCE, "details": _DETAILS}),
+    "set-goal-exploration": _Action("POST", "Set one-pass or Keep exploring on an owned dated goal.", {
+        **_TASK, "keep_exploring": "Send true to enable or false to return to one pass per day.",
+    }, {"stopping_criterion": "Written condition for stopping exploration."}),
     "report-runtime-observation": _Action("POST", "Report an opted-in agent’s own runtime observation.", {
         "project": "Explicit pilot project prefix.",
         "state": "Working, idle, unavailable or unknown, lowercase.",

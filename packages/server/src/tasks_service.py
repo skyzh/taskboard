@@ -5297,6 +5297,10 @@ def create_app(
                             "Record the outcome or blocker, acknowledge the recheck with its cue key, and recheck Inbox."
                         ),
                     }
+                if work is None or work["kind"] == "goal_review":
+                    now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
+                    if items := list(goal_cadence.occurrences(connection, key, project, now)):
+                        result["goal_occurrences"] = items
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, work, result["standing_goals"], key)
                 result.update(offered_goal_prompt(connection, work, result["standing_goals"]))
                 if candidates := query().wait_review_candidates(key, project):
@@ -5335,6 +5339,72 @@ def create_app(
                     if times:
                         result["review_times"] = times
                 return result
+        if name == "my-goal-occurrences":
+            project = project_scope(data)
+            with tasks_storage.read(db()) as connection:
+                now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
+                items = list(goal_cadence.occurrences(connection, key, project, now))
+                for item in items:
+                    if item["kind"] == "review":
+                        scope, _ = projects.identifier(item["ticket"])
+                        item["goal_review_prompt"] = agent_guidance.project_prompt(
+                            connection, scope, tasks_guidance.GOAL_REVIEW,
+                        )
+            return {"items": items}
+        if name == "complete-goal-occurrence":
+            number = task_number(data["id"])
+            occurrence_key = text(data, "occurrence_key", maximum=100)
+            fields = activity_text(data, "log")
+            links = one_link(data)
+            with tasks_storage.write(db()) as connection:
+                task = ledger.find_task(connection, number)
+                if task is None or task["dri"] != key:
+                    raise NotFound()
+                project = require_visible_task(connection, number)
+                previous = goal_cadence.occurrence_receipt(connection, number, occurrence_key)
+                if previous is not None:
+                    return {"occurrence_key": occurrence_key, "event_id": previous["id"], "completed_at": previous["at"]}
+                at = ledger.timestamp()
+                now = datetime.fromisoformat(at).astimezone(PACIFIC)
+                ticket = projects.row_reference(task)
+                if not any(item["key"] == occurrence_key and item["ticket"] == ticket for item in
+                           goal_cadence.occurrences(connection, key, project, now)):
+                    raise RequestError("This goal occurrence is no longer eligible.", 409)
+                for _, url in links:
+                    if related := internal_link_project(connection, url):
+                        require_visible_project(connection, related)
+                        require_same_ring(connection, project, related)
+                context = {"goal_occurrence": occurrence_key}
+                if "details" in fields:
+                    context["activity_details"] = fields["details"]
+                event = ledger.record(connection, number, "log", key, task["state"], fields["note"],
+                                      task["waiting_on"], links, context, at=at)
+                ledger.bump_revision(connection, project)
+            return {"occurrence_key": occurrence_key, "event_id": event, "completed_at": at}
+        if name == "set-goal-exploration":
+            number = task_number(data["id"])
+            mode = data["keep_exploring"]
+            if mode in ("true", "false"):
+                mode = mode == "true"
+            if type(mode) is not bool:
+                raise RequestError("Send keep_exploring as true or false.")
+            criterion = text(data, "stopping_criterion", maximum=goals.CRITERION_LIMIT, optional=True)
+            if mode and (not criterion or not criterion.isprintable()):
+                raise RequestError("Provide a one-line stopping criterion.")
+            if not mode and criterion is not None:
+                raise RequestError("Send a stopping criterion only for Keep exploring.")
+            with tasks_storage.write(db()) as connection:
+                task = ledger.find_task(connection, number)
+                if task is None or task["dri"] != key:
+                    raise NotFound()
+                project = require_visible_task(connection, number)
+                if task["state"] == "done" or ledger.task_goal_kind(connection, number) not in {"original", "milestone"}:
+                    raise RequestError("Choose an active dated goal.", 409)
+                setting = goals.EXPLORATION_SETTING + str(number)
+                if tasks_guidance.set_project_value(connection, setting, criterion):
+                    ledger.bump_revision(connection, project)
+            return {"ticket": projects.row_reference(task), "keep_exploring": mode,
+                    "stopping_criterion": criterion}
         if name == "my-goal-cues":
             project = project_filter(data, use_default=True)
             instant = ledger.timestamp()
