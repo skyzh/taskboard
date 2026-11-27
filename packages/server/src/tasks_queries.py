@@ -2920,26 +2920,32 @@ class BoardQueries:
             } if row["blocked_id"] is not None else None,
         } for row in rows]
 
-    def attention(self, recipient, *, state, today, before, limit, task_id=None, project=None):
+    def attention(self, recipient, *, state, today, before, limit, task_id=None, project=None,
+                  request_id=None):
         visibility, bindings = self.project_visibility()
-        task_filter = "AND tasks.id = ?" if task_id is not None else ""
-        args = [recipient, state == "handled", before or 2**63 - 1, project, project, *bindings]
-        date_filter = ""
+        args = [recipient, before or 2**63 - 1, project, project, *bindings]
+        filters = []
+        if request_id is None:
+            filters.append("(handled_at IS NOT NULL) = ?")
+            args.append(state == "handled")
+        else:
+            filters.append("attention_requests.id = ?")
+            args.append(request_id)
         if state == "deferred":
-            date_filter = "AND remind_on > ?"
+            filters.append("remind_on > ?")
             args.append(today)
         elif state == "open":
-            date_filter = f"AND {ATTENTION_DUE}"
+            filters.append(ATTENTION_DUE)
             args.append(today)
         if task_id is not None:
+            filters.append("tasks.id = ?")
             args.append(task_id)
+        conditions = " AND ".join(filters)
         rows = self.db.execute(
             f"""
             {ATTENTION_SELECT}
-            WHERE recipient = ? AND (handled_at IS NOT NULL) = ? AND attention_requests.id < ?
-            AND (? IS NULL OR tasks.project_prefix = ?) AND {visibility}
-            {date_filter}
-            {task_filter}
+            WHERE recipient = ? AND attention_requests.id < ?
+            AND (? IS NULL OR tasks.project_prefix = ?) AND {visibility} AND {conditions}
             ORDER BY attention_requests.id DESC LIMIT ?
             """, (*args, limit + 1),
         ).fetchall()

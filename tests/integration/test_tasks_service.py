@@ -6402,6 +6402,42 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(viewer, "/api/v1/tasks/2/activity").json, task_history)
         self.assertEqual(self.call(quinn, "/api/v1/notifications/inbox").json["items"], [])
 
+    def test_ticket_attention_link_keeps_the_exact_recipient_request_after_acknowledgment(self):
+        app = self.app(portal_reader=True)
+        agent, _ = self.login(app, "Avery")
+        sam, sam_id = self.login(app, "Sam")
+        quinn, quinn_id = self.login(app, "Quinn")
+        for title in ("Daily review", "Other ticket"):
+            self.action(agent, "create-task", {"title": title, "step": "Open the evidence."})
+
+        def send(recipient, reason):
+            return self.action(agent, "raise-attention", {
+                "id": "T-1", "recipient": recipient, "reason": reason, "url": "https://example.test/review",
+            })["id"]
+
+        original = send(sam_id, "Review summary")
+        newer = send(sam_id, "Newer summary")
+        other = send(quinn_id, "Different recipient")
+        route = "/api/v1/notifications/requests"
+        params = {"task_id": "T-1", "request_id": original, "scope": "all"}
+        self.call(app.test_client(), route, query_string=params, status=401)
+        self.call(sam, route, query_string={"request_id": original}, status=400)
+        self.assertEqual(self.call(quinn, route, query_string=params).json["items"], [])
+        self.assertEqual(self.call(sam, route, query_string={**params, "task_id": "T-2"}).json["items"], [])
+        ticket = self.call(sam, "/api/v1/tasks/1").json["task"]
+        rows = self.call(sam, route, query_string=params).json["items"]
+        self.assertEqual([(row["id"], row["reason"], row["handled_at"]) for row in rows],
+                         [(original, "Review summary", None)])
+        self.assertEqual(rows[0]["links"][0]["url"], "https://example.test/review")
+        handled = f"{route}/{original}/handled"
+        self.call(quinn, handled, method="POST", status=404)
+        receipt = self.call(sam, handled, method="POST").json
+        self.assertEqual(self.call(sam, handled, method="POST").json, receipt)
+        self.assertEqual(self.call(sam, route, query_string=params).json["items"][0]["handled_at"], receipt["handled_at"])
+        self.assertEqual(self.call(sam, "/api/v1/tasks/1").json["task"], ticket)
+        self.assertEqual([row["id"] for row in self.call(sam, route).json["items"]], [newer])
+        self.assertEqual([row["id"] for row in self.call(quinn, route).json["items"]], [other])
+
     def test_linked_request_defers_in_both_feeds_and_handled_clears_one_wait(self):
         app = self.app(portal_reader=True)
         avery, _ = self.login(app, "Avery")

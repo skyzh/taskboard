@@ -1,7 +1,7 @@
 import React, { useContext, useLayoutEffect, useRef, useState } from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
 import { request, useLoadedPages } from './data.js'
-import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref, profileName, taskLabel } from './shared.jsx'
+import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref, profileName, taskHref, taskLabel } from './shared.jsx'
 import { Markdown } from './Markdown.jsx'
 import ReminderDate from './ReminderDate.jsx'
 import { WaitAge } from './WaitAge.jsx'
@@ -37,7 +37,7 @@ export function AttentionImpact({ item }) {
   )
 }
 
-export default function AttentionRequests({ revision, onChanged, taskId, project, showControls = true }) {
+export default function AttentionRequests({ revision, onChanged, taskId, project, requestId, showControls = true }) {
   const onTicket = taskId != null
   const [state, setState] = useState('open')
   const [pending, setPending] = useState(null)
@@ -47,6 +47,7 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
   const page = useLoadedPages('/notifications/requests', {
     state: onTicket ? 'open' : state,
     task_id: taskId,
+    ...(requestId && { request_id: requestId }),
     ...projectFilters(onTicket ? undefined : project),
   }, revision)
   const latestPage = useRef(page.data)
@@ -81,8 +82,8 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
   const outage = useContext(BoardOutageContext)
   const keepTicketRows = outage && page.data != null && (!ticketError || isBackendError(ticketError))
   const hideTicketRows = onTicket && !keepTicketRows && (ticketError || (invalidated && page.pending))
-  const items = hideTicketRows ? [] : (page.data?.items ?? []).filter(item => !handledIds.includes(item.id))
-  if (onTicket && items.length === 0 && !notice && !hideTicketRows) return null
+  const items = hideTicketRows ? [] : (page.data?.items ?? []).filter(item => item.handled_at || !handledIds.includes(item.id))
+  if (onTicket && items.length === 0 && !notice && !hideTicketRows && !requestId) return null
 
   const content = (
     <>
@@ -96,9 +97,12 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
           </select></label>
         </div>
       )}
-      {(!onTicket || hideTicketRows) && (
+      {(!onTicket || hideTicketRows || requestId) && (
         <ResourceStatus resource={onTicket ? { ...page, data: undefined, error: ticketError, retry: retryRequests } : page}
           label="attention requests" />
+      )}
+      {requestId && !page.pending && !ticketError && items.length === 0 && !notice && (
+        <p className="section-message">This request is unavailable.</p>
       )}
       {!onTicket && !page.error && page.data?.items.length === 0 && <p className="section-message">No {state} requests.</p>}
       {notice?.error && <p role="alert" className="section-message">{notice.error}</p>}
@@ -107,7 +111,8 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
         {items.map(item => (
           <li className="event-row attention-row" key={item.id}>
             <div>
-              {!onTicket && <p className="event-ticket"><TaskLink reference={item.task_key} id={item.task_id} title={item.task_title} /></p>}
+              {!onTicket && <p className="event-ticket"><TaskLink reference={item.task_key} id={item.task_id} title={item.task_title}
+                publicHref={`${taskHref(item.task_id, item.task_key)}?attention-request=${item.id}`} /></p>}
               <p className="event-meta">
                 <span>{profileName(item.sender, item.sender_profile)}</span>
                 {item.handled_at ? <Timestamp at={item.raised_at} /> : <WaitAge since={item.raised_at} label="Unanswered" />}
@@ -121,7 +126,7 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
               ? <span className="event-meta">Handled <Timestamp at={item.handled_at} /></span>
               : showControls && (
                 <div>
-                  <button type="button" disabled={pending !== null} onClick={() => handle(item.id)}>Mark handled</button>
+                  <button type="button" disabled={pending !== null} onClick={() => handle(item.id)}>{requestId && !item.unblocks ? 'Acknowledge' : 'Mark handled'}</button>
                   <ReminderDate key={item.remind_on || ''} path={`/notifications/requests/${item.id}/reminder`}
                     saved={item.remind_on} onChanged={requestsChanged} />
                 </div>
@@ -134,5 +139,8 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
       )}
     </>
   )
-  return onTicket ? <section className="ticket-attention" aria-label="Attention requests">{content}</section> : content
+  return onTicket ? <section className="ticket-attention" aria-label="Attention requests">
+    {requestId && <h2>Inbox request</h2>}
+    {content}
+  </section> : content
 }

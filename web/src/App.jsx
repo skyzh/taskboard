@@ -202,6 +202,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const recordHistory = new URLSearchParams(taskContext).get('history')
   const namedTask = taskAnchor.match(/^task-([A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})$/)?.[1]
   const selected = namedTask || fragmentId(taskAnchor, /^task-([1-9]\d*)$/)
+  const requestParam = selected && new URLSearchParams(taskContext).get('attention-request')
+  const attentionRequest = /^[1-9]\d{0,18}$/.test(requestParam || '') ? requestParam : undefined
   const fromSearch = selected ? new URLSearchParams(taskContext).get('from-search')?.trim() : ''
   const [ticketMove, setTicketMove] = useState(null)
   useEffect(() => {
@@ -604,7 +606,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
           )}
           {view === 'task' && <TaskDetail key={selected} id={selected} revision={revision} session={session}
             preferredProject={defaultProject} returnHref={fromList ? listReturn.current.board : undefined}
-            fromSearch={fromSearch} history={recordHistory} onChanged={refresh}
+            fromSearch={fromSearch} history={recordHistory} attentionRequest={attentionRequest} onChanged={refresh}
             moveReceipt={ticketMove?.href === `#${taskAnchor}` ? ticketMove.receipt : undefined}
             onMoved={(href, receipt) => {
               setTicketMove({ href, receipt })

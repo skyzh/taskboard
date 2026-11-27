@@ -499,7 +499,7 @@ export function KnowledgeRecordTools({ id, revision, onChanged }) {
 }
 
 export function TaskDetail({ id, revision, session, onChanged, onMoved, moveReceipt,
-  preferredProject = 'T', returnHref, fromSearch, history }) {
+  preferredProject = 'T', returnHref, fromSearch, history, attentionRequest }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
   const [actionsOpen, setActionsOpen] = useState(false)
   useEffect(() => {
@@ -584,6 +584,10 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
         </div>
       ) : <div className="ticket-detail-layout">
         <div className="ticket-detail-work">
+          {task && attentionRequest && session.data?.actor?.kind === 'human' && (
+            <AttentionRequests key={`attention:${session.data.actor.id}:${id}:${attentionRequest}`}
+              taskId={id} requestId={attentionRequest} revision={revision} onChanged={onChanged} />
+          )}
           <section className={task ? `ticket-focus ${state}` : undefined} aria-label={summary}>
             {task && <>
               {canAnswer ? <div className="ticket-focus-heading">
@@ -676,7 +680,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
           session={session} revision={revision} onChanged={onChanged} showActions={showActions} />}
         {task && (
           <div className="ticket-detail-history">
-            {session.data?.actor?.kind === 'human' && (
+            {!attentionRequest && session.data?.actor?.kind === 'human' && (
               <AttentionRequests key={`attention:${session.data.actor.id}:${id}`}
                 taskId={id} revision={revision} onChanged={onChanged} showControls={showActions} />
             )}
