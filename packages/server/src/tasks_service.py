@@ -1715,6 +1715,10 @@ def create_app(
             return task["event_id"]
         return None
 
+    def pending_peer_review(connection, task_id, ask):
+        return bool(ask["review_run_id"] or peer_asks.pending_manual_review(connection, task_id)
+                    or peer_asks.pending_stamp_review(connection, task_id))
+
     def detail(number, actor):
         key = actor["ledger_key"] if actor is not None else None
         require_visible_task(db(), number)
@@ -1735,6 +1739,20 @@ def create_app(
         owns = key is not None and key == task["dri"]
         if owns and result["goal"] and task["state"] not in ("done", "closed"):
             result["goal_review_prompt"] = agent_guidance.project_prompt(db(), project, tasks_guidance.GOAL_REVIEW)
+        if key is not None and task["state"] in ("ready", "in_progress"):
+            run = next((run for run in result["workers"]
+                        if run["status"] in ("planned", "running", "reported")
+                        and (key == run["worker"] or owns and run["status"] == "reported")), None)
+            ask = task.get("peer_request")
+            if owns and ask and ask["phase"] in ("asked", "in_progress") and pending_peer_review(db(), number, ask):
+                result["workflow_prompt"] = agent_guidance.workflow_prompt(db(), project, tasks_guidance.REVIEW_HANDOFF)
+            elif run:
+                name = (tasks_guidance.REVIEW_HANDOFF if run["role"] == "review" and key == run["worker"]
+                        else tasks_guidance.WORKER_HANDOFF)
+                result["workflow_prompt"] = agent_guidance.workflow_prompt(db(), project, name)
+            elif (owns and actor["kind"] == "agent" and task["state"] == "in_progress"
+                  and not (is_note or result["goal"] or ask)):
+                result["workflow_prompt"] = agent_guidance.workflow_prompt(db(), project, tasks_guidance.STALLED_FOLLOW_UP)
         details_editable = can_edit_shared_content(db(), actor, task, project)
         if key is not None and not is_note and (fields := ticket_fields.definitions(db(), project)):
             configured = ticket_fields.detail(db(), number, project, fields, result["workers"], editable=details_editable)
@@ -3961,6 +3979,30 @@ def create_app(
             return {}
         return {"goal_review_prompt": agent_guidance.project_prompt(connection, project, tasks_guidance.GOAL_REVIEW)}
 
+    def offered_work_prompt(connection, work):
+        if not work:
+            return {}
+        kind = work["kind"]
+        if kind in ("ready", "shared_ready"):
+            ask = peer_asks.find(connection, work["id"])
+            if ask:
+                if ask["result_event_id"] is not None or not pending_peer_review(connection, work["id"], ask):
+                    return {}
+                name = tasks_guidance.REVIEW_HANDOFF
+            else:
+                name = tasks_guidance.READY_PICKUP
+        elif kind == "in_progress" and not ledger.task_goal_kind(connection, work["id"]):
+            name = tasks_guidance.NEXT_ACTION
+        elif kind == "review":
+            name = tasks_guidance.REVIEW_HANDOFF
+        elif kind == "report":
+            name = tasks_guidance.WORKER_HANDOFF
+        else:
+            return {}
+        project, _ = projects.identifier(work["key"])
+        prompt = agent_guidance.workflow_prompt(connection, project, name)
+        return {"workflow_prompt": prompt} if prompt["prompt"] else {}
+
     @app.get("/api/v1/notifications/work")
     def notification_work():
         actor = current_actor(required=True)
@@ -3978,6 +4020,7 @@ def create_app(
             }
             if actor["kind"] == "agent":
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, items[0] if items else None, standing, owner)
+                result.update(offered_work_prompt(connection, items[0] if items else None))
         return {**result, "inbox_refresh": daily_inbox_refresh(actor, request.args)}
 
     @app.get("/api/v1/notifications/needs-you")
@@ -4908,7 +4951,8 @@ def create_app(
         try:
             with tasks_storage.read(db()) as connection:
                 if work := first_actionable_work(owner, project):
-                    return {"project": project, "kind": "work", "work": work, **offered_goal_prompt(connection, work, [])}
+                    return {"project": project, "kind": "work", "work": work,
+                            **offered_goal_prompt(connection, work, []), **offered_work_prompt(connection, work)}
                 if standing := goals.queue_context(connection, owner, project, principal=actor_key())["standing_goals"]:
                     return {
                         "project": project, "kind": "standing_goal", "goal": standing[0],
@@ -5095,8 +5139,14 @@ def create_app(
         if name == "my-ticket-cues":
             project = project_scope(data)
             limit = integer(data.get("limit", 20), "limit", maximum=20)
-            with tasks_storage.read(db()):
+            with tasks_storage.read(db()) as connection:
                 items = query().virtual_ticket_cues(key, project=project, now=ledger.timestamp(), limit=limit)
+                for item in items:
+                    if item["kind"] == "recovery":
+                        scope, _ = projects.identifier(item["ticket"])
+                        item["workflow_prompt"] = agent_guidance.workflow_prompt(
+                            connection, scope, tasks_guidance.STALLED_FOLLOW_UP,
+                        )
             return {"items": items}
         if name == "my-next":
             project = project_scope(data)
@@ -5107,9 +5157,12 @@ def create_app(
                 result.update(offered_goal_prompt(connection, work, result["standing_goals"]))
                 if candidates := query().wait_review_candidates(key, project):
                     result["wait_review"] = candidates
-                cue = agent_guidance["ready-review"]
-                if cue and work and work["kind"] in ("ready", "shared_ready") and not peer_asks.find(connection, work["id"]):
-                    result["next_step"] = f"{agent_guidance.next_step(name, data, result)} {cue}"
+                result.update(offered_work_prompt(connection, work))
+                if prompt := result.get("workflow_prompt"):
+                    if prompt["key"] == tasks_guidance.READY_PICKUP:
+                        result["next_step"] = f"{agent_guidance.next_step(name, data, result)} {prompt['prompt']}"
+                    else:
+                        result["next_step"] = prompt["prompt"]
             return {**result, "inbox_refresh": daily_inbox_refresh(actor, data)}
         if name == "my-goals":
             project = project_filter(data, use_default=True)
@@ -5178,7 +5231,14 @@ def create_app(
             state = status_arg(data)
             return query().tasks(dri="", state=state, project=project_scope(data), **queue_page_args(data, state))
         if name == "my-reviews":
-            return query().actionable_reviews(key, project=project_filter(data), **page_args(data))
+            with tasks_storage.read(db()) as connection:
+                result = query().actionable_reviews(key, project=project_filter(data), **page_args(data))
+                for item in result["items"]:
+                    scope, _ = projects.identifier(item["task_key"])
+                    item["workflow_prompt"] = agent_guidance.workflow_prompt(
+                        connection, scope, tasks_guidance.REVIEW_HANDOFF,
+                    )
+            return result
         if name == "my-wake-workers":
             status = text(data, "status", maximum=10)
             if status not in ("planned", "running", "checkpoint"):
