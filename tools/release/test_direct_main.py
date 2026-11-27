@@ -1,8 +1,8 @@
 """Check the local main gate and operator handoff with disposable inputs."""
 
-from contextlib import closing
+from contextlib import closing, redirect_stdout
 from email.message import Message
-from io import BytesIO
+from io import BytesIO, StringIO
 import json
 import os
 from pathlib import Path
@@ -17,13 +17,13 @@ from urllib.error import HTTPError
 import test_ci_watch
 from deploy_hosted import deploy_once, git_main_tip
 from deploy_main import run_main
-from github_main import GitHubRateLimited, read_github
+from github_main import GitHubRateLimited, read_github, respect_rate_limit
 from operator_deploy import (
     checked_main_receipt, project_checked_main, read_main_state, receive_checked_main,
 )
 from release_plan import ReleaseLayout, ReleaseRejected, copy_release, file_hash, verify_manifest
 from tasks_release_info import release_info
-from watch_main_ci import ACTIONS, API, REPO, WORKFLOW, poll, public_github_read
+from watch_main_ci import ACTIONS, API, REPO, WORKFLOW, main as main_ci, poll, public_github_read
 
 
 class MainReleaseTest(unittest.TestCase):
@@ -271,12 +271,12 @@ class MainReleaseTest(unittest.TestCase):
             self.assertEqual(release_info(layout.current), dict.fromkeys(("commit", "built_at", "deployed_at")))
             read = Mock(side_effect=GitHubRateLimited(1600))
             tip = Mock(side_effect=[commit, "a" * 40, commit, commit])
-            with patch("deploy_hosted.time.time", return_value=1000):
+            with patch("github_main.time.time", return_value=1000):
                 self.assertEqual(
                     deploy_once(self.config, tip=tip, read=read, fetch=fetch, operate=operate),
                     {"status": "rate-limited", "commit": commit, "retry_at": 1600},
                 )
-            with patch("deploy_hosted.time.time", return_value=1500):
+            with patch("github_main.time.time", return_value=1500):
                 self.assertEqual(
                     deploy_once(self.config, tip=tip, read=read, fetch=fetch, operate=operate),
                     {"status": "rate-limited", "commit": "a" * 40, "retry_at": 1600},
@@ -288,7 +288,7 @@ class MainReleaseTest(unittest.TestCase):
             branch, rules, checks = responses
             advanced = {**responses[branch], "commit": {"sha": "a" * 40}}
             moving = Mock(side_effect=[responses[checks], responses[branch], responses[rules], advanced])
-            with patch("deploy_hosted.time.time", return_value=1600), (
+            with patch("github_main.time.time", return_value=1600), (
                 self.assertRaisesRegex(ReleaseRejected, "exact protected GitHub main tip")
             ):
                 deploy_once(self.config, tip=tip, read=moving, fetch=fetch, operate=operate)
@@ -307,7 +307,7 @@ class MainReleaseTest(unittest.TestCase):
             fetch.reset_mock()
 
             read = Mock(side_effect=responses.__getitem__)
-            with patch("deploy_hosted.time.time", return_value=1601):
+            with patch("github_main.time.time", return_value=1601):
                 first = deploy_once(self.config, tip=tip, read=read, fetch=fetch, operate=operate)
             self.assertEqual(tip.call_count, 4)
             self.assertEqual([call.args[0] for call in read.call_args_list], [checks, branch, rules, branch])
@@ -509,6 +509,37 @@ class MainCIWatcherTest(unittest.TestCase):
         self.assertIn("Passed", self.writes[-1][1]["note"])
         self.assertEqual(self.poll(), [])
         self.assertEqual([action for action, _ in self.writes], ["create-task", "record-activity", "record-activity"])
+
+    def test_ci_and_deploy_use_the_same_rest_retry_deadline(self):
+        deadline = self.state.parent / "github-rate-limit.json"
+        self.state.write_text(json.dumps({"board": BOARD, "owner": "Beacon", "since": SINCE,
+                                          "attempts": {}, "pending": []}))
+        original = self.state.read_bytes()
+        argv = ["watch_main_ci", "--state", str(self.state.parent), "--since", SINCE,
+                "--board", BOARD, "--owner", "Beacon", "--public-github",
+                "--github-backoff-file", str(deadline)]
+        intake_read = Mock(side_effect=GitHubRateLimited(1800))
+        deploy_read = Mock(return_value={"result": "fixture"})
+        with patch("github_main.time.time", return_value=1000), patch(
+            "watch_main_ci.signed_in_service", return_value=self.invoke,
+        ), patch("watch_main_ci.read_github", intake_read):
+            for args in (argv, [*argv, "--apply"]):
+                with patch("sys.argv", args), redirect_stdout(StringIO()) as output:
+                    self.assertEqual(main_ci(), 75)
+                    self.assertEqual(json.loads(output.getvalue())["retry_at"], 1800)
+                self.assertEqual(deadline.is_file(), "--apply" in args)
+            self.assertEqual(self.state.read_bytes(), original)
+            self.assertEqual(self.writes, [])
+            self.assertEqual(json.loads(deadline.read_text()), {"retry_at": 1800})
+            with self.assertRaises(GitHubRateLimited):
+                respect_rate_limit(deploy_read, deadline)("/deploy")
+            deploy_read.assert_not_called()
+            intake_read.reset_mock()
+            with patch("sys.argv", argv), redirect_stdout(StringIO()):
+                self.assertEqual(main_ci(), 75)
+            intake_read.assert_not_called()
+        with patch("github_main.time.time", return_value=1800):
+            self.assertEqual(respect_rate_limit(deploy_read, deadline)("/deploy"), {"result": "fixture"})
 
     def test_public_ci_poll_keeps_state_on_throttle_and_reconciles_on_restart(self):
         copies = [run(1, "success", id=number, event="pull_request") for number in range(100, 200)]

@@ -387,3 +387,10 @@ schedule. On a rate limit with a known deadline, the command returns exit 75
 and JSON with `status: rate-limited` and `retry_at` in UTC epoch seconds. Defer
 another poll until both the next hourly slot and that deadline. A throttled
 poll leaves the cursor and ticket Activity untouched.
+
+On the Pi, pass `--github-backoff-file "$ci_state/hosted-deployments/github-rate-limit.json"`
+with the existing deploy runner’s `ci_state` value. Both applied jobs should run
+as the authorized owner of that private directory. They share the existing
+deadline and serialize each REST request while updating it. A preview checks the
+deadline without writing it. This coordination leaves deploy’s exact-main and
+required-check verification in place.

@@ -8,13 +8,14 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import time
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from ci_watch import build_checked_commit, resolve_commit
 from deploy_main import predecessor_for
-from github_main import GitHubRateLimited, read_github, repository_path, require_protected_tip, verify_required_checks
+from github_main import (
+    GitHubRateLimited, read_github, repository_path, require_protected_tip, respect_rate_limit, verify_required_checks,
+)
 from local_queue import queue_lock, write_json
 from operator_deploy import deployment_layout, read_operator_config, run_config
 from queue_provenance import GIT_COMMIT, SHA256
@@ -84,20 +85,6 @@ def deploy_once(config, *, tip=git_main_tip, read=read_github, fetch=fetch_commi
                                   read=respect_rate_limit(read, rate_limit), fetch=fetch, operate=operate)
         except GitHubRateLimited as error:
             return {"commit": commit, "status": "rate-limited", "retry_at": error.retry_at}
-
-
-def respect_rate_limit(read, path):
-    def guarded_read(endpoint):
-        if path.is_file():
-            retry_at = json.loads(path.read_text(encoding="utf-8"))["retry_at"]
-            if time.time() < retry_at:
-                raise GitHubRateLimited(retry_at)
-        try:
-            return read(endpoint)
-        except GitHubRateLimited as error:
-            write_json(path, {"retry_at": error.retry_at})
-            raise
-    return guarded_read
 
 
 def record_staged_failure(records, commit, candidate, stage, error):
