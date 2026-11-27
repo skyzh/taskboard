@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 import subprocess
 
-from github_main import protected_tip
+from github_main import GitHubRateLimited, protected_tip, read_github, read_github_pages
 from local_queue import queue_lock, write_json
 from publish_receipt import signed_in_service
 from queue_provenance import GIT_COMMIT
@@ -29,9 +29,17 @@ def github_read(path, *, paginate=False):
     return json.loads(result.stdout)
 
 
+def public_github_read(path, *, paginate=False):
+    if not paginate:
+        return read_github(path)
+    field = "jobs" if "/jobs?" in path else "workflow_runs"
+    return read_github_pages(path, field=field)
+
+
 def all_items(pages, field):
     items = [item for page in pages for item in page[field]]
-    if not pages or pages[0]["total_count"] != len(items):
+    if (not pages or any(page["total_count"] != len(items) for page in pages)
+            or len({item["id"] for item in items}) != len(items)):
         raise ValueError("GitHub did not return the full result set.")
     return items
 
@@ -205,8 +213,10 @@ def main():
     parser.add_argument("--board", required=True, help="HTTPS Taskboard base URL.")
     parser.add_argument("--owner", required=True, help="Exact signed owner ID from Taskboard context.")
     parser.add_argument("--service", default="tasks-board")
+    parser.add_argument("--public-github", action="store_true", help="Read public GitHub REST without a GitHub login.")
     parser.add_argument("--apply", action="store_true", help="Enable signed writes. Omit for read-only preview.")
     args = parser.parse_args()
+    read = public_github_read if args.public_github else github_read
     try:
         state = args.state / "main-ci.json"
         options = {"since": args.since.isoformat(), "board": args.board, "owner": args.owner, "dry_run": not args.apply}
@@ -214,13 +224,16 @@ def main():
         if args.apply:
             args.state.mkdir(mode=0o700, parents=True, exist_ok=True)
             with queue_lock(args.state):
-                results = poll(github_read, invoke, state, **options)
+                results = poll(read, invoke, state, **options)
         else:
-            results = poll(github_read, invoke, state, **options)
+            results = poll(read, invoke, state, **options)
+    except GitHubRateLimited as error:
+        print(json.dumps({"dry_run": not args.apply, "status": "rate-limited", "retry_at": error.retry_at}))
+        return 75
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         parser.exit(1, f"Taskboard main CI watcher: {error}\n")
     print(json.dumps({"dry_run": not args.apply, "observations": results}))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

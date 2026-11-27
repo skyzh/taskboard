@@ -23,7 +23,7 @@ from operator_deploy import (
 )
 from release_plan import ReleaseLayout, ReleaseRejected, copy_release, file_hash, verify_manifest
 from tasks_release_info import release_info
-from watch_main_ci import ACTIONS, API, REPO, WORKFLOW, poll
+from watch_main_ci import ACTIONS, API, REPO, WORKFLOW, poll, public_github_read
 
 
 class MainReleaseTest(unittest.TestCase):
@@ -509,6 +509,47 @@ class MainCIWatcherTest(unittest.TestCase):
         self.assertIn("Passed", self.writes[-1][1]["note"])
         self.assertEqual(self.poll(), [])
         self.assertEqual([action for action, _ in self.writes], ["create-task", "record-activity", "record-activity"])
+
+    def test_public_ci_poll_keeps_state_on_throttle_and_reconciles_on_restart(self):
+        copies = [run(1, "success", id=number, event="pull_request") for number in range(100, 200)]
+        state = {"board": BOARD, "owner": "Beacon", "since": SINCE, "attempts": {}, "pending": []}
+        self.state.write_text(json.dumps(state))
+        original = self.state.read_bytes()
+        requested = []
+        throttled = True
+
+        def fixture(path):
+            requested.append(path)
+            if "/workflows/" in path:
+                if path.endswith("&page=2"):
+                    if throttled:
+                        raise GitHubRateLimited(1800)
+                    return {"workflow_runs": self.latest, "total_count": 101}
+                return {"workflow_runs": copies, "total_count": 101}
+            result = self.read(path, paginate="/jobs?" in path)
+            return result[0] if "/jobs?" in path else result
+
+        def public_poll(*, dry_run=False):
+            return poll(public_github_read, self.invoke, self.state, since=SINCE,
+                        board=BOARD, owner="Beacon", dry_run=dry_run)
+
+        with patch("github_main.read_github", side_effect=fixture), patch("watch_main_ci.read_github", side_effect=fixture):
+            with self.assertRaises(GitHubRateLimited):
+                public_poll()
+            self.assertEqual(len(requested), 3)
+            self.assertEqual(self.state.read_bytes(), original)
+            self.assertEqual(self.writes, [])
+            throttled = False
+            self.assertEqual(public_poll(dry_run=True)[0]["action"], "create-task")
+            self.assertEqual(self.state.read_bytes(), original)
+            self.assertEqual(self.writes, [])
+            self.assertEqual(public_poll()[0]["action"], "create-task")
+            self.latest = [run(2, "failure")]
+            self.assertEqual(public_poll()[0]["ticket"], "T-9")
+            self.latest = [run(3, "success")]
+            self.assertEqual(public_poll()[0]["ticket"], "T-9")
+            self.assertEqual(public_poll(), [])
+            self.assertEqual(json.loads(self.state.read_text())["pending"], [])
 
     def test_uncertain_create_and_log_reconcile_without_local_state(self):
         self.lose_response = True

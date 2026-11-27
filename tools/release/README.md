@@ -339,7 +339,7 @@ The default run uses synthetic local fixtures. Release operators can enable addi
 
 Supply all four release artifact settings together and both legacy CLI settings together when enabling their respective replays. Tests use disposable ledger data and loopback HTTP.
 
-## Route protected-main CI failures from the Mac
+## Route protected-main CI failures
 
 The main CI intake checks GitHub Actions through the Mac’s existing `gh` login.
 It watches the Taskboard CI workflow’s pushes to protected `main`. A completed
@@ -378,3 +378,12 @@ first and saves the new date. In-progress runs, failed runs, and failures
 awaiting job evidence remain tracked by run ID outside the new window. A passing
 retry updates the original ticket and removes the run from outstanding tracking.
 If GitHub cannot return the full old window, the watcher stops before writing.
+
+For the Pi preview, add `--public-github` to use the same anonymous REST transport
+as the release watcher. The signed Taskboard session and private state still use
+the configured board and owner. Public reads share GitHub's hourly allowance
+with other services using the same originating IP. Use the approved hourly
+schedule. On a rate limit with a known deadline, the command returns exit 75
+and JSON with `status: rate-limited` and `retry_at` in UTC epoch seconds. Defer
+another poll until both the next hourly slot and that deadline. A throttled
+poll leaves the cursor and ticket Activity untouched.
