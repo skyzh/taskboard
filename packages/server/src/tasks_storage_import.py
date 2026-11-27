@@ -37,7 +37,7 @@ ATTACHMENT_TABLES = {"ticket_attachments", "ticket_attachment_bytes"}
 # Ephemeral deployment records and migration history belong to the source database.
 NON_PORTABLE_TABLES = {
     "personal_agent_connections", "personal_agent_cli_approvals", "local_dri_watchers", "reports_presence",
-    "watcher_health", SCHEMA_REVISION_TABLE,
+    "watcher_health", "runtime_observations", SCHEMA_REVISION_TABLE,
 }
 IDENTITIES = {
     "tasks": "id", "events": "id", "sources": "id", "worker_runs": "id",

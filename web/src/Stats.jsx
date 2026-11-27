@@ -3,6 +3,7 @@ import { BoardLink, useBoardNavigation } from './BoardNavigation.jsx'
 import { queryPath, useResource } from './data.js'
 import { AssigneeAvatar, ResourceStatus, Status, TaskLink, Timestamp, eventHref, taskState } from './shared.jsx'
 import { useTimeZone } from './timeZone.js'
+import RuntimeTimeline from './RuntimeTimeline.jsx'
 import './stats.css'
 
 const number = new Intl.NumberFormat('en-US')
@@ -365,6 +366,7 @@ export default function Stats({ revision, period = 'day', project, projects }) {
           {data.ticket_flow && <TicketFlow data={data} />}
           {data.peer_requests && <PeerRequests requests={data.peer_requests} />}
           {data.integrations && <IntegrationActivity integrations={data.integrations} />}
+          {project && data.runtime_timeline?.project === project && <RuntimeTimeline timeline={data.runtime_timeline} />}
           <ActiveChart buckets={data.buckets} width={data.bucket_seconds} />
           <section className="panel" aria-labelledby="stats-recorded-work">
             <h2 id="stats-recorded-work">Recorded activity and worker time</h2>

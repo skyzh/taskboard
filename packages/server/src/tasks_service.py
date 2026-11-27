@@ -48,6 +48,7 @@ import tasks_knowledge as knowledge_records
 import tasks_merges as merges
 import tasks_notification_log as notification_log
 import tasks_watcher_health as watcher_health
+import tasks_runtime_observations as runtime_observations
 import tasks_oidc as oidc_auth
 import tasks_oidc_members as oidc_members
 import tasks_profiles as profiles
@@ -409,6 +410,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     goals.migrate_goal_tickets(db)
     db.execute(goal_cadence.SCHEMA)
     db.execute(watcher_health.SCHEMA)
+    db.execute(runtime_observations.SCHEMA)
     db.execute(cue_pauses.SCHEMA)
     db.execute(goal_offers.SCHEMA)
     db.execute(goal_offers.INDEX)
@@ -636,6 +638,7 @@ def create_app(
     browser_push_config=None,
     demo_review_config=None,
     attachment_storage=None,
+    runtime_pilot=None,
 ):
     """Configure the board with Raft, OIDC, or one deployment-provided login adapter."""
     if login_provider is not None and oidc_config is not None:
@@ -672,6 +675,8 @@ def create_app(
     personal_api_enabled = bool(
         not marketplace and not local_readonly and member_mode is None and (raft_config or {}).get("server_id")
     )
+    if runtime_pilot is not None and (postgres_dsn or not personal_api_enabled):
+        raise ValueError("The runtime pilot requires a fixed-server Raft board on SQLite with the operator deferral timer.")
     if project_admin_subject is not None:
         if not personal_api_enabled:
             raise ValueError("Project administration requires a fixed-server Raft board.")
@@ -2942,6 +2947,31 @@ def create_app(
                 pass
         return None
 
+    def read_runtime_timeline(connection, project, start, end, now):
+        require_visible_project(connection, project)
+        if actor_key() is None or g.get("personal_agent_api") or runtime_pilot is None or project != runtime_pilot[0]:
+            raise NotFound()
+        roster = (project_roster or {}) if project == projects.DEFAULT else {}
+        return runtime_observations.listing(connection, project, roster, principal=actor_key(),
+                                            subject=runtime_pilot[1], start=start, end=end, now=now)
+
+    @app.get("/api/v1/stats/runtime")
+    def stats_runtime():
+        current_actor(required=True)
+        if len(request.args.getlist("project")) != 1 or not request.args["project"]:
+            raise RequestError("Choose one project.")
+        project = project_filter(request.args)
+        try:
+            start = runtime_observations.utc(text(request.args, "from", maximum=40))
+            end = runtime_observations.utc(text(request.args, "to", maximum=40))
+            if start.microsecond or end.microsecond or not timedelta(0) < end - start <= runtime_observations.RETENTION:
+                raise ValueError
+        except ValueError:
+            raise RequestError("Choose a positive UTC range up to seven days.") from None
+        now = runtime_observations.utc(ledger.timestamp())
+        with tasks_storage.read(db()) as connection:
+            return read_runtime_timeline(connection, project, start, end, now)
+
     @app.get("/api/v1/stats")
     def stats():
         actor = current_actor()
@@ -2954,6 +2984,12 @@ def create_app(
                 connection, period, base=base, watcher_task=watcher_task_id(connection), project=project,
                 principal=actor_key(),
             )
+            if (actor_key() is not None and not g.get("personal_agent_api")
+                    and runtime_pilot is not None and project == runtime_pilot[0]):
+                result["runtime_timeline"] = read_runtime_timeline(
+                    connection, project, runtime_observations.utc(result["from"]),
+                    runtime_observations.utc(result["to"]), runtime_observations.utc(ledger.timestamp()),
+                )
             result["integrations"] = integration_stats.snapshot(
                 connection, (result["from"], result["to"]), project=project,
                 actor=actor["ledger_key"] if actor else None,
@@ -4903,6 +4939,28 @@ def create_app(
             if g.get("personal_agent_api"):
                 context["personal_agent_access"] = g.personal_agent_api
             return context
+        if name == "report-runtime-observation":
+            project = project_filter(data)
+            if (actor["kind"] != "agent" or g.get("personal_agent_api")
+                    or runtime_pilot is None or (project, actor["subject"]) != runtime_pilot):
+                raise RequestError("Runtime reporting is not enabled for this signed agent and project.", 403)
+            state = text(data, "state", maximum=11)
+            now = runtime_observations.utc(ledger.timestamp())
+            try:
+                observed, run_id = runtime_observations.observation(
+                    state, text(data, "observed_at", maximum=40), text(data, "run_id", maximum=36), now,
+                )
+            except ValueError as error:
+                raise RequestError(str(error)) from error
+            with tasks_storage.write(db()) as connection:
+                require_visible_project(connection, project)
+                roster = (project_roster or {}) if project == projects.DEFAULT else {}
+                agents = runtime_observations.project_agents(connection, project, roster, principal=key)
+                if not any(agent["ledger_key"] == key for agent in agents):
+                    raise RequestError("Use an agent recorded in this project.", 403)
+                if not runtime_observations.record(connection, project, key, observed, run_id, state):
+                    raise RequestError("That runtime observation slot already has a different result.", 409)
+            return {"receipt": f"{project} · Runtime observation recorded"}
         if name == "report-watcher-health":
             if actor["kind"] != "agent" or g.get("personal_agent_api"):
                 raise RequestError("Use the watcher's own signed Raft agent.", 403)
@@ -4918,7 +4976,7 @@ def create_app(
             with tasks_storage.write(db()) as connection:
                 require_visible_project(connection, project)
                 roster = (project_roster or {}) if project == projects.DEFAULT else {}
-                agents = notification_log.project_agents(connection, project, roster, principal=key)
+                agents = runtime_observations.project_agents(connection, project, roster, principal=key)
                 if not any(agent["ledger_key"] == key for agent in agents):
                     raise RequestError("Use an agent recorded in this project.", 403)
                 watcher_health.report(connection, project, key, revision, state, stalled == "true",
@@ -5461,6 +5519,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             project_extensions=project_extensions,
             github_webhook_secrets=os.environ.get("TASKS_GITHUB_WEBHOOK_SECRETS"),
             demo_review_config=os.environ.get("TASKS_DEMO_REVIEW") or None,
+            runtime_pilot=runtime_observations.configuration(os.environ),
             attachment_storage=tasks_attachments.configured_storage(
                 os.environ.get("TASKS_ATTACHMENT_BACKEND"), os.environ.get("TASKS_ATTACHMENT_DIRECTORY"),
                 postgres=bool(postgres_dsn),

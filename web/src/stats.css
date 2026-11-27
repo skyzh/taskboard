@@ -115,3 +115,19 @@
 @media (max-width: 52rem) {
   .stats-breakdowns { grid-template-columns: minmax(0, 1fr); }
 }
+
+.runtime-legend, .runtime-agents { list-style: none; padding: 0; }
+.runtime-legend { display: flex; flex-wrap: wrap; gap: .4rem 1rem; }
+.runtime-legend li { display: flex; align-items: center; gap: .35rem; }
+.runtime-legend span { width: 1rem; height: .8rem; border: 1px solid var(--line); }
+.runtime-axis { display: flex; justify-content: space-between; gap: .4rem; color: var(--muted); font-size: .82rem; }
+.runtime-agents { display: grid; gap: .75rem; }
+.runtime-agents h3 { margin: 0 0 .3rem; font-size: .95rem; overflow-wrap: anywhere; }
+.runtime-track { position: relative; height: 1.25rem; overflow: hidden; border: 1px solid var(--line); border-radius: .3rem; }
+.runtime-track span { position: absolute; inset-block: 0; }
+.runtime-state.working { background: #288260; }
+.runtime-state.idle { background: #6d83b4; }
+.runtime-state.unavailable { background: #a66a39; }
+.runtime-state.unknown { background: repeating-linear-gradient(135deg, transparent 0 3px, var(--line) 3px 5px); }
+.runtime-agents summary { min-height: 2.75rem; align-content: center; cursor: pointer; }
+.runtime-agents details ul { padding-inline-start: 1.25rem; }

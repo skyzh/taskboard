@@ -10,11 +10,44 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic, sleep
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
 from taskboard_cli.goal_wake import GOAL_PROJECT, GoalWake, GoalWakeState, default_state_path, reminder_title
 from taskboard_cli.shared import assert_actor, task_url
+
+
+def runtime_observer(board, project, observe, emit):
+    run_id = str(uuid4())
+    last_slot = None
+
+    def record(status):
+        nonlocal last_slot
+        now = datetime.now(timezone.utc)
+        slot = now.replace(second=0, microsecond=0)
+        if last_slot is not None and slot <= last_slot:
+            return
+        last_slot = slot
+        state = {"working": "working", "idle": "idle", "stopped": "unavailable"}.get(status, "unknown")
+        try:
+            board.invoke("report-runtime-observation", {
+                "project": project, "state": state,
+                "observed_at": now.isoformat(timespec="seconds").replace("+00:00", "Z"),
+                "run_id": run_id,
+            }, write=True, timeout=5)
+        except RuntimeError:
+            emit({"kind": "runtime-observation-unavailable", "at": observation_time()})
+
+    def sample(handle):
+        try:
+            status = observe(handle)
+        except RuntimeError:
+            record(None)
+            raise
+        record(status)
+        return status
+
+    return sample
 
 
 def watcher_reporter(board, project, *, stalled, goals, emit):
@@ -643,6 +676,7 @@ def main(*, managed_child=False):
     parser.add_argument("--measure", action="store_true", help="Emit sampled status and wake receipts in repeat mode.")
     parser.add_argument("--wake-stalled", action="store_true", help="Compatibility option. Stalled cues are enabled in repeat mode.")
     parser.add_argument("--goal-state", type=Path, help="Reuse an existing private Project T cue state file instead of the default.")
+    parser.add_argument("--report-runtime", metavar="PROJECT", help="Opt in to signed runtime samples for this project.")
     parser.add_argument("--report-status", metavar="PROJECT", help="Report redacted watcher health to this project.")
     parser.add_argument("--idle-delay-seconds", type=int, help="Require this much observed idle time before a Ready wake.")
     parser.add_argument("--idle-handoff", type=UUID, help="Stable runner UUID for an explicit idle goal offer.")
@@ -659,6 +693,8 @@ def main(*, managed_child=False):
         parser.error("Use --wake-stalled only with --watch-idle --repeat.")
     if args.goal_state and not (args.watch_idle and args.repeat):
         parser.error("Use --goal-state only with --watch-idle --repeat.")
+    if args.report_runtime and not (args.watch_idle and args.repeat):
+        parser.error("Use --report-runtime only with --watch-idle --repeat.")
     if args.report_status and not (args.watch_idle and args.repeat):
         parser.error("Use --report-status only with --watch-idle --repeat.")
     if args.watch_idle:
@@ -703,11 +739,19 @@ def main(*, managed_child=False):
 
                 health = watcher_reporter(board, args.report_status, stalled=True, goals=True,
                                           emit=emit) if args.report_status else None
+                observe = raft_status
+                idle = raft_idle
+                if args.report_runtime:
+                    observe = runtime_observer(board, args.report_runtime, observe, emit)
+
+                    def idle(handle):
+                        return observe(handle) == "idle"
+
                 try:
                     watch_ready_count(
-                        board, args.by, raft_idle, notify_count, emit,
+                        board, args.by, idle, notify_count, emit,
                         idle_delay=10 if args.idle_delay_seconds is None else args.idle_delay_seconds,
-                        observe_status=raft_status if args.measure else None,
+                        observe_status=observe if args.measure else None,
                         notify_stalled=notify_stalled,
                         goal_state=args.goal_state, notify_goal=notify_goal, report_health=health,
                     )

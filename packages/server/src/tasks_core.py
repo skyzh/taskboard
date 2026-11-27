@@ -34,6 +34,7 @@ import tasks_peer_asks as peer_asks
 import tasks_releases as releases
 import tasks_references as references
 import tasks_recurring
+import tasks_runtime_observations as runtime_observations
 import tasks_readiness as readiness
 import watches
 import workers
@@ -2332,6 +2333,8 @@ def save_task(db, path, args, links):
                 if not projects.manages(db, project, args.by):
                     raise PermissionError("Only this project's manager can run its recurring work.")
             as_of = now if project is not None else tasks_recurring.utc_text(tasks_recurring.utc(args.as_of))
+            if project is None:
+                runtime_observations.prune_expired(db, runtime_observations.utc(now))
             if project is None and args.deferrals_only:
                 result = {"as_of": as_of, "released_deferrals": release_due_deferrals(db, as_of)}
             else:

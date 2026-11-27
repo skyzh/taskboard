@@ -67,6 +67,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "save-dri-postboard": ("POST", "project content source_ticket_ids expected_revision_id", ""),
             "idle-goal-offer": ("POST", "handoff_id", "project"),
             "my-goals": ("GET", "", "project"),
+            "report-runtime-observation": ("POST", "project state observed_at run_id", ""),
             "report-watcher-health": ("POST", "state stalled goals", "project revision"),
             "my-goal-cues": ("GET", "", "project include_timed"),
             "set-goal-review-time": ("POST", "id time", ""),

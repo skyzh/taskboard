@@ -95,6 +95,12 @@ _ACTIONS = {
         "handoff_id": "Stable runner handoff UUID. Use only after observing Idle and reuse the same ID on retry.",
     }, _PROJECT),
     "my-goals": _Action("GET", "Read your standing and dated goals for one project.", optional=_PROJECT),
+    "report-runtime-observation": _Action("POST", "Report an opted-in agent’s own runtime observation.", {
+        "project": "Explicit pilot project prefix.",
+        "state": "Working, idle, unavailable or unknown, lowercase.",
+        "observed_at": "Actual UTC observation time, in whole seconds. One observation per minute.",
+        "run_id": "Stable collector-run UUID used only for continuity.",
+    }),
     "report-watcher-health": _Action("POST", "Report the signed agent's managed Ready watcher's status.", {
         "state": "running or exited.", "stalled": "Whether stalled-work wakes are enabled.",
         "goals": "Whether goal wakes are enabled.",

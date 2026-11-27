@@ -5,6 +5,7 @@ from tools.checkout import ROOT
 from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, redirect_stderr, redirect_stdout
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from importlib.util import module_from_spec, spec_from_file_location
 from io import BytesIO, StringIO
@@ -164,6 +165,92 @@ class TasksServiceTest(unittest.TestCase):
             },
             **kwargs,
         )
+
+    def test_runtime_pilot_uses_signed_project_scoped_observations(self):
+        import tasks_ring1
+        from tasks_storage import open_sqlite, write
+
+        subjects = {self.provider.people[name]["sub"]: name for name in ("Avery", "Blake")}
+        app = self.app(runtime_pilot=("T", self.provider.people["Avery"]["sub"]), project_roster=subjects)
+        owner, owner_id = self.login(app, "Avery")
+        peer, _ = self.login(app, "Blake")
+        endpoint = "/api/v1/stats/runtime"
+        first, second, end = ("2026-11-27T18:00:00Z", "2026-11-27T18:01:00Z", "2026-11-27T18:02:00Z")
+        bounds = {"project": "T", "from": first, "to": end}
+        report = "report-runtime-observation"
+        sample = {"project": "T", "observed_at": first, "state": "working",
+                  "run_id": "123e4567-e89b-12d3-a456-426614174000"}
+
+        self.call(app.test_client(), endpoint, query_string=bounds, status=401)
+        self.call(owner, endpoint, query_string={"from": first, "to": end}, status=400)
+        self.call(owner, endpoint, query_string={**bounds, "to": "2026-12-05T18:00:00Z"}, status=400)
+        with patch("tasks_core.timestamp", return_value=end):
+            self.action(peer, report, sample, status=403)
+            self.action(owner, report, sample)
+            self.action(owner, report, sample)
+            self.action(owner, report, {**sample, "state": "idle"}, status=409)
+            self.action(owner, report, {**sample, "observed_at": second})
+            projection = self.call(peer, endpoint, query_string=bounds).get_json()
+            self.assertEqual(projection["observed_through"], second)
+            self.assertEqual(projection["agents"][0]["intervals"], [
+                {"start_at": first, "end_at": second, "state": "working"},
+                {"start_at": second, "end_at": end, "state": "unknown"},
+            ])
+            self.assertEqual(projection["agents"][1]["intervals"], [
+                {"start_at": first, "end_at": end, "state": "unknown"},
+            ])
+        self.assertNotIn("runtime_timeline", self.call(owner, "/api/v1/stats").get_json())
+
+        with closing(open_sqlite(self.database)) as db, write(db):
+            tasks_ring1.mark_private(db, "T", [owner_id])
+        self.call(peer, endpoint, query_string=bounds, status=404)
+        self.call(peer, "/api/v1/stats", query_string={"project": "T"}, status=404)
+        with patch("tasks_core.timestamp", return_value=end):
+            restricted = self.call(owner, endpoint, query_string=bounds).get_json()
+            self.assertEqual([agent["id"] for agent in restricted["agents"]], [owner_id])
+        self.provider = FixtureRaft()
+        disabled = self.app()
+        disabled_owner, _ = self.login(disabled, "Avery")
+        self.call(disabled_owner, endpoint, query_string=bounds, status=404)
+        self.action(disabled_owner, report, sample, status=403)
+
+    def test_runtime_pilot_rejects_postgres_before_opening_the_ledger(self):
+        with patch("tasks_storage.Postgres") as connect:
+            with self.assertRaisesRegex(ValueError, "runtime pilot requires.*SQLite"):
+                self.app(runtime_pilot=("T", self.provider.people["Avery"]["sub"]),
+                         postgres_dsn="postgresql://synthetic.invalid/disposable")
+            connect.assert_not_called()
+
+    def test_operator_timer_expires_runtime_samples_after_reporting_is_disabled(self):
+        subjects = {self.provider.people["Avery"]["sub"]: "Avery"}
+        app = self.app(runtime_pilot=("T", next(iter(subjects))), project_roster=subjects)
+        owner, _ = self.login(app, "Avery")
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        expired, retained = [
+            (now - timedelta(days=age)).isoformat().replace("+00:00", "Z") for age in (8, 6)
+        ]
+        action = "report-runtime-observation"
+        for at in (expired, retained):
+            sample = {"project": "T", "observed_at": at, "state": "idle",
+                      "run_id": "123e4567-e89b-12d3-a456-426614174000"}
+            with patch("tasks_core.timestamp", return_value=at):
+                self.action(owner, action, sample)
+
+        self.provider = FixtureRaft()
+        disabled = self.app()
+        disabled_owner, _ = self.login(disabled, "Avery")
+        self.action(disabled_owner, action, sample, status=403)
+
+        def observations():
+            with closing(open_sqlite(self.database)) as db:
+                return [row[0] for row in db.execute(
+                    "SELECT observed_at FROM runtime_observations ORDER BY observed_at",
+                )]
+
+        self.assertEqual(observations(), [expired, retained])
+        result = self.cli("--offline", "recurring-tick", "--deferrals-only", "--as-of", timestamp())
+        self.assertEqual(json.loads(result)["released_deferrals"], [])
+        self.assertEqual(observations(), [retained])
 
     def test_cli_login_saves_a_verified_connection_and_logs_out(self):
         app = self.app(portal_reader=True)
