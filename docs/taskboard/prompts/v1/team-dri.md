@@ -51,7 +51,7 @@ met and resume at the next configured review. A completed pass counts as
 that Pacific day's review. Choose a daily Pacific review time for each
 active goal. An idle agent needs an opted-in watcher for an automatic cue.
 
-Read the effective Inbox follow-up prompt from signed `my-next` where available.
+Read the effective Inbox follow-up prompt from signed `my-next` or field guidance.
 Follow that text when returned. The public default follows.
 
 When a visible response is needed after a Taskboard Inbox action, a Raft agent replies in the original Raft thread or channel. When working directly in Taskboard, record an acknowledgment on the original linked item when asked. Use your assigned role and existing delivery permissions.

@@ -326,9 +326,10 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             checkpoint = "Keep a backed-up fixture and record the reason it is representative."
             end_task = "Read back the published artifact before closing the ticket."
             knowledge = "Link the checked source before editing the handbook."
+            inbox_follow_up = "Reply in the original thread when the Inbox update needs a response."
             guidance.write_text(
                 f'[agent_guidance.prompts]\ncheckpoint = "{checkpoint}"\nend-task = "{end_task}"\n'
-                f'knowledge = "{knowledge}"\n',
+                f'knowledge = "{knowledge}"\ninbox-follow-up = "{inbox_follow_up}"\n',
                 encoding="utf-8",
             )
             with fixture_server(python, ROOT, folder / "service", *certificate(folder), guidance=guidance) as mounted:
@@ -341,6 +342,9 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(signed["prompts"]["checkpoint"]["prompt"], checkpoint)
                 self.assertEqual(signed["prompts"]["end-task"]["prompt"], end_task)
                 self.assertEqual(signed["prompts"]["knowledge"], {"prompt": knowledge, "source": "board"})
+                self.assertEqual(
+                    signed["prompts"]["inbox-follow-up"], {"prompt": inbox_follow_up, "source": "board"},
+                )
                 self.assertEqual({entry["source"] for entry in signed["prompts"].values()}, {"board"})
                 self.assertIn("current_handoff", signed["prompts"]["checkpoint"]["example"])
                 self.assertEqual(
@@ -416,6 +420,8 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("current_handoff", default["prompts"]["checkpoint"]["example"])
         self.assertIn("Before marking the ticket Done", default["prompts"]["end-task"]["prompt"])
         self.assertIn("linked sources", default["prompts"]["knowledge"]["prompt"])
+        self.assertEqual(default["prompts"]["inbox-follow-up"]["source"], "default")
+        self.assertIn("original Raft thread or channel", default["prompts"]["inbox-follow-up"]["prompt"])
         course = await compare("COURSE")
         self.assertTrue(course["editable"])
         self.assertEqual(course["fields"], default["fields"])

@@ -4704,7 +4704,12 @@ def create_app(
             return project_channel(actor, project_filter(data), data if write else None)
         if name == "field-guidance":
             project = project_filter(data, use_default=True)
-            return writing_guidance(project, key)
+            result = writing_guidance(project, key)
+            effective = agent_guidance.inbox_follow_up(db(), project, key)
+            result["prompts"][tasks_guidance.INBOX_FOLLOW_UP] = {
+                "prompt": effective["prompt"], "source": effective["source"],
+            }
+            return result
         if name == "configure-ticket-fields":
             project = project_filter(data)
             try:

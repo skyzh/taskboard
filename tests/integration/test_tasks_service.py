@@ -6283,6 +6283,11 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(effective(avery, project="T"), {"project": "T", "prompt": different_message, "source": "agent"})
         self.assertEqual(effective(blake, project="T"), {"project": "T", "prompt": project_message, "source": "project"})
         self.assertEqual(effective(avery, project="LAB")["prompt"], board_message)
+        self.assertEqual(self.action(avery, "field-guidance", query_string={"project": "T"})["prompts"][name],
+                         {"prompt": different_message, "source": "agent"})
+        code, output, errors = self.shared_cli(avery, "field-guidance", name, "--project", "T")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn(different_message, output)
         self.action(avery, "create-task", {"project": "T", "title": "Sample task", "step": "Check."})
         self.assertEqual(effective(avery, scope="all")["prompt"], different_message)
         code, output, errors = self.shared_cli(avery, "next", "--project", "T")

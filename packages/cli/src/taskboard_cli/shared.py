@@ -776,7 +776,8 @@ def shared_command(args):
             if item.get("format"):
                 lines.append(f"Format · {item['format']}")
             lines.append(f"Example · {item['example']}")
-        for name, label in (("checkpoint", "Checkpoint"), ("end-task", "End task"), ("knowledge", "Knowledge")):
+        for name, label in (("checkpoint", "Checkpoint"), ("end-task", "End task"), ("knowledge", "Knowledge"),
+                            ("inbox-follow-up", "Inbox follow-up")):
             if args.field not in (None, name):
                 continue
             prompt = result.get("prompts", {}).get(name)
