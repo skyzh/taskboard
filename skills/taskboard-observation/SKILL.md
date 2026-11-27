@@ -9,7 +9,7 @@ Keep one directly responsible individual (DRI) per goal. Record the human-define
 
 Use the existing goal review schedule. Keep bounded exploration and scheduled review on the same goal ticket. An Explore pass answers one question, records evidence in Activity, and hands back the next useful step. Follow the saved exploration policy and recheck Inbox before another pass.
 
-At each due Review, read the last outcome and applicable decisions. Record findings, unknowns, the decision, and a named next step in Knowledge. Link it from the goal's dated review outcome. An Explore pass can supply the evidence. Record Review explicitly when the project tracks it separately. Reuse the existing schedule and report key.
+At each due Review, read the last outcome and applicable decisions. Record findings, unknowns, the decision, and a named next step in Knowledge. Link it from the goal's dated review outcome. An Explore pass can supply the evidence. Record Review explicitly when the project tracks it separately. If the board counts a completed pass as that day’s review, honor that completion and reuse the recorded outcome. Use the existing reminder and report key so the day receives one review and one requested report.
 
 ## Evaluate the outcome
 
