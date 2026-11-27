@@ -94,18 +94,20 @@ def offer_work(board, actor):
     return None
 
 
-def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), acknowledged=None, include_goals=True):
+def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), acknowledged=None, include_goals=True, prefer_goals=False):
     """Find an owned In progress event that can still use the agent's attention."""
+    ordinary = None
     for queued in board.pages("my-queue", {"scope": "all", "state": "in_progress"}):
         if queued["dri"] != actor or queued["state"] != "in_progress":
             raise SharedReadError("The In progress queue returned work outside the signed-in agent's scope.",
                                   reason="queue-scope")
 
-        if queued["key"] in paused or (not include_goals and queued.get("goal_kind")):
+        is_goal = bool(queued.get("goal_kind"))
+        if queued["key"] in paused or (is_goal and not include_goals) or (ordinary is not None and not is_goal):
             continue
         detail = board.invoke("task", {"id": queued["key"]})
         task = detail["task"]
-        requires_disposition = acknowledged is not None and not queued.get("goal_kind")
+        requires_disposition = acknowledged is not None and not is_goal
         acknowledged_event = (acknowledged or {}).get(queued["key"])
         if (task["dri"] != actor or task["state"] != "in_progress" or
                 task["event_id"] == acknowledged_event or task["event_id"] in exclude_events):
@@ -125,9 +127,12 @@ def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), acknowledg
                     continue
             kind = "request"
 
-        return {"kind": kind, "task": task["key"], "task_id": task["id"], "event_id": task["event_id"],
-                **({"requires_disposition": True} if requires_disposition else {})}
-    return None
+        offer = {"kind": kind, "task": task["key"], "task_id": task["id"], "event_id": task["event_id"],
+                 **({"requires_disposition": True} if requires_disposition else {})}
+        if is_goal or not prefer_goals:
+            return offer
+        ordinary = offer
+    return ordinary
 
 
 def review_run(detail, actor, offer):
@@ -228,7 +233,8 @@ def watch_idle(board, owner, is_idle, notify, duration, interval=10, idle_delay=
                            notify, deadline, interval, idle_delay)
 
 
-def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_delay, *, delayed_lookup=None):
+def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_delay, *, delayed_lookup=None,
+                    continue_after=None):
     handle = context["actor"]["username"]
     if not handle:
         raise ValueError("The signed-in Taskboard agent has no verified Raft handle.")
@@ -270,7 +276,8 @@ def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_d
                     result = {"outcome": outcome, **offer}
                     if idle_delay:
                         result.update(idle_seconds=round(observed_idle, 3), status_checks=status_checks)
-                    return result
+                    if continue_after is None or not continue_after(result):
+                        return result
         pause = deadline - monotonic()
         if pause > 0:
             sleep(min(interval, pause))
@@ -342,7 +349,7 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     noticed_ready_event = 0
     current = frozenset()
     noticed_stalled = set()
-    outstanding_stalled = {}
+    next_stalled_attempt = {}
     noticed_workers = set()
     worker_wakes_available = notify_stalled is not None
     next_planned_check = next_stalled_check = 0
@@ -412,11 +419,11 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
             if long_idle and (offer := worker_offer("running", paused)):
                 return offer
             now = monotonic()
-            for event, retry in list(outstanding_stalled.items()):
+            for event, retry in list(next_stalled_attempt.items()):
                 if retry <= now:
-                    del outstanding_stalled[event]
-            return offer_stalled_work(board, actor, exclude_events=noticed_stalled | outstanding_stalled.keys(),
-                                      paused=paused, acknowledged=acknowledged, include_goals=long_idle)
+                    del next_stalled_attempt[event]
+            return offer_stalled_work(board, actor, exclude_events=noticed_stalled | next_stalled_attempt.keys(),
+                                      paused=paused, acknowledged=acknowledged, include_goals=long_idle, prefer_goals=long_idle)
         except SharedActionUnavailable as error:
             raise SharedReadError(str(error), reason="action-unavailable") from error
 
@@ -460,9 +467,16 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
 
         outcome = notify_stalled(notice, still_current)
         if outcome == "pending-stalled-wake":
-            outstanding_stalled[notice["event_id"]] = monotonic() + STALLED_IDLE_SECONDS
+            next_stalled_attempt[notice["event_id"]] = monotonic() + STALLED_IDLE_SECONDS
             return None
         return "stalled-step-changed" if changed else outcome
+
+    def continue_after(result):
+        if result["outcome"] != "wake-requested" or not result.get("requires_disposition"):
+            return False
+        next_stalled_attempt[result["event_id"]] = monotonic() + STALLED_IDLE_SECONDS
+        emit(result)
+        return True
 
     if observe_status is not None:
         is_idle = measured_idle(observe_status, actor, lambda: ready_events("idle sample"), emit)
@@ -476,7 +490,8 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     while True:
         try:
             result = check_when_idle(context, is_idle, next_count, notify_current, float("inf"), interval, idle_delay,
-                                     delayed_lookup=next_follow_up if notify_stalled is not None or goal_wake else None)
+                                     delayed_lookup=next_follow_up if notify_stalled is not None or goal_wake else None,
+                                     continue_after=continue_after)
         except SharedReadError as error:
             if stage == GOAL_READ:
                 if error.reason == "action-unavailable":
@@ -636,7 +651,7 @@ def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None)
         title += (f" To postpone: ./tasks --shared cue-pause {ticket} stalled --minutes N --reason REASON. "
                   f"List with ./tasks --shared cue-pauses or clear with ./tasks --shared cue-pause {ticket} stalled --clear.")
         return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake,
-                               title_prefix=identity, retry_outstanding=offer.get("requires_disposition", False))
+                               title_prefix=f"{identity}Open {url} ", retry_outstanding=offer.get("requires_disposition", False))
     return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake)
 
 
