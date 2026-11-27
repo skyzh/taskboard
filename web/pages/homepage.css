@@ -16,7 +16,7 @@
 body { margin: 0; }
 h1, h2, h3, p, ol { margin: 0; }
 a { color: inherit; text-underline-offset: 0.24em; }
-a:focus-visible { outline: 3px solid var(--accent); outline-offset: 6px; border-radius: 2px; }
+:is(a, button):focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
 
 .hero {
   position: relative;
@@ -95,13 +95,17 @@ h1 {
   line-height: 1.35;
 }
 
+.setup-flow {
+  position: relative;
+  margin-top: clamp(2.75rem, 6vw, 5rem);
+}
+
 .setup {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   padding: 0;
   list-style: none;
   text-align: left;
-  margin-top: clamp(2.75rem, 6vw, 5rem);
   border-block: 1px solid #dfddf0;
 }
 
@@ -133,6 +137,42 @@ h1 {
 }
 
 .step-icon svg { width: 2.05rem; height: 2.05rem; }
+
+.setup-return { display: block; width: 100%; height: 2.1rem; }
+.setup-return-stacked { display: none; }
+.setup-return path { stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.return-line { stroke: #9b9cf0; stroke-width: 1.5; }
+.return-pulse { display: none; stroke: var(--accent); stroke-width: 2.6; stroke-dasharray: 6 94; }
+.setup-flow[data-motion] .return-pulse {
+  display: initial;
+  animation: return-signal 3.6s linear infinite;
+}
+.setup-flow[data-motion="paused"] .return-pulse { animation-play-state: paused; }
+
+@keyframes return-signal {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+
+.motion-toggle {
+  position: absolute;
+  right: 0;
+  bottom: -0.75rem;
+  min-height: 2.75rem;
+  padding: 0.25rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--light-muted);
+  font: inherit;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .setup-flow[data-motion] .return-pulse, .motion-toggle { display: none; }
+}
 
 .demo {
   display: inline-flex;
@@ -200,7 +240,11 @@ h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: 
   .task-card-right { top: 1.9rem; right: -2rem; }
   .task-card-low-left, .task-card-low-right { display: none; }
   .setup, .feature { grid-template-columns: 1fr; }
+  .setup-flow { padding-left: 0.65rem; }
   .setup li { flex-direction: row; align-items: center; padding-inline: 0.65rem; }
   .setup li + li { border-inline-start: 0; border-top: 1px solid #dfddf0; }
+  .setup-return-wide { display: none; }
+  .setup-return-stacked { display: block; position: absolute; top: 0; left: -0.65rem; width: 1.35rem; height: 100%; }
+  .motion-toggle { position: static; margin-left: auto; }
   .walkthrough h2 { max-width: 12ch; }
 }
