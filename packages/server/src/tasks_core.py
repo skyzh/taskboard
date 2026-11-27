@@ -951,12 +951,10 @@ def change_task(db, args, links, *, automation=None):
     feature_deferred = getattr(args, "feature_deferred", False)
     standing_pass = getattr(args, "standing_pass", None)
     goal_kind = task_goal_kind(db, args.id) if (
-        standing_pass or state == "ready" or args.command in ("start", "park", "remind", "done")
+        standing_pass or state == "ready" or args.command in ("start", "update", "park", "remind", "done")
     ) else None
     if goal_kind and args.command in ("transfer", "unpark"):
         raise ValueError("A goal stays with its owner. Start it with the concrete step you will work on.")
-    if goal_kind and args.command in ("park", "remind") and getattr(args, "defer_until", None):
-        raise ValueError("A goal can have a review date. Start it explicitly when you have an investigation.")
     if goal_kind == "standing" and args.command == "done":
         raise ValueError("Park the standing goal after recording the investigation outcome.")
     if goal_kind and state == "ready":
@@ -1001,7 +999,7 @@ def change_task(db, args, links, *, automation=None):
             if standing_pass == "complete" and args.command == "update":
                 goal_pass_context["goal_pass_complete"] = True
             elif standing_pass == "criterion-met" and args.command == "park" and criterion:
-                if review_source or getattr(args, "review_after", None) or feature_deferred:
+                if review_source or getattr(args, "review_after", None) or getattr(args, "defer_until", None) or feature_deferred:
                     raise ValueError("Use the daily goal review time for the stopping criterion.")
                 review = db.execute("SELECT review_time FROM goal_review_times WHERE task_id = ?", (task["id"],)).fetchone()
                 if review is None:
@@ -1009,7 +1007,9 @@ def change_task(db, args, links, *, automation=None):
                 goal_pass_context.update(goal_criterion_met=True, goal_review_time=review["review_time"])
             else:
                 raise ValueError("Record a pass with progress, or park after the saved stopping criterion is met.")
-        elif criterion is not None and args.command in ("park", "remind"):
+        elif criterion is not None and (
+            args.command == "park" or args.command == "remind" and task["state"] != "parked"
+        ):
             raise ValueError("Record the goal's stopping criterion as met to park it, or update the daily goal review time.")
         elif criterion and args.command == "start" and task["state"] == "parked":
             row = next(iter(goals.goal_rows(db, [actor], projects.row_project(task), kind="standing")))
@@ -1038,6 +1038,12 @@ def change_task(db, args, links, *, automation=None):
         waiting_on, context = wait_details(db, task, args)
     else:
         context = transition_context(args, task)
+    if goal_kind and args.command in ("start", "update", "park") and not any(
+        field in context for field in PARKED_REMINDER_FIELDS
+    ):
+        saved_reminder = event_context(task)
+        if (until := saved_reminder.get("defer_until")) and (args.command != "start" or until > timestamp()):
+            context.update((field, saved_reminder[field]) for field in PARKED_REMINDER_FIELDS if field in saved_reminder)
     context.update(goal_pass_context)
     if human_wait:
         context["human_wait"] = True
@@ -1087,6 +1093,10 @@ def change_task(db, args, links, *, automation=None):
             return f"{projects.row_reference(task)} · Reminder unchanged"
         if "readiness" in current:
             context["readiness"] = current["readiness"]
+        if goal_kind == "standing" and current.get("goal_criterion_met"):
+            context.update((field, current[field]) for field in ("goal_criterion_met", "goal_review_time")
+                           if field in current)
+            context["goal_criterion_at"] = current.get("goal_criterion_at", task["at"])
         note = task["note"]
         links = json.loads(task["current_links"])
     if args.command in ("park", "remind"):
@@ -2274,8 +2284,13 @@ def adopt_recurring_review(db, args):
 
 
 def release_due_deferrals(db, as_of):
-    rows = db.execute(current_tasks_sql(db) + """
+    ordinary_only = (
+        "AND NOT EXISTS (SELECT 1 FROM task_goals WHERE task_id = tasks.id AND retired = 0)"
+        if tasks_storage.table_columns(db, "task_goals") else ""
+    )
+    rows = db.execute(current_tasks_sql(db) + f"""
         WHERE events.state = 'parked' AND json_extract(events.context, '$.defer_until') <= ?
+          {ordinary_only}
         ORDER BY json_extract(events.context, '$.defer_until'), events.id
     """, (as_of,)).fetchall()
     for task in rows:

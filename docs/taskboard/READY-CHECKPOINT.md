@@ -41,6 +41,8 @@ A self-watcher can wake an agent through an anchored Raft reminder. It needs a w
 
 For ordinary work in the signed CLI, use `park T-123 "What to review" --review-after YYYY-MM-DD` for a date-only cue, or `park T-123 "What to review" --until 2030-04-01T09:00:00-07:00` for a timed return to Ready. Change the reminder on an already parked ticket with `remind --on` or `remind --until`.
 
+For a one-off goal review, use `remind T-123 --until 2030-04-01T09:00:00-07:00`. The goal stays Parked and signed Inbox offers the review once due. A compatible opted-in goal watcher can deliver the cue. The existing daily schedule and deadline stay in place. Use `remind T-123 --clear` to clear the one-off reminder.
+
 For a received or missing wake, check **Activity → Wake** in the project. A Ready event identifies the trigger. Use separate evidence to confirm Raft acceptance, delivery, a queue check, and Start.
 
 ## Opt-in Raft watcher

@@ -1,12 +1,15 @@
 """Verify goal cadence on a disposable board with synthetic signed accounts."""
 
 from pathlib import Path
+from contextlib import closing
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
 from taskboard_cli.goal_wake import GoalWake, GoalWakeState, reminder_title
+from tasks_core import release_due_deferrals
+from tasks_storage import open_sqlite
 
 import test_tasks_service as fixture
 
@@ -111,6 +114,95 @@ class GoalCadenceTest(unittest.TestCase):
         self.assertEqual(reviewed["standing"]["completed_checks"], 1)
         self.assertEqual(reviewed["drain_event"], 0)
         self.assertEqual(self.cue(OVERDUE)["cues"][0]["completed_checks"], 1)
+
+    def test_exact_reminder_is_a_stable_goal_review_alongside_daily_cadence(self):
+        ticket = self.dated("2026-12-20")
+        self.review_time(ticket, "17:00")
+        path = f"/api/v1/tasks/{ticket}/reminder"
+        with patch("tasks_core.timestamp", return_value=PRE_REVIEW):
+            code, output, errors = self.board.shared_cli(
+                self.avery, "park", ticket, "Check the sample.", "--until", "2026-11-24T09:15:00-08:00",
+            )
+            self.assertEqual(code, 0, errors)
+            self.assertIn("a goal review can appear in Inbox", output)
+            self.assertIsNone(self.action("my-next")["work"])
+            self.advance(ticket, "start")
+            self.advance(ticket, "update", "Recorded ordinary progress.")
+            self.advance(ticket, "park", "An early check did not replace the scheduled review.")
+        task = self.action("task", query_string={"id": ticket})
+        self.assertEqual(task["task"]["reminder"], {"kind": "exact", "at": DUE})
+        self.assertEqual(task["task"]["context"]["defer_at"], "2026-11-24T09:15:00-08:00")
+        self.assertEqual(task["goal"]["review_schedule"]["review_time"], "17:00")
+        self.assertEqual(task["goal"]["deadline"], "2026-12-20")
+
+        with closing(open_sqlite(self.board.database)) as db:
+            self.assertEqual(release_due_deferrals(db, DUE), [])
+        self.assertEqual(self.cue(DUE)["cues"], [])
+        with patch("tasks_core.timestamp", return_value=OVERDUE):
+            self.assertEqual(self.action("my-next")["work"]["kind"], "goal_review")
+            self.assertEqual(self.action("my-next")["work"]["key"], ticket)
+            snapshot = self.action("my-goal-cues", query_string={"include_timed": "true"})
+            self.assertTrue(GoalWake.valid_snapshot(snapshot))
+            self.assertEqual([cue["key"] for cue in snapshot["cues"]], [f"timed:{ticket}:{DUE}"])
+            with TemporaryDirectory() as temp:
+                state = GoalWakeState(Path(temp) / "wake.sqlite", fixture.BASE, self.avery_id)
+                cue = state.select(snapshot)
+                self.assertIn("Scheduled goal review", reminder_title({**cue, "board": fixture.BASE}))
+                self.assertTrue(state.reserve(cue))
+                reopened = GoalWakeState(Path(temp) / "wake.sqlite", fixture.BASE, self.avery_id)
+                self.assertIsNone(reopened.select(snapshot))
+            self.advance(ticket, "start")
+            self.advance(ticket, "park", "Recorded the exact-time review.")
+            self.assertIsNone(self.action("my-next")["work"])
+            self.assertEqual(self.action("my-goal-cues", query_string={"include_timed": "true"})["cues"], [])
+            self.board.call(self.avery, path, method="PUT", json={
+                "at": "2026-11-25T13:00", "time_zone": "America/Los_Angeles",
+            })
+            edited = self.action("task", query_string={"id": ticket})["task"]["reminder"]
+            self.assertEqual(edited, {"kind": "exact", "at": "2026-11-25T21:00:00Z"})
+            self.board.call(self.avery, path, method="PUT", json={"date": None})
+            self.assertIsNone(self.action("task", query_string={"id": ticket})["task"]["reminder"])
+            self.assertEqual(self.action("my-goals")["review_times"][ticket], "17:00")
+            date_only = self.dated("2026-12-21")
+            self.assertEqual(self.board.shared_cli(self.avery, "remind", date_only, "--on", "2026-11-26")[0], 0)
+            self.assertEqual(self.action("task", query_string={"id": date_only})["task"]["reminder"],
+                             {"kind": "date", "date": "2026-11-26"})
+            self.assertEqual(self.board.shared_cli(self.avery, "remind", date_only, "--clear")[0], 0)
+            self.assertIsNone(self.action("task", query_string={"id": date_only})["task"]["reminder"])
+
+    def test_parked_exploration_goal_reminder_preserves_stopping_gate(self):
+        ticket = self.standing()
+        self.action("save-goal", {
+            "kind": "standing", "summary": "Review the role.",
+            "keep_exploring": True, "stopping_criterion": "Check one sample.",
+        })
+        self.review_time(ticket, "09:15")
+        with patch("tasks_core.timestamp", return_value=PRE_REVIEW):
+            path = f"/api/v1/tasks/{ticket}/reminder"
+            self.board.call(self.avery, path, method="PUT", json={
+                "at": "2026-11-24T09:15", "time_zone": "America/Los_Angeles",
+            })
+            self.assertEqual(self.action("task", query_string={"id": ticket})["task"]["reminder"],
+                             {"kind": "exact", "at": DUE})
+            self.advance(ticket, "start")
+            self.advance(ticket, "park", "Checked the sample.", standing_pass="criterion-met")
+            self.assertEqual(self.board.shared_cli(
+                self.avery, "remind", ticket, "--until", "2026-11-24T09:15:00-08:00",
+            )[0], 0)
+            detail = self.action("task", query_string={"id": ticket})
+            self.assertEqual(detail["goal"]["resume_review_time"], "09:15")
+        with patch("tasks_core.timestamp", return_value=DUE):
+            self.assertEqual(self.action("my-goal-cues", query_string={"include_timed": "true"})["cues"], [])
+        with patch("tasks_core.timestamp", return_value="2026-11-25T17:14:59Z"):
+            self.assertEqual(self.board.shared_cli(
+                self.avery, "remind", ticket, "--until", "2026-11-25T09:15:00-08:00",
+            )[0], 0)
+        with patch("tasks_core.timestamp", return_value=OVERDUE):
+            self.assertEqual([cue["kind"] for cue in self.action(
+                "my-goal-cues", query_string={"include_timed": "true"},
+            )["cues"]], ["timed"])
+            self.assertEqual(self.action("my-next")["work"]["key"], ticket)
+            self.advance(ticket, "start")
 
     def test_global_ordinary_work_blocks_project_goal_and_records_real_drain(self):
         self.board.cli("register-project", "LAB", "Fixture project", "--dri", self.avery_id)

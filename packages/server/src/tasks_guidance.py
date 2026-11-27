@@ -317,7 +317,7 @@ class AgentGuidance:
                         "For a review at a specific time, use a parked ticket with an exact-time reminder.")
             if transition in ("park", "remind"):
                 if data.get("defer_until"):
-                    return ("The scheduler can return the ticket to Ready at the saved time. "
+                    return ("At the saved time, the scheduler can return ordinary work to Ready, or a goal review can appear in Inbox. "
                             "An automatic wake needs a configured and eligible delivery path.")
                 if data.get("review_after"):
                     return ("An active date-only reminder on an owned work ticket appears in the owner's Inbox "

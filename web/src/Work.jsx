@@ -609,9 +609,11 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               </>}
               {record.goal?.resume_review_time && <p>Resume at the next {record.goal.resume_review_time} Pacific goal review.</p>}
               <ClosureReference context={task.context} />
-              {showReturnPath && !record.goal?.keep_exploring && !record.goal?.date_reminder_superseded && !record.goal?.review_schedule && <div hidden={!showActions}>{record.goal ? (
-                  <ReminderDate key={`${id}:${task.context?.review_after || ''}`}
+              {showReturnPath && (!record.goal?.keep_exploring || task.state === 'parked') && <div hidden={!showActions}>{record.goal ? (
+                  <ReminderDate key={task.event_id}
                     path={`/tasks/${id}/reminder`} saved={task.context?.review_after}
+                    savedUntil={task.context?.defer_until} exactTime
+                    recurring={Boolean(record.goal.review_schedule)}
                     onChanged={onChanged} />
                 ) : <ParkingForm key={task.event_id} task={task} onChanged={onChanged} />}</div>}
               {!canAnswer && <Options options={task.context?.choices} />}

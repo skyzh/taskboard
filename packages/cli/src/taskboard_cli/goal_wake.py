@@ -1,7 +1,7 @@
 """Select one goal cue and keep its carrier request safe across watcher restarts."""
 
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime
 import hashlib
 import os
 from pathlib import Path
@@ -15,7 +15,7 @@ from taskboard_cli.shared import task_url
 
 
 GOAL_PROJECT = "T"
-_DUE_KINDS = {"deadline", "daily", "standing-daily"}
+_DUE_KINDS = {"deadline", "daily", "standing-daily", "timed"}
 
 
 def _ticket(value):
@@ -129,6 +129,8 @@ class GoalWakeState:
     def available(db, offer):
         if db.execute("SELECT 1 FROM cue WHERE key = ?", (offer["goal_key"],)).fetchone():
             return False
+        if offer["goal_kind"] == "timed":
+            return True
         previous = db.execute(
             "SELECT MAX(completed_checks) FROM cue WHERE ticket = ? AND day = ?",
             (offer["task"], offer["goal_day"]),
@@ -163,13 +165,14 @@ class GoalWakeState:
 
 
 class GoalWake:
-    def __init__(self, board, state):
+    def __init__(self, board, state, *, include_timed=False):
         self.board = board
         self.state = state
+        self.filters = {"project": GOAL_PROJECT, **({"include_timed": "true"} if include_timed else {})}
 
     def lookup(self):
         try:
-            result = self.board.invoke("my-goal-cues", {"project": GOAL_PROJECT})
+            result = self.board.invoke("my-goal-cues", self.filters)
         except SharedActionUnavailable as error:
             raise SharedReadError(str(error), reason="action-unavailable") from error
         if not self.valid_snapshot(result):
@@ -191,12 +194,20 @@ class GoalWake:
             if (not isinstance(cue, dict) or not _ticket(cue.get("ticket")) or cue.get("kind") not in _DUE_KINDS
                     or cue.get("day") != result["day"] or not _checks(cue.get("completed_checks"))):
                 return False
-            expected_kind = "deadline" if cue["kind"] == "deadline" else "daily"
+            expected_kind = cue["kind"].removeprefix("standing-")
             prefix = f"{expected_kind}:{cue['ticket']}:"
             key = cue.get("key")
             if not isinstance(key, str) or not key.startswith(prefix):
                 return False
             day = key.removeprefix(prefix)
+            if expected_kind == "timed":
+                try:
+                    due = datetime.fromisoformat(day)
+                except ValueError:
+                    return False
+                if due.isoformat(timespec="seconds").replace("+00:00", "Z") != day or not day.endswith("Z"):
+                    return False
+                continue
             if (not _day(day) or (expected_kind == "daily" and day != result["day"])
                     or (expected_kind == "deadline" and day > result["day"])):
                 return False
@@ -256,6 +267,7 @@ def reminder_title(offer):
         "deadline": "Goal deadline",
         "daily": "Daily goal review",
         "standing-daily": "Daily standing-goal review",
+        "timed": "Scheduled goal review",
         "standing-drain": "Standing goal after the Inbox cleared",
     }[offer["goal_kind"]]
     return f"{reason} for {ref}. Check Inbox first, then open {url} and record one concrete outcome. [goal {marker}]"

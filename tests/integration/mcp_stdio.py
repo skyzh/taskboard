@@ -696,6 +696,16 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved["review_schedules"][standing]["state"], "paused")
         resumed = await owner.call_tool("taskboard_goal_reminder", {"ticket": standing, "change": "resume"})
         self.assertFalse(resumed.is_error, resumed.content)
+        timed = await owner.call_tool("taskboard_goal_reminder", {
+            "ticket": standing, "change": "set-once", "at": "2099-11-25T09:00:00-08:00",
+        })
+        self.assertFalse(timed.is_error, timed.content)
+        self.assertEqual(action("task", id=standing)["task"]["reminder"],
+                         {"kind": "exact", "at": "2099-11-25T17:00:00Z"})
+        cleared = await owner.call_tool("taskboard_goal_reminder", {"ticket": standing, "change": "clear-once"})
+        self.assertFalse(cleared.is_error, cleared.content)
+        self.assertIsNone(action("task", id=standing)["task"]["reminder"])
+        self.assertEqual(action("my-goals", **project)["review_times"][standing], "09:15")
         opted = await owner.call_tool("taskboard_save_standing_goal", {
             **project, "summary": "Improve fixture readback", "keep_exploring": True,
             "stopping_criterion": "Two fictional receipts checked",
