@@ -137,7 +137,16 @@ _FIELDS = {
 }
 
 
+INBOX_FOLLOW_UP = "inbox-follow-up"
+
 _PROMPTS = {
+    INBOX_FOLLOW_UP: {
+        "prompt": (
+            "When a visible response is needed after a Taskboard Inbox action, a Raft agent replies in the "
+            "original Raft thread or channel. When working directly in Taskboard, record an acknowledgment "
+            "on the original linked item when asked. Use your assigned role and existing delivery permissions."
+        ),
+    },
     "checkpoint": {
         "prompt": dedent("""
             At pickup, read the ticket's objective, current handoff, and relevant Activity.
@@ -265,6 +274,23 @@ class AgentGuidance:
             },
         }
 
+    def inbox_follow_up(self, db, project, actor):
+        name = INBOX_FOLLOW_UP
+        if project is not None:
+            override = db.execute(
+                "SELECT value FROM board_settings WHERE key = ?", (inbox_override_key(project, actor),),
+            ).fetchone()
+            if override is not None:
+                return {"project": project, "prompt": override["value"], "source": "agent"}
+            project_prompts = project_values(db, project, "agent-prompt")
+        else:
+            project_prompts = {}
+        return {
+            "project": project,
+            "prompt": project_prompts.get(name, self.prompts.get(name, _PROMPTS[name]["prompt"])),
+            "source": guidance_source(name, project_prompts, self.prompts),
+        }
+
     def next_step(self, name, data, result):
         if result.get("next_cursor") is not None:
             return self["pagination"]
@@ -353,8 +379,16 @@ def set_writing_field(db, project, field, value):
 
 def set_agent_prompt(db, project, prompt, value):
     if prompt not in _PROMPTS:
-        raise ValueError("Choose checkpoint, end-task, or knowledge.")
+        raise ValueError("Choose checkpoint, end-task, knowledge, or inbox-follow-up.")
     return set_project_value(db, f"agent-prompt:{project}:{prompt}", value)
+
+
+def inbox_override_key(project, actor):
+    return f"agent-inbox-follow-up:{project}:{actor}"
+
+
+def set_inbox_follow_up(db, project, actor, value):
+    return set_project_value(db, inbox_override_key(project, actor), value)
 
 
 def set_project_value(db, key, value):

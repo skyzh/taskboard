@@ -1,15 +1,15 @@
 import React, { useId, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
-import { request } from './data.js'
+import { request, useLoadedPages } from './data.js'
 import { FieldHelp, fieldGuidancePath, useFieldGuidance } from './FieldGuidance.jsx'
-import { ResourceStatus } from './shared.jsx'
+import { LoadMore, ResourceStatus, profileName } from './shared.jsx'
 import TicketFieldSettings from './TicketFieldSettings.jsx'
 
 const fieldLabels = { title: 'Title', brief: 'Brief', next_step: 'Next step', activity: 'Activity' }
-const promptLabels = { checkpoint: 'Checkpoint', 'end-task': 'End task', knowledge: 'Knowledge' }
-const sourceLabels = { project: 'Project override', board: 'Board guidance', default: 'Built-in guidance' }
+const promptLabels = { checkpoint: 'Checkpoint', 'end-task': 'End task', knowledge: 'Knowledge', 'inbox-follow-up': 'Inbox follow-up' }
+const sourceLabels = { agent: 'Agent override', project: 'Project override', board: 'Board guidance', default: 'Built-in guidance' }
 
-function GuidanceEditor({ project, field, entry, reload, prompt = false }) {
+function GuidanceEditor({ project, field, entry, reload, prompt = false, agent }) {
   const helpId = useId()
   const [draft, setDraft] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -21,7 +21,7 @@ function GuidanceEditor({ project, field, entry, reload, prompt = false }) {
     setSaving(true)
     setResult(null)
     try {
-      const body = prompt ? { prompt: field, guidance } : { field, guidance }
+      const body = prompt ? { prompt: field, guidance, ...(agent && { agent }) } : { field, guidance }
       await request(fieldGuidancePath(project), { method: 'PUT', body })
       setDraft(null)
       reload()
@@ -48,7 +48,7 @@ function GuidanceEditor({ project, field, entry, reload, prompt = false }) {
       {!prompt && <FieldHelp field={{ ...entry, guidance: null }} id={helpId} />}
       <div className="field-guidance-actions">
         <button type="submit" disabled={!canSave}>{prompt ? 'Save prompt' : 'Save guidance'}</button>
-        {entry.source === 'project' && <button type="button" disabled={saving} onClick={() => save(null)}>
+        {entry.source === (agent ? 'agent' : 'project') && <button type="button" disabled={saving} onClick={() => save(null)}>
           {prompt ? 'Use inherited prompt' : 'Use inherited guidance'}
         </button>}
       </div>
@@ -74,10 +74,17 @@ function GuidancePicker({ label, value, choices, onChange }) {
 export function AgentPromptSettings({ project, projects, revision, initialPrompt }) {
   const [selectedProject, setSelectedProject] = useState(null)
   const [prompt, setPrompt] = useState(Object.hasOwn(promptLabels, initialPrompt) ? initialPrompt : 'checkpoint')
+  const [agentSelection, setAgentSelection] = useState(null)
   const scope = projects?.some(item => item.prefix === selectedProject) ? selectedProject : project
-  const guidance = useFieldGuidance(scope, revision)
+  const defaults = useFieldGuidance(scope, revision)
+  const canTargetAgent = prompt === 'inbox-follow-up' && defaults.data?.editable
+  const agent = canTargetAgent && agentSelection?.project === scope ? agentSelection.id : ''
+  const assignees = useLoadedPages(canTargetAgent ? '/assignees' : null, { project: scope }, revision)
+  const targeted = useFieldGuidance(agent ? scope : null, revision, agent)
+  const guidance = agent ? targeted : defaults
   const entry = guidance.data?.prompts?.[prompt]
-  if (!scope || guidance.error?.status === 404) return null
+  const agents = (assignees.data?.items || []).filter(person => person.kind === 'agent')
+  if (!scope || defaults.error?.status === 404) return null
 
   return (
     <section className="panel settings-panel" aria-labelledby="agent-prompts">
@@ -85,12 +92,19 @@ export function AgentPromptSettings({ project, projects, revision, initialPrompt
       {projects?.length > 1 && <GuidancePicker label="Project for agent prompts" value={scope}
         choices={projects.map(item => [item.prefix, item.title])} onChange={setSelectedProject} />}
       <ResourceStatus resource={guidance} label="agent prompts" />
-      {guidance.data?.prompts && <GuidancePicker label="Prompt" value={prompt}
-        choices={Object.entries(promptLabels).filter(([name]) => guidance.data.prompts[name])} onChange={setPrompt} />}
+      {defaults.data?.prompts && <GuidancePicker label="Prompt" value={prompt}
+        choices={Object.entries(promptLabels).filter(([name]) => defaults.data.prompts[name])} onChange={setPrompt} />}
+      {canTargetAgent && <>
+        <GuidancePicker label="Applies to" value={agent}
+          choices={[['', 'Project default'], ...agents.map(person => [person.id, profileName(person.id, person)])]}
+          onChange={id => setAgentSelection({ project: scope, id })} />
+        <ResourceStatus resource={assignees} label="project agents" />
+        <LoadMore page={assignees} label="project agents" />
+      </>}
       {entry && <>
         <p className="report-note">{sourceLabels[entry.source]}</p>
         {guidance.data.editable && entry.source
-          ? <GuidanceEditor key={`${scope}:${prompt}`} project={scope} field={prompt} prompt
+          ? <GuidanceEditor key={`${scope}:${prompt}:${agent}`} project={scope} field={prompt} prompt agent={agent}
             entry={{ ...entry, guidance: entry.prompt }} reload={guidance.retry} />
           : <FieldHelp field={{ guidance: entry.prompt }} />}
       </>}

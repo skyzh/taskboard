@@ -2759,10 +2759,18 @@ def create_app(
         project = project_filter({"project": project})
         owner = actor["ledger_key"]
         editable = projects.manages(db(), project, owner)
+        data = json_body({"field", "prompt", "guidance", "agent"}) if write else request.args
+        target = text(data, "agent", optional=True, maximum=200)
+        if (write or target) and not editable:
+            raise RequestError("Only this project's manager can manage its writing guidance.", 403)
+        if target:
+            target = require_person(target, kind="agent")
+            require_ring_member(db(), project, target)
+            if not project_agent(profiles.get(db(), target), project):
+                raise RequestError("Choose an agent on this project's roster.", 404)
         if write:
-            if not editable:
-                raise RequestError("Only this project's manager can update its writing guidance.", 403)
-            data = json_body({"field", "prompt", "guidance"})
+            if target and data.get("prompt") != tasks_guidance.INBOX_FOLLOW_UP:
+                raise RequestError("Agent overrides apply to the Inbox follow-up prompt.")
             if "guidance" not in data:
                 raise RequestError("Provide guidance or null to restore the inherited text.")
             if "prompt" in data:
@@ -2780,14 +2788,24 @@ def create_app(
             value = text(data, "guidance", optional=True, maximum=maximum)
             with tasks_storage.write(db()) as connection:
                 try:
-                    changed = setter(connection, project, name, value)
+                    if target:
+                        changed = tasks_guidance.set_inbox_follow_up(connection, project, target, value)
+                    else:
+                        changed = setter(connection, project, name, value)
                 except ValueError as error:
                     raise RequestError(str(error)) from error
                 if changed:
                     audit.record(connection, scope="private", actor=owner, operation=operation,
-                                 record_type="project", record_id=project, at=ledger.timestamp())
+                                 record_type="agent_prompt" if target else "project",
+                                 record_id=f"{project}/{target}" if target else project, at=ledger.timestamp())
                     ledger.bump_revision(connection, project)
-        return writing_guidance(project, owner)
+        result = writing_guidance(project, owner)
+        if target:
+            effective = agent_guidance.inbox_follow_up(db(), project, target)
+            result["prompts"][tasks_guidance.INBOX_FOLLOW_UP] = {
+                "prompt": effective["prompt"], "source": effective["source"],
+            }
+        return result
 
     @app.route("/api/v1/projects/<project>/stamp-reviews", methods=("GET", "POST"))
     def project_stamp_reviews(project):
@@ -4705,6 +4723,13 @@ def create_app(
             with tasks_storage.read(db()) as connection:
                 work = first_actionable_work(key, project)
                 result = {"work": work, **goals.queue_context(connection, key, project, principal=actor_key())}
+                guidance_project = project
+                if guidance_project is None:
+                    if work:
+                        guidance_project, _ = projects.identifier(work["key"])
+                    elif result["standing_goals"]:
+                        guidance_project = result["standing_goals"][0]["project"]
+                result["inbox_follow_up"] = agent_guidance.inbox_follow_up(connection, guidance_project, key)
                 if candidates := query().wait_review_candidates(key, project):
                     result["wait_review"] = candidates
                 cue = agent_guidance["ready-review"]

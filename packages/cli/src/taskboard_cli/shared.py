@@ -532,6 +532,10 @@ def shared_next(board, url, filters, actor):
             f'  To start preparation now, run `./tasks --shared resume {ticket} "<what you can do now>" '
             f'--review-wait {candidate["wait_event"]}`.'
         )
+    if follow_up := result.get("inbox_follow_up"):
+        scope = follow_up.get("project")
+        label = f"Inbox follow-up for {scope}" if scope else "Inbox follow-up"
+        goal_lines.append(f"{label} · {follow_up['prompt']}")
     if work := result["work"]:
         details = task_details(board, url, work["key"], guidance=result.get("next_step"), context_lines=goal_lines)
         label = NEXT_LABELS.get(work["kind"])

@@ -1,12 +1,12 @@
 import React from 'react'
-import { useResource } from './data.js'
+import { queryPath, useResource } from './data.js'
 
 export function fieldGuidancePath(project) {
   return `/projects/${encodeURIComponent(project)}/field-guidance`
 }
 
-export function useFieldGuidance(project, revision) {
-  return useResource(project ? fieldGuidancePath(project) : null, revision)
+export function useFieldGuidance(project, revision, agent) {
+  return useResource(project ? queryPath(fieldGuidancePath(project), { agent }) : null, revision)
 }
 
 export function FieldHelp({ field, id }) {
