@@ -367,6 +367,40 @@ class ManagedSenderTest(unittest.TestCase):
                 instant = 90
                 self.assertTrue(gate.eligible())
 
+    def test_sampled_idle_resets_when_polls_are_missed(self):
+        instant = 0
+        gate = SampledIdleGate(lambda: "idle", clock=lambda: instant)
+        for instant in (0, 40, 50, 60, 70):
+            self.assertFalse(gate.eligible())
+        instant = 80
+        self.assertTrue(gate.eligible())
+        instant = 100
+        self.assertFalse(gate.eligible(final=True))
+
+    def test_sampled_idle_honors_opt_out_during_final_read(self):
+        self.baseline()
+        ready = self.create()["event"]
+        origin = self.now
+        grant = self.grant()
+        reads = []
+
+        def status():
+            reads.append(self.now - origin)
+            if reads[-2:] == [40, 40]:
+                self.subscribe(False)
+            return "idle"
+
+        gate = SampledIdleGate(status, clock=lambda: self.now - origin)
+        for elapsed in (0, 10, 20, 30):
+            self.now = origin + elapsed
+            self.assertEqual(self.tick(grant, idle_gate=gate), ("awaiting_idle", ready))
+        self.now = origin + 40
+        self.assertEqual(self.tick(grant, idle_gate=gate), ("subscription_stopped", None))
+        self.assertEqual(reads, [0, 10, 20, 30, 40, 40])
+        self.assertEqual(self.calls(), ["agent", "token"])
+        self.assertEqual(self.outcomes(), [(ready, "pending")])
+        self.assertEqual(self.tick(self.grant(), idle_gate=gate), ("subscription_stopped", None))
+
     def test_reopens_state_after_lost_reply_and_uses_the_same_event_id(self):
         old = self.create()
         self.assertGreaterEqual(self.baseline(), old["event"])

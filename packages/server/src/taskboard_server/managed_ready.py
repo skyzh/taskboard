@@ -29,6 +29,7 @@ _PROJECT = MANAGED_READY_PROJECT
 _ATTEMPTS = 4
 _RETRY_WINDOW = 5 * 60
 _DELAY = 10
+_MAX_SAMPLE_GAP = 2 * _DELAY
 _MAX_READY_AGE = 24 * 60 * 60
 
 _SCHEMA = """
@@ -69,10 +70,11 @@ class SampledIdleGate:
             except (OSError, RuntimeError, ValueError):
                 idle = False
             sampled_at = self.clock()
+            missed_poll = self.last_sample is not None and sampled_at - self.last_sample >= _MAX_SAMPLE_GAP
             self.last_sample = sampled_at
             if not idle:
                 self.first_idle = None
-            elif self.first_idle is None:
+            elif self.first_idle is None or missed_poll:
                 self.first_idle = sampled_at
         return self.first_idle is not None and self.last_sample - self.first_idle > 30
 
@@ -266,8 +268,11 @@ class ManagedReadySender:
 
         def submit(request):
             preflight()
-            if self.idle_gate is not None and not self.idle_gate.eligible(final=True):
-                raise _IdleGateClosed
+            if self.idle_gate is not None:
+                idle = self.idle_gate.eligible(final=True)
+                preflight()
+                if not idle:
+                    raise _IdleGateClosed
             status, payload = self.grant.event_transport(request)
             if status == 401:
                 raise _Unauthorized

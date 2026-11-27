@@ -233,7 +233,9 @@ for an authorized retry. The regular `run` command rejects pilot state.
 The foreground command samples current availability about every ten seconds
 for up to five minutes of polling. It requires more than thirty seconds from
 the first explicit Idle sample and another explicit Idle read just before
-transport. An ambiguous or failed read and a restart reset the sample window.
+transport. A missed poll (20 seconds or more between observations), an
+ambiguous or failed read, or a restart resets the window. The sender rechecks
+the signed subscription after the final availability read.
 Between-sample transitions can be missed, and the recipient can become busy
 after the final read.
 
