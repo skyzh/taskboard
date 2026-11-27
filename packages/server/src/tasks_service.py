@@ -31,6 +31,8 @@ import tasks_agent_usage
 import tasks_api_usage
 import tasks_ticket_fields as ticket_fields
 import tasks_codex_usage
+import tasks_attachments
+from taskboard_server import attachment_routes
 import tasks_core as ledger
 import tasks_browser_push as browser_push
 import tasks_maintenance as maintenance
@@ -632,6 +634,7 @@ def create_app(
     initial_project=None,
     browser_push_config=None,
     demo_review_config=None,
+    attachment_storage=None,
 ):
     """Configure the board with Raft, OIDC, or one deployment-provided login adapter."""
     if login_provider is not None and oidc_config is not None:
@@ -660,6 +663,11 @@ def create_app(
         except ValueError as error:
             raise ValueError("Set TASKS_NEW_TASKS_DEFAULT_SUBJECT to a verified human subject UUID.") from error
     marketplace = marketplace_root is not None
+    if attachment_storage is not None and (marketplace or local_readonly):
+        raise ValueError("Ticket attachment storage requires a single shared board.")
+    if (isinstance(attachment_storage, tasks_attachments.FilesystemStorage)
+            and attachment_storage.root.is_relative_to(Path(dist).resolve())):
+        raise ValueError("Place the private attachment directory outside the served web assets.")
     personal_api_enabled = bool(
         not marketplace and not local_readonly and member_mode is None and (raft_config or {}).get("server_id")
     )
@@ -852,6 +860,11 @@ def create_app(
                 if personal_api_enabled:
                     pilot_db.execute(personal_agents.SCHEMA)
                     pilot_db.execute(personal_agents.CLI_SCHEMA)
+        if attachment_storage is not None:
+            attachment_db = tasks_storage.Postgres(postgres_dsn) if postgres_dsn else connect(path)
+            with closing(attachment_db), tasks_storage.write(attachment_db):
+                attachment_db.execute(tasks_attachments.METADATA_SCHEMA)
+                attachment_db.execute(tasks_attachments.BYTE_SCHEMA)
         if browser_push_config is not None:
             if raft is None or not raft_config.get("server_id") or local_readonly:
                 raise ValueError("Browser push requires a fixed-server shared board with Raft sign-in.")
@@ -2984,6 +2997,11 @@ def create_app(
         if api_usage and result["task"]["record_kind"] == "knowledge":
             g.usage_lookup = "knowledge-open"
         return result
+
+    attachment_routes.register_routes(
+        app, db=db, current_actor=current_actor, task_number=task_number,
+        can_edit=can_edit_shared_content, storage=attachment_storage, mount=urlsplit(base).path.rstrip("/"),
+    )
 
     @app.post("/api/v1/tasks/<number>/ownership")
     def task_ownership(number):
@@ -5118,6 +5136,10 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             project_extensions=project_extensions,
             github_webhook_secrets=os.environ.get("TASKS_GITHUB_WEBHOOK_SECRETS"),
             demo_review_config=os.environ.get("TASKS_DEMO_REVIEW") or None,
+            attachment_storage=tasks_attachments.configured_storage(
+                os.environ.get("TASKS_ATTACHMENT_BACKEND"), os.environ.get("TASKS_ATTACHMENT_DIRECTORY"),
+                postgres=bool(postgres_dsn),
+            ),
             public_raft_channel_urls=os.environ.get("TASKS_PUBLIC_RAFT_CHANNEL_URLS"),
             creation_default_subject=os.environ.get("TASKS_NEW_TASKS_DEFAULT_SUBJECT")
             if not (local_readonly or marketplace) else None,

@@ -1092,3 +1092,38 @@ During maintenance, run the signed reconciliation for each project whose entries
 ```
 
 Use the returned unresolved sources and owners for follow-up. Open work stays staged. If a source reopens, stage its current conclusion before applying it. Conflicting settled proposals leave the current brief readable and need the owner's judgment. An applied change keeps the prior brief in Activity and links the exact source. Repeating a pass leaves already applied stages alone.
+
+## Ticket attachment storage
+
+An operator can enable first-class ticket attachments on a shared board.
+Existing Raft attachments, artifacts, and external evidence links still open
+at their original locations.
+
+- Set `TASKS_ATTACHMENT_BACKEND=filesystem` and set
+  `TASKS_ATTACHMENT_DIRECTORY` to a dedicated, absolute directory readable
+  and writable by the board process. Keep it outside web assets and any
+  proxy-served path. Use a filesystem that supports hard links in that directory.
+- With a PostgreSQL ledger, set `TASKS_ATTACHMENT_BACKEND=postgres` and
+  leave `TASKS_ATTACHMENT_DIRECTORY` unset. Bytes are stored in a `bytea`
+  column in the same transaction as their ticket metadata.
+
+Startup creates the optional attachment tables when the backend is enabled.
+Files have a 1 MiB upload cap. Uploads and removals use the ticket’s existing
+content editing permission. List and download recheck the current ticket
+and project visibility, including Ring 1. Downloads always open as an
+attachment with private, no-store caching.
+
+For PostgreSQL backups, include both `ticket_attachments` and
+`ticket_attachment_bytes` in the same database snapshot. For filesystem
+backups, pause the serving process and snapshot the ledger and the dedicated
+directory together. Restore both before reopening uploads. Before switching
+backends, plan an explicit byte copy and metadata update with a tested restore.
+Changing the setting alone leaves existing records associated with their
+original storage.
+
+After an interrupted filesystem upload or deletion, reconcile the directory
+against the ledger with the serving process paused. Keep the object named by
+each `ticket_attachments.id` with backend `filesystem`. Inspect any
+`.upload-*` staging file or opaque object with no committed row before
+removing it. Preserve unknown files and backup evidence. A missing referenced
+object needs a restore from backup.

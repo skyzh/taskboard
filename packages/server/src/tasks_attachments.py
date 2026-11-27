@@ -30,6 +30,8 @@ BYTE_SCHEMA = """CREATE TABLE IF NOT EXISTS ticket_attachment_bytes (
 class Storage(Protocol):
     """The caller authorizes access and owns the metadata transaction."""
 
+    kind: str
+
     def write(self, db, key: str, contents: bytes) -> None: ...
     def read(self, db, key: str) -> bytes: ...
     def delete(self, db, key: str) -> None: ...
@@ -37,6 +39,8 @@ class Storage(Protocol):
 
 class FilesystemStorage:
     """Use an operator-owned directory outside the served application tree."""
+
+    kind = "filesystem"
 
     def __init__(self, root: Path):
         self.root = root.resolve(strict=True)
@@ -67,7 +71,11 @@ class FilesystemStorage:
                 handle.close()
                 # Publish a complete object without overwriting an existing one.
                 os.link(staged, path)
-                self._sync_directory()
+                try:
+                    self._sync_directory()
+                except OSError:
+                    path.unlink()
+                    raise
             finally:
                 staged.unlink(missing_ok=True)
 
@@ -82,6 +90,8 @@ class FilesystemStorage:
 class PostgresStorage:
     """Store bytes in the same transaction as the ticket metadata."""
 
+    kind = "postgres"
+
     def write(self, db, key: str, contents: bytes) -> None:
         db.execute("INSERT INTO ticket_attachment_bytes (attachment_id, contents) VALUES (?, ?)", (key, contents))
 
@@ -93,3 +103,18 @@ class PostgresStorage:
 
     def delete(self, db, key: str) -> None:
         db.execute("DELETE FROM ticket_attachment_bytes WHERE attachment_id = ?", (key,))
+
+
+MAX_UPLOAD_BYTES = 1024 * 1024
+
+
+def configured_storage(backend, directory, *, postgres):
+    if backend in ("", None) and directory is None:
+        return None
+    if backend == "filesystem" and directory:
+        root = Path(directory)
+        if root.is_absolute():
+            return FilesystemStorage(root)
+    if backend == "postgres" and postgres and directory is None:
+        return PostgresStorage()
+    raise ValueError("Set TASKS_ATTACHMENT_BACKEND to filesystem with an absolute private directory, or postgres with a PostgreSQL ledger.")
