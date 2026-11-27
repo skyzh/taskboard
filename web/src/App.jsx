@@ -206,8 +206,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const selected = namedTask || fragmentId(taskAnchor, /^task-([1-9]\d*)$/)
   const decisionScope = selected && new URLSearchParams(taskContext).get('decision-scope')
   const decisionProject = validProject(decisionScope) ? decisionScope : undefined
-  const decisionParam = selected && new URLSearchParams(taskContext).get('decision-request')
-  const decisionRequest = /^[1-9]\d{0,18}$/.test(decisionParam || '') ? decisionParam : undefined
+  const decisionParams = selected ? new URLSearchParams(taskContext).getAll('decision-request') : []
+  const decisionRequest = decisionParams.length === 0 ? undefined
+    : decisionParams.length === 1 && /^[1-9]\d{0,18}$/.test(decisionParams[0]) ? decisionParams[0] : null
   const requestParam = selected && new URLSearchParams(taskContext).get('attention-request')
   const attentionRequest = /^[1-9]\d{0,18}$/.test(requestParam || '') ? requestParam : undefined
   const fromSearch = selected ? new URLSearchParams(taskContext).get('from-search')?.trim() : ''

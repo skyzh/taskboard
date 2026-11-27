@@ -178,6 +178,16 @@ test('a Taskboard ticket returns to Taskboard from a course queue', () => {
   assert.match(render(backLink), /Loading projects…/)
 })
 
+test('an invalid decision link stays unavailable instead of opening the current ticket form', () => {
+  for (const pin of ['decision-request=', 'decision-request=oops', 'decision-request=12&decision-request=13']) {
+    const markup = render(`#task-T-7?${pin}`)
+    assert.match(markup, /This decision request is unavailable\./)
+    assert.doesNotMatch(markup, /Record decision/)
+  }
+  assert.doesNotMatch(render('#task-T-7'), /This decision request is unavailable/)
+  assert.doesNotMatch(render('#task-T-7?decision-request=12'), /This decision request is unavailable/)
+})
+
 test('Settings remains a separate route alongside the layout views', () => {
   const settings = render('#settings')
   assert.match(settings, /id="settings"[^>]*>Settings/)

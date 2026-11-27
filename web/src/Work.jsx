@@ -584,7 +584,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const context = new URLSearchParams()
   if (fromSearch) context.set('from-search', fromSearch)
   if (decisionProject) context.set('decision-scope', decisionProject)
-  if (decisionRequest) context.set('decision-request', decisionRequest)
+  if (decisionRequest !== undefined) context.set('decision-request', decisionRequest ?? '')
   if (attentionRequest) context.set('attention-request', attentionRequest)
   const currentHref = context.size ? `${anchor}?${context}` : anchor
   context.set('view', 'progression')
@@ -633,11 +633,12 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
             <AttentionRequests key={`attention:${session.data.actor.id}:${id}:${attentionRequest}`}
               taskId={id} requestId={attentionRequest} revision={revision} onChanged={onChanged} />
           )}
-          {decisionRequest ? <section className="ticket-focus" aria-label="Decision request">
+          {decisionRequest !== undefined ? <section className="ticket-focus" aria-label="Decision request">
             <div className="ticket-focus-heading"><h2>Decision request</h2>{returnToDecisions}</div>
-            <LinkedDecision key={`${id}:${decisionRequest}:${session.data?.actor?.id || ''}`}
+            {decisionRequest === null ? <p role="status">This decision request is unavailable.</p>
+              : <LinkedDecision key={`${id}:${decisionRequest}:${session.data?.actor?.id || ''}`}
               ticket={id} requestId={decisionRequest} task={task} session={session} revision={revision}
-              onChanged={onChanged} receiptAction={<DecisionReceiptActions project={decisionProject} revision={revision} showReturn={false} />} />
+              onChanged={onChanged} receiptAction={<DecisionReceiptActions project={decisionProject} revision={revision} showReturn={false} />} />}
           </section> : <section className={task ? `ticket-focus ${state}` : undefined} aria-label={summary}>
             {task && <>
               {canAnswer ? <div className="ticket-focus-heading">
