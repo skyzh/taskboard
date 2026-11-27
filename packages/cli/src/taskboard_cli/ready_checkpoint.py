@@ -88,7 +88,8 @@ def offer_work(board, actor):
         task = ready[0]
         if task["dri"] != actor or task["state"] != "ready":
             raise RuntimeError("The Ready queue returned work outside the signed-in agent's scope.")
-        return {"kind": "task", "task": task["key"], "ready_event": task["event_id"]}
+        return {"kind": "task", "task": task["key"], "ready_event": task["event_id"],
+                **({"goal": True} if task.get("goal_kind") else {})}
     for review in board.pages("my-reviews"):
         if review["status"] == "planned":
             return {"kind": "review", "task": review["task_key"], "worker_run": f"W-{review['id']}"}
@@ -133,6 +134,7 @@ def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), acknowledg
             kind = "request"
 
         offer = {"kind": kind, "task": task["key"], "task_id": task["id"], "event_id": task["event_id"],
+                 **({"goal": True} if is_goal else {}),
                  **({"requires_disposition": True} if requires_disposition else {})}
         if is_goal or not prefer_goals:
             return offer
@@ -633,22 +635,38 @@ def raft_idle(handle):
     return raft_status(handle) == "idle"
 
 
+_RECHECK_INBOX = "Recheck signed Inbox for the next eligible item. Continue an offered Keep exploring goal."
+
+
 def raft_wake(offer, channel, message_id, can_wake):
     ref = offer_reference(offer)
-    title = f"Taskboard Ready checkpoint for {ref}. Check the ticket and record a start or concrete deferral."
-    return wake_with_title(title, channel, message_id, can_wake)
+    ticket = offer["task"]
+    identity = f"Taskboard Ready checkpoint for {ref}."
+    previous = f"{identity} Check the ticket and record a start or concrete deferral."
+    if offer.get("worker_run"):
+        outcome = f"Finish the assigned review for {ticket} or record the blocker and next check."
+    elif offer.get("goal"):
+        outcome = f"Record one concrete outcome on {ticket} and follow the goal’s saved mode."
+    else:
+        outcome = f"Finish {ticket} or record the blocker and who can act or when to recheck."
+    return wake_with_title(f"{identity} Check signed Inbox first. {outcome} {_RECHECK_INBOX}", channel, message_id, can_wake,
+                           previous_title=previous)
 
 
 def raft_ready_count(notice, channel, message_id, can_wake, *, record_wake=None):
     count = notice["ready_count"]
     noun = "ticket" if count == 1 else "tickets"
     title = (
-        f"You have {count} Ready {noun}. Check signed Taskboard Inbox and take the next eligible item. "
-        "When work and reviews clear, follow the offered goal’s saved exploration mode."
+        f"You have {count} Ready {noun}. Finish the highest-priority ticket offered by signed Inbox, "
+        "or record the blocker and who can act or when to recheck. "
+        "Recheck Inbox. For a goal, record one outcome and follow its saved mode."
     )
     event = notice.get("ready_event")
     if event is None:
-        return wake_with_title(title, channel, message_id, can_wake, status="scheduled", record_wake=record_wake)
+        previous = (f"You have {count} Ready {noun}. Check signed Taskboard Inbox and take the next eligible item. "
+                    "When work and reviews clear, follow the offered goal’s saved exploration mode.")
+        return wake_with_title(title, channel, message_id, can_wake, status="scheduled", record_wake=record_wake,
+                               previous_title=previous)
     title += f" [Taskboard Ready through event {event}]"
     return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake, ready_event=event)
 
@@ -671,7 +689,11 @@ def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None)
         ticket = offer["task"]
         event = offer["event_id"]
         identity = f"Taskboard idle follow-up for {ticket} (event {event}). "
-        title = f"{identity}Open {url} and resume if actionable."
+        outcome = (
+            "Record one concrete outcome on the goal and follow its saved mode." if offer.get("goal")
+            else f"Finish {ticket} or record the blocker and who can act or when to recheck."
+        )
+        title = f"{identity}Open {url} after checking signed Inbox. {outcome} {_RECHECK_INBOX}"
         if offer.get("requires_disposition"):
             title += f" Acknowledge in Taskboard with ./tasks --shared cue-ack {ticket} {event}, or park the ticket."
         title += (f" To postpone: ./tasks --shared cue-pause {ticket} stalled --minutes N --reason REASON. "
@@ -682,13 +704,14 @@ def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None)
 
 
 def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fired", *, record_wake=None, ready_event=None,
-                    title_prefix=None, retry_outstanding=False):
+                    title_prefix=None, retry_outstanding=False, previous_title=None):
     reminders = raft_cli("reminder", "list", "--status", status)
     fired = None
     for line in reminders.splitlines():
         if not line.startswith("#"):
             continue
-        if f' "{title}" ref=' in line or (title_prefix and f' "{title_prefix}' in line):
+        if (f' "{title}" ref=' in line or (title_prefix and f' "{title_prefix}' in line)
+                or (previous_title and f' "{previous_title}" ref=' in line)):
             if not retry_outstanding:
                 return "already-queued"
             if " [scheduled] " in line:
@@ -819,7 +842,7 @@ def main(*, managed_child=False):
 
                 def notify_goal(offer, can_wake, record_wake):
                     return wake_with_title(reminder_title(offer), args.channel, args.message_id, can_wake,
-                                           record_wake=record_wake)
+                                           record_wake=record_wake, previous_title=reminder_title(offer, legacy=True))
 
                 health = watcher_reporter(board, args.report_status, stalled=True, goals=True,
                                           emit=emit) if args.report_status else None

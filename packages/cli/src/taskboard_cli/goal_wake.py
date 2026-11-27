@@ -291,7 +291,7 @@ class GoalWake:
         return "goal-wake-unknown" if reserved else None
 
 
-def reminder_title(offer):
+def reminder_title(offer, *, legacy=False):
     ref = offer["task"]
     url = task_url(offer["board"], {"key": ref, "id": int(ref.rsplit("-", 1)[1])})
     marker = hashlib.sha256(offer["goal_key"].encode()).hexdigest()[:12]
@@ -303,4 +303,9 @@ def reminder_title(offer):
         "standing-drain": "Standing goal after the Inbox cleared",
         "standing-continuation": "Resume the interrupted standing goal",
     }[offer["goal_kind"]]
-    return f"{reason} for {ref}. Check Inbox first, then open {url} and record one concrete outcome. [goal {marker}]"
+    if legacy:
+        instructions = f"Check Inbox first, then open {url} and record one concrete outcome."
+    else:
+        instructions = (f"Check signed Inbox first, then open {url} and record one concrete outcome on the goal. "
+                        "Recheck Inbox and follow the goal’s saved mode.")
+    return f"{reason} for {ref}. {instructions} [goal {marker}]"
