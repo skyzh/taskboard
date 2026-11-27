@@ -483,6 +483,9 @@ def arguments(argv=None):
     attachment_remove.add_argument("attachment_id")
 
     commands.add_parser("cue-pauses", help="Read your active watcher cue pauses in shared mode.")
+    cue_ack = commands.add_parser("cue-ack", help="Acknowledge the exact stalled cue on your ticket.")
+    cue_ack.add_argument("id", type=task_id)
+    cue_ack.add_argument("event", type=nonblank)
     cue_pause = commands.add_parser("cue-pause", help="Pause or clear a watcher cue on your ticket in shared mode.")
     cue_pause.add_argument("id", type=task_id)
     cue_pause.add_argument("kind", choices=("stalled", "goal"))
@@ -726,7 +729,7 @@ def arguments(argv=None):
             parser.error("Exploration settings require an active standing goal summary.")
     if args.command in {
         "raft-channel-show", "raft-channel-set", "wake-subscriptions", "wake-subscribe", "wake-unsubscribe",
-        "cue-pauses", "cue-pause", "attachment-list", "attachment-upload", "attachment-download", "attachment-remove",
+        "cue-pauses", "cue-pause", "cue-ack", "attachment-list", "attachment-upload", "attachment-download", "attachment-remove",
         "knowledge-add", "knowledge-areas", "knowledge-assign", "knowledge-sweep", "knowledge-place",
         "knowledge-stage", "knowledge-reconcile", "record-merge", "agent-usage", "api-usage", "project-access", "ticket-recurrence",
     } and args.mode != "shared":

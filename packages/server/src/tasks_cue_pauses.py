@@ -14,6 +14,36 @@ SCHEMA = """
 """
 
 
+ACKNOWLEDGMENTS_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS stalled_cue_acknowledgments (
+        task_id INTEGER NOT NULL REFERENCES tasks (id),
+        owner TEXT NOT NULL,
+        source_event_id INTEGER NOT NULL REFERENCES events (id),
+        acknowledged_at TEXT NOT NULL,
+        PRIMARY KEY (task_id, owner)
+    )
+"""
+
+
+def acknowledged(db, owner):
+    return db.execute(
+        """SELECT t.id, t.project_prefix, t.project_number, a.source_event_id
+           FROM stalled_cue_acknowledgments AS a JOIN tasks AS t ON t.id = a.task_id
+           WHERE a.owner = ? AND t.dri = a.owner""",
+        (owner,),
+    ).fetchall()
+
+
+def acknowledge(db, task_id, owner, event, now):
+    db.execute(
+        """INSERT INTO stalled_cue_acknowledgments VALUES (?, ?, ?, ?)
+           ON CONFLICT (task_id, owner) DO UPDATE SET
+               source_event_id = excluded.source_event_id, acknowledged_at = excluded.acknowledged_at
+           WHERE stalled_cue_acknowledgments.source_event_id <> excluded.source_event_id""",
+        (task_id, owner, event, now),
+    )
+
+
 def active(db, owner, now, kind=None, *, include_expired_stalled=False):
     return db.execute(
         """SELECT t.id, t.project_prefix, t.project_number, p.kind, p.reason, p.until_at

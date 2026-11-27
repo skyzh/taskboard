@@ -412,6 +412,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     db.execute(watcher_health.SCHEMA)
     db.execute(runtime_observations.SCHEMA)
     db.execute(cue_pauses.SCHEMA)
+    db.execute(cue_pauses.ACKNOWLEDGMENTS_SCHEMA)
     db.execute(goal_offers.SCHEMA)
     db.execute(goal_offers.INDEX)
     db.execute(profiles.IMPORT_SCHEMA)
@@ -497,6 +498,7 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
         db.execute(goal_cadence.SCHEMA)
         db.execute(watcher_health.SCHEMA)
         db.execute(cue_pauses.SCHEMA)
+        db.execute(cue_pauses.ACKNOWLEDGMENTS_SCHEMA)
         db.execute(goal_offers.SCHEMA)
         db.execute(goal_offers.INDEX)
         for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA, *github_webhooks.SCHEMA):
@@ -1224,13 +1226,12 @@ def create_app(
 
     def watcher_cue_pauses(owner, data, *, write):
         if not write:
-            now = ledger.timestamp()
-            pauses = [row for row in cue_pauses.active(db(), owner, now, include_expired_stalled=True)
-                      if ring1.visible(db(), row["project_prefix"], owner)]
+            pauses = cue_pauses.active(db(), owner, ledger.timestamp())
+            acknowledgments = cue_pauses.acknowledged(db(), owner)
             return {
-                "items": [cue_pauses.item(row) for row in pauses if row["until_at"] > now],
-                "expired_stalled": {projects.row_reference(row): row["until_at"] for row in pauses
-                                    if row["until_at"] <= now},
+                "items": [cue_pauses.item(row) for row in pauses if ring1.visible(db(), row["project_prefix"], owner)],
+                "acknowledged_stalled": {projects.row_reference(row): row["source_event_id"] for row in acknowledgments
+                                         if ring1.visible(db(), row["project_prefix"], owner)},
             }
 
         number = task_number(data["id"])
@@ -1269,6 +1270,21 @@ def create_app(
             ticket = projects.row_reference(task)
             return {"ticket": ticket, "kind": kind, "reason": reason, "until": until,
                     "receipt": f"{ticket} · {kind.capitalize()} cue pause {'saved' if until else 'cleared'}"}
+
+    def acknowledge_stalled_cue(owner, data):
+        number = task_number(data["id"])
+        event = text(data, "event", maximum=18)
+        if not re.fullmatch(r"[1-9][0-9]*", event):
+            raise RequestError("Provide the event number shown in the stalled cue.")
+        with tasks_storage.write(db()) as connection:
+            require_visible_task(connection, number)
+            task = ledger.find_task(connection, number)
+            if task is None or task["dri"] != owner:
+                raise RequestError("Choose a ticket you own.", 403)
+            if task["state"] != "in_progress" or task["event_id"] != int(event) or ledger.task_goal_kind(connection, number):
+                raise RequestError("This stalled cue is no longer current. Recheck the ticket.", 409)
+            cue_pauses.acknowledge(connection, number, owner, int(event), ledger.timestamp())
+            return {"receipt": f"{projects.row_reference(task)} · Stalled cue for event {event} acknowledged"}
 
     def project_channel(actor, project, data=None):
         if ring1.private(db(), project):
@@ -5019,6 +5035,8 @@ def create_app(
             return agent_wake_subscriptions(actor, data, write=write)
         if name in {"my-cue-pauses", "set-cue-pause"}:
             return watcher_cue_pauses(key, data, write=write)
+        if name == "acknowledge-stalled-cue":
+            return acknowledge_stalled_cue(key, data)
         if name == "idle-goal-offer":
             return idle_goal_offer(key, data)
         if name == "my-next":

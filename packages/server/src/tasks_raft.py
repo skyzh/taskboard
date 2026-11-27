@@ -30,7 +30,7 @@ _DETAILS = "Optional handoff details. Send an empty string for a headline alone.
 CODEX_SNAPSHOT_ACTION = "install-codex-snapshot"
 STANDING_RAFT_ACTIONS = {
     "my-wake-subscriptions", "set-wake-subscription", "idle-goal-offer",
-    "my-wake-workers", "worker-check", "my-cue-pauses", "set-cue-pause",
+    "my-wake-workers", "worker-check", "my-cue-pauses", "set-cue-pause", "acknowledge-stalled-cue",
 }
 STANDING_RAFT_REQUIRED = "This action requires a standing Raft agent."
 
@@ -110,7 +110,10 @@ _ACTIONS = {
     "set-goal-review-time": _Action("POST", "Set or clear the daily review time for an owned goal.", {
         **_TASK, "time": "Pacific 24-hour review time as HH:MM. Send an empty string to clear it.",
     }),
-    "my-cue-pauses": _Action("GET", "Read your active Taskboard watcher cue pauses."),
+    "my-cue-pauses": _Action("GET", "Read your active watcher cue pauses and stalled-cue acknowledgments."),
+    "acknowledge-stalled-cue": _Action("POST", "Acknowledge the current stalled cue on an owned In progress ticket.", {
+        **_TASK, "event": "Exact ticket event number shown in the stalled cue.",
+    }),
     "set-cue-pause": _Action("POST", "Pause or clear one owned Taskboard watcher cue.", {
         **_TASK, "kind": "Choose goal or stalled.",
     }, {"until": "Future UTC time with whole seconds.",

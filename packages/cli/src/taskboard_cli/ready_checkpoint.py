@@ -94,7 +94,7 @@ def offer_work(board, actor):
     return None
 
 
-def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), expired_pauses=None, include_goals=True):
+def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), acknowledged=None, include_goals=True):
     """Find an owned In progress event that can still use the agent's attention."""
     for queued in board.pages("my-queue", {"scope": "all", "state": "in_progress"}):
         if queued["dri"] != actor or queued["state"] != "in_progress":
@@ -105,9 +105,10 @@ def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), expired_pa
             continue
         detail = board.invoke("task", {"id": queued["key"]})
         task = detail["task"]
-        pause_until = (expired_pauses or {}).get(queued["key"])
-        event_key = (task["event_id"], pause_until) if pause_until else task["event_id"]
-        if task["dri"] != actor or task["state"] != "in_progress" or event_key in exclude_events:
+        requires_disposition = acknowledged is not None and not queued.get("goal_kind")
+        acknowledged_event = (acknowledged or {}).get(queued["key"])
+        if (task["dri"] != actor or task["state"] != "in_progress" or
+                task["event_id"] == acknowledged_event or task["event_id"] in exclude_events):
             continue
         if any(run["execution_state"] == "running" for run in detail["workers"]):
             continue
@@ -125,7 +126,7 @@ def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), expired_pa
             kind = "request"
 
         return {"kind": kind, "task": task["key"], "task_id": task["id"], "event_id": task["event_id"],
-                **({"pause_until": pause_until} if pause_until else {})}
+                **({"requires_disposition": True} if requires_disposition else {})}
     return None
 
 
@@ -341,6 +342,7 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     noticed_ready_event = 0
     current = frozenset()
     noticed_stalled = set()
+    outstanding_stalled = {}
     noticed_workers = set()
     worker_wakes_available = notify_stalled is not None
     next_planned_check = next_stalled_check = 0
@@ -401,16 +403,20 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
         stage = STALLED_READ
         try:
             paused = set()
-            expired = {}
+            acknowledged = None
             if context.get("watcher_cue_pauses") is True:
                 pauses = board.invoke("my-cue-pauses")
-                expired = pauses.get("expired_stalled", {})
+                acknowledged = pauses.get("acknowledged_stalled")
                 # An in-progress goal also qualifies for automatic stalled recovery.
                 paused = {item["ticket"] for item in pauses["items"]}
             if long_idle and (offer := worker_offer("running", paused)):
                 return offer
-            return offer_stalled_work(board, actor, exclude_events=noticed_stalled, paused=paused,
-                                      expired_pauses=expired, include_goals=long_idle)
+            now = monotonic()
+            for event, retry in list(outstanding_stalled.items()):
+                if retry <= now:
+                    del outstanding_stalled[event]
+            return offer_stalled_work(board, actor, exclude_events=noticed_stalled | outstanding_stalled.keys(),
+                                      paused=paused, acknowledged=acknowledged, include_goals=long_idle)
         except SharedActionUnavailable as error:
             raise SharedReadError(str(error), reason="action-unavailable") from error
 
@@ -453,6 +459,9 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
             return not changed and can_wake()
 
         outcome = notify_stalled(notice, still_current)
+        if outcome == "pending-stalled-wake":
+            outstanding_stalled[notice["event_id"]] = monotonic() + STALLED_IDLE_SECONDS
+            return None
         return "stalled-step-changed" if changed else outcome
 
     if observe_status is not None:
@@ -488,11 +497,8 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
             noticed_workers.add((result["worker_status"], result["worker_run"], result["check_event"]))
         elif "goal_key" in result:
             result.update(at=observation_time(), owner=actor, reminder=goal_wake.state.reminder(result))
-        else:
-            event = result["event_id"]
-            if pause_until := result.get("pause_until"):
-                event = (event, pause_until)
-            noticed_stalled.add(event)
+        elif not result.get("requires_disposition"):
+            noticed_stalled.add(result["event_id"])
         emit(result)
 
 
@@ -622,27 +628,36 @@ def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None)
         title = f"Taskboard {offer['worker_status']} worker {run}{checkpoint} on {offer['task']}. Open {url}. {instruction}"
     else:
         ticket = offer["task"]
-        identity = f"Taskboard idle follow-up for {ticket} (event {offer['event_id']})"
-        if pause_until := offer.get("pause_until"):
-            identity += f" after pause {pause_until}"
-        identity += "."
-        title = (f"{identity} Open {url} and resume if actionable. "
-                 f"To postpone, run ./tasks --shared cue-pause {ticket} stalled --minutes N --reason REASON. "
-                 f"List with ./tasks --shared cue-pauses or clear with ./tasks --shared cue-pause {ticket} stalled --clear.")
+        event = offer["event_id"]
+        identity = f"Taskboard idle follow-up for {ticket} (event {event}). "
+        title = f"{identity}Open {url} and resume if actionable."
+        if offer.get("requires_disposition"):
+            title += f" Acknowledge in Taskboard with ./tasks --shared cue-ack {ticket} {event}, or park the ticket."
+        title += (f" To postpone: ./tasks --shared cue-pause {ticket} stalled --minutes N --reason REASON. "
+                  f"List with ./tasks --shared cue-pauses or clear with ./tasks --shared cue-pause {ticket} stalled --clear.")
         return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake,
-                               title_prefix=identity + " ")
+                               title_prefix=identity, retry_outstanding=offer.get("requires_disposition", False))
     return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake)
 
 
-def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fired", *, record_wake=None, ready_event=None, title_prefix=None):
+def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fired", *, record_wake=None, ready_event=None,
+                    title_prefix=None, retry_outstanding=False):
     reminders = raft_cli("reminder", "list", "--status", status)
+    fired = None
     for line in reminders.splitlines():
         if not line.startswith("#"):
             continue
-        if f' "{title}" ref=' in line or (
-            title_prefix and f' "{title_prefix}' in line and line.endswith(f'" ref={channel}')
-        ):
-            return "already-queued"
+        if f' "{title}" ref=' in line or (title_prefix and f' "{title_prefix}' in line):
+            if not retry_outstanding:
+                return "already-queued"
+            if " [scheduled] " in line:
+                return "pending-stalled-wake"
+            if match := re.match(r"^#([0-9a-f-]+) \[fired\].*? fired_at=(\S+)", line):
+                candidate = (match[2], match[1])
+                if fired is None or candidate > fired:
+                    fired = candidate
+            elif " [fired] " in line:
+                return "pending-stalled-wake"
         if ready_event is not None:
             mark = re.search(r' \[Taskboard Ready through event (\d+)\]" ref=(\S+)$', line)
             if mark and mark[2] == channel:
@@ -650,6 +665,11 @@ def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fire
                     return "already-queued"
                 if " [scheduled] " in line:
                     return "pending-ready-wake"
+    if fired:
+        _, reminder = fired
+        inbox = raft_cli("inbox", "read", "--target", f"reminder:{reminder}")
+        if not inbox.startswith(f"Nothing unread on reminder:{reminder}."):
+            return "pending-stalled-wake"
     if not can_wake():
         return None
     receipt = raft_cli(

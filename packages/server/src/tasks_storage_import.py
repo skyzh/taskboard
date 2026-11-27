@@ -22,7 +22,7 @@ TABLES = (
     "recurring_occurrences", "recurring_review_tickets", "recurring_review_runs", "project_maintenance", "release_batches", "release_events",
     "release_tasks", "release_changelogs", "merge_candidates", "board_principals", "project_admin_grants", "project_owner_grants", "personal_agent_instructions", "local_dris",
     "board_assignee_imports", "board_project_goals", "board_standing_goals", "board_goal_milestones", "task_goals",
-    "goal_review_times", "cue_pauses",
+    "goal_review_times", "cue_pauses", "stalled_cue_acknowledgments",
     "oidc_members", "audit_events",
     "github_source_status", "extension_deliveries", "extension_notifications", "stamp_review_health",
     "github_webhook_deliveries", "github_webhook_refresh",

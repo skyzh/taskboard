@@ -111,7 +111,7 @@ Run `raft proc stop taskboard-ready-pilot` to prevent an unscheduled wake. If a 
 
 ## Recover stalled and delegated work
 
-The managed repeat watcher enables Ready, stalled work and goal cues by default. New Ready work has first priority. An actionable named review can wake its assigned reviewer on the first eligible worker check. After two continuous minutes of sampled Raft Idle, the watcher can send one linked follow-up for a runnable In progress step or a peer ask the agent has started. Running-worker and In progress goal fallback cues retain their 30-minute Idle threshold. Scheduled checks and blocked, parked, or finished work keep their existing triggers. The watcher rechecks the signed step or worker and Idle before scheduling. Scheduled and retained fired reminders deduplicate by ticket event or worker run and phase. After a stalled pause expires, its expiry identifies one fresh follow-up for the same still-eligible step.
+The managed repeat watcher enables Ready, stalled work and goal cues by default. New Ready work has first priority. An actionable named review can wake its assigned reviewer on the first eligible worker check. After two continuous minutes of sampled Raft Idle, the watcher can send one linked follow-up for a runnable In progress step or a peer ask the agent has started. Running-worker and In progress goal fallback cues retain their 30-minute Idle threshold. Scheduled checks and blocked, parked, or finished work keep their existing triggers. The watcher rechecks the signed step or worker and Idle before scheduling. Ordinary stalled cues retain one outstanding Raft reminder per ticket event. If the reminder clears and the event still has no Taskboard disposition, the watcher retries after another two-minute Idle window. A signed cue acknowledgment, parking, or another state change ends the current cue. Worker and goal fallback reminders keep their existing deduplication.
 
 Use a linked peer ask to hand a runnable step to a named Raft agent while retaining ownership of the source ticket. The peer's watcher follows their Ready and In progress request. For an ordinary worker assignment, record the actual launch and handle on the worker run. A named Raft worker gets its own follow-up after launch. For a Codex subagent inside the coordinator's session, record the coordinator as the worker and use `worker-start W-… HANDLE --subagent` with the actual Codex run handle. The coordinator's wake links the `W-` record, where they can find the handle, check the existing run, and collect a result or record the next step. Use the current task and run status before starting anything.
 
@@ -139,8 +139,11 @@ or a review cue on an active goal you own. Give the reason and a duration or an 
 ./tasks --shared cue-pause T-123 stalled --minutes 30 --reason "Worker is checking the logs"
 ./tasks --shared cue-pause T-456 goal --until 2030-04-01T14:00:00Z --reason "Review in progress elsewhere"
 ./tasks --shared cue-pauses
+./tasks --shared cue-ack T-123 EVENT_NUMBER
 ./tasks --shared cue-pause T-123 stalled --clear
 ```
+
+Use the event number from the reminder to acknowledge that exact cue without changing ticket state. A Raft reminder acknowledgment clears the notice and leaves the Taskboard cue eligible for retry.
 
 A goal pause also covers automatic stalled recovery for the same goal. A pause survives watcher
 restarts. The next eligible watcher poll after expiry or early clear
