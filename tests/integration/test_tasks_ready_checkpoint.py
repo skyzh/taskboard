@@ -996,29 +996,47 @@ class ReadyCheckpointTest(unittest.TestCase):
                                  ("idle sample", reason, status == 502))
 
     def test_binding_mismatch_stops_and_alerts_with_redacted_operator_guidance(self):
-        message = (
+        action_message = (
             'service action failed (HTTP 403); response body: '
-            '{"error":"WRONG_RAFT_CLIENT","hint":"private fixture detail"}'
+            '{"error":"WRONG_RAFT_CLIENT","hint":"private fixture hint"}'
         )
-        envelope = json.dumps({"ok": False, "error": {"code": "INTEGRATION_INVOKE_FAILED", "message": message}})
-        legacy = f"Error: {message}\nCode: INTEGRATION_INVOKE_FAILED\n"
-        for output in (envelope, legacy):
-            with self.subTest(carrier=output.split(":", 1)[0]):
-                result = subprocess.CompletedProcess([], 1, "", output)
-                outcome, observations, wakes, reads = self.watch_through_carrier(lambda *_: result, 100)
-                self.assertEqual((outcome.reason, reads, wakes), ("raft-client-binding", [0], []))
-                stopped = next(row for row in observations if row["kind"] == "ready-read-stopped")
-                self.assertEqual((stopped["reason"], stopped["retryable"]), ("raft-client-binding", False))
-                self.assertNotIn("private fixture", repr(observations) + str(outcome))
-                auth = {"ok": True, "data": {"serverConfirmed": True, "agentId": "fixture-agent",
-                                             "agent": {"id": "fixture-agent", "name": "Avery"}}}
-                with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=[json.dumps(auth), "", ""]) as raft:
-                    recovery_wake("Avery", "#example", "12345678", outcome, observations.append)
-                title = raft.call_args.args[3]
-                self.assertIn("verify the Raft app registration", title)
-                self.assertIn("fresh signed queue read", title)
-                self.assertNotIn("private fixture", title)
-                self.assertEqual(observations[-1]["outcome"], "wake-requested")
+        handoff_message = (
+            "Raft grant is active, but the service session handoff failed before a session was stored "
+            "(callback http/HTTP_403 at https://fixture.test/auth/callback?code=private-fixture-oauth-code). "
+            "Service response: WRONG_RAFT_CLIENT — private fixture hint."
+        )
+        for code, message in (
+            ("INTEGRATION_INVOKE_FAILED", action_message),
+            ("INTEGRATION_SESSION_HANDOFF_FAILED", handoff_message),
+        ):
+            error = {"code": code, "message": message, "retryable": True}
+            envelope = json.dumps({"ok": False, "error": error})
+            legacy = f"Error: {message}\nCode: {code}\nRetryable: yes\n"
+            for carrier, output in (("json", envelope), ("legacy", legacy)):
+                with self.subTest(code=code, carrier=carrier):
+                    result = subprocess.CompletedProcess([], 1, "", output)
+                    outcome, observations, wakes, reads = self.watch_through_carrier(lambda *_: result, 100)
+                    self.assertEqual((outcome.reason, reads, wakes), ("raft-client-binding", [0], []))
+                    stopped = next(row for row in observations if row["kind"] == "ready-read-stopped")
+                    self.assertEqual((stopped["reason"], stopped["retryable"]), ("raft-client-binding", False))
+                    auth = {"ok": True, "data": {"serverConfirmed": True, "agentId": "fixture-agent",
+                                                 "agent": {"id": "fixture-agent", "name": "Avery"}}}
+                    with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=[json.dumps(auth), "", ""]) as raft:
+                        recovery_wake("Avery", "#example", "12345678", outcome, observations.append)
+                    title = raft.call_args.args[3]
+                    self.assertIn("verify the Raft app registration", title)
+                    self.assertIn("fresh signed queue read", title)
+                    self.assertNotRegex(repr(observations) + str(outcome) + title, r"(?i)fixture\.test|private[ _-]fixture")
+                    self.assertEqual(observations[-1]["outcome"], "wake-requested")
+        for message in (
+            handoff_message.replace("HTTP_403", "HTTP_401"),
+            handoff_message.replace("Service response: WRONG_RAFT_CLIENT", "Service response: OTHER_ERROR"),
+        ):
+            result = subprocess.CompletedProcess(
+                [], 1, "", f"Error: {message}\nCode: INTEGRATION_SESSION_HANDOFF_FAILED\n",
+            )
+            outcome, _, wakes, _ = self.watch_through_carrier(lambda *_: result, 100)
+            self.assertEqual((outcome.reason, wakes), ("unclassified", []))
 
     def test_count_watcher_records_redacted_carrier_evidence_for_an_unclassified_stop(self):
         error = {"code": "PRIVATE_FIXTURE_CODE", "fault_domain": "private-fixture-domain",
