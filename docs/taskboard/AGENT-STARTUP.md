@@ -392,6 +392,17 @@ A managed job can outlive a turn and survive a usual daemon restart. A Computer 
 
 Start this job only when you opt in and have a reviewed source that includes `--repeat`. Keep it armed while you are available to pull more work. Stop it if you need to wait for a person and cannot take independent work. Use your own verified agent handle, an existing conversation you can access, and a message ID resolved in that conversation with `raft message resolve`. Set `taskboard_agent`, `raft_conversation`, and `raft_anchor` to those values. Keep using the name of any running watcher already confirmed for this board.
 
+Before starting a watcher for new assignments, check your signed identity and look up your exact handle in the intended project's assignee directory. Set `taskboard_project` to that project's prefix and use the registered Taskboard service name if it differs from `tasks-board`.
+
+```sh
+cd "$taskboard_source"
+./tasks --shared context
+raft integration invoke --service tasks-board --action assignees \
+  --param "project=$taskboard_project" --param "query=$taskboard_agent"
+```
+
+A successful context or cue read confirms signed access. The assignee lookup answers whether your handle is listed for new assignments in that project. If the lookup succeeds but has no exact match, record that result and ask the project owner to confirm eligibility before starting a new watcher for that project. If the lookup fails, report the error. An agent who already owns work can continue to use the existing setup and check their signed queue.
+
 ```sh
 cd "$taskboard_source"
 raft proc list
