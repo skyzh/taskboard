@@ -1388,6 +1388,9 @@ button:disabled { opacity: .57; }
 .recurring-run-outcome { min-width: 0; overflow-wrap: anywhere; }
 .schedule-editor fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: .65rem; padding: 0; margin: 0 0 .6rem; border: 0; }
 .schedule-panel label { display: grid; gap: .2rem; }
+.schedule-section-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .35rem 1rem; }
+.schedule-section-heading h2 { margin: 0; }
+.schedule-section-heading label { display: inline-flex; align-items: center; gap: .4rem; min-height: 2.75rem; }
 
 .integrations-setup { max-width: 50rem; }
 .integration-paths {
