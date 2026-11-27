@@ -318,6 +318,10 @@ class MainReleaseTest(unittest.TestCase):
                                        "deployed_at": first["at"]})
             self.assertEqual(set(first["evidence"]["build"]["checks"]), {"install", "web"})
             self.assertEqual(first["evidence"]["github"]["commit"], commit)
+            timings = first["evidence"]["timings_ms"]
+            self.assertEqual(set(timings), {"fetch_and_build", "compatibility", "transfer_staging",
+                                           "final_protected_tip"})
+            self.assertTrue(all(type(value) is int and value >= 0 for value in timings.values()))
             verify_manifest(layout.current, candidate)
             self.assertEqual((layout.current / "web/dist/index.html").read_text(), "Built from protected main")
             read = Mock(side_effect=AssertionError("An unchanged tick used the REST API"))
