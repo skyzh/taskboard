@@ -270,12 +270,13 @@ function ActivityChanges({ event }) {
   return null
 }
 
-export function EventRow({ event, permalink = false, showTask = permalink, ticketActivity = false, children }) {
+export function EventRow({ event, permalink = false, showTask = permalink, ticketActivity = false, progression = false, children }) {
   const { formatTimestamp } = useTimeZone()
   const id = permalink ? eventHref(event.id).slice(1) : undefined
   const actor = profileName(event.actor, event.actor_profile)
   const result = activityHeadline(event)
-  const activityType = isDecisionActivity(event) ? actions.decision : isCheckpointActivity(event) ? actions.checkpoint : null
+  const activityType = isDecisionActivity(event) ? actions.decision : isCheckpointActivity(event) ? actions.checkpoint
+    : event.goal_review_completed ? 'Goal review' : null
   const timeLink = (
     <BoardLink href={eventHref(event.id)} aria-label={`Link to ${event.label.toLowerCase()} by ${actor} at ${formatTimestamp(event.at)}`}>
       <ReportTime at={event.at} linked />
@@ -303,7 +304,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
           <ClosureReference context={event.context} />
           <div className="ticket-event-actions">
             {firstEvidence && <EvidenceLinks links={[firstEvidence]} />}
-            <OutcomeNote event={{ ...event, details, links: additionalEvidence }} disclosure="event-disclosure"
+            <OutcomeNote event={{ ...event, details, links: additionalEvidence }} disclosure={progression ? undefined : "event-disclosure"}
               disclosureLabel="Activity details" choiceShown={Boolean(choice)} waitShown={event.action === 'wait'} />
           </div>
           {children}
@@ -477,6 +478,33 @@ function RecordActivity({ id, task, activity, knowledge, children }) {
   )
 }
 
+function TicketProgression({ id, record, activity }) {
+  const events = (activity.data?.items || []).filter(event =>
+    isCheckpointActivity(event) || isDecisionActivity(event) || event.goal_review_completed)
+    .sort((first, second) => Date.parse(first.at) - Date.parse(second.at) || first.id - second.id)
+  return (
+    <div className="ticket-progression">
+      <section className="detail-brief" aria-labelledby={`task-description-${id}`}>
+        <h2 id={`task-description-${id}`}>Description</h2>
+        {record.brief ? <Markdown text={record.brief} className="prose" relatedTasks={record.related_tasks} />
+          : <p className="section-message">No description yet.</p>}
+      </section>
+      <section className="ticket-activity" aria-labelledby={`ticket-progression-${id}`}>
+        <h2 id={`ticket-progression-${id}`}>Progression</h2>
+        <ResourceStatus resource={activity} label="progression" />
+        {activity.data && !events.length && !activity.pending && !activity.error && (
+          <p className="section-message">{activity.data.next_cursor == null
+            ? 'No progression recorded yet.' : 'No progression in the loaded activity.'}</p>
+        )}
+        <ol className="event-list" role="list">
+          {events.map(event => <EventRow key={event.id} event={event} ticketActivity progression />)}
+        </ol>
+        <LoadMore page={activity} label={`older activity for ${taskLabel(id, record.task.key)}`} />
+      </section>
+    </div>
+  )
+}
+
 function KnowledgeRecordActions({ record, id, activity, signedIn, onChanged }) {
   const [editing, setEditing] = useState(false)
   return <>
@@ -504,7 +532,7 @@ export function KnowledgeRecordTools({ id, revision, onChanged }) {
 }
 
 export function TaskDetail({ id, revision, session, onChanged, onMoved, moveReceipt,
-  preferredProject = 'T', returnHref, fromSearch, history, decisionProject, attentionRequest }) {
+  preferredProject = 'T', returnHref, fromSearch, history, progression, decisionProject, attentionRequest }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
   const [actionsOpen, setActionsOpen] = useState(false)
   useEffect(() => {
@@ -518,11 +546,12 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
     return () => observer.disconnect()
   }, [])
   const detail = useResource(`/tasks/${id}`, revision)
-  const activity = useLoadedPages(history ? null : `/tasks/${id}/activity`, {}, revision)
+  const activity = useLoadedPages(history ? null : `/tasks/${id}/activity`, progression ? { view: 'progression' } : {}, revision)
   const record = detail.data
   const task = record?.task
   useContentTitle(task?.title ? `${taskLabel(id, task.key)} · ${task.title}` : null)
   const knowledge = task?.record_kind === 'knowledge'
+  const showProgression = progression && task && !knowledge
   const state = task && !knowledge && taskState(task)
   const summary = state === 'closed' ? 'Closure reason' : task?.summary_label
   const project = typeof id === 'string' ? id.split('-')[0] : 'T'
@@ -549,9 +578,15 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const detailed = Boolean(record && !knowledge && (record.brief || record.checklist.length || record.sources.length
     || record.related_tasks?.length || record.goal?.tickets.length || state === 'human_review' || properties.length
     || record.ticket_fields?.fields?.length || editingTags))
-  const sidebar = wide && detailed
+  const sidebar = wide && detailed && !showProgression
   const anchor = taskHref(id)
-  const currentHref = fromSearch ? `${anchor}?${new URLSearchParams({ 'from-search': fromSearch })}` : anchor
+  const context = new URLSearchParams()
+  if (fromSearch) context.set('from-search', fromSearch)
+  if (decisionProject) context.set('decision-scope', decisionProject)
+  if (attentionRequest) context.set('attention-request', attentionRequest)
+  const currentHref = context.size ? `${anchor}?${context}` : anchor
+  context.set('view', 'progression')
+  const progressionHref = `${anchor}?${context}`
   if (history && task) {
     return (
       <article ref={article} id={anchor.slice(1)} className="panel task-detail" aria-label="History" tabIndex={-1}>
@@ -570,15 +605,18 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
           {knowledge && <span>Knowledge</span>}
           {record?.goal && <span>{record.goal.kind === 'standing' ? 'Standing goal' : 'Milestone'}</span>}
         </p>
+        {task && !knowledge && (showProgression
+          ? <BoardLink className="history-link" href={currentHref}>Ticket overview</BoardLink>
+          : <BoardLink className="history-link" href={progressionHref}>Progression</BoardLink>)}
         {task && <BoardLink className="history-link" href={historyHref(currentHref)}>History</BoardLink>}
-        {signedIn && task && !knowledge && <EditToggle label="Edit ticket" active={showActions}
+        {signedIn && task && !knowledge && !showProgression && <EditToggle label="Edit ticket" active={showActions}
           onToggle={() => setActionsOpen(open => !open)} />}
       </div>
       <h1 id={`task-heading-${id}`}><MarkdownInline text={task?.title || `Task ${taskLabel(id)}`} relatedTasks={record?.related_tasks} /></h1>
       {moveReceipt && <p className="section-message" role="status">{moveReceipt}</p>}
       {task && !knowledge && !sidebar && <div className="ticket-primary-identity"><TicketIdentity task={task} state={state} /></div>}
       <ResourceStatus resource={detail} label="task details" />
-      {knowledge ? (
+      {showProgression ? <TicketProgression id={id} record={record} activity={activity} /> : knowledge ? (
         <div className="knowledge-record-content">
           {record.brief && <Markdown text={record.brief} className="prose detail-brief" relatedTasks={record.related_tasks} />}
           {Boolean(record.sources?.length || record.related_tasks?.length) &&

@@ -201,6 +201,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const scheduleId = taskAnchor.match(scheduleAnchor)?.[1]
   const scheduleProject = scheduleId ? new URLSearchParams(taskContext).get('project') : null
   const recordHistory = new URLSearchParams(taskContext).get('history')
+  const progression = new URLSearchParams(taskContext).get('view') === 'progression'
   const namedTask = taskAnchor.match(/^task-([A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18})$/)?.[1]
   const selected = namedTask || fragmentId(taskAnchor, /^task-([1-9]\d*)$/)
   const decisionScope = selected && new URLSearchParams(taskContext).get('decision-scope')
@@ -615,7 +616,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
           )}
           {view === 'task' && <TaskDetail key={selected} id={selected} revision={revision} session={session}
             preferredProject={defaultProject} returnHref={fromList ? listReturn.current.board : undefined}
-            fromSearch={fromSearch} history={recordHistory} decisionProject={decisionProject}
+            fromSearch={fromSearch} history={recordHistory} progression={progression} decisionProject={decisionProject}
             attentionRequest={attentionRequest} onChanged={refresh}
             moveReceipt={ticketMove?.href === `#${taskAnchor}` ? ticketMove.receipt : undefined}
             onMoved={(href, receipt) => {

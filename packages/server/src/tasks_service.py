@@ -3141,7 +3141,7 @@ def create_app(
     def task_activity(number):
         actor = current_actor()
         return query().ticket_activity(task_number(number), actor["ledger_key"] if actor else None,
-                                       **page_args(request.args))
+                                       progression=request.args.get("view") == "progression", **page_args(request.args))
 
     @app.get("/api/v1/tasks/<number>/history/<event>")
     def task_history(number, event):
