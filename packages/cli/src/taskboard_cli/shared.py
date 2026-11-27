@@ -3,12 +3,13 @@
 import json
 import os
 from pathlib import Path
+import re
 import sys
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
 from taskboard_client.connection import is_stable_person_id
-from taskboard_client.direct import DirectBoard
+from taskboard_client.direct import DirectBoard, board_url
 
 from taskboard_client import references as projects
 from taskboard_client import work as ledger
@@ -544,13 +545,57 @@ def require_local_dri_context(context, expected):
         raise ValueError("The board did not verify the selected Local DRI.")
 
 
+def managed_context(board, selected_url, agent_id):
+    try:
+        context = board.invoke("context")
+    except (SharedActionUnavailable, SharedReadError) as error:
+        raise ValueError("Could not verify this Raft agent. Check its signed Taskboard integration session.") from error
+    if board_url(context["board"]) != board_url(selected_url):
+        raise ValueError("The requested URL is outside this agent's registered Taskboard. Check tasks --shared context.")
+    actor = context.get("actor", {})
+    subject = context.get("raft_agent_subject")
+    ledger_key = actor.get("id", "")
+    if subject is None and ledger_key.startswith("raft:agent:"):
+        subject = ledger_key.removeprefix("raft:agent:")
+    if actor.get("kind") != "agent" or subject != agent_id:
+        raise ValueError("The registered Taskboard did not verify this Raft agent. Check its signed integration session.")
+    return context
+
+
+def managed_api(board, context, path, method, body):
+    parsed = urlsplit(path)
+    prefix = "/api/v1/raft/"
+    if (parsed.scheme or parsed.netloc or "#" in path or not re.fullmatch(r"/api/v1/raft/[a-z][a-z0-9-]*", parsed.path)
+            or method not in ("GET", "POST") or (method == "POST" and parsed.query)):
+        raise ValueError("Use a registered signed Taskboard action under /api/v1/raft/ in a managed Raft session.")
+    action = parsed.path.removeprefix(prefix)
+    registered = board.action_manifest(context["action_manifest"])
+    mount = urlsplit(context["board"]).path.rstrip("/")
+    expected = {"method": method, "path": mount + parsed.path}
+    if not isinstance(registered, list) or not any(
+        item.get("name") == action and item.get("endpoint") == expected for item in registered
+    ):
+        raise ValueError("The registered Taskboard does not expose that action with the requested method.")
+    if method == "GET":
+        fields = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+        body = dict(fields)
+        if len(body) != len(fields):
+            raise ValueError("Give each signed action parameter once.")
+    return board.invoke(action, body, write=method == "POST")
+
+
 def shared_command(args):
     command = args.command
     direct_url = getattr(args, "board_url", None) or os.environ.get("TASKBOARD_URL")
     local_dri = getattr(args, "local_dri", None)
     direct_options = {"local_dri": local_dri} if local_dri is not None else {}
+    agent_id = os.environ.get("SLOCK_CURRENT_AGENT_ID") or os.environ.get("SLOCK_AGENT_ID")
+    managed = bool(direct_url and local_dri is None and agent_id)
+    service = os.environ.get("TASKS_RAFT_SERVICE", "tasks-board")
     if command in ("login", "logout", "publishing-instructions", "api"):
-        board = DirectBoard(direct_url, **direct_options)
+        if managed and command != "api":
+            raise ValueError("Use the registered Raft Taskboard integration for this managed agent session.")
+        board = SharedBoard(service) if managed else DirectBoard(direct_url, **direct_options)
         if command == "login":
             return board.login()
         if command == "logout":
@@ -572,6 +617,9 @@ def shared_command(args):
                 raise ValueError("Provide a JSON object for the API request.") from error
             if not isinstance(body, dict):
                 raise ValueError("Provide a JSON object for the API request.")
+        if managed:
+            context = managed_context(board, direct_url, agent_id)
+            return json.dumps(managed_api(board, context, args.path, args.method, body), ensure_ascii=False)
         if local_dri is not None:
             require_local_dri_context(board.invoke("context"), local_dri)
         return json.dumps(board.api(args.path, args.method, body), ensure_ascii=False)
@@ -619,9 +667,8 @@ def shared_command(args):
         raise ValueError(f"{command} is unavailable in shared mode. Use the appropriate offline or board workflow.")
     if command == "log" and not (args.checkpoint or args.decision):
         merge_details(args.details)
-    service = os.environ.get("TASKS_RAFT_SERVICE", "tasks-board")
-    board = DirectBoard(direct_url, **direct_options) if direct_url else SharedBoard(service)
-    context = board.invoke("context")
+    board = DirectBoard(direct_url, **direct_options) if direct_url and not managed else SharedBoard(service)
+    context = managed_context(board, direct_url, agent_id) if managed else board.invoke("context")
     require_local_dri_context(context, local_dri)
     actor, url = context["actor"], context["board"]
     if actor["kind"] != "agent" and not (direct_url and actor["kind"] == "human"):

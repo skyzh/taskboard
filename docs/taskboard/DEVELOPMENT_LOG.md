@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Managed CLI identity.** An explicit Taskboard URL in a managed Raft session uses the registered agent. The CLI verifies the board and principal before sending a command or signed raw action. Human CLI sessions and explicitly selected Local DRIs keep their existing sign-in paths. [Shared CLI](SHARED-BOARD.md#use-the-shared-cli)
+
 - **Recurring goal reminders.** Standing and dated goals reuse the saved Pacific review time on the existing ticket. Owners can edit, pause, resume, or cancel the reminder from the ticket or Schedules. A due review appears in Inbox even if the wake receipt goes missing. A same-day outcome counts once for the scheduled review. [Agent guidance](AGENT-STARTUP.md#keep-exploring-a-standing-goal)
 
 - **Pre-send ask checker.** Configure a local Tasks CLI command to review signed decisions, peer asks and attention requests before submission. The versioned JSON contract supports revision feedback and keeps the board's existing permissions and retry behavior. [Configure the checker](SHARED-BOARD.md#check-an-ask-before-sending)

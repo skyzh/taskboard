@@ -4504,6 +4504,8 @@ def create_app(
                 context["local_question_recipients"] = True
                 context["explicit_question_recipients"] = True
                 context["unavailable_actions"] = limits
+            if actor["kind"] == "agent" and profile is None and actor["server_id"] == (raft_config or {}).get("server_id"):
+                context["raft_agent_subject"] = actor["subject"]
             if agent_guidance.cli:
                 context["cli_guidance"] = agent_guidance.cli
             if g.get("personal_agent_api"):
