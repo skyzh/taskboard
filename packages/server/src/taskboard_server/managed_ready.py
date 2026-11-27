@@ -6,7 +6,7 @@ from datetime import datetime
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from time import time
+from time import monotonic, time
 
 from raft_auth import Identity
 import tasks_core as ledger
@@ -50,6 +50,35 @@ _SCHEMA = """
         stopped TEXT
     )
 """
+
+
+class SampledIdleGate:
+    """Process-local eligibility for the disposable managed Ready replay."""
+
+    def __init__(self, read_status, *, clock=monotonic):
+        self.read_status = read_status
+        self.clock = clock
+        self.first_idle = None
+        self.last_sample = None
+
+    def eligible(self, *, final=False):
+        now = self.clock()
+        if final or self.last_sample is None or now - self.last_sample >= _DELAY:
+            try:
+                idle = self.read_status() == "idle"
+            except (OSError, RuntimeError, ValueError):
+                idle = False
+            sampled_at = self.clock()
+            self.last_sample = sampled_at
+            if not idle:
+                self.first_idle = None
+            elif self.first_idle is None:
+                self.first_idle = sampled_at
+        return self.first_idle is not None and self.last_sample - self.first_idle > 30
+
+
+class _IdleGateClosed(RuntimeError):
+    pass
 
 
 class _Unauthorized(RuntimeError):
@@ -108,12 +137,13 @@ def initialize(state_path, db, scope):
 
 
 class ManagedReadySender:
-    def __init__(self, db, state, scope, grant, *, clock=time):
+    def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None):
         self.db = db
         self.state = state
         self.scope = scope
         self.grant = grant
         self.clock = clock
+        self.idle_gate = idle_gate
 
     def _check_subscription(self, saved):
         current = self.scope.subscription(self.db)
@@ -167,7 +197,8 @@ class ManagedReadySender:
             self.grant.clear()
             return saved["stopped"], None
         try:
-            return self._tick(saved)
+            eligible = self.idle_gate is None or self.idle_gate.eligible()
+            return self._tick(saved, eligible=eligible)
         except GrantStopped:
             with tasks_storage.read(self.db):
                 try:
@@ -176,7 +207,7 @@ class ManagedReadySender:
                     return self._stop("subscription_stopped")
             return self._stop("grant_stopped")
 
-    def _tick(self, saved):
+    def _tick(self, saved, *, eligible):
         row = self._candidate(saved)
         now = self.clock()
         if row is None:
@@ -212,6 +243,8 @@ class ManagedReadySender:
                 })
             self._finish(event)
             return "attempt_window_ended", event
+        if not eligible:
+            return "awaiting_idle", event
         with self.state:
             self.state.execute(
                 """UPDATE sender SET attempt_event = ?, attempts = ?, first_attempt = ?,
@@ -225,6 +258,8 @@ class ManagedReadySender:
 
         def submit(request):
             preflight()
+            if self.idle_gate is not None and not self.idle_gate.eligible(final=True):
+                raise _IdleGateClosed
             status, payload = self.grant.event_transport(request)
             if status == 401:
                 raise _Unauthorized
@@ -237,6 +272,14 @@ class ManagedReadySender:
                 self.db, project=_PROJECT, task=projects.row_reference(row), event_id=event,
                 recipient=WakeRecipient(self.scope.identity, token), transport=submit,
             )
+        except _IdleGateClosed:
+            with self.state:
+                self.state.execute(
+                    """UPDATE sender SET attempt_event = ?, attempts = ?, first_attempt = ?,
+                                         retry_at = ?, renewed = ? WHERE singleton = 1""",
+                    tuple(saved[key] for key in ("attempt_event", "attempts", "first_attempt", "retry_at", "renewed")),
+                )
+            return "awaiting_idle", event
         except (ReadyWakeEventChanged, ReadyWakeOwnerChanged):
             outcome = "superseded"
         except _Unauthorized:
