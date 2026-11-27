@@ -3613,6 +3613,11 @@ def create_app(
             task["decision_request_id"] = decision_request_id(task, actor)
         return result
 
+    @app.get("/api/v1/notifications/decisions/next")
+    def next_notification_decision():
+        actor = current_actor("human")
+        return query().next_decision(actor["ledger_key"], project=project_scope(request.args))
+
     @app.get("/api/v1/notifications/requests")
     def attention_notifications():
         actor = current_actor(required=True)
