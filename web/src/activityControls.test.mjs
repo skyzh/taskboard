@@ -757,7 +757,8 @@ test('a linked ticket request shows the exact update and its acknowledgment with
   const markup = renderToStaticMarkup(React.createElement(AttentionRequests, { taskId: 1, requestId: '8' }))
   assert.match(markup, /Inbox request/)
   assert.match(markup, /Daily review summary/)
-  assert.match(markup, />Acknowledge<\/button>/)
+  assert.match(markup, /Received <time datetime="2026-11-26T16:00:00Z"/i)
+  assert.match(markup, />Mark handled<\/button>/)
 })
 
 test('Inbox keeps dated and standing goals after actionable work and every loaded page', () => {

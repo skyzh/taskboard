@@ -543,6 +543,11 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   preferredProject = 'T', returnHref, fromSearch, history, progression, decisionProject, attentionRequest, decisionRequest, preview }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
   const [actionsOpen, setActionsOpen] = useState(false)
+  const outcome = useRef(null)
+  const focusOutcome = useCallback(() => {
+    outcome.current?.focus({ preventScroll: true })
+    outcome.current?.scrollIntoView({ block: 'start' })
+  }, [])
   useEffect(() => {
     if (history) setActionsOpen(false)
   }, [history])
@@ -570,6 +575,8 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const canEditChecklist = record?.can_edit_checklist ?? record?.tag_editable
   const canEditChecklistText = record?.can_edit_checklist_text ?? canEditChecklist
   const canAnswer = task && mayAnswer(task, session)
+  const focusedAttention = Boolean(task && attentionRequest && decisionRequest === undefined
+    && session.data?.actor?.kind === 'human')
   const returnToDecisions = <BoardLink className="decision-return" href={decisionsHref(decisionProject)}>Return to decisions</BoardLink>
   const ownsTicket = task && signedIn && session.data.actor.id && session.data.actor.id === task.dri
   const ownsReturnPath = ownsTicket
@@ -636,22 +643,26 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
         </div>
       ) : <div className="ticket-detail-layout">
         <div className="ticket-detail-work">
-          {task && attentionRequest && session.data?.actor?.kind === 'human' && (
-            <AttentionRequests key={`attention:${session.data.actor.id}:${id}:${attentionRequest}`}
-              taskId={id} requestId={attentionRequest} revision={revision} onChanged={onChanged} />
-          )}
           {decisionRequest !== undefined ? <section className="ticket-focus" aria-label="Decision request">
             <div className="ticket-focus-heading"><h2>Decision request</h2>{returnToDecisions}</div>
             {decisionRequest === null ? <p role="status">This decision request is unavailable.</p>
               : <LinkedDecision key={`${id}:${decisionRequest}:${session.data?.actor?.id || ''}`}
               ticket={id} requestId={decisionRequest} task={task} session={session} revision={revision}
               onChanged={onChanged} receiptAction={<DecisionReceiptActions project={decisionProject} revision={revision} showReturn={false} />} />}
-          </section> : <section className={task ? `ticket-focus ${state}` : undefined} aria-label={summary}>
+          </section> : <section className={task ? `ticket-focus ${state}` : undefined}
+            aria-label={focusedAttention ? 'Outcome' : summary} ref={outcome}
+            id={focusedAttention ? 'ticket-outcome' : undefined} tabIndex={focusedAttention ? -1 : undefined}>
             {task && <>
+              {focusedAttention && <>
+                <h2>Outcome</h2>
+                <AttentionRequests key={`attention:${session.data.actor.id}:${id}:${attentionRequest}`}
+                  taskId={id} requestId={attentionRequest} revision={revision} onChanged={onChanged}
+                  onRequestLoaded={focusOutcome} />
+              </>}
               {canAnswer ? <div className="ticket-focus-heading">
-                <h2>{summary}</h2>
+                {focusedAttention ? <h3>{summary}</h3> : <h2>{summary}</h2>}
                 {returnToDecisions}
-              </div> : <h2>{summary}</h2>}
+              </div> : focusedAttention ? summary !== 'Outcome' && <h3>{summary}</h3> : <h2>{summary}</h2>}
               <TaskWaitAge task={task} />
               {(task.waiting_on || task.blockers) && <p><Dependency task={task} /></p>}
               {task.peer_request && <PeerRequestContext task={task} />}

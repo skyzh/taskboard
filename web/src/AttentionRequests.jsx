@@ -37,7 +37,7 @@ export function AttentionImpact({ item }) {
   )
 }
 
-export default function AttentionRequests({ revision, onChanged, taskId, project, requestId, showControls = true, onlyOpen = false }) {
+export default function AttentionRequests({ revision, onChanged, onRequestLoaded, taskId, project, requestId, showControls = true, onlyOpen = false }) {
   const onTicket = taskId != null
   const [state, setState] = useState('open')
   const [pending, setPending] = useState(null)
@@ -51,9 +51,15 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
     ...projectFilters(onTicket ? undefined : project),
   }, revision)
   const latestPage = useRef(page.data)
+  const requestFocused = useRef(false)
   useLayoutEffect(() => {
     latestPage.current = page.data
   }, [page.data])
+  useLayoutEffect(() => {
+    if (requestFocused.current || !onRequestLoaded || page.pending || (!page.data && !page.error)) return
+    requestFocused.current = true
+    onRequestLoaded()
+  }, [onRequestLoaded, page.data, page.error, page.pending])
   function requestsChanged() {
     // A reminder can finish after a background refresh replaced the old page.
     if (onTicket) setInvalidatedPage(latestPage.current)
@@ -107,7 +113,9 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
         <p className="section-message">This request is unavailable.</p>
       )}
       {!onTicket && !onlyOpen && !page.error && page.data?.items.length === 0 && <p className="section-message">No {state} requests.</p>}
-      {notice?.receipt && <AttentionReceipt receipt={notice.receipt} />}
+      {notice?.receipt && (requestId && !notice.receipt.unblocked_task_id
+        ? <p className="visually-hidden" role="status">Request handled.</p>
+        : <AttentionReceipt receipt={notice.receipt} />)}
       {items.length > 0 && <ol className="event-list" role="list">
         {items.map(item => (
           <li className="event-row attention-row" key={item.id}>
@@ -116,7 +124,8 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
                 publicHref={`${taskHref(item.task_id, item.task_key)}?attention-request=${item.id}`} /></p>}
               <p className="event-meta">
                 <span>{profileName(item.sender, item.sender_profile)}</span>
-                {item.handled_at ? <Timestamp at={item.raised_at} /> : <WaitAge since={item.raised_at} label="Unanswered" />}
+                {requestId ? <span>Received <Timestamp at={item.raised_at} /></span>
+                  : item.handled_at ? <Timestamp at={item.raised_at} /> : <WaitAge since={item.raised_at} label="Unanswered" />}
               </p>
               <Markdown text={item.reason} />
               <AttentionImpact item={item} />
@@ -129,7 +138,7 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
                 <div>
                   {notice?.id === item.id && <p role="alert" className="section-message">{notice.error}</p>}
                   <button type="button" aria-busy={pending === item.id || undefined}
-                    disabled={pending !== null} onClick={() => handle(item.id)}>{requestId && !item.unblocks ? 'Acknowledge' : 'Mark handled'}</button>
+                    disabled={pending !== null} onClick={() => handle(item.id)}>Mark handled</button>
                   <ReminderDate key={item.remind_on || ''} path={`/notifications/requests/${item.id}/reminder`}
                     saved={item.remind_on} onChanged={requestsChanged} />
                 </div>
@@ -142,8 +151,8 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
       )}
     </>
   )
-  return onTicket ? <section className="ticket-attention" aria-label="Attention requests">
-    {requestId && <h2>Inbox request</h2>}
+  return onTicket ? <section className="ticket-attention" aria-label={requestId ? "Inbox request" : "Attention requests"}>
+    {requestId && <h3>Inbox request</h3>}
     {content}
   </section> : content
 }
