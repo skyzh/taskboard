@@ -191,9 +191,9 @@ test('About has its own route and loads the running release', () => {
   assert.doesNotMatch(about, /id="queue-heading"|github\.com\/skyzh\/taskboard\/commit\//)
 })
 
-test('the dashboard Notifications tab opens Project log for signed humans and Inbox for other viewers', () => {
+test('the dashboard Notifications tab opens Inbox for all viewers', () => {
   for (const [identity, route] of [
-    [{ isHuman: true }, 'notifications-log'],
+    [{ isHuman: true }, 'notifications'],
     [{ isAgent: true }, 'notifications'],
     [{}, 'notifications'],
   ]) {

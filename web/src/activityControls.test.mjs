@@ -770,19 +770,25 @@ test('Inbox keeps dated and standing goals after actionable work and every loade
   const creation = (id, name) => ({ kind: 'creation', id, item: {
     id, task_id: id, task_key: `T-${id}`, task_title: name, at: '2026-11-21T07:00:00Z',
   } })
-  const first = creation(4, 'A newer update')
-  const second = creation(5, 'An earlier update')
+  const broadcast = creation(6, 'A task creation broadcast')
+  const readiness = (id, name) => ({ kind: 'readiness', id, item: {
+    id, key: `T-${id}`, title: name, source_id: 7, source_key: 'T-7', event_id: id,
+  } })
+  const first = readiness(4, 'A newer update')
+  const second = readiness(5, 'An earlier update')
   function render(items, nextCursor) {
     fixture.state = []
     fixture.pages = { '/notifications/inbox': {
-      data: { items, next_cursor: nextCursor }, loadMore: nextCursor ? () => {} : null,
+      data: { items: [broadcast, ...items], next_cursor: nextCursor }, loadMore: nextCursor ? () => {} : null,
     } }
     const session = { data: { actor: { id: 'Avery', kind: 'agent' } } }
     return renderToStaticMarkup(React.createElement(Notifications, { session, verified: true }))
   }
   for (const [items, cursor] of [[[first], 'cursor'], [[first, second], null]]) {
     const markup = render(items, cursor)
-    const ordered = ['Owned task', 'Independent check', 'Shared task', ...items.map(row => row.item.task_title),
+    assert.doesNotMatch(markup, /Include new tasks|A task creation broadcast/)
+    assert.match(markup, /href="#activity\?action=add&amp;scope=all">Task created activity<\/a>/)
+    const ordered = ['Owned task', 'Independent check', 'Shared task', ...items.map(row => row.item.title),
       ...(cursor ? ['More inbox items'] : []), 'Review the cutover', 'Verify the import', 'Improve handoffs when the queue drains']
     let previous = -1
     for (const title of ordered) {
@@ -883,6 +889,23 @@ test('Goal activity filters owners and goals, and reports offers only for standi
   assert.doesNotMatch(render(null, 'T-43'), /href="#task-T-42"|href="#event-28-log"/)
   fixture.resources['/reports/goal-activity?project=T'].data.items[0] = { ...standing, idle_offers: 0 }
   assert.match(render(null, 'T-42'), /Standing-goal offers<\/dt><dd>0/)
+})
+
+test('Activity Wake rows keep a Ready trigger distinct from a recorded wake', () => {
+  const item = {
+    id: 91, task: 'T-23', task_id: 23, recipient: 'Avery', kind: 'wake',
+    source_at: '2026-11-26T12:00:00Z', trigger: 'transfer', cue: 'T-23 became Ready for this agent.',
+  }
+  fixture.state = []
+  fixture.pages = { '/activity': { data: { items: [item] } } }
+  fixture.resources = {}
+  const markup = renderToStaticMarkup(React.createElement(WorkLog, { fragment: 'activity?action=wake', project: 'T' }))
+  assert.match(markup, /Wake for Avery/)
+  assert.match(markup, /T-23 became Ready/)
+  assert.match(markup, /href="#event-91-log">Source activity/)
+  assert.match(markup, /Raft acceptance<\/dt><dd><span>Unknown/)
+  assert.match(markup, /First signed queue check<\/dt><dd><span>Not observed/)
+  assert.match(markup, /Start<\/dt><dd><span>Not observed/)
 })
 
 test('Project log shows empty only after the current read succeeds', () => {

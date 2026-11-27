@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
-import { queryPath, request, useLoadedPages, useResource } from './data.js'
+import { queryPath, useLoadedPages, useResource } from './data.js'
 import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificationLogFilters, ownerHref, profileName, useSignInHref, taskHref } from './shared.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import NotificationLog from './NotificationLog.jsx'
@@ -12,26 +12,8 @@ import { Markdown } from './Markdown.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import { EventRow } from './Work.jsx'
 import { TaskWaitAge } from './WaitAge.jsx'
-import { useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
 import { projectFilters, projectHref } from './projectScope.js'
-
-function Creation({ event }) {
-  const { formatTimestamp } = useTimeZone()
-  const timestamp = formatTimestamp(event.at)
-  const creator = profileName(event.creator)
-  return (
-    <li className="event-row">
-      <p className="event-ticket"><TaskLink reference={event.task_key} id={event.task_id} title={event.task_title} /></p>
-      <p className="event-meta">
-        <span>Created by {creator}</span>
-        <BoardLink href={eventHref(event.id)} aria-label={`View task creation by ${creator} at ${timestamp}`}>
-          <ReportTime at={event.at} linked />
-        </BoardLink>
-      </p>
-    </li>
-  )
-}
 
 function DecisionRequest({ task, current, session, onChanged, onAnswerStarted, project, revision }) {
   return (
@@ -124,7 +106,7 @@ function InboxStandingGoals({ goals, owner }) {
 function InboxEntries({ revision, owner, project }) {
   const page = useLoadedPages('/notifications/inbox', { ...projectFilters(project), view: 'updates' }, revision)
   const work = useResource(queryPath('/notifications/work', projectFilters(project)), revision)
-  const items = page.data?.items ?? []
+  const items = (page.data?.items ?? []).filter(row => row.kind === 'watched' || row.kind === 'readiness')
   const datedGoals = work.data?.dated_goals || []
   const standingGoals = work.data?.standing_goals || []
   const actionable = (work.data?.items || []).filter(item => Object.hasOwn(workLabels, item.kind))
@@ -143,7 +125,6 @@ function InboxEntries({ revision, owner, project }) {
         <ol className="event-list" aria-label="Inbox" role="list">
           {items.map(({ kind, id, item }) => {
             const key = `${kind}-${id}`
-            if (kind === 'creation') return <Creation key={key} event={item} />
             if (kind === 'watched') return <EventRow key={key} event={item} showTask />
             if (kind === 'readiness') return <InboxReadiness key={key} item={item} />
             return null
@@ -159,37 +140,10 @@ function InboxEntries({ revision, owner, project }) {
 }
 
 function Inbox({ revision, owner, project }) {
-  const preference = useResource('/notifications/preferences', revision)
-  const [saving, setSaving] = useState(false)
-  const [failure, setFailure] = useState(null)
-
-  async function subscribe(taskCreations) {
-    setSaving(true)
-    setFailure(null)
-    try {
-      await request('/notifications/preferences', { body: { task_creations: taskCreations } })
-      preference.retry()
-    } catch (error) {
-      setFailure(error.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
     <section className="feed-section" aria-label="Inbox">
-      <ResourceStatus resource={preference} label="notification preferences" />
-      {preference.data && (
-        <label className="activity-mode">
-          <input type="checkbox" checked={preference.data.task_creations} disabled={preference.pending || saving}
-            onChange={event => subscribe(event.target.checked)} />
-          Include new tasks
-        </label>
-      )}
-      {failure && <p role="alert" className="section-message">{failure}</p>}
-      {preference.data && (
-        <InboxEntries revision={`${revision}:${preference.data.task_creations}`} owner={owner} project={project} />
-      )}
+      <BoardLink href={projectHref('#activity?action=add', project || 'all')}>Task created activity</BoardLink>
+      <InboxEntries revision={revision} owner={owner} project={project} />
     </section>
   )
 }

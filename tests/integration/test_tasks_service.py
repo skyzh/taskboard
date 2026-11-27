@@ -2099,6 +2099,88 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(started["acceptance_at"], accepted["acceptance_at"])
         self.assertEqual(notice("ready"), fallback)
 
+    def test_wake_activity_distinguishes_missing_partial_and_observed_receipts(self):
+        admin = self.provider.people["Sam"]["sub"]
+        app = self.app(portal_reader=True, project_admin_subject=admin)
+        avery, owner = self.login(app, "Avery")
+        sam, _ = self.login(app, "Sam")
+        _, reviewer = self.login(app, "Blake")
+        normal, _ = self.login(app, "Quinn")
+        self.call(sam, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Restricted examples", "visibility": "ring1",
+        })
+        for member in (owner, reviewer):
+            self.call(sam, "/api/v1/projects/LAB/ring1", method="PUT", json={"principal": member, "allowed": True})
+
+        def create(title, project="T"):
+            reference = self.action(avery, "create-task", {
+                "title": title, "step": "Check the evidence.", "project": project,
+            })["receipt"].split()[0]
+            return self.task_event(avery, reference)
+
+        missing = create("No recorded receipt")
+        rejected = create("Rejected dispatch")
+        partial = create("Accepted without delivery")
+        observed = create("Observed through Start")
+        restricted = create("Restricted event", "LAB")
+        self.action(avery, "record-activity", {"id": missing["task"], "note": "A Ready ticket note is not a trigger."})
+
+        def receipt(source, **observations):
+            with closing(open_sqlite(self.database)) as db:
+                import_notification_on(db, {
+                    "schema": WAKE_SCHEMA, "source": source, "recipient": owner, "observations": observations,
+                })
+
+        receipt(rejected, acceptance={"status": "rejected", "at": rejected["at"]})
+        receipt(partial, acceptance={"status": "accepted", "at": partial["at"]})
+        receipt(observed, acceptance={"status": "accepted", "at": observed["at"]},
+                delivery={"status": "delivered", "at": observed["at"]},
+                next_result={"status": "offered", "at": observed["at"]})
+        self.action(avery, "advance-task", {
+            "id": observed["task"], "transition": "start", "note": "Check the evidence.",
+        })
+        start = self.task_event(avery, observed["task"])
+        receipt(observed, start_event_id=start["event"])
+
+        def wakes(client, **filters):
+            return self.call(client, "/api/v1/activity", query_string={"action": "wake", **filters}).json
+
+        self.assertEqual([row["id"] for row in wakes(normal, scope="all")["items"]],
+                         [source["event"] for source in (observed, partial, rejected, missing)])
+        self.assertEqual(wakes(normal, project="T", actor="no-matching-agent")["items"], [])
+        self.call(normal, "/api/v1/activity", query_string={"action": "wake", "project": "LAB"}, status=404)
+        self.assertEqual([row["id"] for row in wakes(avery, project="LAB")["items"]], [restricted["event"]])
+        first = wakes(normal, project="T", actor=owner, limit=2)
+        second = wakes(normal, project="T", actor=owner, before=first["next_cursor"], limit=2)
+        started, accepted, failed, unknown = first["items"] + second["items"]
+        self.assertEqual(started["start_event_id"], start["event"])
+        self.assertEqual(started["delivery"], "delivered")
+        self.assertEqual(started["next_result"], "offered")
+        self.assertEqual(accepted["acceptance"], "accepted")
+        self.assertIsNone(accepted["delivery"])
+        self.assertEqual(failed["acceptance"], "rejected")
+        self.assertEqual(unknown["recipient"], "Avery")
+        self.assertEqual(unknown["trigger"], "add")
+        self.assertEqual(unknown["status"], "unknown")
+        self.assertIsNone(unknown["acceptance"])
+        self.assertIsNone(unknown["start_event_id"])
+        self.assertIsNone(second["next_cursor"])
+        old_log = self.call(normal, "/api/v1/notifications/log", query_string={"project": "T"}).json
+        self.assertNotIn(missing["event"], {row["id"] for row in old_log["items"]})
+
+        for source in (observed, restricted):
+            self.action(avery, "delegate", {
+                "id": source["task"], "worker": reviewer, "role": "review", "brief": "Check this fixture.",
+            })
+        route = "/api/v1/assignee/reviews"
+        filters = {"owner": reviewer, "scope": "all"}
+        visible_reviews = self.call(normal, route, query_string=filters).json["items"]
+        self.assertEqual([row["source_key"] for row in visible_reviews], [observed["task"]])
+        self.assertNotIn("brief", visible_reviews[0])
+        self.assertEqual(self.call(normal, route, query_string={**filters, "owner": owner}).json["items"], [])
+        self.assertEqual({row["source_key"] for row in self.call(avery, route, query_string=filters).json["items"]},
+                         {observed["task"], restricted["task"]})
+
     def test_wake_log_links_only_the_exact_signed_request_acknowledgment(self):
         app = self.app(portal_reader=True)
         owner, owner_key = self.login(app, "Avery")
@@ -7327,7 +7409,7 @@ class TasksServiceTest(unittest.TestCase):
         remaining = self.call(sam, route, query_string={
             "view": "updates", "limit": 20, "before": updates["next_cursor"],
         }).json
-        self.assertEqual(updates["items"] + remaining["items"], whole[2:])
+        self.assertEqual(updates["items"] + remaining["items"], [entry for entry in whole if entry["kind"] == "watched"])
         self.assertIsNone(remaining["next_cursor"])
         self.call(sam, route, query_string={"view": "unknown"}, status=400)
 
@@ -7409,6 +7491,7 @@ class TasksServiceTest(unittest.TestCase):
         with patch("tasks_core.timestamp", return_value=changed_at):
             original = poll()
             self.assertEqual([row["kind"] for row in self.call(peer, inbox).json["items"]], ["creation"])
+            self.assertEqual(self.call(peer, inbox, query_string={"view": "updates"}).json["items"], [])
             self.assertEqual(self.call(sam, preference, method="POST", json=enable).json, enable)
             self.assertEqual(poll(), original)
             entry = ("private", sam_id, "set-notification-preferences", "notification_preferences", sam_id, changed_at)
@@ -7422,6 +7505,7 @@ class TasksServiceTest(unittest.TestCase):
             self.assertEqual(self.call(sam, preference, method="POST", json=enable).json, enable)
             self.assertNotEqual(poll(), disabled)
             self.assertEqual([row["kind"] for row in self.call(peer, inbox).json["items"]], ["creation"])
+            self.assertEqual(self.call(peer, inbox, query_string={"view": "updates"}).json["items"], [])
         self.assertEqual(self.audit_events(), [entry] * 3)
 
     def test_saving_the_default_subscription_preserves_an_explicit_choice(self):
