@@ -68,11 +68,11 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
     setNotice(null)
     try {
       const receipt = await request(`/notifications/requests/${id}/handled`, { method: 'POST' })
-      if (onTicket) setHandledIds(previous => [...previous, id])
+      setHandledIds(previous => [...previous, id])
       setNotice({ receipt })
       requestsChanged()
     } catch (error) {
-      setNotice({ error: error.message })
+      setNotice({ error: error.message, id })
     } finally {
       setPending(null)
     }
@@ -85,7 +85,7 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
   const items = hideTicketRows ? [] : (page.data?.items ?? []).filter(item => item.handled_at || !handledIds.includes(item.id))
   if (onTicket && items.length === 0 && !notice && !hideTicketRows && !requestId) return null
 
-  if (onlyOpen && !page.pending && !page.error && items.length === 0 && !notice) return null
+  if (onlyOpen && page.data && !page.error && items.length === 0 && !notice) return null
 
   const content = (
     <>
@@ -107,7 +107,6 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
         <p className="section-message">This request is unavailable.</p>
       )}
       {!onTicket && !onlyOpen && !page.error && page.data?.items.length === 0 && <p className="section-message">No {state} requests.</p>}
-      {notice?.error && <p role="alert" className="section-message">{notice.error}</p>}
       {notice?.receipt && <AttentionReceipt receipt={notice.receipt} />}
       {items.length > 0 && <ol className="event-list" role="list">
         {items.map(item => (
@@ -128,7 +127,9 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
               ? <span className="event-meta">Handled <Timestamp at={item.handled_at} /></span>
               : showControls && (
                 <div>
-                  <button type="button" disabled={pending !== null} onClick={() => handle(item.id)}>{requestId && !item.unblocks ? 'Acknowledge' : 'Mark handled'}</button>
+                  {notice?.id === item.id && <p role="alert" className="section-message">{notice.error}</p>}
+                  <button type="button" aria-busy={pending === item.id || undefined}
+                    disabled={pending !== null} onClick={() => handle(item.id)}>{requestId && !item.unblocks ? 'Acknowledge' : 'Mark handled'}</button>
                   <ReminderDate key={item.remind_on || ''} path={`/notifications/requests/${item.id}/reminder`}
                     saved={item.remind_on} onChanged={requestsChanged} />
                 </div>

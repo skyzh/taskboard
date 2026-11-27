@@ -294,7 +294,10 @@ export function useLoadedPages(path, filters, revision, {
         cached.current = snapshot
         setResult({ key, firstPage, snapshot })
       } catch (error) {
-        if (!controller.signal.aborted) setResult({ key, firstPage, snapshot: previous, error })
+        if (controller.signal.aborted) return
+        const accessLost = error.status === 401 || error.status === 403
+        if (accessLost) cached.current = null
+        setResult({ key, firstPage, snapshot: accessLost ? null : previous, error })
       }
     }
 

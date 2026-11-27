@@ -2543,7 +2543,12 @@ test('reminder continuation keeps existing rows and disappears after the last pa
 })
 
 test('loading and failed reminder requests remain visible while an empty first page stays quiet', () => {
-  assert.match(renderReminders({ pending: true }), /Loading task reminders/)
+  const loading = renderReminders({ pending: true })
+  assert.match(loading, /Loading task reminders/)
+  assert.doesNotMatch(loading, /id="reminders-title"/)
+  assert.doesNotMatch(renderReminders({ data: { items: [] }, pending: true }), /id="reminders-title"|Loading task reminders/)
+  const settled = { data: { items: [{ id: 1, title: 'Keep the saved reminder', state: 'parked' }] }, pending: true }
+  assert.match(renderReminders(settled), /Keep the saved reminder/)
   const failed = renderReminders({ error: new Error('Fixture request failed.'), retry: () => {} })
   assert.match(failed, /Unable to load task reminders\. Fixture request failed\./)
   assert.match(failed, /<button type="button">Retry<\/button>/)
