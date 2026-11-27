@@ -146,7 +146,7 @@ class MainReleaseTest(unittest.TestCase):
         self.config["github"] = {"repo": "fixture/taskboard", "required_checks": names}
         path = "/repos/fixture/taskboard"
         checks = [{"name": name, "id": number, "app": {"id": app_id}, "head_sha": commit,
-                   "status": "completed", "conclusion": "success"}
+                   "status": "completed", "conclusion": "success", "completed_at": "2026-11-27T21:51:01Z"}
                   for number, (name, app_id) in enumerate(names.items(), start=1)]
         return {
             path + "/branches/main": {"name": "main", "commit": {"sha": commit}, "protected": True},
@@ -318,6 +318,9 @@ class MainReleaseTest(unittest.TestCase):
                                        "deployed_at": first["at"]})
             self.assertEqual(set(first["evidence"]["build"]["checks"]), {"install", "web"})
             self.assertEqual(first["evidence"]["github"]["commit"], commit)
+            self.assertEqual(first["evidence"]["github"]["checks"]["Portable checks"]["completed_at"],
+                             "2026-11-27T21:51:01Z")
+            self.assertTrue(first["evidence"]["preparation_started_at"].endswith("+00:00"))
             timings = first["evidence"]["timings_ms"]
             self.assertEqual(set(timings), {"fetch_and_build", "compatibility", "transfer_staging",
                                            "final_protected_tip"})

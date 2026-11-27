@@ -139,6 +139,7 @@ def deploy_changed(config, layout, records, commit, *, read, fetch, operate, att
     outcome = target["outcome"]
     if outcome is None:
         gate = gate or verify_required_checks(settings, commit, read)
+        preparation_started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         timings = {}
         started = monotonic()
 
@@ -172,7 +173,8 @@ def deploy_changed(config, layout, records, commit, *, read, fetch, operate, att
             matrix = run_matrix(artifact, candidate, predecessor, base, policy, python)
             verify_policy_receipt(matrix, candidate, base, policy, predecessor)
             finish_stage("compatibility")
-            evidence = {"github": gate, "build": build, "compatibility": matrix, "timings_ms": timings}
+            evidence = {"github": gate, "build": build, "compatibility": matrix,
+                        "preparation_started_at": preparation_started_at, "timings_ms": timings}
 
             def retry_preflight():
                 require_protected_tip(settings, commit, read)
