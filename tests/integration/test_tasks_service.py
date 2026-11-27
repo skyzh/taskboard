@@ -1888,6 +1888,18 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(detail["goal"]["parked_note"], outcome)
         self.assertEqual(detail["task"]["note"], STANDING_EXPLORATION)
 
+        summary_step = "After actionable work and reviews clear, check Inbox for your standing-goal next step."
+        for keep_exploring in (False, True):
+            with self.subTest(keep_exploring=keep_exploring):
+                self.action(avery, "save-goal", {
+                    "kind": "standing", "summary": "Explore the work queue.",
+                    "keep_exploring": keep_exploring,
+                })
+                summary = self.action(avery, "my-goals")
+                self.assertEqual(summary["standing_goal"].get("keep_exploring", False), keep_exploring)
+                self.assertIn(summary_step, summary["next_step"])
+                self.assertIn(f"Next: {summary_step}", self.shared_cli(avery, "goals")[1])
+
     def test_dated_goal_guidance_uses_current_deadline_and_preserves_ledger_notes(self):
         from tasks_goals import DATED_GOAL_STEP, LEGACY_GOAL_STEP
 

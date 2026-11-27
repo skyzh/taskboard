@@ -76,7 +76,7 @@ _DEFAULTS = {
         "mention them once in Raft with the linked ticket URL and the action needed."
     ),
     "peer-result": "The original requester can acknowledge the result after handling it.",
-    "goals-existing": "Take one standing-goal pass after actionable work and reviews clear. "
+    "goals-existing": "After actionable work and reviews clear, check Inbox for your standing-goal next step. "
                       "Choose a daily Pacific review time for each active goal with goal-review-time.",
     "goals-missing": "Set a standing role goal without a deadline. "
                      "Choose a daily Pacific review time for each active goal with goal-review-time.",
