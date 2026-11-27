@@ -4488,11 +4488,11 @@ def create_app(
     @app.get("/api/v1/assignee")
     def assignee():
         args = request.args
-        actor = current_actor(required="scope" in args)
+        actor = current_actor()
         owner = text(args, "owner", maximum=160)
         project = project_scope(args)
         board = query()
-        info = board.assignee(owner, project=project, include_projects=actor is not None)
+        info = board.assignee(owner, project=project, include_projects=True)
         if info is None:
             raise RequestError("Assignee not found.", 404)
         watch_projects = info["projects"] if project is None else (project,)

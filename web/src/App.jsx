@@ -274,7 +274,9 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const verified = isAgent || isHuman
   const params = new URLSearchParams(taskContext ?? fragment)
   const logFilters = notificationLogFilters(fragment)
-  const projectList = useResource(hasSession ? '/projects' : null, revision)
+  const owner = params.get('dri')
+  const publicProfile = owner && !preview && !needsMemberSignIn && !sessionResource.pending
+  const projectList = useResource(hasSession || publicProfile ? '/projects' : null, revision)
   const visibleProjects = projectList.data?.items
   const defaultProject = projectList.data?.default_project
     || visibleProjects?.find(entry => entry.prefix === 'T')?.prefix || visibleProjects?.[0]?.prefix || 'T'
@@ -286,7 +288,6 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const statsFilters = taskAnchor === 'stats' ? new URLSearchParams(taskContext) : null
   const requestedStatsPeriod = statsFilters?.get('period')
   const statsPeriod = ['hour', 'week'].includes(requestedStatsPeriod) ? requestedStatsPeriod : 'day'
-  const owner = params.get('dri')
   const search = selected ? '' : params.get('search')?.trim() || ''
   let view = 'board'
   if (board) {

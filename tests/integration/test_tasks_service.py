@@ -10507,9 +10507,14 @@ class TasksServiceTest(unittest.TestCase):
 
         profile = "/api/v1/assignee"
         params = {"owner": owner, "scope": "all"}
-        self.call(app.test_client(), profile, query_string=params, status=401)
+        anonymous = app.test_client()
+        unsigned = self.call(anonymous, profile, query_string=params).json
+        self.call(anonymous, profile, query_string={"owner": owner, "project": "LAB"}, status=404)
         self.call(quinn, profile, query_string={"owner": owner, "project": "LAB"}, status=404)
         mixed = self.call(quinn, profile, query_string=params).json
+        self.assertEqual(unsigned, {key: value for key, value in mixed.items() if key != "watching"})
+        self.assertNotIn("watching", unsigned)
+        self.call(anonymous, profile + "/watch", method="POST", query_string=params, json={"watch": True}, status=401)
         selected = self.call(quinn, profile, query_string={"owner": owner, "project": "OPS"}).json
         self.assertEqual(mixed["profile"], selected["profile"])
         self.assertEqual(set(mixed["projects"]), {"OPS", "T"})
@@ -10523,6 +10528,13 @@ class TasksServiceTest(unittest.TestCase):
         member = self.call(sam, profile, query_string=params).json
         self.assertEqual(set(member["projects"]), {"LAB", "OPS", "T"})
         self.assertEqual(member["report_count"], 3)
+        membership = "/api/v1/projects/LAB/ring1"
+        self.call(sam, membership, method="PUT", json={"principal": owner, "allowed": False})
+        self.call(avery, profile, query_string={"owner": owner, "project": "LAB"}, status=404)
+        revoked = self.call(avery, profile, query_string=params).json
+        self.assertEqual(set(revoked["projects"]), {"OPS", "T"})
+        self.assertEqual(revoked["report_count"], 2)
+        self.assertNotIn("LAB", json.dumps(revoked))
 
         for path, extra in (("/api/v1/reports/workers", {"order": "execution"}),
                             ("/api/v1/reports/pending", {"view": "profile"})):
