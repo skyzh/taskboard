@@ -266,9 +266,13 @@ _ACTIONS = {
     "record-activity": _Action("POST", "Record your contribution to a task.", {
         **_TASK, "note": _NOTE,
     }, {"details": _DETAILS, **_EVIDENCE}),
+    "record-decision": _Action("POST", "Record a Decision in ticket Activity without changing its state.", {
+        **_TASK, "note": "The concrete choice.",
+        "details": "Rationale and what changes next. Do not duplicate an Inbox answer.",
+    }, _EVIDENCE),
     "record-checkpoint": _Action("POST", "Record a Checkpoint in Activity without changing the ticket's current handoff.", {
         **_TASK, "note": "Short, one-line Checkpoint headline.",
-    }, {"details": "Decision, rationale, verified state and working references. See field-guidance.", **_EVIDENCE}),
+    }, {"details": "Findings, evidence, working references and open questions. See field-guidance.", **_EVIDENCE}),
     "delegate": _Action("POST", "Give a worker a build or review brief for a task you own.", {
         **_TASK, "worker": "Worker's stable ID from assignees.",
         "role": "Worker role, build or review.", "brief": "Scoped work for the worker to perform.",

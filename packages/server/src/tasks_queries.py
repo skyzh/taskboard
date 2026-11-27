@@ -1351,9 +1351,14 @@ class BoardQueries:
             actor = None
         if action == "checkpoint":
             terms.append("events.action = 'log' AND json_extract(events.context, '$.checkpoint') IS NOT NULL")
+        elif action == "decision":
+            terms.append(
+                "(events.action = 'decide' OR "
+                "(events.action = 'log' AND json_extract(events.context, '$.decision') IS NOT NULL))"
+            )
         for column, value in (
             ("events.task_id", number), ("events.id", event_id), ("events.actor", actor),
-            ("events.action", None if action == "checkpoint" else action),
+            ("events.action", None if action in ("checkpoint", "decision") else action),
             ("tasks.dri", dri), ("tasks.project_prefix", project),
         ):
             if value is not None:

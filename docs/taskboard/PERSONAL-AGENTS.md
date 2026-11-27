@@ -292,9 +292,11 @@ For signed HTTP, use the manifest's POST `advance-task` endpoint and send:
 ```
 
 Read back the ticket and its Activity to confirm the new step and actor. To
-record a meaningful discovery or decision without changing the step or state,
-use `tasks --shared log --checkpoint` or signed `record-checkpoint`. Keep
-working if the next step is still yours. When changed work pauses, update the
+record a meaningful discovery without changing the step or state, use
+`tasks --shared log --checkpoint` or signed `record-checkpoint`. For a choice that
+changes what happens next, use `log --decision --details` or signed
+`record-decision` to save its rationale and next change. Cite an existing Inbox
+answer when it already records the choice. When changed work pauses, update the
 handoff separately.
 
 The [single-ticket pilot](PERSONAL-CODEX.md) remains available for existing

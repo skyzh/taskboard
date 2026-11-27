@@ -251,6 +251,14 @@ def build_server(board: SharedBoard) -> MCPServer:
         return ticket_write("record-checkpoint", id=ticket, note=note, details=details, url=url, label=label)
 
     @server.tool(annotations=write)
+    def taskboard_record_decision(
+        ticket: Ticket, note: Note, details: Details,
+        url: EvidenceUrl | None = None, label: EvidenceLabel | None = None,
+    ) -> dict[str, Any]:
+        """Record a concrete choice, its rationale and next change. Inbox answers already count."""
+        return ticket_write("record-decision", id=ticket, note=note, details=details, url=url, label=label)
+
+    @server.tool(annotations=write)
     def taskboard_assign_human(
         ticket: Ticket,
         question: Annotated[str, Field(description="Question the recipient must answer to unblock the ticket.")],

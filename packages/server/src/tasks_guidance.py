@@ -44,6 +44,7 @@ _ACTIONS = {
     "my-activity": "Open a linked ticket if its activity needs action.",
     "my-watches": "Open a linked ticket if an update needs action.",
     "raise-attention": "Check other work while the recipient handles the request.",
+    "record-decision": "Read the ticket Activity to verify the Decision receipt before retrying.",
     "record-checkpoint": "Read the ticket Activity to verify the checkpoint receipt before retrying.",
     "recurring-add": "Check the next occurrence with recurring-show.",
     "recurring-show": "Review the next scheduled occurrence and any open tickets.",
@@ -92,7 +93,8 @@ _DEFAULTS = {
     ),
     "lesson-capture": (
         "If an issue recurs, search Activity for earlier attempts. "
-        "For a meaningful discovery or decision, use `tasks --shared log` with `--checkpoint` and `--details`. "
+        "For findings and open questions, use `tasks --shared log` with `--checkpoint` and `--details`. "
+        "Use `log --decision` for choices that change what comes next. "
         "Record what you learned, why you chose the next step, and what remains uncertain. Link the evidence."
     ),
     "completion": "Check your Taskboard Inbox for the next actionable item in {project}.",
@@ -140,11 +142,16 @@ _PROMPTS = {
             At pickup, read the ticket's objective, current handoff, and relevant Activity.
             Check the linked evidence or wait condition before continuing.
 
-            Record a Checkpoint in Activity when you make a meaningful discovery or
-            decision, even if you keep working. Lead with what you learned. In the
-            details, record the decision and why, the supporting evidence and working
-            reference, useful failed approaches, and what remains uncertain. If the
+            Record a Checkpoint in Activity when you make a meaningful discovery,
+            even if you keep working. Lead with what you learned. Include evidence,
+            working references, useful failed approaches, and open questions. If a
             lesson applies elsewhere, link its source Checkpoint from Knowledge.
+
+            Record a Decision when a concrete choice changes what happens next.
+            Give the choice, rationale, next change, and any source evidence or related
+            Checkpoint. Use signed HTTP `record-decision`, MCP `taskboard_record_decision`,
+            or CLI `log --decision` with `--details`. An Inbox answer already records
+            the choice in Activity. Link to that answer when you cite it.
 
             When changed work pauses or changes hands, also refresh the current handoff
             with the objective, latest verified result, and first concrete next action.

@@ -1391,6 +1391,8 @@ def event_label(action, context=None):
     if action == "source-event":
         return "Source update"
     if action == "log":
+        if (context or {}).get("decision") is True:
+            return "Decision"
         if (context or {}).get("checkpoint") is True:
             return "Checkpoint"
         if (context or {}).get("knowledge_stage") is True:
@@ -2350,6 +2352,17 @@ def save_task(db, path, args, links):
             details = getattr(args, "details", None)
             context = {"activity_details": details} if details is not None else {}
             checkpoint = getattr(args, "checkpoint", False)
+            decision = getattr(args, "decision", False)
+            if decision:
+                if is_knowledge(task):
+                    raise ValueError("Record a Decision on a work ticket.")
+                can_edit = getattr(args, "can_edit_content", None)
+                allowed = can_edit(db, task) if can_edit else args.by == task["dri"]
+                if not allowed:
+                    raise PermissionError("You need ticket write access to record a Decision.")
+                if not details:
+                    raise ValueError("Explain why you made the decision and what changes next.")
+                context["decision"] = True
             if checkpoint:
                 context["checkpoint"] = True
             if (measurements := getattr(args, "watcher_measurements", None)) is not None:
@@ -2357,7 +2370,7 @@ def save_task(db, path, args, links):
                     raise PermissionError("Only the task owner can record watcher measurements.")
                 context["watcher_measurements"] = measurements
             event_id = record(db, args.id, "log", args.by, task["state"], args.note, None, links, context)
-            if not checkpoint and not is_knowledge(task):
+            if not (checkpoint or decision) and not is_knowledge(task):
                 merges.apply_activity(db, task, args.by, event_id, details)
             output = f"{projects.row_reference(task)} · {event_label('log', context)}"
         elif args.command == "milestone":

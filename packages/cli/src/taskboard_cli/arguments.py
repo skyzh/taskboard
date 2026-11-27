@@ -261,7 +261,9 @@ def arguments(argv=None):
     log.add_argument("id", type=task_id)
     log.add_argument("note", type=nonblank)
     log.add_argument("--by", type=nonblank, help="Actor in offline mode or an identity check in shared mode.")
-    log.add_argument("--checkpoint", action="store_true", help="Record a Checkpoint without changing the current handoff.")
+    activity_type = log.add_mutually_exclusive_group()
+    activity_type.add_argument("--decision", action="store_true", help="Record a Decision with rationale and next change in --details.")
+    activity_type.add_argument("--checkpoint", action="store_true", help="Record a Checkpoint without changing the current handoff.")
     add_details_flag(log)
     add_link_flag(log)
 

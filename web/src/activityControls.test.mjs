@@ -1127,6 +1127,7 @@ test('typed provider and board work events use their distinct named marks in eve
     [github('opened', issue), 'Source update', 'arrow-up-right'],
     [{ action: 'start', label: 'Started' }, 'Started', 'play'],
     [{ action: 'decide', label: 'Decision recorded' }, 'Decision recorded', 'diamond'],
+    [{ action: 'log', label: 'Decision', context: { decision: true } }, 'Decision', 'diamond'],
     [{ action: 'log', context: { work_kind: 'release-released' } }, 'Deployed', 'rocket'],
     [{ action: 'log', context: { work_kind: 'release-rolled_back' } }, 'Deployment rolled back', 'undo-2'],
     [{ action: 'log', context: { work_kind: 'local-merge' } }, 'Merged locally', 'git-merge'],
@@ -2282,6 +2283,28 @@ test('ticket status controls submit the chosen transition and require an unblock
   }
 })
 
+test('recording a Decision sends the choice, rationale and next change to ticket Activity', async () => {
+  const props = { task: { id: 7, key: 'COURSE-7' }, decision: true, onChanged() {} }
+  const sent = []
+  fixture.request = async (path, options) => sent.push({ path, ...options })
+  try {
+    const markup = renderToStaticMarkup(React.createElement(TaskActivityUpdate, props))
+    assert.match(markup, /Record Decision/)
+    assert.match(markup, /Rationale and what changes next/)
+    fixture.directIds = ['decision']
+    fixture.state = [' Use CSV. ', ' Consumers need a flat format. Update the export. ', ' https://example.test/evidence ']
+    const form = React.Children.toArray(TaskActivityUpdate(props).props.children).find(child => child.type === 'form')
+    await form.props.onSubmit({ preventDefault() {} })
+    assert.deepEqual(sent, [{ path: '/tasks/COURSE-7/activity/decision', method: 'POST',
+      body: { note: 'Use CSV.', details: 'Consumers need a flat format. Update the export.',
+        url: 'https://example.test/evidence' },
+    }])
+  } finally {
+    delete fixture.directIds
+    delete fixture.request
+  }
+})
+
 test('confirming a blocker retains the exact waiting event and offers no override for an access denial', async () => {
   const props = { task: { id: 7, key: 'COURSE-7', event_id: 41 }, confirmBlocker: true, onChanged() {} }
   const sent = []
@@ -2293,13 +2316,13 @@ test('confirming a blocker retains the exact waiting event and offers no overrid
   fixture.onSetState = value => updates.push(value)
   try {
     fixture.directIds = ['evidence']
-    fixture.state = [' Export verified. ', ' https://example.test/check ']
+    fixture.state = [' Export verified. ', '', ' https://example.test/check ']
     const form = React.Children.toArray(TaskActivityUpdate(props).props.children).find(child => child.type === 'form')
     await form.props.onSubmit({ preventDefault() {} })
     assert.deepEqual(sent, [{ path: '/tasks/COURSE-7/confirm-blocker', method: 'POST',
       body: { note: 'Export verified.', wait_event: 41, url: 'https://example.test/check' },
     }])
-    fixture.state = [' Export verified. ', ' https://example.test/check ', false, updates[2]]
+    fixture.state = [' Export verified. ', '', ' https://example.test/check ', false, updates[2]]
     const denied = renderToStaticMarkup(React.createElement(TaskActivityUpdate, props))
     assert.match(denied, /role="alert">Project write access is required\./)
     assert.doesNotMatch(denied, /Apply override/)

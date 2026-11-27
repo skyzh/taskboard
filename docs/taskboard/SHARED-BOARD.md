@@ -211,7 +211,7 @@ Use a nonempty string in TOML to change the inherited wording for the board.
 
 ```toml
 [agent_guidance.prompts]
-checkpoint = "Update the current handoff. Record the decision, reason, and fixture evidence in a Checkpoint."
+checkpoint = "Record findings, fixture evidence, and open questions in a Checkpoint. Record a concrete choice, rationale, and next change in a Decision. Cite an existing Inbox answer when it already records the choice."
 end-task = "Compare the result with the acceptance criteria and link the verified outcome before marking Done."
 knowledge = "Find the existing entry, verify the source, and link it when updating the guidance."
 ```

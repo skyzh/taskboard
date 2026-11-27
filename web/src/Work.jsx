@@ -32,7 +32,7 @@ import TicketRecurrence from './TicketRecurrence.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import {
   actions, ActivityMark, addFilterName, Assignee, AssigneeAvatar, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, LoadMore, Options, OutcomeNote, PeerRequestContext, RecordedActivity, ResourceStatus, Status,
-  states, TaskLink, TaskPriority, Timestamp, WorkerAssignment, WorkerRunState, WorkerRunTiming, eventHref, isCheckpointActivity, profileName,
+  states, TaskLink, TaskPriority, Timestamp, WorkerAssignment, WorkerRunState, WorkerRunTiming, eventHref, isCheckpointActivity, isDecisionActivity, profileName,
   taskHref, taskLabel, taskState,
 } from './shared.jsx'
 import { activityHeadline, ticketActivityCopy, waitLabel } from './workCopy.js'
@@ -274,7 +274,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
   const id = permalink ? eventHref(event.id).slice(1) : undefined
   const actor = profileName(event.actor, event.actor_profile)
   const result = activityHeadline(event)
-  const checkpoint = isCheckpointActivity(event)
+  const activityType = isDecisionActivity(event) ? actions.decision : isCheckpointActivity(event) ? actions.checkpoint : null
   const timeLink = (
     <BoardLink href={eventHref(event.id)} aria-label={`Link to ${event.label.toLowerCase()} by ${actor} at ${formatTimestamp(event.at)}`}>
       <ReportTime at={event.at} linked />
@@ -292,7 +292,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
             {visibleResult && <MarkdownInline text={visibleResult} relatedTasks={event.related_tasks} />}
           </p>
           <p className="event-meta">
-            {checkpoint && <span>{actions.checkpoint}</span>}
+            {activityType && <span>{activityType}</span>}
             <span className="assignee"><AssigneeAvatar name={actor} url={event.actor_profile?.avatar_url} />{actor}</span>
             <ActivityWait event={event} headline={result} />
             {timeLink}
@@ -314,7 +314,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
     <li className="event-row" id={id} tabIndex={permalink ? -1 : undefined}>
       <p className="activity-result"><ActivityMark event={event} /> <MarkdownInline text={result} relatedTasks={event.related_tasks} /></p>
       <p className="event-meta">
-        {checkpoint && <span>{actions.checkpoint}</span>}
+        {activityType && <span>{activityType}</span>}
         <span>{actor}</span>
         <ActivityWait event={event} headline={result} />
         {timeLink}
@@ -710,7 +710,9 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
             )}
             <RecordActivity id={id} task={task} activity={activity}>
               {!record.recurrence && activity.data?.recurrence_runs == null && <RecurringRuns key={id} history={record.recurring_runs} />}
-              {signedIn && <div hidden={!showActions}><TaskActivityUpdate task={task} onChanged={onChanged} field={fields?.activity} /></div>}
+              {signedIn && <div hidden={!showActions}><TaskActivityUpdate task={task} onChanged={onChanged} field={fields?.activity} />
+                {record.can_edit_details && <TaskActivityUpdate task={task} onChanged={onChanged} decision />}
+              </div>}
             </RecordActivity>
           </div>
         )}
@@ -723,7 +725,7 @@ export function ActivityEntry({ event, full, selected = false, exact = selected 
   const { formatTimestamp } = useTimeZone()
   const actor = profileName(event.actor, event.actor_profile)
   const result = activityHeadline(event)
-  const label = isCheckpointActivity(event) ? actions.checkpoint : full && event.label
+  const label = isDecisionActivity(event) ? actions.decision : isCheckpointActivity(event) ? actions.checkpoint : full && event.label
   return (
     <li className="event-row activity-entry with-mark" id={eventHref(event.id).slice(1)}
       tabIndex={-1} aria-current={selected ? 'location' : undefined}>

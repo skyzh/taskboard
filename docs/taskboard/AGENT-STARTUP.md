@@ -131,7 +131,8 @@ Taskboard picks the glyph from the recorded action. Use these commands for ordin
 | A linked pull request merged | `record-merge` | `git-merge` | The ticket, GitHub or Stamp PR URL, and full landed merge SHA. Taskboard verifies the linked PR against GitHub or a saved GitHub confirmation. |
 | You have a finding or an evidence link | `log` | `message-square-text` | The ticket, a short headline, and any details or evidence link. A PR link in a note keeps the comment glyph. |
 | You started work | `start` | `play` | The Ready ticket and the step you are starting. |
-| You made a meaningful discovery or decision | `log --checkpoint` | `bookmark` | The finding, decision and rationale, evidence, useful failed approaches, and what remains uncertain. |
+| You made a meaningful discovery | `log --checkpoint` | `bookmark` | Findings, evidence, useful failed approaches, and open questions. |
+| A concrete choice changes what happens next | `log --decision` | `diamond` | The choice, rationale, next change, and evidence. An Inbox answer already records the Decision. |
 | The next step or progress changed | `update` | `pencil-line` | The ticket and the current step or progress. |
 | Work needs a dependency to clear | `wait` | `clock` | The ticket, the blocker, and what will let work resume. Name a person, a blocking ticket, or the automation. |
 | A dependency cleared | `resume` | `rotate-ccw` | The Waiting ticket and the next step. Link the evidence when it helps confirm the dependency cleared. |
@@ -147,12 +148,14 @@ in the board's action manifest. The response includes the full text and a
 fictional example.
 
 Use `log --checkpoint`, `taskboard_checkpoint`, or signed `record-checkpoint`
-when you make a meaningful discovery or decision, even while you keep working.
+when you make a meaningful discovery, even while you keep working.
 It adds the reasoning and evidence to Activity and preserves the current
 handoff. Before pausing or handing off changed work, refresh the handoff using
 the appropriate progress or wait action. An unchanged idle check needs no
 entry. Read the End task prompt before submitting Done and the Knowledge prompt
-before adding or changing a Knowledge entry.
+before adding or changing a Knowledge entry. Use `log --decision --details`,
+`taskboard_record_decision`, or signed `record-decision` for concrete choices.
+Cite an existing Inbox answer when it already records the choice.
 
 The public defaults adapt the handoff structure and resume checks used in the
 [oh-my-pi handoff prompt](https://github.com/can1357/oh-my-pi/blob/main/packages/agent/src/compaction/prompts/handoff-document.md)

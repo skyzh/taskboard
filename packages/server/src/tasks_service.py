@@ -1847,7 +1847,7 @@ def create_app(
             args.can_transition = lambda connection, task: can_collaborate_on_transition(connection, actor, task)
         elif TRANSITION_OVERRIDE_FIELDS & data.keys():
             raise RequestError("This action does not take a transition override.")
-        if command in ("edit", "tag", "checklist", "link-reference"):
+        if command in ("edit", "tag", "checklist", "link-reference") or fields.get("decision"):
             args.can_edit_content = lambda connection, task: can_edit_shared_content(
                 connection, actor, task, projects.row_project(task),
             )
@@ -3084,6 +3084,18 @@ def create_app(
         if measurements is not None and number != watcher_task_id(db()):
             raise RequestError("Use the configured watcher measurement ticket.", 403)
         return mutate("log", actor, data, id=number, watcher_measurements=measurements, **fields)
+
+    def record_ticket_decision(actor, number, data):
+        fields = activity_text(data, "log")
+        if not fields.get("details"):
+            raise RequestError("Explain why you made the decision and what changes next.")
+        return mutate("log", actor, data, id=number, decision=True, **fields)
+
+    @app.post("/api/v1/tasks/<number>/activity/decision")
+    def ticket_decision_add(number):
+        actor = current_actor(write=True)
+        data = json_body({"note", "details", "label", "url"})
+        return record_ticket_decision(actor, task_number(number), data)
 
     @app.post("/api/v1/tasks/<number>/activity")
     def task_activity_add(number):
@@ -4764,6 +4776,8 @@ def create_app(
             )
         if name == "record-activity":
             return record_activity(actor, number, data)
+        if name == "record-decision":
+            return record_ticket_decision(actor, number, data)
         if name == "record-checkpoint":
             fields = activity_text({"details": "", **data}, "log")
             return mutate("log", actor, data, id=number, checkpoint=True, **fields)

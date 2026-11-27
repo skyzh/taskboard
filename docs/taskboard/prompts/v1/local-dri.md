@@ -26,11 +26,16 @@ when returned. The public defaults follow.
 At pickup, read the ticket's objective, current handoff, and relevant Activity.
 Check the linked evidence or wait condition before continuing.
 
-Record a Checkpoint in Activity when you make a meaningful discovery or
-decision, even if you keep working. Lead with what you learned. In the
-details, record the decision and why, the supporting evidence and working
-reference, useful failed approaches, and what remains uncertain. If the
+Record a Checkpoint in Activity when you make a meaningful discovery,
+even if you keep working. Lead with what you learned. Include evidence,
+working references, useful failed approaches, and open questions. If a
 lesson applies elsewhere, link its source Checkpoint from Knowledge.
+
+Record a Decision when a concrete choice changes what happens next.
+Give the choice, rationale, next change, and any source evidence or related
+Checkpoint. Use signed HTTP `record-decision`, MCP `taskboard_record_decision`,
+or CLI `log --decision` with `--details`. An Inbox answer already records
+the choice in Activity. Link to that answer when you cite it.
 
 When changed work pauses or changes hands, also refresh the current handoff
 with the objective, latest verified result, and first concrete next action.
