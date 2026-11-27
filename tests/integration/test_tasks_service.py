@@ -5675,7 +5675,6 @@ class TasksServiceTest(unittest.TestCase):
                 commands = [call.args[0] for call in run.call_args_list]
                 self.assertEqual([command[command.index("--action") + 1] for command in commands], actions)
 
-    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_signed_raft_reads_distinguish_gateway_outages_from_missing_or_invalid_identity(self):
         app = self.app(portal_reader=True)
         self.action(app.test_client(), "context", status=401)
@@ -5735,7 +5734,7 @@ class TasksServiceTest(unittest.TestCase):
                 def advance(seconds):
                     nonlocal clock
                     clock += seconds
-                    if clock >= 8:
+                    if clock >= 70:
                         raise KeyboardInterrupt
 
                 def invoke(command, **_options):
