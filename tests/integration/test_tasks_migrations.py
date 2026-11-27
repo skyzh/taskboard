@@ -62,15 +62,9 @@ def replay_versioned_profiles(test, board, app, restart, engine):
 
 def replay_additive_rollback(test, board, restart, engine):
     owner, owner_id = board.login(restart(), "Avery")
-    test.assertEqual(migrate(engine)["recorded_revision"], RECURRING_REVIEW_TICKETS)
+    test.assertEqual(migrate(engine)["recorded_revision"], AGENT_API_USAGE)
     board.action(owner, "create-task", {"title": "Read after rollback", "step": "Review the signed write."})
     with engine.begin() as connection:
-        connection.exec_driver_sql("""CREATE TABLE agent_api_usage (
-            day TEXT NOT NULL, actor TEXT NOT NULL, category TEXT NOT NULL,
-            project TEXT NOT NULL, ticket BIGINT NOT NULL, calls BIGINT NOT NULL,
-            PRIMARY KEY (day, actor, category, project, ticket)
-        )""")
-        connection.exec_driver_sql(f"UPDATE {SCHEMA_REVISION_TABLE} SET version_num = '0004_agent_api_usage'")
         connection.exec_driver_sql("INSERT INTO agent_api_usage VALUES ('2026-11-26', 'Avery', 'GET task', 'T', 1, 1)")
     owner, signed_id = board.login(restart(), "Avery")
     task = board.action(owner, "task", query_string={"id": "T-1"})["task"]
@@ -83,7 +77,7 @@ def replay_additive_rollback(test, board, restart, engine):
         connection.exec_driver_sql("ALTER TABLE agent_api_usage ADD COLUMN "
                                    "calls BIGINT GENERATED ALWAYS AS (1) " +
                                    ("VIRTUAL" if connection.dialect.name == "sqlite" else "STORED") + " NOT NULL")
-    with test.assertRaisesRegex(ValueError, "recorded Taskboard revision"):
+    with test.assertRaisesRegex(ValueError, "request usage table has an unsupported layout"):
         restart()
 
 

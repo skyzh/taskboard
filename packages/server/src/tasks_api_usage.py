@@ -9,7 +9,6 @@ import tasks_ring1 as ring1
 
 
 TABLE = "agent_api_usage"
-COLUMNS = {"day", "actor", "category", "project", "ticket", "calls"}
 SCHEMA = f"""CREATE TABLE {TABLE} (
     day TEXT NOT NULL,
     actor TEXT NOT NULL,
