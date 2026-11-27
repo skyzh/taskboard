@@ -1,6 +1,7 @@
 """Exercise a Project T Ready wake and pickup against disposable fixtures."""
 
 from contextlib import closing, redirect_stdout
+from functools import partial
 from hashlib import sha256
 from io import StringIO
 import json
@@ -14,7 +15,7 @@ from unittest.mock import Mock, patch
 from urllib.parse import urlsplit
 
 from taskboard_cli.ready_checkpoint import disposition, offer_work
-from taskboard_server.managed_ready import ManagedReadySender, SenderScope, initialize
+from taskboard_server.managed_ready import ManagedReadySender, SampledIdleGate, SenderScope, initialize
 from taskboard_server.managed_ready_grant import ManagedReadyGrant
 from taskboard_server.managed_ready_operator import locked_state, main as managed_ready
 from taskboard_server.ready_wake_operator import main as send_wake
@@ -260,9 +261,12 @@ class ManagedSenderTest(unittest.TestCase):
                                  identity=self.identity, transport=self.provider, clock=lambda: self.now,
                                  jitter=lambda: 0)
 
-    def tick(self, grant=None):
+    def tick(self, grant=None, *, idle_gate=None, event_id=None):
         with closing(open_sqlite(self.ledger)) as db, locked_state(self.state, self.ledger) as state:
-            return ManagedReadySender(db, state, self.scope, grant or self.grant(), clock=lambda: self.now).tick()
+            return ManagedReadySender(
+                db, state, self.scope, grant or self.grant(), clock=lambda: self.now,
+                idle_gate=idle_gate, event_id=event_id,
+            ).tick()
 
     def receipts(self):
         with closing(open_sqlite(self.ledger, write_existing=False)) as db:
@@ -273,6 +277,158 @@ class ManagedSenderTest(unittest.TestCase):
 
     def calls(self):
         return [name for name, _ in self.provider.calls]
+
+    def test_sampled_idle_keeps_one_cue_pending_and_retries_exactly(self):
+        through = self.baseline()
+        event = self.create()["event"]
+        origin = self.now
+        observation = "Status: active; online: Idle"
+
+        def status():
+            if observation == "Status: active; online: Idle":
+                return "idle"
+            return "unavailable"
+
+        gate = SampledIdleGate(status, clock=lambda: self.now - origin)
+        grant = self.grant()
+
+        def poll(offset):
+            self.now = origin + offset
+            return self.tick(grant, idle_gate=gate)
+
+        for offset in (0, 10, 20, 30):
+            self.assertEqual(poll(offset), ("awaiting_idle", event))
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.outcomes(), [(event, "pending")])
+
+        def bare_online():
+            nonlocal observation
+            observation = "Status: active; online"
+
+        self.provider.on_exchange = bare_online
+        self.assertEqual(poll(40), ("awaiting_idle", event))
+        self.assertEqual(self.calls(), ["agent", "token"])
+        self.assertEqual(self.outcomes(), [(event, "pending")])
+        with locked_state(self.state, self.ledger) as state:
+            saved = state.execute("SELECT through_event, attempts, attempt_event FROM sender").fetchone()
+            self.assertEqual(tuple(saved), (through, 0, None))
+
+        self.assertEqual(poll(50), ("awaiting_idle", event))
+        observation = "Status: active; online: Idle"
+        for offset in (60, 70, 80, 90):
+            self.assertEqual(poll(offset), ("awaiting_idle", event))
+
+        def lose_reply(document):
+            nonlocal observation
+            observation = "Status: active; working"
+            self.provider.accept(document)
+            raise TimeoutError("Fixture accepted after the final read and lost the reply.")
+
+        self.provider.on_event = lose_reply
+        self.assertEqual(poll(100), ("retry", event))
+        self.assertEqual(self.outcomes(), [(event, "pending")])
+        self.assertEqual(poll(110), ("awaiting_idle", event))
+
+        observation = "Status: active; online: Idle"
+        gate = SampledIdleGate(status, clock=lambda: self.now - origin)
+        for offset in (120, 130, 140, 150):
+            self.assertEqual(poll(offset), ("awaiting_idle", event))
+        self.provider.on_event = self.provider.accept
+        self.assertEqual(poll(160), ("accepted", event))
+        self.assertEqual(poll(170), ("idle", None))
+        self.assertEqual(self.outcomes(), [(event, "accepted")])
+        documents = [document for route, document in self.provider.calls if route == "agent-events"]
+        self.assertEqual(len(documents), 2)
+        self.assertEqual(documents[0], documents[1])
+        self.assertEqual(list(self.provider.accepted), [documents[0]["externalEventId"]])
+
+    def test_sampled_idle_requires_fresh_explicit_observations(self):
+        for interruption in ("working", "unavailable", "unknown", RuntimeError("carrier did not respond")):
+            with self.subTest(interruption=interruption):
+                instant = 0
+                observation = "idle"
+                readings = []
+
+                def status():
+                    readings.append(instant)
+                    if isinstance(observation, RuntimeError):
+                        raise observation
+                    return observation
+
+                gate = SampledIdleGate(status, clock=lambda: instant)
+                for instant in (0, 5, 10, 20, 30):
+                    self.assertFalse(gate.eligible())
+                self.assertEqual(readings, [0, 10, 20, 30])
+                instant = 40
+                observation = interruption
+                self.assertFalse(gate.eligible())
+                observation = "idle"
+                for instant in (50, 60, 70, 80):
+                    self.assertFalse(gate.eligible())
+                instant = 90
+                self.assertTrue(gate.eligible())
+
+    def test_sampled_idle_resets_when_polls_are_missed(self):
+        instant = 0
+        gate = SampledIdleGate(lambda: "idle", clock=lambda: instant)
+        for instant in (0, 40, 50, 60, 70):
+            self.assertFalse(gate.eligible())
+        instant = 80
+        self.assertTrue(gate.eligible())
+        instant = 100
+        self.assertFalse(gate.eligible(final=True))
+
+    def test_sampled_idle_honors_opt_out_during_final_read(self):
+        self.baseline()
+        ready = self.create()["event"]
+        origin = self.now
+        grant = self.grant()
+        reads = []
+
+        def status():
+            reads.append(self.now - origin)
+            if reads[-2:] == [40, 40]:
+                self.subscribe(False)
+            return "idle"
+
+        gate = SampledIdleGate(status, clock=lambda: self.now - origin)
+        for elapsed in (0, 10, 20, 30):
+            self.now = origin + elapsed
+            self.assertEqual(self.tick(grant, idle_gate=gate), ("awaiting_idle", ready))
+        self.now = origin + 40
+        self.assertEqual(self.tick(grant, idle_gate=gate), ("subscription_stopped", None))
+        self.assertEqual(reads, [0, 10, 20, 30, 40, 40])
+        self.assertEqual(self.calls(), ["agent", "token"])
+        self.assertEqual(self.outcomes(), [(ready, "pending")])
+        self.assertEqual(self.tick(self.grant(), idle_gate=gate), ("subscription_stopped", None))
+
+    def test_sampled_idle_yields_to_signed_start_during_final_read(self):
+        self.baseline()
+        ready = self.create()["event"]
+        offer = offer_work(self.board, self.owner)
+        self.assertEqual(offer["ready_event"], ready)
+        origin = self.now
+        grant = self.grant()
+        reads = []
+
+        def status():
+            reads.append(self.now - origin)
+            if reads[-2:] == [40, 40]:
+                self.board.invoke("advance-task", {
+                    "id": offer["task"], "transition": "start", "note": "Take the cue from signed Inbox.",
+                }, write=True)
+            return "idle"
+
+        gate = SampledIdleGate(status, clock=lambda: self.now - origin)
+        for elapsed in (0, 10, 20, 30):
+            self.now = origin + elapsed
+            self.assertEqual(self.tick(grant, idle_gate=gate, event_id=ready), ("awaiting_idle", ready))
+        self.now = origin + 40
+        self.assertEqual(self.tick(grant, idle_gate=gate, event_id=ready), ("superseded", ready))
+        self.assertEqual(reads, [0, 10, 20, 30, 40, 40])
+        self.assertEqual(disposition(self.board, self.owner, offer), "started")
+        self.assertEqual(self.calls(), ["agent", "token"])
+        self.assertEqual(self.outcomes(), [(ready, "pending")])
 
     def test_reopens_state_after_lost_reply_and_uses_the_same_event_id(self):
         old = self.create()
@@ -394,6 +550,95 @@ class ManagedSenderTest(unittest.TestCase):
             {"status": "running"}, {"status": "accepted", "ready_event": ready["event"]}, {"status": "stopped"},
         ])
         self.assertEqual(self.calls(), ["agent", "token", "agent-events"])
+
+    def test_operator_pilot_restarts_and_delivers_only_the_pinned_event(self):
+        command = "taskboard_server.managed_ready_operator"
+        args = [
+            "--db", str(self.ledger), "--state", str(self.state), "--client-id", "fixture-client",
+            "--server-id", self.identity.server_id, "--recipient-id", self.identity.subject,
+        ]
+        with redirect_stdout(StringIO()):
+            self.assertEqual(managed_ready([*args, "init-pilot"], transport=self.provider), 0)
+        unrelated = self.create()["event"]
+        pinned = self.create()["event"]
+        fallback = offer_work(self.board, self.owner)
+        self.assertEqual(fallback["ready_event"], unrelated)
+        origin = self.now
+        runtime = "Idle"
+        stop_at = 50
+        reads = []
+
+        def carrier(*words):
+            nonlocal runtime
+            if words == ("auth", "whoami"):
+                return json.dumps({"data": {"serverConfirmed": True, "server": {
+                    "id": self.identity.server_id, "slug": "fixture",
+                }}})
+            self.assertEqual(tuple(word.casefold() for word in words),
+                             ("user", "info", f"@{RECIPIENT.casefold()}", "--limit", "1"))
+            reads.append(self.now - origin)
+            suffix = f": {runtime}" if runtime else ""
+            if self.now - origin == 50:
+                runtime = "Idle"
+            return f"## User\nUser: @{RECIPIENT}\nKind: agent\nStatus: active; online{suffix}\n"
+
+        def wait(seconds):
+            self.now += seconds
+
+        def run(mode, *options):
+            output = StringIO()
+            with (TemporaryFile(dir=self.ledger.parent) as secret, redirect_stdout(output),
+                  patch(f"{command}.Event") as stop,
+                  patch(f"{command}._raft", side_effect=carrier),
+                  patch(f"{command}.monotonic", side_effect=lambda: self.now - origin),
+                  patch(f"{command}.ManagedReadySender", partial(ManagedReadySender, clock=lambda: self.now)),
+                  patch(f"{command}.ManagedReadyGrant", partial(ManagedReadyGrant, clock=lambda: self.now))):
+                secret.write(b"fixture-secret\n")
+                secret.seek(0)
+                stop.return_value.is_set.side_effect = lambda: self.now - origin >= stop_at
+                stop.return_value.wait.side_effect = wait
+                result = managed_ready([
+                    *args, mode, "--server-slug", "fixture",
+                    "--secret-fd", str(os.dup(secret.fileno())), *options,
+                ], transport=self.provider)
+            return result, [json.loads(line)["status"] for line in output.getvalue().splitlines()]
+
+        def lose_reply(document):
+            nonlocal runtime
+            self.provider.accept(document)
+            runtime = "Working"
+            raise TimeoutError("Fixture accepted before reply and recipient became busy.")
+
+        self.provider.on_event = lose_reply
+        self.assertEqual(run("run-pilot", "--event-id", str(pinned)),
+                         (1, ["pilot_running", "retry", "pilot_stopped"]))
+        self.assertEqual(reads, [0, 10, 20, 30, 40, 40])
+        self.assertEqual(self.outcomes(), [(unrelated, "pending"), (pinned, "pending")])
+
+        # Ordinary run and a different pilot event both reject the enrolled state.
+        self.assertEqual(run("run"), (1, ["managed_sender_failed"]))
+        self.assertEqual(run("run-pilot", "--event-id", str(unrelated)), (1, ["managed_sender_failed"]))
+        self.assertEqual(self.calls(), ["agent", "token", "agent-events"])
+
+        stop_at = 160
+        runtime = ""
+        self.provider.on_event = self.provider.accept
+        self.assertEqual(run("run-pilot", "--event-id", str(pinned)),
+                         (0, ["pilot_running", "accepted"]))
+        self.assertEqual(reads[-7:], [50, 60, 70, 80, 90, 100, 100])
+        self.assertEqual(self.outcomes(), [(unrelated, "pending"), (pinned, "accepted")])
+        documents = [document for route, document in self.provider.calls if route == "agent-events"]
+        self.assertEqual(documents, [documents[0]] * 2)
+        self.assertEqual(list(self.provider.accepted), [documents[0]["externalEventId"]])
+        self.assertEqual(run("run-pilot", "--event-id", str(pinned)),
+                         (1, ["pilot_running", "pilot_event_unavailable"]))
+        self.assertEqual([route for route, _ in self.provider.calls].count("agent-events"), 2)
+        # Resume the same signed fallback queue after the bounded sender exits.
+        self.assertEqual(offer_work(self.board, self.owner), fallback)
+        self.board.invoke("advance-task", {
+            "id": fallback["task"], "transition": "start", "note": "Resume the other Ready ticket.",
+        }, write=True)
+        self.assertEqual(disposition(self.board, self.owner, fallback), "started")
 
     def test_subscription_removed_during_oauth_stops_before_exchange(self):
         self.baseline()
