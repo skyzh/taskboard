@@ -150,8 +150,11 @@ records both ports in the activation journal. It checks that the exact
 prior app reads a signed candidate write on a disposable ledger after
 candidate startup. It starts the inactive pinned release, verifies the
 unit, and checks authenticated loopback health and a ledger read before
-replacing the selector and updating `current`. The usual mounted smoke
-still applies. If preflight fails, traffic stays on the prior slot. If
+replacing the selector and updating `current`. A newly launched candidate
+gets up to 12 checks, with one second between temporary failures and the
+existing timeout per HTTP request. The active and restored slots keep
+eight checks. Authorization, pinning and other terminal failures fail
+immediately. The usual mounted smoke still applies. If preflight fails, traffic stays on the prior slot. If
 mounted smoke fails, the runner verifies and restores the prior slot
 against the same ledger.
 
@@ -264,8 +267,15 @@ fixing the cause.
 Install the reviewed launcher and the [user service](systemd/taskboard-deploy.service)
 and [timer](systemd/taskboard-deploy.timer) as the existing Pi operator after
 release authorization. Use a complete copy of the reviewed launcher source as
-described above. Keep the checkout used for builds separate. It can start as
-an empty local Git repository with `git init "$build_repo"`.
+described above. When replacing an installed launcher, verify the whole
+reviewed Git archive and SHA-256 before staging. Test both the installed
+launcher and the staged copy against disposable data with the operator
+interpreter. With the timer quiesced and the deployment lock held, switch
+the launcher pointer atomically while retaining the prior verified copy.
+Keep the private configuration, check package, and current app selector in
+place. Restore the prior launcher pointer under the same lock if the
+staged launcher fails admission. Keep the checkout used for builds separate.
+It can start as an empty local Git repository with `git init "$build_repo"`.
 
 Use the architecture-specific Node distribution at the version pinned by
 [hosted CI](../../.github/workflows/ci.yml). Verify its checksum against the

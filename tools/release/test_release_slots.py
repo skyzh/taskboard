@@ -145,9 +145,55 @@ class ReleaseSlotsTest(unittest.TestCase):
         self.pair_check.assert_called_once_with(Path(sys.executable), self.previous, self.candidate)
         self.assertEqual(self.selector.read_text(encoding="ascii"), f"{CANDIDATE_PORT}\n")
 
+    def test_candidate_ready_after_old_startup_window_can_activate(self):
+        probes = 0
+
+        def delayed_check(port, credential):
+            nonlocal probes
+            self.direct_check(port, credential)
+            if port == CANDIDATE_PORT:
+                probes += 1
+                if probes <= 8:
+                    raise ConnectionRefusedError()
+
+        self.slots.pause = Mock()
+        self.slots._check_http.side_effect = delayed_check
+        result = self.release()
+
+        self.assertEqual((result["status"], result["active"]), ("released", self.digest))
+        self.assertEqual((probes, self.slots.pause.call_count), (9, 8))
+        self.assertTrue(all(event[2] == PRIOR_PORT for event in self.events if event[0] == "direct"))
+        self.assertEqual((self.slots.selected(), self.layout.current.resolve()), (CANDIDATE_PORT, self.candidate))
+
+    def test_candidate_startup_exhaustion_stays_on_prior_slot(self):
+        def unavailable(port, credential):
+            self.direct_check(port, credential)
+            if port == CANDIDATE_PORT:
+                raise ConnectionRefusedError()
+
+        self.slots.pause = Mock()
+        self.slots._check_http.side_effect = unavailable
+        result = self.release()
+
+        self.assertEqual((result["status"], result["reason_code"]), ("rejected", "candidate_slot_unavailable"))
+        self.assertEqual(result["failed_checks"], [{"name": "slot", "reason": "loopback_unavailable"}])
+        self.assertEqual(self.slots.pause.call_count, 11)
+        self.assertEqual(len([event for event in self.events if event[:2] == ("direct", CANDIDATE_PORT)]), 12)
+        self.assertEqual((self.slots.selected(), self.layout.current.resolve()), (PRIOR_PORT, self.previous))
+
+    def test_existing_slot_still_uses_original_probe_window(self):
+        self.slots.pause = Mock()
+        self.slots._check_http.side_effect = ConnectionRefusedError()
+        with self.assertRaises(MountedCheckFailed):
+            self.slots.verify(PRIOR_PORT, self.previous)
+        self.assertEqual(self.slots._check_http.call_count, 8)
+        self.assertEqual(self.slots.pause.call_count, 7)
+
     def test_failed_candidate_health_keeps_prior_slot_and_current_link(self):
         self.unhealthy_slot = CANDIDATE_PORT
+        self.slots.pause = Mock()
         result = self.release()
+        self.slots.pause.assert_not_called()
         self.assertEqual(
             (result["status"], result["reason_code"], result["active"]),
             ("rejected", "candidate_slot_unavailable", self.base),

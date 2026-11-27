@@ -15,6 +15,8 @@ from release_plan import MountedCheckFailed, ReleaseRejected, SlotCommandFailed,
 _UNIT = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.@-]*\.service")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _ADMISSION_HEADER = "X-Portal-Upstream-Token"
+_SLOT_PROBE_ATTEMPTS = 8
+_CANDIDATE_STARTUP_ATTEMPTS = 12
 _SERVING_POLICY = (
     "--property=Restart=on-failure",
     "--property=RestartSec=5s",
@@ -83,7 +85,7 @@ class ReleaseSlots:
         if self.selected() == port:
             raise ReleaseRejected("The Taskboard candidate port must be inactive.", "slot_selector")
         verify_rollback_ledger(self.python, previous, release)
-        self._launch(port, release)
+        self._launch(port, release, attempts=_CANDIDATE_STARTUP_ATTEMPTS)
         self._record_release(port, release)
 
     def restore_selected(self, layout):
@@ -122,7 +124,7 @@ class ReleaseSlots:
         except OSError:
             raise SlotCommandFailed(stage, "execution_error") from None
 
-    def _launch(self, port, release):
+    def _launch(self, port, release, *, attempts=_SLOT_PROBE_ATTEMPTS):
         unit = self.units[port]
         if self._systemctl("show", unit, "--property=LoadState", "--value").stdout.strip() != "not-found":
             self._run_slot_command("stop", ["systemctl", "--user", "stop", unit])
@@ -133,9 +135,9 @@ class ReleaseSlots:
             self.python, "-B", release / "tasks", "--db", self.ledger, "serve",
             "--portal-reader", "--websocket-revisions", "--host", "127.0.0.1", "--port", str(port),
         ])
-        self.verify(port, release)
+        self.verify(port, release, attempts=attempts)
 
-    def verify(self, port, release):
+    def verify(self, port, release, *, attempts=_SLOT_PROBE_ATTEMPTS):
         unit = self.units[port]
         properties = self._systemctl(
             "show", unit, "--property=WorkingDirectory", "--property=MainPID", "--property=ActiveState",
@@ -149,12 +151,12 @@ class ReleaseSlots:
         credential = self.admission.read_text(encoding="utf-8").strip()
         if not credential:
             raise MountedCheckFailed([{"name": "slot", "reason": "missing_portal_admission"}])
-        for attempt in range(8):
+        for attempt in range(attempts):
             try:
                 self._check_http(port, credential)
                 return
             except (OSError, HTTPException):
-                if attempt == 7:
+                if attempt + 1 == attempts:
                     break
                 self.pause(1)
         raise MountedCheckFailed([{"name": "slot", "reason": "loopback_unavailable"}])
