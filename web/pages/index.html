@@ -117,17 +117,19 @@
               <p>The sign-in check passed on a fresh install. Should we add it to the current guide or include it in the next release?</p>
             </figure>
           </section>
-          <div class="review-loop">
-            <a href="#feature-tickets" class="feature-return">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"
-                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3"></path>
-                <path class="return-pulse" pathLength="100" d="M3 11V9a3 3 0 0 1 3-3h15M21 13v2a3 3 0 0 1-3 3H3"></path>
-              </svg>
-              Back to Tickets
-            </a>
-            <button class="motion-toggle" type="button" hidden>Pause animation</button>
-          </div>
+          <figure class="review-loop">
+            <ol class="loop-steps" role="list">
+              <li>Tickets <span aria-hidden="true">→</span></li>
+              <li>Knowledge <span aria-hidden="true">→</span></li>
+              <li>Inbox</li>
+            </ol>
+            <svg class="loop-arrow" viewBox="0 0 360 30" preserveAspectRatio="none" fill="none" aria-hidden="true">
+              <path class="return-line" d="M300 3v7q0 12-12 12H72Q60 22 60 10V3"></path>
+              <path class="return-pulse" pathLength="100" d="M300 3v7q0 12-12 12H72Q60 22 60 10V3"></path>
+              <path class="return-line" d="m55.5 9 4.5-6 4.5 6"></path>
+            </svg>
+            <figcaption>Lessons and decisions shape what the agent does next.</figcaption>
+          </figure>
         </div>
       </div>
     </section>

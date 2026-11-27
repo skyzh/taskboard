@@ -1,11 +1,8 @@
-const walkthrough = document.querySelector('.walkthrough')
-const toggle = walkthrough.querySelector('.motion-toggle')
+const reviewLoop = document.querySelector('.review-loop')
+const observer = new IntersectionObserver(entries => {
+  if (!entries.some(entry => entry.isIntersecting)) return
+  reviewLoop.classList.add('is-visible')
+  observer.disconnect()
+}, { threshold: 0.5 })
 
-function setMotion(playing) {
-  walkthrough.dataset.motion = playing ? 'playing' : 'paused'
-  toggle.textContent = playing ? 'Pause animation' : 'Play animation'
-}
-
-toggle.addEventListener('click', () => setMotion(walkthrough.dataset.motion !== 'playing'))
-toggle.hidden = false
-setMotion(true)
+observer.observe(reviewLoop)
