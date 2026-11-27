@@ -179,6 +179,39 @@ class AttachmentTest(unittest.TestCase):
             "content_type": "text/plain", "content_base64": too_large,
         }, status=413)
 
+    def test_external_adapter_removes_the_object_after_commit(self):
+        class FixtureStorage:
+            kind = "fixture"
+            delete_in_transaction = False
+
+            def __init__(self):
+                self.objects = {}
+
+            def write(self, db, key, contents):
+                if key in self.objects:
+                    raise FileExistsError(key)
+                self.objects[key] = contents
+
+            def read(self, db, key):
+                try:
+                    return self.objects[key]
+                except KeyError as error:
+                    raise FileNotFoundError(key) from error
+
+            def delete(self, db, key):
+                self.objects.pop(key, None)
+
+        self.storage = FixtureStorage()
+        self.configure()
+        path = self.create()
+        item = self.upload(path, uuid4().hex)["attachment"]
+        key = item["id"]
+        with patch.object(self.storage, "delete", wraps=self.storage.delete) as delete:
+            self.board.call(self.avery, path + "/" + key, method="DELETE", status=204)
+        delete.assert_called_once_with(None, key)
+        self.assertEqual(self.storage.objects, {})
+        self.assertEqual(self.board.call(self.avery, path).json["attachments"], [])
+
     def test_failed_filesystem_publish_is_retryable_without_metadata(self):
         self.configure()
         path = self.create()
@@ -192,12 +225,63 @@ class AttachmentTest(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("TASKBOARD_ATTACHMENTS_TEST_DSN"), "requires a disposable PostgreSQL database")
 class PostgresAttachmentTest(unittest.TestCase):
+    def setUp(self):
+        import psycopg
+        from psycopg.conninfo import make_conninfo
+
+        database = os.environ["TASKBOARD_ATTACHMENTS_TEST_DSN"]
+        schema = "attachments_" + uuid4().hex
+        self.connection = psycopg.connect(database, autocommit=True)
+        self.addCleanup(self.connection.close)
+        self.connection.execute(f"CREATE SCHEMA {schema}")
+        self.addCleanup(self.connection.execute, f"DROP SCHEMA {schema} CASCADE")
+        self.dsn = make_conninfo(database, options=f"-c search_path={schema}")
+
+    def test_sqlite_snapshot_import_preserves_filesystem_attachment(self):
+        board = fixtures.TasksServiceTest()
+        board.setUp()
+        self.addCleanup(board.doCleanups)
+        files = board.database.parent / "attachment-files"
+        files.mkdir()
+        app = board.app(attachment_storage=FilesystemStorage(files))
+        avery, _ = board.login(app, "Avery")
+        created = board.action(avery, "create-task", {"title": "Migration fixture", "step": "Read the sample."})
+        ticket = created["receipt"].split()[0]
+        path = f"/api/v1/tasks/{ticket}/attachments"
+        contents = b"original attachment bytes"
+        item = board.call(avery, path, method="POST", status=201, data={
+            "file": (BytesIO(contents), "sample.txt"), "upload_id": uuid4().hex,
+        }).json["attachment"]
+        snapshot = board.database.with_name("attachment-backup.sqlite3")
+        with closing(sqlite3.connect(board.database)) as source, closing(sqlite3.connect(snapshot)) as target:
+            source.backup(target)
+        restored_files = files.with_name("restored-attachment-files")
+        copytree(files, restored_files)
+
+        with patch.dict(os.environ, {"TASKS_POSTGRES_DSN": self.dsn}), redirect_stdout(StringIO()) as printed:
+            self.assertEqual(tasks_main(["--postgres", "postgres-import", str(snapshot)]), 0)
+            counts = json.loads(printed.getvalue())
+        self.assertEqual((counts["ticket_attachments"], counts["ticket_attachment_bytes"]), (1, 0))
+        board.database = None
+        board.provider = fixtures.FixtureRaft()
+        app = board.app(postgres_dsn=self.dsn, attachment_storage=FilesystemStorage(restored_files))
+        signed, _ = board.login(app, "Avery")
+        self.assertEqual(board.call(signed, path).json["attachments"], [item])
+        download = item["download_url"].removeprefix(fixtures.BASE)
+        self.assertEqual(board.call(signed, download).data, contents)
+        result = board.action(signed, "read-attachment-chunk", query_string={
+            "id": ticket, "attachment_id": item["id"],
+        })
+        self.assertEqual(result["attachment"], item)
+        self.assertEqual(b64decode(result["content_base64"]), contents)
+        self.assertIsNone(result["next_offset"])
+
     def test_shared_route_commits_and_deletes_bytea(self):
         board = fixtures.TasksServiceTest()
         board.setUp()
         self.addCleanup(board.doCleanups)
         board.database = None
-        app = board.app(postgres_dsn=os.environ["TASKBOARD_ATTACHMENTS_TEST_DSN"], attachment_storage=PostgresStorage())
+        app = board.app(postgres_dsn=self.dsn, attachment_storage=PostgresStorage())
         avery, _ = board.login(app, "Avery")
         created = board.action(avery, "create-task", {"title": "Bytea fixture", "step": "Read the sample."})
         path = f"/api/v1/tasks/{created['receipt'].split()[0]}/attachments"

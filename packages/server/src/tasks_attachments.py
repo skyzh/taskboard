@@ -31,6 +31,7 @@ class Storage(Protocol):
     """The caller authorizes access and owns the metadata transaction."""
 
     kind: str
+    delete_in_transaction: bool
 
     def write(self, db, key: str, contents: bytes) -> None: ...
     def read(self, db, key: str) -> bytes: ...
@@ -41,6 +42,7 @@ class FilesystemStorage:
     """Use an operator-owned directory outside the served application tree."""
 
     kind = "filesystem"
+    delete_in_transaction = False
 
     def __init__(self, root: Path):
         self.root = root.resolve(strict=True)
@@ -91,6 +93,7 @@ class PostgresStorage:
     """Store bytes in the same transaction as the ticket metadata."""
 
     kind = "postgres"
+    delete_in_transaction = True
 
     def write(self, db, key: str, contents: bytes) -> None:
         db.execute("INSERT INTO ticket_attachment_bytes (attachment_id, contents) VALUES (?, ?)", (key, contents))

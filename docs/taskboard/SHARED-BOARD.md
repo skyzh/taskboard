@@ -476,6 +476,15 @@ For a migration, create a closed SQLite backup snapshot and select an empty Post
 uv run --frozen --extra postgres ./tasks --postgres postgres-import "$sqlite_snapshot"
 ```
 
+If the SQLite board uses filesystem attachments, pause the source and take the
+closed ledger backup and a copy of the dedicated attachment directory together.
+`postgres-import` preserves the metadata and original attachment IDs. Configure
+the new PostgreSQL-backed board with `TASKS_ATTACHMENT_BACKEND=filesystem` and
+point `TASKS_ATTACHMENT_DIRECTORY` at the restored directory. Verify an
+existing signed download and its bytes before reopening writes. This migrates
+the ledger while keeping the filesystem backend. A move to `bytea` is a
+separate storage conversion.
+
 Run `register-project`, `oidc-member` or `release-event` with `--postgres` to administer an initialized PostgreSQL board. Use the existing `--shared` CLI through verified Raft for normal task work. Local preview and offline task commands still use SQLite. PostgreSQL serving uses HTTP polling and the same HTTPS gateway. Marketplace, the local-file watcher, GitHub fetch and the SQLite Pi backup and rollback scripts use their existing storage paths. Back up a PostgreSQL board through its database operator.
 
 ### Revert a board with goal tickets
@@ -1135,3 +1144,50 @@ each `ticket_attachments.id` with backend `filesystem`. Inspect any
 `.upload-*` staging file or opaque object with no committed row before
 removing it. Preserve unknown files and backup evidence. A missing referenced
 object needs a restore from backup.
+
+### Implement and test a storage adapter
+
+Implement `kind`, `delete_in_transaction`, `write(db, key, contents)`,
+`read(db, key)`, and `delete(db, key)` as defined in `packages/server/src/tasks_attachments.py`.
+Use a stable backend name and keep the opaque key unchanged. Register the
+production adapter in `configured_storage` and validate its operator settings
+there. A ledger-backed adapter sets `delete_in_transaction=True`, uses the supplied
+connection, and leaves commit and rollback to the caller. An external backend
+sets it to `False` so physical removal follows the metadata commit. It publishes
+a complete object without overwriting an existing key. Report a missing object with
+`FileNotFoundError` and an unavailable store with `OSError`. Document how to
+reconcile the external object set with committed metadata and how to restore
+them together. Keep file bytes behind the signed ticket access checks.
+
+For a disposable test, inject a small adapter through
+`create_app(..., attachment_storage=store)`:
+
+```python
+class FixtureStorage:
+    kind = "fixture"
+    delete_in_transaction = False
+
+    def __init__(self):
+        self.objects = {}
+
+    def write(self, db, key, contents):
+        if key in self.objects:
+            raise FileExistsError(key)
+        self.objects[key] = contents
+
+    def read(self, db, key):
+        try:
+            return self.objects[key]
+        except KeyError as error:
+            raise FileNotFoundError(key) from error
+
+    def delete(self, db, key):
+        self.objects.pop(key, None)
+```
+
+This fixture is in-memory and has no backup guarantee. For a durable adapter,
+reuse `tests/integration/test_tasks_attachments.py` with the new store in
+the signed board fixture. Check identical retry, a failed publish followed by
+retry, revoked access before byte reads, byte-for-byte download, and physical
+deletion after the metadata is removed. Replay restart and backup/restore
+against its actual persistence layer.

@@ -181,15 +181,15 @@ def register_routes(app, *, db, current_actor, task_number, can_edit, storage, m
         with tasks_storage.write(db()) as connection:
             number, project, _ = resolve(connection, reference, actor, write=True)
             row = selected(connection, number, key)
-            if storage.kind == "postgres":
+            if storage.delete_in_transaction:
                 storage.delete(connection, row["id"])
             connection.execute("DELETE FROM ticket_attachments WHERE id = ?", (row["id"],))
             ledger.bump_revision(connection, project)
-        if storage.kind == "filesystem":
+        if not storage.delete_in_transaction:
             try:
                 storage.delete(None, row["id"])
             except OSError:
-                app.logger.warning("A removed ticket attachment needs filesystem cleanup.")
+                app.logger.warning("A removed ticket attachment needs storage cleanup.")
 
     @app.delete("/api/v1/tasks/<reference>/attachments/<key>")
     def delete_ticket_attachment(reference, key):
