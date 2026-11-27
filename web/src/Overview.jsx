@@ -25,7 +25,7 @@ function ActivitySection({ id, title, field, overview, revision, empty, project,
   const label = field === 'now' ? 'active tasks' : 'tasks needing a decision'
   return (
     <section className="feed-section overview" aria-labelledby={id}>
-      <h2 id={id}>{title}</h2>
+      <h2 id={id} tabIndex={-1}>{title}</h2>
       <ResourceStatus resource={overview.error ? overview : page} label={label} />
       <TaskRows items={rows?.items} label={title} />
       {rows?.items.length === 0 && <p className="section-message">{empty}</p>}
@@ -208,7 +208,7 @@ export function Outcomes({ revision, owner, project, allProjects, showWeek = fal
 
   return (
     <section className="feed-section outcomes" aria-labelledby="outcomes-title">
-      <h2 id="outcomes-title">{owner ? 'Recent outcomes' : 'Outcomes'}</h2>
+      <h2 id="outcomes-title" tabIndex={owner ? undefined : -1}>{owner ? 'Recent outcomes' : 'Outcomes'}</h2>
       {week && <OutcomeWeek week={week} openDay={openDay} />}
       {!displayedDays.length && page.data && <p className="section-message">No outcomes yet.</p>}
       {displayedDays.map(day => (
