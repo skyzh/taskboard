@@ -203,6 +203,8 @@ def task_details(board, url, number, *, workers_only=False, guidance=None, conte
             text.extend(event_lines(event, url))
     if context_lines:
         text.extend(("", *context_lines))
+    if not workers_only and (prompt := detail.get("goal_review_prompt")):
+        text.extend(("", f"Goal review · {prompt['prompt']}"))
     if not workers_only and (prompt := detail.get("progress_prompt")):
         text.extend(("", prompt["message"]))
     if guidance is None:
@@ -447,10 +449,11 @@ def completion_queue(cue, project):
         return None
     match cue:
         case {"kind": "work", "work": {"kind": str(), "key": str(), "title": str()} as work}:
-            return {"work": work, "standing_goals": []}
+            return {"work": work, "standing_goals": [], "goal_review_prompt": cue.get("goal_review_prompt")}
         case {"kind": "standing_goal", "goal": {"ticket": str(), "summary": str()} as goal,
               "instruction": str(instruction)}:
-            return {"work": None, "standing_goals": [goal], "next_step": instruction}
+            return {"work": None, "standing_goals": [goal], "next_step": instruction,
+                    "goal_review_prompt": cue.get("goal_review_prompt")}
         case {"kind": "empty"}:
             return {"work": None, "standing_goals": []}
         case {"kind": "unavailable"}:
@@ -468,15 +471,17 @@ def completion_guidance(board, reference, fallback=None, *, cue=None):
             result = board.invoke("my-next", {"project": project})
         if result.get("unavailable"):
             return unavailable
+        prompt = result.get("goal_review_prompt")
+        goal_guidance = f"\nGoal review · {prompt['prompt']}" if prompt else ""
         if work := result["work"]:
             label = NEXT_LABELS.get(work["kind"], "Start Ready work")
-            return f"{label} on {work['key']} · {work['title']}. Read it with {inbox}."
+            return f"{label} on {work['key']} · {work['title']}. Read it with {inbox}.{goal_guidance}"
         if result["standing_goals"]:
             goal = result["standing_goals"][0]
             if ticket := goal["ticket"]:
                 return (
                     f"Standing goal {ticket} · {goal['summary']}\n"
-                    f'{result["next_step"]}\nWhen eligible, run '
+                    f'{result["next_step"]}{goal_guidance}\nWhen eligible, run '
                     f'`./tasks --shared start {ticket} "<what you will check>"`.'
                 )
     except (SharedActionUnavailable, SharedReadError, KeyError, TypeError):
@@ -550,6 +555,8 @@ def shared_next(board, url, filters, actor, *, refresh_guidance=False):
         details = task_details(board, url, work["key"], guidance=result.get("next_step"), context_lines=goal_lines)
         label = NEXT_LABELS.get(work["kind"])
         return f"{label}\n{details}" if label else details
+    if prompt := result.get("goal_review_prompt"):
+        goal_lines.extend(("", f"Goal review · {prompt['prompt']}"))
     if not result["standing_goals"]:
         goal_lines.insert(0, f"No actionable work in your queue ({actor['name']}).")
     return with_guidance("\n".join(goal_lines), result["next_step"])
@@ -788,7 +795,7 @@ def shared_command(args):
                 lines.append(f"Format · {item['format']}")
             lines.append(f"Example · {item['example']}")
         for name, label in (("checkpoint", "Checkpoint"), ("end-task", "End task"), ("knowledge", "Knowledge"),
-                            ("inbox-follow-up", "Inbox follow-up")):
+                            ("inbox-follow-up", "Inbox follow-up"), ("goal-review", "Goal review")):
             if args.field not in (None, name):
                 continue
             prompt = result.get("prompts", {}).get(name)

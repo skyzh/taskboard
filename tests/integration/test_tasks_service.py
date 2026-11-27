@@ -6307,6 +6307,55 @@ class TasksServiceTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, error):
                     load(configuration)
 
+    def test_goal_review_prompt_follows_signed_goal_pickup_and_settings(self):
+        app = self.app(portal_reader=True)
+        manager, manager_id = self.login(app, "Sam")
+        agent, _ = self.login(app, "Avery")
+        other, _ = self.login(app, "Blake")
+        self.cli("register-project", "T", "Tasks Board", "--dri", manager_id)
+        self.cli("register-project", "LAB", "Sample lab", "--dri", manager_id)
+        path = "/api/v1/projects/T/field-guidance"
+        default = self.call(agent, path).json["prompts"]["goal-review"]
+        guidance = "Check the sample and record the decision."
+        body = {"prompt": "goal-review", "guidance": guidance}
+        self.call(agent, path, method="PUT", json=body, status=403)
+        self.call(manager, path, method="PUT", json=body)
+        expected = {"project": "T", "source": "project", "prompt": guidance}
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.action(agent, "save-goal", {"kind": "standing", "summary": "Review the setup.",
+                                             "keep_exploring": True})
+            self.action(agent, "save-goal", {"project": "LAB", "kind": "standing", "summary": "Review Lab."})
+            goal = self.action(agent, "my-goals")["standing_goal"]["ticket"]
+            self.action(agent, "set-goal-review-time", {"id": goal, "time": "09:00"})
+            def next_work(project="T"):
+                return self.action(agent, "my-next", query_string={"project": project})
+            self.assertEqual(next_work()["goal_review_prompt"], expected)
+            self.assertEqual(next_work("LAB")["goal_review_prompt"], {"project": "LAB", **default})
+            cues = self.action(agent, "my-goal-cues")
+            self.assertEqual(cues["goal_review_prompt"], expected)
+            self.assertTrue(any(cue["ticket"] == goal for cue in cues["cues"]))
+            handoff = {"handoff_id": "12345678-1234-4123-8123-123456789004", "project": "T"}
+            offer = self.action(agent, "idle-goal-offer", handoff)
+            self.assertEqual(offer["goal_review_prompt"], expected)
+            self.assertEqual(self.call(agent, "/api/v1/notifications/work").json["goal_review_prompt"], expected)
+            self.assertEqual(self.action(agent, "task", query_string={"id": goal})["goal_review_prompt"], expected)
+            self.assertNotIn("goal_review_prompt", self.action(other, "task", query_string={"id": goal}))
+            code, output, error = self.shared_cli(agent, "next", "--project", "T")
+            self.assertEqual((code, error), (0, ""))
+            self.assertIn(guidance, output)
+            self.action(agent, "advance-task", {"id": goal, "transition": "start", "note": "Read the latest handoff."})
+            self.assertEqual(next_work()["goal_review_prompt"], expected)
+            self.assertIn("Read the latest handoff.", str(self.action(agent, "task", query_string={"id": goal})))
+            self.action(agent, "create-task", {"title": "Incoming work", "step": "Read it first."})
+            self.assertEqual(next_work()["work"]["kind"], "ready")
+            self.assertNotIn("goal_review_prompt", next_work())
+            self.call(manager, path, method="PUT", json={**body, "guidance": None})
+            self.assertEqual(self.action(agent, "task", query_string={"id": goal})["goal_review_prompt"],
+                             {"project": "T", **default})
+            replay = self.action(agent, "idle-goal-offer", handoff)
+            self.assertEqual(replay["offer"], offer["offer"])
+            self.assertEqual(replay["goal_review_prompt"], {"project": "T", **default})
+
     def test_signed_field_guidance_uses_project_overrides_and_shared_fallbacks(self):
         from tasks_guidance import load
 

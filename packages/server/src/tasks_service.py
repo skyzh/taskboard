@@ -1729,6 +1729,8 @@ def create_app(
         is_note = ledger.is_knowledge(task)
         editable = allowed or (not is_note and key is not None and task["dri"] == key)
         owns = key is not None and key == task["dri"]
+        if owns and result["goal"] and task["state"] not in ("done", "closed"):
+            result["goal_review_prompt"] = agent_guidance.project_prompt(db(), project, tasks_guidance.GOAL_REVIEW)
         details_editable = can_edit_shared_content(db(), actor, task, project)
         if key is not None and not is_note and (fields := ticket_fields.definitions(db(), project)):
             configured = ticket_fields.detail(db(), number, project, fields, result["workers"], editable=details_editable)
@@ -3933,6 +3935,20 @@ def create_app(
                 project = standing[0]["project"]
         return agent_guidance.inbox_follow_up(connection, project, actor)
 
+    def offered_goal_prompt(connection, work, standing):
+        if work:
+            kind = work["kind"]
+            if kind != "goal_review" and (
+                kind not in ("in_progress", "reminder") or not ledger.task_goal_kind(connection, work["id"])
+            ):
+                return {}
+            project, _ = projects.identifier(work["key"])
+        elif standing:
+            project = standing[0]["project"]
+        else:
+            return {}
+        return {"goal_review_prompt": agent_guidance.project_prompt(connection, project, tasks_guidance.GOAL_REVIEW)}
+
     @app.get("/api/v1/notifications/work")
     def notification_work():
         actor = current_actor(required=True)
@@ -3944,6 +3960,7 @@ def create_app(
             standing = goal_context["standing_goals"]
             result = {
                 "items": items, **goal_context,
+                **offered_goal_prompt(connection, items[0] if items else None, standing),
                 **({"standing_goal_guidance": goals.KEEP_EXPLORING if standing[0].get("keep_exploring")
                    else agent_guidance["standing-exploration"]} if not items and standing else {}),
             }
@@ -4840,7 +4857,8 @@ def create_app(
         with tasks_storage.write(db()) as connection:
             if offer := goal_offers.read_offer(connection, owner, handoff_id):
                 require_visible_project(connection, offer["project"])
-                return {"offer": offer, "receipt": "Idle goal offer already recorded."}
+                return {"offer": offer, **offered_goal_prompt(connection, None, [offer]),
+                        "receipt": "Idle goal offer already recorded."}
             now = ledger.timestamp()
             busy, ordinary = goal_queue_state(connection, owner, None, pacific_day(now))
             if ordinary:
@@ -4857,7 +4875,8 @@ def create_app(
             goal_offers.record(connection, owner, handoff_id, goal["id"], now)
             ledger.bump_revision(connection, goal["project_prefix"])
             offer = goal_offers.read_offer(connection, owner, handoff_id)
-            return {"offer": offer, "receipt": "Idle goal offer recorded."}
+            return {"offer": offer, **offered_goal_prompt(connection, None, [offer]),
+                    "receipt": "Idle goal offer recorded."}
 
     def first_actionable_work(owner, project):
         board = query()
@@ -4868,10 +4887,11 @@ def create_app(
         try:
             with tasks_storage.read(db()) as connection:
                 if work := first_actionable_work(owner, project):
-                    return {"project": project, "kind": "work", "work": work}
+                    return {"project": project, "kind": "work", "work": work, **offered_goal_prompt(connection, work, [])}
                 if standing := goals.queue_context(connection, owner, project, principal=actor_key())["standing_goals"]:
                     return {
                         "project": project, "kind": "standing_goal", "goal": standing[0],
+                        **offered_goal_prompt(connection, None, standing),
                         "instruction": (goals.KEEP_EXPLORING if standing[0].get("keep_exploring")
                                         else agent_guidance["standing-exploration"]),
                     }
@@ -5057,6 +5077,7 @@ def create_app(
                 work = first_actionable_work(key, project)
                 result = {"work": work, **goals.queue_context(connection, key, project, principal=actor_key())}
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, work, result["standing_goals"], key)
+                result.update(offered_goal_prompt(connection, work, result["standing_goals"]))
                 if candidates := query().wait_review_candidates(key, project):
                     result["wait_review"] = candidates
                 cue = agent_guidance["ready-review"]
@@ -5093,6 +5114,8 @@ def create_app(
                 result["cues"] = [cue for cue in result["cues"] if cue["ticket"] not in paused]
                 if result["standing"] and result["standing"]["ticket"] in paused:
                     result["standing"] = None
+                if result["standing"] or result["cues"]:
+                    result["goal_review_prompt"] = agent_guidance.project_prompt(connection, project, tasks_guidance.GOAL_REVIEW)
                 return result
         if name == "set-goal-review-time":
             saved = save_goal_schedule(key, task_number(data.get("id")), None, data.get("time"))
