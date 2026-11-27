@@ -8443,6 +8443,19 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(sam, "/api/v1/notifications/open-count").json["count"], 0)
         pending = self.action(avery, "my-requested-asks")["items"]
         self.assertEqual([(item["state"], item["cue_key"]) for item in pending], [("deferred", None)])
+
+        def check_due_guidance():
+            inbox = self.action(avery, "my-next", query_string={"refresh_guidance": "true"})
+            self.assertIsNone(inbox["work"])
+            self.assertIn("Open the due ask", inbox["next_step"])
+            self.assertNotIn("goal_review_prompt", inbox)
+            self.assertNotIn("inbox_follow_up", inbox)
+            return inbox["ask_recheck"]
+
+        self.call(sam, reminder, method="PUT", json={"date": "2000-01-01"})
+        self.assertEqual(check_due_guidance()["request_id"], request_id)
+        self.call(sam, reminder, method="PUT", json={"date": "2099-01-01"})
+
         self.action(avery, "save-goal", {
             "kind": "standing", "summary": "Improve the export.", "keep_exploring": True,
             "stopping_criterion": "Stop when the sample is checked.",
@@ -8453,7 +8466,7 @@ class TasksServiceTest(unittest.TestCase):
         self.call(sam, reminder, method="PUT", json={"date": "2000-01-01"})
         self.assertEqual(self.call(sam, route + "/next").json["count"], 1)
         self.assertEqual(self.call(sam, "/api/v1/notifications/open-count").json["count"], 1)
-        due = self.action(avery, "my-next")["ask_recheck"]
+        due = check_due_guidance()
         cue_key = due["cue_key"]
         self.assertEqual((due["request_id"], due["state"]), (request_id, "open"))
         self.action(avery, "create-task", {"title": "Urgent example", "step": "Check the urgent sample."})
@@ -8468,7 +8481,9 @@ class TasksServiceTest(unittest.TestCase):
         self.action(blake, "acknowledge-ask-recheck", {"cue_key": cue_key}, status=404)
         for _ in range(2):
             self.assertEqual(self.action(avery, "acknowledge-ask-recheck", {"cue_key": cue_key})["acknowledged"], True)
-        self.assertNotIn("ask_recheck", self.action(avery, "my-next"))
+        resumed = self.action(avery, "my-next")
+        self.assertNotIn("ask_recheck", resumed)
+        self.assertEqual(resumed["work"]["key"], standing)
         self.call(sam, reminder, method="PUT", json={"date": None})
         self.assertIsNone(self.call(sam, route).json["items"][0]["remind_on"])
         self.call(sam, reminder, method="PUT", json={"date": "2000-01-02"})

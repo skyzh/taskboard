@@ -61,6 +61,8 @@ class RaftActionRoutesTest(unittest.TestCase):
             "field-guidance": ("GET", "", "project"),
             "configure-ticket-fields": ("POST", "project fields", ""),
             "my-next": ("GET", "", "project scope refresh_guidance"),
+            "my-requested-asks": ("GET", "", "project scope cue_key"),
+            "acknowledge-ask-recheck": ("POST", "cue_key", ""),
             "my-ticket-cues": ("GET", "", "project scope limit"),
             "decision-delivery": ("GET", "id request_id", ""),
             "dri-postboard": ("GET", "project dri", ""),

@@ -5250,7 +5250,14 @@ def create_app(
                 work, ask = inbox_selection(connection, key, project)
                 result = {"work": work, **goals.queue_context(connection, key, project, principal=actor_key())}
                 if ask:
-                    result["ask_recheck"] = ask
+                    return {
+                        **result,
+                        "ask_recheck": ask,
+                        "next_step": (
+                            "Open the due ask and check its current outcome. "
+                            "Record the outcome or blocker, acknowledge the recheck with its cue key, and recheck Inbox."
+                        ),
+                    }
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, work, result["standing_goals"], key)
                 result.update(offered_goal_prompt(connection, work, result["standing_goals"]))
                 if candidates := query().wait_review_candidates(key, project):
