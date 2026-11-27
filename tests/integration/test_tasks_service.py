@@ -8428,10 +8428,45 @@ class TasksServiceTest(unittest.TestCase):
         open_for_sam = self.call(sam, route).json["items"]
         self.assertEqual(len(open_for_sam), 1)
         self.assertEqual(self.call(quinn, route).json["items"], [])
+        request_id = open_for_sam[0]["decision_request_id"]
+        reminder = f"{route}/T-1/{request_id}/reminder"
+        self.call(quinn, reminder, method="PUT", json={"date": "2099-01-01"}, status=404)
+        self.assertEqual(
+            self.call(sam, reminder, method="PUT", json={"date": "2099-01-01"}).json,
+            {"id": request_id, "remind_on": "2099-01-01"},
+        )
+        self.assertEqual(self.call(sam, route).json["items"], [])
+        deferred = self.call(sam, route + "?state=deferred").json["items"]
+        self.assertEqual([(row["decision_request_id"], row["remind_on"]) for row in deferred],
+                         [(request_id, "2099-01-01")])
+        self.assertEqual(self.call(sam, route + "/next").json, {"count": 0, "next": None})
+        self.assertEqual(self.call(sam, "/api/v1/notifications/open-count").json["count"], 0)
+        pending = self.action(avery, "my-requested-asks")["items"]
+        self.assertEqual([(item["state"], item["cue_key"]) for item in pending], [("deferred", None)])
+        self.call(sam, reminder, method="PUT", json={"date": "2000-01-01"})
+        self.assertEqual(self.call(sam, route + "/next").json["count"], 1)
+        self.assertEqual(self.call(sam, "/api/v1/notifications/open-count").json["count"], 1)
+        due = self.action(avery, "my-next")["ask_recheck"]
+        cue_key = due["cue_key"]
+        self.assertEqual((due["request_id"], due["state"]), (request_id, "open"))
+        blake, _ = self.login(app, "Blake")
+        self.action(blake, "acknowledge-ask-recheck", {"cue_key": cue_key}, status=404)
+        for _ in range(2):
+            self.assertEqual(self.action(avery, "acknowledge-ask-recheck", {"cue_key": cue_key})["acknowledged"], True)
+        self.assertNotIn("ask_recheck", self.action(avery, "my-next"))
+        self.call(sam, reminder, method="PUT", json={"date": None})
+        self.assertIsNone(self.call(sam, route).json["items"][0]["remind_on"])
+        self.call(sam, reminder, method="PUT", json={"date": "2000-01-02"})
+        new_key = self.action(avery, "my-next")["ask_recheck"]["cue_key"]
+        self.assertNotEqual(cue_key, new_key)
         self.call(sam, "/api/v1/tasks/1/decision", method="POST", headers={"Origin": ORIGIN}, json={
             "request_id": open_for_sam[0]["event_id"], "choice": "CSV", "note": "Use the simple format.",
             "details": "The recipient only needs the summary sheet.",
         })
+        self.call(sam, reminder, method="PUT", json={"date": "2099-01-01"}, status=409)
+        closed = self.action(avery, "my-requested-asks", query_string={"cue_key": new_key})["items"][0]
+        self.assertEqual(closed["state"], "answered")
+        self.action(avery, "acknowledge-ask-recheck", {"cue_key": new_key}, status=409)
         self.assertEqual(self.call(sam, route).json["items"], [])
         follow_through = route + "?state=answered"
         answered = self.call(sam, follow_through).json["items"]
@@ -8444,6 +8479,18 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(quinn, follow_through).json["items"], [])
         self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Build the CSV."})
         self.assertEqual(self.call(sam, follow_through).json["items"], [])
+        attention = self.action(avery, "raise-attention", {
+            "id": "T-1", "recipient": sam_id, "reason": "Check the CSV draft.",
+        })["id"]
+        request_path = f"/api/v1/notifications/requests/{attention}"
+        self.call(sam, request_path + "/reminder", method="PUT", json={"date": "2000-01-03"})
+        ask = self.action(avery, "my-requested-asks", query_string={"project": "T"})["items"][0]
+        self.assertEqual((ask["kind"], ask["ticket"], ask["request_id"]), ("attention", "T-1", attention))
+        self.action(avery, "acknowledge-ask-recheck", {"cue_key": ask["cue_key"]})
+        self.assertEqual(len(self.action(avery, "my-requested-asks")["items"]), 1)
+        self.call(sam, request_path + "/handled", method="POST")
+        result = self.action(avery, "my-requested-asks", query_string={"cue_key": ask["cue_key"]})["items"][0]
+        self.assertEqual((result["state"], result["outcome"]), ("handled", "Handled"))
 
     def test_agent_decision_delivery_uses_the_recipients_current_preference(self):
         app = self.app(portal_reader=True)
