@@ -13,7 +13,7 @@ from time import monotonic, sleep
 from uuid import UUID
 
 from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
-from taskboard_cli.goal_wake import GoalWake, GoalWakeState, reminder_title
+from taskboard_cli.goal_wake import GOAL_PROJECT, GoalWake, GoalWakeState, default_state_path, reminder_title
 from taskboard_cli.shared import assert_actor, task_url
 
 
@@ -61,13 +61,15 @@ def offer_work(board, actor):
     return None
 
 
-def offer_stalled_work(board, actor, *, exclude_events=()):
+def offer_stalled_work(board, actor, *, exclude_events=(), paused=()):
     """Find an owned In progress event that can still use the agent's attention."""
     for queued in board.pages("my-queue", {"scope": "all", "state": "in_progress"}):
         if queued["dri"] != actor or queued["state"] != "in_progress":
             raise SharedReadError("The In progress queue returned work outside the signed-in agent's scope.",
                                   reason="queue-scope")
 
+        if queued["key"] in paused:
+            continue
         detail = board.invoke("task", {"id": queued["key"]})
         task = detail["task"]
         if task["dri"] != actor or task["state"] != "in_progress" or task["event_id"] in exclude_events:
@@ -285,14 +287,18 @@ class ReadyReadStopped(RuntimeError):
 
 def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_delay=10, *, observe_status=None,
                       notify_stalled=None, goal_state=None, notify_goal=None, report_health=None):
-    """Wake for new Ready work, then check opted-in recovery paths during Idle."""
+    """Wake for new Ready work, then check recovery paths during Idle."""
     try:
         context = agent_context(board, owner)
     except SharedReadError as error:
         context = recover_ready_read(lambda: agent_context(board, owner), "startup context", error, emit, interval)
     actor = context["actor"]["id"]
-    goal_wake = GoalWake(board, GoalWakeState(goal_state, context["board"], actor),
-                         include_timed=context.get("timed_goal_cues") is True) if goal_state else None
+    goal_wake = None
+    if notify_goal is not None:
+        project = GOAL_PROJECT if goal_state else (context.get("default_project") or GOAL_PROJECT)
+        path = goal_state or default_state_path(context["board"], actor, project)
+        goal_wake = GoalWake(board, GoalWakeState(path, context["board"], actor, project=project),
+                             include_timed=context.get("timed_goal_cues") is True)
     filters = {"scope": "all", "state": "ready", "limit": 100}
     noticed_ready_event = 0
     current = frozenset()
@@ -334,7 +340,7 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
         outcome = notify(notice, lambda: ready_events("eligible queue") == current and can_wake())
         return None if outcome == "pending-ready-wake" else outcome
 
-    def worker_offer(status):
+    def worker_offer(status, paused=()):
         nonlocal worker_wakes_available, stage
         if not worker_wakes_available:
             return None
@@ -342,7 +348,7 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
         try:
             for run in board.pages("my-wake-workers", {"status": status}):
                 check = run["check_event"] if status == "checkpoint" else None
-                if (status, run["id"], check) not in noticed_workers:
+                if run["task_key"] not in paused and (status, run["id"], check) not in noticed_workers:
                     return {"kind": "worker", "task": run["task_key"], "task_id": run["task_id"],
                             "worker_run": run["id"], "worker_status": status, "coordinator": bool(run["coordinator"]),
                             "check_event": check, "check_mode": run["check_mode"] if check else None}
@@ -354,10 +360,14 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     def stalled_offer():
         nonlocal stage
         stage = STALLED_READ
-        if offer := worker_offer("running"):
-            return offer
         try:
-            return offer_stalled_work(board, actor, exclude_events=noticed_stalled)
+            paused = set()
+            if context.get("watcher_cue_pauses") is True:
+                pauses = board.invoke("my-cue-pauses")["items"]
+                paused = {item["ticket"] for item in pauses if item["kind"] == "stalled"}
+            if offer := worker_offer("running", paused):
+                return offer
+            return offer_stalled_work(board, actor, exclude_events=noticed_stalled, paused=paused)
         except SharedActionUnavailable as error:
             raise SharedReadError(str(error), reason="action-unavailable") from error
 
@@ -626,8 +636,8 @@ def main():
     mode.add_argument("--two-pickups", action="store_true", help="In watcher mode, verify up to two successive starts.")
     mode.add_argument("--repeat", action="store_true", help="Stay armed and report the count of owned Ready tickets.")
     parser.add_argument("--measure", action="store_true", help="Emit sampled status and wake receipts in repeat mode.")
-    parser.add_argument("--wake-stalled", action="store_true", help="Opt in to one wake for an eligible step after 30 idle minutes.")
-    parser.add_argument("--goal-state", type=Path, help="Opt in to Project T goal cues using this private state file.")
+    parser.add_argument("--wake-stalled", action="store_true", help="Compatibility option. Stalled cues are enabled in repeat mode.")
+    parser.add_argument("--goal-state", type=Path, help="Reuse an existing private Project T cue state file instead of the default.")
     parser.add_argument("--report-status", metavar="PROJECT", help="Report redacted watcher health to this project.")
     parser.add_argument("--idle-delay-seconds", type=int, help="Require this much observed idle time before a Ready wake.")
     parser.add_argument("--idle-handoff", type=UUID, help="Stable runner UUID for an explicit idle goal offer.")
@@ -684,14 +694,14 @@ def main():
                     return wake_with_title(reminder_title(offer), args.channel, args.message_id, can_wake,
                                            record_wake=record_wake)
 
-                health = watcher_reporter(board, args.report_status, stalled=args.wake_stalled,
-                                          goals=bool(args.goal_state), emit=emit) if args.report_status else None
+                health = watcher_reporter(board, args.report_status, stalled=True, goals=True,
+                                          emit=emit) if args.report_status else None
                 try:
                     watch_ready_count(
                         board, args.by, raft_idle, notify_count, emit,
                         idle_delay=10 if args.idle_delay_seconds is None else args.idle_delay_seconds,
                         observe_status=raft_status if args.measure else None,
-                        notify_stalled=notify_stalled if args.wake_stalled else None,
+                        notify_stalled=notify_stalled,
                         goal_state=args.goal_state, notify_goal=notify_goal, report_health=health,
                     )
                 except (KeyError, RuntimeError, ValueError) as error:

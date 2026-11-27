@@ -25,12 +25,12 @@ ADVANCES = {
 }
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
          "search", "knowledge-areas", "knowledge-sweep", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance",
-         "worker-check", "projects", "agent-usage", "api-usage", "project-access", ledger.READ}
+         "worker-check", "cue-pauses", "projects", "agent-usage", "api-usage", "project-access", ledger.READ}
 WRITES = ADVANCES | {
     "confirm-blocker", "create-project", "raise-attention",
     "add", "transfer", "log", "record-merge", "priority", "watch", "unwatch", "link-source", "link-reference",
     "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "raft-channel-set",
-    "wake-subscribe", "wake-unsubscribe", "knowledge-add", "knowledge-assign", "knowledge-place", "knowledge-stage",
+    "wake-subscribe", "wake-unsubscribe", "cue-pause", "knowledge-add", "knowledge-assign", "knowledge-place", "knowledge-stage",
     "knowledge-reconcile",
     "worker-check", "recurring-tick", "complete-recurring-review", "ticket-recurrence", ledger.WRITE, PEER_ASK,
 } | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
@@ -638,6 +638,8 @@ def shared_command(args):
                 "wake-subscriptions": "my-wake-subscriptions",
                 "wake-subscribe": "set-wake-subscription",
                 "wake-unsubscribe": "set-wake-subscription",
+                "cue-pauses": "my-cue-pauses",
+                "cue-pause": "set-cue-pause",
                 "create-project": "create-project",
                 "raise-attention": "raise-attention",
             }
@@ -796,6 +798,20 @@ def shared_command(args):
         if write:
             output = f"Committed · {result['receipt']}\n{output}"
         return with_guidance(output, result["next_step"])
+    if command == "cue-pauses":
+        result = board.invoke("my-cue-pauses")
+        return "\n".join(f"{item['ticket']} · {item['kind']} · until {item['until']} · {item['reason']}"
+                         for item in result["items"]) or "No active watcher cue pauses."
+    if command == "cue-pause":
+        data = {"id": task_ref(args.id), "kind": args.kind}
+        if args.reason:
+            data["reason"] = args.reason
+            if args.minutes:
+                data["minutes"] = args.minutes
+            else:
+                data["until"] = args.until
+        result = board.invoke("set-cue-pause", data, write=True)
+        return f"Committed · {result['receipt']}"
     if command == "goals":
         saved = board.invoke("my-goals", {"project": args.project} if args.project else {})
         standing, dated = saved["standing_goal"], saved["goal"]

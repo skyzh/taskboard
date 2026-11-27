@@ -2086,6 +2086,48 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("Wake subscriptions · COURSE · owned-ready",
                       self.shared_cli(fresh, "wake-subscriptions", "--project", "COURSE")[1])
 
+    def test_owned_goal_cue_pause_preserves_schedule_and_expires_or_clears(self):
+        app = self.app()
+        avery, _ = self.login(app, "Avery")
+        blake, _ = self.login(app, "Blake")
+        now = "2030-04-01T19:00:00Z"
+        expires = "2030-04-01T20:00:00Z"
+        pause = {"id": "T-1", "kind": "goal", "reason": "A worker has the check.", "until": expires}
+        with patch("tasks_core.timestamp", side_effect=lambda: now):
+            self.action(avery, "save-goal", {"kind": "standing", "summary": "Check the setup."})
+            self.action(avery, "set-goal-review-time", {"id": "T-1", "time": "09:00"})
+            before = self.action(avery, "my-goals")
+            baseline = self.action(avery, "my-goal-cues")
+            self.assertEqual(baseline["standing"]["ticket"], "T-1")
+            self.assertTrue(baseline["cues"])
+            self.action(blake, "set-cue-pause", pause, status=403)
+            self.action(avery, "set-cue-pause", {**pause, "reason": ""}, status=400)
+            self.action(avery, "set-cue-pause", {**pause, "until": now}, status=400)
+            status, output, error = self.shared_cli(
+                avery, "cue-pause", "T-1", "goal", "--minutes", "60", "--reason", pause["reason"],
+            )
+            self.assertEqual(status, 0, error)
+            self.assertIn("pause saved", output)
+            active, = self.action(avery, "my-cue-pauses")["items"]
+            self.assertEqual(active, {"ticket": "T-1", "kind": "goal", "reason": pause["reason"], "until": expires})
+            self.assertEqual(self.action(blake, "my-cue-pauses")["items"], [])
+            muted = self.action(avery, "my-goal-cues")
+            self.assertIsNone(muted["standing"])
+            self.assertEqual(muted["cues"], [])
+            self.assertEqual(self.action(avery, "my-goals")["review_schedules"], before["review_schedules"])
+            self.assertEqual(self.action(avery, "task", query_string={"id": "T-1"})["task"]["state"], "parked")
+            offer = {"handoff_id": "12345678-1234-4123-8123-123456789003", "project": "T"}
+            self.assertIsNone(self.action(avery, "idle-goal-offer", offer)["offer"])
+
+            status, output, error = self.shared_cli(avery, "cue-pause", "T-1", "goal", "--clear")
+            self.assertEqual(status, 0, error)
+            self.assertIn("pause cleared", output)
+            self.assertEqual(self.action(avery, "my-goal-cues")["cues"], baseline["cues"])
+            self.action(avery, "set-cue-pause", pause)
+            now = expires
+            self.assertEqual(self.action(avery, "my-cue-pauses")["items"], [])
+            self.assertEqual(self.action(avery, "my-goal-cues")["cues"], baseline["cues"])
+
     def test_wake_subscriptions_use_the_configured_project_roster(self):
         roster = {self.provider.people["Avery"]["sub"]: "Avery"}
         app = self.app(portal_reader=True, project_roster=roster)

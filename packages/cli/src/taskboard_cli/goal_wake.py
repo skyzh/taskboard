@@ -18,8 +18,19 @@ GOAL_PROJECT = "T"
 _DUE_KINDS = {"deadline", "daily", "standing-daily", "timed"}
 
 
-def _ticket(value):
-    return isinstance(value, str) and re.fullmatch(r"T-[1-9][0-9]{0,18}", value) is not None
+def _ticket(value, project):
+    return isinstance(value, str) and re.fullmatch(rf"{re.escape(project)}-[1-9][0-9]{{0,18}}", value) is not None
+
+
+def default_state_path(board_url, owner, project):
+    base = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
+    folder = Path(base) / "taskboard" / "goal-wakes"
+    try:
+        folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError:
+        raise ValueError("Cannot create the private goal watcher state directory.") from None
+    key = hashlib.sha256(f"{board_url}\n{owner}\n{project}".encode()).hexdigest()
+    return folder / f"{key}.sqlite"
 
 
 def _checks(value):
@@ -46,9 +57,10 @@ def _candidate(row, day, episode):
 class GoalWakeState:
     """Store queue episodes and ambiguously submitted reminders in an owner-bound file."""
 
-    def __init__(self, path, board_url, owner):
+    def __init__(self, path, board_url, owner, *, project=GOAL_PROJECT):
         self.path = Path(path).expanduser().absolute()
-        self.scope = f"{board_url}\n{owner}\n{GOAL_PROJECT}"
+        self.project = project
+        self.scope = f"{board_url}\n{owner}\n{project}"
         try:
             fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
         except FileExistsError:
@@ -168,30 +180,30 @@ class GoalWake:
     def __init__(self, board, state, *, include_timed=False):
         self.board = board
         self.state = state
-        self.filters = {"project": GOAL_PROJECT, **({"include_timed": "true"} if include_timed else {})}
+        self.filters = {"project": state.project, **({"include_timed": "true"} if include_timed else {})}
 
     def lookup(self):
         try:
             result = self.board.invoke("my-goal-cues", self.filters)
         except SharedActionUnavailable as error:
             raise SharedReadError(str(error), reason="action-unavailable") from error
-        if not self.valid_snapshot(result):
+        if not self.valid_snapshot(result, self.state.project):
             raise SharedReadError("The board returned an invalid goal cue.", reason="queue-scope")
         return self.state.select(result)
 
     @staticmethod
-    def valid_snapshot(result):
+    def valid_snapshot(result, project=GOAL_PROJECT):
         if (not isinstance(result, dict) or type(result.get("busy")) is not bool
                 or type(result.get("ordinary_busy")) is not bool or not _day(result.get("day"))
                 or (result["ordinary_busy"] and not result["busy"])
                 or not _checks(result.get("drain_event")) or not isinstance(result.get("cues"), list)):
             return False
         standing = result.get("standing")
-        if standing is not None and (not isinstance(standing, dict) or not _ticket(standing.get("ticket"))
+        if standing is not None and (not isinstance(standing, dict) or not _ticket(standing.get("ticket"), project)
                                      or not _checks(standing.get("completed_checks"))):
             return False
         for cue in result["cues"]:
-            if (not isinstance(cue, dict) or not _ticket(cue.get("ticket")) or cue.get("kind") not in _DUE_KINDS
+            if (not isinstance(cue, dict) or not _ticket(cue.get("ticket"), project) or cue.get("kind") not in _DUE_KINDS
                     or cue.get("day") != result["day"] or not _checks(cue.get("completed_checks"))):
                 return False
             expected_kind = cue["kind"].removeprefix("standing-")
@@ -230,13 +242,13 @@ class GoalWake:
                 handoff = uuid5(NAMESPACE_URL, f"{self.state.scope}\n{candidate['goal_key']}")
                 try:
                     result = self.board.invoke("idle-goal-offer", {
-                        "handoff_id": str(handoff), "project": GOAL_PROJECT,
+                        "handoff_id": str(handoff), "project": self.state.project,
                     }, write=True)
                 except SharedActionUnavailable as error:
                     raise SharedReadError(str(error), reason="action-unavailable") from error
                 recorded = result.get("offer")
                 if (not recorded or recorded.get("task") != candidate["task"]
-                        or recorded.get("project") != GOAL_PROJECT or self.lookup() != candidate):
+                        or recorded.get("project") != self.state.project or self.lookup() != candidate):
                     return False
             if not can_wake():
                 return False
@@ -261,7 +273,7 @@ class GoalWake:
 
 def reminder_title(offer):
     ref = offer["task"]
-    url = task_url(offer["board"], {"key": ref, "id": int(ref.removeprefix("T-"))})
+    url = task_url(offer["board"], {"key": ref, "id": int(ref.rsplit("-", 1)[1])})
     marker = hashlib.sha256(offer["goal_key"].encode()).hexdigest()[:12]
     reason = {
         "deadline": "Goal deadline",

@@ -228,9 +228,9 @@ class ReadyCheckpointTest(unittest.TestCase):
             )
         return outcomes
 
-    def test_stalled_wake_is_opt_in_and_requires_thirty_continuous_idle_minutes(self):
+    def test_stalled_wake_requires_thirty_continuous_idle_minutes(self):
         offer = {"kind": "in_progress", "task": "T-1", "task_id": 1, "event_id": 2}
-        def select(_board, _actor, *, exclude_events):
+        def select(_board, _actor, *, exclude_events, paused):
             return None if 2 in exclude_events else offer
 
         with patch("taskboard_cli.ready_checkpoint.offer_stalled_work", side_effect=select) as lookup:
@@ -250,6 +250,48 @@ class ReadyCheckpointTest(unittest.TestCase):
             self.assertEqual(wakes, [(2760, 2)])
             self.assertEqual(outcomes[0]["idle_seconds"], 1800)
             self.assertEqual(len(outcomes), 1)
+
+    def test_legacy_repeat_command_enables_all_three_modes(self):
+        argv = ["ready-checkpoint", "--watch-idle", "--repeat", "--by", "Avery",
+                "--channel", "#example", "--message-id", "12345678"]
+        with patch.object(sys, "argv", argv), \
+             patch("taskboard_cli.ready_checkpoint.watch_ready_count", side_effect=KeyboardInterrupt) as run, \
+             self.assertRaises(KeyboardInterrupt):
+            main()
+        _, _, _, ready, _ = run.call_args.args
+        self.assertTrue(callable(ready))
+        self.assertTrue(callable(run.call_args.kwargs["notify_stalled"]))
+        self.assertTrue(callable(run.call_args.kwargs["notify_goal"]))
+        self.assertIsNone(run.call_args.kwargs["goal_state"])
+
+    def test_stalled_pause_survives_watcher_restart_and_expires_without_hiding_ready(self):
+        stamp = "2030-04-01T19:00:00Z"
+        due = "2030-04-01T19:30:00Z"
+        for title in ("Pause this", "Keep ready"):
+            self.avery.invoke("create-task", {"title": title, "step": "Read the sample."}, write=True)
+        self.avery.invoke("advance-task", {"id": "T-1", "transition": "start", "note": "Checking."}, write=True)
+        with patch("tasks_core.timestamp", side_effect=lambda: stamp):
+            self.avery.invoke("set-cue-pause", {
+                "id": "T-1", "kind": "stalled", "until": due, "reason": "A worker is checking.",
+            }, write=True)
+
+            def ready(offer, check):
+                self.assertTrue(check())
+                return "wake-requested"
+
+            def stalled(_clock, offer, check):
+                self.assertEqual(offer["task"], "T-1")
+                self.assertTrue(check())
+                return "wake-requested"
+
+            for _ in range(2):
+                outcomes = self.run_repeat_for(2000, idle=lambda _: True, ready=ready,
+                                               stalled=lambda *_: self.fail("Paused task woke"))
+                self.assertEqual([row["ready_count"] for row in outcomes], [1])
+            stamp = due
+            outcomes = self.run_repeat_for(2200, idle=lambda _: True, ready=ready, stalled=stalled)
+
+        self.assertEqual([row.get("task") for row in outcomes], [None, "T-1"])
 
     def test_stalled_wake_rechecks_work_and_idle_even_after_selecting_a_step(self):
         offer = {"kind": "request", "task": "T-3", "task_id": 3, "event_id": 7}
