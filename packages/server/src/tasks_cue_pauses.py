@@ -14,14 +14,15 @@ SCHEMA = """
 """
 
 
-def active(db, owner, now, kind=None):
+def active(db, owner, now, kind=None, *, include_expired_stalled=False):
     return db.execute(
         """SELECT t.id, t.project_prefix, t.project_number, p.kind, p.reason, p.until_at
            FROM cue_pauses AS p JOIN tasks AS t ON t.id = p.task_id
-           WHERE p.owner = ? AND t.dri = p.owner AND p.until_at > ?
+           WHERE p.owner = ? AND t.dri = p.owner
+             AND (p.until_at > ? OR (? = 1 AND p.kind = 'stalled'))
              AND (? IS NULL OR p.kind = ?)
            ORDER BY p.until_at, t.id, p.kind""",
-        (owner, now, kind, kind),
+        (owner, now, int(include_expired_stalled), kind, kind),
     ).fetchall()
 
 

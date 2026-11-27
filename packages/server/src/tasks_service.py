@@ -1224,9 +1224,14 @@ def create_app(
 
     def watcher_cue_pauses(owner, data, *, write):
         if not write:
-            pauses = cue_pauses.active(db(), owner, ledger.timestamp())
-            return {"items": [cue_pauses.item(row) for row in pauses
-                              if ring1.visible(db(), row["project_prefix"], owner)]}
+            now = ledger.timestamp()
+            pauses = [row for row in cue_pauses.active(db(), owner, now, include_expired_stalled=True)
+                      if ring1.visible(db(), row["project_prefix"], owner)]
+            return {
+                "items": [cue_pauses.item(row) for row in pauses if row["until_at"] > now],
+                "expired_stalled": {projects.row_reference(row): row["until_at"] for row in pauses
+                                    if row["until_at"] <= now},
+            }
 
         number = task_number(data["id"])
         kind = text(data, "kind", maximum=8)
