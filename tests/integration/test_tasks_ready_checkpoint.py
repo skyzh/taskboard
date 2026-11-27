@@ -19,8 +19,8 @@ import test_tasks_service
 
 
 COUNT_WAKE_GUIDANCE = (
-    "Take Taskboard Inbox work first. When work and reviews clear, take one standing-goal pass if offered. "
-    "After parking it, recheck Inbox for actionable work and end exploration for the turn."
+    "Check signed Taskboard Inbox and take the next eligible item. "
+    "When work and reviews clear, follow the offered goal’s saved exploration mode."
 )
 
 

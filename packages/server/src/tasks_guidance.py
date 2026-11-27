@@ -239,10 +239,14 @@ _PROMPTS = {
             Keep the ticket open with an actionable next step or named wait if that work
             is needed for this outcome. Link any separate follow-up and say who owns it.
 
-            After Done, if this mode uses an agent Inbox, recheck it for actionable work
-            and handle assigned reviews first. If the queue is clear and offers a standing
-            goal, read its exploration setting. By default, record one focused pass on
-            the goal, park it, and recheck Inbox. With Keep exploring enabled, record
+            Schedule Taskboard ticket and goal reminders in Taskboard. Verify the saved
+            schedule before retiring a duplicate Raft reminder you own.
+
+            After finishing work, returning a review, recording a wait, or parking a
+            ticket, recheck signed Inbox if this mode uses it. Handle actionable work
+            and reviews first. If Inbox offers a standing goal, read its exploration
+            setting. By default, record one focused pass, park the goal, and recheck
+            Inbox. With Keep exploring enabled, record
             each distinct pass and recheck Inbox and reviews before continuing. If
             actionable work arrives, switch to it. Park when the written criterion is
             met and resume at the next configured review. A completed pass counts as
