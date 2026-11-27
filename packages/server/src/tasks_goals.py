@@ -1,7 +1,7 @@
 """A project assignee's dated and standing goals."""
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -242,6 +242,16 @@ def standing(db, owner, project=None, *, include_ticket=False):
             for row in goal_rows(db, [owner], project, "standing")]
 
 
+def review_slot(day, review_time):
+    """Use the first occurrence on a clock repeat and the first valid minute after a gap."""
+    local = datetime.combine(day, time.fromisoformat(review_time))
+    while True:
+        instant = local.replace(tzinfo=PACIFIC).astimezone(timezone.utc)
+        if instant.astimezone(PACIFIC).replace(tzinfo=None) == local:
+            return instant
+        local += timedelta(minutes=1)
+
+
 def exploration_available(db, row, now):
     if (row["state"] != "parked" or not row["stopping_criterion"]
             or not ledger.event_context(row).get("goal_criterion_met")):
@@ -250,7 +260,7 @@ def exploration_available(db, row, now):
     if schedule is None:
         return False
     next_day = datetime.fromisoformat(row["at"]).astimezone(PACIFIC).date() + timedelta(days=1)
-    return now.date() > next_day or (now.date() == next_day and now.strftime("%H:%M") >= schedule["review_time"])
+    return now.astimezone(timezone.utc) >= review_slot(next_day, schedule["review_time"])
 
 
 def exploration_criterion(db, number):

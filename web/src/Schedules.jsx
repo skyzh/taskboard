@@ -207,28 +207,31 @@ function ScheduleOwnerGroups({ items, renderRow }) {
   ))
 }
 
-function GoalReviewTime({ goal, onChanged }) {
-  const initial = goal.review_time ?? ''
+export function GoalReviewTime({ goal, onChanged }) {
+  const initial = goal.review_schedule?.review_time ?? goal.review_time ?? ''
+  const paused = goal.review_schedule?.state === 'paused'
   const [draft, setDraft] = useState(null)
   const time = draft ?? initial
   const { pending, error, save } = useScheduleSave(
-    `/schedules/goals/${encodeURIComponent(goal.ticket)}/review-time`, () => { setDraft(null); onChanged() },
+    `/tasks/${encodeURIComponent(goal.ticket)}/recurrence`, () => { setDraft(null); onChanged() },
   )
   return (
     <details className="schedule-editor">
       <summary>Edit review time</summary>
       <form className="schedule-review-form" onSubmit={event => {
         event.preventDefault()
-        save({ time })
+        save({ change: 'enable', review_time: time })
       }} data-reload-blocked={pending || time !== initial}>
         <label>Daily review time (Pacific)
           <input type="time" value={time} disabled={pending} onChange={event => setDraft(event.target.value)} />
         </label>
         <div className="schedule-actions">
-          <button type="submit" disabled={pending || time === initial}>Save review time</button>
-          {initial && <button type="button" disabled={pending} onClick={() => save({ time: '' })}>
-            Clear review time
-          </button>}
+          <button type="submit" disabled={pending || !time || time === initial}>Save review time</button>
+          {initial && <>
+            <button type="button" disabled={pending}
+              onClick={() => save({ change: paused ? 'resume' : 'pause' })}>{paused ? 'Resume' : 'Pause'}</button>
+            <button type="button" disabled={pending} onClick={() => save({ change: 'cancel' })}>Cancel reminder</button>
+          </>}
         </div>
         {error && <p role="alert">{error}</p>}
       </form>
@@ -247,8 +250,11 @@ function GoalReviews({ goals, allProjects, onChanged }) {
           <h4><BoardLink href={taskHref(goal.ticket)}>{goal.ticket} · <MarkdownInline text={goal.title} links={false} /></BoardLink></h4>
           <dl className="schedule-summary">
             <div><dt>Project</dt><dd>{goal.project}</dd></div>
-            <div><dt>Daily review</dt><dd>{goal.review_time
-              ? <><time dateTime={goal.review_time}>{goal.review_time}</time> Pacific</> : 'No time set'}</dd></div>
+            <div><dt>Daily review</dt><dd>{(goal.review_schedule?.review_time ?? goal.review_time)
+              ? <><time dateTime={goal.review_schedule?.review_time ?? goal.review_time}>
+                {goal.review_schedule?.review_time ?? goal.review_time}</time> Pacific
+                {goal.review_schedule?.state === 'paused' && ' · Paused'}</> : 'No time set'}</dd></div>
+            {goal.review_schedule?.next_at && <div><dt>Next run</dt><dd><ScheduleDate value={goal.review_schedule.next_at} /></dd></div>}
             {goal.deadline && <div><dt>Deadline</dt><dd><time dateTime={goal.deadline}>{goal.deadline}</time></dd></div>}
           </dl>
           {goal.editable === true && <GoalReviewTime goal={goal} onChanged={onChanged} />}

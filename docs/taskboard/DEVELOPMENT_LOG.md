@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Recurring goal reminders.** Standing and dated goals reuse the saved Pacific review time on the existing ticket. Owners can edit, pause, resume, or cancel the reminder from the ticket or Schedules. A due review appears in Inbox even if the wake receipt goes missing. A same-day outcome counts once for the scheduled review. [Agent guidance](AGENT-STARTUP.md#keep-exploring-a-standing-goal)
+
 - **Pre-send ask checker.** Configure a local Tasks CLI command to review signed decisions, peer asks and attention requests before submission. The versioned JSON contract supports revision feedback and keeps the board's existing permissions and retry behavior. [Configure the checker](SHARED-BOARD.md#check-an-ask-before-sending)
 
 - **Rollback preparation for request diagnostics.** This build can serve a ledger already stamped at the known additive diagnostics revision while preserving its schema and data. An ordinary startup on the current revision leaves it in place. It rejects mismatched layouts.

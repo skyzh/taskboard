@@ -98,7 +98,8 @@ test('shows goal review times and date-only deadlines and gives only owners the 
         { ticket: 'T-4', project: 'T', owner: 'peer-id', owner_name: 'Casey',
           title: 'Review **handoffs**', review_time: '09:15', deadline: null, editable: false },
         { ticket: 'COURSE-8', project: 'COURSE', owner: 'owner-id', owner_name: 'River',
-          title: 'Ship the fixture', review_time: null, deadline: '2026-12-06', editable: true },
+          title: 'Ship the fixture', review_time: null, deadline: '2026-12-06', editable: true,
+          review_schedule: { state: 'paused', review_time: '10:00', next_at: null } },
       ],
       maintenance: { editable: false, schedule: null },
     },
@@ -109,6 +110,9 @@ test('shows goal review times and date-only deadlines and gives only owners the 
   assert.match(html, /href="#task-COURSE-8">COURSE-8 · Ship the fixture<\/a>/)
   assert.match(html, /dateTime="2026-12-06">2026-12-06<\/time>/)
   assert.equal((html.match(/Edit review time/g) || []).length, 1)
+  assert.match(html, />10:00<\/time> Pacific · Paused/)
+  assert.match(html, />Resume<\/button>/)
+  assert.match(html, />Cancel reminder<\/button>/)
   assert.match(html, /<h4><a href="#task-COURSE-12"><span class="ticket-id">COURSE-12<\/span> Review samples<\/a><\/h4>/)
   assert.match(html, /<dt>Last reviewed<\/dt><dd><time dateTime="2026-11-22T10:00:00Z"/)
 })

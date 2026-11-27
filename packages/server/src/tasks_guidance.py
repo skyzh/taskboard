@@ -23,6 +23,7 @@ _ADVANCE_STEPS = {
     "remind": "Check other Inbox work until the ticket returns.",
 }
 _WORK_STEPS = {
+    "goal_review": "Start the linked goal and record one concrete review outcome on it.",
     "in_progress": _CONTINUE_WORK,
     "review": "Read the review brief and check the specified revision or evidence.",
     "report": "Read the worker's result and evidence before collecting the report.",

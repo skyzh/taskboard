@@ -1952,6 +1952,14 @@ def create_app(
         change = text(data, "change", maximum=10)
         if change not in ("enable", "pause", "resume", "cancel", "complete"):
             raise RequestError("Choose enable, pause, resume, cancel, or complete.")
+        if ledger.task_goal_kind(db(), number) is not None:
+            if change == "complete":
+                raise RequestError("Start the goal and record its outcome on the goal ticket.")
+            if data.keys() - {"id", "change"} - ({"review_time"} if change == "enable" else set()):
+                raise RequestError("A goal review uses a daily Pacific time.")
+            saved = save_goal_schedule(actor["ledger_key"], number, change, data.get("review_time"))
+            state = {"active": "active", "paused": "paused", None: "unset"}[saved["state"]]
+            return {**saved, "receipt": f"{saved['ticket']} · Goal reminder {state}"}
         optional = {"enable": {"cadence_hours", "next_at"}, "resume": {"cadence_hours", "next_at"},
                     "complete": {"note", "details", "url", "label", "force_text"}}
         if data.keys() - {"id", "change"} - optional.get(change, set()):
@@ -2764,11 +2772,12 @@ def create_app(
             raise NotFound()
         return schedule
 
-    def save_goal_review_time(owner, identifier, value):
-        number = task_number(identifier)
+    def save_goal_schedule(owner, number, change, value):
         try:
             with tasks_storage.write(db()) as connection:
-                return goal_cadence.save_review_time(connection, owner, number, value)
+                if change is None:
+                    return goal_cadence.save_review_time(connection, owner, number, value)
+                return goal_cadence.change_schedule(connection, owner, number, change, value)
         except ValueError as error:
             raise RequestError(str(error)) from error
         except PermissionError as error:
@@ -2778,7 +2787,7 @@ def create_app(
     def schedule_goal_review_time(identifier):
         actor = current_actor(write=True)
         data = json_body({"time"})
-        return save_goal_review_time(actor["ledger_key"], identifier, data.get("time"))
+        return save_goal_schedule(actor["ledger_key"], task_number(identifier), None, data.get("time"))
 
     @app.post("/api/v1/schedules/<number>/state")
     def recurring_schedule_state(number):
@@ -3073,7 +3082,7 @@ def create_app(
     @app.post("/api/v1/tasks/<number>/recurrence")
     def task_recurrence(number):
         actor = current_actor(write=True)
-        data = json_body({"change", "cadence_hours", "next_at", "note", "details", "url", "label"}, writing=True)
+        data = json_body({"change", "cadence_hours", "next_at", "review_time", "note", "details", "url", "label"}, writing=True)
         return change_ticket_recurrence(actor, task_number(number), data)
 
     @app.get("/api/v1/tasks/<number>/activity")
@@ -4395,7 +4404,7 @@ def create_app(
                 require_visible_project(connection, offer["project"])
                 return {"offer": offer, "receipt": "Idle goal offer already recorded."}
             now = ledger.timestamp()
-            if next(query().actionable_work(owner, today=pacific_day(now), project=None), None):
+            if next(query().actionable_work(owner, today=pacific_day(now), project=None, include_goal_reviews=False), None):
                 return {"offer": None, "receipt": "Actionable work is available."}
             pacific = datetime.fromisoformat(now).astimezone(PACIFIC)
             goal = next((row for row in goals.goal_rows(connection, [owner], project, kind="standing")
@@ -4533,22 +4542,28 @@ def create_app(
                 result = {"goal": goals.get(connection, project, key),
                           "milestones": goals.milestones(connection, project, key, include_ticket=True),
                           "standing_goal": next(iter(goals.standing(connection, key, project, include_ticket=True)), None)}
-                if times := goal_cadence.review_times(connection, key, project):
-                    result["review_times"] = times
+                now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
+                if schedules := goal_cadence.schedules(connection, key, project, now):
+                    result["review_schedules"] = schedules
+                    times = {ticket: schedule["review_time"] for ticket, schedule in schedules.items()
+                             if schedule["state"] == "active"}
+                    if times:
+                        result["review_times"] = times
                 return result
         if name == "my-goal-cues":
             project = project_filter(data, use_default=True)
             now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
             with tasks_storage.read(db()) as connection:
                 board = query()
-                scope = {"today": now.date().isoformat(), "project": project if profile is not None else None}
+                scope = {"today": now.date().isoformat(), "project": project if profile is not None else None,
+                         "include_goal_reviews": False}
                 work = next(board.actionable_work(key, **scope), None)
                 ordinary = work is not None
                 if work and work["kind"] in ("in_progress", "reminder") and ledger.task_goal_kind(connection, work["id"]):
                     ordinary = next(board.actionable_work(key, ordinary_only=True, **scope), None) is not None
                 return goal_cadence.candidates(connection, key, project, now, busy=work is not None, ordinary_busy=ordinary)
         if name == "set-goal-review-time":
-            saved = save_goal_review_time(key, data.get("id"), data.get("time"))
+            saved = save_goal_schedule(key, task_number(data.get("id")), None, data.get("time"))
             return {**saved, "receipt": f"{saved['ticket']} · Goal review time {'saved' if saved['review_time'] else 'cleared'}"}
         if name == "save-goal":
             project = project_filter(data, use_default=True)

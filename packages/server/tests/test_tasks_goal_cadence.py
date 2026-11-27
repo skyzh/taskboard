@@ -1,8 +1,12 @@
 """Verify goal cadence on a disposable board with synthetic signed accounts."""
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
+
+from taskboard_cli.goal_wake import GoalWake, GoalWakeState, reminder_title
 
 import test_tasks_service as fixture
 
@@ -62,16 +66,15 @@ class GoalCadenceTest(unittest.TestCase):
         self.assertEqual(
             [(cue["ticket"], cue["kind"], cue["key"]) for cue in due["cues"]],
             [
-                (earlier, "deadline", f"deadline:{earlier}:2026-11-23"),
                 (later, "deadline", f"deadline:{later}:2026-11-24"),
                 (standing, "standing-daily", f"daily:{standing}:2026-11-24"),
                 (earlier, "daily", f"daily:{earlier}:2026-11-24"),
-                (later, "daily", f"daily:{later}:2026-11-24"),
             ],
         )
         next_day = self.cue(OVERDUE)
-        self.assertEqual([cue["key"] for cue in next_day["cues"][:2]], [cue["key"] for cue in due["cues"][:2]])
-        self.assertEqual(next_day["cues"][2]["key"], f"daily:{standing}:2026-11-25")
+        self.assertEqual([cue["key"] for cue in next_day["cues"]], [
+            f"daily:{ticket}:2026-11-25" for ticket in (standing, earlier, later)
+        ])
         self.assertTrue(all(cue["day"] == "2026-11-25" for cue in next_day["cues"]))
         for ticket in (standing, later, earlier):
             self.assertEqual(self.action("task", query_string={"id": ticket})["task"]["state"], "parked")
@@ -212,3 +215,119 @@ class GoalCadenceTest(unittest.TestCase):
         self.assertEqual(
             self.action("idle-goal-offer", {"handoff_id": str(uuid4()), "project": "LAB"})["offer"]["task"], lab,
         )
+
+
+    def test_signed_reviews_remain_actionable_after_an_ambiguous_carrier_receipt(self):
+        test = self
+
+        class SignedBoard:
+            def invoke(self, name, data, *, write=False):
+                if write:
+                    return test.action(name, data)
+                return test.action(name, query_string=data)
+
+        url = "https://board.example.test/tasks/"
+        with TemporaryDirectory() as folder, patch("tasks_core.timestamp", return_value=DUE):
+            for kind in ("standing", "dated"):
+                with self.subTest(kind=kind):
+                    ticket = self.standing() if kind == "standing" else self.dated("2026-12-01")
+                    self.review_time(ticket, "09:15")
+                    path = Path(folder) / "goal-watcher.sqlite3"
+                    board = SignedBoard()
+                    watch = GoalWake(board, GoalWakeState(path, url, self.avery_id))
+                    offer = watch.lookup()
+                    self.assertEqual(offer["goal_key"], f"daily:{ticket}:2026-11-24")
+
+                    deliveries = []
+
+                    def carrier(candidate, before_send, record):
+                        self.assertTrue(before_send())
+                        deliveries.append(reminder_title(candidate))
+                        if kind == "standing":
+                            record("#00110022")
+                            return "wake-requested"
+                        raise RuntimeError("Lost receipt after the synthetic provider accepted the wake.")
+
+                    expected = "goal-wake-requested" if kind == "standing" else "goal-wake-unknown"
+                    self.assertEqual(watch.notify({**offer, "board": url}, lambda: True, carrier), expected)
+                    restarted = GoalWake(board, GoalWakeState(path, url, self.avery_id))
+                    self.assertIsNone(restarted.lookup())
+                    self.assertEqual(len(deliveries), 1)
+
+                    work = self.action("my-next")["work"]
+                    self.assertEqual((work["kind"], work["key"]), ("goal_review", ticket))
+                    browser = self.board.call(self.avery, "/api/v1/notifications/work?project=T")
+                    self.assertEqual(browser.status_code, 200)
+                    self.assertIn(work, browser.get_json()["items"])
+
+                    self.advance(ticket, "start")
+                    self.assertEqual(self.action("my-next")["work"]["kind"], "in_progress")
+                    self.advance(ticket, "park", "Checked the review and recorded one outcome.")
+                    self.assertIsNone(self.action("my-next")["work"])
+                    self.assertEqual(self.cue(DUE)["cues"], [])
+
+
+    def test_legacy_schedule_survives_restart_and_uses_same_controls(self):
+        ticket = self.dated("2026-12-01")
+        self.review_time(ticket, "09:15")
+        self.board.call(self.avery, f"/api/v1/tasks/{ticket}/reminder", method="PUT", json={"date": "2026-11-24"})
+        self.board.provider = fixture.FixtureRaft()
+        self.app = self.board.app(portal_reader=True)
+        self.avery, _ = self.board.login(self.app, "Avery")
+        peer, _ = self.board.login(self.app, "Blake")
+        path = f"/api/v1/tasks/{ticket}/recurrence"
+        self.board.call(peer, path, method="POST", json={"change": "pause"}, status=403)
+        with patch("tasks_core.timestamp", return_value=PRE_REVIEW):
+            self.assertIsNone(self.action("my-next")["work"])
+        with patch("tasks_core.timestamp", return_value=DUE):
+            self.assertFalse(self.cue(DUE)["busy"])
+            browser = self.board.call(self.avery, "/api/v1/notifications/work?project=T").json
+            work, = browser["items"]
+            self.assertEqual((work["key"], work["kind"]), (ticket, "goal_review"))
+            saved = self.action("my-goals")["review_schedules"][ticket]
+            self.assertEqual((saved["state"], saved["next_at"]), ("active", DUE))
+            detail = self.action("task", query_string={"id": ticket})
+            self.assertEqual(detail["goal"]["review_schedule"], saved)
+            self.assertEqual(detail["goal"]["deadline"], "2026-12-01")
+            self.assertIsNone(detail["task"]["reminder"])
+            activity = self.action("task-activity", query_string={"id": ticket})
+            self.assertTrue(any(item["context"].get("review_after") == "2026-11-24" for item in activity["items"]))
+            self.board.call(self.avery, path, method="POST", json={"change": "pause"})
+            self.action("ticket-recurrence", {"id": ticket, "change": "pause"})
+            schedules = self.action("my-goals")["review_schedules"]
+            self.assertEqual(schedules[ticket], {**saved, "state": "paused", "next_at": None})
+            self.assertIsNone(self.action("my-next")["work"])
+            self.assertEqual(self.cue(DUE)["cues"], [])
+            code, output, errors = self.board.shared_cli(self.avery, "ticket-recurrence", ticket, "resume")
+            self.assertEqual((code, errors), (0, ""))
+            self.assertIn("Goal reminder active", output)
+            self.assertEqual(self.action("my-goals")["review_schedules"][ticket], saved)
+            self.action("ticket-recurrence", {"id": ticket, "change": "cancel"})
+            self.assertIsNone(self.action("my-next")["work"])
+            self.assertNotIn("review_schedules", self.action("my-goals"))
+            self.review_time(ticket, "09:15")
+            self.advance(ticket, "start")
+            self.advance(ticket, "park", "Recorded the result.")
+            self.assertEqual(self.action("my-goals")["review_schedules"][ticket]["next_at"], OVERDUE)
+            self.review_time(ticket, "09:15")  # An old client's retry does not reissue today's slot.
+            self.assertIsNone(self.action("my-next")["work"])
+            self.action("ticket-recurrence", {"id": ticket, "change": "cancel"})
+            self.assertNotIn("review_schedules", self.action("my-goals"))
+            self.assertEqual(self.cue(OVERDUE)["cues"], [])
+
+    def test_pacific_clock_gap_and_fold_keep_one_slot(self):
+        ticket = self.standing()
+        self.review_time(ticket, "02:30")
+        self.assertEqual(self.cue("2026-03-08T09:59:59Z")["cues"], [])
+        spring, = self.cue("2026-03-08T10:00:00Z")["cues"]
+        self.assertEqual(spring["key"], f"daily:{ticket}:2026-03-08")
+
+        self.review_time(ticket, "01:30")
+        self.assertEqual(self.cue("2026-11-01T08:29:59Z")["cues"], [])
+        first, = self.cue("2026-11-01T08:30:00Z")["cues"]
+        second, = self.cue("2026-11-01T09:15:00Z")["cues"]
+        self.assertEqual(first, second)
+        with patch("tasks_core.timestamp", return_value="2026-11-01T08:35:00Z"):
+            self.advance(ticket, "start")
+            self.advance(ticket, "park", "Checked the fixture.")
+        self.assertEqual(self.cue("2026-11-01T09:30:00Z")["cues"], [])
