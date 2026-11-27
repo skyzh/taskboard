@@ -283,13 +283,23 @@ function CompleteScheduleReview({ schedule, onChanged }) {
 export function ScheduleContents({ data, project, allProjects, onChanged }) {
   const { recurring, goal_reviews: goalReviews = [], maintenance, project_maintenance: projectMaintenance } = data
   const schedule = maintenance.schedule
+  const [showCanceled, setShowCanceled] = useState(false)
+  const hasCanceled = recurring.some(item => item.state === 'canceled')
+  const visibleRecurring = showCanceled ? recurring : recurring.filter(item => item.state !== 'canceled')
   return (
     <>
       <section className="panel schedule-panel" aria-labelledby="recurring-title">
-        <h2 id="recurring-title">Recurring work</h2>
+        <div className="schedule-section-heading">
+          <h2 id="recurring-title">Recurring work</h2>
+          {hasCanceled && <label>
+            <input type="checkbox" checked={showCanceled} onChange={event => setShowCanceled(event.target.checked)} />
+            Show canceled
+          </label>}
+        </div>
         {recurring.length === 0 && <p>{allProjects
           ? 'No recurring schedules in your accessible projects.' : 'No recurring schedules in this project.'}</p>}
-        <ScheduleOwnerGroups items={recurring} renderRow={item => (
+        {hasCanceled && visibleRecurring.length === 0 && <p>All recurring schedules are canceled. Select Show canceled to see them.</p>}
+        <ScheduleOwnerGroups items={visibleRecurring} renderRow={item => (
           <article key={item.id} className="schedule-item">
             <h4><ScheduleLink schedule={item} project={item.project || project} allProjects={allProjects} preferTicket /></h4>
             <ScheduleSummary schedule={item} project={item.project || project} showOwner={false} showTicket={false} />
