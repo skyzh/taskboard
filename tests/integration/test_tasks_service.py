@@ -8522,6 +8522,51 @@ class TasksServiceTest(unittest.TestCase):
         result = self.action(avery, "my-requested-asks", query_string={"cue_key": ask["cue_key"]})["items"][0]
         self.assertEqual((result["state"], result["outcome"]), ("handled", "Handled"))
 
+    def test_requester_acknowledges_an_all_project_cue_without_a_project_parameter(self):
+        admin = self.provider.people["Sam"]["sub"]
+        app = self.app(portal_reader=True, project_admin_subject=admin)
+        requester, requester_id = self.login(app, "Avery")
+        recipient, recipient_id = self.login(app, "Sam")
+        self.call(recipient, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Restricted examples", "visibility": "ring1",
+        })
+        membership = "/api/v1/projects/LAB/ring1"
+        self.call(recipient, membership, method="PUT", json={"principal": requester_id, "allowed": True})
+
+        def request_in(project, date):
+            ticket = self.action(requester, "create-task", {
+                "project": project, "title": "Fictional export", "step": "Check the sample.",
+            })["receipt"].split()[0]
+            self.action(requester, "advance-task", {
+                "id": ticket, "transition": "park", "review_after": "2099-01-01", "note": "Wait for the sample.",
+            })
+            raised = self.action(requester, "raise-attention", {
+                "id": ticket, "recipient": recipient_id, "reason": "Check the export.",
+            })
+            self.call(recipient, f"/api/v1/notifications/requests/{raised['id']}/reminder",
+                      method="PUT", json={"date": date})
+            return ticket
+
+        restricted = request_in("LAB", "2000-01-01")
+        public = request_in("T", "2000-01-02")
+        all_projects = {"scope": "all"}
+        first = self.action(requester, "my-next", query_string=all_projects)["ask_recheck"]
+        self.assertEqual(first["ticket"], restricted)
+        payload = {"cue_key": first["cue_key"]}
+        for _ in range(2):
+            self.assertTrue(self.action(requester, "acknowledge-ask-recheck", payload)["acknowledged"])
+        exact = self.action(requester, "my-requested-asks", query_string=payload)["items"]
+        self.assertEqual(exact, [first])
+        self.assertEqual(self.action(requester, "my-requested-asks", query_string={
+            **payload, "project": "T",
+        })["items"], [])
+        second = self.action(requester, "my-next", query_string=all_projects)["ask_recheck"]
+        self.assertEqual(second["ticket"], public)
+
+        self.call(recipient, membership, method="PUT", json={"principal": requester_id, "allowed": False})
+        self.assertEqual(self.action(requester, "my-requested-asks", query_string=payload)["items"], [])
+        self.action(requester, "acknowledge-ask-recheck", payload, status=404)
+
     def test_agent_decision_delivery_uses_the_recipients_current_preference(self):
         app = self.app(portal_reader=True)
         agent, agent_id = self.login(app, "Avery")

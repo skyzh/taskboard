@@ -5215,7 +5215,6 @@ def create_app(
                         )
             return {"items": items}
         if name in {"my-requested-asks", "acknowledge-ask-recheck"}:
-            project = project_scope(data)
             raw = text(data, "cue_key", optional=not write, maximum=64)
             exact = None
             if raw is not None:
@@ -5224,6 +5223,7 @@ def create_app(
                     raise RequestError("Use the exact ask recheck key from the signed Inbox.")
                 kind, identifier, date = cue.groups()
                 exact = (kind, integer(identifier, "request ID"), reminder_date({"date": date}))
+            project = project_scope(data, use_default=exact is None)
             if not write:
                 with tasks_storage.read(db()):
                     return {"items": query().requested_asks(key, project=project, exact=exact,
