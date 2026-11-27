@@ -230,7 +230,7 @@ Each value is a string. Use an empty string for `ready-review` to omit the extra
 | `agent_guidance` | Other signed action responses | Prefix the action with `action-`. Supported actions include `context`, `create-task`, `delegate`, `save-goal`, and `worker-handoff`. See the [full list](../../packages/server/src/tasks_guidance.py). |
 | `agent_guidance.cli` | Guidance printed by the shared CLI for selected commands | `context`, `raft-channel`, `goals-existing`, `goals-missing`, `workers`, `completion`, `list`, `list-empty`, `list-unassigned-empty`, `readiness`, `readiness-empty`, `reviews`, `reviews-empty`, `search`, `search-empty`, `tagged`, `tagged-empty`, `watched`, `watched-empty` |
 | `agent_guidance.fields` | Signed writing guidance for the CLI and web editor | `title`, `brief`, `next_step`, `activity` |
-| `agent_guidance.prompts` | Prompts for checkpoints, completion, and Knowledge | `checkpoint`, `end-task`, `knowledge` |
+| `agent_guidance.prompts` | Prompts for checkpoints, completion, Knowledge, and Inbox follow-up | `checkpoint`, `end-task`, `knowledge`, `inbox-follow-up` |
 
 Signed HTTP `field-guidance` and MCP `taskboard_field_guidance` return the
 effective text and source under `prompts`, including an example for Checkpoint.
@@ -239,6 +239,11 @@ project and prompt, then choose **Save prompt**. **Use inherited prompt**
 restores the board's TOML text when configured and the built-in text otherwise.
 Readers see the active prompt and its source. The Knowledge page links to the
 Knowledge prompt for the selected project.
+
+For **Inbox follow-up**, choose **Project default** or a specific agent under
+**Applies to**. An agent inherits the project prompt unless it has its own
+override. The signed `my-next` response and `tasks --shared next` show the
+signed agent's effective prompt for the selected or offered project.
 
 Use a nonempty string in TOML to change the inherited wording for the board.
 

@@ -532,6 +532,10 @@ def shared_next(board, url, filters, actor):
             f'  To start preparation now, run `./tasks --shared resume {ticket} "<what you can do now>" '
             f'--review-wait {candidate["wait_event"]}`.'
         )
+    if follow_up := result.get("inbox_follow_up"):
+        scope = follow_up.get("project")
+        label = f"Inbox follow-up for {scope}" if scope else "Inbox follow-up"
+        goal_lines.append(f"{label} · {follow_up['prompt']}")
     if work := result["work"]:
         details = task_details(board, url, work["key"], guidance=result.get("next_step"), context_lines=goal_lines)
         label = NEXT_LABELS.get(work["kind"])
@@ -772,7 +776,8 @@ def shared_command(args):
             if item.get("format"):
                 lines.append(f"Format · {item['format']}")
             lines.append(f"Example · {item['example']}")
-        for name, label in (("checkpoint", "Checkpoint"), ("end-task", "End task"), ("knowledge", "Knowledge")):
+        for name, label in (("checkpoint", "Checkpoint"), ("end-task", "End task"), ("knowledge", "Knowledge"),
+                            ("inbox-follow-up", "Inbox follow-up")):
             if args.field not in (None, name):
                 continue
             prompt = result.get("prompts", {}).get(name)

@@ -6242,7 +6242,61 @@ class TasksServiceTest(unittest.TestCase):
             edits = db.execute(
                 "SELECT scope, actor, record_type, record_id FROM audit_events WHERE operation = 'set-agent-prompt'"
             ).fetchall()
-        self.assertEqual([tuple(event) for event in edits], [("private", manager_id, "project", "T")] * 6)
+        self.assertEqual([tuple(event) for event in edits], [("private", manager_id, "project", "T")] * (2 * len(inherited)))
+
+    def test_inbox_follow_up_uses_the_signed_agent_and_current_project(self):
+        from tasks_guidance import AgentGuidance
+
+        board_message = "Use the workspace reply guidance."
+        app = self.app(portal_reader=True, agent_guidance=AgentGuidance(prompts={"inbox-follow-up": board_message}))
+        manager, manager_id = self.login(app, "Sam")
+        avery, avery_id = self.login(app, "Avery")
+        blake, _ = self.login(app, "Blake")
+        self.cli("register-project", "T", "Tasks Board", "--dri", manager_id)
+        self.cli("register-project", "LAB", "Sample lab", "--dri", manager_id)
+        guidance = "/api/v1/projects/T/field-guidance"
+        name = "inbox-follow-up"
+
+        def effective(agent, **scope):
+            return self.action(agent, "my-next", query_string=scope)["inbox_follow_up"]
+
+        def save(message, target=None):
+            body = {"prompt": name, "guidance": message}
+            if target:
+                body["agent"] = target
+            return self.call(manager, guidance, method="PUT", json=body).json["prompts"][name]
+
+        self.assertEqual(effective(avery, project="T"), {"project": "T", "prompt": board_message, "source": "board"})
+        project_message = "Record a brief acknowledgment on the linked ticket."
+        self.assertEqual(save(project_message), {"prompt": project_message, "source": "project"})
+        different_message = "Reply in the linked sample thread."
+        self.assertEqual(save(different_message, avery_id), {"prompt": different_message, "source": "agent"})
+        self.assertEqual(self.call(manager, guidance, query_string={"agent": avery_id}).json["prompts"][name],
+                         {"prompt": different_message, "source": "agent"})
+        self.assertEqual(self.call(avery, guidance).json["prompts"][name]["prompt"], project_message)
+        self.call(blake, guidance, query_string={"agent": avery_id}, status=403)
+        self.call(blake, guidance, method="PUT", json={"prompt": name, "agent": avery_id, "guidance": "Other."},
+                  status=403)
+        self.call(manager, guidance, method="PUT", json={"prompt": "checkpoint", "agent": avery_id, "guidance": "Other."},
+                  status=400)
+        self.call(manager, guidance, query_string={"agent": manager_id}, status=404)
+        self.assertEqual(effective(avery, project="T"), {"project": "T", "prompt": different_message, "source": "agent"})
+        self.assertEqual(effective(blake, project="T"), {"project": "T", "prompt": project_message, "source": "project"})
+        self.assertEqual(effective(avery, project="LAB")["prompt"], board_message)
+        self.assertEqual(self.action(avery, "field-guidance", query_string={"project": "T"})["prompts"][name],
+                         {"prompt": different_message, "source": "agent"})
+        code, output, errors = self.shared_cli(avery, "field-guidance", name, "--project", "T")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn(different_message, output)
+        self.action(avery, "create-task", {"project": "T", "title": "Sample task", "step": "Check."})
+        self.assertEqual(effective(avery, scope="all")["prompt"], different_message)
+        code, output, errors = self.shared_cli(avery, "next", "--project", "T")
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn(different_message, output)
+        self.assertEqual(save(None, avery_id), {"prompt": project_message, "source": "project"})
+        self.assertEqual(effective(avery, project="T")["prompt"], project_message)
+        self.assertEqual(save(None), {"prompt": board_message, "source": "board"})
+        self.assertEqual(effective(blake, project="T")["prompt"], board_message)
 
     def test_next_guides_an_assigned_review_even_on_a_completed_ticket(self):
         app = self.app()
