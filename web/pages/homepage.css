@@ -161,40 +161,29 @@ h1 {
 .walkthrough-content { max-width: 67rem; margin-inline: auto; }
 h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: -0.04em; }
 
-.walkthrough-heading {
+.review-loop {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 0.6rem 1.5rem;
+  align-items: center;
+  gap: 0 1.25rem;
+  margin-top: 1.35rem;
 }
-
-.feature-flow { position: relative; }
 
 .feature-return {
-  position: absolute;
-  inset-block: 0;
-  right: -2.6rem;
-  width: 2rem;
-  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 2.75rem;
+  color: var(--accent-on-dark);
+  font-weight: 675;
 }
 
-.feature-return svg { display: block; width: 100%; height: 100%; }
-.feature-return path { stroke-linecap: round; vector-effect: non-scaling-stroke; }
-.feature-return::before {
-  position: absolute;
-  top: calc(11.333% - 0.27rem);
-  left: 10%;
-  width: 0.52rem;
-  height: 0.52rem;
-  border-top: 1.5px solid #a5b4fcb3;
-  border-left: 1.5px solid #a5b4fcb3;
-  transform: rotate(-45deg);
-  content: "";
-}
+.feature-return:hover { color: #f8f7ff; }
+.feature-return:focus-visible { outline-color: var(--accent-on-dark); }
+.feature-return svg { width: 1.25rem; height: 1.25rem; flex: none; }
+#feature-tickets { scroll-margin-top: 1.25rem; }
 
-.return-line { stroke: #a5b4fcb3; stroke-width: 1.5; }
-.return-pulse { display: none; stroke: var(--accent-on-dark); stroke-width: 2.6; stroke-dasharray: 7 93; }
+.return-pulse { display: none; stroke: #f8f7ff; stroke-width: 2.2; stroke-dasharray: 14 86; }
 .walkthrough[data-motion] .return-pulse {
   display: initial;
   animation: return-signal 3.6s linear infinite;
@@ -224,12 +213,6 @@ h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: 
 @media (prefers-reduced-motion: reduce) {
   .walkthrough[data-motion] .return-pulse, .motion-toggle { display: none; }
 }
-
-@media (max-width: 76rem) {
-  .feature-flow { padding-right: 2.2rem; }
-  .feature-return { right: 0; width: 1.75rem; }
-}
-
 
 .feature {
   display: grid;
@@ -273,6 +256,4 @@ h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: 
   .setup li { flex-direction: row; align-items: center; padding-inline: 0.65rem; }
   .setup li + li { border-inline-start: 0; border-top: 1px solid #dfddf0; }
   .walkthrough h2 { max-width: 12ch; }
-  .feature-flow { padding-right: 1.45rem; }
-  .feature-return { width: 1.1rem; }
 }
