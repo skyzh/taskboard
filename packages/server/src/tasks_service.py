@@ -4010,6 +4010,15 @@ def create_app(
                 reviews_only=kind == "review",
             )
 
+    @app.get("/api/v1/notifications/ask-history")
+    def notification_ask_history():
+        actor = current_actor(required=True)
+        project = project_scope(request.args)
+        before = ordered_feed_cursor(request.args, ("decision", "attention"), "Ask history")
+        limit = integer(request.args.get("limit", 20), "limit", maximum=100)
+        with tasks_storage.read(db()):
+            return query().ask_history(actor["ledger_key"], project=project, before=before, limit=limit)
+
     @app.route("/api/v1/notifications/browser-push", methods=["GET", "PUT", "DELETE"])
     def browser_push_settings():
         if push_delivery is None:

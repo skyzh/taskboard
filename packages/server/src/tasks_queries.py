@@ -1281,6 +1281,55 @@ class BoardQueries:
         active = current is not None and current["event_id"] == request_id and current["state"] == "human_review"
         return {"status": "open" if active else "closed", "answer": None}
 
+    def ask_history(self, recipient, *, project, before, limit):
+        visibility, bindings = self.project_visibility()
+        cursor_filter = "WHERE (at, kind, request_id) < (?, ?, ?)" if before else ""
+        rows = self.db.execute(
+            f"""
+            WITH visible_tasks AS (
+                SELECT id, title, project_prefix, project_number FROM tasks
+                WHERE (? IS NULL OR project_prefix = ?) AND {visibility}
+            ), history AS (
+                SELECT answer.at, 'decision' AS kind, original.id AS request_id,
+                       task.id, task.title, task.project_prefix, task.project_number,
+                       original.note AS question, answer.note AS outcome,
+                       json_extract(answer.context, '$.choice') AS choice
+                FROM visible_tasks AS task
+                JOIN events AS original ON original.task_id = task.id
+                JOIN events AS answer
+                  ON answer.task_id = original.task_id AND answer.actor = original.waiting_on
+                 AND answer.id > original.id AND answer.action = 'decide'
+                 AND json_extract(answer.context, '$.request_event_id') = original.id
+                WHERE original.waiting_on = ?
+                  AND original.action IN ('assign-human', 'redirect-decision')
+                UNION ALL
+                SELECT request.handled_at, 'attention', request.id,
+                       task.id, task.title, task.project_prefix, task.project_number,
+                       request.reason, 'Handled', NULL
+                FROM visible_tasks AS task
+                JOIN attention_requests AS request ON request.task_id = task.id
+                WHERE request.recipient = ? AND request.handled_at IS NOT NULL
+            )
+            SELECT * FROM history {cursor_filter}
+            ORDER BY at DESC, kind DESC, request_id DESC LIMIT ?
+            """, (project, project, *bindings, recipient, recipient, *(before or ()), limit + 1),
+        ).fetchall()
+        items = []
+        for row in rows[:limit]:
+            reference = projects.row_reference(row)
+            parameter = "decision-request" if row["kind"] == "decision" else "attention-request"
+            items.append({
+                "kind": row["kind"], "request_id": row["request_id"],
+                "ticket": reference, "title": row["title"], "question": row["question"],
+                "outcome": row["outcome"], "choice": row["choice"], "at": row["at"],
+                "source": f"#task-{projects.anchor(row)}?{parameter}={row['request_id']}",
+            })
+        next_cursor = None
+        if len(rows) > limit:
+            last = rows[limit - 1]
+            next_cursor = json.dumps([last["at"], last["kind"], last["request_id"]])
+        return {"items": items, "next_cursor": next_cursor}
+
     def work_event_kinds(self, rows):
         logs = {row["id"]: row for row in rows if row["action"] == "log"}
         if not logs:

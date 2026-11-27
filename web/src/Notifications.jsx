@@ -228,6 +228,47 @@ function FollowThrough({ revision, project }) {
   )
 }
 
+function AskHistory({ revision, project }) {
+  const page = useLoadedPages('/notifications/ask-history', projectFilters(project), revision)
+  const items = page.data?.items ?? []
+  return (
+    <section aria-labelledby="ask-history-title">
+      <h3 className="notification-subhead" id="ask-history-title">Ask history</h3>
+      <ResourceStatus resource={page} label="ask history" />
+      {page.data && !page.pending && !page.error && items.length === 0 &&
+        <p className="section-message">No answered decisions or handled requests.</p>}
+      {items.length > 0 && (
+        <ol className="event-list" aria-label="Ask history" role="list">
+          {items.map(item => {
+            const decision = item.kind === 'decision'
+            const source = decision
+              ? `${item.source}&decision-scope=${encodeURIComponent(project || 'all')}`
+              : item.source
+            return (
+              <li className="event-row" key={`${item.kind}-${item.request_id}`}>
+                <p className="event-ticket"><BoardLink href={source}>{item.ticket} · {item.title}</BoardLink></p>
+                <p className="event-meta">
+                  <span>{decision ? 'Decision answered' : 'Request handled'}</span>
+                  <ReportTime at={item.at} />
+                </p>
+                <Markdown text={item.question} />
+                {decision && (
+                  <div>
+                    {item.choice && item.choice !== item.outcome && !item.outcome?.startsWith(`${item.choice} · `) &&
+                      <p>{item.choice}</p>}
+                    <Markdown text={item.outcome} />
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ol>
+      )}
+      <LoadMore page={page} label="ask history" />
+    </section>
+  )
+}
+
 function ReviewRequests({ revision, project }) {
   const page = useLoadedPages('/notifications/needs-you', { ...projectFilters(project), kind: 'review' }, revision)
   const reviews = page.data?.items
@@ -283,6 +324,7 @@ function NeedsMe({ revision, session, onChanged, project, onlyOpen = false }) {
       <AttentionRequests revision={revision} onChanged={onChanged} project={project} onlyOpen={onlyOpen} />
       <ReviewRequests revision={revision} project={project} />
       {!onlyOpen && <FollowThrough revision={revision} project={project} />}
+      {!onlyOpen && <AskHistory revision={revision} project={project} />}
     </section>
   )
 }
