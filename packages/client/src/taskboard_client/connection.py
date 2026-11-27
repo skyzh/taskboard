@@ -14,6 +14,10 @@ BEFORE_DISPATCH = {"INTEGRATION_NOT_FOUND", "INTEGRATION_ACTION_NOT_FOUND", "INV
 APP_REJECTION = {400, 401, 403, 404, 405, 409, 413, 415, 422}
 TEMPORARY_READ_STATUS = {502, 503, 504}
 READ_FAILURE = "Shared read failed. Check the registered app and your Raft session."
+RAFT_BINDING_GUIDANCE = (
+    "Ask the operator to verify the Raft app registration and Taskboard binding. "
+    "After recovery, verify a fresh signed queue read."
+)
 ACTION_RESPONSE = re.compile(r"(?:Error: )?service action failed \(HTTP ([1-5][0-9]{2})\)")
 CORRELATION_ID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
 
@@ -164,6 +168,8 @@ def invocation_failure(result, reply, failure, code, service, action):
         if not isinstance(body, dict):
             body = {}
         explanation = body.get("error")
+        if status == 403 and (body.get("code") == "WRONG_RAFT_CLIENT" or explanation == "WRONG_RAFT_CLIENT"):
+            return RAFT_BINDING_GUIDANCE, status, "raft-client-binding"
         if isinstance(explanation, dict):
             explanation = explanation.get("message")
         for text in (body.get("hint"), explanation):
@@ -267,7 +273,7 @@ class SharedBoard:
                 raise RuntimeError(f"Shared write rejected. {reason}" if reason else unknown)
             raise SharedReadError(
                 f"Shared read failed. {reason}" if reason else unknown,
-                reason=f"http-{status}" if status is not None else category,
+                reason=category or (f"http-{status}" if status is not None else "unclassified"),
                 retryable=status in TEMPORARY_READ_STATUS,
                 carrier=carrier_diagnostic(result, reply, failure, code),
             )

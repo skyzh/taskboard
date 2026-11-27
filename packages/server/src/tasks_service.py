@@ -22,7 +22,7 @@ from urllib.parse import quote, urlencode, urlsplit
 from uuid import UUID
 from zoneinfo import ZoneInfo, available_timezones
 
-from flask import Flask, Response, g, jsonify, redirect, render_template_string, request, send_file, send_from_directory
+from flask import Flask, Response, abort, g, jsonify, redirect, render_template_string, request, send_file, send_from_directory
 from werkzeug.exceptions import NotFound, RequestEntityTooLarge
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
@@ -1037,10 +1037,11 @@ def create_app(
         if "actor" not in g:
             identity = identity_provider() if identity_provider is not None else None
             if identity is None:
-                if (raft is not None and request.method == "GET"
-                        and (request.endpoint or "").startswith("raft_action_")
-                        and raft.identity_temporarily_unavailable()):
-                    raise RequestError("Raft sign-in verification is temporarily unavailable.", 503)
+                if raft is not None and (request.endpoint or "").startswith("raft_action_"):
+                    if (binding_error := raft.client_binding_error()) is not None:
+                        abort(binding_error)
+                    if request.method == "GET" and raft.identity_temporarily_unavailable():
+                        raise RequestError("Raft sign-in verification is temporarily unavailable.", 503)
                 if portal_reader and not (kind or write or required):
                     return None
                 if identity_provider is None:

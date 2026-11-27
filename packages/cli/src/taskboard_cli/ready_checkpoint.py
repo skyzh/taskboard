@@ -13,6 +13,7 @@ from time import monotonic, sleep
 from uuid import UUID, uuid4
 
 from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
+from taskboard_client.connection import RAFT_BINDING_GUIDANCE
 from taskboard_cli.goal_wake import GOAL_PROJECT, GoalWake, GoalWakeState, default_state_path, reminder_title
 from taskboard_cli.shared import assert_actor, task_url
 
@@ -331,10 +332,15 @@ class ReadyReadStopped(RuntimeError):
     def __init__(self, stage, reason):
         self.stage = stage
         self.reason = reason
-        self.guidance = (
-            "Sign in to the registered Tasks app and verify your session with `./tasks --shared context` before restarting."
-            if reason == "http-401" else "Verify the registered app, shared session, and queue access before restarting."
-        )
+        if reason == "raft-client-binding":
+            self.guidance = RAFT_BINDING_GUIDANCE
+        elif reason == "http-401":
+            self.guidance = (
+                "Sign in to the registered Tasks app and verify your session with `./tasks --shared context` before restarting."
+            )
+        else:
+            self.guidance = "Verify the registered app, shared session, and queue access before restarting."
+
         super().__init__(f"Ready watcher stopped during {stage} read ({reason}). {self.guidance}")
 
 
