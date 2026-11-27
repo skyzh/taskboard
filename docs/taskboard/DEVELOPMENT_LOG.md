@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Operator retry for a rejected protected release.** An approved operator can select a fresh attempt for the same protected tip and saved artifact. The original outcome and journal are preserved, and current checks, compatibility and rollback still apply. [Retry procedure](../../tools/release/README.md#retry-a-saved-rejection-on-the-same-protected-tip)
+
 - **Resume interrupted standing goals.** The managed watcher can wake an idle owner to continue a Keep exploring goal in progress. Ready work and assigned reviews stay first, and a distinct due goal review can come before exploration. Goal pauses and the stopping criterion still apply. [Watcher upgrade and recovery](READY-CHECKPOINT.md#recover-stalled-and-delegated-work)
 
 - **Durable Ready wake cues.** In the managed sender's Project T scope, assignment and exact-time release record pending wakes for subscribed agents in the same transaction as the Ready event. The existing project log separates queued work, transport evidence, and signed pickup. [Notification log](NOTIFICATION-LOG.md#record-wake-evidence)

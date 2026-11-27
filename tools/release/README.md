@@ -301,6 +301,32 @@ the final protected-tip check, the checked receipt, and the operator handoff.
 If the failure reached the operator handoff, check the existing operator
 result or activation journal to determine the active release.
 
+### Retry a saved rejection on the same protected tip
+
+The standard timer replays the original recorded outcome for a commit. For a
+separately approved retry, the operator selects one new 32-character lowercase
+hexadecimal attempt ID and records it in the handoff with the full commit.
+Use the reviewed hosted runner with the existing private configuration.
+
+```sh
+python -B tools/release/deploy_hosted.py --config "$operator_config" \
+  --retry-commit "$protected_commit" --attempt-id "$attempt_id"
+```
+
+The commit must still be protected main and have an original rejected outcome,
+with the original active base and saved checked artifact available. The runner
+checks the required GitHub jobs again, refreshes compatibility, and checks the
+protected tip under the release lock. The existing mounted checks and rollback
+apply. A failed retry keeps its own outcome. Reuse the same ID to read back a
+completed retry, and reconcile an interrupted activation with that attempt's
+journal before any further attempt.
+
+The retry uses a distinct result and activation journal with the suffix
+`-retry-<attempt_id>`, and records the original release ID. The original
+result, journal, and hosted build receipt remain available. To read or project
+the retry outcome, include `--attempt-id` with the existing
+`operator_deploy.py --checked-main` read or Activity projection command.
+
 The mounted `GET /api/v1/release` reads the commit, build time and successful
 deploy time for the matching active manifest. Metadata is written after the
 mounted check passes. A rollback leaves the restored version's metadata in

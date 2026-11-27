@@ -17,7 +17,7 @@ from github_main import (
     GitHubRateLimited, read_github, repository_path, require_protected_tip, respect_rate_limit, verify_required_checks,
 )
 from local_queue import queue_lock, write_json
-from operator_deploy import deployment_layout, read_operator_config, run_config
+from operator_deploy import RETRY_ATTEMPT, deployment_layout, read_operator_config, run_config
 from queue_provenance import GIT_COMMIT, SHA256
 from release_compatibility import run_matrix, verify_policy_receipt
 from release_plan import ReleaseRejected, file_hash
@@ -67,9 +67,14 @@ def save_running_release(layout, evidence, outcome):
     })
 
 
-def deploy_once(config, *, tip=git_main_tip, read=read_github, fetch=fetch_commit, operate=run_config):
+def deploy_once(config, *, tip=git_main_tip, read=read_github, fetch=fetch_commit, operate=run_config,
+                retry_commit=None, attempt=None):
     if type(config.get("operator_uid")) is not int or config["operator_uid"] != os.getuid():
         raise ValueError("Run under the existing authorized Taskboard service account.")
+    if (retry_commit is None) != (attempt is None) or (attempt is not None and (
+        GIT_COMMIT.fullmatch(retry_commit) is None or RETRY_ATTEMPT.fullmatch(attempt) is None
+    )):
+        raise ValueError("A retry requires the full protected commit and a 32-character hexadecimal attempt ID.")
     settings = config["github"]
     layout = deployment_layout(config)
     state = Path(config["ci_state"])
@@ -77,12 +82,15 @@ def deploy_once(config, *, tip=git_main_tip, read=read_github, fetch=fetch_commi
     records.mkdir(mode=0o700, parents=True, exist_ok=True)
     with queue_lock(records):
         commit = tip(settings)
-        if release_info(layout.current)["commit"] == commit:
+        if retry_commit is not None and commit != retry_commit:
+            raise ReleaseRejected("The rejected commit is no longer the protected main tip.")
+        if attempt is None and release_info(layout.current)["commit"] == commit:
             return {"commit": commit, "status": "unchanged"}
         rate_limit = records / "github-rate-limit.json"
         try:
             return deploy_changed(config, layout, records, commit,
-                                  read=respect_rate_limit(read, rate_limit), fetch=fetch, operate=operate)
+                                  read=respect_rate_limit(read, rate_limit), fetch=fetch, operate=operate,
+                                  attempt=attempt)
         except GitHubRateLimited as error:
             return {"commit": commit, "status": "rate-limited", "retry_at": error.retry_at}
 
@@ -118,18 +126,30 @@ def record_staged_failure(records, commit, candidate, stage, error):
         print("Could not save the private staged deployment failure receipt.", file=sys.stderr)
 
 
-def deploy_changed(config, layout, records, commit, *, read, fetch, operate):
+def deploy_changed(config, layout, records, commit, *, read, fetch, operate, attempt=None):
     settings = config["github"]
     state = records.parent
     python = config.get("python", sys.executable)
-    checked = records / f"{commit}.json"
+    original_checked = records / f"{commit}.json"
+    checked = original_checked if attempt is None else records / f"{commit}-retry-{attempt}.json"
+    attempt_args = {"attempt": attempt} if attempt is not None else {}
     gate = None if checked.is_file() else verify_required_checks(settings, commit, read)
-    target = operate(config, lambda _: None, checked_main=commit, read_state=True)
+    target = operate(config, lambda _: None, checked_main=commit, read_state=True, **attempt_args)
     outcome = target["outcome"]
     if outcome is None:
         gate = gate or verify_required_checks(settings, commit, read)
-        fetch(Path(config["repo"]), settings, commit)
-        build = build_checked_commit(config["repo"], state, commit, python)
+        if attempt is None:
+            fetch(Path(config["repo"]), settings, commit)
+            build = build_checked_commit(config["repo"], state, commit, python)
+        else:
+            original = target["original"]
+            if target["active"] != original["base"]:
+                raise ReleaseRejected("The active base changed after the rejected release.", "stale_base")
+            if not original_checked.is_file():
+                raise ReleaseRejected("The rejected release has no saved checked build metadata.")
+            build = json.loads(original_checked.read_text(encoding="utf-8"))["build"]
+            if build["commit"] != commit or build["candidate"] != original["candidate"]:
+                raise ReleaseRejected("The saved build does not match the rejected artifact.")
         candidate = build["candidate"]
         artifact = state / "artifacts" / candidate
         stage = "compatibility"
@@ -140,6 +160,11 @@ def deploy_changed(config, layout, records, commit, *, read, fetch, operate):
             matrix = run_matrix(artifact, candidate, predecessor, base, policy, python)
             verify_policy_receipt(matrix, candidate, base, policy, predecessor)
             evidence = {"github": gate, "build": build, "compatibility": matrix}
+
+            def retry_preflight():
+                require_protected_tip(settings, commit, read)
+                verify_policy_receipt(matrix, candidate, base, policy, predecessor)
+
             stage = "transfer"
             with TemporaryDirectory(prefix=".package-", dir=records) as directory:
                 archive = Path(directory) / "release.tar"
@@ -151,7 +176,8 @@ def deploy_changed(config, layout, records, commit, *, read, fetch, operate):
                 with archive.open("rb") as source:
                     stage = "operator_handoff"
                     outcome = operate(config, lambda _: None, checked_main=commit, candidate=candidate,
-                                      base=base, source=source)
+                                      base=base, source=source, **attempt_args,
+                                      **({"preflight": retry_preflight} if attempt is not None else {}))
         except GitHubRateLimited:
             raise
         except Exception as error:
@@ -172,9 +198,11 @@ def deploy_changed(config, layout, records, commit, *, read, fetch, operate):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True, help="Private Pi operator configuration.")
+    parser.add_argument("--retry-commit", help="Exact still-protected main commit with a saved rejection.")
+    parser.add_argument("--attempt-id", help="Explicit attempt ID for this checked retry.")
     args = parser.parse_args()
     try:
-        outcome = deploy_once(read_operator_config(args.config))
+        outcome = deploy_once(read_operator_config(args.config), retry_commit=args.retry_commit, attempt=args.attempt_id)
     except (OSError, KeyError, ValueError, subprocess.SubprocessError) as error:
         parser.exit(1, f"Deploy protected main: {error}\n")
     print(json.dumps(outcome))

@@ -21,7 +21,7 @@ from github_main import GitHubRateLimited, read_github, respect_rate_limit
 from operator_deploy import (
     checked_main_receipt, project_checked_main, read_main_state, receive_checked_main,
 )
-from release_plan import ReleaseLayout, ReleaseRejected, copy_release, file_hash, verify_manifest
+from release_plan import ReleaseLayout, ReleaseRejected, copy_release, file_hash, release_lock, verify_manifest
 from tasks_release_info import release_info
 from watch_main_ci import ACTIONS, API, REPO, WORKFLOW, main as main_ci, poll, public_github_read
 
@@ -342,6 +342,89 @@ class MainReleaseTest(unittest.TestCase):
             self.assertEqual(len(restarts), 3)
             self.assertEqual(fetch.call_count, 2)
             self.assertEqual(json.loads(failure_path.read_text()), failure)
+
+    def test_hosted_retry_preserves_rejection_and_requires_the_same_tip_under_lock(self):
+        layout, base = self.prepare_target()
+        self.ci.write("web/src/title.txt", "Retry the original artifact")
+        commit = self.ci.commit("Update a disposable checked release")
+        responses = self.github_responses(commit)
+        branch = "/repos/fixture/taskboard/branches/main"
+        attempt = "1" * 32
+        retry = "2" * 32
+        restarts = []
+        fetching = Mock()
+
+        def operate(config, _record, *, checked_main, read_state=False, candidate=None, base=None,
+                    source=None, attempt=None, preflight=None):
+            if read_state:
+                return read_main_state(config, layout, checked_main, attempt=attempt)
+            return receive_checked_main(
+                config, layout, checked_main, candidate, base, source, lambda *_: [{
+                    "schema_version": 1, "status": "pass", "manifest_sha256": candidate,
+                    "checks": [{"status": "pass"}],
+                }] if attempt else [], lambda: restarts.append(True),
+                lambda expected: file_hash(layout.current / "SHA256SUMS") == expected,
+                attempt=attempt, preflight=preflight,
+            )
+
+        def deploy(**options):
+            return deploy_once(self.config, tip=lambda _: commit, read=responses.__getitem__,
+                               fetch=fetching, operate=operate, **options)
+
+        with patch("deploy_hosted.run_matrix", return_value={"status": "pass"}) as matrix, (
+            patch("deploy_hosted.verify_policy_receipt")
+        ):
+            original = deploy()
+            self.assertEqual(original["status"], "rejected")
+            original_path = checked_main_receipt(self.config, commit)
+            original_bytes = original_path.read_bytes()
+            checked = self.ci.state / "hosted-deployments" / f"{commit}.json"
+            checked_bytes = checked.read_bytes()
+            self.assertEqual(deploy(), original)
+            self.assertEqual(matrix.call_count, 1)
+            fetching.assert_called_once()
+            self.assertEqual(restarts, [])
+
+            requests = []
+
+            def advance_after_handoff(path):
+                if path == branch:
+                    requests.append(path)
+                    if len(requests) == 3:
+                        with self.assertRaisesRegex(ReleaseRejected, "Another release"):
+                            with release_lock(layout):
+                                self.fail("The retry did not hold the release lock.")
+                        return {**responses[branch], "commit": {"sha": "f" * 40}}
+                return responses[path]
+
+            superseded = deploy_once(
+                self.config, tip=lambda _: commit, read=advance_after_handoff, fetch=fetching,
+                operate=operate, retry_commit=commit, attempt=attempt,
+            )
+            self.assertEqual(superseded["status"], "rejected")
+            self.assertIn("exact protected GitHub main tip", superseded["reason"])
+            self.assertEqual(file_hash(layout.current / "SHA256SUMS"), base)
+            self.assertFalse(checked_main_receipt(self.config, commit, attempt).with_suffix(".activation").exists())
+            self.assertEqual(deploy(retry_commit=commit, attempt=attempt), superseded)
+            self.assertEqual(restarts, [])
+            self.assertEqual(original_path.read_bytes(), original_bytes)
+            with self.assertRaisesRegex(ReleaseRejected, "no longer the protected main tip"):
+                deploy_once(self.config, tip=lambda _: "f" * 40, read=Mock(), operate=Mock(),
+                            retry_commit=commit, attempt=retry)
+
+            result = deploy(retry_commit=commit, attempt=retry)
+            self.assertEqual((result["status"], result["candidate"], result["retry_of"]),
+                             ("released", original["candidate"], original["release_id"]))
+            retry_path = checked_main_receipt(self.config, commit, retry)
+            retry_bytes = retry_path.read_bytes()
+            self.assertEqual(deploy(retry_commit=commit, attempt=retry), result)
+            self.assertEqual(retry_path.read_bytes(), retry_bytes)
+            self.assertEqual(original_path.read_bytes(), original_bytes)
+            self.assertEqual(checked.read_bytes(), checked_bytes)
+            self.assertEqual(matrix.call_count, 3)
+            self.assertEqual(restarts, [True])
+            self.assertEqual(deploy(), {"commit": commit, "status": "unchanged"})
+            fetching.assert_called_once()
 
     def test_staged_failure_receipt_uses_the_invocation_and_omits_command_details(self):
         layout, before = self.prepare_target()

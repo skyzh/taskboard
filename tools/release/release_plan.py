@@ -154,10 +154,13 @@ def run_fixture_release(root, artifact, entry, restart, healthy, journal=None):
     return run_release(layout, artifact, entry, restart, healthy, journal)
 
 
-def run_release(layout, artifact, entry, restart, healthy, journal=None, *, require_review=True, slots=None):
+def run_release(layout, artifact, entry, restart, healthy, journal=None, *, require_review=True, slots=None,
+                preflight=None):
     if slots is not None and journal is None:
         raise ValueError("A two-slot release needs an activation journal.")
     with release_lock(layout):
+        if preflight is not None:
+            preflight()
         return release_locked(layout, artifact, entry, restart, healthy, journal,
                               require_review=require_review, slots=slots)
 
