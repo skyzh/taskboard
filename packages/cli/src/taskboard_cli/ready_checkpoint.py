@@ -235,6 +235,9 @@ def run_handler(command, offer):
         raise ValueError("The offer handler must return a JSON decision.") from error
 
 
+MINIMUM_CONFIRMED_IDLE_SECONDS = 30
+
+
 def watch_idle(board, owner, is_idle, notify, duration, interval=10, idle_delay=0):
     """Wait for an explicitly idle agent and deliver one deduplicated offer."""
     deadline = monotonic() + duration
@@ -263,17 +266,19 @@ def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_d
         except SharedReadError:
             raise
         except RuntimeError:
-            if not idle_delay:
-                raise
             idle = False
         now = monotonic()
-        if not idle:
+        if idle is not True:
             idle_since = None
             return False
         if idle_since is None:
             idle_since = now
         observed_idle = now - idle_since
-        return now < deadline and observed_idle >= idle_delay
+        return (
+            now < deadline
+            and observed_idle > MINIMUM_CONFIRMED_IDLE_SECONDS
+            and observed_idle >= idle_delay
+        )
 
     while monotonic() < deadline:
         if can_wake():
@@ -346,7 +351,8 @@ class ReadyReadStopped(RuntimeError):
         super().__init__(f"Ready watcher stopped during {stage} read ({reason}). {self.guidance}")
 
 
-def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_delay=10, *, observe_status=None,
+def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
+                      idle_delay=MINIMUM_CONFIRMED_IDLE_SECONDS, *, observe_status=None,
                       notify_stalled=None, goal_state=None, notify_goal=None, report_health=None, measure_status=True):
     """Wake for new Ready work, then check recovery paths during Idle."""
     try:
@@ -792,7 +798,10 @@ def main(*, managed_child=False):
     parser.add_argument("--goal-state", type=Path, help="Reuse an existing private Project T cue state file instead of the default.")
     parser.add_argument("--report-runtime", metavar="PROJECT", help="Opt in to signed runtime samples for this project.")
     parser.add_argument("--report-status", metavar="PROJECT", help="Report redacted watcher health to this project.")
-    parser.add_argument("--idle-delay-seconds", type=int, help="Require this much observed idle time before a Ready wake.")
+    parser.add_argument(
+        "--idle-delay-seconds", type=int,
+        help="Require a longer observed Idle delay for watcher cues. All work cues require more than 30 seconds.",
+    )
     parser.add_argument("--idle-handoff", type=UUID, help="Stable runner UUID for an explicit idle goal offer.")
     parser.add_argument("--channel", help="Raft conversation anchoring the watcher.")
     parser.add_argument("--message-id", help="Raft message anchoring the watcher.")
@@ -860,7 +869,8 @@ def main(*, managed_child=False):
                 try:
                     watch_ready_count(
                         board, args.by, raft_idle, notify_count, emit,
-                        idle_delay=10 if args.idle_delay_seconds is None else args.idle_delay_seconds,
+                        idle_delay=(MINIMUM_CONFIRMED_IDLE_SECONDS if args.idle_delay_seconds is None
+                                    else args.idle_delay_seconds),
                         observe_status=observe, measure_status=args.measure,
                         notify_stalled=notify_stalled,
                         goal_state=args.goal_state, notify_goal=notify_goal, report_health=health,

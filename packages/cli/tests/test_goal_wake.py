@@ -5,7 +5,7 @@ from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from taskboard_cli.goal_wake import GoalWake, GoalWakeState, reminder_title
 from taskboard_cli.ready_checkpoint import offer_stalled_work, watch_ready_count
@@ -229,15 +229,21 @@ class GoalWakeTest(unittest.TestCase):
         log = []
         ready_wakes = []
         goal_wakes = []
+        clock = 0
+
+        def sleep_for(seconds):
+            nonlocal clock
+            clock += seconds
+            self.assertLess(clock, 100)
 
         def notify_ready(notice, can_wake):
             self.assertTrue(can_wake())
-            ready_wakes.append(notice["ready_count"])
+            ready_wakes.append((clock, notice["ready_count"]))
             return "wake-requested"
 
         def notify_goal(offer, can_wake, record):
             self.assertTrue(can_wake())
-            goal_wakes.append(offer["task"])
+            goal_wakes.append((clock, offer["task"]))
             record("#00110022")
             return "wake-requested"
 
@@ -251,10 +257,16 @@ class GoalWakeTest(unittest.TestCase):
                 self.assertEqual((event["owner"], event["reminder"]), (OWNER, "#00110022"))
                 raise KeyboardInterrupt
 
-        with self.assertRaises(KeyboardInterrupt):
-            watch_ready_count(board, OWNER, lambda _: True, notify_ready, observe, interval=0, idle_delay=0,
+        with (
+            patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+            patch("taskboard_cli.ready_checkpoint.sleep", side_effect=sleep_for),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            watch_ready_count(board, OWNER, lambda _: True, notify_ready, observe, interval=10, idle_delay=0,
                               goal_state=self.path, notify_goal=notify_goal)
-        self.assertEqual((ready_wakes, goal_wakes, log), ([1], ["T-15"], ["wake-requested", "goal-wake-requested"]))
+        self.assertEqual(ready_wakes, [(40, 1)])
+        self.assertEqual(goal_wakes, [(80, "T-15")])
+        self.assertEqual(log, ["wake-requested", "goal-wake-requested"])
         self.assertIsNone(self.open_state().select(board.current))
 
     def test_state_file_stays_private_and_is_tied_to_the_signed_board_and_owner(self):
