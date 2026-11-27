@@ -191,7 +191,7 @@ export default function AssigneePage({ owner, section, revision, project, allPro
   const milestones = entry.milestones || []
   const projectGoals = entry.project_goals || []
   const choices = projects.filter(item => entry.projects?.includes(item.prefix))
-  const showPostboard = agentReport && viewer && !allProjects && choices.some(item => item.prefix === project)
+  const showPostboard = agentReport && !allProjects && entry.postboard_available
   const projectNames = new Map(choices.map(item => [item.prefix, item.title]))
   const showMilestones = milestones.length > 0 || canEditGoal
   const showStandingGoal = Boolean(entry.standing_goal || canEditGoal)

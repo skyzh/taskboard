@@ -88,7 +88,7 @@ _ACTIONS = {
     "dri-postboard-history": _Action("GET", "Read the revisions of a DRI's postboard in one project.", {
         "project": "Explicit project prefix.", "dri": "Exact DRI ledger key.",
     }, _PAGINATION),
-    "save-dri-postboard": _Action("POST", "Append a revision to your own enabled postboard.", {
+    "save-dri-postboard": _Action("POST", "Append a revision to your own project postboard.", {
         "project": "Explicit project prefix.", "content": "Markdown including optional Mermaid.",
         "source_ticket_ids": "JSON array of source ticket keys.",
         "expected_revision_id": "Current revision ID. Send an empty string for the first save.",
