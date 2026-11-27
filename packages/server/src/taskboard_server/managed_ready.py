@@ -83,6 +83,10 @@ class _IdleGateClosed(RuntimeError):
     pass
 
 
+class _PilotCueChanged(RuntimeError):
+    pass
+
+
 class _Unauthorized(RuntimeError):
     pass
 
@@ -158,7 +162,7 @@ class ManagedReadySender:
         if current[6] != saved["subscription"]:
             raise GrantStopped("subscription_stopped")
 
-    def _candidate(self, saved):
+    def _candidate(self, saved, *, pending_only=False):
         with tasks_storage.read(self.db):
             self._check_subscription(saved)
             if _latest(self.db) < (saved["attempt_event"] or saved["through_event"]):
@@ -167,9 +171,13 @@ class ManagedReadySender:
                 ledger.current_tasks_sql(self.db) + """
                 WHERE tasks.dri = ? AND tasks.project_prefix = ? AND events.state = 'ready'
                   AND events.id > ? AND (? IS NULL OR events.id = ?)
+                  AND (NOT ? OR EXISTS (
+                    SELECT 1 FROM wake_log
+                    WHERE source_event_id = events.id AND recipient = tasks.dri AND acceptance = 'pending'
+                  ))
                 ORDER BY events.id LIMIT 1
                 """,
-                (saved["owner"], _PROJECT, saved["through_event"], self.event_id, self.event_id),
+                (saved["owner"], _PROJECT, saved["through_event"], self.event_id, self.event_id, pending_only),
             ).fetchone()
 
     def _finish(self, event, *, retry_at=0):
@@ -270,7 +278,9 @@ class ManagedReadySender:
             preflight()
             if self.idle_gate is not None:
                 idle = self.idle_gate.eligible(final=True)
-                preflight()
+                current = self._candidate(saved, pending_only=True)
+                if current is None or current["event_id"] != event:
+                    raise _PilotCueChanged
                 if not idle:
                     raise _IdleGateClosed
             status, payload = self.grant.event_transport(request)
@@ -293,7 +303,7 @@ class ManagedReadySender:
                     tuple(saved[key] for key in ("attempt_event", "attempts", "first_attempt", "retry_at", "renewed")),
                 )
             return "awaiting_idle", event
-        except (ReadyWakeEventChanged, ReadyWakeOwnerChanged):
+        except (ReadyWakeEventChanged, ReadyWakeOwnerChanged, _PilotCueChanged):
             outcome = "superseded"
         except _Unauthorized:
             if renewed:

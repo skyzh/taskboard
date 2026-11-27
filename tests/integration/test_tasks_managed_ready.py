@@ -261,10 +261,11 @@ class ManagedSenderTest(unittest.TestCase):
                                  identity=self.identity, transport=self.provider, clock=lambda: self.now,
                                  jitter=lambda: 0)
 
-    def tick(self, grant=None, *, idle_gate=None):
+    def tick(self, grant=None, *, idle_gate=None, event_id=None):
         with closing(open_sqlite(self.ledger)) as db, locked_state(self.state, self.ledger) as state:
             return ManagedReadySender(
-                db, state, self.scope, grant or self.grant(), clock=lambda: self.now, idle_gate=idle_gate,
+                db, state, self.scope, grant or self.grant(), clock=lambda: self.now,
+                idle_gate=idle_gate, event_id=event_id,
             ).tick()
 
     def receipts(self):
@@ -400,6 +401,34 @@ class ManagedSenderTest(unittest.TestCase):
         self.assertEqual(self.calls(), ["agent", "token"])
         self.assertEqual(self.outcomes(), [(ready, "pending")])
         self.assertEqual(self.tick(self.grant(), idle_gate=gate), ("subscription_stopped", None))
+
+    def test_sampled_idle_yields_to_signed_start_during_final_read(self):
+        self.baseline()
+        ready = self.create()["event"]
+        offer = offer_work(self.board, self.owner)
+        self.assertEqual(offer["ready_event"], ready)
+        origin = self.now
+        grant = self.grant()
+        reads = []
+
+        def status():
+            reads.append(self.now - origin)
+            if reads[-2:] == [40, 40]:
+                self.board.invoke("advance-task", {
+                    "id": offer["task"], "transition": "start", "note": "Take the cue from signed Inbox.",
+                }, write=True)
+            return "idle"
+
+        gate = SampledIdleGate(status, clock=lambda: self.now - origin)
+        for elapsed in (0, 10, 20, 30):
+            self.now = origin + elapsed
+            self.assertEqual(self.tick(grant, idle_gate=gate, event_id=ready), ("awaiting_idle", ready))
+        self.now = origin + 40
+        self.assertEqual(self.tick(grant, idle_gate=gate, event_id=ready), ("superseded", ready))
+        self.assertEqual(reads, [0, 10, 20, 30, 40, 40])
+        self.assertEqual(disposition(self.board, self.owner, offer), "started")
+        self.assertEqual(self.calls(), ["agent", "token"])
+        self.assertEqual(self.outcomes(), [(ready, "pending")])
 
     def test_reopens_state_after_lost_reply_and_uses_the_same_event_id(self):
         old = self.create()

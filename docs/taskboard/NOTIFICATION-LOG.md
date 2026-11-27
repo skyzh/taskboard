@@ -234,8 +234,9 @@ The foreground command samples current availability about every ten seconds
 for up to five minutes of polling. It requires more than thirty seconds from
 the first explicit Idle sample and another explicit Idle read just before
 transport. A missed poll (20 seconds or more between observations), an
-ambiguous or failed read, or a restart resets the window. The sender rechecks
-the signed subscription after the final availability read.
+ambiguous or failed read, or a restart resets the window. After the final
+availability read, the sender verifies the subscription and confirms the
+same owner, current Ready event and Pending receipt.
 Between-sample transitions can be missed, and the recipient can become busy
 after the final read.
 
