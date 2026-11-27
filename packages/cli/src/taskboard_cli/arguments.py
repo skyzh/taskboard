@@ -468,6 +468,15 @@ def arguments(argv=None):
         subscription.add_argument("--project", type=nonblank, help="Project prefix. Defaults to the board’s default project.")
         if action != "wake-subscriptions":
             subscription.add_argument("event_type", choices=("owned-ready",), help="Wake when a task you own becomes Ready.")
+    commands.add_parser("cue-pauses", help="Read your active watcher cue pauses in shared mode.")
+    cue_pause = commands.add_parser("cue-pause", help="Pause or clear a watcher cue on your ticket in shared mode.")
+    cue_pause.add_argument("id", type=task_id)
+    cue_pause.add_argument("kind", choices=("stalled", "goal"))
+    cue_expiry = cue_pause.add_mutually_exclusive_group(required=True)
+    cue_expiry.add_argument("--until", type=nonblank, help="Expiry in UTC, such as 2026-11-27T10:45:00Z.")
+    cue_expiry.add_argument("--minutes", type=nonblank, help="Pause for this many minutes.")
+    cue_expiry.add_argument("--clear", action="store_true", help="Clear this cue pause early.")
+    cue_pause.add_argument("--reason", type=nonblank, help="Required when setting a pause.")
     reviews = commands.add_parser("reviews", help="List your actionable review assignments across projects.")
     reviews.add_argument("--project", type=nonblank, help="Limit to one project prefix.")
     channel_show = commands.add_parser("raft-channel-show", help="Show your project's Raft coordination channel.")
@@ -693,6 +702,8 @@ def arguments(argv=None):
         parser.error("Use --shared capabilities for shared agent commands.")
     if (getattr(args, "standing_pass", False) or getattr(args, "criterion_met", False)) and args.mode != "shared":
         parser.error("Record a standing-goal pass with --shared.")
+    if args.command == "cue-pause" and bool(args.reason) != bool(args.until or args.minutes):
+        parser.error("Provide --reason with --minutes or --until.")
     if args.command == "save-goal":
         if args.criterion is not None and not args.keep_exploring:
             parser.error("--criterion requires --keep-exploring.")
@@ -700,6 +711,7 @@ def arguments(argv=None):
             parser.error("Exploration settings require an active standing goal summary.")
     if args.command in {
         "raft-channel-show", "raft-channel-set", "wake-subscriptions", "wake-subscribe", "wake-unsubscribe",
+        "cue-pauses", "cue-pause",
         "knowledge-add", "knowledge-areas", "knowledge-assign", "knowledge-sweep", "knowledge-place",
         "knowledge-stage", "knowledge-reconcile", "record-merge", "agent-usage", "api-usage", "project-access", "ticket-recurrence",
     } and args.mode != "shared":

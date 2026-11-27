@@ -1,11 +1,12 @@
 """Replay a goal wake and completion with the signed board and a disposable carrier."""
 
+import os
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
 import test_tasks_service
-from taskboard_cli.goal_wake import GoalWake, GoalWakeState, reminder_title
+from taskboard_cli.goal_wake import GoalWake, GoalWakeState, default_state_path, reminder_title
 from test_tasks_idle_offer import SignedBoard
 
 
@@ -77,6 +78,29 @@ class GoalWakeReplay(unittest.TestCase):
         self.assertEqual(another["task"], standing)
         self.assertNotEqual(another["goal_key"], cue["goal_key"])
 
+
+    def test_default_goal_state_keeps_one_cue_after_pause_expires(self):
+        self.board.invoke("save-goal", {"kind": "standing", "summary": "Review fictional handoffs."}, write=True)
+        standing = self.board.invoke("my-goals")["standing_goal"]["ticket"]
+        due = "2030-04-01T19:30:00Z"
+        with patch.dict(os.environ, {"XDG_STATE_HOME": str(self.service.database.parent)}):
+            self.state = default_state_path(self.origin, self.owner, "T")
+            self.assertNotEqual(self.state, default_state_path(self.origin, "different-owner", "T"))
+            with patch("tasks_core.timestamp", return_value="2030-04-01T19:00:00Z"):
+                cue = self.watcher().lookup()
+                self.board.invoke("set-cue-pause", {
+                    "id": standing, "kind": "goal", "reason": "Collect the worker's review.", "until": due,
+                }, write=True)
+                self.assertIsNone(self.watcher().lookup())
+                self.assertIsNone(self.watcher().notify({**cue, "board": self.origin}, lambda: True, self.carrier))
+            with patch("tasks_core.timestamp", return_value=due):
+                watcher = self.watcher()
+                current = watcher.lookup()
+                self.assertEqual(current, cue)
+                self.assertEqual(watcher.notify({**current, "board": self.origin}, lambda: True, self.carrier),
+                                 "goal-wake-requested")
+                self.assertIsNone(self.watcher().lookup())
+        self.assertEqual(len(self.reminders), 1)
 
     def test_standing_pass_before_review_time_counts_for_the_pacific_day(self):
         self.board.invoke("save-goal", {"kind": "standing", "summary": "Improve fictional handoffs"}, write=True)

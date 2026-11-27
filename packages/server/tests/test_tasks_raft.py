@@ -66,6 +66,8 @@ class RaftActionRoutesTest(unittest.TestCase):
             "report-watcher-health": ("POST", "state stalled goals", "project revision"),
             "my-goal-cues": ("GET", "", "project include_timed"),
             "set-goal-review-time": ("POST", "id time", ""),
+            "my-cue-pauses": ("GET", "", ""),
+            "set-cue-pause": ("POST", "id kind", "until minutes reason"),
             "my-wake-subscriptions": ("GET", "", "project"),
             "set-wake-subscription": ("POST", "event_type enabled", "project"),
             "save-goal": ("POST", "kind summary", "deadline milestone tickets project keep_exploring stopping_criterion"),

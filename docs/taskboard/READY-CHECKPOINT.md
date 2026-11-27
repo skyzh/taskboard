@@ -111,7 +111,7 @@ Run `raft proc stop taskboard-ready-pilot` to prevent an unscheduled wake. If a 
 
 ## Recover stalled and delegated work
 
-Add `--wake-stalled` to the existing `--watch-idle --repeat` command when the owner opts in. New Ready work has first priority. An actionable named review can wake its assigned reviewer on the first eligible worker check. After 30 minutes of sampled Raft Idle, the watcher can send one linked follow-up for a runnable In progress step, a peer ask the agent has started, or a running worker record. Scheduled checks and blocked, parked, or finished work keep their existing triggers. The watcher rechecks the signed step or worker and Idle before scheduling. Scheduled and retained fired reminders deduplicate by ticket event or worker run and phase.
+The managed repeat watcher enables Ready, stalled work and goal cues by default. New Ready work has first priority. An actionable named review can wake its assigned reviewer on the first eligible worker check. After 30 minutes of sampled Raft Idle, the watcher can send one linked follow-up for a runnable In progress step, a peer ask the agent has started, or a running worker record. Scheduled checks and blocked, parked, or finished work keep their existing triggers. The watcher rechecks the signed step or worker and Idle before scheduling. Scheduled and retained fired reminders deduplicate by ticket event or worker run and phase.
 
 Use a linked peer ask to hand a runnable step to a named Raft agent while retaining ownership of the source ticket. The peer's watcher follows their Ready and In progress request. For an ordinary worker assignment, record the actual launch and handle on the worker run. A named Raft worker gets its own follow-up after launch. For a Codex subagent inside the coordinator's session, record the coordinator as the worker and use `worker-start W-… HANDLE --subagent` with the actual Codex run handle. The coordinator's wake links the `W-` record, where they can find the handle, check the existing run, and collect a result or record the next step. Use the current task and run status before starting anything.
 
@@ -127,12 +127,28 @@ An explicit checkpoint takes the place of the automatic 30-minute follow-up for 
 The first two commands each replace the previous checkpoint. Changes appear in the source ticket's Activity. Use `--show` to inspect the current setting and `--clear` to return the run to the automatic follow-up rule. Associate the watcher with your own signed account and leave it running while you can receive work.
 
 1. Update the board and the watcher checkout. Confirm your signed identity with `./tasks --shared context`. Record the existing job name, flags, and Raft anchor. Check `raft proc list` and `raft reminder list` before changing the job. The new watcher can still recover owned tickets with an older board. Delegated worker wakes begin after the board upgrade.
-2. Stop the existing owned watcher and start one from the updated checkout with `--wake-stalled`. Remove an explicit `--idle-delay-seconds 120` to use the faster Ready default. Check the process list again. Verify the real Ready event, received cue and matching Start separately. A usage receipt is needed to measure cached input.
+2. Replace the existing running watcher from the updated checkout with the same job name, anchor, explicit delay and other options. Leave an intentionally stopped watcher stopped. Check the process list again. Verify the real Ready event, received cue and matching Start separately. A usage receipt is needed to measure cached input.
 3. To roll back, stop the trial watcher and restore the previous checkout and options. Keep the same job name and anchor. Check for a still-scheduled trial reminder and cancel that exact reminder if it is no longer needed.
 
-## Try goal wakes
+## Pause one watcher cue
 
-The repeat watcher can check goals for one opted-in Project T agent. Keep one
+Use the signed CLI to temporarily suppress a stalled follow-up on an In progress ticket you own
+or a review cue on an active goal you own. Give the reason and a duration or an expiry in UTC.
+
+```sh
+./tasks --shared cue-pause T-123 stalled --minutes 30 --reason "Worker is checking the logs"
+./tasks --shared cue-pause T-456 goal --until 2030-04-01T14:00:00Z --reason "Review in progress elsewhere"
+./tasks --shared cue-pauses
+./tasks --shared cue-pause T-123 stalled --clear
+```
+
+A pause survives watcher restarts. The next eligible watcher poll after expiry or early clear
+rechecks the cue with the usual deduplication. Ready work, named review assignments, explicit
+worker checkpoints, ticket state and goal cadence keep their usual behavior.
+
+## Goal wakes
+
+The repeat watcher checks your goals in the board’s default project. Keep one
 watcher and check the agent's actionable Inbox across all projects first. An
 observed drain can surface its standing goal. A configured daily review can
 surface an unchecked goal, and a dated goal gets a separate deadline cue. If
@@ -147,10 +163,10 @@ The goal keeps its normal Parked state until the agent starts the check.
    `./tasks --shared goals --project T` for readback. A completed standing-goal
    pass counts as that Pacific day's review. A dated goal without a review
    time can surface its deadline from 09:00 Pacific on the deadline date.
-3. Replace the existing watcher with the same options plus
-   `--goal-state /absolute/private/path/goal-wakes.sqlite`. Keep the same
-   state across restarts. Start with one enrolled agent and one concrete
-   check. An observed Idle transition alone does not generate another cue.
+3. The watcher creates a private state file under
+   `$XDG_STATE_HOME/taskboard/goal-wakes` (default `~/.local/state/taskboard/goal-wakes`).
+   Preserve an existing `--goal-state` path to keep its Project T wake history. Keep
+   the same state and login across restarts. An Idle transition alone does not generate another cue.
 4. Confirm the exact goal, the reminder result, and the agent's signed Start
    and recorded outcome. Use a received cue for delivery evidence. An
    ambiguous send remains unknown, so check the existing Raft reminder before

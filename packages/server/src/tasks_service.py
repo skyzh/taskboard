@@ -34,6 +34,7 @@ import tasks_codex_usage
 import tasks_core as ledger
 import tasks_browser_push as browser_push
 import tasks_maintenance as maintenance
+import tasks_cue_pauses as cue_pauses
 import tasks_goal_cadence as goal_cadence
 import tasks_goals as goals
 import tasks_goal_offers as goal_offers
@@ -405,6 +406,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     goals.migrate_goal_tickets(db)
     db.execute(goal_cadence.SCHEMA)
     db.execute(watcher_health.SCHEMA)
+    db.execute(cue_pauses.SCHEMA)
     db.execute(goal_offers.SCHEMA)
     db.execute(goal_offers.INDEX)
     db.execute(profiles.IMPORT_SCHEMA)
@@ -489,6 +491,7 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
         goals.migrate_goal_tickets(db)
         db.execute(goal_cadence.SCHEMA)
         db.execute(watcher_health.SCHEMA)
+        db.execute(cue_pauses.SCHEMA)
         db.execute(goal_offers.SCHEMA)
         db.execute(goal_offers.INDEX)
         for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA, *github_webhooks.SCHEMA):
@@ -1199,6 +1202,49 @@ def create_app(
                              record_type="wake_subscription", record_id=f"{project}/{event_type}", at=ledger.timestamp())
             saved = wake_subscriptions.subscriptions(connection, project, owner)
         return {"project": project, "subscriptions": saved, "receipt": f"{project} · Wake subscriptions updated"}
+
+    def watcher_cue_pauses(owner, data, *, write):
+        if not write:
+            pauses = cue_pauses.active(db(), owner, ledger.timestamp())
+            return {"items": [cue_pauses.item(row) for row in pauses
+                              if ring1.visible(db(), row["project_prefix"], owner)]}
+
+        number = task_number(data["id"])
+        kind = text(data, "kind", maximum=8)
+        if kind not in {"goal", "stalled"}:
+            raise RequestError("Choose goal or stalled.")
+        until, minutes = data.get("until"), data.get("minutes")
+        reason = text(data, "reason", optional=True)
+        setting = until is not None or minutes is not None
+        if setting != bool(reason):
+            raise RequestError("Supply both an expiry and a reason when pausing this cue.")
+        if minutes is not None and (until is not None or not re.fullmatch(r"[1-9][0-9]{0,8}", minutes)):
+            raise RequestError("Choose either a positive number of minutes or one UTC expiry.")
+        if until is not None:
+            try:
+                until = tasks_recurring.utc_text(tasks_recurring.utc(until))
+            except ValueError as error:
+                raise RequestError(str(error)) from error
+        with tasks_storage.write(db()) as connection:
+            project = require_visible_task(connection, number)
+            task = ledger.find_task(connection, number)
+            if task is None or task["dri"] != owner:
+                raise RequestError("Choose a ticket you own.", 403)
+            now = ledger.timestamp()
+            if minutes is not None:
+                until = tasks_recurring.utc_text(datetime.fromisoformat(now) + timedelta(minutes=int(minutes)))
+            if setting:
+                if until <= now:
+                    raise RequestError("Choose a future expiry.")
+                if kind == "goal" and (task["state"] == "done" or not ledger.task_goal_kind(connection, number)):
+                    raise RequestError("Choose an active goal you own.")
+                if kind == "stalled" and task["state"] != "in_progress":
+                    raise RequestError("Choose an In progress ticket you own.")
+            cue_pauses.save(connection, number, owner, kind, reason, until)
+            ledger.bump_revision(connection, project)
+            ticket = projects.row_reference(task)
+            return {"ticket": ticket, "kind": kind, "reason": reason, "until": until,
+                    "receipt": f"{ticket} · {kind.capitalize()} cue pause {'saved' if until else 'cleared'}"}
 
     def project_channel(actor, project, data=None):
         if ring1.private(db(), project):
@@ -4422,8 +4468,10 @@ def create_app(
             if next(query().actionable_work(owner, today=pacific_day(now), project=None, include_goal_reviews=False), None):
                 return {"offer": None, "receipt": "Actionable work is available."}
             pacific = datetime.fromisoformat(now).astimezone(PACIFIC)
+            paused = {row["id"] for row in cue_pauses.active(connection, owner, now, "goal")}
             goal = next((row for row in goals.goal_rows(connection, [owner], project, kind="standing")
-                         if row["state"] == "parked" and ring1.visible(connection, row["project_prefix"], actor_key())
+                         if row["state"] == "parked" and row["id"] not in paused
+                         and ring1.visible(connection, row["project_prefix"], actor_key())
                          and goals.exploration_available(connection, row, pacific)), None)
             if goal is None:
                 return {"offer": None, "receipt": "No standing goal is available."}
@@ -4512,6 +4560,7 @@ def create_app(
                 "handoff_recipient_lookup": True,
                 "timed_goal_cues": True,
                 "watcher_health_reports": True,
+                "watcher_cue_pauses": True,
                 "can_create_project": project_admin_access(db(), actor),
                 "default_project": profile["project"] if profile is not None else projects.default_project(db()),
             }
@@ -4563,6 +4612,8 @@ def create_app(
             return project_field_config(actor, project, write=True, fields=fields)
         if name in {"my-wake-subscriptions", "set-wake-subscription"}:
             return agent_wake_subscriptions(actor, data, write=write)
+        if name in {"my-cue-pauses", "set-cue-pause"}:
+            return watcher_cue_pauses(key, data, write=write)
         if name == "idle-goal-offer":
             return idle_goal_offer(key, data)
         if name == "my-next":
@@ -4592,7 +4643,8 @@ def create_app(
                 return result
         if name == "my-goal-cues":
             project = project_filter(data, use_default=True)
-            now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
+            instant = ledger.timestamp()
+            now = datetime.fromisoformat(instant).astimezone(PACIFIC)
             with tasks_storage.read(db()) as connection:
                 board = query()
                 scope = {"today": now.date().isoformat(), "project": project if profile is not None else None,
@@ -4601,9 +4653,15 @@ def create_app(
                 ordinary = work is not None
                 if work and work["kind"] in ("in_progress", "reminder") and ledger.task_goal_kind(connection, work["id"]):
                     ordinary = next(board.actionable_work(key, ordinary_only=True, **scope), None) is not None
-                return goal_cadence.candidates(connection, key, project, now, busy=work is not None,
-                                               ordinary_busy=ordinary,
-                                               include_timed=str(data.get("include_timed", "")).lower() == "true")
+                result = goal_cadence.candidates(connection, key, project, now, busy=work is not None,
+                                                 ordinary_busy=ordinary,
+                                                 include_timed=str(data.get("include_timed", "")).lower() == "true")
+                paused = {projects.row_reference(row) for row in
+                          cue_pauses.active(connection, key, instant, "goal")}
+                result["cues"] = [cue for cue in result["cues"] if cue["ticket"] not in paused]
+                if result["standing"] and result["standing"]["ticket"] in paused:
+                    result["standing"] = None
+                return result
         if name == "set-goal-review-time":
             saved = save_goal_schedule(key, task_number(data.get("id")), None, data.get("time"))
             return {**saved, "receipt": f"{saved['ticket']} · Goal review time {'saved' if saved['review_time'] else 'cleared'}"}
