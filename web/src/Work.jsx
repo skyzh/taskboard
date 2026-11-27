@@ -480,18 +480,23 @@ function RecordActivity({ id, task, activity, knowledge, children }) {
 }
 
 function TicketProgression({ id, record, activity }) {
+  const timelineHeading = useRef(null)
   const events = (activity.data?.items || []).filter(event =>
     isCheckpointActivity(event) || isDecisionActivity(event) || event.goal_review_completed)
     .sort((first, second) => Date.parse(first.at) - Date.parse(second.at) || first.id - second.id)
   return (
     <div className="ticket-progression">
+      <button type="button" className="progression-jump" onClick={() => {
+        timelineHeading.current.focus({ preventScroll: true })
+        timelineHeading.current.scrollIntoView({ block: 'start' })
+      }}>Jump to checkpoints</button>
       <section className="detail-brief" aria-labelledby={`task-description-${id}`}>
         <h2 id={`task-description-${id}`}>Description</h2>
         {record.brief ? <Markdown text={record.brief} className="prose" relatedTasks={record.related_tasks} />
           : <p className="section-message">No description yet.</p>}
       </section>
       <section className="ticket-activity" aria-labelledby={`ticket-progression-${id}`}>
-        <h2 id={`ticket-progression-${id}`}>Progression</h2>
+        <h2 id={`ticket-progression-${id}`} ref={timelineHeading} tabIndex={-1}>Progression</h2>
         <ResourceStatus resource={activity} label="progression" />
         {activity.data && !events.length && !activity.pending && !activity.error && (
           <p className="section-message">{activity.data.next_cursor == null
