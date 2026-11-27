@@ -408,6 +408,8 @@ When the squad is explicitly measuring work and you are starting a watcher, add 
 
 To stop this job, run `raft proc stop taskboard-ready` and check `raft proc list` again. Inspect pending wakes as below.
 
+On a reviewed build that supports managed recovery, add `--restart-once` immediately after `tasks_ready_checkpoint.py` when starting the repeat watcher. It starts one replacement if a stalled-work read returned no reply and the verified owner's recovery alert failed. The replacement uses the same options and checks for existing cues. An intentional stop leaves the job stopped. If the replacement fails in the same way, the job exits with “managed restart exhausted” in its log. To revert, stop the existing managed job, confirm it has exited, and use the prior reviewed launcher and options without `--restart-once`.
+
 ## Hand off a watcher to another Computer
 
 A Raft Computer administrator handles the agent move. Before a planned move, the old session records the shared board and actor, Raft agent ID and server, reviewed source and launcher reference, current ticket or wait, watcher name, and whether it was started with `--measure` on the handoff. Have the old job's owner stop that exact process and confirm it is no longer running.

@@ -272,6 +272,7 @@ STALLED_IDLE_SECONDS = 30 * 60
 FOLLOW_UP_POLL_SECONDS = 30
 STALLED_READ = "stalled work"
 GOAL_READ = "goal cues"
+MANAGED_RESTART = 75
 
 
 class ReadyReadStopped(RuntimeError):
@@ -611,6 +612,7 @@ def recovery_wake(owner, channel, message_id, error, emit):
     else:
         title = "Taskboard Ready watcher stopped on a checker error. Check its Raft job log and verify the signed queue before restarting."
     event = {"kind": "ready-recovery-wake", "at": observation_time()}
+    owner_verified = False
     try:
         reply = json.loads(raft_cli("auth", "whoami"))
         data = reply["data"]
@@ -620,15 +622,17 @@ def recovery_wake(owner, channel, message_id, error, emit):
         if (reply.get("ok") is True and data.get("serverConfirmed") is True and actor_id
                 and agent.get("id") == actor_id
                 and owner.removeprefix("@").casefold() in {name.casefold() for name in names if isinstance(name, str)}):
+            owner_verified = True
             event["outcome"] = wake_with_title(title, channel, message_id, lambda: True, status="scheduled")
         else:
             event["outcome"] = "owner-unconfirmed"
     except (KeyError, TypeError, AttributeError, RuntimeError, ValueError):
         event["outcome"] = "wake-failed"
     emit(event)
+    return owner_verified and event["outcome"] == "wake-failed"
 
 
-def main():
+def main(*, managed_child=False):
     duration = 300
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--by", required=True, help="Expected signed-in Taskboard agent.")
@@ -647,6 +651,8 @@ def main():
     parser.add_argument("handler", nargs=argparse.REMAINDER, help="Command for the runner's offer handler.")
     args = parser.parse_args()
     command = args.handler[1:] if args.handler[:1] == ["--"] else args.handler
+    if managed_child and not (args.watch_idle and args.repeat):
+        parser.error("Use --restart-once with --watch-idle --repeat.")
     if args.measure and not (args.watch_idle and args.repeat):
         parser.error("Use --measure only with --watch-idle --repeat.")
     if args.wake_stalled and not (args.watch_idle and args.repeat):
@@ -710,7 +716,11 @@ def main():
                         health("exited")
                     # SharedBoard preserves an interrupted signed read as a read error.
                     if not (isinstance(error, ReadyReadStopped) and error.reason == "interrupted"):
-                        recovery_wake(args.by, args.channel, args.message_id, error, emit)
+                        alert_failed = recovery_wake(args.by, args.channel, args.message_id, error, emit)
+                        if (managed_child and alert_failed and isinstance(error, ReadyReadStopped)
+                                and (error.stage, error.reason) == (STALLED_READ, "carrier-no-reply")):
+                            print(f"ready checkpoint: {error}", file=sys.stderr)
+                            return MANAGED_RESTART
                     raise
             else:
                 watch = watch_two_pickups if args.two_pickups else watch_idle

@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from taskboard_client import SharedBoard, SharedReadError
 from taskboard_cli.ready_checkpoint import (
+    MANAGED_RESTART, STALLED_READ, ReadyReadStopped,
     checkpoint, main, measured_idle, raft_idle, raft_ready_count, raft_stalled_work, raft_status, raft_wake,
     run_handler, watch_idle, watch_ready_count, watch_two_pickups, watcher_reporter,
 )
@@ -938,6 +939,31 @@ class ReadyCheckpointTest(unittest.TestCase):
             raft.assert_not_called()
             self.assertEqual([json.loads(line)["kind"] for line in log.getvalue().splitlines()],
                              ["ready-read-retry", "ready-read-recovered"])
+
+    def test_managed_restart_requires_a_stalled_read_and_a_verified_failed_alert(self):
+        argv = ["ready-checkpoint", "--watch-idle", "--repeat", "--by", "Avery",
+                "--channel", "#example", "--message-id", "12345678"]
+        auth = json.dumps({"ok": True, "data": {"serverConfirmed": True, "agentId": "fixture-agent",
+                                               "agent": {"id": "fixture-agent", "name": "Avery"}}})
+        failed_alert = [auth, "", RuntimeError("alert failed")]
+        for managed, stage, reason, replies, expected in (
+            (True, STALLED_READ, "carrier-no-reply", failed_alert, MANAGED_RESTART),
+            (False, STALLED_READ, "carrier-no-reply", failed_alert, 1),
+            (True, "eligible queue", "carrier-no-reply", failed_alert, 1),
+            (True, STALLED_READ, "http-401", failed_alert, 1),
+            (True, STALLED_READ, "carrier-no-reply", [auth, "", "Scheduled"], 1),
+            (True, STALLED_READ, "carrier-no-reply", [RuntimeError("auth failed")], 1),
+        ):
+            with (
+                self.subTest(managed=managed, stage=stage, reason=reason, replies=replies),
+                patch.object(sys, "argv", argv),
+                patch.object(sys, "stdout", new_callable=StringIO),
+                patch.object(sys, "stderr", new_callable=StringIO),
+                patch("taskboard_cli.ready_checkpoint.SharedBoard", return_value=self.avery),
+                patch("taskboard_cli.ready_checkpoint.watch_ready_count", side_effect=ReadyReadStopped(stage, reason)),
+                patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=replies),
+            ):
+                self.assertEqual(main(managed_child=managed), expected)
 
     def test_interrupting_a_signed_carrier_read_exits_without_recovery_wake(self):
         argv = ["ready-checkpoint", "--watch-idle", "--repeat", "--by", "Avery",
