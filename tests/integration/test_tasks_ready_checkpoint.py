@@ -1411,3 +1411,30 @@ class ReadyCheckpointTest(unittest.TestCase):
                     self.assertEqual(wake_with_title(current, "#example", "12345678", self.fail,
                                                      previous_title=previous), "already-queued")
                     self.assertEqual(invoke.call_count, 1)
+
+    def test_worker_cues_finish_the_signed_handoff_and_recheck_inbox(self):
+        offer = {"task": "T-5", "task_id": 5, "worker_run": 9, "board": "https://example.test/tasks/"}
+        cases = (
+            ("planned", {}, "Start the assigned review or record the blocker.", "return the verdict"),
+            ("reported", {"check_mode": "report", "check_event": 12},
+             "A signed report is ready. Read it and record what you applied.", "collect the signed report"),
+            ("running", {"coordinator": True}, "Check the existing run handle. Collect the result or record the next step.",
+             "Collect the result or record what blocks it"),
+            ("running", {"coordinator": False}, "Check your existing run. Continue or report the blocker.",
+             "Finish the assigned work on your existing run"),
+        )
+        for status, fields, previous, outcome in cases:
+            with self.subTest(status=status, fields=fields):
+                notice = {**offer, "worker_status": status, **fields}
+                check = " (check 12)" if "check_event" in fields else ""
+                identity = f"Taskboard {status} worker W-9{check} on T-5. Open https://example.test/tasks/#task-5."
+                receipt = f'#123 [scheduled] "{identity} {previous}" ref=#fixture\n'
+                with patch("taskboard_cli.ready_checkpoint.raft_cli", return_value=receipt) as carrier:
+                    self.assertEqual(raft_stalled_work(notice, "#fixture", "anchor", self.fail), "already-queued")
+                    self.assertEqual(carrier.call_count, 1)
+                with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", "Scheduled"]) as carrier:
+                    self.assertEqual(raft_stalled_work(notice, "#fixture", "anchor", lambda: True), "wake-requested")
+                    title = carrier.call_args.args[3]
+                    self.assertTrue(title.startswith(identity))
+                    self.assertIn(outcome, title)
+                    self.assertIn("Recheck signed Inbox", title)

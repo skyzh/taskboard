@@ -675,16 +675,24 @@ def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None)
     url = task_url(offer["board"], {"key": offer["task"], "id": offer["task_id"]})
     if "worker_run" in offer:
         run = f"W-{offer['worker_run']}"
+        ticket = offer["task"]
         if offer["worker_status"] == "planned":
-            instruction = "Start the assigned review or record the blocker."
+            previous = "Start the assigned review or record the blocker."
+            instruction = f"Finish the assigned review for {ticket} and return the verdict, or record the blocker and next check."
         elif offer.get("check_mode") == "report":
-            instruction = "A signed report is ready. Read it and record what you applied."
+            previous = "A signed report is ready. Read it and record what you applied."
+            instruction = "Read and collect the signed report. Record what you applied or what blocks collection."
         elif offer["coordinator"]:
-            instruction = "Check the existing run handle. Collect the result or record the next step."
+            previous = "Check the existing run handle. Collect the result or record the next step."
+            instruction = "Check the existing run handle. Collect the result or record what blocks it and when to recheck."
         else:
-            instruction = "Check your existing run. Continue or report the blocker."
+            previous = "Check your existing run. Continue or report the blocker."
+            instruction = "Finish the assigned work on your existing run and report the result or blocker."
         checkpoint = f" (check {offer['check_event']})" if offer.get("check_event") else ""
-        title = f"Taskboard {offer['worker_status']} worker {run}{checkpoint} on {offer['task']}. Open {url}. {instruction}"
+        identity = f"Taskboard {offer['worker_status']} worker {run}{checkpoint} on {ticket}. Open {url}."
+        title = f"{identity} {instruction} {_RECHECK_INBOX}"
+        return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake,
+                               previous_title=f"{identity} {previous}")
     else:
         ticket = offer["task"]
         event = offer["event_id"]
@@ -700,7 +708,6 @@ def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None)
                   f"List with ./tasks --shared cue-pauses or clear with ./tasks --shared cue-pause {ticket} stalled --clear.")
         return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake,
                                title_prefix=f"{identity}Open {url} ", retry_outstanding=offer.get("requires_disposition", False))
-    return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake)
 
 
 def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fired", *, record_wake=None, ready_event=None,
