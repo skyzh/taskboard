@@ -29,7 +29,7 @@ _WORK_STEPS = {
     "goal_review": "Start the linked goal and record one concrete review outcome on it.",
     "in_progress": _CONTINUE_WORK,
     "review": (
-        "Finish the assigned review and return the verdict with evidence. "
+        "Read the review brief and check the specified revision or evidence. Finish the review and return the verdict. "
         "If blocked, record what you still need and who can provide it or when to recheck. Recheck signed Inbox."
     ),
     "report": "Read the worker's result and evidence before collecting the report.",
@@ -73,8 +73,9 @@ _DEFAULTS = {
     "next-selected": "Open the selected ticket and check its current step.",
     "next-empty": "Check any other project queues and assigned reviews before ending the turn.",
     "ready-review": (
-        "Finish the offered ticket and record the verified outcome. If blocked, record what remains, "
-        "who can act or when to recheck. Arrange independent review when the user asks or the project requires it. "
+        "Finish the offered ticket or record the blocker and who can act or when to recheck. "
+        "Verify the result and record the checked revision and evidence. You can review ordinary work yourself. "
+        "Arrange independent review when the user asks for it or your project requires it. "
         "Recheck signed Inbox and follow the saved mode if it offers a goal."
     ),
     "standing-exploration": goals.STANDING_EXPLORATION,
@@ -186,7 +187,7 @@ _PROMPTS = {
         "prompt": (
             "Check signed Taskboard Inbox and finish higher-priority tickets or record their blockers first. "
             "Open the offered goal and record one concrete outcome from a bounded check. "
-            "Suggest one next action based on evidence and name its owner or what will unblock it. "
+            "Suggest one concrete next action based on evidence and name its owner or what will unblock it. "
             "Recheck Inbox and follow the goal’s saved exploration mode, stop condition and review schedule."
         ),
     },

@@ -6684,9 +6684,9 @@ class TasksServiceTest(unittest.TestCase):
         code, output, errors = self.shared_cli(reviewer, "next")
         self.assertEqual((code, errors), (0, ""))
         self.assertIn("Independent review", output)
-        self.assertTrue(output.rstrip().endswith(
-            "Next: Read the review brief and check the specified revision or evidence."
-        ))
+        self.assertIn("Next: Read the review brief and check the specified revision or evidence.", output)
+        self.assertIn("Finish the review and return the verdict.", output)
+        self.assertTrue(output.rstrip().endswith("Recheck signed Inbox."))
 
     def test_shared_cli_missing_merge_sha_fails_before_dispatch_and_valid_timeout_needs_readback(self):
         app = self.app(portal_reader=True)

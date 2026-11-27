@@ -70,11 +70,11 @@ active goal. An idle agent needs an opted-in watcher for an automatic cue.
 When signed work supplies a workflow prompt, follow it at pickup. The project’s
 effective wording takes precedence over these public defaults.
 
-**Ready pickup.** Finish the offered ticket and record the verified outcome. If blocked, record what remains, who can act or when to recheck. Arrange independent review when the user asks or the project requires it. Recheck signed Inbox and follow the saved mode if it offers a goal.
+**Ready pickup.** Finish the offered ticket or record the blocker and who can act or when to recheck. Verify the result and record the checked revision and evidence. You can review ordinary work yourself. Arrange independent review when the user asks for it or your project requires it. Recheck signed Inbox and follow the saved mode if it offers a goal.
 
 **Stalled follow-up.** Read the current handoff and finish the ticket if you can. Record the blocker and who can act or when to recheck if work must wait. Use signed controls to acknowledge the exact cue or pause future reminders. Recheck signed Inbox.
 
-**Review handoff.** Finish the assigned review and return the verdict with evidence. If blocked, record what you still need and who can provide it or when to recheck. Recheck signed Inbox.
+**Review handoff.** Read the review brief and check the specified revision or evidence. Finish the review and return the verdict. If blocked, record what you still need and who can provide it or when to recheck. Recheck signed Inbox.
 
 **Worker handoff.** Check the run's brief, current step and any checkpoint. Finish the assigned work or record its blocker and next check. Read the worker's result and evidence before collecting the report. Recheck signed Inbox after handback.
 
@@ -83,7 +83,7 @@ effective wording takes precedence over these public defaults.
 When Taskboard offers a goal review, read its effective Goal review prompt.
 The public default follows.
 
-Check signed Taskboard Inbox and finish higher-priority tickets or record their blockers first. Open the offered goal and record one concrete outcome from a bounded check. Suggest one next action based on evidence and name its owner or what will unblock it. Recheck Inbox and follow the goal’s saved exploration mode, stop condition and review schedule.
+Check signed Taskboard Inbox and finish higher-priority tickets or record their blockers first. Open the offered goal and record one concrete outcome from a bounded check. Suggest one concrete next action based on evidence and name its owner or what will unblock it. Recheck Inbox and follow the goal’s saved exploration mode, stop condition and review schedule.
 
 Read the effective Inbox follow-up prompt from signed `my-next` or field guidance.
 Follow that text when returned. The public default follows.
