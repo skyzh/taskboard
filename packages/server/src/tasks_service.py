@@ -4822,6 +4822,15 @@ def create_app(
                 ledger.bump_revision(connection)
         return result
 
+    def goal_queue_state(connection, owner, project, today):
+        board = query()
+        scope = {"today": today, "project": project, "include_goal_reviews": False}
+        work = next(board.actionable_work(owner, **scope), None)
+        ordinary = work is not None
+        if work and work["kind"] == "in_progress" and ledger.task_goal_kind(connection, work["id"]) == "standing":
+            ordinary = next(board.actionable_work(owner, ordinary_only=True, **scope), None) is not None
+        return work is not None, ordinary
+
     def idle_goal_offer(owner, data):
         try:
             handoff_id = str(UUID(text(data, "handoff_id", maximum=36)))
@@ -4833,12 +4842,14 @@ def create_app(
                 require_visible_project(connection, offer["project"])
                 return {"offer": offer, "receipt": "Idle goal offer already recorded."}
             now = ledger.timestamp()
-            if next(query().actionable_work(owner, today=pacific_day(now), project=None, include_goal_reviews=False), None):
+            busy, ordinary = goal_queue_state(connection, owner, None, pacific_day(now))
+            if ordinary:
                 return {"offer": None, "receipt": "Actionable work is available."}
             pacific = datetime.fromisoformat(now).astimezone(PACIFIC)
             paused = {row["id"] for row in cue_pauses.active(connection, owner, now, "goal")}
             goal = next((row for row in goals.goal_rows(connection, [owner], project, kind="standing")
-                         if row["state"] == "parked" and row["id"] not in paused
+                         if (goal_cadence.continues_standing(row) or (not busy and row["state"] == "parked"))
+                         and row["id"] not in paused
                          and ring1.visible(connection, row["project_prefix"], actor_key())
                          and goals.exploration_available(connection, row, pacific)), None)
             if goal is None:
@@ -4942,6 +4953,7 @@ def create_app(
                 "daily_inbox_refresh": True,
                 "handoff_recipient_lookup": True,
                 "timed_goal_cues": True,
+                "goal_continuation_cues": True,
                 "watcher_health_reports": True,
                 "watcher_cue_pauses": True,
                 "can_create_project": project_admin_access(db(), actor),
@@ -5070,14 +5082,10 @@ def create_app(
             instant = ledger.timestamp()
             now = datetime.fromisoformat(instant).astimezone(PACIFIC)
             with tasks_storage.read(db()) as connection:
-                board = query()
-                scope = {"today": now.date().isoformat(), "project": project if profile is not None else None,
-                         "include_goal_reviews": False}
-                work = next(board.actionable_work(key, **scope), None)
-                ordinary = work is not None
-                if work and work["kind"] in ("in_progress", "reminder") and ledger.task_goal_kind(connection, work["id"]):
-                    ordinary = next(board.actionable_work(key, ordinary_only=True, **scope), None) is not None
-                result = goal_cadence.candidates(connection, key, project, now, busy=work is not None,
+                busy, ordinary = goal_queue_state(
+                    connection, key, project if profile is not None else None, now.date().isoformat(),
+                )
+                result = goal_cadence.candidates(connection, key, project, now, busy=busy,
                                                  ordinary_busy=ordinary,
                                                  include_timed=str(data.get("include_timed", "")).lower() == "true")
                 paused = {projects.row_reference(row) for row in

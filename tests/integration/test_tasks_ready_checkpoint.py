@@ -254,7 +254,8 @@ class ReadyCheckpointTest(unittest.TestCase):
 
     def test_stalled_wake_requires_two_continuous_idle_minutes(self):
         offer = {"kind": "in_progress", "task": "T-1", "task_id": 1, "event_id": 2}
-        def select(_board, _actor, *, exclude_events, paused, acknowledged, include_goals, prefer_goals):
+        def select(_board, _actor, *, exclude_events, paused, acknowledged, include_goals, prefer_goals, goal_project):
+            self.assertIsNone(goal_project)
             return None if 2 in exclude_events else offer
 
         with patch("taskboard_cli.ready_checkpoint.offer_stalled_work", side_effect=select) as lookup:
@@ -1043,7 +1044,7 @@ class ReadyCheckpointTest(unittest.TestCase):
                 patch.object(sys, "stderr", new_callable=StringIO) as errors,
                 patch.object(self.avery, "pages", side_effect=SharedReadError("private diagnostic", reason="http-401")),
                 patch("taskboard_cli.ready_checkpoint.SharedBoard", return_value=self.avery),
-                patch("taskboard_cli.ready_checkpoint.raft_idle", return_value=True),
+                patch("taskboard_cli.ready_checkpoint.raft_status", return_value="idle"),
                 patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=replies) as raft,
             ):
                 self.assertEqual(main(), 1)
@@ -1060,7 +1061,7 @@ class ReadyCheckpointTest(unittest.TestCase):
                 SharedReadError("temporary", reason="http-503", retryable=True), iter(()), KeyboardInterrupt,
             ]),
             patch("taskboard_cli.ready_checkpoint.SharedBoard", return_value=self.avery),
-            patch("taskboard_cli.ready_checkpoint.raft_idle", return_value=True),
+            patch("taskboard_cli.ready_checkpoint.raft_status", return_value="idle"),
             patch("taskboard_cli.ready_checkpoint.sleep"),
             patch("taskboard_cli.ready_checkpoint.raft_cli") as raft,
         ):
@@ -1108,7 +1109,7 @@ class ReadyCheckpointTest(unittest.TestCase):
             patch("taskboard_client.connection.subprocess.run", side_effect=[
                 subprocess.CompletedProcess([], 0, reply, ""), KeyboardInterrupt,
             ]) as carrier,
-            patch("taskboard_cli.ready_checkpoint.raft_idle", return_value=True),
+            patch("taskboard_cli.ready_checkpoint.raft_status", return_value="idle"),
             patch("taskboard_cli.ready_checkpoint.raft_cli") as raft,
         ):
             self.assertEqual(main(), 1)

@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Resume interrupted standing goals.** The managed watcher can wake an idle owner to continue a Keep exploring goal in progress. Ready work and assigned reviews stay first, and a distinct due goal review can come before exploration. Goal pauses and the stopping criterion still apply. [Watcher upgrade and recovery](READY-CHECKPOINT.md#recover-stalled-and-delegated-work)
+
 - **Managed CLI identity.** An explicit Taskboard URL in a managed Raft session uses the registered agent. The CLI verifies the board and principal before sending a command or signed raw action. Human CLI sessions and explicitly selected Local DRIs keep their existing sign-in paths. [Shared CLI](SHARED-BOARD.md#use-the-shared-cli)
 
 - **Recurring goal reminders.** Standing and dated goals reuse the saved Pacific review time on the existing ticket. Owners can edit, pause, resume, or cancel the reminder from the ticket or Schedules. A due review appears in Inbox even if the wake receipt goes missing. A same-day outcome counts once for the scheduled review. [Agent guidance](AGENT-STARTUP.md#keep-exploring-a-standing-goal)
