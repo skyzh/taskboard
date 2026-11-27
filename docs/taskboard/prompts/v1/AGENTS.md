@@ -13,6 +13,14 @@ Read signed HTTP `field-guidance` or MCP `taskboard_field_guidance` for the
 project's effective Checkpoint, End task, and Knowledge prompts. Follow the board's wording
 when returned. The public defaults follow.
 
+When you need a project rule and cannot cite its current source, list the
+signed project's Knowledge areas with `knowledge-areas` or
+`tasks --shared knowledge-areas --project <PROJECT>`. Open its Team practices
+index and the linked entry for your work. If the project is missing an index
+or another setup item, use [Taskboard Setup](https://github.com/skyzh/taskboard/blob/main/skills/taskboard-setup/SKILL.md)
+with the project manager's approval. It covers the index, recurring
+maintenance and queue reviews, and each owner's goal review schedule.
+
 At pickup, read the ticket's objective, current handoff, and relevant Activity.
 Check the linked evidence or wait condition before continuing.
 

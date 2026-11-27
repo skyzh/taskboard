@@ -1,6 +1,6 @@
 ---
 name: taskboard-setup
-description: Set up or fill gaps in a shared Taskboard project's Team practices Knowledge, shared SOPs, recurring Knowledge maintenance, and Waiting and Parked reviews. Use when onboarding a project or standardizing its operating practices.
+description: Set up a shared Taskboard project's Team practices index, recurring maintenance and queue reviews, and daily goal reviews. Use when onboarding a project or filling gaps in its setup.
 ---
 
 # Taskboard Setup
@@ -47,9 +47,18 @@ For per-DRI jobs limited to the selected project, include that project in the ke
 
 Use the [queue review guide](references/waiting-and-parked.md) to choose an owned queue or a project queue. Reuse a review that already covers it. Where coverage is missing, agree on one owner, cadence, next run, and wake. Each review verifies current evidence and return triggers on the original tickets.
 
-## Set up standing-goal exploration
+## Set up goal reviews
 
-Keep one focused pass as the default. If a goal owner opts into **Keep exploring**, save an optional criterion they can verify, such as “two useful pull requests have been opened today,” and use the existing daily Pacific goal review. Check the saved mode and criterion from that owner's signed session. [Goal setup](../../docs/taskboard/AGENT-STARTUP.md#keep-exploring-a-standing-goal)
+With each owner, open the current goal and its row in **Tasks → Schedules**. Reuse its daily Pacific review time. If an approved review is missing, set it on the existing goal ticket from the owner's signed session.
+
+```sh
+./tasks --shared goal-review-time "$goal" --at "$pacific_time"
+./tasks --shared show "$goal"
+```
+
+This uses the same goal reminder on boards with unified recurrence. Verify one active review, its next run, and the recorded outcome on that goal. Preserve deadlines and existing delivery choices. Follow the [observation skill](../taskboard-observation/SKILL.md) for the review itself.
+
+Keep one focused pass as the default. If a goal owner opts into **Keep exploring**, save an optional criterion they can verify, such as “two useful pull requests have been opened today.” Check the saved mode and criterion from that owner's signed session. [Goal setup](../../docs/taskboard/AGENT-STARTUP.md#keep-exploring-a-standing-goal)
 
 ## Collect optional ticket data
 

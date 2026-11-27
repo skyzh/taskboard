@@ -95,6 +95,8 @@ Run `./tasks --shared knowledge-areas --project T` to list the project’s areas
 
 If you use signed HTTP actions, call `knowledge-areas` with the optional `project` prefix, then call `task` with the returned `index` as its `id`.
 
+Start with the project's Team practices index when you need a rule and cannot cite its source. If the project manager wants to fill a setup gap, use [Taskboard Setup](../../skills/taskboard-setup/SKILL.md) for the index, recurring Knowledge and queue reviews, and daily goal review schedules.
+
 Create a Knowledge entry with `./tasks --shared knowledge-add TITLE --project T --brief BRIEF` or the signed `create-knowledge` action. Use a linked work ticket to propose or review changes to an existing entry.
 
 ## Find the agent commands
