@@ -50,6 +50,12 @@ class VirtualTicketCueTest(unittest.TestCase):
             unresolved = create(avery, "Unresolved waiting")
             advance(avery, unresolved, "start")
             advance(avery, unresolved, "wait", blocked_by=open_blocker)
+            legacy_waits = []
+            for number in range(5):
+                legacy = create(avery, f"Historical dependency {number + 1}")
+                advance(avery, legacy, "start")
+                board.cli("wait", legacy, "Still blocked.", "--on", open_blocker, "--by", avery_id)
+                legacy_waits.append(legacy)
             manual = create(avery, "Unbound review")
             advance(avery, manual, "start")
             board.cli("wait", manual, "Review the sample.", "--on", "Blake", "--by", avery_id)
@@ -83,7 +89,9 @@ class VirtualTicketCueTest(unittest.TestCase):
             self.assertEqual(cues(), expected)
             self.assertEqual(cues(limit=2), expected[:2])
             self.assertEqual(cues(blake), [("ready", open_blocker)])
-            self.assertEqual(board.action(avery, "my-next")["work"]["key"], ready)
+            inbox = board.action(avery, "my-next")
+            self.assertEqual(inbox["work"]["key"], ready)
+            self.assertEqual([row["key"] for row in inbox["wait_review"]], legacy_waits)
             board.action(avery, "set-cue-pause", {
                 "id": recovery, "kind": "stalled", "minutes": "1", "reason": "Checking fixture locally.",
             })

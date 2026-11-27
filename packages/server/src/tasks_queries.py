@@ -2862,7 +2862,7 @@ class BoardQueries:
             if len(rows) > limit else None,
         }
 
-    def wait_review_candidates(self, owner, project, *, for_delivery=False):
+    def wait_review_candidates(self, owner, project, *, for_delivery=False, after=0):
         visibility, scope = self.project_visibility("current.project_prefix")
         project_filter = "" if project is None else "AND current.project_prefix = ?"
         project_values = () if project is None else (project,)
@@ -2879,7 +2879,7 @@ class BoardQueries:
                      HAVING COUNT(*) = 1)
                 ) AND peer.kind = 'agent' AND peer.ledger_key <> current.dri
                   AND COALESCE(json_extract(current.context, '$.wait_kind'), '') <> 'automation'
-                WHERE current.dri = ? AND current.state = 'waiting'
+                WHERE current.dri = ? AND current.state = 'waiting' AND current.event_id > ?
                   AND json_extract(current.context, '$.peer_ask_ticket') IS NULL
                   AND json_extract(current.context, '$.blocked_by') IS NULL
                   AND NOT EXISTS (
@@ -2898,7 +2898,7 @@ class BoardQueries:
                   ))
                 ORDER BY current.event_id
                 LIMIT 5""",
-            (owner, *scope, *project_values, for_delivery),
+            (owner, after, *scope, *project_values, for_delivery),
         )
         return [{
             "key": projects.row_reference(row), "title": row["title"], "wait_event": row["event_id"],
@@ -2981,16 +2981,24 @@ class BoardQueries:
                 "id": f"{kind}:{row['event_id']}", "kind": kind, "action": action,
                 "ticket": projects.row_reference(row), "title": row["title"], "event_id": row["event_id"],
             })
-        if len(items) == limit:
-            return items
-        for row in self.wait_review_candidates(owner, project, for_delivery=True):
-            if ledger.ticket_id_from_label(row["waiting_on"]) is not None:
-                continue
-            items.append({
-                "id": f"wait-review:{row['wait_event']}", "kind": "wait-review", "action": "review-wait",
-                "ticket": row["key"], "title": row["title"], "event_id": row["wait_event"],
-            })
-        return items[:limit]
+        remaining = min(5, limit - len(items))
+        after = 0
+        while remaining:
+            waits = self.wait_review_candidates(owner, project, for_delivery=True, after=after)
+            if not waits:
+                break
+            after = waits[-1]["wait_event"]
+            for row in waits:
+                if ledger.ticket_id_from_label(row["waiting_on"]) is not None:
+                    continue
+                items.append({
+                    "id": f"wait-review:{row['wait_event']}", "kind": "wait-review", "action": "review-wait",
+                    "ticket": row["key"], "title": row["title"], "event_id": row["wait_event"],
+                })
+                remaining -= 1
+                if not remaining:
+                    break
+        return items
 
     def actionable_work(self, owner, *, today, project, ordinary_only=False, include_goal_reviews=True):
         """Yield the first actionable item in each queue in pickup order."""
