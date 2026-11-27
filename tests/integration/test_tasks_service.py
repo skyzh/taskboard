@@ -37,8 +37,10 @@ from taskboard_cli import main as tasks_main
 from taskboard_cli.ready_checkpoint import watch_ready_count
 from taskboard_client import SharedBoard
 from taskboard_client.direct import DirectBoard
-from tasks_core import SCHEMA, import_notification_on, import_release_event, record, timestamp
-from tasks_storage import open_sqlite
+from tasks_core import SCHEMA, import_notification_on, import_release_event, record, release_due_deferrals, timestamp
+from tasks_projects import register
+from tasks_ring1 import mark_private
+from tasks_storage import open_sqlite, write
 from tasks_wake_subscriptions import OWNED_READY, has_subscription
 
 
@@ -2227,6 +2229,81 @@ class TasksServiceTest(unittest.TestCase):
     def task_event(self, client, task):
         current = self.action(client, "task", query_string={"id": task})["task"]
         return {"task": task, "event": current["event_id"], "at": current["at"]}
+
+    def test_owned_ready_outbox_commits_with_assignment_and_deferral(self):
+        self.replay_owned_ready_outbox(self.app(portal_reader=True), lambda: open_sqlite(self.database))
+
+    def replay_owned_ready_outbox(self, app, open_board):
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+
+        def add(title, project="T"):
+            ticket = self.action(avery, "create-task", {
+                "project": project, "title": title, "step": "Check the fixture.",
+            })["receipt"].split()[0]
+            return self.task_event(avery, ticket)
+
+        def queued(source):
+            with closing(open_board()) as db:
+                return db.execute("SELECT * FROM wake_log WHERE source_event_id = ?", (source["event"],)).fetchone()
+
+        unsubscribed = add("No subscription yet")
+        self.assertIsNone(queued(unsubscribed))
+        opt_in = {"event_type": OWNED_READY, "enabled": "true"}
+        self.action(avery, "set-wake-subscription", opt_in)
+        self.action(blake, "set-wake-subscription", opt_in)
+        assigned = add("Assigned work")
+        row = queued(assigned)
+        self.assertEqual((row["recipient"], row["acceptance"], observed_time(row["acceptance_at"])),
+                         (avery_id, "pending", observed_time(assigned["at"])))
+        self.assertIsNone(row["delivery"])
+        self.assertIsNone(row["start_event_id"])
+
+        code, _, error = self.shared_cli(avery, "transfer", assigned["task"], "Hand off the sample.", "--dri", blake_id)
+        self.assertEqual(code, 0, error)
+        current = self.task_event(blake, assigned["task"])
+        self.assertEqual(queued(current)["recipient"], blake_id)
+        self.assertEqual(queued(assigned)["recipient"], avery_id)
+
+        for_date = add("Release at the exact time")
+        planned = "2026-11-26T20:00:00Z"
+        due = "2026-11-26T20:01:00Z"
+        with patch("tasks_core.timestamp", return_value=planned):
+            self.action(avery, "advance-task", {
+                "id": for_date["task"], "transition": "park", "note": "Check the exact-time release.",
+                "defer_until": due,
+            })
+        parked = self.task_event(avery, for_date["task"])
+        with closing(open_board()) as db:
+            with self.assertRaisesRegex(RuntimeError, "fixture rollback"), write(db):
+                self.assertEqual(release_due_deferrals(db, due), [for_date["task"]])
+                pending = db.execute(
+                    "SELECT source_event_id, acceptance FROM wake_log ORDER BY source_event_id DESC LIMIT 1",
+                ).fetchone()
+                self.assertEqual(pending["acceptance"], "pending")
+                raise RuntimeError("fixture rollback")
+            self.assertEqual(self.task_event(avery, for_date["task"]), parked)
+            self.assertIsNone(queued({"event": pending["source_event_id"]}))
+            with write(db):
+                self.assertEqual(release_due_deferrals(db, due), [for_date["task"]])
+                self.assertEqual(release_due_deferrals(db, due), [])
+        released = self.task_event(avery, for_date["task"])
+        self.assertEqual(queued(released)["recipient"], avery_id)
+        wakes = self.call(blake, "/api/v1/activity", query_string={
+            "project": "T", "action": "wake", "wake_status": "pending",
+        }).get_json()["items"]
+        by_id = {notice["id"]: notice for notice in wakes}
+        self.assertNotIn(assigned["event"], by_id)
+        self.assertEqual(by_id[released["event"]]["reason"], "timed_ready")
+
+        with closing(open_board()) as db, write(db):
+            register(db, "LAB", "Private fixture", avery_id)
+        self.action(avery, "set-wake-subscription", {**opt_in, "project": "LAB"})
+        with closing(open_board()) as db, write(db):
+            mark_private(db, "LAB", [avery_id])
+        private = add("Fictional restricted work", "LAB")
+        self.assertIsNone(queued(private))
+        self.call(blake, "/api/v1/activity", query_string={"project": "LAB", "action": "wake"}, status=404)
 
     def launch_fixture(self, source, project, recipient, transport):
         with closing(open_sqlite(self.database)) as db:

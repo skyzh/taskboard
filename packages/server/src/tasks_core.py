@@ -397,16 +397,23 @@ def wait_starts(db, rows):
 
 
 def record(db, number, action, actor, state, note, waiting_on, links, context=None, *, at=None):
+    at = at or timestamp()
     event = tasks_storage.insert_id(
         db, """
         INSERT INTO events (task_id, action, actor, at, state, note, waiting_on, links, context)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            number, action, actor, at or timestamp(), state, note, waiting_on, json.dumps(links),
+            number, action, actor, at, state, note, waiting_on, json.dumps(links),
             json.dumps(context or {}),
         ),
     )
+    if state == "ready" and (
+        action in ("add", "transfer") or (action == "unpark" and (context or {}).get("deferred_event_id"))
+    ):
+        import tasks_notification_log as notification_log
+
+        notification_log.queue_owned_ready(db, number, event, at)
     if action == "done" and state == "done" and (board_url := live_board_url(db)):
         release_linked_waits(db, number, event, board_url)
     return event
