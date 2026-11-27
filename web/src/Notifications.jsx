@@ -4,7 +4,8 @@ import { queryPath, useLoadedPages, useResource } from './data.js'
 import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificationLogFilters, ownerHref, profileName, useSignInHref, taskHref } from './shared.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import NotificationLog from './NotificationLog.jsx'
-import DecisionForm from './DecisionForm.jsx'
+import ReminderDate from './ReminderDate.jsx'
+import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
 import DecisionReceiptActions, { decisionTicketHref } from './DecisionReceiptActions.jsx'
 import BrowserPush from './BrowserPush.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
@@ -18,7 +19,7 @@ import TaskOwnership from './TaskOwnership.jsx'
 import TransitionFeedback, { useTransitionRequest } from './TransitionFeedback.jsx'
 import { projectFilters, projectHref } from './projectScope.js'
 
-function DecisionRequest({ task, current, session, onChanged, onAnswerStarted, project, revision }) {
+function DecisionRequest({ task, current, session, onChanged, onAnswerStarted, project, revision, canDefer }) {
   return (
     <li className="event-row">
       <p className="event-ticket"><TaskLink reference={task.key} id={task.id} title={task.title}
@@ -29,9 +30,15 @@ function DecisionRequest({ task, current, session, onChanged, onAnswerStarted, p
       </p>
       <Markdown text={task.note} />
       <EvidenceLinks links={task.links} />
+      {task.remind_on && <p className="event-meta">Reminder <time dateTime={task.remind_on}>{task.remind_on}</time> (Pacific time)</p>}
       <DecisionForm task={current ? task : undefined} session={session}
         onChanged={onChanged} onAnswerStarted={onAnswerStarted}
         receiptAction={<DecisionReceiptActions project={project} revision={revision} />} />
+      {current && canDefer && task.decision_request_id && mayAnswer(task, session) && (
+        <ReminderDate key={task.remind_on || ''}
+          path={`/notifications/decisions/${encodeURIComponent(task.key)}/${task.decision_request_id}/reminder`}
+          saved={task.remind_on} deferAsk onChanged={onChanged} />
+      )}
     </li>
   )
 }
@@ -297,33 +304,59 @@ function ReviewRequests({ revision, project }) {
   )
 }
 
-function NeedsMe({ revision, session, onChanged, project, onlyOpen = false }) {
-  const decisions = useLoadedPages('/notifications/decisions', projectFilters(project), revision)
+function decisionAskKey(task) {
+  return task.decision_request_id ?? task.event_id
+}
+
+function PendingAsks({ revision, session, onChanged, project, onlyOpen, state }) {
+  const filters = projectFilters(project)
+  const decisions = useLoadedPages('/notifications/decisions', state === 'open' ? filters : { ...filters, state }, revision)
   const [submitted, setSubmitted] = useState([])
   const current = decisions.data?.items ?? []
-  const currentIds = new Set(current.map(task => task.event_id))
+  const currentIds = new Set(current.map(decisionAskKey))
   // Keep in-flight decision receipts when an answered request leaves the open list.
-  const items = [...submitted.filter(task => !currentIds.has(task.event_id)), ...current]
+  const items = [...submitted.filter(task => !currentIds.has(decisionAskKey(task))), ...current]
   return (
-    <section className="feed-section" aria-label={onlyOpen ? "Open Inbox requests" : undefined}
-      aria-labelledby={onlyOpen ? undefined : "attention-title"}>
-      {(!onlyOpen || items.length > 0) && <h2 id="attention-title">Needs your attention</h2>}
-      {(!onlyOpen || items.length > 0) && <h3 className="notification-subhead">Decision requests</h3>}
-      <ResourceStatus resource={decisions} label="your decision requests" />
+    <>
+      {onlyOpen && items.length > 0 && <h2 id="attention-title">Needs your attention</h2>}
+      {(!onlyOpen || items.length > 0) && <h3 className="notification-subhead">{state === 'deferred' ? 'Deferred decision requests' : 'Decision requests'}</h3>}
+      <ResourceStatus resource={decisions} label={`your ${state} decision requests`} />
       {items.length > 0 && (
-        <ol className="event-list" aria-label="Decision requests for you" role="list">
+        <ol className="event-list" aria-label={state === 'deferred' ? 'Deferred decision requests for you' : 'Decision requests for you'} role="list">
           {items.map(task => (
-            <DecisionRequest key={task.event_id} task={task} current={currentIds.has(task.event_id)}
+            <DecisionRequest key={decisionAskKey(task)} task={task} current={currentIds.has(decisionAskKey(task))}
+              canDefer={!onlyOpen}
               session={session} project={project} revision={revision} onChanged={onChanged} onAnswerStarted={() => {
-                setSubmitted(previous => previous.some(row => row.event_id === task.event_id)
+                setSubmitted(previous => previous.some(row => decisionAskKey(row) === decisionAskKey(task))
                   ? previous : [...previous, task])
               }} />
           ))}
         </ol>
       )}
-      {!onlyOpen && decisions.data && items.length === 0 && <p className="section-message">No open decision requests.</p>}
-      <LoadMore page={decisions} label="open decision requests" />
-      <AttentionRequests revision={revision} onChanged={onChanged} project={project} onlyOpen={onlyOpen} />
+      {!onlyOpen && decisions.data && items.length === 0 && <p className="section-message">No {state} decision requests.</p>}
+      <LoadMore page={decisions} label={`${state} decision requests`} />
+      <AttentionRequests revision={revision} onChanged={onChanged} project={project} onlyOpen={onlyOpen}
+        askState={onlyOpen ? undefined : state} />
+    </>
+  )
+}
+
+function NeedsMe({ revision, session, onChanged, project, onlyOpen = false }) {
+  const [filter, setFilter] = useState('open')
+  const states = filter === 'all' ? ['open', 'deferred'] : [filter]
+  return (
+    <section className="feed-section" aria-label={onlyOpen ? "Open Inbox requests" : undefined}
+      aria-labelledby={onlyOpen ? undefined : "attention-title"}>
+      {!onlyOpen && <>
+        <h2 id="attention-title">Needs your attention</h2>
+        <label>Pending asks <select value={filter} onChange={event => setFilter(event.target.value)}>
+          <option value="open">Open</option>
+          <option value="deferred">Deferred</option>
+          <option value="all">Open and deferred</option>
+        </select></label>
+      </>}
+      {states.map(state => <PendingAsks key={state} state={state} revision={revision} session={session}
+        onChanged={onChanged} project={project} onlyOpen={onlyOpen} />)}
       <ReviewRequests revision={revision} project={project} />
       {!onlyOpen && <FollowThrough revision={revision} project={project} />}
       {!onlyOpen && <AskHistory revision={revision} project={project} />}

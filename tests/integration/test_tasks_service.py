@@ -8428,10 +8428,75 @@ class TasksServiceTest(unittest.TestCase):
         open_for_sam = self.call(sam, route).json["items"]
         self.assertEqual(len(open_for_sam), 1)
         self.assertEqual(self.call(quinn, route).json["items"], [])
+        request_id = open_for_sam[0]["decision_request_id"]
+        reminder = f"{route}/T-1/{request_id}/reminder"
+        self.call(quinn, reminder, method="PUT", json={"date": "2099-01-01"}, status=404)
+        self.assertEqual(
+            self.call(sam, reminder, method="PUT", json={"date": "2099-01-01"}).json,
+            {"id": request_id, "remind_on": "2099-01-01"},
+        )
+        self.assertEqual(self.call(sam, route).json["items"], [])
+        deferred = self.call(sam, route + "?state=deferred").json["items"]
+        self.assertEqual([(row["decision_request_id"], row["remind_on"]) for row in deferred],
+                         [(request_id, "2099-01-01")])
+        self.assertEqual(self.call(sam, route + "/next").json, {"count": 0, "next": None})
+        self.assertEqual(self.call(sam, "/api/v1/notifications/open-count").json["count"], 0)
+        pending = self.action(avery, "my-requested-asks")["items"]
+        self.assertEqual([(item["state"], item["cue_key"]) for item in pending], [("deferred", None)])
+
+        def check_due_guidance():
+            inbox = self.action(avery, "my-next", query_string={"refresh_guidance": "true"})
+            self.assertIsNone(inbox["work"])
+            self.assertIn("Open the due ask", inbox["next_step"])
+            self.assertNotIn("goal_review_prompt", inbox)
+            self.assertNotIn("inbox_follow_up", inbox)
+            return inbox["ask_recheck"]
+
+        self.call(sam, reminder, method="PUT", json={"date": "2000-01-01"})
+        self.assertEqual(check_due_guidance()["request_id"], request_id)
+        self.call(sam, reminder, method="PUT", json={"date": "2099-01-01"})
+
+        self.action(avery, "save-goal", {
+            "kind": "standing", "summary": "Improve the export.", "keep_exploring": True,
+            "stopping_criterion": "Stop when the sample is checked.",
+        })
+        standing = self.action(avery, "my-goals")["standing_goal"]["ticket"]
+        self.action(avery, "advance-task", {"id": standing, "transition": "start", "note": "Check the sample."})
+        self.assertEqual(self.action(avery, "my-next")["work"]["key"], standing)
+        self.call(sam, reminder, method="PUT", json={"date": "2000-01-01"})
+        self.assertEqual(self.call(sam, route + "/next").json["count"], 1)
+        self.assertEqual(self.call(sam, "/api/v1/notifications/open-count").json["count"], 1)
+        due = check_due_guidance()
+        cue_key = due["cue_key"]
+        self.assertEqual((due["request_id"], due["state"]), (request_id, "open"))
+        self.action(avery, "create-task", {"title": "Urgent example", "step": "Check the urgent sample."})
+        ordinary = self.action(avery, "my-next")
+        self.assertEqual(ordinary["work"]["kind"], "ready")
+        self.assertNotIn("ask_recheck", ordinary)
+        ordinary_key = ordinary["work"]["key"]
+        self.action(avery, "advance-task", {"id": ordinary_key, "transition": "start", "note": "Inspect the sample."})
+        done = self.action(avery, "advance-task", {"id": ordinary_key, "transition": "done", "note": "Sample passed."})
+        self.assertEqual(done["next_action"]["ask_recheck"]["cue_key"], cue_key)
+        blake, _ = self.login(app, "Blake")
+        self.action(blake, "acknowledge-ask-recheck", {"cue_key": cue_key}, status=404)
+        for _ in range(2):
+            self.assertEqual(self.action(avery, "acknowledge-ask-recheck", {"cue_key": cue_key})["acknowledged"], True)
+        resumed = self.action(avery, "my-next")
+        self.assertNotIn("ask_recheck", resumed)
+        self.assertEqual(resumed["work"]["key"], standing)
+        self.call(sam, reminder, method="PUT", json={"date": None})
+        self.assertIsNone(self.call(sam, route).json["items"][0]["remind_on"])
+        self.call(sam, reminder, method="PUT", json={"date": "2000-01-02"})
+        new_key = self.action(avery, "my-next")["ask_recheck"]["cue_key"]
+        self.assertNotEqual(cue_key, new_key)
         self.call(sam, "/api/v1/tasks/1/decision", method="POST", headers={"Origin": ORIGIN}, json={
             "request_id": open_for_sam[0]["event_id"], "choice": "CSV", "note": "Use the simple format.",
             "details": "The recipient only needs the summary sheet.",
         })
+        self.call(sam, reminder, method="PUT", json={"date": "2099-01-01"}, status=409)
+        closed = self.action(avery, "my-requested-asks", query_string={"cue_key": new_key})["items"][0]
+        self.assertEqual(closed["state"], "answered")
+        self.action(avery, "acknowledge-ask-recheck", {"cue_key": new_key}, status=409)
         self.assertEqual(self.call(sam, route).json["items"], [])
         follow_through = route + "?state=answered"
         answered = self.call(sam, follow_through).json["items"]
@@ -8444,6 +8509,63 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(quinn, follow_through).json["items"], [])
         self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Build the CSV."})
         self.assertEqual(self.call(sam, follow_through).json["items"], [])
+        attention = self.action(avery, "raise-attention", {
+            "id": "T-1", "recipient": sam_id, "reason": "Check the CSV draft.",
+        })["id"]
+        request_path = f"/api/v1/notifications/requests/{attention}"
+        self.call(sam, request_path + "/reminder", method="PUT", json={"date": "2000-01-03"})
+        ask = self.action(avery, "my-requested-asks", query_string={"project": "T"})["items"][0]
+        self.assertEqual((ask["kind"], ask["ticket"], ask["request_id"]), ("attention", "T-1", attention))
+        self.action(avery, "acknowledge-ask-recheck", {"cue_key": ask["cue_key"]})
+        self.assertEqual(len(self.action(avery, "my-requested-asks")["items"]), 1)
+        self.call(sam, request_path + "/handled", method="POST")
+        result = self.action(avery, "my-requested-asks", query_string={"cue_key": ask["cue_key"]})["items"][0]
+        self.assertEqual((result["state"], result["outcome"]), ("handled", "Handled"))
+
+    def test_requester_acknowledges_an_all_project_cue_without_a_project_parameter(self):
+        admin = self.provider.people["Sam"]["sub"]
+        app = self.app(portal_reader=True, project_admin_subject=admin)
+        requester, requester_id = self.login(app, "Avery")
+        recipient, recipient_id = self.login(app, "Sam")
+        self.call(recipient, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Restricted examples", "visibility": "ring1",
+        })
+        membership = "/api/v1/projects/LAB/ring1"
+        self.call(recipient, membership, method="PUT", json={"principal": requester_id, "allowed": True})
+
+        def request_in(project, date):
+            ticket = self.action(requester, "create-task", {
+                "project": project, "title": "Fictional export", "step": "Check the sample.",
+            })["receipt"].split()[0]
+            self.action(requester, "advance-task", {
+                "id": ticket, "transition": "park", "review_after": "2099-01-01", "note": "Wait for the sample.",
+            })
+            raised = self.action(requester, "raise-attention", {
+                "id": ticket, "recipient": recipient_id, "reason": "Check the export.",
+            })
+            self.call(recipient, f"/api/v1/notifications/requests/{raised['id']}/reminder",
+                      method="PUT", json={"date": date})
+            return ticket
+
+        restricted = request_in("LAB", "2000-01-01")
+        public = request_in("T", "2000-01-02")
+        all_projects = {"scope": "all"}
+        first = self.action(requester, "my-next", query_string=all_projects)["ask_recheck"]
+        self.assertEqual(first["ticket"], restricted)
+        payload = {"cue_key": first["cue_key"]}
+        for _ in range(2):
+            self.assertTrue(self.action(requester, "acknowledge-ask-recheck", payload)["acknowledged"])
+        exact = self.action(requester, "my-requested-asks", query_string=payload)["items"]
+        self.assertEqual(exact, [first])
+        self.assertEqual(self.action(requester, "my-requested-asks", query_string={
+            **payload, "project": "T",
+        })["items"], [])
+        second = self.action(requester, "my-next", query_string=all_projects)["ask_recheck"]
+        self.assertEqual(second["ticket"], public)
+
+        self.call(recipient, membership, method="PUT", json={"principal": requester_id, "allowed": False})
+        self.assertEqual(self.action(requester, "my-requested-asks", query_string=payload)["items"], [])
+        self.action(requester, "acknowledge-ask-recheck", payload, status=404)
 
     def test_agent_decision_delivery_uses_the_recipients_current_preference(self):
         app = self.app(portal_reader=True)

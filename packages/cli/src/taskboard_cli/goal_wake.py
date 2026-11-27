@@ -114,6 +114,21 @@ class GoalWakeState:
     def observe_working(self):
         self.working_seen = True
 
+    def ask_available(self, cue_key):
+        with self.transaction() as db:
+            return db.execute("SELECT 1 FROM cue WHERE key = ?", ("ask:" + cue_key,)).fetchone() is None
+
+    def reserve_ask(self, offer):
+        key = "ask:" + offer["cue_key"]
+        with self.transaction() as db:
+            return db.execute("INSERT OR IGNORE INTO cue VALUES (?, ?, ?, 0, 'unknown', NULL)",
+                              (key, "ask:" + offer["ticket"], offer["remind_on"])).rowcount == 1
+
+    def record_ask_wake(self, cue_key, reminder):
+        with self.transaction() as db:
+            db.execute("UPDATE cue SET outcome = 'requested', reminder = ? WHERE key = ?",
+                       (reminder, "ask:" + cue_key))
+
     def select(self, snapshot):
         if snapshot["ordinary_busy"]:
             self.observe_busy()

@@ -1410,6 +1410,7 @@
       "links": [],
       "note": "Which scope should the bare URL open?",
       "priority": "normal",
+      "remind_on": null,
       "state": "human_review",
       "summary_label": "Decision needed",
       "title": "Choose the default reporting scope",

@@ -75,6 +75,12 @@ WORK_STATES = ("human_review", "waiting", "in_progress", "ready")
 ACTIVE_STATES = ", ".join(f"'{state}'" for state in WORK_STATES[:-1])
 WORK_COUNTS = ", ".join(f"COUNT(CASE WHEN state = '{state}' THEN 1 END) AS {state}" for state in WORK_STATES)
 ATTENTION_DUE = "(remind_on IS NULL OR remind_on <= ?)"
+
+
+def decision_deferred_sql(event_id):
+    return f"""EXISTS (
+        SELECT 1 FROM decision_reminders WHERE request_event_id = {event_id} AND remind_on > ?
+    )"""
 ATTENTION_SELECT = f"""
     SELECT attention_requests.*, tasks.title AS task_title, {TASK_REFERENCE} AS task_key,
            blocked.id AS blocked_id, blocked.title AS blocked_title,
@@ -810,7 +816,7 @@ class BoardQueries:
               decided_by=None, search=None, priority_order=False, review_due=None, project=None, tag=None,
               managed_by=None, hide_requests=False, exclude_goals=False, github_url=None, include_knowledge=False,
               current_work=False, unfinished=False, summary_personal_owner=None, watching_viewer=None,
-              exclude_exploration=False):
+              exclude_exploration=False, decision_reminder_day=None, decision_deferred=False):
         scope, bindings = self.project_visibility()
         terms, args = [scope], list(bindings)
         filter_search = None
@@ -861,6 +867,10 @@ class BoardQueries:
         if decided_by is not None:
             terms.append("events.state = 'ready' AND events.action = 'decide' AND events.actor = ?")
             args.append(decided_by)
+        if decision_reminder_day is not None:
+            predicate = decision_deferred_sql("events.id")
+            terms.append(predicate if decision_deferred else f"NOT {predicate}")
+            args.append(decision_reminder_day)
         if review_due is not None:
             terms.extend((
                 "json_extract(events.context, '$.review_after') <= ?",
@@ -2770,7 +2780,7 @@ class BoardQueries:
             })
         return results
 
-    def next_decision(self, recipient, *, project):
+    def next_decision(self, recipient, *, project, today):
         current, bindings = self.current_visible_tasks()
         row = self.db.execute(
             f"""
@@ -2779,14 +2789,81 @@ class BoardQueries:
             FROM current_tasks
             WHERE state = 'human_review' AND waiting_on = ?
               AND (? IS NULL OR project_prefix = ?)
+              AND NOT {decision_deferred_sql("event_id")}
             ORDER BY event_id DESC LIMIT 1
-            """, (*bindings, recipient, project, project),
+            """, (*bindings, recipient, project, project, today),
         ).fetchone()
         if row is None:
             return {"count": 0, "next": None}
         return {"count": row["total"], "next": {
             "id": row["id"], "key": projects.row_reference(row), "decision_request_id": row["event_id"],
         }}
+
+    def requested_asks(self, requester, *, project, today, exact=None, due_only=False):
+        current, current_bindings = self.current_visible_tasks()
+        visible, visible_bindings = self.project_visibility()
+        if exact:
+            predicate = "asks.kind = ? AND asks.request_id = ? AND asks.remind_on = ?"
+            parameters = exact
+        elif due_only:
+            predicate = """asks.pending AND asks.remind_on <= ?
+                AND NOT EXISTS (SELECT 1 FROM ask_recheck_acknowledgments AS ack
+                    WHERE ack.requester = ? AND ack.cue_key = asks.kind || ':' ||
+                          CAST(asks.request_id AS TEXT) || ':' || asks.remind_on)"""
+            parameters = today, requester
+        else:
+            predicate, parameters = "asks.pending", ()
+        rows = self.db.execute(
+            f"""
+            WITH current_tasks AS ({current}),
+            visible_tasks AS (
+                SELECT id, project_prefix, project_number FROM tasks
+                WHERE (? IS NULL OR project_prefix = ?) AND {visible}
+            ), asks AS (
+                SELECT 'decision' AS kind, original.id AS request_id, task.id, task.project_prefix, task.project_number,
+                       original.note AS question, reminder.remind_on,
+                       COALESCE(current_tasks.state = 'human_review' AND current_tasks.event_id = original.id, FALSE)
+                           AS pending, answer.note AS outcome, answer.id AS answer_id
+                FROM visible_tasks AS task
+                JOIN events AS original ON original.task_id = task.id
+                LEFT JOIN current_tasks ON current_tasks.id = task.id
+                LEFT JOIN decision_reminders AS reminder ON reminder.request_event_id = original.id
+                LEFT JOIN events AS answer ON answer.task_id = original.task_id AND answer.action = 'decide'
+                     AND answer.actor = original.waiting_on
+                     AND json_extract(answer.context, '$.request_event_id') = original.id
+                WHERE original.actor = ? AND original.action IN ('assign-human', 'redirect-decision')
+                UNION ALL
+                SELECT 'attention', original.id, task.id, task.project_prefix, task.project_number, original.reason,
+                       original.remind_on, original.handled_at IS NULL,
+                       CASE WHEN original.handled_at IS NULL THEN NULL ELSE 'Handled' END, NULL
+                FROM visible_tasks AS task JOIN attention_requests AS original ON original.task_id = task.id
+                WHERE original.sender = ?
+            )
+            SELECT asks.* FROM asks WHERE {predicate}
+            ORDER BY CASE WHEN remind_on IS NULL THEN 1 ELSE 0 END, remind_on, kind, request_id
+            LIMIT ?
+            """, (*current_bindings, project, project, *visible_bindings, requester, requester, *parameters,
+                  1 if exact or due_only else 100),
+        ).fetchall()
+        result = []
+        for row in rows:
+            ticket = projects.row_reference(row)
+            remind_on = row["remind_on"]
+            pending = row["pending"]
+            if not pending:
+                state = "handled" if row["kind"] == "attention" else "answered" if row["answer_id"] else "closed"
+            else:
+                state = "deferred" if remind_on and remind_on > today else "open"
+            source_url = (f"{self.base}/#event-{row['request_id']}-log" if row["kind"] == "decision"
+                          else f"{self.base}/tickets/{ticket}")
+            cue_key = f"{row['kind']}:{row['request_id']}:{remind_on}" if pending and remind_on and remind_on <= today else None
+            item = {"kind": row["kind"], "request_id": row["request_id"], "ticket": ticket,
+                    "question": row["question"], "remind_on": remind_on, "state": state,
+                    "source_url": source_url, "cue_key": cue_key}
+            if not pending:
+                item["outcome"] = row["outcome"]
+            result.append(item)
+        return result
 
     def open_notification_count(self, recipient, *, today, project=None):
         scope, bindings = self.project_visibility()
@@ -2796,11 +2873,12 @@ class BoardQueries:
             visible_tasks AS (SELECT id FROM tasks WHERE (? IS NULL OR project_prefix = ?) AND {scope})
             SELECT
                 (SELECT COUNT(*) FROM current_tasks JOIN visible_tasks ON visible_tasks.id = current_tasks.id
-                 WHERE state = 'human_review' AND waiting_on = ?)
+                 WHERE state = 'human_review' AND waiting_on = ?
+                   AND NOT {decision_deferred_sql("current_tasks.event_id")})
                 +
                 (SELECT COUNT(*) FROM attention_requests JOIN visible_tasks ON visible_tasks.id = attention_requests.task_id
                  WHERE recipient = ? AND handled_at IS NULL AND {ATTENTION_DUE}) AS open_count
-            """, (project, project, *bindings, recipient, recipient, today),
+            """, (project, project, *bindings, recipient, today, recipient, today),
         ).fetchone()["open_count"]
         reviews = self.request_log(project=project, actionable_reviewer=recipient, count_only=True)
         return decisions_and_requests + reviews
@@ -3111,7 +3189,8 @@ class BoardQueries:
 
         decisions = requests = reviews = {"items": [], "next_cursor": None}
         if actor["kind"] == "human" and not reviews_only:
-            decisions = take(self.tasks, decision_before, state="human_review", waiting_on=owner)
+            decisions = take(self.tasks, decision_before, state="human_review", waiting_on=owner,
+                             decision_reminder_day=today)
             requests = take(self.attention, request_before, recipient=owner, state="open", today=today)
         reviews = take(self.request_log, review_before, actionable_reviewer=owner, recover_title=True)
 

@@ -468,6 +468,8 @@ def completion_queue(cue, project):
     match cue:
         case {"kind": "work", "work": {"kind": str(), "key": str(), "title": str()} as work}:
             return {"work": work, "standing_goals": [], "goal_review_prompt": cue.get("goal_review_prompt")}
+        case {"kind": "ask_recheck", "ask_recheck": {"ticket": str()} as ask}:
+            return {"work": None, "standing_goals": [], "ask_recheck": ask}
         case {"kind": "standing_goal", "goal": {"ticket": str(), "summary": str()} as goal,
               "instruction": str(instruction)}:
             return {"work": None, "standing_goals": [goal], "next_step": instruction,
@@ -494,6 +496,8 @@ def completion_guidance(board, reference, fallback=None, *, cue=None):
         if work := result["work"]:
             label = NEXT_LABELS.get(work["kind"], "Start Ready work")
             return f"{label} on {work['key']} · {work['title']}. Read it with {inbox}.{goal_guidance}"
+        if ask := result.get("ask_recheck"):
+            return f"Finish the due ask recheck for {ask['ticket']}. Read it with {inbox}."
         if result["standing_goals"]:
             goal = result["standing_goals"][0]
             if ticket := goal["ticket"]:
@@ -573,6 +577,12 @@ def shared_next(board, url, filters, actor, *, refresh_guidance=False):
         details = task_details(board, url, work["key"], guidance=result.get("next_step"), context_lines=goal_lines)
         label = NEXT_LABELS.get(work["kind"])
         return f"{label}\n{details}" if label else details
+    if ask := result.get("ask_recheck"):
+        return "\n".join((
+            f"{ask['ticket']} · Ask recheck due · {ask['remind_on']} Pacific",
+            ask["question"], ask["source_url"],
+            f"Acknowledge using signed action acknowledge-ask-recheck with cue_key {ask['cue_key']}.",
+        ))
     if prompt := result.get("goal_review_prompt"):
         goal_lines.extend(("", f"Goal review · {prompt['prompt']}"))
     if not result["standing_goals"]:
