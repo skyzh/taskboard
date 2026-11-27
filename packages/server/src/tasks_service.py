@@ -4997,15 +4997,26 @@ def create_app(
             return {"offer": offer, **offered_goal_prompt(connection, None, [offer]),
                     "receipt": "Idle goal offer recorded."}
 
-    def first_actionable_work(owner, project):
+    def inbox_selection(connection, owner, project):
         board = query()
-        args = {"today": pacific_day(ledger.timestamp()), "project": project}
-        return next(board.actionable_work(owner, **args), None)
+        today = pacific_day(ledger.timestamp())
+        work = next(board.actionable_work(owner, today=today, project=project), None)
+        exploration = (work is not None and work["kind"] == "in_progress"
+                       and ledger.task_goal_kind(connection, work["id"]) == "standing"
+                       and goals.exploration_criterion(connection, work["id"]) is not None)
+        if work is None or exploration:
+            asks = board.requested_asks(owner, project=project, today=today, due_only=True)
+            if asks:
+                return None, asks[0]
+        return work, None
 
     def next_action_after_write(owner, project):
         try:
             with tasks_storage.read(db()) as connection:
-                if work := first_actionable_work(owner, project):
+                work, ask = inbox_selection(connection, owner, project)
+                if ask:
+                    return {"project": project, "kind": "ask_recheck", "ask_recheck": ask}
+                if work:
                     return {"project": project, "kind": "work", "work": work, **offered_goal_prompt(connection, work, [])}
                 if standing := goals.queue_context(connection, owner, project, principal=actor_key())["standing_goals"]:
                     return {
@@ -5093,6 +5104,7 @@ def create_app(
                 "handoff_recipient_lookup": True,
                 "timed_goal_cues": True,
                 "goal_continuation_cues": True,
+                "ask_recheck_cues": True,
                 "watcher_health_reports": True,
                 "watcher_cue_pauses": True,
                 "can_create_project": project_admin_access(db(), actor),
@@ -5235,12 +5247,10 @@ def create_app(
         if name == "my-next":
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:
-                work = first_actionable_work(key, project)
+                work, ask = inbox_selection(connection, key, project)
                 result = {"work": work, **goals.queue_context(connection, key, project, principal=actor_key())}
-                if work is None and (asks := query().requested_asks(
-                    key, project=project, today=pacific_day(ledger.timestamp()), due_only=True,
-                )):
-                    result["ask_recheck"] = asks[0]
+                if ask:
+                    result["ask_recheck"] = ask
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, work, result["standing_goals"], key)
                 result.update(offered_goal_prompt(connection, work, result["standing_goals"]))
                 if candidates := query().wait_review_candidates(key, project):

@@ -3189,7 +3189,8 @@ class BoardQueries:
 
         decisions = requests = reviews = {"items": [], "next_cursor": None}
         if actor["kind"] == "human" and not reviews_only:
-            decisions = take(self.tasks, decision_before, state="human_review", waiting_on=owner)
+            decisions = take(self.tasks, decision_before, state="human_review", waiting_on=owner,
+                             decision_reminder_day=today)
             requests = take(self.attention, request_before, recipient=owner, state="open", today=today)
         reviews = take(self.request_log, review_before, actionable_reviewer=owner, recover_title=True)
 

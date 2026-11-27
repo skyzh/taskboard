@@ -8443,12 +8443,27 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(sam, "/api/v1/notifications/open-count").json["count"], 0)
         pending = self.action(avery, "my-requested-asks")["items"]
         self.assertEqual([(item["state"], item["cue_key"]) for item in pending], [("deferred", None)])
+        self.action(avery, "save-goal", {
+            "kind": "standing", "summary": "Improve the export.", "keep_exploring": True,
+            "stopping_criterion": "Stop when the sample is checked.",
+        })
+        standing = self.action(avery, "my-goals")["standing_goal"]["ticket"]
+        self.action(avery, "advance-task", {"id": standing, "transition": "start", "note": "Check the sample."})
+        self.assertEqual(self.action(avery, "my-next")["work"]["key"], standing)
         self.call(sam, reminder, method="PUT", json={"date": "2000-01-01"})
         self.assertEqual(self.call(sam, route + "/next").json["count"], 1)
         self.assertEqual(self.call(sam, "/api/v1/notifications/open-count").json["count"], 1)
         due = self.action(avery, "my-next")["ask_recheck"]
         cue_key = due["cue_key"]
         self.assertEqual((due["request_id"], due["state"]), (request_id, "open"))
+        self.action(avery, "create-task", {"title": "Urgent example", "step": "Check the urgent sample."})
+        ordinary = self.action(avery, "my-next")
+        self.assertEqual(ordinary["work"]["kind"], "ready")
+        self.assertNotIn("ask_recheck", ordinary)
+        ordinary_key = ordinary["work"]["key"]
+        self.action(avery, "advance-task", {"id": ordinary_key, "transition": "start", "note": "Inspect the sample."})
+        done = self.action(avery, "advance-task", {"id": ordinary_key, "transition": "done", "note": "Sample passed."})
+        self.assertEqual(done["next_action"]["ask_recheck"]["cue_key"], cue_key)
         blake, _ = self.login(app, "Blake")
         self.action(blake, "acknowledge-ask-recheck", {"cue_key": cue_key}, status=404)
         for _ in range(2):
