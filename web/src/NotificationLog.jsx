@@ -29,6 +29,29 @@ const times = [
 const acceptance = { pending: 'Pending', accepted: 'Accepted', rejected: 'Rejected' }
 const delivery = { delivered: 'Delivered', suppressed: 'Suppressed' }
 const nextResults = { offered: 'This ticket offered', different_work: 'Other work offered', no_work: 'No eligible work' }
+const wakeReasons = {
+  ready: 'Ready assignment',
+  review_request: 'Review requested',
+  review_result: 'Review result returned',
+  follow_up: 'Peer follow-up',
+}
+
+export function wakeReason(item) {
+  return wakeReasons[item.reason] || 'Ready ticket'
+}
+
+function wakeStage(item) {
+  if (item.started_at) return 'Picked up'
+  if (item.request_acknowledgment) return 'Acknowledged'
+  if (item.next_result) return nextResults[item.next_result] || 'Queue checked'
+  if (item.delivery === 'delivered') return 'Delivered · Start unconfirmed'
+  if (item.delivery === 'suppressed') return 'Suppressed'
+  if (item.acceptance === 'accepted') return 'Dispatched · Delivery unconfirmed'
+  if (item.acceptance === 'pending') return 'Dispatch pending'
+  if (item.acceptance === 'rejected') return 'Dispatch rejected'
+  if (item.acceptance == null) return 'No wake attempt recorded'
+  return 'Wake evidence unknown'
+}
 
 function WakeEvidence({ item }) {
   const { formatDay, formatClock } = useTimeZone()
@@ -75,10 +98,11 @@ export function NotificationLogEntry({ item }) {
         <span>{kinds[item.kind]} for {item.recipient}</span>
         {!isWake && <strong>{states[item.status]}</strong>}
         {!isWake && item.status === 'pending' && <span>Observed <ReportTime at={item.status_at} /></span>}
+        {isWake && <strong>{wakeStage(item)}</strong>}
         {isWake && item.source_at && <ReportTime at={item.source_at} />}
         <BoardLink href={eventHref(item.id)}>Source activity</BoardLink>
       </p>
-      {isWake ? <WakeEvidence item={item} /> : <dl className="notification-log-times">
+      {isWake ? <><p className="event-meta">{wakeReason(item)}</p><WakeEvidence item={item} /></> : <dl className="notification-log-times">
         {times.map(([field, label]) => (
           <div key={field}>
             <dt>{label}</dt>

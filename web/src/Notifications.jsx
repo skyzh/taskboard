@@ -264,6 +264,7 @@ function PersonalNotifications({ revision, session, onChanged, fragment, project
         <BoardLink href={projectHref('#notifications-needs-me', scope)} aria-current={needsMe ? 'page' : undefined}>
           Needs me{openCount.data && <span aria-live="polite"> ({openCount.data.count})</span>}
         </BoardLink>
+        <BoardLink href={projectHref('#activity?action=wake&wake_status=pending', project || 'all')}>Pending notifications</BoardLink>
       </nav>
       {logFilters ? <>
         <BoardLink href={projectHref('#activity?action=wake', project || 'all')}>Wake activity</BoardLink>

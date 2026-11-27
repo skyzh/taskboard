@@ -9,7 +9,7 @@ import {
 } from './shared.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import DriWorkers from './DriWorkers.jsx'
-import { NotificationLogEntry } from './NotificationLog.jsx'
+import { NotificationLogEntry, wakeReason } from './NotificationLog.jsx'
 import ProjectPicker from './ProjectPicker.jsx'
 import DriGoal, { DriMilestones } from './DriGoal.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
@@ -104,6 +104,9 @@ function WakeHistory({ owner, scope, revision }) {
   return (
     <section className="feed-section" aria-labelledby="assignee-wake-history">
       <h2 id="assignee-wake-history">Wake history</h2>
+      {items[0] && <p>Latest wake reason: {wakeReason(items[0])}{' · '}
+        <TaskLink id={items[0].task_id} reference={items[0].task} />
+      </p>}
       <ResourceStatus resource={page} label="wake history" />
       {page.data && !page.pending && !page.error && items.length === 0 && (
         <p className="section-message">No wake history for the selected projects.</p>
