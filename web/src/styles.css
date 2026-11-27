@@ -1537,3 +1537,5 @@ button:disabled { opacity: .57; }
 .attachment-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem .75rem; }
 .attachment-actions label { display: grid; gap: .25rem; width: min(100%, 20rem); min-width: 0; }
 .attachment-actions input { width: 100%; min-width: 0; }
+
+.progression-jump { min-height: 2.75rem; margin-block-start: .5rem; }
