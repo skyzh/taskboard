@@ -15,7 +15,7 @@ function Revision({ value }) {
 
 function RevisionHistory({ path, revision }) {
   const [open, setOpen] = useState(false)
-  const page = useLoadedPages(`${path}/revisions`, {}, revision, { enabled: open, cursorParam: 'cursor' })
+  const page = useLoadedPages(`${path}/revisions`, {}, revision, { enabled: open })
   return <details className="report-details" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>Revision history</summary>
     {open && <>
@@ -42,15 +42,7 @@ function EditRevision({ current, path, project, onSaved, onConflict, onCancel })
     setSaving(true)
     setError(null)
     try {
-      const keys = [...new Set(sources.toUpperCase().split(/[ ,\s]+/).filter(Boolean))]
-      const source_ticket_ids = await Promise.all(keys.map(async key => {
-        if (!key.startsWith(`${project}-`) || !/^.+-\d+$/.test(key)) {
-          throw new Error(`Enter a ticket key from ${project}.`)
-        }
-        const { task } = await request(`/tasks/${encodeURIComponent(key)}`)
-        if (task.key !== key || task.record_kind !== 'work') throw new Error(`Choose an available ticket in ${project}.`)
-        return task.id
-      }))
+      const source_ticket_ids = [...new Set(sources.toUpperCase().split(/[ ,\s]+/).filter(Boolean))]
       await request(`${path}/revisions`, {
         body: { content, source_ticket_ids, expected_revision_id: current?.revision_id ?? null },
       })
@@ -69,7 +61,7 @@ function EditRevision({ current, path, project, onSaved, onConflict, onCancel })
   }
 
   return <form className="profile-form dri-goal-form" onSubmit={submit} data-reload-blocked="true">
-    <label>Diagram and notes<textarea value={content} rows={8} required disabled={saving}
+    <label>Diagram and notes<textarea value={content} rows={8} maxLength={8000} required disabled={saving}
       onChange={event => setContent(event.target.value)} /></label>
     <label>Source tickets<input value={sources} aria-describedby={sourceHelp} disabled={saving}
       onChange={event => setSources(event.target.value)} /></label>
