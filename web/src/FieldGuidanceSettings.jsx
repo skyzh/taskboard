@@ -1,12 +1,11 @@
 import React, { useId, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { request, useLoadedPages } from './data.js'
-import { FieldHelp, fieldGuidancePath, useFieldGuidance } from './FieldGuidance.jsx'
+import { FieldHelp, fieldGuidancePath, useFieldGuidance, agentPromptLabels as promptLabels } from './FieldGuidance.jsx'
 import { LoadMore, ResourceStatus, profileName } from './shared.jsx'
 import TicketFieldSettings from './TicketFieldSettings.jsx'
 
 const fieldLabels = { title: 'Title', brief: 'Brief', next_step: 'Next step', activity: 'Activity' }
-const promptLabels = { checkpoint: 'Checkpoint', 'end-task': 'End task', knowledge: 'Knowledge', 'inbox-follow-up': 'Inbox follow-up', 'goal-review': 'Goal review' }
 const sourceLabels = { agent: 'Agent override', project: 'Project override', board: 'Board guidance', default: 'Built-in guidance' }
 
 function GuidanceEditor({ project, field, entry, reload, prompt = false, agent }) {

@@ -12,7 +12,7 @@ import ChecklistEdit from './ChecklistEdit.jsx'
 import DecisionForm, { LinkedDecision, mayAnswer } from './DecisionForm.jsx'
 import DecisionReceiptActions, { decisionsHref } from './DecisionReceiptActions.jsx'
 import EditToggle from './EditToggle.jsx'
-import { useFieldGuidance } from './FieldGuidance.jsx'
+import { useFieldGuidance, WorkflowPrompt } from './FieldGuidance.jsx'
 import { MergeQueue } from './MergeQueue.jsx'
 import ParkingForm from './ParkingForm.jsx'
 import RecordHistory, { historyHref } from './RecordHistory.jsx'
@@ -676,6 +676,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
                 <h3>Goal review</h3>
                 <Markdown text={record.goal_review_prompt.prompt} />
               </>}
+              <WorkflowPrompt entry={record.workflow_prompt} />
               <ClosureReference context={task.context} />
               {showReturnPath && (!record.goal?.keep_exploring || task.state === 'parked') && <div hidden={!showActions}>{record.goal ? (
                   <ReminderDate key={task.event_id}

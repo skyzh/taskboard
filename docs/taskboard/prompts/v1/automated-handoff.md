@@ -52,6 +52,19 @@ met and resume at the next configured review. A completed pass counts as
 that Pacific day's review. Choose a daily Pacific review time for each
 active goal. An idle agent needs an opted-in watcher for an automatic cue.
 
+When signed work supplies a workflow prompt, follow it at pickup. The project’s
+effective wording takes precedence over these public defaults.
+
+**Ready pickup.** Verify the result and record the checked revision and evidence. You can review ordinary work yourself. Arrange independent review when the user asks for it or your project requires it.
+
+**Stalled follow-up.** Read the ticket's current handoff and check what still applies. Resume if you can move it. If it must wait, record the dependency or set a timed revisit. Use the signed cue controls to acknowledge the exact cue or pause future reminders.
+
+**Review handoff.** Read the review brief and check the specified revision or evidence.
+
+**Worker handoff.** Check the run's brief, current step and any checkpoint. Continue or record what blocks the run. Read the worker's result and evidence before collecting the report.
+
+**Suggested next action.** Check the current handoff and the latest evidence. Suggest one concrete next action and name its owner. If it depends on something else, record what will unblock it or when to recheck.
+
 When Taskboard offers a goal review, read its effective Goal review prompt.
 The public default follows.
 

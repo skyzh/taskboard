@@ -328,9 +328,17 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             knowledge = "Link the checked source before editing the handbook."
             inbox_follow_up = "Reply in the original thread when the Inbox update needs a response."
             goal_review = "Read the linked goal and identify its next owner."
+            workflow = {
+                "ready-pickup": "Check the ready sample.",
+                "stalled-follow-up": "Read the saved sample checkpoint.",
+                "review-handoff": "Verify the pinned sample revision.",
+                "worker-handoff": "Read the sample worker result.",
+                "next-action": "Choose one concrete sample check.",
+            }
             guidance.write_text(
                 f'[agent_guidance.prompts]\ncheckpoint = "{checkpoint}"\nend-task = "{end_task}"\n'
-                f'knowledge = "{knowledge}"\ninbox-follow-up = "{inbox_follow_up}"\ngoal-review = "{goal_review}"\n',
+                f'knowledge = "{knowledge}"\ninbox-follow-up = "{inbox_follow_up}"\ngoal-review = "{goal_review}"\n'
+                + "".join(f'{key} = "{prompt}"\n' for key, prompt in workflow.items()),
                 encoding="utf-8",
             )
             with fixture_server(python, ROOT, folder / "service", *certificate(folder), guidance=guidance) as mounted:
@@ -347,6 +355,8 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                     signed["prompts"]["inbox-follow-up"], {"prompt": inbox_follow_up, "source": "board"},
                 )
                 self.assertEqual(signed["prompts"]["goal-review"], {"prompt": goal_review, "source": "board"})
+                for key, prompt in workflow.items():
+                    self.assertEqual(signed["prompts"][key], {"prompt": prompt, "source": "board"})
                 self.assertEqual({entry["source"] for entry in signed["prompts"].values()}, {"board"})
                 self.assertIn("current_handoff", signed["prompts"]["checkpoint"]["example"])
                 self.assertEqual(

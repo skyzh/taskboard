@@ -8,6 +8,7 @@ import DecisionForm from './DecisionForm.jsx'
 import DecisionReceiptActions, { decisionTicketHref } from './DecisionReceiptActions.jsx'
 import BrowserPush from './BrowserPush.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
+import { WorkflowPrompt } from './FieldGuidance.jsx'
 import { Markdown } from './Markdown.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import { EventRow } from './Work.jsx'
@@ -172,6 +173,7 @@ function InboxEntries({ revision, owner, project, openCount, onChanged }) {
         <h3>Goal review</h3>
         <Markdown text={work.data.goal_review_prompt.prompt} />
       </>}
+      <WorkflowPrompt entry={work.data?.workflow_prompt} />
       {work.data?.inbox_refresh && <>
         <p className="section-message">{work.data.inbox_refresh}</p>
         <Markdown text={work.data.inbox_follow_up?.prompt} />
