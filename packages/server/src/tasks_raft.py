@@ -80,6 +80,17 @@ _ACTIONS = {
     "decision-delivery": _Action("GET", "Read the effective route for an original decision you requested.", {
         **_TASK, "request_id": "Exact open decision event from the original signed write.",
     }),
+    "dri-postboard": _Action("GET", "Read a DRI's postboard in one project.", {
+        "project": "Explicit project prefix.", "dri": "Exact DRI ledger key.",
+    }),
+    "dri-postboard-history": _Action("GET", "Read the revisions of a DRI's postboard in one project.", {
+        "project": "Explicit project prefix.", "dri": "Exact DRI ledger key.",
+    }, _PAGINATION),
+    "save-dri-postboard": _Action("POST", "Append a revision to your own enabled postboard.", {
+        "project": "Explicit project prefix.", "content": "Markdown including optional Mermaid.",
+        "source_ticket_ids": "JSON array of source ticket keys.",
+        "expected_revision_id": "Current revision ID. Send an empty string for the first save.",
+    }),
     "idle-goal-offer": _Action("POST", "Return a standing goal at a verified idle runner handoff.", {
         "handoff_id": "Stable runner handoff UUID. Use only after observing Idle and reuse the same ID on retry.",
     }, _PROJECT),

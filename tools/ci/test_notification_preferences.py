@@ -21,6 +21,7 @@ import test_tasks_github_webhooks as webhook_fixture
 from test_tasks_knowledge_sweeps import replay_knowledge_sweeps
 from test_tasks_migrations import reject_incompatible_profile_definition, replay_additive_rollback, replay_versioned_profiles
 from test_tasks_project_move import replay_move
+from test_tasks_postboards import replay_postboards
 from test_tasks_recurring import replay_project_tick, replay_reusable_upgrade, replay_team_schedules, replay_ticket_recurrence
 import test_tasks_ring1 as ring1_fixture
 import test_tasks_reports_presence as presence_fixture
@@ -97,6 +98,11 @@ class StorageReplayTest(unittest.TestCase):
 
     def test_postgres_watched_fyi_acknowledgment(self):
         self.board.replay_watched_fyi(self.postgres_app(self.postgres_fixture()))
+
+    def test_postgres_signed_postboard_revisions(self):
+        replay_postboards(self, self.board, self.postgres_app(
+            self.postgres_fixture(), project_admin_subject=fixture.FixtureRaft().people["Sam"]["sub"],
+        ))
 
     def test_postgres_signed_request_usage_preserves_the_work_ticket(self):
         dsn = self.postgres_fixture()

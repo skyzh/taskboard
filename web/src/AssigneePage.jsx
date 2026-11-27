@@ -11,6 +11,7 @@ import { TaskRows } from './WorkRow.jsx'
 import DriWorkers from './DriWorkers.jsx'
 import { NotificationLogEntry, wakeReason } from './NotificationLog.jsx'
 import ProjectPicker from './ProjectPicker.jsx'
+import ProjectPostboard from './ProjectPostboard.jsx'
 import DriGoal, { DriMilestones } from './DriGoal.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { useTimeZone } from './timeZone.js'
@@ -190,6 +191,7 @@ export default function AssigneePage({ owner, section, revision, project, allPro
   const milestones = entry.milestones || []
   const projectGoals = entry.project_goals || []
   const choices = projects.filter(item => entry.projects?.includes(item.prefix))
+  const showPostboard = agentReport && viewer && !allProjects && choices.some(item => item.prefix === project)
   const projectNames = new Map(choices.map(item => [item.prefix, item.title]))
   const showMilestones = milestones.length > 0 || canEditGoal
   const showStandingGoal = Boolean(entry.standing_goal || canEditGoal)
@@ -224,8 +226,9 @@ export default function AssigneePage({ owner, section, revision, project, allPro
           onChanged={onWatchChanged} />
       )}
       {viewer?.kind === 'human' && viewer.id === owner && <NeedsYou project={project} revision={revision} />}
-      {(showStandingGoal || showMilestones || entry.goal || projectGoals.length > 0 || hasWork || hasOutcomeLink || reports.length > 0) && (
+      {(showPostboard || showStandingGoal || showMilestones || entry.goal || projectGoals.length > 0 || hasWork || hasOutcomeLink || reports.length > 0) && (
         <nav className="owner-links profile-index" aria-label={`${name}’s work sections`}>
+          {showPostboard && <BoardLink href={ownerHref(owner, 'postboard-title', routeProject)}>Postboard</BoardLink>}
           {showStandingGoal && <BoardLink href={ownerHref(owner, 'dri-standing-goal-title', routeProject)}>Standing goal</BoardLink>}
           {entry.goal && <BoardLink href={ownerHref(owner, 'dri-goal-title', routeProject)}>Original dated goal</BoardLink>}
           {showMilestones && <BoardLink href={ownerHref(owner, 'dri-milestones-title', routeProject)}>Dated milestones</BoardLink>}
@@ -240,6 +243,7 @@ export default function AssigneePage({ owner, section, revision, project, allPro
           )}
         </nav>
       )}
+      {showPostboard && <ProjectPostboard key={`${project}:${owner}`} project={project} owner={owner} revision={revision} />}
       {projectGoals.length > 0 && <ProjectGoals entries={projectGoals} owner={owner} names={projectNames} />}
       {showStandingGoal && <DriGoal goal={entry.standing_goal} project={project} standing editable={canEditGoal} onChanged={resource.retry} />}
       {entry.goal && <DriGoal goal={entry.goal} project={project} editable={canEditGoal} onChanged={resource.retry} />}

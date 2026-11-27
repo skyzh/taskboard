@@ -54,6 +54,7 @@ import tasks_profiles as profiles
 import tasks_projects as projects
 import tasks_ring1 as ring1
 import tasks_peer_asks as peer_asks
+import tasks_postboards as postboards
 from tasks_release_info import release_info
 import tasks_recurring
 import tasks_releases as releases
@@ -394,7 +395,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     if marketplace:
         db.execute("INSERT INTO board_settings VALUES ('marketplace_server_id', ?) ON CONFLICT (key) DO NOTHING", (server_id,))
     profiles.ensure_principals(db, versioned=True)
-    for statement in reports_presence.SCHEMA:
+    for statement in (*reports_presence.SCHEMA, *postboards.SCHEMA):
         db.execute(statement)
     db.execute(project_admin.SCHEMA)
     db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
@@ -465,7 +466,7 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
         ledger.ensure_record_kind(db)
         ledger.ensure_checklist_schema(db)
         profiles.ensure_principals(db, versioned=True)
-        for statement in reports_presence.SCHEMA:
+        for statement in (*reports_presence.SCHEMA, *postboards.SCHEMA):
             db.execute(statement)
         ensure_attention_requests(db)
         db.execute(ticket_fields.SCHEMA)
@@ -4350,6 +4351,101 @@ def create_app(
             info["watching"] = watches.watches_assignee(db(), actor["ledger_key"], owner)
         return info
 
+    def postboard_ticket_ids(connection, project, references):
+        if not isinstance(references, list) or len(references) > 50:
+            raise RequestError("Provide up to 50 source ticket IDs.")
+        numbers = []
+        for reference in references:
+            if type(reference) is int:
+                number = integer(reference, "Source ticket ID")
+            elif isinstance(reference, str):
+                number = task_number(reference)
+            else:
+                raise RequestError("Use a ticket key or numeric ID for each source.")
+            if project_for_task(connection, number) != project:
+                raise RequestError("Choose source tickets from this project.", 404)
+            numbers.append(number)
+        return list(dict.fromkeys(numbers))
+
+    def dri_postboard(actor, project, dri, operation, data):
+        key = actor_key()
+        if key is None:
+            raise RequestError("Sign in directly to view a postboard.", 403)
+        project = project_filter({"project": project})
+        if (local := g.get("local_dri")) is not None and local["project"] != project:
+            raise NotFound()
+        writing = operation in ("settings", "append")
+        with (tasks_storage.write(db()) if writing else tasks_storage.read(db())) as connection:
+            require_visible_project(connection, project)
+            owner = require_person(dri, kind="agent")
+            require_ring_member(connection, project, owner)
+            if project not in query().assignee_projects(owner):
+                raise NotFound()
+            enabled = postboards.enabled(connection, project, owner)
+            can_manage = projects.manages(connection, project, key)
+            can_edit = actor["kind"] == "agent" and key == owner and enabled
+            if operation == "history":
+                paging = page_args(data)
+                rows = postboards.revisions(connection, project, owner, before=paging["before"], limit=paging["limit"] + 1)
+                items = [postboards.public_revision(connection, row, project, base) for row in rows[:paging["limit"]]]
+                return {"items": items, "next_cursor": items[-1]["revision_id"] if len(rows) > len(items) else None}
+
+            if operation == "settings":
+                if not can_manage:
+                    raise RequestError("Only a project manager can configure a postboard.", 403)
+                enabled = data.get("autonomous_enabled")
+                if type(enabled) is not bool:
+                    raise RequestError("Set autonomous_enabled to true or false.")
+                if postboards.set_enabled(connection, project, owner, enabled):
+                    audit.record(connection, scope="private", actor=key, operation="set-postboard-permission",
+                                 record_type="dri_postboard", record_id=f"{project}/{owner}", at=ledger.timestamp())
+                    ledger.bump_revision(connection, project)
+                can_edit = actor["kind"] == "agent" and key == owner and enabled
+
+            rows = postboards.revisions(connection, project, owner)
+            current = rows[0] if rows else None
+            if operation == "append":
+                if not can_edit:
+                    raise RequestError("Only the signed DRI can update their postboard while enabled.", 403)
+                if "expected_revision_id" not in data:
+                    raise RequestError("Provide the current revision ID, or null for the first save.")
+                expected = data["expected_revision_id"]
+                if expected is not None:
+                    expected = integer(expected, "Expected revision ID")
+                latest = current["revision_id"] if current else None
+                if expected != latest:
+                    raise RequestError("The postboard changed. Reload before saving your draft.", 409)
+                content = text(data, "content", maximum=8000, strip=False)
+                sources = postboard_ticket_ids(connection, project, data.get("source_ticket_ids"))
+                number = 1 if latest is None else latest + 1
+                postboards.append(connection, project, owner, number, content, sources, ledger.timestamp())
+                ledger.bump_revision(connection, project)
+                current = postboards.revisions(connection, project, owner)[0]
+            return {
+                "project": project, "dri": owner, "autonomous_enabled": enabled,
+                "can_manage": can_manage, "can_edit": can_edit,
+                "current": postboards.public_revision(connection, current, project, base) if current else None,
+            }
+
+    @app.get("/api/v1/projects/<project>/postboards/<dri>")
+    def postboard_read(project, dri):
+        return dri_postboard(current_actor(required=True), project, dri, "read", request.args)
+
+    @app.get("/api/v1/projects/<project>/postboards/<dri>/revisions")
+    def postboard_history(project, dri):
+        return dri_postboard(current_actor(required=True), project, dri, "history", request.args)
+
+    @app.put("/api/v1/projects/<project>/postboards/<dri>/settings")
+    def postboard_settings(project, dri):
+        actor = current_actor(write=True, required=True)
+        return dri_postboard(actor, project, dri, "settings", json_body({"autonomous_enabled"}))
+
+    @app.post("/api/v1/projects/<project>/postboards/<dri>/revisions")
+    def postboard_append(project, dri):
+        actor = current_actor(write=True, required=True)
+        return dri_postboard(actor, project, dri, "append",
+                             json_body({"content", "source_ticket_ids", "expected_revision_id"}))
+
     @app.get("/api/v1/assignee/reviews")
     def assignee_reviews():
         current_actor()
@@ -4746,6 +4842,18 @@ def create_app(
             raise RequestError("This action requires a signed-in agent or Personal Agents connection.", 403)
         if g.get("personal_agent_api") and name in STANDING_RAFT_ACTIONS:
             raise RequestError(STANDING_RAFT_REQUIRED, 403)
+        if name in ("dri-postboard", "dri-postboard-history", "save-dri-postboard"):
+            project = text(data, "project", maximum=8)
+            if name != "save-dri-postboard":
+                operation = "history" if name == "dri-postboard-history" else "read"
+                return dri_postboard(actor, project, text(data, "dri", maximum=160), operation, data)
+            try:
+                sources = json.loads(data["source_ticket_ids"])
+            except (TypeError, ValueError) as error:
+                raise RequestError("Encode source_ticket_ids as a JSON array.") from error
+            expected = data["expected_revision_id"]
+            fields = {**data, "source_ticket_ids": sources, "expected_revision_id": None if expected == "" else expected}
+            return dri_postboard(actor, project, actor["ledger_key"], "append", fields)
         if name in attachment_routes.ACTIONS:
             return invoke_attachment(name, data, actor)
         key = actor["ledger_key"]

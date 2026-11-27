@@ -31,6 +31,7 @@ TABLES = (
     "wake_subscriptions", "wake_log", "goal_idle_offers",
     "knowledge_areas", "knowledge_entries", "knowledge_stages", "knowledge_maintenance_assignments",
     "agent_api_usage", "ticket_attachments", "ticket_attachment_bytes",
+    "dri_postboards", "dri_postboard_revisions",
 )
 ATTACHMENT_TABLES = {"ticket_attachments", "ticket_attachment_bytes"}
 # Ephemeral deployment records and migration history belong to the source database.
@@ -137,8 +138,11 @@ def copy_table(source, destination, table):
     actual = destination.execute(f"SELECT COUNT(*) FROM {table_sql}").fetchone()[0]
     if count != actual:
         raise ValueError(f"The row count changed while importing {table}.")
-    if table in ("tasks", "events", *ATTACHMENT_TABLES):
-        order = "attachment_id" if table == "ticket_attachment_bytes" else "id"
+    ordering = {
+        "tasks": "id", "events": "id", "ticket_attachments": "id", "ticket_attachment_bytes": "attachment_id",
+        "dri_postboards": "project, dri", "dri_postboard_revisions": "project, dri, revision_id",
+    }
+    if order := ordering.get(table):
         expected = source.execute(f"SELECT {fields_sql} FROM {table_sql} ORDER BY {order}")
         copied = destination.execute(f"SELECT {fields_sql} FROM {table_sql} ORDER BY {order}")
         if any(tuple(old) != tuple(new) for old, new in zip(expected, copied, strict=True)):
