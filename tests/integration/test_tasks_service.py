@@ -8254,6 +8254,72 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(quinn, history).json["items"], [])
         self.call(quinn, ack, method="POST", status=404)
 
+    def test_ask_history_keeps_exact_resolutions_and_checks_current_access_before_paging(self):
+        app = self.app(portal_reader=True, project_admin_subject=self.provider.people["Sam"]["sub"])
+        admin, _ = self.login(app, "Sam")
+        owner, owner_id = self.login(app, "Avery")
+        recipient, recipient_id = self.login(app, "Quinn")
+        self.call(admin, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Restricted examples", "visibility": "ring1",
+        })
+        membership = "/api/v1/projects/LAB/ring1"
+        for principal in (owner_id, recipient_id):
+            self.call(admin, membership, method="PUT", json={"principal": principal, "allowed": True})
+        for project in ("T", "LAB"):
+            self.action(owner, "create-task", {"title": "Review the sample", "step": "Ask Quinn.", "project": project})
+
+        def advance(transition, note, **fields):
+            return self.action(owner, "advance-task", {
+                "id": "T-1", "transition": transition, "note": note, **fields,
+            })
+
+        decisions = []
+        resolved_at = "2026-11-21T12:00:00Z"
+        for question, answer in (("Which format?", "CSV"), ("Which delimiter?", "Comma")):
+            advance("start", "Prepare the sample.")
+            advance("assign-human", question, on=recipient_id)
+            (decision,) = self.call(recipient, "/api/v1/notifications/decisions").json["items"]
+            decisions.append(decision["event_id"])
+            with patch("tasks_core.timestamp", return_value=resolved_at):
+                self.call(recipient, "/api/v1/tasks/T-1/decision", method="POST", json={
+                    "request_id": decision["event_id"], "note": answer,
+                })
+        advance("start", "Finish the sample.")
+        advance("done", "The sample is ready.")
+
+        def attention(ticket, question, handled):
+            number = self.action(owner, "raise-attention", {
+                "id": ticket, "recipient": recipient_id, "reason": question,
+            })["id"]
+            if handled:
+                with patch("tasks_core.timestamp", return_value=resolved_at):
+                    self.call(recipient, f"/api/v1/notifications/requests/{number}/handled", method="POST")
+            return number
+
+        handled = attention("T-1", "Read the summary.", True)
+        restricted = attention("LAB-1", "Read the restricted summary.", True)
+        attention("LAB-1", "Still open.", False)
+        route = "/api/v1/notifications/ask-history"
+        self.call(app.test_client(), route, status=401)
+        self.assertEqual(self.call(admin, route, query_string={"scope": "all"}).json["items"], [])
+        first = self.call(recipient, route, query_string={"scope": "all", "limit": 1}).json
+        self.assertEqual(first["items"][0]["request_id"], decisions[-1])
+        self.assertEqual(first["items"][0]["question"], "Which delimiter?")
+        self.assertEqual(first["items"][0]["outcome"], "Comma")
+        second = self.call(recipient, route, query_string={
+            "scope": "all", "limit": 1, "before": first["next_cursor"],
+        }).json
+        self.assertEqual(second["items"][0]["source"], f"#task-1?decision-request={decisions[0]}")
+        named = self.call(recipient, route, query_string={"project": "LAB"}).json["items"]
+        self.assertEqual([row["source"] for row in named], [f"#task-LAB-1?attention-request={restricted}"])
+        self.call(admin, membership, method="PUT", json={"principal": recipient_id, "allowed": False})
+        third = self.call(recipient, route, query_string={
+            "scope": "all", "limit": 1, "before": second["next_cursor"],
+        }).json
+        self.assertEqual([row["source"] for row in third["items"]], [f"#task-1?attention-request={handled}"])
+        self.assertIsNone(third["next_cursor"])
+        self.call(recipient, route, query_string={"project": "LAB"}, status=404)
+
     def test_decision_notification_returns_after_sign_in_and_tracks_follow_through(self):
         app = self.app(portal_reader=True)
         avery, _ = self.login(app, "Avery")
