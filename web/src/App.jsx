@@ -206,6 +206,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const selected = namedTask || fragmentId(taskAnchor, /^task-([1-9]\d*)$/)
   const decisionScope = selected && new URLSearchParams(taskContext).get('decision-scope')
   const decisionProject = validProject(decisionScope) ? decisionScope : undefined
+  const decisionParam = selected && new URLSearchParams(taskContext).get('decision-request')
+  const decisionRequest = /^[1-9]\d{0,18}$/.test(decisionParam || '') ? decisionParam : undefined
   const requestParam = selected && new URLSearchParams(taskContext).get('attention-request')
   const attentionRequest = /^[1-9]\d{0,18}$/.test(requestParam || '') ? requestParam : undefined
   const fromSearch = selected ? new URLSearchParams(taskContext).get('from-search')?.trim() : ''
@@ -617,7 +619,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'task' && <TaskDetail key={selected} id={selected} revision={revision} session={session}
             preferredProject={defaultProject} returnHref={fromList ? listReturn.current.board : undefined}
             fromSearch={fromSearch} history={recordHistory} progression={progression} decisionProject={decisionProject}
-            attentionRequest={attentionRequest} onChanged={refresh} preview={preview}
+            attentionRequest={attentionRequest} decisionRequest={decisionRequest} onChanged={refresh} preview={preview}
             moveReceipt={ticketMove?.href === `#${taskAnchor}` ? ticketMove.receipt : undefined}
             onMoved={(href, receipt) => {
               setTicketMove({ href, receipt })

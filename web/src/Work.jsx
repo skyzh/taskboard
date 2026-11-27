@@ -8,7 +8,7 @@ import { ActivityDate } from './Overview.jsx'
 import { entryHref, StagedWork, TicketKnowledgeLinks } from './Knowledge.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import ChecklistEdit from './ChecklistEdit.jsx'
-import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
+import DecisionForm, { LinkedDecision, mayAnswer } from './DecisionForm.jsx'
 import DecisionReceiptActions, { decisionsHref } from './DecisionReceiptActions.jsx'
 import EditToggle from './EditToggle.jsx'
 import { useFieldGuidance } from './FieldGuidance.jsx'
@@ -533,7 +533,7 @@ export function KnowledgeRecordTools({ id, revision, onChanged }) {
 }
 
 export function TaskDetail({ id, revision, session, onChanged, onMoved, moveReceipt,
-  preferredProject = 'T', returnHref, fromSearch, history, progression, decisionProject, attentionRequest, preview }) {
+  preferredProject = 'T', returnHref, fromSearch, history, progression, decisionProject, attentionRequest, decisionRequest, preview }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
   const [actionsOpen, setActionsOpen] = useState(false)
   useEffect(() => {
@@ -584,6 +584,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const context = new URLSearchParams()
   if (fromSearch) context.set('from-search', fromSearch)
   if (decisionProject) context.set('decision-scope', decisionProject)
+  if (decisionRequest) context.set('decision-request', decisionRequest)
   if (attentionRequest) context.set('attention-request', attentionRequest)
   const currentHref = context.size ? `${anchor}?${context}` : anchor
   context.set('view', 'progression')
@@ -632,7 +633,12 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
             <AttentionRequests key={`attention:${session.data.actor.id}:${id}:${attentionRequest}`}
               taskId={id} requestId={attentionRequest} revision={revision} onChanged={onChanged} />
           )}
-          <section className={task ? `ticket-focus ${state}` : undefined} aria-label={summary}>
+          {decisionRequest ? <section className="ticket-focus" aria-label="Decision request">
+            <div className="ticket-focus-heading"><h2>Decision request</h2>{returnToDecisions}</div>
+            <LinkedDecision key={`${id}:${decisionRequest}:${session.data?.actor?.id || ''}`}
+              ticket={id} requestId={decisionRequest} task={task} session={session} revision={revision}
+              onChanged={onChanged} receiptAction={<DecisionReceiptActions project={decisionProject} revision={revision} showReturn={false} />} />
+          </section> : <section className={task ? `ticket-focus ${state}` : undefined} aria-label={summary}>
             {task && <>
               {canAnswer ? <div className="ticket-focus-heading">
                 <h2>{summary}</h2>
@@ -667,7 +673,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               task={task} session={session} onChanged={onChanged}
               receiptAction={canAnswer ? undefined : <DecisionReceiptActions key={decisionProject || 'all'}
                 project={decisionProject} revision={revision} />} />
-          </section>
+          </section>}
           {task && <>
             {signedIn && <NeedsYouSend key={`${id}:${session.data.actor.id}`} ticket={task.key || id}
               actions={record.needs_you_actions} project={taskProject} revision={revision} onChanged={onChanged} />}

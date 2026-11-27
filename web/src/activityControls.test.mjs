@@ -16,6 +16,7 @@ let WorkLog
 let WorkQueue
 let TaskDetail
 let DecisionForm
+let LinkedDecision
 let TaskClosure
 let TaskDetailsEdit
 let TaskOwnership
@@ -51,7 +52,7 @@ before(async () => {
     stdin: {
       contents: `
         export { WorkLog, WorkQueue, EventRow, TaskDetail } from './Work.jsx'
-        export { default as DecisionForm } from './DecisionForm.jsx'
+        export { default as DecisionForm, LinkedDecision } from './DecisionForm.jsx'
         export { default as TaskClosure } from './TaskClosure.jsx'
         export { default as TaskDetailsEdit } from './TaskDetailsEdit.jsx'
         export { default as TaskOwnership } from './TaskOwnership.jsx'
@@ -141,7 +142,7 @@ before(async () => {
   const module = { exports: {} }
   new Function('require', 'module', result.outputFiles[0].text)(require, module)
   ;({
-    WorkLog, WorkQueue, TaskDetail, DecisionForm, TaskClosure, TaskDetailsEdit, TaskOwnership, TaskProjectMove, TaskTags,
+    WorkLog, WorkQueue, TaskDetail, DecisionForm, LinkedDecision, TaskClosure, TaskDetailsEdit, TaskOwnership, TaskProjectMove, TaskTags,
     TaskTransition, TaskActivityUpdate, TransitionFeedback,
     ReminderDate, PendingReports, Reports, AssigneePage, EventRow, OutcomeRow, Outcomes,
     TimeZoneContext, createTimeZoneFormatters,
@@ -878,7 +879,7 @@ test('Inbox shows empty only after its required reads settle successfully', () =
 
 test('Inbox shows scoped decision and acknowledgment actions when ordinary work is empty', () => {
   const session = { data: { actor: { id: 'sam', kind: 'human' } } }
-  const decision = { id: 7, key: 'T-7', event_id: 41, state: 'human_review', waiting_on: 'sam',
+  const decision = { id: 7, key: 'T-7', event_id: 41, decision_request_id: 41, state: 'human_review', waiting_on: 'sam',
     title: 'Choose a format', note: 'Which format should we use?', context: { choices: ['CSV'] }, links: [] }
   const request = { id: 3, task_id: 8, task_key: 'T-8', task_title: 'Goal review', reason: 'The revised export passed.',
     sender: 'Avery', raised_at: '2026-11-26T12:00:00Z', links: [] }
@@ -893,12 +894,36 @@ test('Inbox shows scoped decision and acknowledgment actions when ordinary work 
     '/notifications/requests': { data: { items: [request] } },
   }
   const markup = renderToStaticMarkup(React.createElement(Notifications, { session, verified: true, project: 'T' }))
-  assert.match(markup, /decision-scope=T.*Choose a format/)
+  assert.match(markup, /decision-scope=T&amp;decision-request=41.*Choose a format/)
   assert.match(markup, /Record decision/)
   assert.match(markup, /attention-request=3.*Goal review/)
   assert.match(markup, /The revised export passed\./)
   assert.match(markup, /Mark handled/)
   assert.doesNotMatch(markup, /Your inbox is empty/)
+})
+
+test('a linked decision keeps the requested event through sign-in and never answers a replacement', () => {
+  const session = { data: { actor: { id: 'sam', kind: 'human' } } }
+  const original = { id: 7, key: 'T-7', event_id: 41, decision_request_id: 41, state: 'human_review',
+    waiting_on: 'sam', note: 'Original question', context: { choices: ['CSV'] }, links: [] }
+  const replacement = { ...original, event_id: 45, decision_request_id: 45, note: 'Replacement question' }
+  const path = '/tasks/T-7/decision/41'
+  const render = (task, currentSession = session) => renderToStaticMarkup(React.createElement(LinkedDecision, {
+    ticket: 'T-7', requestId: '41', task, session: currentSession,
+  }))
+  fixture.state = []
+  fixture.resources = { [path]: { data: { status: 'open', answer: null } } }
+  assert.match(render(original), /Original question.*Record decision/)
+  assert.doesNotMatch(render(replacement), /Replacement question|Record decision/)
+  fixture.resources[path] = { data: { status: 'closed', answer: null } }
+  assert.match(render(replacement), /closed elsewhere/)
+  assert.doesNotMatch(render(replacement), /Replacement question|Record decision/)
+  fixture.resources[path] = { data: { status: 'answered', answer: { event_id: 44, note: 'CSV' } } }
+  assert.match(render(replacement), /Decision recorded.*event-44-log/)
+  fixture.resources[path] = { error: { status: 404 } }
+  assert.match(render(replacement), /unavailable to your account/)
+  assert.match(render(replacement, { error: { status: 401 } }), /return_to=%2Ftickets%2FT-7%3Fdecision-request%3D41/)
+  assert.match(render(replacement, { data: { actor: { kind: 'portal' } } }), /Sign in to open this decision/)
 })
 
 test('Goal activity filters owners and goals, and reports offers only for standing goals', () => {
