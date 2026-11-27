@@ -29,7 +29,7 @@ _NOTE = "Activity or decision to record."
 _DETAILS = "Optional handoff details. Send an empty string for a headline alone. With this field, note is a one-line headline."
 CODEX_SNAPSHOT_ACTION = "install-codex-snapshot"
 STANDING_RAFT_ACTIONS = {
-    "my-wake-subscriptions", "set-wake-subscription", "idle-goal-offer",
+    "my-wake-subscriptions", "set-wake-subscription", "idle-goal-offer", "my-ticket-cues",
     "my-wake-workers", "worker-check", "my-cue-pauses", "set-cue-pause", "acknowledge-stalled-cue",
 }
 STANDING_RAFT_REQUIRED = "This action requires a standing Raft agent."
@@ -74,6 +74,8 @@ _ACTIONS = {
     "configure-ticket-fields": _Action("POST", "Replace the project ticket field list as its manager.", {
         "project": "Tasks project prefix.", "fields": "Full field list encoded as a JSON array.",
     }),
+    "my-ticket-cues": _Action("GET", "Preview your server-ranked ticket cues without sending a wake.",
+                              optional=_PROJECT | _SCOPE | {"limit": "Maximum number of cues from 1 to 20."}),
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE | {
         "refresh_guidance": "Use true when the client displays the daily Inbox guidance cue.",
     }),
