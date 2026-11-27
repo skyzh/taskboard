@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
-import { queryPath, request, useLoadedPages, useResource } from './data.js'
+import { queryPath, useLoadedPages, useResource } from './data.js'
 import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificationLogFilters, ownerHref, profileName, useSignInHref, taskHref } from './shared.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import NotificationLog from './NotificationLog.jsx'
@@ -12,26 +12,8 @@ import { Markdown } from './Markdown.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import { EventRow } from './Work.jsx'
 import { TaskWaitAge } from './WaitAge.jsx'
-import { useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
 import { projectFilters, projectHref } from './projectScope.js'
-
-function Creation({ event }) {
-  const { formatTimestamp } = useTimeZone()
-  const timestamp = formatTimestamp(event.at)
-  const creator = profileName(event.creator)
-  return (
-    <li className="event-row">
-      <p className="event-ticket"><TaskLink reference={event.task_key} id={event.task_id} title={event.task_title} /></p>
-      <p className="event-meta">
-        <span>Created by {creator}</span>
-        <BoardLink href={eventHref(event.id)} aria-label={`View task creation by ${creator} at ${timestamp}`}>
-          <ReportTime at={event.at} linked />
-        </BoardLink>
-      </p>
-    </li>
-  )
-}
 
 function DecisionRequest({ task, current, session, onChanged, onAnswerStarted, project, revision }) {
   return (
@@ -121,21 +103,23 @@ function InboxStandingGoals({ goals, owner }) {
   )
 }
 
-function InboxEntries({ revision, owner, project }) {
+function InboxEntries({ revision, owner, project, openCount }) {
   const page = useLoadedPages('/notifications/inbox', { ...projectFilters(project), view: 'updates' }, revision)
   const work = useResource(queryPath('/notifications/work', projectFilters(project)), revision)
-  const items = page.data?.items ?? []
+  const items = (page.data?.items ?? []).filter(row => row.kind === 'watched' || row.kind === 'readiness')
   const datedGoals = work.data?.dated_goals || []
   const standingGoals = work.data?.standing_goals || []
   const actionable = (work.data?.items || []).filter(item => Object.hasOwn(workLabels, item.kind))
   const legacyWorkEndpoint = work.error?.status === 404
   const showEmpty = page.data && !page.pending && !page.error
     && !work.pending && (work.data || legacyWorkEndpoint)
+    && !openCount.pending && !openCount.error && openCount.data?.count === 0
     && items.length === 0 && actionable.length === 0 && datedGoals.length === 0 && standingGoals.length === 0
 
   return (
     <>
       <ResourceStatus resource={page} label="your inbox" />
+      {openCount.error && <ResourceStatus resource={openCount} label="Inbox action count" />}
       {work.error && !legacyWorkEndpoint && <ResourceStatus resource={work} label="next actionable work" />}
       <InboxWork items={actionable} />
       {showEmpty && <p className="section-message">Your inbox is empty.</p>}
@@ -143,7 +127,6 @@ function InboxEntries({ revision, owner, project }) {
         <ol className="event-list" aria-label="Inbox" role="list">
           {items.map(({ kind, id, item }) => {
             const key = `${kind}-${id}`
-            if (kind === 'creation') return <Creation key={key} event={item} />
             if (kind === 'watched') return <EventRow key={key} event={item} showTask />
             if (kind === 'readiness') return <InboxReadiness key={key} item={item} />
             return null
@@ -158,38 +141,12 @@ function InboxEntries({ revision, owner, project }) {
   )
 }
 
-function Inbox({ revision, owner, project }) {
-  const preference = useResource('/notifications/preferences', revision)
-  const [saving, setSaving] = useState(false)
-  const [failure, setFailure] = useState(null)
-
-  async function subscribe(taskCreations) {
-    setSaving(true)
-    setFailure(null)
-    try {
-      await request('/notifications/preferences', { body: { task_creations: taskCreations } })
-      preference.retry()
-    } catch (error) {
-      setFailure(error.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
+function Inbox({ revision, session, project, openCount, onChanged }) {
   return (
     <section className="feed-section" aria-label="Inbox">
-      <ResourceStatus resource={preference} label="notification preferences" />
-      {preference.data && (
-        <label className="activity-mode">
-          <input type="checkbox" checked={preference.data.task_creations} disabled={preference.pending || saving}
-            onChange={event => subscribe(event.target.checked)} />
-          Include new tasks
-        </label>
-      )}
-      {failure && <p role="alert" className="section-message">{failure}</p>}
-      {preference.data && (
-        <InboxEntries revision={`${revision}:${preference.data.task_creations}`} owner={owner} project={project} />
-      )}
+      <BoardLink href={projectHref('#activity?action=add', project || 'all')}>Task created activity</BoardLink>
+      <InboxEntries revision={revision} owner={session.data?.actor?.id} project={project} openCount={openCount} />
+      <NeedsMe key={project} revision={revision} session={session} onChanged={onChanged} project={project} onlyOpen />
     </section>
   )
 }
@@ -242,7 +199,7 @@ function ReviewRequests({ revision, project }) {
   )
 }
 
-function NeedsMe({ revision, session, onChanged, project }) {
+function NeedsMe({ revision, session, onChanged, project, onlyOpen = false }) {
   const decisions = useLoadedPages('/notifications/decisions', projectFilters(project), revision)
   const [submitted, setSubmitted] = useState([])
   const current = decisions.data?.items ?? []
@@ -250,9 +207,10 @@ function NeedsMe({ revision, session, onChanged, project }) {
   // Keep in-flight decision receipts when an answered request leaves the open list.
   const items = [...submitted.filter(task => !currentIds.has(task.event_id)), ...current]
   return (
-    <section className="feed-section" aria-labelledby="attention-title">
-      <h2 id="attention-title">Needs your attention</h2>
-      <h3 className="notification-subhead">Decision requests</h3>
+    <section className="feed-section" aria-label={onlyOpen ? "Open Inbox requests" : undefined}
+      aria-labelledby={onlyOpen ? undefined : "attention-title"}>
+      {(!onlyOpen || items.length > 0) && <h2 id="attention-title">Needs your attention</h2>}
+      {(!onlyOpen || items.length > 0) && <h3 className="notification-subhead">Decision requests</h3>}
       <ResourceStatus resource={decisions} label="your decision requests" />
       {items.length > 0 && (
         <ol className="event-list" aria-label="Decision requests for you" role="list">
@@ -265,11 +223,11 @@ function NeedsMe({ revision, session, onChanged, project }) {
           ))}
         </ol>
       )}
-      {decisions.data && items.length === 0 && <p className="section-message">No open decision requests.</p>}
+      {!onlyOpen && decisions.data && items.length === 0 && <p className="section-message">No open decision requests.</p>}
       <LoadMore page={decisions} label="open decision requests" />
-      <AttentionRequests revision={revision} onChanged={onChanged} project={project} />
+      <AttentionRequests revision={revision} onChanged={onChanged} project={project} onlyOpen={onlyOpen} />
       <ReviewRequests revision={revision} project={project} />
-      <FollowThrough revision={revision} project={project} />
+      {!onlyOpen && <FollowThrough revision={revision} project={project} />}
     </section>
   )
 }
@@ -293,23 +251,25 @@ function PersonalNotifications({ revision, session, onChanged, fragment, project
   const needsMe = route === 'notifications-needs-me'
   const scope = project || (new URLSearchParams(query).get('scope') === 'all' ? 'all' : undefined)
   const logFilters = notificationLogFilters(fragment)
-  const { data } = useResource(queryPath('/notifications/open-count', projectFilters(project)), revision)
+  const openCount = useResource(queryPath('/notifications/open-count', projectFilters(project)), revision)
   return (
     <>
       <nav className="notification-views" aria-label="Notification views">
         <BoardLink href={projectHref('#notifications', scope)} aria-current={route === 'notifications' ? 'page' : undefined}>Inbox</BoardLink>
         <BoardLink href={projectHref('#notifications-needs-me', scope)} aria-current={needsMe ? 'page' : undefined}>
-          Needs me{data && <span aria-live="polite"> ({data.count})</span>}
+          Needs me{openCount.data && <span aria-live="polite"> ({openCount.data.count})</span>}
         </BoardLink>
-        <BoardLink href={logFilters ? `#${fragment}` : projectHref('#notifications-log', scope)} aria-current={logFilters ? 'page' : undefined}>Project log</BoardLink>
       </nav>
-      {logFilters ? <NotificationLog project={project} state={logFilters.state} kind={logFilters.kind} agent={logFilters.agent}
-        allProjects={logFilters.allProjects} projects={projects} revision={revision} /> : (
+      {logFilters ? <>
+        <BoardLink href={projectHref('#activity?action=wake', project || 'all')}>Wake activity</BoardLink>
+        <NotificationLog project={project} state={logFilters.state} kind={logFilters.kind} agent={logFilters.agent}
+          allProjects={logFilters.allProjects} projects={projects} revision={revision} />
+      </> : (
         <>
           {session.data?.actor?.kind === 'human' && <BrowserPush />}
           <TaskReminders revision={revision} project={project} />
           {needsMe ? <NeedsMe key={project} revision={revision} session={session} onChanged={onChanged} project={project} />
-            : <Inbox revision={revision} owner={session.data?.actor?.id} project={project} />}
+            : <Inbox revision={revision} session={session} project={project} openCount={openCount} onChanged={onChanged} />}
         </>
       )}
     </>

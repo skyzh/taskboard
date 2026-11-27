@@ -18,6 +18,7 @@ import ReminderDate from './ReminderDate.jsx'
 import RecurringRuns, { RecurringRunList } from './RecurringRuns.jsx'
 import Kanban from './Kanban.jsx'
 import NeedsYouSend from './NeedsYouSend.jsx'
+import { NotificationLogEntry } from './NotificationLog.jsx'
 import PeerAskSend from './PeerAskSend.jsx'
 import TaskActivityUpdate from './TaskActivityUpdate.jsx'
 import TaskClosure from './TaskClosure.jsx'
@@ -758,7 +759,8 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   const params = new URLSearchParams(fragment.split('?', 2)[1])
   const actor = params.get('actor')?.trim().slice(0, 160) || ''
   const requestedAction = params.get('action')
-  const action = Object.hasOwn(actions, requestedAction) ? requestedAction : ''
+  const wakes = requestedAction === 'wake'
+  const action = wakes || Object.hasOwn(actions, requestedAction) ? requestedAction : ''
   const complete = params.get('detail') === 'all'
   const hideRequests = params.get('hide_requests') === 'true'
   const [actorDraft, setActorDraft] = useState(null)
@@ -771,21 +773,21 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   const page = useLoadedPages('/activity', { ...projectFilters(project), actor, action, detail: full ? 'all' : 'outcomes',
     ...(hideRequests && { hide_requests: true }) }, revision)
   const items = page.data?.items || []
-  const onPage = items.some(event => event.id === requested)
+  const onPage = !wakes && items.some(event => event.id === requested)
   const linked = useResource(requested && !onPage ? `/activity/${requested}` : null, revision)
   const linkedEvent = linked.data?.event || linked.data
-  const openEvent = requested && (items.find(event => event.id === requested) || linkedEvent)
+  const openEvent = requested && ((!wakes && items.find(event => event.id === requested)) || linkedEvent)
   useContentTitle(openEvent ? activityHeadline(openEvent) || openEvent.label : null)
   const showLinkedErrorAnchor = linked.error && !linkedEvent && !isBackendError(linked.error)
   const days = new Map()
   for (const event of items) {
-    const day = formatDay(event.at)
+    const day = formatDay(wakes ? event.source_at : event.at)
     if (!days.has(day)) days.set(day, [])
     days.get(day).push(event)
   }
   const actorNames = new Map()
   for (const [key, profile] of Object.entries(ownerProfiles || {})) addFilterName(actorNames, key, profile)
-  for (const event of items) addFilterName(actorNames, event.actor, event.actor_profile)
+  if (!wakes) for (const event of items) addFilterName(actorNames, event.actor, event.actor_profile)
   if (linkedEvent) addFilterName(actorNames, linkedEvent.actor, linkedEvent.actor_profile)
   const actorLabel = actorDraft?.actor === actor ? actorDraft.label
     : ([...actorNames].find(([, key]) => key === actor)?.[0] || profileName(actor))
@@ -825,7 +827,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
       </div>
       <div className="filters log-filters" id="activity-filters" data-open={filtersOpen}>
         <label>
-          Actor
+          {wakes ? 'Agent' : 'Actor'}
           <input type="text" list="activity-actors" ref={actorInput} maxLength={160} value={actorLabel} onChange={event => {
             const label = event.target.value
             const selectedActor = actorNames.get(label) || label.trim()
@@ -840,6 +842,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
           Action
           <select value={action} onChange={event => changeFilters({ action: event.target.value })}>
             <option value="">All actions</option>
+            <option value="wake">Wake</option>
             {Object.entries(actions).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
@@ -852,6 +855,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
           Hide peer requests
         </label>
       </div>
+      {wakes && <p>Ready events are possible wake triggers. Each stage shows the evidence recorded for that event.</p>}
       <ResourceStatus resource={page} label="activity" />
       {showLinkedErrorAnchor
         ? <div id={eventHref(requested).slice(1)} tabIndex={-1}>
@@ -873,7 +877,8 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
         <section className="outcome-day" aria-label={day} key={day}>
           <h2><ActivityDate day={day} /></h2>
           <ol className="event-list" role="list">
-            {events.map(event => <ActivityEntry key={event.id} event={event} full={full} selected={event.id === requested} />)}
+            {events.map(event => wakes ? <NotificationLogEntry key={event.id} item={event} />
+              : <ActivityEntry key={event.id} event={event} full={full} selected={event.id === requested} />)}
           </ol>
         </section>
       ))}

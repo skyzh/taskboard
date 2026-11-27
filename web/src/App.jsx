@@ -471,7 +471,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
       <header ref={appHeader} className={view === 'board' ? 'app-header tasks-header' : 'app-header'}>
         <div className="masthead">
           <BoardBrand href={reportsHref} />
-          <BoardViews current={activeTab} reportsHref={reportsHref} projectScope={navigationScope} isAgent={isAgent} isHuman={isHuman}
+          <BoardViews current={activeTab} reportsHref={reportsHref} projectScope={navigationScope} isAgent={isAgent}
             showNotifications={verified || session.data?.sign_in_available} showKnowledge={verified} />
           <TaskSearch query={search} fragment={fragment} />
           <div className={preview ? 'account account-with-tour' : 'account'}>

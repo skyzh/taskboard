@@ -4,11 +4,12 @@ import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { ActivityDate, Outcomes } from './Overview.jsx'
 import { NeedsYou, OwnerWorkLinks, PendingReports, ownerWorkSections } from './Reports.jsx'
 import {
-  ActivityMark, AssigneeAvatar, DriWorkStatus, LoadMore, ResourceStatus, Timestamp, eventHref, ownerHref, profileName,
+  ActivityMark, AssigneeAvatar, DriWorkStatus, LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref, ownerHref, profileName,
   taskLabel, useSignInHref,
 } from './shared.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import DriWorkers from './DriWorkers.jsx'
+import { NotificationLogEntry } from './NotificationLog.jsx'
 import ProjectPicker from './ProjectPicker.jsx'
 import DriGoal, { DriMilestones } from './DriGoal.jsx'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
@@ -67,6 +68,50 @@ function AssigneeActivity({ owner, scope, revision }) {
         </div>
       ))}
       <LoadMore page={page} label="reported activity" />
+    </section>
+  )
+}
+
+function PendingReviews({ owner, scope, revision }) {
+  const page = useLoadedPages('/assignee/reviews', { owner, ...scope }, revision, { limit: 10 })
+  const items = page.data?.items ?? []
+  return (
+    <section className="feed-section" aria-labelledby="assignee-pending-reviews">
+      <h2 id="assignee-pending-reviews">Pending reviews</h2>
+      <ResourceStatus resource={page} label="pending reviews" />
+      {page.data && !page.pending && !page.error && items.length === 0 && (
+        <p className="section-message">No pending reviews for the selected projects.</p>
+      )}
+      {items.length > 0 && <ol className="event-list" role="list">
+        {items.map(item => <li className="event-row" key={item.id}>
+          <p className="event-ticket">
+            <TaskLink id={item.source_id} reference={item.request_key || item.source_key}
+              title={item.request_title || item.source_title} />
+          </p>
+          <p className="event-meta">
+            {item.phase === 'asked' ? 'Awaiting pickup' : item.phase === 'in_progress' ? 'In progress' : 'Start unconfirmed'}
+          </p>
+        </li>)}
+      </ol>}
+      <LoadMore page={page} label="pending reviews" />
+    </section>
+  )
+}
+
+function WakeHistory({ owner, scope, revision }) {
+  const page = useLoadedPages('/activity', { action: 'wake', actor: owner, ...scope }, revision, { limit: 10 })
+  const items = page.data?.items ?? []
+  return (
+    <section className="feed-section" aria-labelledby="assignee-wake-history">
+      <h2 id="assignee-wake-history">Wake history</h2>
+      <ResourceStatus resource={page} label="wake history" />
+      {page.data && !page.pending && !page.error && items.length === 0 && (
+        <p className="section-message">No wake history for the selected projects.</p>
+      )}
+      {items.length > 0 && <ol className="event-list" role="list">
+        {items.map(item => <NotificationLogEntry key={item.id} item={item} />)}
+      </ol>}
+      <LoadMore page={page} label="wake history" />
     </section>
   )
 }
@@ -185,6 +230,8 @@ export default function AssigneePage({ owner, section, revision, project, allPro
           <OwnerWorkLinks owner={owner} project={routeProject} counts={counts} />
           {hasOutcomeLink && <BoardLink href={ownerHref(owner, 'outcomes-title', routeProject)}>Recent outcomes</BoardLink>}
           {agentReport && <BoardLink href={ownerHref(owner, 'assignee-activity-title', routeProject)}>What was done</BoardLink>}
+          {agentReport && <BoardLink href={ownerHref(owner, 'assignee-pending-reviews', routeProject)}>Pending reviews</BoardLink>}
+          {agentReport && <BoardLink href={ownerHref(owner, 'assignee-wake-history', routeProject)}>Wake history</BoardLink>}
           {reports.length > 0 && (
             <BoardLink href={ownerHref(owner, 'reports-pending-title', routeProject)}>Worker reports <strong>{entry.report_count}</strong></BoardLink>
           )}
@@ -198,7 +245,10 @@ export default function AssigneePage({ owner, section, revision, project, allPro
         <OwnerWork key={item.state} owner={owner} scope={scope} projectNames={allProjects ? projectNames : undefined} revision={revision} {...item} />)}
       {showOutcomes && <Outcomes revision={revision} owner={owner} project={project} allProjects={allProjects} showWeek={agentReport} />}
       {agentReport && <AssigneeActivity owner={owner} scope={scope} revision={revision} />}
+
       {ready && <OwnerWork owner={owner} scope={scope} projectNames={allProjects ? projectNames : undefined} revision={revision} {...ready} />}
+      {agentReport && <PendingReviews owner={owner} scope={scope} revision={revision} />}
+      {agentReport && <WakeHistory owner={owner} scope={scope} revision={revision} />}
       {(reports.length > 0 || section === 'reports-pending-title') && (
         <section className="feed-section" aria-labelledby="reports-pending-title">
           <h2 id="reports-pending-title">Worker reports to review</h2>

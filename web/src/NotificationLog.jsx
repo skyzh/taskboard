@@ -2,7 +2,7 @@ import React from 'react'
 import { BoardLink, useBoardNavigation } from './BoardNavigation.jsx'
 import { useLoadedPages } from './data.js'
 import { ReportTime } from './ReportTime.jsx'
-import { LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref } from './shared.jsx'
+import { actions, LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref } from './shared.jsx'
 import { useTimeZone } from './timeZone.js'
 
 const kinds = { ready: 'Ready notice', merge: 'Merge notice', wake: 'Wake' }
@@ -45,7 +45,10 @@ function WakeEvidence({ item }) {
 
   return (
     <>
-      <p className="notification-log-cue">{item.cue}</p>
+      <p className="notification-log-cue">
+        {item.trigger && <><strong>{actions[item.trigger] || 'Ready event'}</strong>{' · '}</>}
+        {item.cue}
+      </p>
       {item.receipt_ref && <p className="event-meta"><span title={item.receipt_ref}>Receipt {item.receipt_ref.slice(0, 12)}</span></p>}
       <dl className="notification-log-times wake-log-times">
         {stages.map(([label, outcome, at, eventId, linkLabel]) => (
@@ -72,6 +75,7 @@ export function NotificationLogEntry({ item }) {
         <span>{kinds[item.kind]} for {item.recipient}</span>
         {!isWake && <strong>{states[item.status]}</strong>}
         {!isWake && item.status === 'pending' && <span>Observed <ReportTime at={item.status_at} /></span>}
+        {isWake && item.source_at && <ReportTime at={item.source_at} />}
         <BoardLink href={eventHref(item.id)}>Source activity</BoardLink>
       </p>
       {isWake ? <WakeEvidence item={item} /> : <dl className="notification-log-times">

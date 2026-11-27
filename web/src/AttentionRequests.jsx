@@ -37,7 +37,7 @@ export function AttentionImpact({ item }) {
   )
 }
 
-export default function AttentionRequests({ revision, onChanged, taskId, project, requestId, showControls = true }) {
+export default function AttentionRequests({ revision, onChanged, taskId, project, requestId, showControls = true, onlyOpen = false }) {
   const onTicket = taskId != null
   const [state, setState] = useState('open')
   const [pending, setPending] = useState(null)
@@ -45,7 +45,7 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
   const [handledIds, setHandledIds] = useState([])
   const [invalidatedPage, setInvalidatedPage] = useState(null)
   const page = useLoadedPages('/notifications/requests', {
-    state: onTicket ? 'open' : state,
+    state: onTicket || onlyOpen ? 'open' : state,
     task_id: taskId,
     ...(requestId && { request_id: requestId }),
     ...projectFilters(onTicket ? undefined : project),
@@ -85,16 +85,18 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
   const items = hideTicketRows ? [] : (page.data?.items ?? []).filter(item => item.handled_at || !handledIds.includes(item.id))
   if (onTicket && items.length === 0 && !notice && !hideTicketRows && !requestId) return null
 
+  if (onlyOpen && !page.pending && !page.error && items.length === 0 && !notice) return null
+
   const content = (
     <>
       {!onTicket && (
         <div className="request-heading">
           <h3>Requests</h3>
-          <label>Show <select value={state} onChange={event => setState(event.target.value)}>
+          {!onlyOpen && <label>Show <select value={state} onChange={event => setState(event.target.value)}>
             <option value="open">Open</option>
             <option value="deferred">Deferred</option>
             <option value="handled">Handled</option>
-          </select></label>
+          </select></label>}
         </div>
       )}
       {(!onTicket || hideTicketRows || requestId) && (
@@ -104,7 +106,7 @@ export default function AttentionRequests({ revision, onChanged, taskId, project
       {requestId && !page.pending && !ticketError && items.length === 0 && !notice && (
         <p className="section-message">This request is unavailable.</p>
       )}
-      {!onTicket && !page.error && page.data?.items.length === 0 && <p className="section-message">No {state} requests.</p>}
+      {!onTicket && !onlyOpen && !page.error && page.data?.items.length === 0 && <p className="section-message">No {state} requests.</p>}
       {notice?.error && <p role="alert" className="section-message">{notice.error}</p>}
       {notice?.receipt && <AttentionReceipt receipt={notice.receipt} />}
       {items.length > 0 && <ol className="event-list" role="list">

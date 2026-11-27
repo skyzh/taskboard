@@ -3098,9 +3098,17 @@ def create_app(
         feed = text(args, "detail", optional=True, maximum=20)
         if feed not in (None, "all", "outcomes", "reports"):
             raise RequestError("Choose compact, full, or report activity.")
+        action = text(args, "action", optional=True, maximum=40)
+        actor = text(args, "actor", optional=True, maximum=160)
+        project = project_scope(args)
+        if action == "wake":
+            with tasks_storage.read(db()) as connection:
+                return notification_log.listing(
+                    connection, project, actor, "all", "wake", principal=actor_key(),
+                    include_triggers=True, hide_requests=args.get("hide_requests") == "true", **page_args(args),
+                )
         return query().events(
-            feed=feed, actor=text(args, "actor", optional=True, maximum=160),
-            action=text(args, "action", optional=True, maximum=40), project=project_scope(args),
+            feed=feed, actor=actor, action=action, project=project,
             hide_requests=args.get("hide_requests") == "true", **page_args(args),
         )
 
@@ -3513,7 +3521,8 @@ def create_app(
             raise RequestError("Choose all or updates for the inbox view.")
         with tasks_storage.read(db()):
             return query().inbox(
-                actor["ledger_key"], creations=creation_subscription(actor), today=pacific_day(ledger.timestamp()),
+                actor["ledger_key"], creations=view == "all" and creation_subscription(actor),
+                today=pacific_day(ledger.timestamp()),
                 before=before, limit=limit, project=project_scope(request.args), include_actions=view == "all",
             )
 
@@ -3995,6 +4004,20 @@ def create_app(
         if actor and any(board.watchable_assignee(owner, prefix) for prefix in watch_projects):
             info["watching"] = watches.watches_assignee(db(), actor["ledger_key"], owner)
         return info
+
+    @app.get("/api/v1/assignee/reviews")
+    def assignee_reviews():
+        current_actor()
+        args = request.args
+        owner = text(args, "owner", maximum=160)
+        before = ordered_feed_cursor(args, ("peer", "review"), "the agent's reviews")
+        limit = integer(args.get("limit", 20), "limit", maximum=100)
+        with tasks_storage.read(db()):
+            reviews = query().request_log(
+                project=project_scope(args), actionable_reviewer=owner, before=before, limit=limit,
+            )
+        fields = ("id", "phase", "request_key", "request_title", "source_id", "source_key", "source_title")
+        return {**reviews, "items": [{field: row[field] for field in fields} for row in reviews["items"]]}
 
     @app.post("/api/v1/assignee/watch")
     def assignee_watch():

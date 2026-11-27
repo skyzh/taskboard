@@ -3,7 +3,7 @@ import { BoardLink } from './BoardNavigation.jsx'
 import { DemoUnavailable } from './DemoControl.jsx'
 import { projectHref } from './projectScope.js'
 
-export default function BoardViews({ current, reportsHref, projectScope, isAgent, isHuman, showNotifications, showKnowledge, preview = false }) {
+export default function BoardViews({ current, reportsHref, projectScope, isAgent, showNotifications, showKnowledge, preview = false }) {
   const nav = useRef(null)
   useEffect(() => {
     const strip = nav.current
@@ -30,7 +30,7 @@ export default function BoardViews({ current, reportsHref, projectScope, isAgent
     ['activity', 'Activity'],
     ...(showKnowledge ? [['knowledge', 'Knowledge']] : []),
     ['stats', 'Stats'],
-    ...(showNotifications ? [['notifications', 'Notifications', isHuman ? 'notifications-log' : 'notifications']] : []),
+    ...(showNotifications ? [['notifications', 'Notifications']] : []),
     ...(isAgent ? [['my-activity', 'My activity']] : []),
   ]
   return (

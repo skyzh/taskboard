@@ -667,7 +667,8 @@ test('attention cards link a separate blocked ticket and report only a recorded 
   assert.match(needsMe, /Mark handled/)
   assert.doesNotMatch(needsMe, /For your information/)
   const inbox = renderToStaticMarkup(React.createElement(Notifications, { session: {}, verified: true }))
-  assert.doesNotMatch(inbox, /Ask for signoff|Mark handled/)
+  assert.match(inbox, /href="#task-1\?attention-request=8".*Ask for signoff/)
+  assert.match(inbox, /Mark handled/)
 
   const renderRequests = (state, request) => {
     fixture.state = [state]
@@ -770,19 +771,25 @@ test('Inbox keeps dated and standing goals after actionable work and every loade
   const creation = (id, name) => ({ kind: 'creation', id, item: {
     id, task_id: id, task_key: `T-${id}`, task_title: name, at: '2026-11-21T07:00:00Z',
   } })
-  const first = creation(4, 'A newer update')
-  const second = creation(5, 'An earlier update')
+  const broadcast = creation(6, 'A task creation broadcast')
+  const readiness = (id, name) => ({ kind: 'readiness', id, item: {
+    id, key: `T-${id}`, title: name, source_id: 7, source_key: 'T-7', event_id: id,
+  } })
+  const first = readiness(4, 'A newer update')
+  const second = readiness(5, 'An earlier update')
   function render(items, nextCursor) {
     fixture.state = []
     fixture.pages = { '/notifications/inbox': {
-      data: { items, next_cursor: nextCursor }, loadMore: nextCursor ? () => {} : null,
+      data: { items: [broadcast, ...items], next_cursor: nextCursor }, loadMore: nextCursor ? () => {} : null,
     } }
     const session = { data: { actor: { id: 'Avery', kind: 'agent' } } }
     return renderToStaticMarkup(React.createElement(Notifications, { session, verified: true }))
   }
   for (const [items, cursor] of [[[first], 'cursor'], [[first, second], null]]) {
     const markup = render(items, cursor)
-    const ordered = ['Owned task', 'Independent check', 'Shared task', ...items.map(row => row.item.task_title),
+    assert.doesNotMatch(markup, /Include new tasks|A task creation broadcast|>Project log<\//)
+    assert.match(markup, /href="#activity\?action=add&amp;scope=all">Task created activity<\/a>/)
+    const ordered = ['Owned task', 'Independent check', 'Shared task', ...items.map(row => row.item.title),
       ...(cursor ? ['More inbox items'] : []), 'Review the cutover', 'Verify the import', 'Improve handoffs when the queue drains']
     let previous = -1
     for (const title of ordered) {
@@ -805,6 +812,7 @@ test('Inbox handles dated goals as its only content and accepts older work respo
   function render(work) {
     fixture.resources = {
       '/notifications/preferences': { data: { task_creations: true } },
+      '/notifications/open-count?scope=all': { data: { count: 0 } },
       '/notifications/work?scope=all': { data: { items: [], ...work } },
     }
     return renderToStaticMarkup(React.createElement(Notifications, { session, verified: true }))
@@ -828,11 +836,12 @@ test('Inbox shows empty only after its required reads settle successfully', () =
   const failed = { error: Object.assign(Error('Try again later.'), { status: 503 }) }
   const missing = { error: Object.assign(Error('Not found.'), { status: 404 }) }
   const session = { data: { actor: { id: 'Avery', kind: 'agent' } } }
-  function render(updates, work) {
+  function render(updates, work, actionCount = { data: { count: 0 } }) {
     fixture.state = []
     fixture.pages = { '/notifications/inbox': updates }
     fixture.resources = {
       '/notifications/preferences': { data: { task_creations: true } },
+      '/notifications/open-count?scope=all': actionCount,
       '/notifications/work?scope=all': work,
     }
     return renderToStaticMarkup(React.createElement(Notifications, { session, verified: true }))
@@ -851,9 +860,38 @@ test('Inbox shows empty only after its required reads settle successfully', () =
   assert.match(workFailure, />Retry<\/button>/)
   assert.doesNotMatch(workFailure, /Your inbox is empty/)
 
+  assert.doesNotMatch(render(empty, empty, { pending: true }), /Your inbox is empty/)
+  assert.doesNotMatch(render(empty, empty, failed), /Your inbox is empty/)
+  assert.doesNotMatch(render(empty, empty, { data: { count: 3 } }), /Your inbox is empty/)
+
   const updateFailure = render({ ...empty, ...failed }, empty)
   assert.match(updateFailure, /Unable to load your inbox\. Try again later\./)
   assert.doesNotMatch(updateFailure, /Your inbox is empty/)
+})
+
+test('Inbox shows scoped decision and acknowledgment actions when ordinary work is empty', () => {
+  const session = { data: { actor: { id: 'sam', kind: 'human' } } }
+  const decision = { id: 7, key: 'T-7', event_id: 41, state: 'human_review', waiting_on: 'sam',
+    title: 'Choose a format', note: 'Which format should we use?', context: { choices: ['CSV'] }, links: [] }
+  const request = { id: 3, task_id: 8, task_key: 'T-8', task_title: 'Goal review', reason: 'The revised export passed.',
+    sender: 'Avery', raised_at: '2026-11-26T12:00:00Z', links: [] }
+  fixture.state = []
+  fixture.resources = {
+    '/notifications/open-count?project=T': { data: { count: 2 } },
+    '/notifications/work?project=T': { data: { items: [] } },
+  }
+  fixture.pages = {
+    '/notifications/inbox': { data: { items: [] } },
+    '/notifications/decisions': { data: { items: [decision] } },
+    '/notifications/requests': { data: { items: [request] } },
+  }
+  const markup = renderToStaticMarkup(React.createElement(Notifications, { session, verified: true, project: 'T' }))
+  assert.match(markup, /decision-scope=T.*Choose a format/)
+  assert.match(markup, /Record decision/)
+  assert.match(markup, /attention-request=3.*Goal review/)
+  assert.match(markup, /The revised export passed\./)
+  assert.match(markup, /Mark handled/)
+  assert.doesNotMatch(markup, /Your inbox is empty/)
 })
 
 test('Goal activity filters owners and goals, and reports offers only for standing goals', () => {
@@ -883,6 +921,23 @@ test('Goal activity filters owners and goals, and reports offers only for standi
   assert.doesNotMatch(render(null, 'T-43'), /href="#task-T-42"|href="#event-28-log"/)
   fixture.resources['/reports/goal-activity?project=T'].data.items[0] = { ...standing, idle_offers: 0 }
   assert.match(render(null, 'T-42'), /Standing-goal offers<\/dt><dd>0/)
+})
+
+test('Activity Wake rows keep a Ready trigger distinct from a recorded wake', () => {
+  const item = {
+    id: 91, task: 'T-23', task_id: 23, recipient: 'Avery', kind: 'wake',
+    source_at: '2026-11-26T12:00:00Z', trigger: 'transfer', cue: 'T-23 became Ready for this agent.',
+  }
+  fixture.state = []
+  fixture.pages = { '/activity': { data: { items: [item] } } }
+  fixture.resources = {}
+  const markup = renderToStaticMarkup(React.createElement(WorkLog, { fragment: 'activity?action=wake', project: 'T' }))
+  assert.match(markup, /Wake for Avery/)
+  assert.match(markup, /T-23 became Ready/)
+  assert.match(markup, /href="#event-91-log">Source activity/)
+  assert.match(markup, /Raft acceptance<\/dt><dd><span>Unknown/)
+  assert.match(markup, /First signed queue check<\/dt><dd><span>Not observed/)
+  assert.match(markup, /Start<\/dt><dd><span>Not observed/)
 })
 
 test('Project log shows empty only after the current read succeeds', () => {

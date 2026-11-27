@@ -369,7 +369,8 @@ def has_receipts(db, project, *, principal=None):
     ).fetchone() is not None
 
 
-def listing(db, project, recipient, state, kind, *, before, limit, before_wake=False, principal=None):
+def listing(db, project, recipient, state, kind, *, before, limit, before_wake=False, principal=None,
+            include_triggers=False, hide_requests=False):
     visibility, visible_args = ring1.visibility(db, "tasks.project_prefix", principal)
     filters, bindings = ["(? IS NULL OR tasks.project_prefix = ?)", visibility], [project, project, *visible_args]
     if recipient is not None:
@@ -387,6 +388,29 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
     if state != "all":
         filters.append("notices.pending = ?")
         bindings.append(int(state == "pending"))
+    if include_triggers:
+        filters.append("principals.kind = 'agent'")
+    if hide_requests:
+        filters.append("NOT EXISTS (SELECT 1 FROM peer_asks WHERE peer_asks.task_id = tasks.id)")
+    # Ready events are possible wake triggers. Their presence does not show
+    # that a watcher was configured, attempted dispatch, or reached the owner.
+    triggers = f"""
+            UNION ALL
+            SELECT events.id, 'wake',
+                   COALESCE(json_extract(events.context, '$.next_dri'), (
+                       SELECT json_extract(change.context, '$.previous_dri')
+                       FROM events AS change
+                       WHERE change.task_id = events.task_id AND change.id > events.id
+                         AND json_extract(change.context, '$.previous_dri') IS NOT NULL
+                       ORDER BY change.id LIMIT 1
+                   ), tasks.dri),
+                   0, NULL, 'unknown',
+                   {', '.join('NULL' for _ in (*TIME_COLUMNS, *WAKE_COLUMNS))}
+            FROM events JOIN tasks ON tasks.id = events.task_id
+            WHERE events.state = 'ready' AND tasks.record_kind = 'work'
+              AND events.action IN ('add', 'transfer', 'resume', 'unpark', 'decide', 'withdraw-decision')
+              AND NOT EXISTS (SELECT 1 FROM wake_log WHERE source_event_id = events.id)
+    """ if include_triggers else ""
     rows = db.execute(
         f"""
         WITH receipts AS (
@@ -398,9 +422,10 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
                    CASE WHEN acceptance = 'pending' THEN 1 ELSE 0 END, acceptance_at, acceptance,
                    {', '.join('NULL' for _ in TIME_COLUMNS)}, {', '.join(WAKE_COLUMNS)}
             FROM wake_log
+            {triggers}
         )
         SELECT notices.source_event_id, notices.kind, principals.name AS recipient_name,
-               events.at AS source_at, notices.status_at, notices.status,
+               events.at AS source_at, events.action AS source_action, notices.status_at, notices.status,
                {', '.join(TIME_COLUMNS)}, {', '.join(WAKE_COLUMNS)}, started.at AS started_at,
                tasks.id, tasks.project_prefix, tasks.project_number,
                acknowledged.id AS request_ack_event_id, acknowledged.at AS request_ack_at
@@ -425,7 +450,7 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
     if len(rows) > limit:
         last = rows[limit - 1]
         cursor = last["source_event_id"]
-        if last["kind"] == "wake":
+        if last["kind"] == "wake" and not include_triggers:
             # A fallback Ready notice may share this source. Include it on the next page.
             cursor = f"{cursor}:wake"
     return {
@@ -434,6 +459,7 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
             "task_id": row["id"], "task": projects.row_reference(row), "source_at": row["source_at"],
             "status": row["status"], "status_at": row["status_at"],
             **({
+                **({"trigger": row["source_action"]} if include_triggers else {}),
                 "cue": f"{projects.row_reference(row)} became Ready for this agent.",
                 "started_at": row["started_at"],
                 **({"request_acknowledgment": {"id": row["request_ack_event_id"], "at": row["request_ack_at"]}}
