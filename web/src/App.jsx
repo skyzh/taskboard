@@ -617,7 +617,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'task' && <TaskDetail key={selected} id={selected} revision={revision} session={session}
             preferredProject={defaultProject} returnHref={fromList ? listReturn.current.board : undefined}
             fromSearch={fromSearch} history={recordHistory} progression={progression} decisionProject={decisionProject}
-            attentionRequest={attentionRequest} onChanged={refresh}
+            attentionRequest={attentionRequest} onChanged={refresh} preview={preview}
             moveReceipt={ticketMove?.href === `#${taskAnchor}` ? ticketMove.receipt : undefined}
             onMoved={(href, receipt) => {
               setTicketMove({ href, receipt })

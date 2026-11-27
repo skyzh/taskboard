@@ -17,7 +17,7 @@ export function queryPath(path, filters = {}) {
   return params.size ? `${path}?${params}` : path
 }
 
-export async function request(path, { signal, cache, body, method = body ? 'POST' : 'GET' } = {}) {
+export async function request(path, { signal, cache, body, method = body ? 'POST' : 'GET', localErrorCode } = {}) {
   if (previewRequest) return previewRequest(path, method)
   const multipart = body instanceof FormData
   const mutation = method.toUpperCase() !== 'GET'
@@ -42,7 +42,7 @@ export async function request(path, { signal, cache, body, method = body ? 'POST
       if (error.code === 'TEXT_LENGTH_CONFIRMATION_REQUIRED' && Number.isSafeInteger(data.limit) && data.limit > 0) {
         error.limit = data.limit
       }
-      if (!mutation && isBackendError(error) && path !== '/revision' && path !== '/frontend-build') {
+      if (!mutation && isBackendError(error) && (!localErrorCode || error.code !== localErrorCode) && path !== '/revision' && path !== '/frontend-build') {
         boardReads.dispatchEvent(new Event('backend-error'))
       }
       throw error
@@ -213,7 +213,7 @@ export function watchBoardRevision(onChange, onStatus, { websocket = false } = {
   }
 }
 
-export function useResource(path, revision = 0) {
+export function useResource(path, revision = 0, { localErrorCode } = {}) {
   const [attempt, setAttempt] = useState(0)
   const [result, setResult] = useState(null)
 
@@ -227,12 +227,12 @@ export function useResource(path, revision = 0) {
         ...outcome,
       }))
     }
-    request(path, { signal: controller.signal }).then(
+    request(path, { signal: controller.signal, localErrorCode }).then(
       data => complete({ data }),
       error => complete({ error }),
     )
     return () => controller.abort()
-  }, [path, revision, attempt])
+  }, [path, revision, attempt, localErrorCode])
 
   const current = result && result.path === path && result.revision === revision && result.attempt === attempt
   const lastError = result?.path === path ? result?.error : undefined
