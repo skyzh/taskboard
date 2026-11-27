@@ -190,11 +190,24 @@ def register_routes(app, *, db, current_actor, task_number, can_edit, json_body,
             number, project = editor(connection, identifier, actor)
             row = connection.execute("SELECT * FROM knowledge_publications WHERE task_id = ?", (number,)).fetchone()
             if not write:
+                if source_id := request.args.get("attachment_source"):
+                    source = ledger.find_task(connection, task_number(source_id))
+                    if (source is None or projects.row_project(source) != project
+                            or not can_edit(connection, actor, source, project)):
+                        raise NotFound()
+                    files = connection.execute(
+                        """SELECT id, filename FROM ticket_attachments
+                           WHERE task_id = ? AND backend = ? ORDER BY filename, id""",
+                        (source["id"], storage.kind),
+                    ) if storage is not None else ()
+                    return {"attachments": [dict(file) for file in files]}
                 if row is None or row["active"] != 1 or row["project"] != project:
                     return {"publication": None}
+                files = granted_files(connection, row)
                 return {"publication": {
                     **metadata(row), "body": row["body"],
-                    "attachment_ids": [grant["attachment_id"] for grant in granted_files(connection, row)],
+                    "attachment_ids": [grant["attachment_id"] for grant in files],
+                    "attachments": [{"id": grant["attachment_id"], "filename": grant["filename"]} for grant in files],
                 }}
             if request.method == "DELETE":
                 if row is None or row["active"] != 1:

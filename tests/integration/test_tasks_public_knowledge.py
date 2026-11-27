@@ -104,7 +104,15 @@ class PublicKnowledgeTest(unittest.TestCase):
         route = self.create()
         source, attachment = self.upload()
         unrelated_source, unrelated_attachment = self.upload()
+        params = {"attachment_source": source.split("/")[-2]}
+        self.board.call(self.anonymous, route, query_string=params, status=401)
+        self.board.call(self.blake, route, query_string=params, status=403)
+        self.assertEqual(self.board.call(self.avery, route, query_string=params).json, {
+            "attachments": [{"id": attachment, "filename": "example.txt"}],
+        })
         published = self.publish(route, attachment_ids=(attachment,))["publication"]
+        self.assertEqual(self.board.call(self.avery, route).json["publication"]["attachments"],
+                         [{"id": attachment, "filename": "example.txt"}])
         entry = f"{PUBLIC}/{published['id']}"
         files = self.board.call(self.anonymous, entry).json["attachments"]
         self.assertEqual(len(files), 1)
@@ -134,6 +142,10 @@ class PublicKnowledgeTest(unittest.TestCase):
         self.board.call(self.sam, "/api/v1/projects/LAB/ring1", method="PUT",
                         json={"principal": self.avery_id, "allowed": True})
         self.publish(self.create("LAB"), status=404)
+        private_source = self.board.action(self.avery, "create-task", {
+            "project": "LAB", "title": "Restricted source", "step": "Inspect the fixture.",
+        })["receipt"].split()[0]
+        self.board.call(self.avery, self.create(), query_string={"attachment_source": private_source}, status=404)
         with patch("tasks_core.timestamp", return_value="2026-01-01T00:00:00+00:00"):
             first, second = [self.publish(self.create())["publication"]["id"] for _ in range(2)]
         page = self.board.call(self.anonymous, PUBLIC, query_string={"limit": 1}).json

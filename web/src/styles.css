@@ -1501,6 +1501,8 @@ button:disabled { opacity: .57; }
 .knowledge-create > summary { padding-block: .55rem; font-weight: var(--weight-emphasis); }
 .knowledge-create form { display: grid; gap: .6rem; padding-block: .3rem .55rem; }
 .knowledge-create button { justify-self: start; }
+.knowledge-form label { display: grid; gap: .25rem; }
+.knowledge-form textarea { max-width: 100%; }
 .knowledge-record-content .ticket-activity, .knowledge-list .ticket-activity { margin-block-start: 1rem; }
 .knowledge-browse-controls {
   display: flex;

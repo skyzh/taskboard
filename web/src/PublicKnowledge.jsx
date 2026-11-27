@@ -5,7 +5,7 @@ import { Markdown } from './Markdown.jsx'
 import { LoadMore, ResourceStatus, Timestamp } from './shared.jsx'
 
 const indexPath = '/public/knowledge'
-const publicId = /^[A-Za-z0-9_-]{1,80}$/
+const publicId = /^[0-9a-f]{32}$/
 
 function SearchPublished({ query, onSearch }) {
   const [draft, setDraft] = useState(query)
@@ -61,7 +61,7 @@ function PublishedEntry({ id }) {
         <Markdown text={data.body} links={false} />
         {data.attachments?.length > 0 && <ul aria-label="Published attachments">
           {data.attachments.filter(file => publicId.test(file.id)).map(file => (
-            <li key={file.id}><a href={`./api/v1${path}/attachments/${file.id}`}>{file.name}</a></li>
+            <li key={file.id}><a href={file.download_url}>{file.filename}</a></li>
           ))}
         </ul>}
       </article>}
