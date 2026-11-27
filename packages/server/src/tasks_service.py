@@ -116,6 +116,22 @@ ATTENTION_SCHEMA = """
     )
 """
 
+DECISION_REMINDER_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS decision_reminders (
+        request_event_id INTEGER PRIMARY KEY REFERENCES events (id),
+        remind_on TEXT NOT NULL
+    )
+"""
+
+ASK_RECHECK_ACKNOWLEDGMENTS = """
+    CREATE TABLE IF NOT EXISTS ask_recheck_acknowledgments (
+        requester TEXT NOT NULL,
+        cue_key TEXT NOT NULL,
+        acknowledged_at TEXT NOT NULL,
+        PRIMARY KEY (requester, cue_key)
+    )
+"""
+
 
 NOTIFICATION_PREFERENCES = """
     CREATE TABLE IF NOT EXISTS notification_preferences (
@@ -422,6 +438,8 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     knowledge_records.ensure_schema(db)
     knowledge_records.migrate_records(db)
     ensure_attention_requests(db)
+    db.execute(DECISION_REMINDER_SCHEMA)
+    db.execute(ASK_RECHECK_ACKNOWLEDGMENTS)
     db.execute(NOTIFICATION_PREFERENCES)
     db.execute(wake_subscriptions.SCHEMA)
     for statement in notification_log.SCHEMA:
@@ -472,6 +490,8 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
         for statement in (*reports_presence.SCHEMA, *postboards.SCHEMA):
             db.execute(statement)
         ensure_attention_requests(db)
+        db.execute(DECISION_REMINDER_SCHEMA)
+        db.execute(ASK_RECHECK_ACKNOWLEDGMENTS)
         db.execute(ticket_fields.SCHEMA)
         projects.bootstrap(db, initial_project, required=require_initial)
         tasks_recurring.ensure_project_binding(db)
@@ -4054,19 +4074,58 @@ def create_app(
         project = project_scope(request.args)
         if state == "answered":
             return query().tasks(decided_by=actor["ledger_key"], project=project, **page_args(request.args))
-        if state != "open":
-            raise RequestError("Choose open or answered decisions.")
+        if state not in {"open", "deferred"}:
+            raise RequestError("Choose open, deferred, or answered decisions.")
         result = query().tasks(
             state="human_review", waiting_on=actor["ledger_key"], project=project, **page_args(request.args),
+            decision_reminder_day=pacific_day(ledger.timestamp()), decision_deferred=(state == "deferred"),
         )
         for task in result["items"]:
             task["decision_request_id"] = decision_request_id(task, actor)
+            row = db().execute("SELECT remind_on FROM decision_reminders WHERE request_event_id = ?",
+                               (task["event_id"],)).fetchone()
+            task["remind_on"] = row["remind_on"] if row else None
         return result
 
     @app.get("/api/v1/notifications/decisions/next")
     def next_notification_decision():
         actor = current_actor("human")
-        return query().next_decision(actor["ledger_key"], project=project_scope(request.args))
+        return query().next_decision(actor["ledger_key"], project=project_scope(request.args),
+                                     today=pacific_day(ledger.timestamp()))
+
+    @app.put("/api/v1/notifications/decisions/<reference>/<int:request_id>/reminder")
+    def decision_reminder(reference, request_id):
+        actor = current_actor("human", write=True)
+        day = reminder_date(json_body({"date"}))
+        number = task_number(reference)
+        with tasks_storage.write(db()) as connection:
+            project = require_visible_task(connection, number)
+            original = connection.execute(
+                """SELECT id FROM events WHERE id = ? AND task_id = ? AND waiting_on = ?
+                   AND action IN ('assign-human', 'redirect-decision')""",
+                (request_id, number, actor["ledger_key"]),
+            ).fetchone()
+            if original is None:
+                raise NotFound()
+            task = ledger.find_task(connection, number)
+            if decision_request_id(task, actor) != request_id:
+                raise RequestError("This decision request is no longer open.", 409)
+            prior = connection.execute(
+                "SELECT remind_on FROM decision_reminders WHERE request_event_id = ?", (request_id,),
+            ).fetchone()
+            if day != (prior["remind_on"] if prior else None):
+                if day is None:
+                    connection.execute("DELETE FROM decision_reminders WHERE request_event_id = ?", (request_id,))
+                else:
+                    connection.execute(
+                        """INSERT INTO decision_reminders (request_event_id, remind_on) VALUES (?, ?)
+                           ON CONFLICT (request_event_id) DO UPDATE SET remind_on = excluded.remind_on""",
+                        (request_id, day),
+                    )
+                audit.record(connection, scope="private", actor=actor["ledger_key"], operation="set-decision-reminder",
+                             record_type="decision_request", record_id=request_id, at=ledger.timestamp())
+                ledger.bump_revision(connection, project)
+        return {"id": request_id, "remind_on": day}
 
     @app.get("/api/v1/notifications/requests")
     def attention_notifications():
@@ -5098,11 +5157,45 @@ def create_app(
             with tasks_storage.read(db()):
                 items = query().virtual_ticket_cues(key, project=project, now=ledger.timestamp(), limit=limit)
             return {"items": items}
+        if name in {"my-requested-asks", "acknowledge-ask-recheck"}:
+            project = project_scope(data)
+            raw = text(data, "cue_key", optional=not write, maximum=64)
+            exact = None
+            if raw is not None:
+                cue = re.fullmatch(r"(decision|attention):([1-9][0-9]{0,18}):([0-9]{4}-[0-9]{2}-[0-9]{2})", raw)
+                if cue is None:
+                    raise RequestError("Use the exact ask recheck key from the signed Inbox.")
+                kind, identifier, date = cue.groups()
+                exact = (kind, integer(identifier, "request ID"), reminder_date({"date": date}))
+            if not write:
+                with tasks_storage.read(db()):
+                    return {"items": query().requested_asks(key, project=project, exact=exact,
+                                                           today=pacific_day(ledger.timestamp()))}
+            with tasks_storage.write(db()) as connection:
+                at = ledger.timestamp()
+                items = query().requested_asks(key, project=project, exact=exact, today=pacific_day(at))
+                if not items:
+                    raise NotFound()
+                seen = connection.execute(
+                    "SELECT 1 FROM ask_recheck_acknowledgments WHERE requester = ? AND cue_key = ?", (key, raw),
+                ).fetchone()
+                if seen is None:
+                    if items[0]["cue_key"] != raw:
+                        raise RequestError("This ask recheck is no longer due.", 409)
+                    connection.execute(
+                        "INSERT INTO ask_recheck_acknowledgments VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+                        (key, raw, at),
+                    )
+            return {"cue_key": raw, "acknowledged": True}
         if name == "my-next":
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:
                 work = first_actionable_work(key, project)
                 result = {"work": work, **goals.queue_context(connection, key, project, principal=actor_key())}
+                if work is None and (asks := query().requested_asks(
+                    key, project=project, today=pacific_day(ledger.timestamp()), due_only=True,
+                )):
+                    result["ask_recheck"] = asks[0]
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, work, result["standing_goals"], key)
                 result.update(offered_goal_prompt(connection, work, result["standing_goals"]))
                 if candidates := query().wait_review_candidates(key, project):

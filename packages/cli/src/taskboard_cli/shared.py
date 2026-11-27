@@ -555,6 +555,12 @@ def shared_next(board, url, filters, actor, *, refresh_guidance=False):
         details = task_details(board, url, work["key"], guidance=result.get("next_step"), context_lines=goal_lines)
         label = NEXT_LABELS.get(work["kind"])
         return f"{label}\n{details}" if label else details
+    if ask := result.get("ask_recheck"):
+        return "\n".join((
+            f"{ask['ticket']} · Ask recheck due · {ask['remind_on']} Pacific",
+            ask["question"], ask["source_url"],
+            f"Acknowledge using signed action acknowledge-ask-recheck with cue_key {ask['cue_key']}.",
+        ))
     if prompt := result.get("goal_review_prompt"):
         goal_lines.extend(("", f"Goal review · {prompt['prompt']}"))
     if not result["standing_goals"]:
