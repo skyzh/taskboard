@@ -950,6 +950,7 @@ class ReadyCheckpointTest(unittest.TestCase):
             (True, STALLED_READ, "carrier-no-reply", failed_alert, MANAGED_RESTART),
             (False, STALLED_READ, "carrier-no-reply", failed_alert, 1),
             (True, "eligible queue", "carrier-no-reply", failed_alert, 1),
+            (True, STALLED_READ, "unclassified", failed_alert, 1),
             (True, STALLED_READ, "http-401", failed_alert, 1),
             (True, STALLED_READ, "carrier-no-reply", [auth, "", "Scheduled"], 1),
             (True, STALLED_READ, "carrier-no-reply", [RuntimeError("auth failed")], 1),
