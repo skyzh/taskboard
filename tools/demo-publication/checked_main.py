@@ -38,7 +38,7 @@ def already_published(repo, revision, read):
 
 if __name__ == "__main__":
     current = allowed(os.environ["GITHUB_REPOSITORY"], os.environ["REVISION"],
-                      automatic=os.environ["GITHUB_EVENT_NAME"] == "workflow_run")
+                      automatic=os.environ["GITHUB_EVENT_NAME"] == "schedule")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         print(f"current={str(current).lower()}", file=output)
     print("Verified protected main." if current else "Skipped this Pages publication.")

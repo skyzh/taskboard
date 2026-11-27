@@ -2,10 +2,8 @@ name: Publish Summary demo
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: [Taskboard CI]
-    branches: [main]
-    types: [completed]
+  schedule:
+    - cron: '17 17 * * *'
 
 permissions:
   contents: read
@@ -16,14 +14,9 @@ concurrency:
 
 jobs:
   build:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == github.repository &&
-       github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.conclusion == 'success')
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
       contents: read
       checks: read
@@ -32,7 +25,7 @@ jobs:
       publish: ${{ steps.publish.outputs.ready }}
       revision: ${{ steps.publish.outputs.revision }}
     env:
-      REVISION: ${{ github.event.workflow_run.head_sha || github.sha }}
+      REVISION: ${{ github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,21 +40,52 @@ jobs:
         with:
           node-version: '24.22.3'
           package-manager-cache: false
-      - id: compare
-        if: steps.checked.outputs.current == 'true' && github.event_name == 'workflow_run'
-        uses: ./.github/actions/compare-summary-demo
-      - if: steps.checked.outputs.current == 'true' && github.event_name == 'workflow_dispatch'
+      - id: previous
+        if: steps.checked.outputs.current == 'true' && github.event_name == 'schedule'
+        env:
+          DEMO_GITHUB_READ_TOKEN: ${{ github.token }}
+        run: python3 tools/demo-publication/content_fingerprint.py previous
+      - if: steps.checked.outputs.current == 'true'
         run: |
           npm --prefix web ci --no-audit --no-fund
           npm --prefix web run build:demo
-          python3 tools/check_summary_demo.py web/dist-demo
-      - id: publish
-        if: >-
-          steps.checked.outputs.current == 'true' &&
-          (github.event_name == 'workflow_dispatch' || steps.compare.outputs.status == 'pass')
-        run: |
           python3 tools/build_pages.py web/dist-demo web/pages "$RUNNER_TEMP/taskboard-pages"
-          printf 'ready=true\nrevision=%s\n' "$REVISION" >> "$GITHUB_OUTPUT"
+      - id: content
+        if: steps.checked.outputs.current == 'true'
+        env:
+          PREVIOUS_REVISION: ${{ steps.previous.outputs.revision }}
+          PREVIOUS_SHA: ${{ steps.previous.outputs.sha256 }}
+          PREVIOUS_URL: ${{ steps.previous.outputs.url }}
+        run: |
+          args=()
+          if [[ -n "$PREVIOUS_REVISION" && -z "$PREVIOUS_SHA" ]]; then
+            # Older checked deployments predate the public digest.
+            baseline=$(mktemp -d "$RUNNER_TEMP/pages-legacy.XXXXXX")
+            git fetch --no-tags --depth=1 origin "$PREVIOUS_REVISION"
+            git archive "$PREVIOUS_REVISION" | tar -x -C "$baseline"
+            npm --prefix "$baseline/web" ci --no-audit --no-fund
+            npm --prefix "$baseline/web" run build:demo
+            python3 "$baseline/tools/build_pages.py" "$baseline/web/dist-demo" "$baseline/web/pages" "$baseline/pages"
+            args=(--legacy-package "$baseline/pages" --legacy-url "$PREVIOUS_URL")
+          fi
+          python3 tools/demo-publication/content_fingerprint.py compare \
+            "$RUNNER_TEMP/taskboard-pages" "$REVISION" --previous "$PREVIOUS_SHA" "${args[@]}"
+      - id: smoke
+        if: steps.content.outputs.changed == 'true'
+        run: |
+          web/node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+          node tools/demo-visual/check.mjs --dist web/dist-demo --output "$RUNNER_TEMP/pages-smoke"
+      - if: always() && steps.content.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: summary-pages-smoke
+          path: ${{ runner.temp }}/pages-smoke
+          if-no-files-found: ignore
+      - id: publish
+        if: steps.smoke.outcome == 'success' && steps.content.outputs.changed == 'true'
+        run: printf 'ready=true\nrevision=%s\n' "$REVISION" >> "$GITHUB_OUTPUT"
+      - if: steps.content.outputs.changed == 'false'
+        run: echo 'Homepage and demo match the last verified Pages deployment.' >> "$GITHUB_STEP_SUMMARY"
       - if: steps.publish.outputs.ready == 'true'
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
