@@ -2862,7 +2862,7 @@ class BoardQueries:
             if len(rows) > limit else None,
         }
 
-    def wait_review_candidates(self, owner, project):
+    def wait_review_candidates(self, owner, project, *, for_delivery=False, after=0):
         visibility, scope = self.project_visibility("current.project_prefix")
         project_filter = "" if project is None else "AND current.project_prefix = ?"
         project_values = () if project is None else (project,)
@@ -2879,7 +2879,7 @@ class BoardQueries:
                      HAVING COUNT(*) = 1)
                 ) AND peer.kind = 'agent' AND peer.ledger_key <> current.dri
                   AND COALESCE(json_extract(current.context, '$.wait_kind'), '') <> 'automation'
-                WHERE current.dri = ? AND current.state = 'waiting'
+                WHERE current.dri = ? AND current.state = 'waiting' AND current.event_id > ?
                   AND json_extract(current.context, '$.peer_ask_ticket') IS NULL
                   AND json_extract(current.context, '$.blocked_by') IS NULL
                   AND NOT EXISTS (
@@ -2887,15 +2887,118 @@ class BoardQueries:
                       WHERE link.event_id = current.event_id AND link.ready_event_id IS NULL
                   )
                   AND {visibility} {project_filter}
+                  AND (NOT ? OR (
+                      COALESCE(json_extract(current.context, '$.wait_kind'), '') <> 'automation'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM worker_runs WHERE worker_runs.task_id = current.id AND ({RUNNING})
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM task_goals AS goal WHERE goal.task_id = current.id AND goal.retired = 0
+                      )
+                  ))
                 ORDER BY current.event_id
                 LIMIT 5""",
-            (owner, *scope, *project_values),
+            (owner, after, *scope, *project_values, for_delivery),
         )
         return [{
             "key": projects.row_reference(row), "title": row["title"], "wait_event": row["event_id"],
             "waiting_on": row["waiting_on"], "step": row["note"],
             **({"ask_recipient": row["recipient"]} if row["recipient"] else {}),
         } for row in rows]
+
+    def virtual_ticket_cues(self, owner, *, project, now, limit):
+        """Derive the signed recovery order from current work and its bound results."""
+        visible, bindings = self.current_visible_tasks()
+        priority = ledger.PRIORITY_ORDER_SQL.replace("tasks.priority", "owned.priority")
+        rows = self.db.execute(
+            f"""WITH current AS ({visible}),
+                owned AS (
+                    SELECT task.* FROM current AS task
+                    WHERE task.dri = ? AND (? IS NULL OR task.project_prefix = ?)
+                      AND NOT EXISTS (
+                          SELECT 1 FROM task_goals AS goal WHERE goal.task_id = task.id AND goal.retired = 0
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM worker_runs WHERE worker_runs.task_id = task.id AND ({RUNNING})
+                      )
+                ),
+                eligible AS (
+                    SELECT owned.*, CASE
+                        WHEN owned.state = 'in_progress'
+                         AND owned.waiting_on IS NULL
+                         AND NOT EXISTS (
+                             SELECT 1 FROM peer_asks AS review
+                             JOIN worker_runs ON worker_runs.id = review.review_run_id
+                             WHERE review.task_id = owned.id AND ({RUNNING})
+                         )
+                         AND NOT EXISTS (
+                             SELECT 1 FROM cue_pauses AS pause
+                             WHERE pause.task_id = owned.id AND pause.owner = owned.dri
+                               AND pause.kind = 'stalled' AND pause.until_at > ?
+                         )
+                         AND NOT EXISTS (
+                             SELECT 1 FROM stalled_cue_acknowledgments AS ack
+                             WHERE ack.task_id = owned.id AND ack.owner = owned.dri
+                               AND ack.source_event_id = owned.event_id
+                         ) THEN 1
+                        WHEN owned.state = 'waiting'
+                         AND json_extract(owned.context, '$.peer_ask_ticket') IS NULL
+                         AND EXISTS (
+                             SELECT 1 FROM current AS blocker
+                             WHERE CAST(blocker.id AS TEXT) = CAST(json_extract(owned.context, '$.blocked_by') AS TEXT)
+                               AND blocker.display_state = 'done'
+                         ) THEN 2
+                        WHEN owned.state = 'ready' AND EXISTS (
+                             SELECT 1 FROM peer_asks AS ask
+                             JOIN current AS source ON source.id = ask.source_task_id
+                             WHERE ask.task_id = owned.id AND ask.requester = owned.dri
+                               AND ask.result_event_id = owned.event_id
+                               AND source.state = 'waiting' AND source.dri = owned.dri
+                               AND source.event_id = ask.source_wait_event_id
+                         ) THEN 3
+                        WHEN owned.state = 'ready'
+                         AND json_extract(owned.context, '$.confirmed_blocker_event') IS NOT NULL THEN 4
+                        WHEN owned.state = 'ready' THEN 5
+                    END AS cue_rank, {priority} AS priority_rank
+                    FROM owned
+                )
+                SELECT * FROM eligible WHERE cue_rank IS NOT NULL
+                ORDER BY cue_rank, CASE WHEN cue_rank = 5 THEN priority_rank ELSE 0 END, event_id
+                LIMIT ?""",
+            (*bindings, owner, project, project, now, limit),
+        ).fetchall()
+        kinds = {
+            1: ("recovery", "resume-work"),
+            2: ("resolved-wait", "confirm-blocker"),
+            3: ("peer-result", "acknowledge-peer-result"),
+            4: ("released-wait", "start"),
+            5: ("ready", "start"),
+        }
+        items = []
+        for row in rows:
+            kind, action = kinds[row["cue_rank"]]
+            items.append({
+                "id": f"{kind}:{row['event_id']}", "kind": kind, "action": action,
+                "ticket": projects.row_reference(row), "title": row["title"], "event_id": row["event_id"],
+            })
+        remaining = min(5, limit - len(items))
+        after = 0
+        while remaining:
+            waits = self.wait_review_candidates(owner, project, for_delivery=True, after=after)
+            if not waits:
+                break
+            after = waits[-1]["wait_event"]
+            for row in waits:
+                if ledger.ticket_id_from_label(row["waiting_on"]) is not None:
+                    continue
+                items.append({
+                    "id": f"wait-review:{row['wait_event']}", "kind": "wait-review", "action": "review-wait",
+                    "ticket": row["key"], "title": row["title"], "event_id": row["wait_event"],
+                })
+                remaining -= 1
+                if not remaining:
+                    break
+        return items
 
     def actionable_work(self, owner, *, today, project, ordinary_only=False, include_goal_reviews=True):
         """Yield the first actionable item in each queue in pickup order."""

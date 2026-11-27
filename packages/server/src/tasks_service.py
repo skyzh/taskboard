@@ -5083,6 +5083,12 @@ def create_app(
             return acknowledge_stalled_cue(key, data)
         if name == "idle-goal-offer":
             return idle_goal_offer(key, data)
+        if name == "my-ticket-cues":
+            project = project_scope(data)
+            limit = integer(data.get("limit", 20), "limit", maximum=20)
+            with tasks_storage.read(db()):
+                items = query().virtual_ticket_cues(key, project=project, now=ledger.timestamp(), limit=limit)
+            return {"items": items}
         if name == "my-next":
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:
