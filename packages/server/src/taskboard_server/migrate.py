@@ -147,10 +147,13 @@ def recognized_revision(connection):
         {column["name"] for column in catalog.get_columns(table)} != columns for table, columns in tables.items()
     )):
         raise ValueError("The Taskboard recurring review tables have an unsupported layout.")
+    fyi_present = catalog.has_table("watched_fyi_preferences") or catalog.has_table("watched_fyi_receipts")
+    if fyi_present and (not catalog.has_table(API_USAGE_TABLE) or not matches_watched_fyi_schema(catalog)):
+        raise ValueError("The Taskboard watched FYI tables have an unsupported layout.")
     if catalog.has_table(API_USAGE_TABLE):
         if profiles != PROFILE_SHORT_ROLE or not present or not matches_agent_api_usage_schema(catalog):
             raise ValueError("The Taskboard request usage table has an unsupported layout.")
-        return AGENT_API_USAGE
+        return WATCHED_FYI if fyi_present else AGENT_API_USAGE
     if profiles == PROFILE_SHORT_ROLE and present:
         return RECURRING_REVIEW_TICKETS
     return profiles
@@ -211,7 +214,7 @@ def matches_watched_fyi_schema(catalog):
 
 
 @contextmanager
-def migration(engine, *, apply=False, prepare=None, serve_rollback=False):
+def migration(engine, *, apply=False, prepare=None):
     with engine.connect() as connection:
         prepare_connection(connection, initialize=prepare is not None)
         if prepare is not None:
@@ -219,12 +222,6 @@ def migration(engine, *, apply=False, prepare=None, serve_rollback=False):
         baseline = recognized_revision(connection)
         options = {"version_table": SCHEMA_REVISION_TABLE}
         current = MigrationContext.configure(connection, opts=options).get_current_revision()
-        if (serve_rollback and apply and prepare is not None and current == WATCHED_FYI
-                and baseline == AGENT_API_USAGE and matches_watched_fyi_schema(inspect(connection))):
-            yield connection, {"recorded_revision": current, "recognized_revision": current,
-                               "target_revision": AGENT_API_USAGE, "applied_revision": current}
-            connection.commit()
-            return
         legacy_startup_upgrade = current == PROFILE_SHORT_ROLE and baseline == RECURRING_REVIEW_TICKETS
         if current is not None and current != baseline and not legacy_startup_upgrade:
             raise ValueError("The recorded Taskboard revision does not match the recognized schema.")
@@ -255,7 +252,7 @@ def migrate(engine, *, apply=False):
 
 def prepare_and_upgrade(engine, prepare, *, finish=None):
     try:
-        with migration(engine, apply=True, prepare=prepare, serve_rollback=finish is None) as (connection, _):
+        with migration(engine, apply=True, prepare=prepare) as (connection, _):
             if finish is not None:
                 return finish(connection.connection.driver_connection)
     except SQLAlchemyError as error:

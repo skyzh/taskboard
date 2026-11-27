@@ -7831,6 +7831,90 @@ class TasksServiceTest(unittest.TestCase):
         new_sam, _ = self.login(reopened, "Sam")
         self.assertEqual(self.call(new_sam, preference).json, choice)
 
+    def test_watched_fyi_acknowledgment_is_private_and_independent_of_reopen(self):
+        self.replay_watched_fyi(self.app(portal_reader=True))
+
+    def replay_watched_fyi(self, app):
+        avery, _ = self.login(app, "Avery")
+        sam, _ = self.login(app, "Sam")
+        quinn, _ = self.login(app, "Quinn")
+        self.provider.issued.discard("Sam")
+        other_session, _ = self.login(app, "Sam")
+        preference = "/api/v1/notifications/preferences/watched-ack"
+        inbox = "/api/v1/notifications/inbox"
+        task = "/api/v1/tasks/T-1"
+        for title in ("Shared sample", "Unwatched sample"):
+            self.action(avery, "create-task", {"title": title, "step": "Open the sample."})
+        for viewer in (sam, quinn):
+            self.call(viewer, task + "/watch", method="POST", json={"watch": True})
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Check."})
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "done", "note": "Checked."})
+        old_id = self.task_event(avery, "T-1")["event"]
+        self.action(avery, "record-activity", {"id": "T-2", "note": "Private to its delivery audience."})
+        unwatched_id = self.task_event(avery, "T-2")["event"]
+        ack = f"/api/v1/notifications/watched/{old_id}/acknowledge"
+
+        def page(viewer, view="updates", **params):
+            return self.call(viewer, inbox, query_string={"view": view, **params}).json
+
+        self.assertEqual(self.call(sam, preference).json, {"enabled": False})
+        self.call(sam, ack, method="POST", status=409)
+        self.call(sam, preference, method="POST", json={"enabled": True})
+        self.assertEqual(self.call(other_session, preference).json, {"enabled": True})
+        self.assertEqual(self.call(quinn, preference).json, {"enabled": False})
+        self.call(sam, f"/api/v1/notifications/watched/{unwatched_id}/acknowledge", method="POST", status=404)
+        self.call(sam, ack, method="POST", headers={"Origin": "https://elsewhere.example.test"}, status=403)
+        self.assertTrue(next(row for row in page(sam)["items"] if row["id"] == old_id)["reopen"])
+        completion = self.task_event(avery, "T-1")
+        self.call(sam, ack, method="POST")
+        revision = self.call(sam, "/api/v1/revision").json
+        self.call(other_session, ack, method="POST")
+        self.assertEqual(self.call(sam, "/api/v1/revision").json, revision)
+        self.assertEqual(self.task_event(avery, "T-1"), completion)
+        self.assertNotIn(old_id, {row["id"] for row in page(other_session)["items"]})
+        self.assertIn(old_id, {row["id"] for row in page(quinn)["items"]})
+        self.assertEqual(page(quinn, "acknowledged")["items"], [])
+        self.assertEqual([row["id"] for row in page(other_session, "acknowledged", limit=1)["items"]], [old_id])
+
+        body = {"action": "reopen", "reason": "Verify a second sample."}
+        first = self.call(sam, task + "/ownership", method="POST", json=body, status=409).json
+        self.assertEqual(first["code"], "TRANSITION_CONFIRMATION_REQUIRED")
+        self.call(sam, task + "/ownership", method="POST", json={
+            **body, "force": True, "force_reason": "Review the second sample with the same owner.",
+        })
+        self.assertNotIn("reopen", page(other_session, "acknowledged")["items"][0])
+        self.assertIn("transfer", {row["item"]["action"] for row in page(sam)["items"]})
+        self.call(sam, task + "/watch", method="POST", json={"watch": False})
+        self.assertEqual(page(sam)["items"], [])
+        self.assertEqual([row["id"] for row in page(sam, "acknowledged")["items"]], [old_id])
+
+    def test_watched_fyi_history_and_write_follow_current_project_access(self):
+        app = self.app(portal_reader=True, project_admin_subject=self.provider.people["Sam"]["sub"])
+        sam, _ = self.login(app, "Sam")
+        avery, _ = self.login(app, "Avery")
+        quinn, quinn_id = self.login(app, "Quinn")
+        self.call(sam, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Restricted sample", "visibility": "ring1",
+        })
+        membership = "/api/v1/projects/LAB/ring1"
+        for client in (avery, quinn):
+            principal = self.call(client, "/api/v1/session").json["actor"]["id"]
+            self.call(sam, membership, method="PUT", json={"principal": principal, "allowed": True})
+        self.action(avery, "create-task", {"title": "Review sample", "step": "Read the sample.", "project": "LAB"})
+        self.call(quinn, "/api/v1/tasks/LAB-1/watch", method="POST", json={"watch": True})
+        self.action(avery, "record-activity", {"id": "LAB-1", "note": "Checked."})
+        updates = self.call(quinn, "/api/v1/notifications/inbox?scope=all&view=updates").json["items"]
+        self.assertEqual([row["item"]["note"] for row in updates], ["Checked."])
+        ack = f"/api/v1/notifications/watched/{updates[0]['id']}/acknowledge"
+        event_id = updates[0]["id"]
+        history = "/api/v1/notifications/inbox?scope=all&view=acknowledged"
+        self.call(quinn, "/api/v1/notifications/preferences/watched-ack", method="POST", json={"enabled": True})
+        self.call(quinn, ack, method="POST")
+        self.assertEqual([row["id"] for row in self.call(quinn, history).json["items"]], [event_id])
+        self.call(sam, membership, method="PUT", json={"principal": quinn_id, "allowed": False})
+        self.assertEqual(self.call(quinn, history).json["items"], [])
+        self.call(quinn, ack, method="POST", status=404)
+
     def test_decision_notification_returns_after_sign_in_and_tracks_follow_through(self):
         app = self.app(portal_reader=True)
         avery, _ = self.login(app, "Avery")

@@ -19,12 +19,12 @@ add_tests()
 import test_tasks_service as fixture
 import test_tasks_github_webhooks as webhook_fixture
 from test_tasks_knowledge_sweeps import replay_knowledge_sweeps
-from test_tasks_migrations import reject_incompatible_profile_definition, replay_additive_rollback, replay_versioned_profiles, replay_watched_fyi_rollback
+from test_tasks_migrations import reject_incompatible_profile_definition, replay_additive_rollback, replay_versioned_profiles
 from test_tasks_project_move import replay_move
 from test_tasks_recurring import replay_project_tick, replay_reusable_upgrade, replay_team_schedules, replay_ticket_recurrence
 import test_tasks_ring1 as ring1_fixture
 import test_tasks_reports_presence as presence_fixture
-from taskboard_server.migrate import PROFILE_SHORT_ROLE, AGENT_API_USAGE, migrate
+from taskboard_server.migrate import PROFILE_SHORT_ROLE, WATCHED_FYI, migrate
 from tasks_core import import_notification_on
 from tasks_service import create_app
 from tasks_storage import Postgres, SCHEMA_REVISION_TABLE, open_sqlite
@@ -95,6 +95,9 @@ class StorageReplayTest(unittest.TestCase):
     def test_postgres(self):
         self.replay(self.postgres_app(self.postgres_fixture()))
 
+    def test_postgres_watched_fyi_acknowledgment(self):
+        self.board.replay_watched_fyi(self.postgres_app(self.postgres_fixture()))
+
     def test_postgres_signed_request_usage_preserves_the_work_ticket(self):
         dsn = self.postgres_fixture()
         app = self.postgres_app(dsn, api_usage=True)
@@ -122,12 +125,6 @@ class StorageReplayTest(unittest.TestCase):
         engine = create_engine(dsn.replace("postgresql://", "postgresql+psycopg://", 1), poolclass=NullPool)
         self.addCleanup(engine.dispose)
         replay_additive_rollback(self, self.board, lambda: self.postgres_app(dsn), engine)
-
-    def test_postgres_watched_fyi_rollback_preserves_exact_future_tables(self):
-        dsn = self.postgres_fixture()
-        engine = create_engine(dsn.replace("postgresql://", "postgresql+psycopg://", 1), poolclass=NullPool)
-        self.addCleanup(engine.dispose)
-        replay_watched_fyi_rollback(self, self.board, lambda: self.postgres_app(dsn), engine)
 
     def test_postgres_versioned_profiles_rollback_and_signed_readback(self):
         dsn = self.postgres_fixture()
@@ -162,6 +159,8 @@ class StorageReplayTest(unittest.TestCase):
         with closing(Postgres(dsn)) as db:
             self.assertEqual(db.execute("SELECT schema_version FROM taskboard_writer WHERE id = 1").fetchone()[0], 1)
             db.execute(f"DROP TABLE {SCHEMA_REVISION_TABLE}")
+            db.execute("DROP TABLE watched_fyi_receipts")
+            db.execute("DROP TABLE watched_fyi_preferences")
             db.execute("DROP TABLE agent_api_usage")
             db.execute("DROP TABLE recurring_review_runs")
             db.execute("DROP TABLE recurring_review_tickets")
@@ -293,6 +292,8 @@ class StorageReplayTest(unittest.TestCase):
         source_engine = create_engine("sqlite+pysqlite://", creator=lambda: open_sqlite(snapshot), poolclass=NullPool)
         self.addCleanup(source_engine.dispose)
         with source_engine.begin() as connection:
+            connection.exec_driver_sql("DROP TABLE watched_fyi_receipts")
+            connection.exec_driver_sql("DROP TABLE watched_fyi_preferences")
             connection.exec_driver_sql("DROP TABLE agent_api_usage")
             connection.exec_driver_sql("DROP TABLE recurring_review_runs")
             connection.exec_driver_sql("DROP TABLE recurring_review_tickets")
@@ -320,8 +321,8 @@ class StorageReplayTest(unittest.TestCase):
         self.assertNotIn(SCHEMA_REVISION_TABLE, imported)
         target_engine = create_engine(dsn.replace("postgresql://", "postgresql+psycopg://", 1), poolclass=NullPool)
         self.addCleanup(target_engine.dispose)
-        self.assertEqual(migrate(target_engine)["recorded_revision"], AGENT_API_USAGE)
-        self.assertEqual(migrate(target_engine, apply=True)["applied_revision"], AGENT_API_USAGE)
+        self.assertEqual(migrate(target_engine)["recorded_revision"], WATCHED_FYI)
+        self.assertEqual(migrate(target_engine, apply=True)["applied_revision"], WATCHED_FYI)
 
         owner, signed_id = self.board.login(self.postgres_app(dsn), "Avery")
         task = self.board.action(owner, "task", query_string={"id": "T-1"})["task"]

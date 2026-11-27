@@ -27,6 +27,7 @@ TABLES = (
     "github_source_status", "extension_deliveries", "extension_notifications", "stamp_review_health",
     "github_webhook_deliveries", "github_webhook_refresh",
     "intake_errors", "attention_requests", "attention_wait_links", "notification_preferences", "notification_log",
+    "watched_fyi_preferences", "watched_fyi_receipts",
     "wake_subscriptions", "wake_log", "goal_idle_offers",
     "knowledge_areas", "knowledge_entries", "knowledge_stages", "knowledge_maintenance_assignments",
     "agent_api_usage", "ticket_attachments", "ticket_attachment_bytes",
