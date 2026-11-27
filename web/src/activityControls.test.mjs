@@ -2378,7 +2378,7 @@ test('Needs me shares the decision form with the exact recipient and keeps the r
   fixture.resources = { '/notifications/open-count?scope=all': { data: { count: 24 } } }
   function render(actor, items = [task], submitted = [], attempt = null, verified = true) {
     fixture.pages = { '/notifications/decisions': { data: { items } } }
-    fixture.state = [submitted, null, attempt]
+    fixture.state = ['open', submitted, null, attempt]
     return renderToStaticMarkup(React.createElement(Notifications, { session: { data: { actor } }, verified, fragment: 'notifications-needs-me' }))
   }
   const sam = { kind: 'human', id: 'sam' }
@@ -2395,6 +2395,8 @@ test('Needs me shares the decision form with the exact recipient and keeps the r
   assert.doesNotMatch(render({ kind: 'agent', id: 'sam' }), /Record decision/)
   const issued = { ...task, decision_request_id: task.event_id }
   assert.match(render(sam, [issued]), /Record decision/)
+  assert.match(render(sam, [issued]), /<summary>Defer<\/summary>/)
+  assert.doesNotMatch(render({ kind: 'agent', id: 'sam' }, [issued]), /<summary>Defer<\/summary>/)
   assert.doesNotMatch(render(sam, [{ ...issued, decision_request_id: null }]), /Record decision/)
   assert.doesNotMatch(render({ kind: 'agent', id: 'sam' }, [issued]), /Record decision/)
   assert.doesNotMatch(render(null, [task], [], null, false), /Which format should we use\?|Record decision|Mark handled/)

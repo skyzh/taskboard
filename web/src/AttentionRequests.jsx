@@ -37,9 +37,10 @@ export function AttentionImpact({ item }) {
   )
 }
 
-export default function AttentionRequests({ revision, onChanged, onRequestLoaded, taskId, project, requestId, showControls = true, onlyOpen = false }) {
+export default function AttentionRequests({ revision, onChanged, onRequestLoaded, taskId, project, requestId, showControls = true, onlyOpen = false, askState }) {
   const onTicket = taskId != null
-  const [state, setState] = useState('open')
+  const [selectedState, setState] = useState('open')
+  const state = askState || selectedState
   const [pending, setPending] = useState(null)
   const [notice, setNotice] = useState(null)
   const [handledIds, setHandledIds] = useState([])
@@ -97,8 +98,8 @@ export default function AttentionRequests({ revision, onChanged, onRequestLoaded
     <>
       {!onTicket && (
         <div className="request-heading">
-          <h3>Requests</h3>
-          {!onlyOpen && <label>Show <select value={state} onChange={event => setState(event.target.value)}>
+          <h3>{askState === 'deferred' ? 'Deferred attention requests' : 'Requests'}</h3>
+          {!onlyOpen && !askState && <label>Show <select value={state} onChange={event => setState(event.target.value)}>
             <option value="open">Open</option>
             <option value="deferred">Deferred</option>
             <option value="handled">Handled</option>
@@ -129,7 +130,7 @@ export default function AttentionRequests({ revision, onChanged, onRequestLoaded
               </p>
               <Markdown text={item.reason} />
               <AttentionImpact item={item} />
-              {item.remind_on && <p className="event-meta">Reminder <time dateTime={item.remind_on}>{item.remind_on}</time></p>}
+              {item.remind_on && <p className="event-meta">Reminder <time dateTime={item.remind_on}>{item.remind_on}</time>{askState && ' (Pacific time)'}</p>}
               <EvidenceLinks links={item.links} />
             </div>
             {item.handled_at
@@ -140,14 +141,14 @@ export default function AttentionRequests({ revision, onChanged, onRequestLoaded
                   <button type="button" aria-busy={pending === item.id || undefined}
                     disabled={pending !== null} onClick={() => handle(item.id)}>Mark handled</button>
                   <ReminderDate key={item.remind_on || ''} path={`/notifications/requests/${item.id}/reminder`}
-                    saved={item.remind_on} onChanged={requestsChanged} />
+                    saved={item.remind_on} deferAsk={Boolean(askState)} onChanged={requestsChanged} />
                 </div>
               )}
           </li>
         ))}
       </ol>}
       {!hideTicketRows && (
-        <LoadMore page={page} label={onTicket ? `attention requests for ${taskLabel(taskId)}` : 'attention requests'} />
+        <LoadMore page={page} label={onTicket ? `attention requests for ${taskLabel(taskId)}` : `${state} attention requests`} />
       )}
     </>
   )

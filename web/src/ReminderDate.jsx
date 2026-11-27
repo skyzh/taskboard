@@ -12,7 +12,7 @@ export function ReminderValue({ timed, value, onChange, timeZone, disabled }) {
   )
 }
 
-export default function ReminderDate({ path, saved, savedUntil, exactTime = false, recurring = false, onChanged }) {
+export default function ReminderDate({ path, saved, savedUntil, exactTime = false, recurring = false, deferAsk = false, onChanged }) {
   const { timeZone, formatLocalInput } = useTimeZone()
   const savedMode = savedUntil || recurring ? 'time' : 'date'
   const savedTime = savedUntil ? formatLocalInput(savedUntil) : ''
@@ -42,7 +42,7 @@ export default function ReminderDate({ path, saved, savedUntil, exactTime = fals
   }
   return (
     <details>
-      <summary>{saved || savedUntil ? 'Edit reminder' : 'Set a reminder'}</summary>
+      <summary>{deferAsk ? (saved ? 'Change date' : 'Defer') : (saved || savedUntil ? 'Edit reminder' : 'Set a reminder')}</summary>
       <form onSubmit={event => { event.preventDefault(); save(timed ? { at: time, time_zone: timeZone } : { date }) }}
         data-reload-blocked={pending || changed}>
         {recurring && <p>Use an exact time for a one-off review alongside the recurring schedule.</p>}
@@ -52,9 +52,9 @@ export default function ReminderDate({ path, saved, savedUntil, exactTime = fals
         </select></label>}
         <ReminderValue timed={timed} value={timed ? time : date}
           onChange={timed ? setTime : setDate} timeZone={timeZone} />
-        <button type="submit" disabled={pending || !(timed ? time : date) || !changed}>Save reminder</button>
+        <button type="submit" disabled={pending || !(timed ? time : date) || !changed}>{deferAsk ? 'Save date' : 'Save reminder'}</button>
         {(saved || savedUntil) && <button type="button" disabled={pending}
-          onClick={() => save({ date: null })}>Clear reminder</button>}
+          onClick={() => save({ date: null })}>{deferAsk ? 'Bring back now' : 'Clear reminder'}</button>}
         {error && <p role="alert">{error}</p>}
       </form>
     </details>
