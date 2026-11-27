@@ -13,6 +13,7 @@ import BoardOutage, { BoardOutageContext, ReadPlaceholder } from './BoardOutage.
 import { isBackendError } from './boardAvailability.js'
 import AssigneePage from './AssigneePage.jsx'
 import GoalActivity, { goalActivityFragment } from './GoalActivity.jsx'
+import AgentManagement from './AgentManagement.jsx'
 import Integrations from './Integrations.jsx'
 import Knowledge, { knowledgeListHref } from './Knowledge.jsx'
 import Notifications from './Notifications.jsx'
@@ -218,6 +219,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
   const assigneeView = ['all', 'idle', 'recent'].includes(requestedAssigneeView) ? 'all'
     : requestedAssigneeView === 'watching' ? 'watching' : 'active'
   const showGoalActivity = requestedAssigneeView === 'goal-activity'
+  const showAgentManagement = requestedAssigneeView === 'agent-management'
   const goalAgent = reportsParams?.get('agent')
   const goalKey = reportsParams?.get('goal')
   const goalFrom = reportsParams?.get('from')
@@ -306,10 +308,11 @@ export default function App({ previewNotice, tourSteps } = {}) {
       view = 'team-overview'
     }
   }
-  useContentTitle(view === 'reports' && (showGoalActivity ? 'Goal activity' : assigneeView === 'watching' ? 'Watching' : null))
-  const supportsAllProjects = ['reports', 'board', 'activity', 'team-overview', 'knowledge', 'stats', 'notifications',
-    'my-activity', 'schedules', 'assignee'].includes(view)
-  const scopedView = supportsAllProjects || view === 'task'
+  useContentTitle(view === 'reports' && (showAgentManagement ? 'Agent management'
+    : showGoalActivity ? 'Goal activity' : assigneeView === 'watching' ? 'Watching' : null))
+  const supportsAllProjects = !showAgentManagement && ['reports', 'board', 'activity', 'team-overview', 'knowledge',
+    'stats', 'notifications', 'my-activity', 'schedules', 'assignee'].includes(view)
+  const scopedView = supportsAllProjects || showAgentManagement || view === 'task'
   const canSelectProject = scopedView || ['settings', 'integrations'].includes(view)
   const knowledgeEntry = knowledgeFilters?.get('entry')
   const recordProject = namedTask?.split('-')[0] || knowledgeEntry?.match(/^([A-Z][A-Z0-9]{0,7})-\d+$/)?.[1]
@@ -422,8 +425,10 @@ export default function App({ previewNotice, tourSteps } = {}) {
     setTour(null)
   }
   useEffect(() => {
-    if (view === 'reports' && !reportsPending && !projectUnavailable && !showGoalActivity) rememberReportsMode(reportsMode)
-  }, [view, reportsPending, reportsMode, projectUnavailable, showGoalActivity])
+    if (view === 'reports' && !reportsPending && !projectUnavailable && !showGoalActivity && !showAgentManagement) {
+      rememberReportsMode(reportsMode)
+    }
+  }, [view, reportsPending, reportsMode, projectUnavailable, showGoalActivity, showAgentManagement])
   const activeTab = ['assignee', 'team-overview'].includes(view) ? 'reports' : ['task', 'schedules'].includes(view) ? 'board' : view
   const refresh = useCallback(() => setRevision(value => value + 1), [])
   const updateConnection = useCallback(status => {
@@ -504,7 +509,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
               {supportsAllProjects ? 'All projects' : 'Open the default project'}
             </BoardLink>
           </section> : scopePending ? <ResourceStatus resource={sessionResource.pending ? sessionResource : projectList} label="projects" /> : <>
-          {view === 'reports' && !showGoalActivity && showWelcomeBanner && (hasSession || !boardUnavailable) && (
+          {view === 'reports' && !showGoalActivity && !showAgentManagement && showWelcomeBanner && (hasSession || !boardUnavailable) && (
             <aside className="reports-welcome" aria-labelledby="reports-welcome-title">
               <div>
                 <h2 id="reports-welcome-title">Get started with Taskboard</h2>
@@ -528,13 +533,15 @@ export default function App({ previewNotice, tourSteps } = {}) {
               }}><X size={18} aria-hidden="true" /></button>
             </aside>
           )}
-          {(view === 'team-overview' || (view === 'reports' && showGoalActivity)) && projectPicker}
+          {(view === 'team-overview' || (view === 'reports' && (showGoalActivity || showAgentManagement))) && projectPicker}
           {view === 'reports' && (reportsPending
             ? <section className="reports" aria-labelledby="reports">
               <ReportsHeading headingId="reports" projectPicker={projectPicker} />
               <ResourceStatus resource={sessionResource.pending ? sessionResource : projectList} label="Reports" />
             </section>
-            : showGoalActivity
+            : showAgentManagement
+              ? <AgentManagement key={project} project={project} revision={revision} />
+              : showGoalActivity
               ? <GoalActivity key={allGoalActivity ? 'all' : project} project={allGoalActivity ? null : project}
                 revision={revision} agent={goalAgent} goal={goalKey} from={goalSummaryView}
                 onFilter={(agent, goal) => writeFilterFragment(goalActivityFragment(

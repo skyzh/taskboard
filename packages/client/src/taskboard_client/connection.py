@@ -210,7 +210,7 @@ class SharedBoard:
             params["force_text"] = True
         return self.invoke("raise-attention", params, write=True)
 
-    def invoke(self, action, params=None, *, write=False):
+    def invoke(self, action, params=None, *, write=False, timeout=45):
         call = ["raft", "integration", "invoke", "--service", self.service, "--action", action, "--json"]
         if context := work_ticket_context():
             params = {**(params or {}), WORK_TICKET_PARAMETER: context}
@@ -230,7 +230,7 @@ class SharedBoard:
         if action == "raise-attention" and write:
             unknown = attention_retry_hint(params) or unknown
         try:
-            result = subprocess.run(call, input=payload, capture_output=True, text=True, timeout=45)
+            result = subprocess.run(call, input=payload, capture_output=True, text=True, timeout=timeout)
         except FileNotFoundError as error:
             reason = "Raft CLI is required for shared mode."
             if not write:

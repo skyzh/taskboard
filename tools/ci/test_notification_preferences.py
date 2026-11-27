@@ -519,6 +519,29 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual(self.board.call(sam, route, method="POST", headers=ORIGIN, json=unopened_view).json,
                          {"count": 0, "active_agents": 0})
 
+    def test_watcher_health_is_reestablished_after_sqlite_import(self):
+        source = self.board.app(portal_reader=True)
+        avery, _ = self.board.login(source, "Avery")
+        self.board.action(avery, "create-task", {"title": "Replay", "step": "Check the watcher report."})
+        self.board.action(avery, "report-watcher-health", {
+            "state": "running", "stalled": "false", "goals": "false",
+        })
+        snapshot = self.board.database.with_name("watcher-health.sqlite3")
+        with closing(sqlite3.connect(self.board.database)) as current, closing(sqlite3.connect(snapshot)) as backup:
+            current.backup(backup)
+            self.assertEqual(backup.execute("SELECT COUNT(*) FROM watcher_health").fetchone()[0], 1)
+
+        dsn = self.postgres_fixture()
+        self.assertNotIn("watcher_health", import_snapshot(snapshot, dsn))
+        target = self.postgres_app(dsn)
+        avery, _ = self.board.login(target, "Avery")
+        path = "/api/v1/reports/watchers"
+        self.assertIsNone(self.board.call(avery, path).json["items"][0]["watcher"])
+        self.board.action(avery, "report-watcher-health", {
+            "state": "running", "stalled": "false", "goals": "true",
+        })
+        self.assertTrue(self.board.call(avery, path).json["items"][0]["watcher"]["goals"])
+
     def test_ring1_project_visibility_on_postgres(self):
         root = self.board.provider.people["Sam"]["sub"]
         app = self.postgres_app(self.postgres_fixture(), project_admin_subject=root)

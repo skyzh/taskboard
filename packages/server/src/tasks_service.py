@@ -44,6 +44,7 @@ import tasks_integration_stats as integration_stats
 import tasks_knowledge as knowledge_records
 import tasks_merges as merges
 import tasks_notification_log as notification_log
+import tasks_watcher_health as watcher_health
 import tasks_oidc as oidc_auth
 import tasks_oidc_members as oidc_members
 import tasks_profiles as profiles
@@ -403,6 +404,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     goals.ensure_extended_schema(db)
     goals.migrate_goal_tickets(db)
     db.execute(goal_cadence.SCHEMA)
+    db.execute(watcher_health.SCHEMA)
     db.execute(goal_offers.SCHEMA)
     db.execute(goal_offers.INDEX)
     db.execute(profiles.IMPORT_SCHEMA)
@@ -486,6 +488,7 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
         goals.ensure_extended_schema(db)
         goals.migrate_goal_tickets(db)
         db.execute(goal_cadence.SCHEMA)
+        db.execute(watcher_health.SCHEMA)
         db.execute(goal_offers.SCHEMA)
         db.execute(goal_offers.INDEX)
         for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA, *github_webhooks.SCHEMA):
@@ -3535,6 +3538,15 @@ def create_app(
                 "has_receipts": bool(page["items"]) or notification_log.has_receipts(connection, project, principal=actor_key()),
             }
 
+    @app.get("/api/v1/reports/watchers")
+    def project_watchers():
+        current_actor(required=True)
+        project = project_filter(request.args, use_default=True)
+        roster = (project_roster or {}) if project == projects.DEFAULT else {}
+        with tasks_storage.read(db()) as connection:
+            now = datetime.fromisoformat(ledger.timestamp())
+            return watcher_health.listing(connection, project, roster, principal=actor_key(), now=now)
+
     @app.get("/api/v1/notifications/watched")
     def watched_notifications():
         actor = current_actor(required=True)
@@ -4499,6 +4511,7 @@ def create_app(
                 "decision_recipient_lookup": True,
                 "handoff_recipient_lookup": True,
                 "timed_goal_cues": True,
+                "watcher_health_reports": True,
                 "can_create_project": project_admin_access(db(), actor),
                 "default_project": profile["project"] if profile is not None else projects.default_project(db()),
             }
@@ -4515,6 +4528,27 @@ def create_app(
             if g.get("personal_agent_api"):
                 context["personal_agent_access"] = g.personal_agent_api
             return context
+        if name == "report-watcher-health":
+            if actor["kind"] != "agent" or g.get("personal_agent_api"):
+                raise RequestError("Use the watcher's own signed Raft agent.", 403)
+            project = project_filter(data, use_default=True)
+            state = text(data, "state", maximum=8)
+            revision = text(data, "revision", optional=True, maximum=40)
+            stalled = str(data.get("stalled", "")).lower()
+            goals_enabled = str(data.get("goals", "")).lower()
+            if state not in ("running", "exited") or stalled not in ("true", "false") or goals_enabled not in ("true", "false"):
+                raise RequestError("Provide the watcher state and enabled modes.")
+            if revision is not None and re.fullmatch("[0-9a-f]{40}", revision) is None:
+                raise RequestError("Use an exact Git revision or omit it.")
+            with tasks_storage.write(db()) as connection:
+                require_visible_project(connection, project)
+                roster = (project_roster or {}) if project == projects.DEFAULT else {}
+                agents = notification_log.project_agents(connection, project, roster, principal=key)
+                if not any(agent["ledger_key"] == key for agent in agents):
+                    raise RequestError("Use an agent recorded in this project.", 403)
+                watcher_health.report(connection, project, key, revision, state, stalled == "true",
+                                      goals_enabled == "true", ledger.timestamp())
+            return {"receipt": f"{project} · Watcher status recorded"}
         if name in {"raft-channel-show", "raft-channel-set"}:
             return project_channel(actor, project_filter(data), data if write else None)
         if name == "field-guidance":

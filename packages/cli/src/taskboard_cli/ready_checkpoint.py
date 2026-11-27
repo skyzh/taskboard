@@ -17,6 +17,37 @@ from taskboard_cli.goal_wake import GoalWake, GoalWakeState, reminder_title
 from taskboard_cli.shared import assert_actor, task_url
 
 
+def watcher_reporter(board, project, *, stalled, goals, emit):
+    root = Path(__file__).resolve().parents[4]
+    fields = {"project": project, "stalled": str(stalled).lower(), "goals": str(goals).lower()}
+    try:
+        def git(*args):
+            return subprocess.check_output(["git", "-C", str(root), *args], text=True,
+                                           stderr=subprocess.DEVNULL, timeout=2).strip()
+
+        if (root / ".git").exists() and not git("status", "--porcelain", "--untracked-files=no"):
+            revision = git("rev-parse", "--verify", "HEAD")
+            if re.fullmatch(r"[0-9a-f]{40}", revision):
+                fields["revision"] = revision
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    next_report = 0
+
+    def report(state):
+        nonlocal next_report
+        now = monotonic()
+        if state == "running" and now < next_report:
+            return
+        next_report = now + 600
+        try:
+            board.invoke("report-watcher-health", {**fields, "state": state}, write=True, timeout=5)
+        except RuntimeError:
+            emit({"kind": "watcher-health-unavailable", "at": observation_time()})
+
+    return report
+
+
 def offer_work(board, actor):
     ready = board.invoke("my-queue", {"scope": "all", "state": "ready", "order": "priority", "limit": 1})["items"]
     if ready:
@@ -253,7 +284,7 @@ class ReadyReadStopped(RuntimeError):
 
 
 def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_delay=10, *, observe_status=None,
-                      notify_stalled=None, goal_state=None, notify_goal=None):
+                      notify_stalled=None, goal_state=None, notify_goal=None, report_health=None):
     """Wake for new Ready work, then check opted-in recovery paths during Idle."""
     try:
         context = agent_context(board, owner)
@@ -372,6 +403,12 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
 
     if observe_status is not None:
         is_idle = measured_idle(observe_status, actor, lambda: ready_events("idle sample"), emit)
+    if report_health and context.get("watcher_health_reports") is True:
+        read_idle = is_idle
+
+        def is_idle(username):
+            report_health("running")
+            return read_idle(username)
 
     while True:
         try:
@@ -591,6 +628,7 @@ def main():
     parser.add_argument("--measure", action="store_true", help="Emit sampled status and wake receipts in repeat mode.")
     parser.add_argument("--wake-stalled", action="store_true", help="Opt in to one wake for an eligible step after 30 idle minutes.")
     parser.add_argument("--goal-state", type=Path, help="Opt in to Project T goal cues using this private state file.")
+    parser.add_argument("--report-status", metavar="PROJECT", help="Report redacted watcher health to this project.")
     parser.add_argument("--idle-delay-seconds", type=int, help="Require this much observed idle time before a Ready wake.")
     parser.add_argument("--idle-handoff", type=UUID, help="Stable runner UUID for an explicit idle goal offer.")
     parser.add_argument("--channel", help="Raft conversation anchoring the watcher.")
@@ -604,6 +642,8 @@ def main():
         parser.error("Use --wake-stalled only with --watch-idle --repeat.")
     if args.goal_state and not (args.watch_idle and args.repeat):
         parser.error("Use --goal-state only with --watch-idle --repeat.")
+    if args.report_status and not (args.watch_idle and args.repeat):
+        parser.error("Use --report-status only with --watch-idle --repeat.")
     if args.watch_idle:
         if command or not args.channel or not args.message_id or args.idle_handoff:
             parser.error("Use --channel and --message-id for the watcher, without a handler.")
@@ -644,15 +684,19 @@ def main():
                     return wake_with_title(reminder_title(offer), args.channel, args.message_id, can_wake,
                                            record_wake=record_wake)
 
+                health = watcher_reporter(board, args.report_status, stalled=args.wake_stalled,
+                                          goals=bool(args.goal_state), emit=emit) if args.report_status else None
                 try:
                     watch_ready_count(
                         board, args.by, raft_idle, notify_count, emit,
                         idle_delay=10 if args.idle_delay_seconds is None else args.idle_delay_seconds,
                         observe_status=raft_status if args.measure else None,
                         notify_stalled=notify_stalled if args.wake_stalled else None,
-                        goal_state=args.goal_state, notify_goal=notify_goal,
+                        goal_state=args.goal_state, notify_goal=notify_goal, report_health=health,
                     )
                 except (KeyError, RuntimeError, ValueError) as error:
+                    if health and not (isinstance(error, ReadyReadStopped) and error.reason == "interrupted"):
+                        health("exited")
                     # SharedBoard preserves an interrupted signed read as a read error.
                     if not (isinstance(error, ReadyReadStopped) and error.reason == "interrupted"):
                         recovery_wake(args.by, args.channel, args.message_id, error, emit)

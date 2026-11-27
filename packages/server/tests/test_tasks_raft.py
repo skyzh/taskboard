@@ -63,6 +63,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "my-next": ("GET", "", "project scope"),
             "idle-goal-offer": ("POST", "handoff_id", "project"),
             "my-goals": ("GET", "", "project"),
+            "report-watcher-health": ("POST", "state stalled goals", "project revision"),
             "my-goal-cues": ("GET", "", "project include_timed"),
             "set-goal-review-time": ("POST", "id time", ""),
             "my-wake-subscriptions": ("GET", "", "project"),
