@@ -4998,6 +4998,7 @@ class TasksServiceTest(unittest.TestCase):
         path = "/api/v1/tasks/1"
         self.assertIsNone(self.call(viewer, path).json["task"]["eta"])
         initial = self.call(viewer, path).json
+        self.action(avery, "my-next")
         selection = self.shared_cli(avery, "next")
         self.assertEqual(selection[0], 0, selection[2])
         self.assertTrue(selection[1].startswith("T-3 · Ready"))
@@ -5976,6 +5977,7 @@ class TasksServiceTest(unittest.TestCase):
                 self.assertEqual((code, error, actions), (0, "", calls))
                 self.assertTrue(output.startswith(f"Committed · {ticket}"))
                 self.assertEqual(output.splitlines()[-1], f"Next: {expected}")
+                self.assertEqual("Review your Inbox follow-up prompt." in output, number == 4)
 
     def test_shared_cli_read_guidance_preserves_plain_and_json_results(self):
         app = self.app(portal_reader=True)

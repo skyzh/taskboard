@@ -458,34 +458,33 @@ def completion_queue(cue, project):
     return None
 
 
-def completion_guidance(board, reference, fallback=None, *, cue=None):
+def completion_output(board, output, reference, fallback=None, *, cue=None):
     project, _ = projects.identifier(reference)
     inbox = f"`./tasks --shared next --project {project}`"
     unavailable = f"Check your Inbox with {inbox}. The next item could not be loaded."
-    daily_guidance = ""
     try:
         result = completion_queue(cue, project)
         if result is None:
             result = board.invoke("my-next", {"project": project})
         if result.get("unavailable"):
-            return unavailable
+            return with_guidance(output, unavailable)
         if result.get("inbox_refresh"):
-            daily_guidance = "\n".join(inbox_guidance_lines(result)) + "\n"
+            output = "\n".join([output, *inbox_guidance_lines(result)])
         if work := result["work"]:
             label = NEXT_LABELS.get(work["kind"], "Start Ready work")
-            return f"{daily_guidance}{label} on {work['key']} · {work['title']}. Read it with {inbox}."
+            return with_guidance(output, f"{label} on {work['key']} · {work['title']}. Read it with {inbox}.")
         if result["standing_goals"]:
             goal = result["standing_goals"][0]
             if ticket := goal["ticket"]:
-                return (
-                    f"{daily_guidance}Standing goal {ticket} · {goal['summary']}\n"
+                return with_guidance(
+                    output, f"Standing goal {ticket} · {goal['summary']}\n"
                     f'{result["next_step"]}\nWhen eligible, run '
                     f'`./tasks --shared start {ticket} "<what you will check>"`.'
                 )
     except (SharedActionUnavailable, SharedReadError, KeyError, TypeError):
         # A failed or incomplete read cannot invalidate the earlier write receipt.
-        return unavailable
-    return daily_guidance + (fallback or f"Check your Inbox with {inbox}.")
+        return with_guidance(output, unavailable)
+    return with_guidance(output, fallback or f"Check your Inbox with {inbox}.")
 
 
 def queue_goal_lines(result, url):
@@ -925,7 +924,7 @@ def shared_command(args):
         guidance = result.get("next_step")
         if command in {"done", "transfer"} or (command == PEER_ASK and args.change == "result"):
             fallback = prompts.get("completion") or guidance
-            guidance = completion_guidance(board, args.id, fallback, cue=result.get("next_action"))
+            return completion_output(board, output, args.id, fallback, cue=result.get("next_action"))
         return with_guidance(output, guidance or "Check the updated record or your Inbox.")
     if command == "readiness":
         project = args.project or context.get("project")
