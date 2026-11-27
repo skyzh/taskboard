@@ -9,7 +9,10 @@ import tasks_peer_asks as peer_asks
 import tasks_projects as projects
 
 
-_CONTINUE_WORK = "Continue the recorded step. If blocked, use wait for a dependency or remind for a known revisit time."
+_CONTINUE_WORK = (
+    "Finish the ticket or record what blocks completion and who can act or when to recheck. "
+    "Recheck signed Inbox after Done, Wait or Park."
+)
 _ADVANCE_STEPS = {
     "update": _CONTINUE_WORK,
     "resume": _CONTINUE_WORK,
@@ -25,7 +28,10 @@ _ADVANCE_STEPS = {
 _WORK_STEPS = {
     "goal_review": "Start the linked goal and record one concrete review outcome on it.",
     "in_progress": _CONTINUE_WORK,
-    "review": "Read the review brief and check the specified revision or evidence.",
+    "review": (
+        "Read the review brief and check the specified revision or evidence. Finish the review and return the verdict. "
+        "If blocked, record what you still need and who can provide it or when to recheck. Recheck signed Inbox."
+    ),
     "report": "Read the worker's result and evidence before collecting the report.",
     "shared_ready": "Check the ticket's current step and whether you can take it.",
 }
@@ -67,8 +73,10 @@ _DEFAULTS = {
     "next-selected": "Open the selected ticket and check its current step.",
     "next-empty": "Check any other project queues and assigned reviews before ending the turn.",
     "ready-review": (
+        "Finish the offered ticket or record the blocker and who can act or when to recheck. "
         "Verify the result and record the checked revision and evidence. You can review ordinary work yourself. "
-        "Arrange independent review when the user asks for it or your project requires it."
+        "Arrange independent review when the user asks for it or your project requires it. "
+        "Recheck signed Inbox and follow the saved mode if it offers a goal."
     ),
     "standing-exploration": goals.STANDING_EXPLORATION,
     "standing-start": goals.STANDING_EXPLORATION_START,
@@ -156,31 +164,31 @@ _PROMPTS = {
     READY_PICKUP: {"prompt": _DEFAULTS["ready-review"]},
     STALLED_FOLLOW_UP: {
         "prompt": (
-            "Read the ticket's current handoff and check what still applies. Resume if you can move it. "
-            "If it must wait, record the dependency or set a timed revisit. "
-            "Use the signed cue controls to acknowledge the exact cue or pause future reminders."
+            "Read the current handoff and finish the ticket if you can. "
+            "Record the blocker and who can act or when to recheck if work must wait. "
+            "Use signed controls to acknowledge the exact cue or pause future reminders. Recheck signed Inbox."
         ),
     },
     REVIEW_HANDOFF: {"prompt": _WORK_STEPS["review"]},
     WORKER_HANDOFF: {
         "prompt": (
             "Check the run's brief, current step and any checkpoint. "
-            "Continue or record what blocks the run. "
-            "Read the worker's result and evidence before collecting the report."
+            "Finish the assigned work or record its blocker and next check. "
+            "Read the worker's result and evidence before collecting the report. Recheck signed Inbox after handback."
         ),
     },
     NEXT_ACTION: {
         "prompt": (
-            "Check the current handoff and the latest evidence. Suggest one concrete next action and name its owner. "
-            "If it depends on something else, record what will unblock it or when to recheck."
+            "Check the current handoff and evidence. Take the next concrete action toward finishing the ticket. "
+            "Record the next owner and what will unblock the work or when to recheck if it must wait."
         ),
     },
     GOAL_REVIEW: {
         "prompt": (
-            "Check your signed Taskboard Inbox first. If higher-priority work is available, take it first. "
-            "Open the offered goal and read its current handoff. Perform one bounded check, then record "
-            "the result on the goal. Suggest one concrete next action based on the evidence and name its owner. "
-            "If it must wait, name the condition or evidence to check. Follow the goal’s exploration setting and review schedule."
+            "Check signed Taskboard Inbox and finish higher-priority tickets or record their blockers first. "
+            "Open the offered goal and record one concrete outcome from a bounded check. "
+            "Suggest one concrete next action based on evidence and name its owner or what will unblock it. "
+            "Recheck Inbox and follow the goal’s saved exploration mode, stop condition and review schedule."
         ),
     },
     INBOX_FOLLOW_UP: {
@@ -233,11 +241,12 @@ _PROMPTS = {
     },
     "end-task": {
         "prompt": dedent("""
-            Before marking the ticket Done, compare the outcome with its objective and
-            acceptance criteria. Record the result in plain language, the checks that
+            Finish the offered ticket. Before marking the ticket Done, compare the
+            outcome with its objective and acceptance criteria. Record the result in plain language, the checks that
             support it and the evidence link. Name any unverified or remaining work.
             Keep the ticket open with an actionable next step or named wait if that work
-            is needed for this outcome. Link any separate follow-up and say who owns it.
+            is needed for this outcome. Name the real blocker and who can act or when
+            to recheck. Link any separate follow-up and say who owns it.
 
             Schedule Taskboard ticket and goal reminders in Taskboard. Verify the saved
             schedule before retiring a duplicate Raft reminder you own.

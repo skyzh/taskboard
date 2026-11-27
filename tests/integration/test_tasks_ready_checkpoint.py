@@ -8,10 +8,12 @@ import unittest
 from unittest.mock import Mock, patch
 
 from taskboard_client import SharedBoard, SharedReadError
+from taskboard_cli.goal_wake import reminder_title
 from taskboard_cli.ready_checkpoint import (
     MANAGED_RESTART, STALLED_READ, ReadyReadStopped,
     checkpoint, main, measured_idle, raft_idle, raft_ready_count, raft_stalled_work, raft_status, raft_wake,
     recovery_wake, run_handler, runtime_observer, watch_idle, watch_ready_count, watch_two_pickups, watcher_reporter,
+    wake_with_title,
 )
 from tasks_goal_offers import idle_offer_counts
 from tasks_service import connect
@@ -19,8 +21,9 @@ import test_tasks_service
 
 
 COUNT_WAKE_GUIDANCE = (
-    "Check signed Taskboard Inbox and take the next eligible item. "
-    "When work and reviews clear, follow the offered goal’s saved exploration mode."
+    "Finish the highest-priority ticket offered by signed Inbox, "
+    "or record the blocker and who can act or when to recheck. "
+    "Recheck Inbox. For a goal, record one outcome and follow its saved mode."
 )
 
 
@@ -566,7 +569,9 @@ class ReadyCheckpointTest(unittest.TestCase):
         old_title = ("Taskboard idle follow-up for COURSE-3 (event 19). "
                      "Open https://example.test/tasks/#task-COURSE-3 to continue or record the blocker.")
         title = ("Taskboard idle follow-up for COURSE-3 (event 19). "
-                 "Open https://example.test/tasks/#task-COURSE-3 and resume if actionable. "
+                 "Open https://example.test/tasks/#task-COURSE-3 after checking signed Inbox. "
+                 "Finish COURSE-3 or record the blocker and who can act or when to recheck. "
+                 "Recheck signed Inbox for the next eligible item. Continue an offered Keep exploring goal. "
                  "To postpone: ./tasks --shared cue-pause COURSE-3 stalled --minutes N --reason REASON. "
                  "List with ./tasks --shared cue-pauses or clear with ./tasks --shared cue-pause COURSE-3 stalled --clear.")
         with patch("taskboard_cli.ready_checkpoint.raft_cli", return_value=f'#12345678 [fired] "{old_title}" ref=#fixture\n') as cli:
@@ -1373,9 +1378,14 @@ class ReadyCheckpointTest(unittest.TestCase):
             self.assertEqual(raft_status("blake"), "unavailable")
 
     def test_wake_uses_existing_scheduled_reminder_app_and_deduplicates_exact_event(self):
-        title = "Taskboard Ready checkpoint for T-1 (Ready event 12). Check the ticket and record a start or concrete deferral."
+        previous = ("Taskboard Ready checkpoint for T-1 (Ready event 12). "
+                    "Check the ticket and record a start or concrete deferral.")
+        title = ("Taskboard Ready checkpoint for T-1 (Ready event 12). "
+                 "Check signed Inbox first. "
+                 "Finish T-1 or record the blocker and who can act or when to recheck. "
+                 "Recheck signed Inbox for the next eligible item. Continue an offered Keep exploring goal.")
         offer = {"kind": "task", "task": "T-1", "ready_event": 12}
-        already_fired = f'#123 [fired] (one-time) "{title}" ref=#example:12345678\n'
+        already_fired = f'#123 [fired] (one-time) "{previous}" ref=#example:12345678\n'
         with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=[already_fired, "", "", "Scheduled"]) as invoke:
             self.assertEqual(raft_wake(offer, "#example", "12345678", self.fail), "already-queued")
             self.assertIsNone(raft_wake(offer, "#example", "12345678", lambda: False))
@@ -1385,3 +1395,46 @@ class ReadyCheckpointTest(unittest.TestCase):
             "reminder", "schedule", "--title", title, "--delay-seconds", "1",
             "--channel", "#example", "--message-id", "12345678",
         ))
+
+    def test_goal_cue_retains_legacy_receipt_and_asks_for_a_pass(self):
+        offer = {"task": "T-7", "goal_key": "continue:T-7:12", "goal_kind": "standing-continuation",
+                 "board": "https://example.test/tasks/"}
+        previous = reminder_title(offer, legacy=True)
+        current = reminder_title(offer)
+        self.assertEqual(current.rsplit(" [goal ", 1)[1], previous.rsplit(" [goal ", 1)[1])
+        self.assertIn("record one concrete outcome on the goal", current)
+        self.assertIn("follow the goal’s saved mode", current)
+        for status in ("scheduled", "fired"):
+            with self.subTest(status=status):
+                receipt = f'#123 [{status}] (one-time) "{previous}" ref=#example:12345678\n'
+                with patch("taskboard_cli.ready_checkpoint.raft_cli", return_value=receipt) as invoke:
+                    self.assertEqual(wake_with_title(current, "#example", "12345678", self.fail,
+                                                     previous_title=previous), "already-queued")
+                    self.assertEqual(invoke.call_count, 1)
+
+    def test_worker_cues_finish_the_signed_handoff_and_recheck_inbox(self):
+        offer = {"task": "T-5", "task_id": 5, "worker_run": 9, "board": "https://example.test/tasks/"}
+        cases = (
+            ("planned", {}, "Start the assigned review or record the blocker.", "return the verdict"),
+            ("reported", {"check_mode": "report", "check_event": 12},
+             "A signed report is ready. Read it and record what you applied.", "collect the signed report"),
+            ("running", {"coordinator": True}, "Check the existing run handle. Collect the result or record the next step.",
+             "Collect the result or record what blocks it"),
+            ("running", {"coordinator": False}, "Check your existing run. Continue or report the blocker.",
+             "Finish the assigned work on your existing run"),
+        )
+        for status, fields, previous, outcome in cases:
+            with self.subTest(status=status, fields=fields):
+                notice = {**offer, "worker_status": status, **fields}
+                check = " (check 12)" if "check_event" in fields else ""
+                identity = f"Taskboard {status} worker W-9{check} on T-5. Open https://example.test/tasks/#task-5."
+                receipt = f'#123 [scheduled] "{identity} {previous}" ref=#fixture\n'
+                with patch("taskboard_cli.ready_checkpoint.raft_cli", return_value=receipt) as carrier:
+                    self.assertEqual(raft_stalled_work(notice, "#fixture", "anchor", self.fail), "already-queued")
+                    self.assertEqual(carrier.call_count, 1)
+                with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", "Scheduled"]) as carrier:
+                    self.assertEqual(raft_stalled_work(notice, "#fixture", "anchor", lambda: True), "wake-requested")
+                    title = carrier.call_args.args[3]
+                    self.assertTrue(title.startswith(identity))
+                    self.assertIn(outcome, title)
+                    self.assertIn("Recheck signed Inbox", title)
