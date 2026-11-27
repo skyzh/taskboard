@@ -5843,7 +5843,8 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.action(avery, "my-next")["next_step"], "Open the selected ticket and check its current step.")
         started = self.shared_cli(avery, "start", "T-5", "Read the new sample.")
         self.assertEqual((started[0], started[2]), (0, ""))
-        self.assertIn("what worked or failed, and why you chose the next step", started[1])
+        self.assertIn("with `--checkpoint` and `--details`", started[1])
+        self.assertIn("what remains uncertain", started[1])
 
     def test_agent_guidance_rejects_invalid_files_and_accepts_published_example(self):
         from tasks_guidance import load

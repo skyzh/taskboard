@@ -65,9 +65,8 @@ _DEFAULTS = {
     "next-selected": "Open the selected ticket and check its current step.",
     "next-empty": "Check any other project queues and assigned reviews before ending the turn.",
     "ready-review": (
-        "For code in your field, have an uninvolved subagent review the exact revision and record its evidence, "
-        "using a peer for cross-field expertise, when a subagent is unavailable, or when policy requires a peer reviewer "
-        "(https://github.com/skyzh/taskboard/blob/main/docs/taskboard/AGENT-STARTUP.md#review-an-exact-revision)."
+        "Verify the result and record the checked revision and evidence. You can review ordinary work yourself. "
+        "Arrange independent review when the user asks for it or your project requires it."
     ),
     "standing-exploration": goals.STANDING_EXPLORATION,
     "standing-start": goals.STANDING_EXPLORATION_START,

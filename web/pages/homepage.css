@@ -171,31 +171,22 @@ h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: 
   text-align: center;
 }
 
-.loop-steps {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 0;
-  color: #f8f7ff;
-  font-size: clamp(0.78rem, 2.75vw, 1.05rem);
-  font-weight: 675;
-  list-style: none;
-}
-
-.loop-steps li { position: relative; }
-.loop-steps span {
-  position: absolute;
-  right: 0;
-  transform: translateX(50%);
-  color: var(--accent-on-dark);
-}
-
-.loop-arrow { display: block; width: 100%; height: 1.9rem; margin-top: 0.2rem; }
-.loop-arrow path {
+.loop-triangle { display: block; width: min(100%, 28rem); height: auto; margin: 0 auto 0.65rem; }
+.loop-edge, .return-pulse {
+  fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
-.return-line { stroke: var(--accent-on-dark); stroke-width: 1.5; }
+.loop-edge { stroke: var(--accent-on-dark); stroke-width: 1.5; }
+.loop-node rect { fill: #272a4b; stroke: #a5b4fc70; }
+.loop-node text {
+  fill: #f8f7ff;
+  dominant-baseline: middle;
+  text-anchor: middle;
+  font-size: 18px;
+  font-weight: 675;
+}
 .return-pulse { opacity: 0; stroke: #f8f7ff; stroke-width: 2.2; stroke-dasharray: 12 88; }
 .review-loop.is-visible .return-pulse { animation: return-signal 2.2s ease-in-out 2; }
 
@@ -235,17 +226,22 @@ h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: 
   letter-spacing: -0.025em;
 }
 
-.feature figure {
+.example-row {
   margin: 0;
-  padding: clamp(1.1rem, 3vw, 1.65rem);
-  border: 1px solid #a5b4fc2e;
-  border-radius: 0.7rem;
-  background: #222442;
+  padding: 0.7rem 0 0.3rem;
+  border-top: 1px solid #a5b4fc40;
 }
-
-.feature figcaption { color: #9fa4c4; font-size: 0.84rem; }
-.feature .example-title { color: #f8f7ff; font-size: 1.08rem; font-weight: 675; }
-.feature figure p:last-child { font-size: 0.93rem; }
+.example-row figcaption {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--accent-on-dark);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+.example-row figcaption svg { width: 1rem; height: 1rem; flex: none; }
+.feature .example-row p { margin: 0.2rem 0 0 1.45rem; font-size: 0.93rem; line-height: 1.45; }
+.feature .example-row .example-title { color: #f8f7ff; font-size: 1rem; font-weight: 675; }
 
 @media (max-width: 42rem) {
   .hero { min-height: auto; }
