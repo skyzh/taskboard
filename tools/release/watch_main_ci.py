@@ -2,12 +2,13 @@
 
 import argparse
 from datetime import date
+from functools import partial
 import json
 import re
 from pathlib import Path
 import subprocess
 
-from github_main import GitHubRateLimited, protected_tip, read_github, read_github_pages
+from github_main import GitHubRateLimited, protected_tip, read_github, read_github_pages, respect_rate_limit
 from local_queue import queue_lock, write_json
 from publish_receipt import signed_in_service
 from queue_provenance import GIT_COMMIT
@@ -29,11 +30,12 @@ def github_read(path, *, paginate=False):
     return json.loads(result.stdout)
 
 
-def public_github_read(path, *, paginate=False):
+def public_github_read(path, *, paginate=False, read=None):
+    read = read_github if read is None else read
     if not paginate:
-        return read_github(path)
+        return read(path)
     field = "jobs" if "/jobs?" in path else "workflow_runs"
-    return read_github_pages(path, field=field)
+    return read_github_pages(path, field=field, read=read)
 
 
 def all_items(pages, field):
@@ -214,9 +216,16 @@ def main():
     parser.add_argument("--owner", required=True, help="Exact signed owner ID from Taskboard context.")
     parser.add_argument("--service", default="tasks-board")
     parser.add_argument("--public-github", action="store_true", help="Read public GitHub REST without a GitHub login.")
+    parser.add_argument("--github-backoff-file", type=Path,
+                        help="Existing deploy runner’s private github-rate-limit.json path.")
     parser.add_argument("--apply", action="store_true", help="Enable signed writes. Omit for read-only preview.")
     args = parser.parse_args()
+    if args.github_backoff_file is not None and not args.public_github:
+        parser.error("--github-backoff-file requires --public-github.")
     read = public_github_read if args.public_github else github_read
+    if args.github_backoff_file is not None:
+        read = partial(public_github_read,
+                       read=respect_rate_limit(read_github, args.github_backoff_file, persist=args.apply))
     try:
         state = args.state / "main-ci.json"
         options = {"since": args.since.isoformat(), "board": args.board, "owner": args.owner, "dry_run": not args.apply}

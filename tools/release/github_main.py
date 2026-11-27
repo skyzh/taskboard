@@ -1,5 +1,6 @@
 """Read exact protected main and required check results from public GitHub."""
 
+import fcntl
 import json
 import re
 import time
@@ -7,7 +8,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from queue_provenance import GIT_COMMIT
-from release_plan import ReleaseRejected
+from release_plan import ReleaseRejected, write_json
 
 
 class GitHubRateLimited(OSError):
@@ -42,9 +43,34 @@ def read_github(path):
         raise
 
 
-def read_github_pages(path, *, field):
+def respect_rate_limit(read, path, *, persist=True):
+    """Share one REST retry deadline between the deploy and CI runners."""
+    def check_and_read(endpoint):
+        if path.is_file():
+            retry_at = json.loads(path.read_text(encoding="utf-8"))["retry_at"]
+            if time.time() < retry_at:
+                raise GitHubRateLimited(retry_at)
+        try:
+            return read(endpoint)
+        except GitHubRateLimited as error:
+            if persist:
+                write_json(path, {"retry_at": error.retry_at})
+            raise
+
+    def guarded_read(endpoint):
+        if not persist:
+            return check_and_read(endpoint)
+        # Serialize one REST request and its deadline, never a build or an intake write.
+        with path.with_suffix(".lock").open("a+b") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return check_and_read(endpoint)
+
+    return guarded_read
+
+
+def read_github_pages(path, *, field, read):
     """Read CI runs or jobs in 100-item pages using the public REST transport."""
-    first = read_github(path)
+    first = read(path)
     total = first["total_count"]
     if type(total) is not int or not 0 <= total <= 1000:
         raise ValueError("GitHub result exceeds the supported 1,000-item window.")
@@ -52,7 +78,7 @@ def read_github_pages(path, *, field):
     for offset in range(100, total, 100):
         if len(pages[-1][field]) != 100:
             raise ValueError("GitHub returned a short intermediate page.")
-        page = read_github(f"{path}&page={offset // 100 + 1}")
+        page = read(f"{path}&page={offset // 100 + 1}")
         if page["total_count"] != total:
             raise ValueError("GitHub changed the result count while it was being read.")
         pages.append(page)
