@@ -643,9 +643,8 @@ def raft_ready_count(notice, channel, message_id, can_wake, *, record_wake=None)
     count = notice["ready_count"]
     noun = "ticket" if count == 1 else "tickets"
     title = (
-        f"You have {count} Ready {noun}. Take Taskboard Inbox work first. "
-        "When work and reviews clear, take one standing-goal pass if offered. "
-        "After parking it, recheck Inbox for actionable work and end exploration for the turn."
+        f"You have {count} Ready {noun}. Check signed Taskboard Inbox and take the next eligible item. "
+        "When work and reviews clear, follow the offered goal’s saved exploration mode."
     )
     event = notice.get("ready_event")
     if event is None:
