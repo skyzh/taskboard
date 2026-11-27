@@ -25,6 +25,7 @@ PROFILE_BASELINE = "0001_profiles_baseline"
 PROFILE_SHORT_ROLE = "0002_profile_short_role"
 RECURRING_REVIEW_TICKETS = "0003_recurring_review_tickets"
 AGENT_API_USAGE = "0004_agent_api_usage"
+WATCHED_FYI = "0005_watched_fyi"
 IDENTITY = ["server_id", "kind", "subject"]
 REQUIRED_TEXT = frozenset({*IDENTITY, "ledger_key", "username", "name"})
 OPTIONAL_TEXT = frozenset("""
@@ -176,8 +177,41 @@ def matches_agent_api_usage_schema(catalog):
     )
 
 
+def matches_watched_fyi_schema(catalog):
+    """Recognize only the next release's additive acknowledgment tables."""
+    layouts = (
+        ("watched_fyi_preferences", {"principal": Text}, ["principal"],
+         {("principal", "board_principals", "ledger_key")}),
+        ("watched_fyi_receipts", {"recipient": Text, "event_id": BigInteger, "acknowledged_at": Text},
+         ["recipient", "event_id"], {("recipient", "board_principals", "ledger_key"), ("event_id", "events", "id")}),
+    )
+    for table, expected, key, references in layouts:
+        if not catalog.has_table(table):
+            return False
+        columns = catalog.get_columns(table)
+        foreign_keys = catalog.get_foreign_keys(table)
+        if (
+            {column["name"] for column in columns} != expected.keys()
+            or any(
+                not isinstance(column["type"], expected[column["name"]]) or column["nullable"]
+                or any(column.get(attribute) is not None for attribute in ("computed", "identity", "default"))
+                for column in columns
+            )
+            or catalog.get_pk_constraint(table)["constrained_columns"] != key
+            or len(foreign_keys) != len(references)
+            or {(tuple(fk["constrained_columns"]), fk["referred_table"], tuple(fk["referred_columns"]))
+                for fk in foreign_keys} != {((column,), target, (target_column,))
+                                           for column, target, target_column in references}
+            or catalog.get_check_constraints(table)
+            or catalog.get_unique_constraints(table)
+            or any(index["unique"] for index in catalog.get_indexes(table))
+        ):
+            return False
+    return True
+
+
 @contextmanager
-def migration(engine, *, apply=False, prepare=None):
+def migration(engine, *, apply=False, prepare=None, serve_rollback=False):
     with engine.connect() as connection:
         prepare_connection(connection, initialize=prepare is not None)
         if prepare is not None:
@@ -185,6 +219,12 @@ def migration(engine, *, apply=False, prepare=None):
         baseline = recognized_revision(connection)
         options = {"version_table": SCHEMA_REVISION_TABLE}
         current = MigrationContext.configure(connection, opts=options).get_current_revision()
+        if (serve_rollback and apply and prepare is not None and current == WATCHED_FYI
+                and baseline == AGENT_API_USAGE and matches_watched_fyi_schema(inspect(connection))):
+            yield connection, {"recorded_revision": current, "recognized_revision": current,
+                               "target_revision": AGENT_API_USAGE, "applied_revision": current}
+            connection.commit()
+            return
         legacy_startup_upgrade = current == PROFILE_SHORT_ROLE and baseline == RECURRING_REVIEW_TICKETS
         if current is not None and current != baseline and not legacy_startup_upgrade:
             raise ValueError("The recorded Taskboard revision does not match the recognized schema.")
@@ -215,7 +255,7 @@ def migrate(engine, *, apply=False):
 
 def prepare_and_upgrade(engine, prepare, *, finish=None):
     try:
-        with migration(engine, apply=True, prepare=prepare) as (connection, _):
+        with migration(engine, apply=True, prepare=prepare, serve_rollback=finish is None) as (connection, _):
             if finish is not None:
                 return finish(connection.connection.driver_connection)
     except SQLAlchemyError as error:

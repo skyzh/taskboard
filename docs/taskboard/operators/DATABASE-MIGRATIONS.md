@@ -46,6 +46,14 @@ ticket and profile still open, then make an attributed request with fictional
 data on the copy. A rollback to a build that only recognizes the earlier
 schema uses the pre-upgrade backup.
 
+The rollout of `0005_watched_fyi` is staged. The compatibility release
+normally starts at `0004_agent_api_usage`. If it boots as a rollback target
+on a ledger already at `0005_watched_fyi`, it serves the existing records
+and preserves both acknowledgment tables and the schema revision. Before
+enabling the release that writes revision 0005, verify that the mounted
+rollback target is compatible and that it can read a signed candidate write
+on the same ledger. Other older builds require the pre-upgrade backup.
+
 Ticket-first recurrence uses the tables installed by
 `0003_recurring_review_tickets`. A schema upgrade creates those tables if
 needed. Adopting a specific schedule is a separate owner action. Existing
