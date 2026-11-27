@@ -54,6 +54,13 @@ enabling the release that writes revision 0005, verify that the mounted
 rollback target is compatible and that it can read a signed candidate write
 on the same ledger. Other older builds require the pre-upgrade backup.
 
+Project postboards add their own tables in the existing startup transaction.
+The tables preserve the project opt-in and revision history during database
+backup and SQLite-to-PostgreSQL snapshot import. The postboard tables do not
+advance the core schema revision, so the previous release can still serve its
+existing tickets from the same ledger. Use the current importer for a snapshot
+that contains postboards.
+
 Ticket-first recurrence uses the tables installed by
 `0003_recurring_review_tickets`. A schema upgrade creates those tables if
 needed. Adopting a specific schedule is a separate owner action. Existing
