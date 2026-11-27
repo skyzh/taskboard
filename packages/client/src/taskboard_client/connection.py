@@ -1,6 +1,7 @@
 """Invoke actions through the registered Raft app."""
 
 import json
+import os
 import re
 from shlex import quote
 import subprocess
@@ -15,6 +16,17 @@ TEMPORARY_READ_STATUS = {502, 503, 504}
 READ_FAILURE = "Shared read failed. Check the registered app and your Raft session."
 ACTION_RESPONSE = re.compile(r"(?:Error: )?service action failed \(HTTP ([1-5][0-9]{2})\)")
 CORRELATION_ID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
+
+
+WORK_TICKET_HEADER = "X-Taskboard-Work-Ticket"
+WORK_TICKET_PARAMETER = "work_ticket"
+
+
+def work_ticket_context():
+    value = os.environ.get("TASKBOARD_WORK_TICKETS", "").strip()
+    if value and len(value) <= 2048 and re.fullmatch(r"[A-Za-z0-9, -]+", value):
+        return value
+    return None
 
 
 def attention_retry_hint(params):
@@ -200,6 +212,8 @@ class SharedBoard:
 
     def invoke(self, action, params=None, *, write=False):
         call = ["raft", "integration", "invoke", "--service", self.service, "--action", action, "--json"]
+        if context := work_ticket_context():
+            params = {**(params or {}), WORK_TICKET_PARAMETER: context}
         payload = None
         if write:
             call += ["--data-file", "-"]

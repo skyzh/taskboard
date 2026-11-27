@@ -9499,6 +9499,72 @@ class TasksServiceTest(unittest.TestCase):
         more = pages("/api/v1/reports/pending", owner=blake_id, **filters)
         self.assertEqual([result["run_id"] for result in more], [expected_run])
 
+    def test_signed_api_usage_counts_each_request_and_visible_work_ticket(self):
+        admin = self.provider.people["Sam"]["sub"]
+        app = self.app(portal_reader=True, project_admin_subject=admin, api_usage=True)
+        avery, owner = self.login(app, "Avery")
+        sam, manager = self.login(app, "Sam")
+        blake, _ = self.login(app, "Blake")
+        self.cli("register-project", "T", "Tasks Board", "--dri", manager)
+        self.call(sam, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Restricted examples", "visibility": "ring1",
+        })
+        self.call(sam, "/api/v1/projects/LAB/ring1", method="PUT", json={"principal": owner, "allowed": True})
+
+        def create(project):
+            return self.action(avery, "create-task", {
+                "title": "Check the fictional sample", "step": "Read the sample.", "project": project,
+            })["receipt"].split()[0]
+
+        first, second, private = create("T"), create("T"), create("LAB")
+        knowledge = self.action(avery, "create-knowledge", {
+            "project": "T", "title": "Fictional Knowledge", "brief": "Example guidance.",
+        })["id"]
+        path = "/api/v1/tasks/" + first
+        unaffiliated = self.call(blake, path).json
+        header = "X-Taskboard-Work-Ticket"
+        self.assertEqual(self.call(blake, path, headers={header: f"{first.lower()}, {first}, {second}, {private}"}).json,
+                         unaffiliated)
+        self.assertEqual(self.action(blake, "task", query_string={"id": first, "work_ticket": first})["task"]["key"], first)
+        self.call(blake, path, headers={header: private})
+        self.assertEqual(self.call(blake, path, headers={header: knowledge}).json, unaffiliated)
+        self.call(avery, path, headers={header: private})
+        self.action(avery, "tagged-tasks", query_string={"project": "T", "tag": "decision-record", "work_ticket": first})
+        self.action(avery, "knowledge-sweep", query_string={"project": "T", "q": "sample", "work_ticket": first})
+
+        signed = self.action(blake, "api-usage-report")["items"]
+        by_scope = {(row["scope"], row.get("ticket")): row["calls"]
+                    for row in signed if row["category"] == "GET task"}
+        self.assertEqual(by_scope, {("agent", None): 5, ("unattributed", None): 3,
+                                   ("ticket", first): 2, ("ticket", second): 1})
+        self.assertNotIn(private, str(signed))
+        report = "/api/v1/reports/api-usage"
+        scoped = self.call(sam, report, query_string={"project": "T"}).json["items"]
+        self.assertTrue(all(row["scope"] == "ticket" and row["ticket"] in {first, second} for row in scoped))
+        managed = {row["category"] for row in scoped if row["actor"] == owner}
+        self.assertTrue({"decision-lookup", "knowledge-lookup"} <= managed)
+        self.call(blake, report, query_string={"project": "LAB"}, status=404)
+        self.call(app.test_client(), report, status=401)
+        code, output, error = self.shared_cli(blake, "api-usage", "--project", "T")
+        self.assertEqual((code, error), (0, ""))
+        self.assertEqual({row["ticket"] for row in json.loads(output)["items"]}, {first, second})
+        manifest = self.call(blake, "/.well-known/raft-agent-manifest.json").json
+        task_action = next(action for action in manifest["actions"] if action["name"] == "task")
+        self.assertFalse(task_action["parameters"]["work_ticket"]["required"])
+
+    def test_signed_api_context_still_works_when_collection_is_disabled(self):
+        enabled = self.app(portal_reader=True, api_usage=True)
+        agent, _ = self.login(enabled, "Avery")
+        self.action(agent, "create-task", {"title": "Keep ordinary work available", "step": "Read the ticket."})
+        self.provider = FixtureRaft()
+        disabled = self.app(portal_reader=True)
+        agent, _ = self.login(disabled, "Avery")
+        with patch.dict("os.environ", {"TASKBOARD_WORK_TICKETS": "T-1"}):
+            code, output, error = self.shared_cli(agent, "show", "T-1")
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn("Keep ordinary work available", output)
+        self.call(agent, "/api/v1/reports/api-usage", status=404)
+
     def test_agent_profile_scope_counts_only_visible_work_across_projects(self):
         admin = self.provider.people["Sam"]["sub"]
         app = self.app(portal_reader=True, project_admin_subject=admin)

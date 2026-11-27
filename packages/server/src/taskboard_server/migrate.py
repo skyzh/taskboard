@@ -17,12 +17,14 @@ from sqlalchemy import BigInteger, Integer, LargeBinary, Text, create_engine, in
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 
+from tasks_api_usage import TABLE as API_USAGE_TABLE
 from tasks_storage import Postgres, SCHEMA_REVISION_TABLE, open_sqlite
 
 
 PROFILE_BASELINE = "0001_profiles_baseline"
 PROFILE_SHORT_ROLE = "0002_profile_short_role"
 RECURRING_REVIEW_TICKETS = "0003_recurring_review_tickets"
+AGENT_API_USAGE = "0004_agent_api_usage"
 IDENTITY = ["server_id", "kind", "subject"]
 REQUIRED_TEXT = frozenset({*IDENTITY, "ledger_key", "username", "name"})
 OPTIONAL_TEXT = frozenset("""
@@ -144,17 +146,18 @@ def recognized_revision(connection):
         {column["name"] for column in catalog.get_columns(table)} != columns for table, columns in tables.items()
     )):
         raise ValueError("The Taskboard recurring review tables have an unsupported layout.")
+    if catalog.has_table(API_USAGE_TABLE):
+        if profiles != PROFILE_SHORT_ROLE or not present or not matches_agent_api_usage_schema(catalog):
+            raise ValueError("The Taskboard request usage table has an unsupported layout.")
+        return AGENT_API_USAGE
     if profiles == PROFILE_SHORT_ROLE and present:
         return RECURRING_REVIEW_TICKETS
     return profiles
 
 
-def agent_api_usage_rollback_schema(connection):
-    """Recognize the exact additive table from the next known release."""
-    catalog = inspect(connection)
-    table = "agent_api_usage"
-    if not catalog.has_table(table):
-        return False
+def matches_agent_api_usage_schema(catalog):
+    """Validate the diagnostics table before accepting its recorded revision."""
+    table = API_USAGE_TABLE
     expected = {"day": Text, "actor": Text, "category": Text, "project": Text,
                 "ticket": BigInteger, "calls": BigInteger}
     columns = catalog.get_columns(table)
@@ -174,7 +177,7 @@ def agent_api_usage_rollback_schema(connection):
 
 
 @contextmanager
-def migration(engine, *, apply=False, prepare=None, serve_rollback=False):
+def migration(engine, *, apply=False, prepare=None):
     with engine.connect() as connection:
         prepare_connection(connection, initialize=prepare is not None)
         if prepare is not None:
@@ -182,12 +185,6 @@ def migration(engine, *, apply=False, prepare=None, serve_rollback=False):
         baseline = recognized_revision(connection)
         options = {"version_table": SCHEMA_REVISION_TABLE}
         current = MigrationContext.configure(connection, opts=options).get_current_revision()
-        if (serve_rollback and apply and prepare is not None and current == "0004_agent_api_usage"
-                and baseline == RECURRING_REVIEW_TICKETS and agent_api_usage_rollback_schema(connection)):
-            yield connection, {"recorded_revision": current, "recognized_revision": current,
-                               "target_revision": RECURRING_REVIEW_TICKETS, "applied_revision": current}
-            connection.commit()
-            return
         legacy_startup_upgrade = current == PROFILE_SHORT_ROLE and baseline == RECURRING_REVIEW_TICKETS
         if current is not None and current != baseline and not legacy_startup_upgrade:
             raise ValueError("The recorded Taskboard revision does not match the recognized schema.")
@@ -218,7 +215,7 @@ def migrate(engine, *, apply=False):
 
 def prepare_and_upgrade(engine, prepare, *, finish=None):
     try:
-        with migration(engine, apply=True, prepare=prepare, serve_rollback=finish is None) as (connection, _):
+        with migration(engine, apply=True, prepare=prepare) as (connection, _):
             if finish is not None:
                 return finish(connection.connection.driver_connection)
     except SQLAlchemyError as error:

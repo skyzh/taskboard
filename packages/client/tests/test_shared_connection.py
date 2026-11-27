@@ -29,6 +29,24 @@ class SharedConnectionTest(unittest.TestCase):
                 board.action_manifest("https://other.example" + ACTION_MANIFEST_PATH)
             request.assert_called_once_with(ACTION_MANIFEST_PATH, authenticate=False)
 
+    def test_shared_and_direct_clients_carry_optional_work_ticket_context(self):
+        envelope = {"ok": True, "data": {"result": {"receipt": "Saved"}}}
+        result = subprocess.CompletedProcess([], 0, json.dumps(envelope), "")
+        with patch.dict("os.environ", {"TASKBOARD_WORK_TICKETS": "T-7, OPS-2"}):
+            with patch("taskboard_client.connection.subprocess.run", return_value=result) as invoke:
+                shared = SharedBoard("fixture")
+                shared.invoke("task", {"id": "T-5"})
+                self.assertIn("work_ticket=T-7, OPS-2", invoke.call_args.args[0])
+                shared.invoke("record-activity", {"id": "T-5", "note": "Saved"}, write=True)
+                self.assertEqual(json.loads(invoke.call_args.kwargs["input"]), {
+                    "id": "T-5", "note": "Saved", "work_ticket": "T-7, OPS-2",
+                })
+            direct = DirectBoard("https://board.example/tasks")
+            with patch.object(direct.opener, "open") as send:
+                send.return_value.__enter__.return_value.read.return_value = b"{}"
+                direct.request("/api/v1/tasks/T-5", token="fixture-only")
+                self.assertEqual(send.call_args.args[0].get_header("X-taskboard-work-ticket"), "T-7, OPS-2")
+
     def test_error_stream_preserves_confirmed_rejections_and_uncertain_writes(self):
         reason = "Cannot wait on a Ready ticket."
         cases = (

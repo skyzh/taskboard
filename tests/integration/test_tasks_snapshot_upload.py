@@ -120,7 +120,7 @@ class SnapshotUploadTest(unittest.TestCase):
         manifest = self.service.call(uploader, MANIFEST).json
         action = next(entry for entry in manifest["actions"] if entry["name"] == CODEX_SNAPSHOT_ACTION)
         self.assertEqual(action["endpoint"], {"method": "POST", "path": fixtures.BASE + ACTION_PATH})
-        self.assertEqual(set(action["parameters"]), {"outcome"})
+        self.assertEqual(set(action["parameters"]), {"outcome", "work_ticket"})
         self.assertEqual(self.upload(uploader, outcome()), {"status": "installed", "captured_at": FIRST})
         self.assertEqual(self.upload(uploader, outcome("Fixture B", SECOND)),
                          {"status": "installed", "captured_at": SECOND})

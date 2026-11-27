@@ -17,6 +17,39 @@ available. On an upgrade, use the existing ledger. It keeps its projects and
 ticket links, and requires no new config file.
 
 
+## Attribute requests to active work
+
+For an approved fixed Raft board, set `TASKS_API_USAGE=1` to collect daily
+signed-agent request counts. No writer or identity permissions change. Send
+`X-Taskboard-Work-Ticket: T-42, OPS-5` with an API request. The work tickets can
+differ from the record being read or written. The server considers up to 32
+comma-separated IDs, deduplicates aliases and ignores missing, malformed, or
+inaccessible entries independently. Knowledge entries never count as work tickets. One request counts once for the signed
+agent and once per eligible ticket. Ticket counts can overlap.
+
+For the shared CLI and MCP, set `TASKBOARD_WORK_TICKETS=T-42,OPS-5` in the
+client process environment. Direct requests use the HTTP header. The Raft
+carrier sends the equivalent `work_ticket` action parameter. Boards with this
+contract accept the parameter even when collection is off.
+Context, queue polls, and other routine calls have their own route categories.
+Purposeful successful Knowledge search and open calls, and targeted Decision
+lookups, have separate categories. For example, use
+`knowledge-sweep --scope board --query export` for Knowledge and
+`tagged T decision-record` for maintained Decisions.
+
+Read the count with `tasks --shared api-usage --day 2026-11-26`,
+`taskboard_api_usage`, signed `api-usage-report`, or
+`GET /api/v1/reports/api-usage?day=2026-11-26`. The default report shows the
+signed caller's totals, unattributed counts, and visible ticket rows. With
+`project=T`, a project manager can see the project's visible ticket rows by
+agent. All windows use Pacific dates.
+
+The ledger stores counts and fixed route or lookup categories, with no raw
+paths, query strings, request bodies, or headers. The current Raft action
+transport supplies no verified invocation ID to this endpoint, so requests
+that actually reach the board on retry count again. These are diagnostics.
+Collection failures leave the original response intact.
+
 ## Show approved daily agent usage
 
 A fixed Raft board can read an opt-in aggregate for signed Reports. Set

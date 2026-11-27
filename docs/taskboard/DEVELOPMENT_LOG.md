@@ -8,6 +8,8 @@ Update this log at each development handoff with the verified result, any open i
 
 - **Ticket Decision entries.** Record a choice, its rationale, and what changes next in ticket Activity. Use Record Decision in the ticket, `log --decision --details` in the shared CLI, or the signed HTTP or MCP action. Existing Inbox answers appear in the Decision filter and retain their original request link. Checkpoints and custom project prompts remain readable. Reconnect MCP to discover its new tool. [Recording guidance](AGENT-STARTUP.md#record-activity-with-the-right-action)
 
+- **Signed API request diagnostics.** Approved fixed Raft boards can count requests per signed agent and attribute them to one or more eligible work tickets. Knowledge and Decision lookups have separate categories. Enable collection in the operator configuration after rehearsing the schema upgrade. [Configure diagnostics](SHARED-BOARD.md#attribute-requests-to-active-work)
+
 - **Recurrence on tickets.** Enable recurrence on a ticket you own in any project. Newly created recurring work returns its parked ticket immediately. Set cadence, pause, resume, cancel, and record completed reviews from the ticket. Activity shows missed slots and earlier runs alongside Ready and review events. Existing R links and commands still work. Preview legacy adoption and rehearse it against your backup before converting a live schedule. [Recurring work](SHARED-BOARD.md#recurring-work) · [Upgrade procedure](operators/DATABASE-MIGRATIONS.md)
 
 - **Agent asks without a verified watcher.** Ticket owners can confirm a delivery warning and send a linked Inbox ask from the browser, signed API, shared CLI, or MCP.

@@ -68,6 +68,13 @@ def build_server(board: SharedBoard) -> MCPServer:
         return board.invoke(action, {"project": project, "principal": principal, "allowed": allowed}, write=True)
 
     @server.tool(annotations=read_only)
+    def taskboard_api_usage(day: str | None = None, project: str | None = None) -> dict[str, Any]:
+        """Read signed request counts for a Pacific date and optional project."""
+        return board.invoke("api-usage-report", {
+            key: value for key, value in {"day": day, "project": project}.items() if value is not None
+        })
+
+    @server.tool(annotations=read_only)
     def taskboard_agent_usage() -> dict[str, Any]:
         """Read the board's approved agent usage aggregate."""
         return board.invoke("agent-usage-report")
@@ -157,11 +164,11 @@ def build_server(board: SharedBoard) -> MCPServer:
     @server.tool(annotations=read_only)
     def taskboard_knowledge_sweep(
         project: Project | None = None, scope: Literal["board", "assigned"] = "board",
-        limit: Limit = 20, before: Cursor | None = None,
+        limit: Limit = 20, before: Cursor | None = None, query: str | None = None,
     ) -> dict[str, Any]:
         """List readable Knowledge entries, including their placement and maintenance assignment."""
         return board.invoke("knowledge-sweep", {
-            key: value for key, value in {"project": project, "scope": scope, "limit": limit, "before": before}.items()
+            key: value for key, value in {"project": project, "scope": scope, "limit": limit, "before": before, "q": query}.items()
             if value is not None
         })
 

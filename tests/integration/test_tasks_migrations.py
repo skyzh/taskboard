@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.pool import NullPool
 
 import test_tasks_service as fixture
-from taskboard_server.migrate import PROFILE_BASELINE, RECURRING_REVIEW_TICKETS, migrate
+from taskboard_server.migrate import PROFILE_BASELINE, AGENT_API_USAGE, migrate
 from tasks_storage import SCHEMA_REVISION_TABLE, open_sqlite
 
 
@@ -16,10 +16,11 @@ def replay_versioned_profiles(test, board, app, restart, engine):
     owner, owner_id = board.login(app, "Avery")
     board.action(owner, "set-profile", {"role": "Fixture release tester"})
     board.action(owner, "create-task", {"title": "Keep the existing ticket", "step": "Verify the upgrade."})
-    test.assertEqual(migrate(engine)["recorded_revision"], RECURRING_REVIEW_TICKETS)
+    test.assertEqual(migrate(engine)["recorded_revision"], AGENT_API_USAGE)
 
     with engine.begin() as connection:
         connection.exec_driver_sql(f"DROP TABLE {SCHEMA_REVISION_TABLE}")
+        connection.exec_driver_sql("DROP TABLE agent_api_usage")
         connection.exec_driver_sql("DROP TABLE recurring_review_runs")
         connection.exec_driver_sql("DROP TABLE recurring_review_tickets")
         connection.exec_driver_sql("ALTER TABLE board_principals DROP COLUMN short_role")
@@ -52,7 +53,7 @@ def replay_versioned_profiles(test, board, app, restart, engine):
     test.assertEqual(migrate(engine)["recognized_revision"], PROFILE_BASELINE)
 
     owner, signed_id = board.login(restart(), "Avery")
-    test.assertEqual(migrate(engine, apply=True)["recorded_revision"], RECURRING_REVIEW_TICKETS)
+    test.assertEqual(migrate(engine, apply=True)["recorded_revision"], AGENT_API_USAGE)
     profile = board.call(owner, "/api/v1/session").json["actor"]
     task = board.action(owner, "task", query_string={"id": "T-1"})["task"]
     test.assertEqual((signed_id, profile["role"]), (owner_id, "Fixture release tester"))
@@ -61,15 +62,9 @@ def replay_versioned_profiles(test, board, app, restart, engine):
 
 def replay_additive_rollback(test, board, restart, engine):
     owner, owner_id = board.login(restart(), "Avery")
-    test.assertEqual(migrate(engine)["recorded_revision"], RECURRING_REVIEW_TICKETS)
+    test.assertEqual(migrate(engine)["recorded_revision"], AGENT_API_USAGE)
     board.action(owner, "create-task", {"title": "Read after rollback", "step": "Review the signed write."})
     with engine.begin() as connection:
-        connection.exec_driver_sql("""CREATE TABLE agent_api_usage (
-            day TEXT NOT NULL, actor TEXT NOT NULL, category TEXT NOT NULL,
-            project TEXT NOT NULL, ticket BIGINT NOT NULL, calls BIGINT NOT NULL,
-            PRIMARY KEY (day, actor, category, project, ticket)
-        )""")
-        connection.exec_driver_sql(f"UPDATE {SCHEMA_REVISION_TABLE} SET version_num = '0004_agent_api_usage'")
         connection.exec_driver_sql("INSERT INTO agent_api_usage VALUES ('2026-11-26', 'Avery', 'GET task', 'T', 1, 1)")
     owner, signed_id = board.login(restart(), "Avery")
     task = board.action(owner, "task", query_string={"id": "T-1"})["task"]
@@ -82,7 +77,7 @@ def replay_additive_rollback(test, board, restart, engine):
         connection.exec_driver_sql("ALTER TABLE agent_api_usage ADD COLUMN "
                                    "calls BIGINT GENERATED ALWAYS AS (1) " +
                                    ("VIRTUAL" if connection.dialect.name == "sqlite" else "STORED") + " NOT NULL")
-    with test.assertRaisesRegex(ValueError, "recorded Taskboard revision"):
+    with test.assertRaisesRegex(ValueError, "request usage table has an unsupported layout"):
         restart()
 
 
@@ -103,7 +98,7 @@ def reject_incompatible_profile_definition(test, engine, definition):
             migrate(engine, apply=apply)
     with engine.connect() as connection:
         test.assertEqual(connection.exec_driver_sql(f"SELECT version_num FROM {SCHEMA_REVISION_TABLE}").scalar(),
-                         RECURRING_REVIEW_TICKETS)
+                         AGENT_API_USAGE)
     test.assertEqual(profile_shape(), before)
 
 
@@ -139,7 +134,7 @@ class VersionedProfileMigrationTest(unittest.TestCase):
             migrate(self.engine, apply=True)
         with self.engine.connect() as connection:
             self.assertEqual(connection.exec_driver_sql(f"SELECT version_num FROM {SCHEMA_REVISION_TABLE}").scalar(),
-                             RECURRING_REVIEW_TICKETS)
+                             AGENT_API_USAGE)
 
     def test_sqlite_rejects_wrong_profile_column_type_without_changes(self):
         self.board.app(portal_reader=True)
