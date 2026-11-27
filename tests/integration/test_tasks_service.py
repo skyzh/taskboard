@@ -10601,6 +10601,91 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("T-6 · Peer request opened",
                       self.call(owner, "/api/v1/tasks/T-5/peer-ask", method="POST", json=draft).json["receipt"])
 
+    def test_cli_pre_send_hook_blocks_all_three_asks_and_rechecks_delivery_retry(self):
+        app = self.app(portal_reader=True)
+        avery, _ = self.login(app, "Avery")
+        sam, _ = self.login(app, "Sam")
+        self.login(app, "Blake")
+        self.action(avery, "create-task", {"title": "Review the sample", "step": "Prepare it."})
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Sample is ready."})
+        checker = self.database.with_name("fictional_checker.py")
+        capture = self.database.with_name("drafts.jsonl")
+        checker.write_text(
+            "import json, os, sys\n"
+            "assert 'TASKBOARD_TEST_PRIVATE_ENV' not in os.environ\n"
+            "with open(sys.argv[1], 'a', encoding='utf-8') as receipt:\n"
+            "    receipt.write(json.dumps(json.load(sys.stdin)) + chr(10))\n"
+            "print(json.dumps({'schema': 'taskboard.pre-send-ask-result.v1', 'decision': sys.argv[2],"
+            " 'feedback': 'Include the sample outcome.'}))\n", encoding="utf-8",
+        )
+        assign = ("assign-human", "T-1", "Choose a format.", "--on", "Sam", "--option", "CSV")
+        peer = ("peer-ask", "create", "T-1", "Review the sample.", "--to", "Blake")
+        attention = ("raise-attention", "T-1", "The sample is ready.", "--on", "Sam", "--request-key", "sample")
+        before = self.call(avery, "/api/v1/tasks/T-1/activity").json
+        for args in (assign, peer, attention):
+            with self.subTest(command=args[0]), patch.dict("os.environ", {
+                "TASKBOARD_PRE_SEND_ASK": json.dumps([sys.executable, str(checker), str(capture), "revise"]),
+                "TASKBOARD_TEST_PRIVATE_ENV": "fixture-private",
+            }):
+                code, output, error = self.shared_cli(avery, *args)
+                self.assertEqual((code, output), (1, ""))
+                self.assertIn("Ask not sent.", error)
+                self.assertIn("Include the sample outcome.", error)
+        self.assertEqual(self.call(avery, "/api/v1/tasks/T-1/activity").json, before)
+        self.assertEqual(self.call(sam, "/api/v1/notifications/decisions").json["items"], [])
+        self.assertEqual(self.call(sam, "/api/v1/notifications/requests").json["items"], [])
+        self.action(avery, "task", query_string={"id": "T-2"}, status=404)
+
+        with patch.dict("os.environ", {
+            "TASKBOARD_PRE_SEND_ASK": json.dumps([sys.executable, str(checker), str(capture), "pass"]),
+        }):
+            code, _, error = self.shared_cli(avery, *peer)
+            self.assertEqual(code, 1)
+            self.assertIn("--force-delivery", error)
+            self.action(avery, "task", query_string={"id": "T-2"}, status=404)
+            confirmed = self.shared_cli(avery, *peer, "--force-delivery")
+            retry = self.shared_cli(avery, *peer, "--force-delivery")
+            self.assertIn("T-2 · Peer request opened", confirmed[1])
+            self.assertIn("T-2 · Existing peer request", retry[1])
+            self.assertEqual(self.shared_cli(avery, *attention)[0], 0)
+            self.assertEqual(self.shared_cli(avery, *attention)[0], 0)
+            self.action(avery, "create-task", {"title": "Choose a sample format", "step": "Prepare options."})
+            self.action(avery, "advance-task", {"id": "T-3", "transition": "start", "note": "Options are ready."})
+            status, _, error = self.shared_cli(avery, "assign-human", "T-3", *assign[2:])
+            self.assertEqual((status, error), (0, ""))
+        self.assertEqual(len(self.call(sam, "/api/v1/notifications/decisions").json["items"]), 1)
+        self.assertEqual(len(self.call(sam, "/api/v1/notifications/requests").json["items"]), 1)
+        self.action(avery, "task", query_string={"id": "T-4"}, status=404)
+        drafts = [json.loads(line) for line in capture.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([draft["ask"]["kind"] for draft in drafts],
+                         ["assign-human", "peer-ask", "raise-attention"] + ["peer-ask"] * 3
+                         + ["raise-attention"] * 2 + ["assign-human"])
+        self.assertEqual(drafts[0], {"schema": "taskboard.pre-send-ask.v1", "ask": {
+            "kind": "assign-human", "ticket": "T-1", "note": "Choose a format.", "recipient": "Sam", "options": ["CSV"],
+        }})
+
+    def test_cli_pre_send_hook_errors_leave_the_signed_ask_unsent(self):
+        app = self.app(portal_reader=True)
+        avery, _ = self.login(app, "Avery")
+        sam, _ = self.login(app, "Sam")
+        self.action(avery, "create-task", {"title": "Check the output", "step": "Prepare it."})
+        args = ("raise-attention", "T-1", "Please check the fictional output.", "--on", "Sam")
+        cases = (
+            ("not a JSON array", "JSON array"),
+            (json.dumps([str(self.database.with_name("missing-checker"))]), "could not run"),
+            (json.dumps([sys.executable, "-c", "import sys; sys.exit(7)"]), "exited with status 7"),
+            (json.dumps([sys.executable, "-c", "print('not json')"]), "must return a valid"),
+            (json.dumps([sys.executable, "-c", "import time; time.sleep(3)"]), "timed out after 1 seconds"),
+        )
+        for command, expected in cases:
+            with self.subTest(expected=expected), patch.dict("os.environ", {
+                "TASKBOARD_PRE_SEND_ASK": command, "TASKBOARD_PRE_SEND_ASK_TIMEOUT": "1",
+            }):
+                code, output, error = self.shared_cli(avery, *args)
+                self.assertEqual((code, output), (1, ""))
+                self.assertIn(expected, error)
+                self.assertEqual(self.call(sam, "/api/v1/notifications/requests").json["items"], [])
+
     def test_linked_peer_request_lifecycle_returns_the_next_action_to_the_requester(self):
         app = self.app(portal_reader=True)
         avery, avery_id = self.login(app, "Avery")

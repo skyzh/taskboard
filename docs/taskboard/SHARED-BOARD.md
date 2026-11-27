@@ -634,6 +634,77 @@ Use `./tasks --shared wait T-1 "Review after the export is complete." --blocked-
 
 In `./tasks --shared next`, **Review waiting work** lists up to five of your waits for inspection. If a named agent can act, use a linked peer ask and follow the receipt's delivery guidance. If you can start a concrete preparation step now, use the displayed `resume --review-wait` command and record any approval still needed for the later step. An external event can stay parked with a date or explicit return trigger.
 
+### Check an ask before sending
+
+Set `TASKBOARD_PRE_SEND_ASK` to a JSON array of executable arguments in the
+environment of the Tasks CLI. This opt-in hook runs for signed
+`assign-human`, `peer-ask create`, and `raise-attention`, including when the
+CLI uses a direct board URL. It runs before the signed write. Terminal and
+scripted invocations use the same contract and do not prompt for extra input.
+Other commands, browser writes, raw API calls, and MCP writes keep their
+existing paths. Unset the variable to resume the default CLI behavior.
+
+The checker receives one UTF-8 JSON object on stdin. For example:
+
+```json
+{
+  "schema": "taskboard.pre-send-ask.v1",
+  "ask": {
+    "kind": "assign-human",
+    "ticket": "T-42",
+    "note": "Which export format should we use?",
+    "recipient": "Example Reviewer",
+    "options": ["CSV", "JSON"]
+  }
+}
+```
+
+The draft includes the text exactly as prepared by the CLI and the source
+ticket and request kind. When supplied, it also includes the requested
+recipient, details, decision options, evidence link, and the ticket an
+attention request would unblock. Omitted routing fields keep their
+normal server defaults. Signed credentials, board URLs, request keys, and
+force flags are excluded. The command runs directly with a minimal environment
+for locating executables, locale, home, and temporary files. Configure a checker
+you trust with the draft, including any private text and evidence links.
+
+The checker exits zero and writes exactly one JSON object on stdout.
+Use `{"schema":"taskboard.pre-send-ask-result.v1","decision":"pass"}` to
+continue, or return `"decision":"revise"` and a nonempty `"feedback"` string.
+Feedback is shown to the caller. Revision requests, nonzero exit, invalid
+output, or timeout stop the signed ask. The timeout defaults to 30 seconds.
+Set `TASKBOARD_PRE_SEND_ASK_TIMEOUT` to a whole number from 1 to 300 to change
+it. Existing confirmation flags and idempotency rules still apply, and
+each CLI retry runs the checker again.
+
+Save this fictional checker as `check_ask.py`:
+
+```python
+import json
+import sys
+
+draft = json.load(sys.stdin)
+ask = draft["ask"]
+result = {"schema": "taskboard.pre-send-ask-result.v1", "decision": "pass"}
+if "evidence" not in ask:
+    result.update(decision="revise", feedback="Link the evidence the recipient should inspect.")
+print(json.dumps(result))
+```
+
+```bash
+export TASKBOARD_PRE_SEND_ASK='["python3", "/path/to/check_ask.py"]'
+tasks --shared raise-attention T-42 "Please read the sample result." --on "Example Reviewer" \
+  --link "Fictional result" "https://example.com/sample"
+```
+
+For an agent checker, configure a wrapper executable that reads this draft,
+runs the agent in your approved environment, and translates its verdict to
+the same response schema. Keep the agent's ordinary output away from the
+wrapper's stdout. If the agent runs on a separate service, the wrapper sends
+that service the draft, so review its permitted data and credential handling
+before using it. Have the wrapper return a verdict and leave submission to
+the Tasks CLI.
+
 ### Park a ticket with a reminder or dependency review
 
 Set a return trigger when you park ordinary work. Use `park --review-after YYYY-MM-DD` for a Pacific date, `park --until <timestamp-with-offset>` for an exact time, or `park --review-on T-2 --review-criteria 'What to check'` for a dependency review. The Park action saves the next step and trigger together. Use [Waiting on or a Decision](USING.md#park-work-with-a-return-trigger) for a blocker that must act first.
