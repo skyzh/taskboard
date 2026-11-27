@@ -1947,8 +1947,8 @@ def create_app(
                 return can_collaborate_on_ticket(connection, actor, task, project)
             args.project_collaboration = project_collaboration
         links = one_link(data)
-        push_decision = push_delivery and (command in ("assign-human", "redirect-decision") or fields.get("human_wait"))
-        previous = ledger.find_task(db(), args.id) if push_decision else None
+        decision_write = command in ("assign-human", "redirect-decision") or fields.get("human_wait")
+        previous = ledger.find_task(db(), args.id) if decision_write else None
         try:
             receipt = ledger.save_task(db(), database_path(), args, links)
         except (RequestError, ledger.TransitionConfirmationRequired, ledger.TextLengthConfirmationRequired,
@@ -1958,12 +1958,17 @@ def create_app(
             raise RequestError(str(error), 403) from error
         except ValueError as error:
             raise RequestError(str(error), 409) from error
-        if push_decision and previous:
+        result = {"receipt": receipt}
+        if decision_write and previous:
             current = ledger.find_task(db(), args.id)
-            if (current and not ring1.private(db(), projects.row_project(current))
-                    and current["state"] == "human_review" and current["event_id"] != previous["event_id"]):
-                push_delivery.submit("decision", args.id, current["event_id"])
-        return {"receipt": receipt}
+            if (current and current["state"] == "human_review" and current["event_id"] != previous["event_id"]
+                    and current["waiting_on"] == args.on and decision_sender(db(), current) == actor["ledger_key"]):
+                if actor["kind"] == "agent":
+                    result["decision_delivery"] = decision_delivery(actor, current, args.on)
+                if (push_delivery and not ring1.private(db(), projects.row_project(current))
+                        and result.get("decision_delivery", {}).get("destination", "taskboard") == "taskboard"):
+                    push_delivery.submit("decision", args.id, current["event_id"])
+        return result
 
     def change_maintenance(actor, data, project, *, encoded_members=False):
         owner = text(data, "owner", optional=True, maximum=160)
@@ -3703,6 +3708,79 @@ def create_app(
                     ledger.bump_revision(connection)
         return {"enabled": fyi_ack_opted_in(db(), recipient)}
 
+    def ask_destination_setting(recipient, sender=None):
+        return "ask-destination:" + json.dumps([recipient, sender], separators=(",", ":"))
+
+    def ask_destination(connection, recipient, sender=None):
+        for key, source in ((sender, "agent"), (None, "recipient")) if sender else ((None, "recipient"),):
+            row = connection.execute(
+                "SELECT value FROM board_settings WHERE key = ?", (ask_destination_setting(recipient, key),),
+            ).fetchone()
+            if row:
+                return {"destination": row["value"], "source": source}
+        return {"destination": "taskboard", "source": "default"}
+
+    @app.get("/api/v1/notifications/preferences/ask-destination")
+    @app.post("/api/v1/notifications/preferences/ask-destination")
+    def ask_destination_preference():
+        change = request.method == "POST"
+        actor = current_actor("human", write=change, required=True)
+        recipient = actor["ledger_key"]
+        data = json_body({"project", "agent", "destination"}) if change else request.args
+        sender = text(data, "agent", optional=True, maximum=200)
+        project = project_filter(data, use_default=True) if sender else None
+        if sender:
+            sender = require_person(sender, kind="agent")
+            require_ring_member(db(), project, sender)
+            if not project_agent(profiles.get(db(), sender), project):
+                raise RequestError("Choose an agent from this project's roster.", 404)
+        if change:
+            value = data.get("destination")
+            if "destination" not in data or value not in (None, "taskboard", "raft", local_dri.LOCAL_PROMPT):
+                raise RequestError("Choose Taskboard, Raft, in-session, or null to use the inherited destination.")
+            with tasks_storage.write(db()) as connection:
+                key = ask_destination_setting(recipient, sender)
+                if tasks_guidance.set_project_value(connection, key, value):
+                    audit.record(connection, scope="private", actor=recipient, operation="set-ask-destination",
+                                 record_type="board_setting", record_id=key, at=ledger.timestamp())
+                    ledger.bump_revision(connection, project)
+        return ask_destination(db(), recipient, sender)
+
+    def decision_sender(connection, task):
+        event = connection.execute("SELECT actor FROM events WHERE id = ?", (task["event_id"],)).fetchone()
+        return event["actor"] if event else None
+
+    def decision_delivery(actor, task, recipient):
+        connection = db()
+        project = projects.row_project(task)
+        preference = ask_destination(connection, recipient, actor["ledger_key"])
+        preferred = preference["destination"]
+        destination, reason = "taskboard", None
+        carrier = {}
+        local = g.get("local_dri")
+        if preferred != "taskboard":
+            if ring1.private(connection, project):
+                reason = "Private project decisions stay in Taskboard."
+            elif preferred == local_dri.LOCAL_PROMPT and local is not None and local["owner"] == recipient:
+                destination = preferred
+            elif preferred == "raft" and local is None and raft is not None:
+                person = profiles.get(connection, recipient)
+                if (person and person["kind"] == "human"
+                        and person["server_id"] == actor["server_id"] == (raft_config or {}).get("server_id")
+                        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", person["username"])):
+                    destination = preferred
+                    carrier = {"recipient_subject": person["subject"], "target": f"dm:@{person['username']}~human"}
+            if destination != preferred and reason is None:
+                reason = "The preferred destination is unavailable in this signed session. Use Taskboard Needs me."
+        ticket = projects.row_reference(task)
+        event = task["event_id"]
+        url = f"{base}/tickets/{ticket}?decision-request={event}"
+        return {
+            **preference, "destination": destination, "preferred": preferred, "reason": reason,
+            "request_id": event, "url": url, "fallback": {"destination": "taskboard", "url": url},
+            **carrier,
+        }
+
     @app.post("/api/v1/notifications/watched/<int:event_id>/acknowledge")
     def acknowledge_watched_notification(event_id):
         actor = current_actor(write=True, required=True)
@@ -4710,6 +4788,17 @@ def create_app(
                 "prompt": effective["prompt"], "source": effective["source"],
             }
             return result
+        if name == "decision-delivery":
+            if actor["kind"] != "agent":
+                raise NotFound()
+            number = task_number(data["id"])
+            event = integer(data["request_id"], "request_id")
+            with tasks_storage.read(db()) as connection:
+                task = ledger.find_task(connection, number)
+                if (task is None or task["state"] != "human_review" or task["event_id"] != event
+                        or decision_sender(connection, task) != key):
+                    raise NotFound()
+                return decision_delivery(actor, task, task["waiting_on"])
         if name == "configure-ticket-fields":
             project = project_filter(data)
             try:

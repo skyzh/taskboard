@@ -1,5 +1,6 @@
 import React, { useId } from 'react'
 import { useAnswerCelebrations } from './AnswerCelebrations.jsx'
+import AskDestinationSettings from './AskDestinationSettings.jsx'
 import CodexUsage from './CodexUsage.jsx'
 import FieldGuidanceSettings, { AgentPromptSettings } from './FieldGuidanceSettings.jsx'
 import { ProfileForm, ProfileSignIn } from './Profile.jsx'
@@ -86,6 +87,7 @@ export default function Settings({
       {canEdit && <AgentPromptSettings key={`${project}:${prompt}`} project={project} projects={projects} revision={revision}
         initialPrompt={prompt} />}
       {canEdit && <FieldGuidanceSettings project={project} projects={projects} revision={revision} />}
+      {actor?.kind === 'human' && <AskDestinationSettings key={`${actor.id}:${project}`} project={project} revision={revision} />}
       {actor?.kind === 'human' && <CodexUsage key={actor.id} />}
     </section>
   )

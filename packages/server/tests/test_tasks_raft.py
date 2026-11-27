@@ -61,6 +61,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "field-guidance": ("GET", "", "project"),
             "configure-ticket-fields": ("POST", "project fields", ""),
             "my-next": ("GET", "", "project scope"),
+            "decision-delivery": ("GET", "id request_id", ""),
             "idle-goal-offer": ("POST", "handoff_id", "project"),
             "my-goals": ("GET", "", "project"),
             "report-watcher-health": ("POST", "state stalled goals", "project revision"),

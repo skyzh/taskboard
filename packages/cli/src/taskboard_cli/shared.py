@@ -899,6 +899,17 @@ def shared_command(args):
         output = "Committed · " + result["receipt"]
         if command == "raise-attention":
             output += f"\nAttention request ID: {result['id']}"
+        if delivery := result.get("decision_delivery"):
+            output += f"\nDecision request ID: {delivery['request_id']}\n{delivery['url']}"
+            if delivery["destination"] == "raft":
+                output += (f"\nSend only this decision link with raft message send --target {delivery['target']}."
+                           "\nIf Raft cannot resolve the recipient, use the same decision in Taskboard Needs me.")
+            elif delivery["destination"] == "local_prompt":
+                output += "\nShow this decision link in the recipient's current session."
+            else:
+                output += "\nDecision available in Taskboard Needs me."
+            if delivery["reason"]:
+                output += f"\n{delivery['reason']}"
         guidance = result.get("next_step")
         if command in {"done", "transfer"} or (command == PEER_ASK and args.change == "result"):
             fallback = prompts.get("completion") or guidance
