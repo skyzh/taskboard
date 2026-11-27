@@ -1201,8 +1201,9 @@ class BoardQueries:
                 goal["review_schedule"] = goal_cadence.ticket_schedule(self.db, row, active_time, inactive_time)
                 if active_time is not None or inactive_time is not None:
                     goal["date_reminder_superseded"] = True
-                    task["reminder"] = None
-                    task["context"] = {key: value for key, value in context.items() if key != "review_after"}
+                    if reminder and reminder["kind"] == "date":
+                        task["reminder"] = None
+                        task["context"] = {key: value for key, value in context.items() if key != "review_after"}
             if ledger.can_enable_recurrence(self.db, row, owner):
                 result["can_enable_recurrence"] = True
             if recurrence := self.ticket_recurrence(number, projects.row_project(row), owner):

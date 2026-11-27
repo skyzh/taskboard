@@ -12,9 +12,9 @@ export function ReminderValue({ timed, value, onChange, timeZone, disabled }) {
   )
 }
 
-export default function ReminderDate({ path, saved, savedUntil, exactTime = false, onChanged }) {
+export default function ReminderDate({ path, saved, savedUntil, exactTime = false, recurring = false, onChanged }) {
   const { timeZone, formatLocalInput } = useTimeZone()
-  const savedMode = savedUntil ? 'time' : 'date'
+  const savedMode = savedUntil || recurring ? 'time' : 'date'
   const savedTime = savedUntil ? formatLocalInput(savedUntil) : ''
   const [mode, setMode] = useState(savedMode)
   const [date, setDate] = useState(saved || '')
@@ -31,7 +31,7 @@ export default function ReminderDate({ path, saved, savedUntil, exactTime = fals
       if (body.date === null) {
         setDate('')
         setTime('')
-        setMode('date')
+        setMode(recurring ? 'time' : 'date')
       }
       onChanged()
     } catch (failure) {
@@ -45,7 +45,8 @@ export default function ReminderDate({ path, saved, savedUntil, exactTime = fals
       <summary>{saved || savedUntil ? 'Edit reminder' : 'Set a reminder'}</summary>
       <form onSubmit={event => { event.preventDefault(); save(timed ? { at: time, time_zone: timeZone } : { date }) }}
         data-reload-blocked={pending || changed}>
-        {exactTime && <label>Reminder type<select value={mode} onChange={event => setMode(event.target.value)}>
+        {recurring && <p>Use an exact time for a one-off review alongside the recurring schedule.</p>}
+        {exactTime && !recurring && <label>Reminder type<select value={mode} onChange={event => setMode(event.target.value)}>
           <option value="date">Date only</option>
           <option value="time">Exact time</option>
         </select></label>}

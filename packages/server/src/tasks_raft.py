@@ -80,7 +80,7 @@ _ACTIONS = {
     }, _PROJECT),
     "my-goals": _Action("GET", "Read your standing and dated goals for one project.", optional=_PROJECT),
     "my-goal-cues": _Action("GET", "Read your eligible goal review cues after checking actionable work across projects.",
-                            optional=_PROJECT),
+                            optional={**_PROJECT, "include_timed": "Set true to include exact-time goal cues."}),
     "set-goal-review-time": _Action("POST", "Set or clear the daily review time for an owned goal.", {
         **_TASK, "time": "Pacific 24-hour review time as HH:MM. Send an empty string to clear it.",
     }),

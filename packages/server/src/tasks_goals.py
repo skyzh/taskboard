@@ -253,13 +253,15 @@ def review_slot(day, review_time):
 
 
 def exploration_available(db, row, now):
+    context = ledger.event_context(row)
     if (row["state"] != "parked" or not row["stopping_criterion"]
-            or not ledger.event_context(row).get("goal_criterion_met")):
+            or not context.get("goal_criterion_met")):
         return True
     schedule = db.execute("SELECT review_time FROM goal_review_times WHERE task_id = ?", (row["id"],)).fetchone()
     if schedule is None:
         return False
-    next_day = datetime.fromisoformat(row["at"]).astimezone(PACIFIC).date() + timedelta(days=1)
+    criterion_at = datetime.fromisoformat(context.get("goal_criterion_at", row["at"]))
+    next_day = criterion_at.astimezone(PACIFIC).date() + timedelta(days=1)
     return now.astimezone(timezone.utc) >= review_slot(next_day, schedule["review_time"])
 
 

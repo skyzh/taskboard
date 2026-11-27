@@ -260,7 +260,8 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10, idle_del
     except SharedReadError as error:
         context = recover_ready_read(lambda: agent_context(board, owner), "startup context", error, emit, interval)
     actor = context["actor"]["id"]
-    goal_wake = GoalWake(board, GoalWakeState(goal_state, context["board"], actor)) if goal_state else None
+    goal_wake = GoalWake(board, GoalWakeState(goal_state, context["board"], actor),
+                         include_timed=context.get("timed_goal_cues") is True) if goal_state else None
     filters = {"scope": "all", "state": "ready", "limit": 100}
     noticed_ready_event = 0
     current = frozenset()

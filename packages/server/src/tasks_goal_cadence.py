@@ -193,7 +193,7 @@ def review_history(db, active):
     return counts, last_completed
 
 
-def candidates(db, owner, project, now, *, busy, ordinary_busy):
+def candidates(db, owner, project, now, *, busy, ordinary_busy, include_timed=False):
     """Read actor-owned cues. A consumer deduplicates each stable key across wakes."""
     today = now.date().isoformat()
     result = {
@@ -203,11 +203,12 @@ def candidates(db, owner, project, now, *, busy, ordinary_busy):
     if busy:
         return result
 
-    result["standing"], result["cues"] = due_reviews(db, owner, project, now, principal=owner)
+    result["standing"], result["cues"] = due_reviews(db, owner, project, now, principal=owner,
+                                                    include_timed=include_timed)
     return result
 
 
-def due_reviews(db, owner, project, now, *, principal):
+def due_reviews(db, owner, project, now, *, principal, include_timed=True):
     """Project the same due review for Inbox and the wake carrier."""
     today = now.date().isoformat()
     instant = now.astimezone(timezone.utc)
@@ -220,7 +221,7 @@ def due_reviews(db, owner, project, now, *, principal):
     times = {row["id"]: row["review_time"] for row in schedule_rows(db, owner, project)}
     counts, last_completed = review_history(db, active)
     standing_offer = None
-    deadlines, daily = [], []
+    deadlines, timed, daily = [], [], []
     for row in active:
         number = row["id"]
         ticket = projects.row_reference(row)
@@ -230,6 +231,11 @@ def due_reviews(db, owner, project, now, *, principal):
             if not goals.exploration_available(db, row, now):
                 continue
             standing_offer = summary
+        if include_timed and (until := ledger.event_context(row).get("defer_until")):
+            due = datetime.fromisoformat(until)
+            if instant >= due:
+                timed.append((due, {**summary, "kind": "timed", "key": f"timed:{ticket}:{until}", "day": today}))
+                continue
         review_time = times.get(number)
         deadline = row["deadline"]
         if completed_today(last_completed.get(number), now):
@@ -248,4 +254,5 @@ def due_reviews(db, owner, project, now, *, principal):
             daily.append({
                 **summary, "kind": "standing-daily" if standing else "daily", "key": f"daily:{ticket}:{today}", "day": today,
             })
-    return standing_offer, [cue for _, cue in sorted(deadlines, key=lambda item: item[0])] + daily
+    return standing_offer, ([cue for _, cue in sorted(deadlines, key=lambda item: item[0])]
+                            + [cue for _, cue in sorted(timed, key=lambda item: item[0])] + daily)

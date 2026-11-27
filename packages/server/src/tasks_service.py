@@ -4498,6 +4498,7 @@ def create_app(
                 "parking_protocol": ledger.PARKING_PROTOCOL_VERSION,
                 "decision_recipient_lookup": True,
                 "handoff_recipient_lookup": True,
+                "timed_goal_cues": True,
                 "can_create_project": project_admin_access(db(), actor),
                 "default_project": profile["project"] if profile is not None else projects.default_project(db()),
             }
@@ -4566,7 +4567,9 @@ def create_app(
                 ordinary = work is not None
                 if work and work["kind"] in ("in_progress", "reminder") and ledger.task_goal_kind(connection, work["id"]):
                     ordinary = next(board.actionable_work(key, ordinary_only=True, **scope), None) is not None
-                return goal_cadence.candidates(connection, key, project, now, busy=work is not None, ordinary_busy=ordinary)
+                return goal_cadence.candidates(connection, key, project, now, busy=work is not None,
+                                               ordinary_busy=ordinary,
+                                               include_timed=str(data.get("include_timed", "")).lower() == "true")
         if name == "set-goal-review-time":
             saved = save_goal_schedule(key, task_number(data.get("id")), None, data.get("time"))
             return {**saved, "receipt": f"{saved['ticket']} · Goal review time {'saved' if saved['review_time'] else 'cleared'}"}

@@ -343,6 +343,13 @@ test('task reminders show the selected local time and reopen the exact instant i
   assert.match(exact, /value="2030-04-02T03:30"/)
   assert.match(exact, /Clear reminder/)
 
+  const recurringGoal = renderToStaticMarkup(React.createElement(ReminderDate, {
+    path: '/tasks/2/reminder', exactTime: true, recurring: true,
+  }))
+  assert.match(recurringGoal, /one-off review alongside the recurring schedule/)
+  assert.match(recurringGoal, /datetime-local/)
+  assert.doesNotMatch(recurringGoal, /Date only/)
+
   const dateOnly = renderToStaticMarkup(React.createElement(ReminderDate, {
     path: '/notifications/requests/1/reminder', saved: '2030-04-01',
   }))
