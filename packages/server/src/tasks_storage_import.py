@@ -5,6 +5,7 @@ from functools import partial
 import sqlite3
 
 from taskboard_server import personal_agents
+from tasks_attachments import BYTE_SCHEMA, METADATA_SCHEMA
 from tasks_goals import migrate_goal_tickets
 from tasks_knowledge import migrate_records
 from tasks_oidc_members import bind_issuer
@@ -28,8 +29,9 @@ TABLES = (
     "intake_errors", "attention_requests", "attention_wait_links", "notification_preferences", "notification_log",
     "wake_subscriptions", "wake_log", "goal_idle_offers",
     "knowledge_areas", "knowledge_entries", "knowledge_stages", "knowledge_maintenance_assignments",
-    "agent_api_usage",
+    "agent_api_usage", "ticket_attachments", "ticket_attachment_bytes",
 )
+ATTACHMENT_TABLES = {"ticket_attachments", "ticket_attachment_bytes"}
 # Ephemeral deployment records and migration history belong to the source database.
 NON_PORTABLE_TABLES = {
     "personal_agent_connections", "personal_agent_cli_approvals", "local_dri_watchers", "reports_presence",
@@ -68,6 +70,8 @@ def import_snapshot(path, dsn):
         )}
         if not {"tasks", "events"} <= tables or tables - set(TABLES) - NON_PORTABLE_TABLES:
             raise ValueError("This snapshot does not have a supported Taskboard schema.")
+        if tables & ATTACHMENT_TABLES and not ATTACHMENT_TABLES <= tables:
+            raise ValueError("The source snapshot has incomplete attachment tables.")
         if source.execute("PRAGMA foreign_key_check").fetchone():
             raise ValueError("The source snapshot contains a broken reference.")
         settings = dict(source.execute("SELECT key, value FROM board_settings")) if "board_settings" in tables else {}
@@ -92,6 +96,9 @@ def copy_snapshot(source, tables, settings, connection):
     if issuer := settings.get("oidc_issuer"):
         bind_issuer(destination, issuer)
         destination.execute("DELETE FROM board_settings WHERE key = 'oidc_issuer'")
+    if ATTACHMENT_TABLES <= tables:
+        destination.execute(METADATA_SCHEMA)
+        destination.execute(BYTE_SCHEMA)
     counts = {}
     for table in TABLES:
         if table in tables:
@@ -129,9 +136,10 @@ def copy_table(source, destination, table):
     actual = destination.execute(f"SELECT COUNT(*) FROM {table_sql}").fetchone()[0]
     if count != actual:
         raise ValueError(f"The row count changed while importing {table}.")
-    if table in ("tasks", "events"):
-        expected = source.execute(f"SELECT {fields_sql} FROM {table_sql} ORDER BY id")
-        copied = destination.execute(f"SELECT {fields_sql} FROM {table_sql} ORDER BY id")
+    if table in ("tasks", "events", *ATTACHMENT_TABLES):
+        order = "attachment_id" if table == "ticket_attachment_bytes" else "id"
+        expected = source.execute(f"SELECT {fields_sql} FROM {table_sql} ORDER BY {order}")
+        copied = destination.execute(f"SELECT {fields_sql} FROM {table_sql} ORDER BY {order}")
         if any(tuple(old) != tuple(new) for old, new in zip(expected, copied, strict=True)):
             raise ValueError(f"The copied records did not match in {table}.")
     return count

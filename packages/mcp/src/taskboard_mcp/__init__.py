@@ -117,6 +117,36 @@ def build_server(board: SharedBoard) -> MCPServer:
         return board.invoke("task", {"id": ticket})
 
     @server.tool(annotations=read_only)
+    def taskboard_attachment_list(ticket: Ticket) -> dict[str, Any]:
+        """List visible attachments and the maximum signed upload size."""
+        return board.invoke("list-attachments", {"id": ticket})
+
+    @server.tool(annotations=write)
+    def taskboard_attachment_upload(
+        ticket: Ticket, upload_id: str, filename: str, content_type: str,
+        content_base64: Annotated[str, Field(max_length=122880)],
+    ) -> dict[str, Any]:
+        """Upload Base64 file bytes. Reuse the same UUID upload_id for an identical retry."""
+        return board.invoke("upload-attachment", {
+            "id": ticket, "upload_id": upload_id, "filename": filename,
+            "content_type": content_type, "content_base64": content_base64,
+        }, write=True)
+
+    @server.tool(annotations=read_only)
+    def taskboard_attachment_read(
+        ticket: Ticket, attachment_id: str, offset: Annotated[int, Field(ge=0)] = 0,
+    ) -> dict[str, Any]:
+        """Read one Base64 range. Use next_offset to read the next range until it is null."""
+        return board.invoke("read-attachment-chunk", {
+            "id": ticket, "attachment_id": attachment_id, "offset": offset,
+        })
+
+    @server.tool(annotations=write)
+    def taskboard_attachment_remove(ticket: Ticket, attachment_id: str) -> dict[str, Any]:
+        """Remove an attachment if the signed caller can edit the ticket."""
+        return board.invoke("remove-attachment", {"id": ticket, "attachment_id": attachment_id}, write=True)
+
+    @server.tool(annotations=read_only)
     def taskboard_recurring_schedule(schedule: Annotated[str, Field(description="Owned schedule ID, such as R-1.")]) -> dict[str, Any]:
         """Read an owned recurring definition, its saved first step, and its occurrence report."""
         return board.invoke("recurring-show", {"id": schedule})

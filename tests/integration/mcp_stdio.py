@@ -757,6 +757,8 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_project_access", "taskboard_set_project_access", "taskboard_agent_usage", "taskboard_api_usage",
             "taskboard_delegate", "taskboard_manual_review", "taskboard_ask_agent",
             "taskboard_save_standing_goal", "taskboard_standing_pass",
+            "taskboard_attachment_list", "taskboard_attachment_upload", "taskboard_attachment_read",
+            "taskboard_attachment_remove",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_queue"].annotations.read_only_hint)

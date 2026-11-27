@@ -31,6 +31,8 @@ import tasks_agent_usage
 import tasks_api_usage
 import tasks_ticket_fields as ticket_fields
 import tasks_codex_usage
+import tasks_attachments
+from taskboard_server import attachment_routes
 import tasks_core as ledger
 import tasks_browser_push as browser_push
 import tasks_maintenance as maintenance
@@ -632,6 +634,7 @@ def create_app(
     initial_project=None,
     browser_push_config=None,
     demo_review_config=None,
+    attachment_storage=None,
 ):
     """Configure the board with Raft, OIDC, or one deployment-provided login adapter."""
     if login_provider is not None and oidc_config is not None:
@@ -660,6 +663,11 @@ def create_app(
         except ValueError as error:
             raise ValueError("Set TASKS_NEW_TASKS_DEFAULT_SUBJECT to a verified human subject UUID.") from error
     marketplace = marketplace_root is not None
+    if attachment_storage is not None and (marketplace or local_readonly):
+        raise ValueError("Ticket attachment storage requires a single shared board.")
+    if (isinstance(attachment_storage, tasks_attachments.FilesystemStorage)
+            and attachment_storage.root.is_relative_to(Path(dist).resolve())):
+        raise ValueError("Place the private attachment directory outside the served web assets.")
     personal_api_enabled = bool(
         not marketplace and not local_readonly and member_mode is None and (raft_config or {}).get("server_id")
     )
@@ -852,6 +860,11 @@ def create_app(
                 if personal_api_enabled:
                     pilot_db.execute(personal_agents.SCHEMA)
                     pilot_db.execute(personal_agents.CLI_SCHEMA)
+        if attachment_storage is not None:
+            attachment_db = tasks_storage.Postgres(postgres_dsn) if postgres_dsn else connect(path)
+            with closing(attachment_db), tasks_storage.write(attachment_db):
+                attachment_db.execute(tasks_attachments.METADATA_SCHEMA)
+                attachment_db.execute(tasks_attachments.BYTE_SCHEMA)
         if browser_push_config is not None:
             if raft is None or not raft_config.get("server_id") or local_readonly:
                 raise ValueError("Browser push requires a fixed-server shared board with Raft sign-in.")
@@ -2985,6 +2998,11 @@ def create_app(
             g.usage_lookup = "knowledge-open"
         return result
 
+    invoke_attachment = attachment_routes.register_routes(
+        app, db=db, current_actor=current_actor, task_number=task_number,
+        can_edit=can_edit_shared_content, storage=attachment_storage, mount=urlsplit(base).path.rstrip("/"),
+    )
+
     @app.post("/api/v1/tasks/<number>/ownership")
     def task_ownership(number):
         actor = current_actor(write=True)
@@ -4532,6 +4550,8 @@ def create_app(
             raise RequestError("This action requires a signed-in agent or Personal Agents connection.", 403)
         if g.get("personal_agent_api") and name in STANDING_RAFT_ACTIONS:
             raise RequestError(STANDING_RAFT_REQUIRED, 403)
+        if name in attachment_routes.ACTIONS:
+            return invoke_attachment(name, data, actor)
         key = actor["ledger_key"]
         if demo_review_config is not None and name == demo_review.SIGNED_ACTION:
             if profile is not None or actor["kind"] != "agent" or key != demo_config.actor:
@@ -5004,7 +5024,8 @@ def create_app(
 
         register_actions(app, public_url=base, client_id=raft_config["client_id"], dispatch=dispatch,
                          codex_snapshot_upload=codex_snapshot_uploader is not None,
-                         demo_review=demo_review_config is not None, api_usage=api_usage)
+                         demo_review=demo_review_config is not None, api_usage=api_usage,
+                         attachments=attachment_storage is not None)
 
     if prefix:
         mounted = DispatcherMiddleware(NotFound(), {prefix: app.wsgi_app})
@@ -5118,6 +5139,10 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             project_extensions=project_extensions,
             github_webhook_secrets=os.environ.get("TASKS_GITHUB_WEBHOOK_SECRETS"),
             demo_review_config=os.environ.get("TASKS_DEMO_REVIEW") or None,
+            attachment_storage=tasks_attachments.configured_storage(
+                os.environ.get("TASKS_ATTACHMENT_BACKEND"), os.environ.get("TASKS_ATTACHMENT_DIRECTORY"),
+                postgres=bool(postgres_dsn),
+            ),
             public_raft_channel_urls=os.environ.get("TASKS_PUBLIC_RAFT_CHANNEL_URLS"),
             creation_default_subject=os.environ.get("TASKS_NEW_TASKS_DEFAULT_SUBJECT")
             if not (local_readonly or marketplace) else None,

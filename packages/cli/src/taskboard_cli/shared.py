@@ -17,6 +17,7 @@ from taskboard_client.merge_details import merge_details
 from taskboard_client.work import PEER_ASK
 
 from .ask_hook import check_ask
+from . import attachments
 
 
 ADVANCES = {
@@ -25,7 +26,7 @@ ADVANCES = {
 }
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
          "search", "knowledge-areas", "knowledge-sweep", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance",
-         "worker-check", "cue-pauses", "projects", "agent-usage", "api-usage", "project-access", ledger.READ}
+         "worker-check", "cue-pauses", "projects", "agent-usage", "api-usage", "project-access", ledger.READ} | attachments.READS
 WRITES = ADVANCES | {
     "confirm-blocker", "create-project", "raise-attention",
     "add", "transfer", "log", "record-merge", "priority", "watch", "unwatch", "link-source", "link-reference",
@@ -33,7 +34,7 @@ WRITES = ADVANCES | {
     "wake-subscribe", "wake-unsubscribe", "cue-pause", "knowledge-add", "knowledge-assign", "knowledge-place", "knowledge-stage",
     "knowledge-reconcile",
     "worker-check", "recurring-tick", "complete-recurring-review", "ticket-recurrence", ledger.WRITE, PEER_ASK,
-} | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS
+} | ledger.OWNERSHIP_ACTIONS.keys() | ledger.WORKER_WRITES.keys() | ledger.EDITS | attachments.WRITES
 def assert_actor(value, actor):
     if value is None:
         return
@@ -678,6 +679,8 @@ def shared_command(args):
     assert_actor(getattr(args, "by", None), actor)
     if command in ("add", "list", "next", "recurring-add"):
         assert_actor(args.dri, actor)
+    if command in attachments.READS | attachments.WRITES:
+        return attachments.transfer(board, args)
     prompts = context.get("cli_guidance", {})
     if command == "api-usage":
         params = {key: value for key, value in {"day": args.day, "project": args.project}.items() if value}

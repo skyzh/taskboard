@@ -468,6 +468,20 @@ def arguments(argv=None):
         subscription.add_argument("--project", type=nonblank, help="Project prefix. Defaults to the board’s default project.")
         if action != "wake-subscriptions":
             subscription.add_argument("event_type", choices=("owned-ready",), help="Wake when a task you own becomes Ready.")
+    attachment_list = commands.add_parser("attachment-list", help="List visible attachments on one shared ticket.")
+    attachment_list.add_argument("ticket")
+    attachment_upload = commands.add_parser("attachment-upload", help="Upload a local file to one shared ticket.")
+    attachment_upload.add_argument("ticket")
+    attachment_upload.add_argument("file")
+    attachment_upload.add_argument("--upload-id", required=True, help="Client-generated UUID. Reuse it when retrying.")
+    attachment_download = commands.add_parser("attachment-download", help="Download a signed attachment to a new file.")
+    attachment_download.add_argument("ticket")
+    attachment_download.add_argument("attachment_id")
+    attachment_download.add_argument("--output", required=True)
+    attachment_remove = commands.add_parser("attachment-remove", help="Remove an attachment using shared ticket edit permission.")
+    attachment_remove.add_argument("ticket")
+    attachment_remove.add_argument("attachment_id")
+
     commands.add_parser("cue-pauses", help="Read your active watcher cue pauses in shared mode.")
     cue_pause = commands.add_parser("cue-pause", help="Pause or clear a watcher cue on your ticket in shared mode.")
     cue_pause.add_argument("id", type=task_id)
@@ -711,7 +725,7 @@ def arguments(argv=None):
             parser.error("Exploration settings require an active standing goal summary.")
     if args.command in {
         "raft-channel-show", "raft-channel-set", "wake-subscriptions", "wake-subscribe", "wake-unsubscribe",
-        "cue-pauses", "cue-pause",
+        "cue-pauses", "cue-pause", "attachment-list", "attachment-upload", "attachment-download", "attachment-remove",
         "knowledge-add", "knowledge-areas", "knowledge-assign", "knowledge-sweep", "knowledge-place",
         "knowledge-stage", "knowledge-reconcile", "record-merge", "agent-usage", "api-usage", "project-access", "ticket-recurrence",
     } and args.mode != "shared":

@@ -1,3 +1,4 @@
+import TicketAttachments from './TicketAttachments.jsx'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { BoardLink, useContentTitle } from './BoardNavigation.jsx'
 import { ListFilter } from 'lucide-react'
@@ -532,7 +533,7 @@ export function KnowledgeRecordTools({ id, revision, onChanged }) {
 }
 
 export function TaskDetail({ id, revision, session, onChanged, onMoved, moveReceipt,
-  preferredProject = 'T', returnHref, fromSearch, history, progression, decisionProject, attentionRequest }) {
+  preferredProject = 'T', returnHref, fromSearch, history, progression, decisionProject, attentionRequest, preview }) {
   const [checklistOpen, setChecklistOpen] = useState(true)
   const [actionsOpen, setActionsOpen] = useState(false)
   useEffect(() => {
@@ -684,6 +685,8 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               <h2 id={`task-description-${id}`}>Description</h2>
               <Markdown text={record.brief} className="prose" relatedTasks={record.related_tasks} />
             </section>}
+            {signedIn && !preview && <TicketAttachments key={`${session.data.actor.id}:${task.key || id}`}
+              ticket={task.key || id} revision={revision} onChanged={onChanged} />}
             {signedIn && <TicketKnowledgeLinks ticket={task.key || id} revision={revision} />}
             {(record.checklist.length > 0 || canEditChecklistText) && (
               <details className="detail-checklist" open={checklistOpen}

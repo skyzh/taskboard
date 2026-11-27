@@ -476,6 +476,15 @@ For a migration, create a closed SQLite backup snapshot and select an empty Post
 uv run --frozen --extra postgres ./tasks --postgres postgres-import "$sqlite_snapshot"
 ```
 
+If the SQLite board uses filesystem attachments, pause the source and take the
+closed ledger backup and a copy of the dedicated attachment directory together.
+`postgres-import` preserves the metadata and original attachment IDs. Configure
+the new PostgreSQL-backed board with `TASKS_ATTACHMENT_BACKEND=filesystem` and
+point `TASKS_ATTACHMENT_DIRECTORY` at the restored directory. Verify an
+existing signed download and its bytes before reopening writes. This migrates
+the ledger while keeping the filesystem backend. A move to `bytea` is a
+separate storage conversion.
+
 Run `register-project`, `oidc-member` or `release-event` with `--postgres` to administer an initialized PostgreSQL board. Use the existing `--shared` CLI through verified Raft for normal task work. Local preview and offline task commands still use SQLite. PostgreSQL serving uses HTTP polling and the same HTTPS gateway. Marketplace, the local-file watcher, GitHub fetch and the SQLite Pi backup and rollback scripts use their existing storage paths. Back up a PostgreSQL board through its database operator.
 
 ### Revert a board with goal tickets
@@ -1092,3 +1101,93 @@ During maintenance, run the signed reconciliation for each project whose entries
 ```
 
 Use the returned unresolved sources and owners for follow-up. Open work stays staged. If a source reopens, stage its current conclusion before applying it. Conflicting settled proposals leave the current brief readable and need the owner's judgment. An applied change keeps the prior brief in Activity and links the exact source. Repeating a pass leaves already applied stages alone.
+
+## Ticket attachment storage
+
+An operator can enable first-class ticket attachments on a shared board.
+Existing Raft attachments, artifacts, and external evidence links still open
+at their original locations.
+
+- Set `TASKS_ATTACHMENT_BACKEND=filesystem` and set
+  `TASKS_ATTACHMENT_DIRECTORY` to a dedicated, absolute directory readable
+  and writable by the board process. Keep it outside web assets and any
+  proxy-served path. Use a filesystem that supports hard links in that directory.
+- With a PostgreSQL ledger, set `TASKS_ATTACHMENT_BACKEND=postgres` and
+  leave `TASKS_ATTACHMENT_DIRECTORY` unset. Bytes are stored in a `bytea`
+  column in the same transaction as their ticket metadata.
+
+Startup creates the optional attachment tables when the backend is enabled.
+Files have a 1 MiB upload cap. Uploads and removals use the ticket’s existing
+content editing permission. List and download recheck the current ticket
+and project visibility, including Ring 1. Downloads always open as an
+attachment with private, no-store caching.
+
+Managed agents can use `tasks --shared attachment-list T-123`, upload with
+`attachment-upload T-123 ./sample.txt --upload-id <uuid>`, and download with
+`attachment-download T-123 <attachment-id> --output ./sample.txt`. Keep the UUID
+for an identical retry and use `attachment-remove` for deletion. The CLI writes
+a completed download to a new file. The MCP tools use the same signed actions
+with Base64 data. Agent uploads are capped at 90 KiB. Agents can download any
+permitted browser upload in 32 KiB ranges.
+
+For PostgreSQL backups, include both `ticket_attachments` and
+`ticket_attachment_bytes` in the same database snapshot. For filesystem
+backups, pause the serving process and snapshot the ledger and the dedicated
+directory together. Restore both before reopening uploads. Before switching
+backends, plan an explicit byte copy and metadata update with a tested restore.
+Changing the setting alone leaves existing records associated with their
+original storage.
+
+After an interrupted filesystem upload or deletion, reconcile the directory
+against the ledger with the serving process paused. Keep the object named by
+each `ticket_attachments.id` with backend `filesystem`. Inspect any
+`.upload-*` staging file or opaque object with no committed row before
+removing it. Preserve unknown files and backup evidence. A missing referenced
+object needs a restore from backup.
+
+### Implement and test a storage adapter
+
+Implement `kind`, `delete_in_transaction`, `write(db, key, contents)`,
+`read(db, key)`, and `delete(db, key)` as defined in `packages/server/src/tasks_attachments.py`.
+Use a stable backend name and keep the opaque key unchanged. Register the
+production adapter in `configured_storage` and validate its operator settings
+there. A ledger-backed adapter sets `delete_in_transaction=True`, uses the supplied
+connection, and leaves commit and rollback to the caller. An external backend
+sets it to `False` so physical removal follows the metadata commit. It publishes
+a complete object without overwriting an existing key. Report a missing object with
+`FileNotFoundError` and an unavailable store with `OSError`. Document how to
+reconcile the external object set with committed metadata and how to restore
+them together. Keep file bytes behind the signed ticket access checks.
+
+For a disposable test, inject a small adapter through
+`create_app(..., attachment_storage=store)`:
+
+```python
+class FixtureStorage:
+    kind = "fixture"
+    delete_in_transaction = False
+
+    def __init__(self):
+        self.objects = {}
+
+    def write(self, db, key, contents):
+        if key in self.objects:
+            raise FileExistsError(key)
+        self.objects[key] = contents
+
+    def read(self, db, key):
+        try:
+            return self.objects[key]
+        except KeyError as error:
+            raise FileNotFoundError(key) from error
+
+    def delete(self, db, key):
+        self.objects.pop(key, None)
+```
+
+This fixture is in-memory and has no backup guarantee. For a durable adapter,
+reuse `tests/integration/test_tasks_attachments.py` with the new store in
+the signed board fixture. Check identical retry, a failed publish followed by
+retry, revoked access before byte reads, byte-for-byte download, and physical
+deletion after the metadata is removed. Replay restart and backup/restore
+against its actual persistence layer.
