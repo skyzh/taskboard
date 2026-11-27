@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 from urllib.parse import urlsplit
 
 from taskboard_cli.ready_checkpoint import disposition, offer_work
-from taskboard_server.managed_ready import ManagedReadySender, SenderScope, initialize
+from taskboard_server.managed_ready import ManagedReadySender, SampledIdleGate, SenderScope, initialize
 from taskboard_server.managed_ready_grant import ManagedReadyGrant
 from taskboard_server.managed_ready_operator import locked_state, main as managed_ready
 from taskboard_server.ready_wake_operator import main as send_wake
@@ -260,9 +260,11 @@ class ManagedSenderTest(unittest.TestCase):
                                  identity=self.identity, transport=self.provider, clock=lambda: self.now,
                                  jitter=lambda: 0)
 
-    def tick(self, grant=None):
+    def tick(self, grant=None, *, idle_gate=None):
         with closing(open_sqlite(self.ledger)) as db, locked_state(self.state, self.ledger) as state:
-            return ManagedReadySender(db, state, self.scope, grant or self.grant(), clock=lambda: self.now).tick()
+            return ManagedReadySender(
+                db, state, self.scope, grant or self.grant(), clock=lambda: self.now, idle_gate=idle_gate,
+            ).tick()
 
     def receipts(self):
         with closing(open_sqlite(self.ledger, write_existing=False)) as db:
@@ -273,6 +275,96 @@ class ManagedSenderTest(unittest.TestCase):
 
     def calls(self):
         return [name for name, _ in self.provider.calls]
+
+    def test_sampled_idle_keeps_one_cue_pending_and_retries_exactly(self):
+        through = self.baseline()
+        event = self.create()["event"]
+        origin = self.now
+        observation = "Status: active; online: Idle"
+
+        def status():
+            if observation == "Status: active; online: Idle":
+                return "idle"
+            return "unavailable"
+
+        gate = SampledIdleGate(status, clock=lambda: self.now - origin)
+        grant = self.grant()
+
+        def poll(offset):
+            self.now = origin + offset
+            return self.tick(grant, idle_gate=gate)
+
+        for offset in (0, 10, 20, 30):
+            self.assertEqual(poll(offset), ("awaiting_idle", event))
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.outcomes(), [(event, "pending")])
+
+        def bare_online():
+            nonlocal observation
+            observation = "Status: active; online"
+
+        self.provider.on_exchange = bare_online
+        self.assertEqual(poll(40), ("awaiting_idle", event))
+        self.assertEqual(self.calls(), ["agent", "token"])
+        self.assertEqual(self.outcomes(), [(event, "pending")])
+        with locked_state(self.state, self.ledger) as state:
+            saved = state.execute("SELECT through_event, attempts, attempt_event FROM sender").fetchone()
+            self.assertEqual(tuple(saved), (through, 0, None))
+
+        self.assertEqual(poll(50), ("awaiting_idle", event))
+        observation = "Status: active; online: Idle"
+        for offset in (60, 70, 80, 90):
+            self.assertEqual(poll(offset), ("awaiting_idle", event))
+
+        def lose_reply(document):
+            nonlocal observation
+            observation = "Status: active; working"
+            self.provider.accept(document)
+            raise TimeoutError("Fixture accepted after the final read and lost the reply.")
+
+        self.provider.on_event = lose_reply
+        self.assertEqual(poll(100), ("retry", event))
+        self.assertEqual(self.outcomes(), [(event, "pending")])
+        self.assertEqual(poll(110), ("awaiting_idle", event))
+
+        observation = "Status: active; online: Idle"
+        gate = SampledIdleGate(status, clock=lambda: self.now - origin)
+        for offset in (120, 130, 140, 150):
+            self.assertEqual(poll(offset), ("awaiting_idle", event))
+        self.provider.on_event = self.provider.accept
+        self.assertEqual(poll(160), ("accepted", event))
+        self.assertEqual(poll(170), ("idle", None))
+        self.assertEqual(self.outcomes(), [(event, "accepted")])
+        documents = [document for route, document in self.provider.calls if route == "agent-events"]
+        self.assertEqual(len(documents), 2)
+        self.assertEqual(documents[0], documents[1])
+        self.assertEqual(list(self.provider.accepted), [documents[0]["externalEventId"]])
+
+    def test_sampled_idle_requires_fresh_explicit_observations(self):
+        for interruption in ("working", "unavailable", "unknown", RuntimeError("carrier did not respond")):
+            with self.subTest(interruption=interruption):
+                instant = 0
+                observation = "idle"
+                readings = []
+
+                def status():
+                    readings.append(instant)
+                    if isinstance(observation, RuntimeError):
+                        raise observation
+                    return observation
+
+                gate = SampledIdleGate(status, clock=lambda: instant)
+                for instant in (0, 5, 10, 20, 30):
+                    self.assertFalse(gate.eligible())
+                self.assertEqual(readings, [0, 10, 20, 30])
+                instant = 40
+                observation = interruption
+                self.assertFalse(gate.eligible())
+                observation = "idle"
+                for instant in (50, 60, 70, 80):
+                    self.assertFalse(gate.eligible())
+                instant = 90
+                self.assertTrue(gate.eligible())
 
     def test_reopens_state_after_lost_reply_and_uses_the_same_event_id(self):
         old = self.create()
