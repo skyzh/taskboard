@@ -1109,9 +1109,9 @@ def create_app(
         if ring1.private(connection, project) and not ring1.visible(connection, project, principal):
             raise RequestError("Choose a verified member of this Ring 1 project.", 404)
 
-    def query():
+    def query(connection=None):
         return BoardQueries(
-            db(), base, local_links=local_readonly, project_roster=project_roster, principal=actor_key(),
+            connection if connection is not None else db(), base, local_links=local_readonly, project_roster=project_roster, principal=actor_key(),
             standing_exploration=agent_guidance["standing-exploration"],
         )
 
@@ -1921,6 +1921,11 @@ def create_app(
             if project is None:
                 return
             require_visible_project(connection, project)
+            if getattr(args, "reviewed_event", None) is not None:
+                task = ledger.get_work_task(connection, args.id)
+                registration = ledger.event_context(task).get("readiness")
+                if registration:
+                    require_visible_task(connection, registration["source_id"])
             if getattr(args, "review_wait", None) is not None:
                 task = ledger.get_work_task(connection, args.id)
                 context = ledger.event_context(task)
@@ -1964,6 +1969,8 @@ def create_app(
             return project
 
         args.authorize = authorize
+        if getattr(args, "reviewed_event", None) is not None:
+            args.readiness_scope = lambda connection: query(connection).current_visible_tasks()
         if command in (*ledger.PROJECT_WRITER_TRANSITIONS, "close", "reopen"):
             args.force_reason = transition_force_reason(data)
             args.can_transition = lambda connection, task: can_collaborate_on_transition(connection, actor, task)

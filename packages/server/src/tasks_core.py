@@ -1004,14 +1004,17 @@ def change_task(db, args, links, *, automation=None):
         if any((review_source, review_criteria, feature_deferred, standing_pass,
                 getattr(args, "review_after", None), getattr(args, "defer_until", None))):
             raise ValueError("Acknowledge dependency readiness separately from changing the schedule or dependency.")
-        parked_context = event_context(task)
-        registration = parked_context.get("readiness")
-        if parked_context.get("reviewed_readiness_event") == reviewed_event:
+        registration = event_context(task).get("readiness") or {}
+        if registration.get("reviewed_event") == reviewed_event:
             return f"{projects.row_reference(task)} · Dependency event already reviewed"
-        pending = readiness.pending_event(db, current_tasks_sql(db), args.by, projects.row_project(task), args.id)
+        scope = getattr(args, "readiness_scope", None)
+        current_tasks, bindings = scope(db) if scope else (current_tasks_sql(db), ())
+        pending = readiness.pending_event(
+            db, current_tasks, args.by, projects.row_project(task), args.id, bindings=bindings,
+        )
         if pending != reviewed_event:
             raise ValueError("Refresh Inbox and choose the current pending dependency event.")
-        reviewed_registration = {**registration, "after_event": reviewed_event}
+        reviewed_registration = {**registration, "after_event": reviewed_event, "reviewed_event": reviewed_event}
     goal_pass_context = {}
     if standing_pass or goal_kind == "standing" and args.command in ("start", "park", "remind"):
         import tasks_goals as goals

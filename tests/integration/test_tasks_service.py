@@ -1653,6 +1653,11 @@ class TasksServiceTest(unittest.TestCase):
         self.action(owner, "advance-task", acknowledge)
         repeat = self.action(owner, "task", query_string={"id": "COURSE-1"})["task"]
         self.assertEqual(repeat["event_id"], reviewed["event_id"])
+        self.action(owner, "advance-task", {"id": "COURSE-1", "transition": "remind",
+                    "note": "Update the date.", "review_after": "2099-11-26"})
+        self.action(owner, "advance-task", acknowledge)
+        revised = self.action(owner, "task", query_string={"id": "COURSE-1"})["task"]
+        self.assertEqual(revised["context"]["review_after"], "2099-11-26")
 
         self.action(dependency_owner, "change-ownership", {"id": "T-1", "action": "reopen",
                     "reason": "Run the follow-up check."})
