@@ -333,7 +333,7 @@ class BoardQueries:
             WHERE goal.retired = 0 AND current.state <> 'done'
               AND (? IS NULL OR tasks.project_prefix = ?) AND {visibility}
             ORDER BY tasks.project_prefix, tasks.title, tasks.id
-            """, (goal_cadence.PAUSED_REVIEW, project, project, *bindings),
+            """, (goal_cadence.INACTIVE_REVIEW, project, project, *bindings),
         ).fetchall()
         people = profiles.visible_by_keys(self.db, [row["owner"] for row in rows], self.base)
         now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
@@ -831,8 +831,12 @@ class BoardQueries:
             terms.append("events.state = 'ready' AND events.action = 'decide' AND events.actor = ?")
             args.append(decided_by)
         if review_due is not None:
-            terms.append("json_extract(events.context, '$.review_after') <= ?")
-            args.append(review_due)
+            terms.extend((
+                "json_extract(events.context, '$.review_after') <= ?",
+                "NOT EXISTS (SELECT 1 FROM goal_review_times WHERE task_id = tasks.id)",
+                "NOT EXISTS (SELECT 1 FROM board_settings WHERE key = ? || CAST(tasks.id AS TEXT))",
+            ))
+            args.extend((review_due, goal_cadence.INACTIVE_REVIEW))
         if github_url is not None:
             terms.append(GITHUB_SOURCE_MATCH)
             args.extend((github_url, github_url + "/"))
@@ -1192,8 +1196,13 @@ class BoardQueries:
         }
         if owner is not None:
             if (goal := result["goal"]) and row["state"] != "done":
+                active_time, inactive_time = goal_cadence.schedule_times(self.db, number)
                 goal["schedule_editable"] = owner == row["dri"]
-                goal["review_schedule"] = goal_cadence.ticket_schedule(self.db, row)
+                goal["review_schedule"] = goal_cadence.ticket_schedule(self.db, row, active_time, inactive_time)
+                if active_time is not None or inactive_time is not None:
+                    goal["date_reminder_superseded"] = True
+                    task["reminder"] = None
+                    task["context"] = {key: value for key, value in context.items() if key != "review_after"}
             if ledger.can_enable_recurrence(self.db, row, owner):
                 result["can_enable_recurrence"] = True
             if recurrence := self.ticket_recurrence(number, projects.row_project(row), owner):

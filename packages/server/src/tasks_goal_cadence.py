@@ -19,12 +19,12 @@ SCHEMA = """
 DEADLINE_TIME = "09:00"
 
 
-PAUSED_REVIEW = "goal-review-paused:"
+INACTIVE_REVIEW = "goal-review-inactive:"
 REVIEW_TIME = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]")
 
 
-def paused_key(number):
-    return f"{PAUSED_REVIEW}{number}"
+def inactive_key(number):
+    return f"{INACTIVE_REVIEW}{number}"
 
 
 def schedule_rows(db, owner, project):
@@ -36,7 +36,7 @@ def schedule_rows(db, owner, project):
            LEFT JOIN board_settings AS paused ON paused.key = ? || CAST(tasks.id AS TEXT)
            WHERE tasks.dri = ? AND (? IS NULL OR tasks.project_prefix = ?)
              AND (review.review_time IS NOT NULL OR paused.value IS NOT NULL)""",
-        (PAUSED_REVIEW, owner, project, project),
+        (INACTIVE_REVIEW, owner, project, project),
     )
 
 
@@ -45,7 +45,7 @@ def schedule_times(db, number):
         """SELECT review.review_time, paused.value AS paused_time FROM tasks
            LEFT JOIN goal_review_times AS review ON review.task_id = tasks.id
            LEFT JOIN board_settings AS paused ON paused.key = ?
-           WHERE tasks.id = ?""", (paused_key(number), number),
+           WHERE tasks.id = ?""", (inactive_key(number), number),
     ).fetchone()
     return row["review_time"], row["paused_time"]
 
@@ -69,9 +69,12 @@ def change_schedule(db, owner, number, change, value=None):
     elif change == "pause":
         next_time, next_paused = None, current_time or paused_time
     elif change == "resume":
-        next_time, next_paused = paused_time or current_time, None
+        next_time = paused_time or current_time
+        next_paused = None if next_time else paused_time
     else:
-        next_time, next_paused = None, None
+        # Keep an empty marker so cancellation does not reactivate a superseded review date.
+        next_time = None
+        next_paused = "" if current_time is not None or paused_time is not None else None
 
     # Older builds read only the active table, so a paused reminder stays silent on rollback.
     if next_time != current_time:
@@ -85,16 +88,16 @@ def change_schedule(db, owner, number, change, value=None):
             )
     if next_paused != paused_time:
         if next_paused is None:
-            db.execute("DELETE FROM board_settings WHERE key = ?", (paused_key(number),))
+            db.execute("DELETE FROM board_settings WHERE key = ?", (inactive_key(number),))
         else:
             db.execute(
                 """INSERT INTO board_settings (key, value) VALUES (?, ?)
                    ON CONFLICT (key) DO UPDATE SET value = excluded.value""",
-                (paused_key(number), next_paused),
+                (inactive_key(number), next_paused),
             )
     if (next_time, next_paused) != (current_time, paused_time):
         ledger.bump_revision(db, project)
-    return {"ticket": projects.row_reference(task), "review_time": next_time or next_paused,
+    return {"ticket": projects.row_reference(task), "review_time": next_time or next_paused or None,
             "state": "active" if next_time else "paused" if next_paused else None}
 
 
@@ -113,9 +116,8 @@ def describe_schedule(active_time, paused_time, last_completed, now):
             "cadence": "daily", "time_zone": "America/Los_Angeles", "next_at": upcoming}
 
 
-def ticket_schedule(db, task):
+def ticket_schedule(db, task, current_time, paused_time):
     number = task["id"]
-    current_time, paused_time = schedule_times(db, number)
     if current_time is None and paused_time is None:
         return None
     _, last_completed = review_history(db, [task]) if current_time else ({}, {})
@@ -132,6 +134,7 @@ def schedules(db, owner, project, now):
             saved["review_time"], saved["paused_time"], last_completed.get(row["id"]), now,
         )
         for row in active if (saved := times.get(row["id"])) is not None
+        and (saved["review_time"] or saved["paused_time"])
     }
 
 

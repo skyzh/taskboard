@@ -270,18 +270,28 @@ class GoalCadenceTest(unittest.TestCase):
     def test_legacy_schedule_survives_restart_and_uses_same_controls(self):
         ticket = self.dated("2026-12-01")
         self.review_time(ticket, "09:15")
+        self.board.call(self.avery, f"/api/v1/tasks/{ticket}/reminder", method="PUT", json={"date": "2026-11-24"})
         self.board.provider = fixture.FixtureRaft()
         self.app = self.board.app(portal_reader=True)
         self.avery, _ = self.board.login(self.app, "Avery")
         peer, _ = self.board.login(self.app, "Blake")
         path = f"/api/v1/tasks/{ticket}/recurrence"
         self.board.call(peer, path, method="POST", json={"change": "pause"}, status=403)
+        with patch("tasks_core.timestamp", return_value=PRE_REVIEW):
+            self.assertIsNone(self.action("my-next")["work"])
         with patch("tasks_core.timestamp", return_value=DUE):
+            self.assertFalse(self.cue(DUE)["busy"])
+            browser = self.board.call(self.avery, "/api/v1/notifications/work?project=T").json
+            work, = browser["items"]
+            self.assertEqual((work["key"], work["kind"]), (ticket, "goal_review"))
             saved = self.action("my-goals")["review_schedules"][ticket]
             self.assertEqual((saved["state"], saved["next_at"]), ("active", DUE))
             detail = self.action("task", query_string={"id": ticket})
             self.assertEqual(detail["goal"]["review_schedule"], saved)
             self.assertEqual(detail["goal"]["deadline"], "2026-12-01")
+            self.assertIsNone(detail["task"]["reminder"])
+            activity = self.action("task-activity", query_string={"id": ticket})
+            self.assertTrue(any(item["context"].get("review_after") == "2026-11-24" for item in activity["items"]))
             self.board.call(self.avery, path, method="POST", json={"change": "pause"})
             self.action("ticket-recurrence", {"id": ticket, "change": "pause"})
             schedules = self.action("my-goals")["review_schedules"]
@@ -292,6 +302,10 @@ class GoalCadenceTest(unittest.TestCase):
             self.assertEqual((code, errors), (0, ""))
             self.assertIn("Goal reminder active", output)
             self.assertEqual(self.action("my-goals")["review_schedules"][ticket], saved)
+            self.action("ticket-recurrence", {"id": ticket, "change": "cancel"})
+            self.assertIsNone(self.action("my-next")["work"])
+            self.assertNotIn("review_schedules", self.action("my-goals"))
+            self.review_time(ticket, "09:15")
             self.advance(ticket, "start")
             self.advance(ticket, "park", "Recorded the result.")
             self.assertEqual(self.action("my-goals")["review_schedules"][ticket]["next_at"], OVERDUE)

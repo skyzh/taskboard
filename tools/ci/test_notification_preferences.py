@@ -349,6 +349,7 @@ class StorageReplayTest(unittest.TestCase):
         handoff = {"handoff_id": str(uuid4())}
         original = self.board.action(client, "idle-goal-offer", handoff)["offer"]
         self.board.action(client, "set-goal-review-time", {"id": "T-1", "time": "09:15"})
+        self.board.call(client, "/api/v1/tasks/T-1/reminder", method="PUT", json={"date": "2026-11-24"})
         human, _ = self.board.login(source_app, "Sam")
         self.assertEqual(self.board.call(human, PUBLISHING, method="PUT", headers=ORIGIN, json=INSTRUCTIONS).json,
                          INSTRUCTIONS)
@@ -388,8 +389,13 @@ class StorageReplayTest(unittest.TestCase):
         self.assertEqual((paused["state"], paused["review_time"], paused["next_at"]), ("paused", "09:15", None))
         self.board.action(client, "ticket-recurrence", {"id": "T-1", "change": "resume"})
         self.assertEqual(self.board.action(client, "my-goals")["review_times"], {"T-1": "09:15"})
-        cues = self.board.action(client, "my-goal-cues", query_string={"project": "T"})
-        self.assertEqual((cues["busy"], cues["drain_event"], cues["standing"]["ticket"]), (False, 0, "T-1"))
+        with patch("tasks_core.timestamp", return_value="2026-11-24T17:15:00Z"):
+            cues = self.board.action(client, "my-goal-cues", query_string={"project": "T"})
+            self.assertEqual((cues["busy"], cues["drain_event"], cues["standing"]["ticket"]), (False, 0, "T-1"))
+            work, = self.board.call(client, "/api/v1/notifications/work?project=T").json["items"]
+            self.assertEqual((work["key"], work["kind"]), ("T-1", "goal_review"))
+            self.board.action(client, "ticket-recurrence", {"id": "T-1", "change": "cancel"})
+            self.assertIsNone(self.board.action(client, "my-next")["work"])
         with closing(Postgres(dsn)) as db:
             self.assertTrue(has_subscription(db, "T", owner, OWNED_READY))
             self.assertEqual(idle_offer_counts(db, [1]), {1: 1})

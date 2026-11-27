@@ -609,7 +609,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               </>}
               {record.goal?.resume_review_time && <p>Resume at the next {record.goal.resume_review_time} Pacific goal review.</p>}
               <ClosureReference context={task.context} />
-              {showReturnPath && !record.goal?.keep_exploring && !record.goal?.review_schedule && <div hidden={!showActions}>{record.goal ? (
+              {showReturnPath && !record.goal?.keep_exploring && !record.goal?.date_reminder_superseded && !record.goal?.review_schedule && <div hidden={!showActions}>{record.goal ? (
                   <ReminderDate key={`${id}:${task.context?.review_after || ''}`}
                     path={`/tasks/${id}/reminder`} saved={task.context?.review_after}
                     onChanged={onChanged} />

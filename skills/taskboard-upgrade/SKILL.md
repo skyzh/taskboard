@@ -93,8 +93,10 @@ installation, follow the [installation guide](../../docs/taskboard/SETUP.md).
   deadline with the baseline. Existing review times use the same ledger row,
   so they carry forward on startup. Check the next slot across a Pacific clock
   change, and verify that a completed review on the current Pacific date
-  suppresses that day's slot. Rehearse pause, resume, and cancel on an owned
-  sample goal. Check the due cue, a missing wake receipt, signed Inbox catch-up,
+  suppresses that day's slot. If an older date reminder and a daily time
+  coexist, only the daily reminder should enter Inbox. Confirm that pause or
+  cancel keeps the legacy date in Activity without restoring it to Inbox.
+  Rehearse pause, resume, and cancel on an owned sample goal. Check the due cue, a missing wake receipt, signed Inbox catch-up,
   Start, and one recorded outcome on the existing goal ticket. After restart,
   verify the same slot is issued once.
   [Goal wakes](../../docs/taskboard/READY-CHECKPOINT.md#try-goal-wakes)
