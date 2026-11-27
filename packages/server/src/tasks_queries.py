@@ -2665,6 +2665,22 @@ class BoardQueries:
             })
         return results
 
+    def next_decision(self, recipient, *, project):
+        current, bindings = self.current_visible_tasks()
+        row = self.db.execute(
+            f"""
+            WITH current_tasks AS ({current})
+            SELECT id, project_prefix, project_number, COUNT(*) OVER () AS total
+            FROM current_tasks
+            WHERE state = 'human_review' AND waiting_on = ?
+              AND (? IS NULL OR project_prefix = ?)
+            ORDER BY event_id DESC LIMIT 1
+            """, (*bindings, recipient, project, project),
+        ).fetchone()
+        if row is None:
+            return {"count": 0, "next": None}
+        return {"count": row["total"], "next": {"id": row["id"], "key": projects.row_reference(row)}}
+
     def open_notification_count(self, recipient, *, today, project=None):
         scope, bindings = self.project_visibility()
         decisions_and_requests = self.db.execute(

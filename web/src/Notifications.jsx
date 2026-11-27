@@ -5,6 +5,7 @@ import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, eventHref, notificat
 import AttentionRequests from './AttentionRequests.jsx'
 import NotificationLog from './NotificationLog.jsx'
 import DecisionForm from './DecisionForm.jsx'
+import DecisionReceiptActions, { decisionTicketHref } from './DecisionReceiptActions.jsx'
 import BrowserPush from './BrowserPush.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
 import { Markdown } from './Markdown.jsx'
@@ -32,10 +33,11 @@ function Creation({ event }) {
   )
 }
 
-function DecisionRequest({ task, current, session, onChanged, onAnswerStarted }) {
+function DecisionRequest({ task, current, session, onChanged, onAnswerStarted, project, revision }) {
   return (
     <li className="event-row">
-      <p className="event-ticket"><TaskLink reference={task.key} id={task.id} title={task.title} /></p>
+      <p className="event-ticket"><TaskLink reference={task.key} id={task.id} title={task.title}
+        publicHref={decisionTicketHref(task, project)} /></p>
       <p className="event-meta">
         <span>{current ? 'Decision requested' : 'Decision'}</span>
         {current && <TaskWaitAge task={task} href={eventHref(task.event_id)} />}
@@ -43,7 +45,8 @@ function DecisionRequest({ task, current, session, onChanged, onAnswerStarted })
       <Markdown text={task.note} />
       <EvidenceLinks links={task.links} />
       <DecisionForm task={current ? task : undefined} session={session}
-        onChanged={onChanged} onAnswerStarted={onAnswerStarted} />
+        onChanged={onChanged} onAnswerStarted={onAnswerStarted}
+        receiptAction={<DecisionReceiptActions project={project} revision={revision} />} />
     </li>
   )
 }
@@ -255,7 +258,7 @@ function NeedsMe({ revision, session, onChanged, project }) {
         <ol className="event-list" aria-label="Decision requests for you" role="list">
           {items.map(task => (
             <DecisionRequest key={task.event_id} task={task} current={currentIds.has(task.event_id)}
-              session={session} onChanged={onChanged} onAnswerStarted={() => {
+              session={session} project={project} revision={revision} onChanged={onChanged} onAnswerStarted={() => {
                 setSubmitted(previous => previous.some(row => row.event_id === task.event_id)
                   ? previous : [...previous, task])
               }} />

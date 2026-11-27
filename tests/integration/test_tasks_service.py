@@ -7473,6 +7473,37 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Build the CSV."})
         self.assertEqual(self.call(sam, follow_through).json["items"], [])
 
+    def test_next_decision_matches_the_signed_queue_order_and_scope(self):
+        app = self.app(portal_reader=True)
+        agent, agent_id = self.login(app, "Avery")
+        sam, sam_id = self.login(app, "Sam")
+        quinn, quinn_id = self.login(app, "Quinn")
+        self.cli("register-project", "OPS", "Export operations", "--dri", agent_id)
+        for project, recipient in (("T", sam_id), ("T", sam_id), ("T", quinn_id), ("OPS", sam_id)):
+            created = self.action(agent, "create-task", {
+                "title": "Choose the next sample", "step": "Open the fixture.", "project": project,
+            })
+            key = created["receipt"].split()[0]
+            self.action(agent, "advance-task", {"id": key, "transition": "start", "note": "Read the sample."})
+            self.action(agent, "advance-task", {
+                "id": key, "transition": "assign-human", "note": "Which format?", "on": recipient,
+            })
+        self.action(agent, "raise-attention", {"id": "T-1", "recipient": sam_id, "reason": "A separate FYI."})
+        route = "/api/v1/notifications/decisions"
+        self.call(app.test_client(), route + "/next", status=401)
+        for params, count, keys in (({"project": "T"}, 2, ("T-2", "T-3")),
+                                    ({"scope": "all"}, 3, ("OPS-1", "T-3"))):
+            for client, expected_count, key in ((sam, count, keys[0]), (quinn, 1, keys[1])):
+                first = self.call(client, route, query_string={**params, "limit": 1}).json["items"][0]
+                self.assertEqual(first["key"], key)
+                self.assertEqual(self.call(client, route + "/next", query_string=params).json,
+                                 {"count": expected_count, "next": {"id": first["id"], "key": key}})
+        self.action(agent, "advance-task", {"id": "T-2", "transition": "withdraw-decision", "reason": "Closed elsewhere.", "note": "Read the next step."})
+        self.assertEqual(self.call(sam, route + "/next", query_string={"project": "T"}).json,
+                         {"count": 1, "next": {"id": 1, "key": "T-1"}})
+        self.action(agent, "advance-task", {"id": "T-1", "transition": "withdraw-decision", "reason": "Closed elsewhere.", "note": "Read the next step."})
+        self.assertEqual(self.call(sam, route + "/next", query_string={"project": "T"}).json, {"count": 0, "next": None})
+
     def test_listed_decision_choice_can_be_recorded_without_explanatory_text(self):
         app = self.app(portal_reader=True)
         owner, _ = self.login(app, "Avery")
