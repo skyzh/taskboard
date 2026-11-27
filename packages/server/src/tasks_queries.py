@@ -482,8 +482,24 @@ class BoardQueries:
                                       self.project_visibility("ticket.project_prefix")),
         }
 
-    def ticket_activity(self, number, owner, *, limit, before):
+    def ticket_activity(self, number, owner, *, limit, before, progression=False):
         result = self.events(number=number, limit=limit, before=before)
+        if progression and result["items"] and tasks_storage.table_columns(self.db, "task_goals"):
+            is_goal = self.db.execute("SELECT 1 FROM task_goals WHERE task_id = ?", (number,)).fetchone()
+            if is_goal:
+                context = "context" if ledger.has_event_context(self.db) else "'{}' AS context"
+                history = self.db.execute(
+                    f"""SELECT task_id AS id, id AS event_id, action, state, note, links, {context}
+                        FROM events WHERE task_id = ? AND action NOT IN ('source-event', 'log')
+                        ORDER BY id""", (number,),
+                )
+                outcomes = {event["event_id"] for event, review in goals.review_events(history)
+                            if review == "completed"}
+                for event in result["items"]:
+                    if event["id"] in outcomes:
+                        event["goal_review_completed"] = True
+        if progression:
+            return result
         if before is None and owner is not None:
             task = ledger.get_task(self.db, number)
             if recurrence := self.ticket_recurrence(number, projects.row_project(task), owner):
