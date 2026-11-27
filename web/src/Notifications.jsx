@@ -13,6 +13,8 @@ import { TaskRows } from './WorkRow.jsx'
 import { EventRow } from './Work.jsx'
 import { TaskWaitAge } from './WaitAge.jsx'
 import { ReportTime } from './ReportTime.jsx'
+import TaskOwnership from './TaskOwnership.jsx'
+import TransitionFeedback, { useTransitionRequest } from './TransitionFeedback.jsx'
 import { projectFilters, projectHref } from './projectScope.js'
 
 function DecisionRequest({ task, current, session, onChanged, onAnswerStarted, project, revision }) {
@@ -104,8 +106,51 @@ function InboxStandingGoals({ goals, owner }) {
   )
 }
 
-function InboxEntries({ revision, owner, project, openCount }) {
-  const page = useLoadedPages('/notifications/inbox', { ...projectFilters(project), view: 'updates' }, revision)
+const watchedAckPreference = '/notifications/preferences/watched-ack'
+
+function WatchedUpdate({ row, canAcknowledge, revision, onChanged }) {
+  const mutation = useTransitionRequest(onChanged)
+  return (
+    <EventRow event={row.item} showTask>
+      {canAcknowledge && <button type="button" disabled={mutation.saving}
+        onClick={() => mutation.submit(`/notifications/watched/${row.id}/acknowledge`, {})}>
+        {mutation.saving ? 'Acknowledging…' : 'Acknowledge'}
+      </button>}
+      <TransitionFeedback mutation={mutation} />
+      {row.reopen && <TaskOwnership task={row.reopen.task} actions={['reopen']} project={row.reopen.project}
+        revision={revision} canAssignOnReopen={row.reopen.can_assign} onChanged={onChanged} />}
+    </EventRow>
+  )
+}
+
+function WatchedUpdatePreference({ preference, history, setHistory, onChanged }) {
+  const mutation = useTransitionRequest(onChanged)
+  if (preference.error?.status === 404) return null
+  return (
+    <div className="notification-filters">
+      <ResourceStatus resource={preference} label="watched update preference" />
+      {preference.data && <>
+        <label>
+          <input type="checkbox" checked={preference.data.enabled}
+            disabled={preference.pending || mutation.saving}
+            onChange={event => mutation.submit(watchedAckPreference, { enabled: event.currentTarget.checked })} />
+          Show Acknowledge on watched updates
+        </label>
+        <button type="button" onClick={() => setHistory(!history)}>
+          {history ? 'Back to Inbox updates' : 'Acknowledged updates'}
+        </button>
+        <TransitionFeedback mutation={mutation} />
+      </>}
+    </div>
+  )
+}
+
+function InboxEntries({ revision, owner, project, openCount, onChanged }) {
+  const [history, setHistory] = useState(false)
+  const preference = useResource(watchedAckPreference, revision)
+  const page = useLoadedPages('/notifications/inbox', {
+    ...projectFilters(project), view: history ? 'acknowledged' : 'updates',
+  }, revision)
   const work = useResource(queryPath('/notifications/work', projectFilters(project)), revision)
   const items = (page.data?.items ?? []).filter(row => row.kind === 'watched' || row.kind === 'readiness')
   const datedGoals = work.data?.dated_goals || []
@@ -123,15 +168,16 @@ function InboxEntries({ revision, owner, project, openCount }) {
       {openCount.error && <ResourceStatus resource={openCount} label="Inbox action count" />}
       {work.error && !legacyWorkEndpoint && <ResourceStatus resource={work} label="next actionable work" />}
       <InboxWork items={actionable} />
-      {showEmpty && <p className="section-message">Your inbox is empty.</p>}
+      <WatchedUpdatePreference preference={preference} history={history} setHistory={setHistory} onChanged={onChanged} />
+      {showEmpty && !history && <p className="section-message">Your inbox is empty.</p>}
+      {history && page.data && !page.pending && !page.error && items.length === 0 &&
+        <p className="section-message">No acknowledged watched updates.</p>}
       {items.length > 0 && (
-        <ol className="event-list" aria-label="Inbox" role="list">
-          {items.map(({ kind, id, item }) => {
-            const key = `${kind}-${id}`
-            if (kind === 'watched') return <EventRow key={key} event={item} showTask />
-            if (kind === 'readiness') return <InboxReadiness key={key} item={item} />
-            return null
-          })}
+        <ol className="event-list" aria-label={history ? 'Acknowledged watched updates' : 'Inbox'} role="list">
+          {items.map(row => row.kind === 'watched' ? (
+            <WatchedUpdate key={`watched-${row.id}`} row={row} revision={revision} onChanged={onChanged}
+              canAcknowledge={!history && preference.data?.enabled} />
+          ) : <InboxReadiness key={`readiness-${row.id}`} item={row.item} />)}
         </ol>
       )}
       <LoadMore page={page} label="inbox items" />
@@ -146,7 +192,7 @@ function Inbox({ revision, session, project, openCount, onChanged }) {
   return (
     <section className="feed-section" aria-label="Inbox">
       <BoardLink href={projectHref('#activity?action=add', project || 'all')}>Task created activity</BoardLink>
-      <InboxEntries revision={revision} owner={session.data?.actor?.id} project={project} openCount={openCount} />
+      <InboxEntries revision={revision} owner={session.data?.actor?.id} project={project} openCount={openCount} onChanged={onChanged} />
       <NeedsMe key={project} revision={revision} session={session} onChanged={onChanged} project={project} onlyOpen />
     </section>
   )

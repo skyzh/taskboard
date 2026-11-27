@@ -282,6 +282,21 @@ def request_log_item(row, people, db, *, recover_title):
     return item
 
 
+FYI_EVENTS = """
+    SELECT events.at, events.id, events.task_id
+    FROM task_watches JOIN events ON events.task_id = task_watches.task_id
+    WHERE task_watches.watcher = ? AND events.id > task_watches.after_event
+      AND events.action NOT IN ('add', 'assign-human', 'redirect-decision', 'withdraw-decision', 'decide')
+    UNION ALL
+    SELECT events.at, events.id, events.task_id
+    FROM extension_notifications JOIN events ON events.id = extension_notifications.event_id
+    WHERE extension_notifications.recipient = ? AND NOT EXISTS (
+        SELECT 1 FROM task_watches WHERE task_watches.task_id = events.task_id
+          AND task_watches.watcher = ? AND events.id > task_watches.after_event
+    )
+"""
+
+
 class BoardQueries:
     def __init__(self, db, base, *, local_links=False, project_roster=None,
                  standing_exploration=goals.STANDING_EXPLORATION, principal=None):
@@ -2739,11 +2754,40 @@ class BoardQueries:
         reviews = self.request_log(project=project, actionable_reviewer=recipient, count_only=True)
         return decisions_and_requests + reviews
 
-    def inbox(self, recipient, *, creations, today, before, limit, project=None, include_actions=True):
+    def can_acknowledge_fyi(self, recipient, event_id):
+        scope, bindings = self.project_visibility()
+        return self.db.execute(
+            f"""SELECT 1 FROM ({FYI_EVENTS}) AS watched JOIN tasks ON tasks.id = watched.task_id
+                WHERE watched.id = ? AND {scope}""",
+            (recipient, recipient, recipient, event_id, *bindings),
+        ).fetchone() is not None
+
+    def inbox(self, recipient, *, creations, today, before, limit, project=None, include_actions=True,
+              fyi_history=False):
         current_tasks, bindings = self.current_visible_tasks()
         scope, visibility_bindings = self.project_visibility()
-        args = [*bindings, project, project, *visibility_bindings, recipient, project, project, creations, recipient, recipient, recipient,
-                include_actions, recipient, include_actions, recipient, today]
+        if fyi_history:
+            watched = """
+                SELECT events.at, 'event', events.id, 'watched'
+                FROM watched_fyi_receipts AS fyi JOIN events ON events.id = fyi.event_id
+                JOIN visible_tasks ON visible_tasks.id = events.task_id
+                WHERE fyi.recipient = ?
+            """
+            watched_args = (recipient,)
+        else:
+            watched = f"""
+                SELECT watched.at, 'event', watched.id, 'watched'
+                FROM ({FYI_EVENTS}) AS watched JOIN visible_tasks ON visible_tasks.id = watched.task_id
+                LEFT JOIN watched_fyi_receipts AS fyi ON fyi.event_id = watched.id AND fyi.recipient = ?
+                WHERE fyi.event_id IS NULL
+            """
+            watched_args = (recipient, recipient, recipient, recipient)
+        include_actions = include_actions and not fyi_history
+        args = [
+            *bindings, project, project, *visibility_bindings, recipient, project, project,
+            creations and not fyi_history, *watched_args, include_actions, recipient,
+            include_actions, recipient, today, fyi_history,
+        ]
         cursor_filter = ""
         if before is not None:
             cursor_filter = "WHERE (at, source, id) < (?, ?, ?)"
@@ -2759,19 +2803,7 @@ class BoardQueries:
                 JOIN current_tasks ON current_tasks.id = events.task_id
                 WHERE action = 'add' AND ?
                 UNION ALL
-                SELECT events.at, 'event', events.id, 'watched'
-                FROM task_watches JOIN events ON events.task_id = task_watches.task_id
-                JOIN visible_tasks ON visible_tasks.id = events.task_id
-                WHERE task_watches.watcher = ? AND events.id > task_watches.after_event
-                  AND events.action NOT IN ('add', 'assign-human', 'redirect-decision', 'withdraw-decision', 'decide')
-                UNION ALL
-                SELECT events.at, 'event', events.id, 'watched'
-                FROM extension_notifications JOIN events ON events.id = extension_notifications.event_id
-                JOIN visible_tasks ON visible_tasks.id = events.task_id
-                WHERE extension_notifications.recipient = ? AND NOT EXISTS (
-                    SELECT 1 FROM task_watches WHERE task_watches.task_id = events.task_id
-                    AND task_watches.watcher = ? AND events.id > task_watches.after_event
-                )
+                {watched}
                 UNION ALL
                 SELECT at, 'decision', event_id, 'decision'
                 FROM current_tasks JOIN visible_tasks ON visible_tasks.id = current_tasks.id
@@ -2781,7 +2813,7 @@ class BoardQueries:
                 FROM attention_requests JOIN visible_tasks ON visible_tasks.id = attention_requests.task_id
                 WHERE ? AND recipient = ? AND handled_at IS NULL AND {ATTENTION_DUE}
                 UNION ALL
-                SELECT at, 'readiness', id, 'readiness' FROM readiness_pending
+                SELECT at, 'readiness', id, 'readiness' FROM readiness_pending WHERE NOT ?
             )
             SELECT * FROM candidates {cursor_filter}
             ORDER BY at DESC, source DESC, id DESC LIMIT ?

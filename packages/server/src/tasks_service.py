@@ -3660,20 +3660,83 @@ def create_app(
                     ledger.bump_revision(connection)
         return {"task_creations": creation_subscription(actor)}
 
+    def fyi_ack_opted_in(connection, recipient):
+        return connection.execute(
+            "SELECT 1 FROM watched_fyi_preferences WHERE principal = ?", (recipient,),
+        ).fetchone() is not None
+
+    @app.get("/api/v1/notifications/preferences/watched-ack")
+    @app.post("/api/v1/notifications/preferences/watched-ack")
+    def watched_ack_preference():
+        change = request.method == "POST"
+        actor = current_actor(write=change, required=True)
+        recipient = actor["ledger_key"]
+        if change:
+            enabled = json_body({"enabled"}).get("enabled")
+            if type(enabled) is not bool:
+                raise RequestError("Choose whether watched updates can be acknowledged.")
+            with tasks_storage.write(db()) as connection:
+                saved = connection.execute(
+                    "INSERT INTO watched_fyi_preferences (principal) VALUES (?) ON CONFLICT DO NOTHING"
+                    if enabled else "DELETE FROM watched_fyi_preferences WHERE principal = ?",
+                    (recipient,),
+                )
+                if saved.rowcount:
+                    ledger.bump_revision(connection)
+        return {"enabled": fyi_ack_opted_in(db(), recipient)}
+
+    @app.post("/api/v1/notifications/watched/<int:event_id>/acknowledge")
+    def acknowledge_watched_notification(event_id):
+        actor = current_actor(write=True, required=True)
+        recipient = actor["ledger_key"]
+        with tasks_storage.write(db()) as connection:
+            if not query().can_acknowledge_fyi(recipient, event_id):
+                raise RequestError("This watched update is unavailable.", 404)
+            if not fyi_ack_opted_in(connection, recipient):
+                raise RequestError("Enable acknowledgment for watched updates first.", 409)
+            saved = connection.execute(
+                """INSERT INTO watched_fyi_receipts (recipient, event_id, acknowledged_at)
+                   VALUES (?, ?, ?) ON CONFLICT (recipient, event_id) DO NOTHING""",
+                (recipient, event_id, ledger.timestamp()),
+            )
+            if saved.rowcount:
+                ledger.bump_revision(connection)
+        return {"acknowledged": True}
+
     @app.get("/api/v1/notifications/inbox")
     def notification_inbox():
         actor = current_actor(required=True)
         before = ordered_feed_cursor(request.args, ("event", "decision", "request", "readiness"), "the inbox")
         limit = integer(request.args.get("limit", 20), "limit", maximum=100)
         view = request.args.get("view", "all")
-        if view not in ("all", "updates"):
-            raise RequestError("Choose all or updates for the inbox view.")
+        if view not in ("all", "updates", "acknowledged"):
+            raise RequestError("Choose all, updates, or acknowledged for the inbox view.")
         with tasks_storage.read(db()):
-            return query().inbox(
+            page = query().inbox(
                 actor["ledger_key"], creations=view == "all" and creation_subscription(actor),
                 today=pacific_day(ledger.timestamp()),
                 before=before, limit=limit, project=project_scope(request.args), include_actions=view == "all",
+                fyi_history=view == "acknowledged",
             )
+
+            for row in page["items"]:
+                event = row["item"]
+                if row["kind"] != "watched" or event["action"] != "done":
+                    continue
+                task = ledger.get_task(db(), event["task_id"])
+                if (task["state"] != "done" or task["event_id"] != event["id"] or ledger.is_knowledge(task)
+                        or ledger.task_goal_kind(db(), task["id"]) or peer_asks.find(db(), task["id"])):
+                    continue
+                project = projects.row_project(task)
+                manager = projects.manages(db(), project, actor["ledger_key"])
+                if manager or can_collaborate_on_transition(db(), actor, task):
+                    row["reopen"] = {
+                        "task": {"id": task["id"], "key": projects.row_reference(task),
+                                 "state": task["state"], "dri": task["dri"]},
+                        "project": project,
+                        "can_assign": manager and not ledger.has_live_ticket_recurrence(db(), task["id"]),
+                    }
+            return page
 
     @app.get("/api/v1/notifications/open-count")
     def open_notification_count():
