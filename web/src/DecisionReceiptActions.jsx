@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { BoardLink, useBoardNavigation } from './BoardNavigation.jsx'
 import { queryPath, request, useResource } from './data.js'
 import { projectFilters, projectHref } from './projectScope.js'
@@ -17,36 +17,54 @@ export default function DecisionReceiptActions({ project, revision }) {
   const path = queryPath('/notifications/decisions/next', projectFilters(project))
   const queue = useResource(path, revision)
   const navigate = useBoardNavigation()
+  const pending = useRef(null)
   const [checking, setChecking] = useState(false)
   const [message, setMessage] = useState(null)
   const next = !queue.pending && !queue.error ? queue.data?.next : null
 
-  async function openNext(event) {
-    if (!navigate || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-    event.preventDefault()
-    if (checking) return
+  useEffect(() => () => {
+    pending.current?.abort()
+    pending.current = null
+  }, [path])
+
+  function cancelNavigation() {
+    pending.current?.abort()
+    pending.current = null
+    setChecking(false)
+  }
+
+  async function openNext() {
+    if (!navigate || pending.current) return
+    const active = new AbortController()
+    pending.current = active
     setChecking(true)
     setMessage(null)
     try {
-      const current = await request(path, { cache: 'no-store' })
+      const current = await request(path, { signal: active.signal, cache: 'no-store' })
+      if (active.signal.aborted) return
       if (current.next) navigate(decisionTicketHref(current.next, project))
       else {
         setMessage('No open decisions remain.')
         queue.retry()
       }
     } catch {
+      if (active.signal.aborted) return
       setMessage('Could not refresh your decisions. Open the list or try again.')
       queue.retry()
     } finally {
-      setChecking(false)
+      if (pending.current === active) {
+        pending.current = null
+        setChecking(false)
+      }
     }
   }
 
   return (
     <>
-      {next && <BoardLink className="decision-return" href={decisionTicketHref(next, project)}
-        aria-disabled={checking || undefined} onClick={openNext}>Next decision ({queue.data.count} in inbox)</BoardLink>}
-      {' '}<BoardLink className="decision-return" href={decisionsHref(project)}>Return to decisions</BoardLink>
+      {next && <button className="decision-return" type="button" disabled={checking} onClick={openNext}>
+        Next decision ({queue.data.count} in inbox)
+      </button>}
+      {' '}<BoardLink className="decision-return" href={decisionsHref(project)} onClick={cancelNavigation}>Return to decisions</BoardLink>
       {message && <p className="section-message" role="status">{message}</p>}
     </>
   )

@@ -620,7 +620,8 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
             </>}
             <DecisionForm key={`${id}:${session.data?.actor?.id ?? session.data?.actor?.name ?? ''}`}
               task={task} session={session} onChanged={onChanged}
-              receiptAction={canAnswer ? undefined : <DecisionReceiptActions project={decisionProject} revision={revision} />} />
+              receiptAction={canAnswer ? undefined : <DecisionReceiptActions key={decisionProject || 'all'}
+                project={decisionProject} revision={revision} />} />
           </section>
           {task && <>
             {signedIn && <NeedsYouSend key={`${id}:${session.data.actor.id}`} ticket={task.key || id}
