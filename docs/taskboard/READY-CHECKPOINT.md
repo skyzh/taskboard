@@ -142,7 +142,8 @@ or a review cue on an active goal you own. Give the reason and a duration or an 
 ./tasks --shared cue-pause T-123 stalled --clear
 ```
 
-A pause survives watcher restarts. The next eligible watcher poll after expiry or early clear
+A goal pause also covers automatic stalled recovery for the same goal. A pause survives watcher
+restarts. The next eligible watcher poll after expiry or early clear
 rechecks the cue with the usual deduplication. Ready work, named review assignments, explicit
 worker checkpoints, ticket state and goal cadence keep their usual behavior.
 

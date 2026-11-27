@@ -293,6 +293,27 @@ class ReadyCheckpointTest(unittest.TestCase):
 
         self.assertEqual([row.get("task") for row in outcomes], [None, "T-1"])
 
+    def test_goal_pause_suppresses_the_in_progress_stalled_fallback(self):
+        self.avery.invoke("save-goal", {"kind": "standing", "summary": "Improve handoffs."}, write=True)
+        self.avery.invoke("advance-task", {"id": "T-1", "transition": "start", "note": "Checking."}, write=True)
+        now = "2030-04-01T19:00:00Z"
+        due = "2030-04-01T19:30:00Z"
+        with patch("tasks_core.timestamp", side_effect=lambda: now):
+            self.avery.invoke("set-cue-pause", {
+                "id": "T-1", "kind": "goal", "until": due, "reason": "A worker is checking.",
+            }, write=True)
+            outcomes = self.run_repeat_for(2000, idle=lambda _: True,
+                                           stalled=lambda *_: self.fail("Paused goal woke through stalled fallback"))
+            self.assertEqual(outcomes, [])
+
+            def stalled(_clock, offer, check):
+                self.assertTrue(check())
+                return "wake-requested"
+
+            now = due
+            outcomes = self.run_repeat_for(2200, idle=lambda _: True, stalled=stalled)
+            self.assertEqual([row["task"] for row in outcomes], ["T-1"])
+
     def test_stalled_wake_rechecks_work_and_idle_even_after_selecting_a_step(self):
         offer = {"kind": "request", "task": "T-3", "task_id": 3, "event_id": 7}
         for change in ("new-step", "no-longer-actionable", "became-working", "new-ready"):
