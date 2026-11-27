@@ -26,6 +26,6 @@ Choose evidence suited to the goal.
 
 Ask the human through a linked Taskboard decision when their answer changes the next action. Include the options, consequences, timing, and evidence. Preserve the original answer with the goal. If a decision sets a reusable rule, record the rule, scope, and source in Knowledge. Record completion separately from approval to expand a rollout or experiment.
 
-When the recipient requests recurring progress updates, send one nonblocking FYI per owner and review period. Link the recorded outcome and explain what changed, what improved or stayed steady, and what comes next. Reuse the same request key on retry. Keep questions that need a decision in the linked decision flow.
+After each Explore pass, use the evidence to choose Continue, Pivot, or Stop and record the next step. Use the scheduled Review for synthesis across passes. When the recipient requests recurring updates, follow the agreed reporting interval. Check it at each Review and send one nonblocking FYI per owner and reporting period when due. Link the outcome, explain what changed and what comes next, and reuse the request key on retry. Keep questions that need a decision in the linked decision flow.
 
 End a bounded review with the evidence, decision, and any open follow-up. For ongoing upkeep, improve this process by staging a narrow SOP edit, checking it against a later review, and retaining the decision source. When publishing team guidance, export reusable instructions and fictional examples through the repository's review process.
