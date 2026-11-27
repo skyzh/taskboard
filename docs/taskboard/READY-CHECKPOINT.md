@@ -28,6 +28,21 @@ Use this mode only where the runner hands work to an agent that Raft already rep
 
 A self-watcher can wake an agent through an anchored Raft reminder. It needs a way to know whether the agent has free capacity. The checkpoint uses the runner's signal that a work unit has finished and verifies the outcome before the runner leaves that checkpoint. The existing Ready signal can still wake an agent when ownership or Ready state changes.
 
+## Choose a state for the next pickup
+
+| State | What to expect |
+| --- | --- |
+| Ready | Owned work is actionable in signed Inbox. An automatic wake requires a configured, eligible delivery path. |
+| Waiting | Record the exact dependency or linked request. A generic wait schedules no timed wake. |
+| Parked with a date | An active reminder on an owned work ticket appears in the owner's signed Inbox on that Pacific date. Unassigned backlog has no owner Inbox. Use the recurring review for a scheduled goal. |
+| Parked with an exact time | The scheduler can return the ticket to Ready at or after the saved time. The Ready transition still needs an eligible delivery path to wake the agent. |
+| In progress | Keep the next runnable step visible. The opted-in stalled-work watcher can follow up after 30 minutes of observed Idle. Otherwise check Inbox at the next turn. |
+| Keep exploring | Record each pass and recheck Inbox and reviews before another pass. This setting does not start a watcher. Use the saved daily review or an eligible, opted-in goal watcher for idle recovery. |
+
+For ordinary work in the signed CLI, use `park T-123 "What to review" --review-after YYYY-MM-DD` for a date-only cue, or `park T-123 "What to review" --until 2030-04-01T09:00:00-07:00` for a timed return to Ready. Change the reminder on an already parked ticket with `remind --on` or `remind --until`.
+
+For a received or missing wake, check **Activity → Wake** in the project. A Ready event identifies the trigger. Use separate evidence to confirm Raft acceptance, delivery, a queue check, and Start.
+
 ## Opt-in Raft watcher
 
 For agent startup, watcher discovery, and a Computer handoff, follow the [agent startup checklist](AGENT-STARTUP.md).
