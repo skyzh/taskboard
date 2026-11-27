@@ -4,12 +4,12 @@ import json
 import subprocess
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from taskboard_client import SharedBoard, SharedReadError
 from taskboard_cli.ready_checkpoint import (
     checkpoint, main, measured_idle, raft_idle, raft_ready_count, raft_stalled_work, raft_status, raft_wake,
-    run_handler, watch_idle, watch_ready_count, watch_two_pickups,
+    run_handler, watch_idle, watch_ready_count, watch_two_pickups, watcher_reporter,
 )
 from tasks_goal_offers import idle_offer_counts
 from tasks_service import connect
@@ -37,6 +37,19 @@ class FixtureBoard:
 
 
 class ReadyCheckpointTest(unittest.TestCase):
+    def test_watcher_health_reporting_is_bounded_and_nonblocking_on_failure(self):
+        board = Mock()
+        board.invoke.side_effect = [RuntimeError("Fixture request failed."), {}, {}]
+        events = []
+        with patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=[0, 599, 600, 601]):
+            report = watcher_reporter(board, "T", stalled=True, goals=False, emit=events.append)
+            for state in ("running", "running", "running", "exited"):
+                report(state)
+        self.assertEqual([call.args[1]["state"] for call in board.invoke.call_args_list],
+                         ["running", "running", "exited"])
+        self.assertTrue(all(call.kwargs == {"write": True, "timeout": 5} for call in board.invoke.call_args_list))
+        self.assertEqual([event["kind"] for event in events], ["watcher-health-unavailable"])
+
     def setUp(self):
         service = test_tasks_service.TasksServiceTest()
         service.setUp()

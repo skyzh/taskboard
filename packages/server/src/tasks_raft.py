@@ -79,6 +79,10 @@ _ACTIONS = {
         "handoff_id": "Stable runner handoff UUID. Use only after observing Idle and reuse the same ID on retry.",
     }, _PROJECT),
     "my-goals": _Action("GET", "Read your standing and dated goals for one project.", optional=_PROJECT),
+    "report-watcher-health": _Action("POST", "Report the signed agent's managed Ready watcher's status.", {
+        "state": "running or exited.", "stalled": "Whether stalled-work wakes are enabled.",
+        "goals": "Whether goal wakes are enabled.",
+    }, {**_PROJECT, "revision": "Optional exact Git revision of a clean checkout."}),
     "my-goal-cues": _Action("GET", "Read your eligible goal review cues after checking actionable work across projects.",
                             optional={**_PROJECT, "include_timed": "Set true to include exact-time goal cues."}),
     "set-goal-review-time": _Action("POST", "Set or clear the daily review time for an owned goal.", {

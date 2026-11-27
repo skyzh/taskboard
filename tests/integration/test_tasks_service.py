@@ -2192,6 +2192,41 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(started["acceptance_at"], accepted["acceptance_at"])
         self.assertEqual(notice("ready"), fallback)
 
+    def test_watcher_reports_are_signed_project_scoped_and_time_bounded(self):
+        admin = self.provider.people["Sam"]["sub"]
+        app = self.app(portal_reader=True, project_admin_subject=admin)
+        avery, owner = self.login(app, "Avery")
+        blake, _ = self.login(app, "Blake")
+        sam, _ = self.login(app, "Sam")
+        self.call(sam, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Private examples", "visibility": "ring1",
+        })
+        self.call(sam, "/api/v1/projects/LAB/ring1", method="PUT", json={"principal": owner, "allowed": True})
+        for client, project in ((avery, "T"), (blake, "T"), (avery, "LAB")):
+            self.action(client, "create-task", {"project": project, "title": "Fixture", "step": "Read sample."})
+        path = "/api/v1/reports/watchers"
+        fields = {"state": "running", "stalled": "true", "goals": "false", "revision": "a" * 40}
+        self.action(blake, "report-watcher-health", {"project": "LAB", **fields}, status=404)
+        self.action(avery, "report-watcher-health", {**fields, "revision": "/private/path"}, status=400)
+        with patch("tasks_core.timestamp", return_value="2026-11-27T07:00:00Z"):
+            self.action(avery, "report-watcher-health", fields)
+            self.action(avery, "report-watcher-health", {"project": "LAB", **fields, "revision": "b" * 40})
+            data = self.call(blake, path, query_string={"project": "T"}).json["items"]
+            self.assertEqual([(row["name"], bool(row["watcher"])) for row in data], [("Avery", True), ("Blake", False)])
+            self.assertEqual(data[0]["watcher"], {
+                "revision": "a" * 40, "state": "running", "reported_at": "2026-11-27T07:00:00Z",
+                "stale": False, "ready": True, "stalled": True, "goals": False,
+            })
+            self.assertIsNone(data[0]["pickup"])
+            self.call(blake, path, query_string={"project": "LAB"}, status=404)
+            self.call(app.test_client(), path, query_string={"project": "T"}, status=401)
+            self.assertEqual(self.call(avery, path, query_string={"project": "LAB"}).json["items"][0]["watcher"]["revision"], "b" * 40)
+        with patch("tasks_core.timestamp", return_value="2026-11-27T07:25:00Z"):
+            self.assertTrue(self.call(blake, path).json["items"][0]["watcher"]["stale"])
+            self.action(avery, "report-watcher-health", {**fields, "state": "exited"})
+            exited = self.call(blake, path).json["items"][0]["watcher"]
+            self.assertEqual((exited["state"], exited["stale"]), ("exited", False))
+
     def test_wake_activity_distinguishes_missing_partial_and_observed_receipts(self):
         admin = self.provider.people["Sam"]["sub"]
         app = self.app(portal_reader=True, project_admin_subject=admin)

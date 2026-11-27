@@ -45,6 +45,8 @@ For a one-off goal review, use `remind T-123 --until 2030-04-01T09:00:00-07:00`.
 
 For a received or missing wake, check **Activity → Wake** in the project. A Ready event identifies the trigger. Use separate evidence to confirm Raft acceptance, delivery, a queue check, and Start.
 
+For an existing managed repeat watcher, `--report-status T` enables signed status reports for Project T. **Reports → Agent management** shows the last report, enabled modes, an exact revision when the watcher can verify a clean checkout, and the latest recorded pickup. Reporting is limited to one refresh every ten minutes while running. A stopped or disconnected process may leave a stale report. Runtime Working or Idle and actual wake delivery have separate evidence.
+
 ## Opt-in Raft watcher
 
 For agent startup, watcher discovery, and a Computer handoff, follow the [agent startup checklist](AGENT-STARTUP.md).
