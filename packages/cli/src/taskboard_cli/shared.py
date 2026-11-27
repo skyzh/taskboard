@@ -19,6 +19,18 @@ from taskboard_client.work import PEER_ASK
 from .ask_hook import check_ask
 from . import attachments
 
+AGENT_PROMPT_LABELS = {
+    "checkpoint": "Checkpoint",
+    "end-task": "End task",
+    "knowledge": "Knowledge",
+    "inbox-follow-up": "Inbox follow-up",
+    "goal-review": "Goal review",
+    "ready-pickup": "Ready pickup",
+    "stalled-follow-up": "Stalled follow-up",
+    "review-handoff": "Review handoff",
+    "worker-handoff": "Worker handoff",
+    "next-action": "Suggested next action",
+}
 
 ADVANCES = {
     "start", "update", "wait", "resume", "done", "park", "remind", "unpark",
@@ -205,6 +217,11 @@ def task_details(board, url, number, *, workers_only=False, guidance=None, conte
         text.extend(("", *context_lines))
     if not workers_only and (prompt := detail.get("goal_review_prompt")):
         text.extend(("", f"Goal review · {prompt['prompt']}"))
+    if (prompt := detail.get("workflow_prompt")) and (
+        guidance is None or detail.get("peer_request_next") or workers_only
+    ):
+        label = AGENT_PROMPT_LABELS.get(prompt["key"], "Workflow guidance")
+        text.extend(("", f"{label} · {prompt['prompt']}"))
     if not workers_only and (prompt := detail.get("progress_prompt")):
         text.extend(("", prompt["message"]))
     if guidance is None:
@@ -795,8 +812,7 @@ def shared_command(args):
             if item.get("format"):
                 lines.append(f"Format · {item['format']}")
             lines.append(f"Example · {item['example']}")
-        for name, label in (("checkpoint", "Checkpoint"), ("end-task", "End task"), ("knowledge", "Knowledge"),
-                            ("inbox-follow-up", "Inbox follow-up"), ("goal-review", "Goal review")):
+        for name, label in AGENT_PROMPT_LABELS.items():
             if args.field not in (None, name):
                 continue
             prompt = result.get("prompts", {}).get(name)
@@ -1031,10 +1047,14 @@ def shared_command(args):
         ))
     filters = {"project": args.project} if args.project else {}
     if command == "reviews":
-        output = "\n".join(
-            f"W-{run['id']} · {run['task_key']} · {run['status']} · {run['task_title']}\n  {run['brief']}"
-            for run in board.pages("my-reviews", filters)
-        )
+        lines = []
+        seen_projects = set()
+        for run in board.pages("my-reviews", filters):
+            lines.append(f"W-{run['id']} · {run['task_key']} · {run['status']} · {run['task_title']}\n  {run['brief']}")
+            if (prompt := run.get("workflow_prompt")) and prompt["project"] not in seen_projects:
+                seen_projects.add(prompt["project"])
+                lines.append(f"  Review handoff for {prompt['project']} · {prompt['prompt']}")
+        output = "\n".join(lines)
         if output:
             return with_guidance(output, prompts.get("reviews", "Open the ticket and check the review brief before starting."))
         flag = f" --project {projects.prefix(args.project)}" if args.project else ""

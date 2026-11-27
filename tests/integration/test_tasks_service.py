@@ -6412,6 +6412,63 @@ class TasksServiceTest(unittest.TestCase):
             self.assertEqual(replay["offer"], offer["offer"])
             self.assertEqual(replay["goal_review_prompt"], {"project": "T", **default})
 
+    def test_workflow_prompts_follow_signed_work_without_changing_selection(self):
+        from tasks_guidance import AgentGuidance
+
+        app = self.app(portal_reader=True, agent_guidance=AgentGuidance({"ready-review": ""}))
+        manager, manager_id = self.login(app, "Sam")
+        owner, _ = self.login(app, "Avery")
+        reviewer, reviewer_id = self.login(app, "Blake")
+        self.cli("register-project", "T", "Tasks Board", "--dri", manager_id)
+        self.cli("register-project", "LAB", "Sample lab", "--dri", manager_id)
+        path = "/api/v1/projects/T/field-guidance"
+        prompts = {
+            "ready-pickup": "Verify the assigned sample.",
+            "stalled-follow-up": "Check the saved sample checkpoint.",
+            "review-handoff": "Check the exact sample revision.",
+            "worker-handoff": "Read the sample result and record what you applied.",
+            "next-action": "Select the next measurable sample check.",
+        }
+
+        def expected(key):
+            return {"key": key, "project": "T", "source": "project", "prompt": prompts[key]}
+
+        def pickup(client=owner, project="T"):
+            return self.action(client, "my-next", query_string={"project": project})
+
+        body = {"prompt": "ready-pickup", "guidance": prompts["ready-pickup"]}
+        self.call(owner, path, method="PUT", json=body, status=403)
+        for key, prompt in prompts.items():
+            self.call(manager, path, method="PUT", json={"prompt": key, "guidance": prompt})
+        for project in ("T", "LAB"):
+            self.action(owner, "create-task", {"project": project, "title": "Sample", "step": "Read the sample."})
+        ready = pickup()
+        self.assertEqual(ready["work"]["key"], "T-1")
+        self.assertEqual(ready["workflow_prompt"], expected("ready-pickup"))
+        self.assertIn(prompts["ready-pickup"], ready["next_step"])
+        self.assertNotIn("workflow_prompt", pickup(project="LAB"))
+        self.call(manager, path, method="PUT", json={**body, "guidance": None})
+        self.assertEqual(self.call(owner, path).json["prompts"]["ready-pickup"], {"source": "board", "prompt": ""})
+        self.assertEqual(pickup()["work"], ready["work"])
+        self.assertNotIn("workflow_prompt", pickup())
+
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Read the sample."})
+        self.assertEqual(pickup()["workflow_prompt"], expected("next-action"))
+        cue, = self.action(owner, "my-ticket-cues", query_string={"project": "T"})["items"]
+        self.assertEqual((cue["kind"], cue["action"]), ("recovery", "resume-work"))
+        self.assertEqual(cue["workflow_prompt"], expected("stalled-follow-up"))
+        self.assertIn(prompts["stalled-follow-up"], self.shared_cli(owner, "show", "T-1")[1])
+        self.assertNotIn("workflow_prompt", self.action(reviewer, "task", query_string={"id": "T-1"}))
+
+        self.action(owner, "delegate", {"id": "T-1", "worker": reviewer_id, "role": "review", "brief": "Review it."})
+        self.assertEqual(pickup(reviewer)["workflow_prompt"], expected("review-handoff"))
+        self.assertIn(prompts["review-handoff"], self.shared_cli(reviewer, "reviews", "--project", "T")[1])
+        self.action(owner, "worker-handoff", {"run": "W-1", "transition": "start", "handle": "fixture-review"})
+        self.action(reviewer, "worker-handoff", {
+            "run": "W-1", "transition": "report", "note": "Verified.", "result": "completed",
+        })
+        self.assertEqual(pickup()["workflow_prompt"], expected("worker-handoff"))
+
     def test_signed_field_guidance_uses_project_overrides_and_shared_fallbacks(self):
         from tasks_guidance import load
 

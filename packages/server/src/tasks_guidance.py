@@ -139,8 +139,42 @@ _FIELDS = {
 
 INBOX_FOLLOW_UP = "inbox-follow-up"
 GOAL_REVIEW = "goal-review"
+READY_PICKUP = "ready-pickup"
+STALLED_FOLLOW_UP = "stalled-follow-up"
+REVIEW_HANDOFF = "review-handoff"
+WORKER_HANDOFF = "worker-handoff"
+NEXT_ACTION = "next-action"
+
+_LEGACY_PROMPT_KEYS = {
+    READY_PICKUP: "ready-review",
+    REVIEW_HANDOFF: "next-review",
+    WORKER_HANDOFF: "next-report",
+    NEXT_ACTION: "next-in-progress",
+}
 
 _PROMPTS = {
+    READY_PICKUP: {"prompt": _DEFAULTS["ready-review"]},
+    STALLED_FOLLOW_UP: {
+        "prompt": (
+            "Read the ticket's current handoff and check what still applies. Resume if you can move it. "
+            "If it must wait, record the dependency or set a timed revisit. "
+            "Use the signed cue controls to acknowledge the exact cue or pause future reminders."
+        ),
+    },
+    REVIEW_HANDOFF: {"prompt": _WORK_STEPS["review"]},
+    WORKER_HANDOFF: {
+        "prompt": (
+            "Check the run's brief, current step and any checkpoint. "
+            "Continue or record what blocks the run. "
+            "Read the worker's result and evidence before collecting the report."
+        ),
+    },
+    NEXT_ACTION: {
+        "prompt": (
+            "Check the current handoff and the latest evidence. Suggest one concrete next action and name its owner. "
+            "If it depends on something else, record what will unblock it or when to recheck."
+        ),
+    },
     GOAL_REVIEW: {
         "prompt": (
             "Check your signed Taskboard Inbox first. If higher-priority work is available, take it first. "
@@ -266,8 +300,7 @@ class AgentGuidance:
             "prompts": {
                 name: {
                     **default,
-                    "prompt": project_prompts.get(name, self.prompts.get(name, default["prompt"])),
-                    "source": guidance_source(name, project_prompts, self.prompts),
+                    **self.effective_prompt(name, project_prompts),
                 }
                 for name, default in _PROMPTS.items()
             },
@@ -295,10 +328,22 @@ class AgentGuidance:
 
     def project_prompt(self, db, project, name):
         project_prompts = project_values(db, project, "agent-prompt") if project is not None else {}
+        return {"project": project, **self.effective_prompt(name, project_prompts)}
+
+    def effective_prompt(self, name, project_prompts):
+        if name in project_prompts:
+            return {"prompt": project_prompts[name], "source": "project"}
+        if name in self.prompts:
+            return {"prompt": self.prompts[name], "source": "board"}
+        legacy_key = _LEGACY_PROMPT_KEYS.get(name)
+        if legacy_key in self.overrides:
+            return {"prompt": self.overrides[legacy_key], "source": "board"}
+        return {"prompt": _PROMPTS[name]["prompt"], "source": "default"}
+
+    def workflow_prompt(self, db, project, name):
         return {
-            "project": project,
-            "prompt": project_prompts.get(name, self.prompts.get(name, _PROMPTS[name]["prompt"])),
-            "source": guidance_source(name, project_prompts, self.prompts),
+            "key": name,
+            **self.project_prompt(db, project, name),
         }
 
     def next_step(self, name, data, result):
@@ -389,7 +434,7 @@ def set_writing_field(db, project, field, value):
 
 def set_agent_prompt(db, project, prompt, value):
     if prompt not in _PROMPTS:
-        raise ValueError("Choose checkpoint, end-task, knowledge, inbox-follow-up, or goal-review.")
+        raise ValueError(f"Choose a supported agent prompt: {', '.join(sorted(_PROMPTS))}.")
     return set_project_value(db, f"agent-prompt:{project}:{prompt}", value)
 
 
