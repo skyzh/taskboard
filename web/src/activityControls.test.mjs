@@ -662,7 +662,7 @@ test('attention cards link a separate blocked ticket and report only a recorded 
   fixture.resources = {}
   fixture.pages = { '/notifications/requests': { data: { items: [item] } } }
   const needsMe = renderToStaticMarkup(React.createElement(Notifications, { session: {}, verified: true, fragment: 'notifications-needs-me' }))
-  assert.match(needsMe, /href="#task-1".*Ask for signoff/)
+  assert.match(needsMe, /href="#task-1\?attention-request=8".*Ask for signoff/)
   assert.match(needsMe, /Unblocks <a href="#task-COURSE-3".*Verify the release/)
   assert.match(needsMe, /Mark handled/)
   assert.doesNotMatch(needsMe, /For your information/)
@@ -736,6 +736,19 @@ test('ticket attention hides stale requests while refreshing and preserves the h
   assert.match(after, />Retry<\/button>/)
   assert.match(after, /href="#event-24-log">View Ready event<\/a>/)
   assert.doesNotMatch(after, /Mark handled|Check the rollout\./)
+})
+
+test('a linked ticket request shows the exact update and its acknowledgment without editing', () => {
+  const item = { id: 8, task_id: 1, sender: 'Avery', reason: 'Daily review summary.',
+    raised_at: '2026-11-26T16:00:00Z', links: [] }
+  fixture.pages = { '/notifications/requests': filters => {
+    assert.deepEqual(filters, { state: 'open', task_id: 1, request_id: '8', scope: 'all' })
+    return { data: { items: [item] } }
+  } }
+  const markup = renderToStaticMarkup(React.createElement(AttentionRequests, { taskId: 1, requestId: '8' }))
+  assert.match(markup, /Inbox request/)
+  assert.match(markup, /Daily review summary/)
+  assert.match(markup, />Acknowledge<\/button>/)
 })
 
 test('Inbox keeps dated and standing goals after actionable work and every loaded page', () => {

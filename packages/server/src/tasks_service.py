@@ -3616,12 +3616,16 @@ def create_app(
     @app.get("/api/v1/notifications/requests")
     def attention_notifications():
         actor = current_actor(required=True)
+        task_id = task_number(request.args["task_id"]) if "task_id" in request.args else None
+        request_id = integer(request.args["request_id"], "request ID") if "request_id" in request.args else None
+        if request_id is not None and task_id is None:
+            raise RequestError("Open the request from its linked ticket.")
         state = request.args.get("state", "open")
         if state not in ("open", "deferred", "handled"):
             raise RequestError("Choose open, deferred, or handled requests.")
-        task_id = task_number(request.args["task_id"]) if "task_id" in request.args else None
         return query().attention(
-            actor["ledger_key"], state=state, today=pacific_day(ledger.timestamp()), task_id=task_id,
+            actor["ledger_key"], state=state if request_id is None else None,
+            today=pacific_day(ledger.timestamp()), task_id=task_id, request_id=request_id,
             project=project_scope(request.args, use_default=task_id is None),
             **page_args(request.args),
         )
