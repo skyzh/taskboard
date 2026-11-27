@@ -311,13 +311,27 @@ class GoalWakeTest(unittest.TestCase):
             if event.get("outcome") == "wake-requested":
                 raise KeyboardInterrupt
 
-        with self.assertRaises(KeyboardInterrupt):
-            watch_ready_count(board, OWNER, lambda _: True, ready, observe,
-                              interval=0, idle_delay=0, goal_state=self.path, notify_goal=goal, notify_ask=sent)
-        with patch("taskboard_cli.ready_checkpoint.sleep", side_effect=KeyboardInterrupt):
+        clock = 0
+
+        def sleep_for(seconds):
+            nonlocal clock
+            clock += seconds
+            if clock > 50:
+                raise KeyboardInterrupt
+
+        with (
+            patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+            patch("taskboard_cli.ready_checkpoint.sleep", side_effect=sleep_for),
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                watch_ready_count(board, OWNER, lambda _: True, ready, observe,
+                                  interval=10, idle_delay=0, goal_state=self.path, notify_goal=goal, notify_ask=sent)
+            self.assertEqual(clock, 40)
+            clock = 0
             with self.assertRaises(KeyboardInterrupt):
                 watch_ready_count(board, OWNER, lambda _: True, ready, Mock(),
-                                  interval=0, idle_delay=0, goal_state=self.path, notify_goal=goal, notify_ask=sent)
+                                  interval=10, idle_delay=0, goal_state=self.path, notify_goal=goal, notify_ask=sent)
+        self.assertGreater(clock, 40)
         sent.assert_called_once()
         goal.assert_not_called()
         self.assertEqual(seen[0]["reminder"], "#00110022")
