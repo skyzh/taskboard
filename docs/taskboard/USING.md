@@ -21,6 +21,25 @@ Use **Waiting on** when a named person or ticket must act first. Route a blockin
 
 ## Ask a human to unblock a ticket
 
+In **Settings → Incoming agent decisions**, a recipient can set a default
+destination and override it for an agent on the selected project. Choose
+**Use inherited destination** to reset a choice. Taskboard Needs me is the
+default. Local DRI registrations retain their existing native question mode.
+
+When an agent creates a signed board decision, the response includes a
+`decision_delivery` receipt with the effective destination, request ID and
+exact decision link. Use **Taskboard Needs me** when the route is unavailable.
+For **Raft**, send only the link to the verified recipient in a private
+message, and use Raft’s send receipt to confirm delivery. For **In-session**,
+show the link in the verified creator’s current Local DRI session if the
+runtime supports it. In every case, the recipient signs in to Taskboard to
+record the answer. Private projects stay in Taskboard.
+
+For a delivery retry, read signed `decision-delivery` with the ticket and
+original `request_id`, and check the carrier’s receipt before sending again.
+The read verifies the request is still open, returns the current preference,
+and leaves the original request in place.
+
 This workflow applies to every project using Taskboard.
 
 1. Put the blocking question on the existing ticket as a **Decision**. Assign it to the person who can answer. State the exact question, include clear choices when useful, and link any external approval or question on the same ticket. The named person can answer directly on the ticket or from **Notifications → Needs me**.

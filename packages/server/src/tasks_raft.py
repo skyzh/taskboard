@@ -75,6 +75,9 @@ _ACTIONS = {
         "project": "Tasks project prefix.", "fields": "Full field list encoded as a JSON array.",
     }),
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE),
+    "decision-delivery": _Action("GET", "Read the effective route for an original decision you requested.", {
+        **_TASK, "request_id": "Exact open decision event from the original signed write.",
+    }),
     "idle-goal-offer": _Action("POST", "Return a standing goal at a verified idle runner handoff.", {
         "handoff_id": "Stable runner handoff UUID. Use only after observing Idle and reuse the same ID on retry.",
     }, _PROJECT),

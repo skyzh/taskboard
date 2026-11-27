@@ -8006,6 +8006,62 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Build the CSV."})
         self.assertEqual(self.call(sam, follow_through).json["items"], [])
 
+    def test_agent_decision_delivery_uses_the_recipients_current_preference(self):
+        app = self.app(portal_reader=True)
+        agent, agent_id = self.login(app, "Avery")
+        other_agent, _ = self.login(app, "Blake")
+        sam, sam_id = self.login(app, "Sam")
+        quinn, _ = self.login(app, "Quinn")
+        settings = "/api/v1/notifications/preferences/ask-destination"
+
+        def save(destination, **scope):
+            return self.call(sam, settings, method="POST", json={"destination": destination, **scope}).json
+
+        self.assertEqual(self.call(sam, settings).json, {"destination": "taskboard", "source": "default"})
+        self.call(agent, settings, method="POST", json={"destination": "raft"}, status=403)
+        self.call(sam, settings, method="POST", json={"destination": "email"}, status=400)
+        self.assertEqual(save("raft"), {"destination": "raft", "source": "recipient"})
+        self.assertEqual(self.call(quinn, settings).json["destination"], "taskboard")
+        scope = {"agent": agent_id, "project": "T"}
+        self.assertEqual(save("local_prompt", **scope), {"destination": "local_prompt", "source": "agent"})
+        self.action(agent, "create-task", {"title": "Choose a sample format", "step": "Inspect samples."})
+        self.action(agent, "advance-task", {"id": "T-1", "transition": "start", "note": "Check a sample."})
+        result = self.action(agent, "advance-task", {
+            "id": "T-1", "transition": "assign-human", "on": sam_id, "note": "Which format?",
+        })["decision_delivery"]
+        self.assertEqual(result["destination"], "taskboard")
+        self.assertEqual(result["preferred"], "local_prompt")
+        self.assertIn("unavailable", result["reason"])
+        self.assertTrue(result["url"].endswith(f"/tickets/T-1?decision-request={result['request_id']}"))
+        query = {"id": "T-1", "request_id": result["request_id"]}
+        readback = self.action(agent, "decision-delivery", query_string=query)
+        self.assertEqual({key: readback[key] for key in result}, result)
+        self.action(other_agent, "decision-delivery", query_string=query, status=404)
+        self.assertEqual(save(None, **scope), {"destination": "raft", "source": "recipient"})
+        updated = self.action(agent, "decision-delivery", query_string=query)
+        self.assertEqual((updated["destination"], updated["url"]), ("raft", result["url"]))
+        self.assertEqual(updated["recipient_subject"], self.provider.people["Sam"]["sub"])
+        request, = self.call(sam, "/api/v1/notifications/decisions").json["items"]
+        self.assertEqual(request["event_id"], result["request_id"])
+        self.call(sam, "/api/v1/tasks/T-1/decision", method="POST", json={
+            "request_id": result["request_id"], "note": "Use CSV.",
+        })
+        self.action(agent, "decision-delivery", query_string=query, status=404)
+        from tasks_projects import register
+        from tasks_ring1 import mark_private
+
+        with closing(open_sqlite(self.database)) as db, db:
+            register(db, "LAB", "Fictional private lab", sam_id)
+            mark_private(db, "LAB", [agent_id, sam_id])
+        self.action(agent, "create-task", {"project": "LAB", "title": "Pick a private sample", "step": "Inspect it."})
+        self.action(agent, "advance-task", {"id": "LAB-1", "transition": "start", "note": "Check it."})
+        private = self.action(agent, "advance-task", {
+            "id": "LAB-1", "transition": "assign-human", "on": sam_id, "note": "Which private sample?",
+        })["decision_delivery"]
+        self.assertEqual((private["preferred"], private["destination"]), ("raft", "taskboard"))
+        self.assertNotIn("recipient_subject", private)
+        self.assertEqual(save(None), {"destination": "taskboard", "source": "default"})
+
     def test_next_decision_matches_the_signed_queue_order_and_scope(self):
         app = self.app(portal_reader=True)
         agent, agent_id = self.login(app, "Avery")

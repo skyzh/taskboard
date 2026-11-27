@@ -552,6 +552,8 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertEqual(saved, {**legacy, **board_mode})
         self.assertEqual(call(sam, REGISTER, method="POST", headers=ORIGIN, json=payload).json["local_dri"], saved)
         self.assertEqual(action(client, "context", headers=sender)["human_questions"], "taskboard")
+        call(sam, "/api/v1/notifications/preferences/ask-destination", method="POST", headers=ORIGIN,
+             json={"agent": legacy["id"], "project": "T", "destination": "local_prompt"})
         action(client, "advance-task", {**question, "id": "OPS-1"}, headers=sender, status=409)
         action(client, "advance-task", {**question, "on": manager_id}, headers=sender, status=404)
         action(client, "advance-task", {**question, "on": quinn_id, "on_name": "Quinn"}, headers=sender, status=400)
@@ -573,10 +575,16 @@ class LocalDRIRoutingTest(unittest.TestCase):
             self.assertEqual(tasks_main([*command, "assign-human", "T-1", question["note"],
                                          "--option", "Summary", "--option", "Full result"]), 0)
             self.assertIn("Decision requested", output.getvalue())
+            self.assertIn("Show this decision link in the recipient's current session.", output.getvalue())
             self.assertEqual(errors.getvalue(), "")
 
         action(client, "advance-task", question, headers=sender, status=409)
         first, = call(sam, decisions).json["items"]
+        delivery = action(client, "decision-delivery", query_string={
+            "id": "T-1", "request_id": first["event_id"],
+        }, headers=sender)
+        self.assertEqual(delivery["destination"], "local_prompt")
+        self.assertTrue(delivery["url"].endswith(f"/tickets/T-1?decision-request={first['event_id']}"))
         self.assertEqual(call(quinn, decisions).json["items"], [])
         self.assertEqual(action(manager, "task", query_string={"id": "T-1"})["task"]["waiting_on"], sam_id)
         action(client, "advance-task", {**question, "transition": "redirect-decision", "on": quinn_id,
