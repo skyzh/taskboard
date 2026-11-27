@@ -17,12 +17,14 @@ from sqlalchemy import BigInteger, Integer, LargeBinary, Text, create_engine, in
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 
+from tasks_api_usage import COLUMNS as API_USAGE_COLUMNS, TABLE as API_USAGE_TABLE
 from tasks_storage import Postgres, SCHEMA_REVISION_TABLE, open_sqlite
 
 
 PROFILE_BASELINE = "0001_profiles_baseline"
 PROFILE_SHORT_ROLE = "0002_profile_short_role"
 RECURRING_REVIEW_TICKETS = "0003_recurring_review_tickets"
+AGENT_API_USAGE = "0004_agent_api_usage"
 IDENTITY = ["server_id", "kind", "subject"]
 REQUIRED_TEXT = frozenset({*IDENTITY, "ledger_key", "username", "name"})
 OPTIONAL_TEXT = frozenset("""
@@ -144,6 +146,11 @@ def recognized_revision(connection):
         {column["name"] for column in catalog.get_columns(table)} != columns for table, columns in tables.items()
     )):
         raise ValueError("The Taskboard recurring review tables have an unsupported layout.")
+    if catalog.has_table(API_USAGE_TABLE):
+        columns = {column["name"] for column in catalog.get_columns(API_USAGE_TABLE)}
+        if profiles != PROFILE_SHORT_ROLE or not present or columns != API_USAGE_COLUMNS:
+            raise ValueError("The Taskboard request usage table has an unsupported layout.")
+        return AGENT_API_USAGE
     if profiles == PROFILE_SHORT_ROLE and present:
         return RECURRING_REVIEW_TICKETS
     return profiles

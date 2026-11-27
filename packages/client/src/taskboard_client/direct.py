@@ -14,7 +14,10 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 import webbrowser
 
-from .connection import APP_REJECTION, SharedBoard, SharedReadError, TEMPORARY_READ_STATUS, attention_retry_hint, reply_json
+from .connection import (
+    APP_REJECTION, WORK_TICKET_HEADER, SharedBoard, SharedReadError, TEMPORARY_READ_STATUS,
+    attention_retry_hint, reply_json, work_ticket_context,
+)
 
 
 TOKEN = re.compile(r"tbpa_[A-Za-z0-9_-]{43}")
@@ -112,6 +115,8 @@ class DirectBoard(SharedBoard):
         if self.local_dri is not None:
             headers["X-Taskboard-Local-DRI"] = self.local_dri
         if authenticate:
+            if context := work_ticket_context():
+                headers[WORK_TICKET_HEADER] = context
             token = token or self.credentials.read()
             if token:
                 headers["Authorization"] = f"Bearer {token}"

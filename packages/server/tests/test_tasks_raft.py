@@ -78,7 +78,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "search-tasks": ("GET", "q project", "before limit"),
             "search-with-decisions": ("GET", "q", "before limit"),
             "knowledge-areas": ("GET", "", "project"),
-            "knowledge-sweep": ("GET", "", "scope project before limit"),
+            "knowledge-sweep": ("GET", "", "scope q project before limit"),
             "knowledge-assign": ("POST", "id", "dri"),
             "create-project": ("POST", "prefix title", "dri visibility"),
             "create-knowledge": ("POST", "brief project title", ""),
@@ -137,7 +137,7 @@ class RaftActionRoutesTest(unittest.TestCase):
                 method, required, optional = expected[name]
                 self.assertEqual(action["endpoint"], {"method": method, "path": f"{ACTIONS}/{name}"})
                 params = action["parameters"]
-                self.assertEqual(set(params), set(required.split() + optional.split()))
+                self.assertEqual(set(params), set(required.split() + optional.split()) | {"work_ticket"})
                 self.assertEqual({key for key, spec in params.items() if spec["required"]}, set(required.split()))
                 self.assertTrue(all(spec["type"] == "string" and spec["description"] for spec in params.values()))
         self.assertEqual(self.calls, [])

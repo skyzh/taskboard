@@ -24,7 +24,7 @@ from test_tasks_project_move import replay_move
 from test_tasks_recurring import replay_project_tick, replay_reusable_upgrade, replay_team_schedules, replay_ticket_recurrence
 import test_tasks_ring1 as ring1_fixture
 import test_tasks_reports_presence as presence_fixture
-from taskboard_server.migrate import PROFILE_SHORT_ROLE, RECURRING_REVIEW_TICKETS, migrate
+from taskboard_server.migrate import PROFILE_SHORT_ROLE, AGENT_API_USAGE, migrate
 from tasks_core import import_notification_on
 from tasks_service import create_app
 from tasks_storage import Postgres, SCHEMA_REVISION_TABLE, open_sqlite
@@ -95,6 +95,24 @@ class StorageReplayTest(unittest.TestCase):
     def test_postgres(self):
         self.replay(self.postgres_app(self.postgres_fixture()))
 
+    def test_postgres_signed_request_usage_preserves_the_work_ticket(self):
+        dsn = self.postgres_fixture()
+        app = self.postgres_app(dsn, api_usage=True)
+        owner, _ = self.board.login(app, "Avery")
+        self.board.action(owner, "create-task", {"title": "Keep the fictional ticket", "step": "Read it."})
+        self.board.action(owner, "task", query_string={"id": "T-1", "work_ticket": "T-1, 1"})
+        knowledge = self.board.action(owner, "create-knowledge", {
+            "project": "T", "title": "Fictional Knowledge", "brief": "Example guidance.",
+        })["id"]
+        self.board.action(owner, "task", query_string={"id": "T-1", "work_ticket": knowledge})
+        report = self.board.action(owner, "api-usage-report")
+        counts = {(row["scope"], row.get("ticket")): row["calls"]
+                  for row in report["items"] if row["category"] == "GET task"}
+        self.assertEqual(counts, {("agent", None): 2, ("unattributed", None): 1, ("ticket", "T-1"): 1})
+        disabled, _ = self.board.login(self.postgres_app(dsn), "Avery")
+        query = {"id": "T-1", "work_ticket": "T-1"}
+        self.assertEqual(self.board.action(disabled, "task", query_string=query)["task"]["key"], "T-1")
+
     def test_postgres_browser_push(self):
         dsn = self.postgres_fixture()
         self.board.replay_browser_push(lambda config: self.postgres_app(dsn, browser_push_config=config))
@@ -138,6 +156,7 @@ class StorageReplayTest(unittest.TestCase):
         with closing(Postgres(dsn)) as db:
             self.assertEqual(db.execute("SELECT schema_version FROM taskboard_writer WHERE id = 1").fetchone()[0], 1)
             db.execute(f"DROP TABLE {SCHEMA_REVISION_TABLE}")
+            db.execute("DROP TABLE agent_api_usage")
             db.execute("DROP TABLE recurring_review_runs")
             db.execute("DROP TABLE recurring_review_tickets")
             db.execute("ALTER TABLE board_principals DROP COLUMN short_role")
@@ -268,6 +287,7 @@ class StorageReplayTest(unittest.TestCase):
         source_engine = create_engine("sqlite+pysqlite://", creator=lambda: open_sqlite(snapshot), poolclass=NullPool)
         self.addCleanup(source_engine.dispose)
         with source_engine.begin() as connection:
+            connection.exec_driver_sql("DROP TABLE agent_api_usage")
             connection.exec_driver_sql("DROP TABLE recurring_review_runs")
             connection.exec_driver_sql("DROP TABLE recurring_review_tickets")
             connection.exec_driver_sql(f"UPDATE {SCHEMA_REVISION_TABLE} SET version_num = '{PROFILE_SHORT_ROLE}'")
@@ -294,8 +314,8 @@ class StorageReplayTest(unittest.TestCase):
         self.assertNotIn(SCHEMA_REVISION_TABLE, imported)
         target_engine = create_engine(dsn.replace("postgresql://", "postgresql+psycopg://", 1), poolclass=NullPool)
         self.addCleanup(target_engine.dispose)
-        self.assertEqual(migrate(target_engine)["recorded_revision"], RECURRING_REVIEW_TICKETS)
-        self.assertEqual(migrate(target_engine, apply=True)["applied_revision"], RECURRING_REVIEW_TICKETS)
+        self.assertEqual(migrate(target_engine)["recorded_revision"], AGENT_API_USAGE)
+        self.assertEqual(migrate(target_engine, apply=True)["applied_revision"], AGENT_API_USAGE)
 
         owner, signed_id = self.board.login(self.postgres_app(dsn), "Avery")
         task = self.board.action(owner, "task", query_string={"id": "T-1"})["task"]

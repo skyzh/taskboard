@@ -119,15 +119,16 @@ print(json.dumps({{"ok": True, "data": {{"result": {{"actor": actor, "board": "h
                 process.wait(timeout=5)
     checked = run([server / "taskboard-migrate", "--db", database, "check"], cwd=directory,
                   environment=environment, capture_output=True, text=True)
-    assert json.loads(checked.stdout)["recorded_revision"] == "0003_recurring_review_tickets"
+    assert json.loads(checked.stdout)["recorded_revision"] == "0004_agent_api_usage"
     with closing(sqlite3.connect(database)) as ledger:
         ledger.execute("DROP TABLE taskboard_schema_revision")
+        ledger.execute("DROP TABLE agent_api_usage")
         ledger.execute("DROP TABLE recurring_review_runs")
         ledger.execute("DROP TABLE recurring_review_tickets")
         ledger.execute("ALTER TABLE board_principals DROP COLUMN short_role")
     upgraded = run([server / "taskboard-migrate", "--db", database, "upgrade"], cwd=directory,
                    environment=environment, capture_output=True, text=True)
-    assert json.loads(upgraded.stdout)["applied_revision"] == "0003_recurring_review_tickets"
+    assert json.loads(upgraded.stdout)["applied_revision"] == "0004_agent_api_usage"
 
 
 if __name__ == "__main__":

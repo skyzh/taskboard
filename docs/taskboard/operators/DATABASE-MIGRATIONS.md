@@ -39,6 +39,13 @@ and revision changes roll back together.
 Start the target release on the upgraded copy. Sign in and open an existing
 ticket. Compare its title and owner and read the original profile.
 
+Revision `0004_agent_api_usage` creates the daily aggregate table.
+Collection stays off until an operator explicitly enables it in the serving
+environment. Rehearse the upgrade on a restored copy. Verify the existing
+ticket and profile still open, then make an attributed request with fictional
+data on the copy. A rollback to a build that only recognizes the earlier
+schema uses the pre-upgrade backup.
+
 Ticket-first recurrence uses the tables installed by
 `0003_recurring_review_tickets`. A schema upgrade creates those tables if
 needed. Adopting a specific schedule is a separate owner action. Existing

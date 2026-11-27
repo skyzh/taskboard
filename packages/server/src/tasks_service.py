@@ -28,6 +28,7 @@ from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 import tasks_audit as audit
 import tasks_agent_usage
+import tasks_api_usage
 import tasks_ticket_fields as ticket_fields
 import tasks_codex_usage
 import tasks_core as ledger
@@ -615,6 +616,7 @@ def create_app(
     stamp_reader=None,
     codex_usage=None,
     agent_usage_snapshot=None,
+    api_usage=False,
     codex_snapshot_uploader=None,
     codex_snapshot_upload_sources=None,
     personal_codex_pilot=None,
@@ -672,6 +674,8 @@ def create_app(
     if personal_codex_pilot and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
         raise ValueError("Personal Codex reporting requires a fixed-server shared board with Raft sign-in.")
     public_raft_links = {} if marketplace or local_readonly else project_links.public_raft_links(public_raft_channel_urls)
+    if api_usage and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
+        raise ValueError("Use request usage diagnostics on a fixed Raft board.")
     if agent_usage_snapshot and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
         raise ValueError("Use an agent usage snapshot on a fixed Raft board.")
     if codex_usage and (marketplace or local_readonly or not (raft_config or {}).get("server_id")):
@@ -891,6 +895,26 @@ def create_app(
             response.headers["Cache-Control"] = "no-store"
         elif request.path.startswith(("/api/v1", "/auth/")) and "Cache-Control" not in response.headers:
             response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.after_request
+    def record_request_usage(response):
+        actor = g.get("actor")
+        if not api_usage or actor is None or actor["kind"] != "agent" or not request.path.startswith("/api/v1/"):
+            return response
+        if request.method == "OPTIONS" or not request.endpoint or g.get("personal_agent_api"):
+            return response
+        declared = request.headers.get(tasks_api_usage.HEADER, g.get("work_ticket_context"))
+        category = f"{request.method} {request.endpoint.removeprefix('raft_action_')}"
+        if response.status_code < 300:
+            category = g.get("usage_lookup", category)
+        try:
+            with tasks_storage.changes(db()) as connection:
+                tasks_api_usage.record(connection, pacific_day(ledger.timestamp()), actor["ledger_key"],
+                                       category, tasks_api_usage.references(declared))
+        except Exception:
+            # Diagnostics must not change a completed request or log its parameters.
+            app.logger.warning("Taskboard request usage increment failed.")
         return response
 
     def db():
@@ -2895,7 +2919,10 @@ def create_app(
     @app.get("/api/v1/tasks/<number>")
     def task(number):
         actor = current_actor()
-        return detail(task_number(number), actor)
+        result = detail(task_number(number), actor)
+        if api_usage and result["task"]["record_kind"] == "knowledge":
+            g.usage_lookup = "knowledge-open"
+        return result
 
     @app.post("/api/v1/tasks/<number>/ownership")
     def task_ownership(number):
@@ -3113,6 +3140,8 @@ def create_app(
         action = text(args, "action", optional=True, maximum=40)
         actor = text(args, "actor", optional=True, maximum=160)
         project = project_scope(args)
+        if api_usage and action in {"decision", "decide"}:
+            g.usage_lookup = "decision-lookup"
         if action == "wake":
             with tasks_storage.read(db()) as connection:
                 return notification_log.listing(
@@ -3258,6 +3287,8 @@ def create_app(
         entry = text(data, "entry", optional=True, maximum=28)
         source = text(data, "source", optional=True, maximum=28)
         key = actor["ledger_key"]
+        if api_usage and (data.get("q") or entry or source):
+            g.usage_lookup = "knowledge-lookup"
         return query().maintained_decisions(
             actor=key, project=project, maintenance_dri=key if scope == "assigned" else None,
             updated_order=order == "updated",
@@ -3333,6 +3364,23 @@ def create_app(
         snapshot = tasks_agent_usage.load(agent_usage_snapshot, server_id)
         with tasks_storage.read(db()) as connection:
             return tasks_agent_usage.report(connection, server_id, snapshot)
+
+    def request_usage_report(data):
+        actor = current_actor(required=True, sync_profile=False)
+        day_value = text(data, "day", optional=True, maximum=10)
+        try:
+            day = date.fromisoformat(day_value or pacific_day(ledger.timestamp()))
+        except ValueError as error:
+            raise RequestError("Use a Pacific date such as 2026-11-26.") from error
+        project = project_filter(data)
+        with tasks_storage.read(db()) as connection:
+            manager = project is not None and projects.manages(connection, project, actor["ledger_key"])
+            return tasks_api_usage.report(connection, day, actor["ledger_key"], project, project_manager=manager)
+
+    if api_usage:
+        @app.get("/api/v1/reports/api-usage")
+        def report_api_usage():
+            return request_usage_report(request.args)
 
     @app.get("/api/v1/reports/agent-usage")
     def report_agent_usage():
@@ -4389,6 +4437,8 @@ def create_app(
         return limits
 
     def dispatch_action(name, data):
+        if name == "api-usage-report" and api_usage:
+            return request_usage_report(data)
         if name == "agent-usage-report":
             return agent_usage_report()
         write = request.method != "GET"
@@ -4545,6 +4595,8 @@ def create_app(
             with tasks_storage.read(db()) if prompt_enabled else nullcontext():
                 result = detail(number, actor)
                 task = result["task"]
+                if api_usage and task["record_kind"] == "knowledge":
+                    g.usage_lookup = "knowledge-open"
                 if (prompt_enabled and task["dri"] == key and task["state"] == "in_progress"
                         and not (task["waiting_on"] or task.get("blockers"))
                         and (activity := query().owner_progress((number,)).get(number))):
@@ -4597,6 +4649,8 @@ def create_app(
         if name == "tagged-tasks":
             text(data, "project", maximum=8)
             tag = tag_filter(data, optional=False)
+            if api_usage and tag == knowledge_records.DECISION_TAG:
+                g.usage_lookup = "decision-lookup"
             return query().tasks(
                 project=project_filter(data), tag=tag, include_knowledge=tag == knowledge_records.DECISION_TAG,
                 **page_args(data),
@@ -4834,7 +4888,7 @@ def create_app(
 
         register_actions(app, public_url=base, client_id=raft_config["client_id"], dispatch=dispatch,
                          codex_snapshot_upload=codex_snapshot_uploader is not None,
-                         demo_review=demo_review_config is not None)
+                         demo_review=demo_review_config is not None, api_usage=api_usage)
 
     if prefix:
         mounted = DispatcherMiddleware(NotFound(), {prefix: app.wsgi_app})
@@ -4937,6 +4991,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             portal_upstream_token=portal_upstream_token, github_reader=github, websocket_revisions=websocket_revisions,
             codex_usage=tasks_codex_usage.configuration(os.environ),
             agent_usage_snapshot=tasks_agent_usage.configuration(os.environ),
+            api_usage=os.environ.get("TASKS_API_USAGE") == "1",
             codex_snapshot_uploader=os.environ.get("TASKS_CODEX_SNAPSHOT_UPLOADER_SUBJECT") or None,
             codex_snapshot_upload_sources=os.environ.get("TASKS_CODEX_SNAPSHOT_UPLOAD_SOURCES"),
             personal_codex_pilot=personal_codex.configuration(os.environ),

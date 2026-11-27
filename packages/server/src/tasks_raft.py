@@ -6,7 +6,9 @@ import re
 from typing import Callable
 from urllib.parse import urlsplit
 
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
+
+from taskboard_client.connection import WORK_TICKET_PARAMETER
 
 _ACTION_PREFIX = "/api/v1/raft"
 ACTION_MANIFEST_PATH = "/.well-known/raft-agent-manifest.json"
@@ -144,7 +146,8 @@ _ACTIONS = {
     }, {"brief": "Background and scope of the work.", **_PROJECT, **_EVIDENCE, **_TEXT_OVERRIDE}),
     "knowledge-areas": _Action("GET", "List Knowledge area indexes on the signed-in board.", optional=_PROJECT),
     "knowledge-sweep": _Action("GET", "List all accessible Knowledge or entries assigned to you for maintenance.",
-                              optional={"scope": "Choose board (default) or assigned.", **_PROJECT, **_PAGINATION}),
+                              optional={"scope": "Choose board (default) or assigned.", "q": "Search Knowledge text.",
+                                        **_PROJECT, **_PAGINATION}),
     "knowledge-assign": _Action("POST", "Set or clear an entry's maintenance DRI as project manager.", _TASK, {
         "dri": "Exact verified ledger key of a DRI. Omit to clear the assignment.",
     }),
@@ -360,6 +363,7 @@ def _invoke(name, action, dispatch):
     missing = [key for key in action.required if data.get(key) is None]
     if missing:
         return _error("MISSING_PARAMETER", f"Supply the required parameters {', '.join(missing)}.")
+    g.work_ticket_context = data.pop(WORK_TICKET_PARAMETER, None)
     return _json(dispatch(name, data))
 
 
@@ -383,7 +387,7 @@ def _public_base(public_url):
 
 def register_actions(app: Flask, *, public_url: str, client_id: str,
                      dispatch: Callable[[str, dict], dict], codex_snapshot_upload: bool = False,
-                     demo_review: bool = False) -> None:
+                     demo_review: bool = False, api_usage: bool = False) -> None:
     """Publish the action contract and delegate all authenticated work to dispatch."""
     origin, mount = _public_base(public_url)
     if not re.fullmatch(r"[a-z][a-z0-9-]{2,63}", client_id):
@@ -402,6 +406,17 @@ def register_actions(app: Flask, *, public_url: str, client_id: str,
             {"observation": "Bounded JSON comparison observation encoded as text."},
             {"apply": "Send true to write the ticket. Omit to preview."},
         )}
+    if api_usage:
+        actions = {**actions, "api-usage-report": _Action(
+            "GET", "Read daily signed-agent requests and visible ticket attribution.",
+            optional={"day": "Pacific date (YYYY-MM-DD).", "project": "Project prefix for ticket rows."},
+        )}
+    actions = {
+        name: _Action(action.method, action.description, action.required, action.optional | {
+            WORK_TICKET_PARAMETER: "Optional comma-separated active work tickets for request diagnostics.",
+        })
+        for name, action in actions.items()
+    }
     public_base = f"{origin}{mount}"
     manifest = {
         "schema": "raft-agent-manifest.v0",

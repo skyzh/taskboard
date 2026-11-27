@@ -28,6 +28,7 @@ TABLES = (
     "intake_errors", "attention_requests", "attention_wait_links", "notification_preferences", "notification_log",
     "wake_subscriptions", "wake_log", "goal_idle_offers",
     "knowledge_areas", "knowledge_entries", "knowledge_stages", "knowledge_maintenance_assignments",
+    "agent_api_usage",
 )
 # Ephemeral deployment records and migration history belong to the source database.
 NON_PORTABLE_TABLES = {

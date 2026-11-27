@@ -22,7 +22,7 @@ ADVANCES = {
 }
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
          "search", "knowledge-areas", "knowledge-sweep", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance",
-         "worker-check", "projects", "agent-usage", "project-access", ledger.READ}
+         "worker-check", "projects", "agent-usage", "api-usage", "project-access", ledger.READ}
 WRITES = ADVANCES | {
     "confirm-blocker", "create-project", "raise-attention",
     "add", "transfer", "log", "record-merge", "priority", "watch", "unwatch", "link-source", "link-reference",
@@ -619,6 +619,9 @@ def shared_command(args):
     if command in ("add", "list", "next", "recurring-add"):
         assert_actor(args.dri, actor)
     prompts = context.get("cli_guidance", {})
+    if command == "api-usage":
+        params = {key: value for key, value in {"day": args.day, "project": args.project}.items() if value}
+        return json.dumps(board.invoke("api-usage-report", params), ensure_ascii=False)
     if command == "agent-usage":
         return json.dumps(board.invoke("agent-usage-report"), ensure_ascii=False)
     if command == "project-access":
@@ -781,6 +784,8 @@ def shared_command(args):
         return json.dumps(board.invoke(command, filters, write=True), ensure_ascii=False)
     if command == "knowledge-sweep":
         filters = {"scope": args.scope, "limit": args.limit}
+        if args.query is not None:
+            filters["q"] = args.query
         if args.project is not None:
             filters["project"] = projects.prefix(args.project)
         if args.before is not None:

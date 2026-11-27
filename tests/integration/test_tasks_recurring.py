@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 import taskboard_cli
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
-from taskboard_server.migrate import PROFILE_SHORT_ROLE, RECURRING_REVIEW_TICKETS, migrate
+from taskboard_server.migrate import PROFILE_SHORT_ROLE, AGENT_API_USAGE, migrate
 from taskboard_server.ready_wake import launch_ready_wake
 import tasks_core
 import tasks_maintenance
@@ -347,11 +347,12 @@ def replay_reusable_upgrade(test, fixture, restart, open_board, engine):
     change("pause", "2026-11-20T06:00:00Z")
     # Only the predecessor tables contain data before the upgrade.
     with open_board() as db, write(db):
+        db.execute("DROP TABLE agent_api_usage")
         db.execute("DROP TABLE recurring_review_runs")
         db.execute("DROP TABLE recurring_review_tickets")
         db.execute(f"UPDATE {SCHEMA_REVISION_TABLE} SET version_num = ?", (PROFILE_SHORT_ROLE,))
     test.assertEqual(migrate(engine)["recognized_revision"], PROFILE_SHORT_ROLE)
-    test.assertEqual(migrate(engine, apply=True)["applied_revision"], RECURRING_REVIEW_TICKETS)
+    test.assertEqual(migrate(engine, apply=True)["applied_revision"], AGENT_API_USAGE)
 
     app = restart()
     manager, _ = fixture.login(app, "Avery")
