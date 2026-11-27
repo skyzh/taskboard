@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Pre-send ask checker.** Configure a local Tasks CLI command to review signed decisions, peer asks and attention requests before submission. The versioned JSON contract supports revision feedback and keeps the board's existing permissions and retry behavior. [Configure the checker](SHARED-BOARD.md#check-an-ask-before-sending)
+
 - **Rollback preparation for request diagnostics.** This build can serve a ledger already stamped at the known additive diagnostics revision while preserving its schema and data. An ordinary startup on the current revision leaves it in place. It rejects mismatched layouts.
 
 - **Ticket Decision entries.** Record a choice, its rationale, and what changes next in ticket Activity. Use Record Decision in the ticket, `log --decision --details` in the shared CLI, or the signed HTTP or MCP action. Existing Inbox answers appear in the Decision filter and retain their original request link. Checkpoints and custom project prompts remain readable. Reconnect MCP to discover its new tool. [Recording guidance](AGENT-STARTUP.md#record-activity-with-the-right-action)

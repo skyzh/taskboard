@@ -15,6 +15,8 @@ from taskboard_client import work as ledger
 from taskboard_client.merge_details import merge_details
 from taskboard_client.work import PEER_ASK
 
+from .ask_hook import check_ask
+
 
 ADVANCES = {
     "start", "update", "wait", "resume", "done", "park", "remind", "unpark",
@@ -215,12 +217,16 @@ def with_guidance(output, guidance):
 
 def shared_write(board, args, *, context):
     command = args.command
-    data = evidence(args)
+    ask_evidence = evidence(args)
+    data = dict(ask_evidence)
     force_text = getattr(args, "force_text", False)
     if command == "raise-attention":
+        reference = task_ref(args.id)
+        unblocks = task_ref(args.unblocks) if args.unblocks is not None else None
+        check_ask(command, reference, args.reason, recipient=args.on, unblocks=unblocks, evidence=data or None)
         return board.raise_attention(
-            task_ref(args.id), args.reason, recipient=args.on, request_key=args.request_key,
-            unblocks=task_ref(args.unblocks) if args.unblocks is not None else None, force_text=force_text, **data,
+            reference, args.reason, recipient=args.on, request_key=args.request_key,
+            unblocks=unblocks, force_text=force_text, **data,
         )
     if command == "save-goal":
         action = command
@@ -419,6 +425,11 @@ def shared_write(board, args, *, context):
         data["force_delivery"] = True
     if force_text:
         data["force_text"] = True
+    if command == "assign-human":
+        check_ask(command, data["id"], data["note"], recipient=args.on, details=data.get("details"),
+                  options=args.option or None, evidence=ask_evidence or None)
+    elif command == PEER_ASK and args.change == "create":
+        check_ask(command, data["id"], data["note"], recipient=args.recipient, evidence=ask_evidence or None)
     return board.invoke(action, {key: value for key, value in data.items() if value is not None}, write=True)
 
 
