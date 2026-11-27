@@ -1,4 +1,5 @@
 from contextlib import closing
+from datetime import datetime, timezone
 from io import StringIO
 import json
 import subprocess
@@ -10,7 +11,7 @@ from taskboard_client import SharedBoard, SharedReadError
 from taskboard_cli.ready_checkpoint import (
     MANAGED_RESTART, STALLED_READ, ReadyReadStopped,
     checkpoint, main, measured_idle, raft_idle, raft_ready_count, raft_stalled_work, raft_status, raft_wake,
-    run_handler, watch_idle, watch_ready_count, watch_two_pickups, watcher_reporter,
+    run_handler, runtime_observer, watch_idle, watch_ready_count, watch_two_pickups, watcher_reporter,
 )
 from tasks_goal_offers import idle_offer_counts
 from tasks_service import connect
@@ -21,6 +22,28 @@ COUNT_WAKE_GUIDANCE = (
     "Take Taskboard Inbox work first. When work and reviews clear, take one standing-goal pass if offered. "
     "After parking it, recheck Inbox for actionable work and end exploration for the turn."
 )
+
+
+class RuntimeObserverTest(unittest.TestCase):
+    def test_opted_in_watcher_records_each_minute_and_preserves_failed_reads(self):
+        board = Mock()
+        emit = Mock()
+        observe = Mock(side_effect=["working", "idle", "stopped", "unavailable", RuntimeError("read failed")])
+        sample = runtime_observer(board, "T", observe, emit)
+        observed_times = [datetime(2026, 11, 27, 18, minute, second, tzinfo=timezone.utc)
+                          for minute, second in ((0, 1), (0, 11), (1, 1), (2, 1), (3, 1))]
+        with patch("taskboard_cli.ready_checkpoint.datetime", wraps=datetime) as clock:
+            clock.now.side_effect = observed_times
+            for expected in ("working", "idle", "stopped", "unavailable"):
+                self.assertEqual(sample("Avery"), expected)
+            with self.assertRaisesRegex(RuntimeError, "read failed"):
+                sample("Avery")
+        samples = [call.args[1] for call in board.invoke.call_args_list]
+        self.assertEqual([sample["state"] for sample in samples], ["working", "unavailable", "unknown", "unknown"])
+        self.assertEqual(len({sample["run_id"] for sample in samples}), 1)
+        self.assertTrue(all(call.args[0] == "report-runtime-observation" and call.kwargs["write"]
+                            for call in board.invoke.call_args_list))
+        emit.assert_not_called()
 
 
 class FixtureBoard:

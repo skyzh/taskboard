@@ -200,3 +200,35 @@ records a Start. Compare the scheduled time, Ready event, Raft dispatch and
 fire receipt, and signed Start. Confirm that any replay leaves a single Ready
 transition. The CI fixture covers the repository's behavior, and this
 deployment check confirms the configured scheduler and carrier.
+
+## Runtime timeline pilot
+
+Runtime collection is off by default. This pilot requires a fixed-server
+Raft board on SQLite with the operator deferral timer. PostgreSQL boards
+reject pilot configuration at startup. After the operator and the agent
+owner agree on the pilot, set both `TASKS_RUNTIME_PILOT_PROJECT` and
+`TASKS_RUNTIME_PILOT_AGENT_SUBJECT` on the board. They authorize one
+project and one verified Raft agent subject. Keep the existing managed
+watcher and its wake settings. Add `--report-runtime PROJECT` to the
+approved repeat watcher command to report its own observations.
+
+The board records the observation time, a normalized runtime state, and a
+random continuity ID for that watcher run. It accepts one sample per UTC
+minute. Failed or ambiguous polls are Unknown, while an explicitly stopped
+runtime is Unavailable. The chart joins adjacent agreeing observations
+from one run. It leaves gaps for transitions, missing slots, restarts, and
+time outside sampled coverage. Project membership controls who appears in a
+project's view. Runtime state describes the agent across its work.
+
+Signed readers can request a single visible project's intervals at
+`/api/v1/stats/runtime` with `project`, `from`, and `to`
+(UTC timestamps, up to seven days). Stats uses the same projection.
+Reads exclude samples outside the rolling seven-day window. The shared
+board's operator tick (including the deferral-only timer) removes expired
+observations using the current server time, even when the pilot is disabled
+or the watcher stops. Before activation, confirm the
+[SQLite deferral timer](SHARED-BOARD.md#run-the-sqlite-deferral-timer)
+runs the current CLI against the active ledger. To opt out, remove
+`--report-runtime` and stop reporting, then unset both board settings.
+Keep the checked operator tick running until retained samples expire.
+Historical backfill is unsupported.
