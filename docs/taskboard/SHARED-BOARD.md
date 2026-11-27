@@ -1055,6 +1055,28 @@ Wait for any active recurring service run to finish and confirm both
 recurring units are inactive. The deferral timer can continue to release
 exact-time reminders.
 
+## Read published Knowledge without signing in
+
+On a single shared board, a signed editor can publish a reviewed copy of a
+Knowledge entry. Open the public link without a session to read that copy.
+Search and pagination include published copies. Updates to the internal entry
+take effect publicly after the editor publishes a new copy. Ring 1 entries
+require their existing access.
+
+To include a file, select an attachment from an editable ticket in the same
+project. Its public link grants access to that file through the published entry.
+Removing the selection, deleting the source attachment, or unpublishing
+disables that link. Public responses use `Cache-Control: no-store`.
+
+The signed publication API uses `GET`, `PUT`, and `DELETE` at
+`/api/v1/knowledge/<ticket>/publication`. Send `title`, `body`, and an
+`attachment_ids` array when publishing. The signed response contains
+`publication` with the public fields and selected source file IDs, or null.
+Anonymous clients read `/api/v1/public/knowledge` with optional `q`, `limit`,
+and `before` parameters. Pass the returned `next_cursor` as `before`.
+Read the full public copy at `/api/v1/public/knowledge/<public_id>` and use
+the provided `download_url` for each approved file.
+
 ## Organize and maintain Knowledge
 
 Knowledge entries are project records with a ticket ID, brief, links, and Activity. Create an entry directly and use its brief to record the current guidance. A signed project writer or project manager can create an entry. Project writers can edit its title and brief. The project manager organizes entries in an area. Use linked work tickets for proposed changes, assignments, and reviews.

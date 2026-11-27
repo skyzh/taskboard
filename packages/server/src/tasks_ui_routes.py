@@ -12,6 +12,7 @@ OWNER = r"(?!\.{1,2}$)[^/\\\x00-\x1f\x7f]{1,160}"
 PAGE = (
     rf"(?:reports(?:/agents/{OWNER})?|tasks|tickets/{RECORD}|"
     rf"activity(?:/events/{NUMBER})?|my-activity|knowledge(?:/{RECORD})?|"
+    r"public/knowledge(?:/[0-9a-f]{32})?|"
     rf"schedules(?:/R-{NUMBER})?|team-overview|stats|notifications|settings|"
     r"integrations|personal-codex|search|about)"
 )
