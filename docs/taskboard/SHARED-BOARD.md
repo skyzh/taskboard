@@ -615,6 +615,13 @@ raft integration invoke --service "$TASKS_RAFT_SERVICE" --list-actions
 
 Use your registered service key if it differs from `tasks-board`, and select a real task ID from the board. `next` and `list` are scoped to the signed-in agent's own queue. `show` reads a task the agent can access. A human answers an assigned decision by opening the exact request in the web board.
 
+In a managed Raft agent session, `--url` and `TASKBOARD_URL` select the
+registered signed board. The CLI verifies the board and agent before sending
+the operation. Use registered `/api/v1/raft/<action>` paths for the managed
+`api` command. For a human CLI connection, run from a human session and
+sign in to the explicit URL. Explicit `--local-dri` selects the registered
+Local DRI on that board.
+
 Shared CLI reads and confirmed writes end with a `Next:` line. Commands with
 JSON output include a `next_step` field. Completing a ticket points to the next
 Inbox check in that project. An empty owned queue on the older board points to

@@ -200,7 +200,8 @@ class TasksServiceTest(unittest.TestCase):
             self.call(browser, settings + "/cli-authorize", method="POST",
                       headers=origin, json={"challenge": challenge}, status=409)
 
-        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.database.parent / "client")}), \
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.database.parent / "client"),
+                                     "SLOCK_CURRENT_AGENT_ID": "", "SLOCK_AGENT_ID": ""}), \
                 patch("taskboard_client.direct.webbrowser.open", side_effect=approve), redirect_stdout(StringIO()) as out:
             transport = Mock(open=open_http)
             board = DirectBoard(ORIGIN + BASE, opener=transport)
@@ -1658,6 +1659,86 @@ class TasksServiceTest(unittest.TestCase):
         ):
             status = entrypoint()
         return status, output.getvalue(), errors.getvalue()
+
+    def test_managed_cli_uses_the_verified_raft_actor_even_with_an_explicit_url(self):
+        # Bind a historic ledger handle to prove that the signed Raft subject, rather than
+        # the handle or display name, verifies the agent that owns the managed process.
+        subject = self.provider.people["Avery"]["sub"]
+        self.cli("add", "Fictional fixture", "--dri", "Avery", "--step", "Check the signed actor.")
+        self.cli("bind-owner", "--server", SERVER, "--kind", "agent", "--subject", subject, "--ledger-key", "Avery")
+        app = self.app(portal_reader=True)
+        agent, owner = self.login(app, "Avery")
+        human, human_id = self.login(app, "Sam")
+        self.assertEqual(owner, "Avery")
+        context = self.action(agent, "context")
+        self.assertEqual((context["actor"]["id"], context["raft_agent_subject"]), (owner, subject))
+        manifest = self.call(agent, "/.well-known/raft-agent-manifest.json").json["actions"]
+        explicit = ["--url", ORIGIN + BASE + "/"]
+        token = self.call(human, "/api/v1/personal-agents/connections", method="POST",
+                          headers={"Origin": ORIGIN}, json={"session": "Fictional cached CLI"}).json["token"]
+        cached_context = self.action(app.test_client(), "context", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual((cached_context["actor"]["kind"], cached_context["actor"]["id"]), ("human", human_id))
+        cached_human = Mock()
+        cached_human.invoke.return_value = cached_context
+        file = self.database.parent / "api-body.json"
+        file.write_text(json.dumps({"id": "T-1", "transition": "start", "note": "Start as the managed agent."}))
+
+        with (
+            patch.dict(os.environ, {"SLOCK_CURRENT_AGENT_ID": subject, "SLOCK_AGENT_ID": subject,
+                                    "TASKBOARD_URL": ORIGIN + BASE}),
+            patch("taskboard_cli.shared.DirectBoard", return_value=cached_human) as direct,
+            patch("taskboard_cli.shared.SharedBoard.action_manifest", return_value=manifest) as read_manifest,
+        ):
+            code, output, errors = self.shared_cli(agent, *explicit, "edit", "T-1", "Verify the fixture.", "--brief", "Changed by the agent.")
+            self.assertEqual((code, errors), (0, ""))
+            self.assertIn("Details updated", output)
+            code, _, errors = self.shared_cli(agent, "priority", "T-1", "high")
+            self.assertEqual((code, errors), (0, ""))
+            code, output, errors = self.shared_cli(
+                agent, "api", "/api/v1/raft/advance-task", "--method", "POST", "--data-file", str(file),
+            )
+            self.assertEqual((code, errors), (0, ""))
+            self.assertIn("Started", json.loads(output)["receipt"])
+            code, output, errors = self.shared_cli(agent, "api", "/api/v1/raft/task?id=T-1")
+            self.assertEqual((code, errors), (0, ""))
+            self.assertEqual(json.loads(output)["task"]["state"], "in_progress")
+            read_manifest.assert_called_with(context["action_manifest"])
+
+            for args, options, hint in (
+                (("--url", "https://unregistered.example/tasks", "edit", "T-1", "Verify the fixture.", "--brief", "Wrong board"), {},
+                 "outside this agent's registered Taskboard"),
+                (("api", "/api/v1/tasks/T-1", "--method", "PATCH", "--data-file", str(file)), {},
+                 "Use a registered signed Taskboard action"),
+                (("api", "/api/v1/raft/advance-task?id=T-1&transition=done"), {},
+                 "with the requested method"),
+                (("edit", "T-1", "Verify the fixture.", "--brief", "Missing credential"),
+                 {"unavailable": ("context",)}, "Could not verify this Raft agent"),
+            ):
+                with self.subTest(args=args):
+                    actions = []
+                    code, _, errors = self.shared_cli(agent, *args, actions=actions, **options)
+                    self.assertEqual(code, 1)
+                    self.assertIn(hint, errors)
+                    self.assertEqual(actions, ["context"])
+            code, _, errors = self.shared_cli(
+                agent, "edit", "T-1", "Verify the fixture.", "--brief", "Wrong actor", carrier_results={"context": cached_context},
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("did not verify this Raft agent", errors)
+            self.assertNotEqual(owner, human_id)
+            other, _ = self.login(app, "Blake")
+            code, _, errors = self.shared_cli(other, "edit", "T-1", "Verify the fixture.", "--brief", "Wrong agent")
+            self.assertEqual(code, 1)
+            self.assertIn("did not verify this Raft agent", errors)
+            direct.assert_not_called()
+
+        record = self.action(agent, "task", query_string={"id": "T-1"})
+        self.assertEqual((record["task"]["state"], record["task"]["priority"], record["brief"]),
+                         ("in_progress", "high", "Changed by the agent."))
+        activity = self.action(agent, "task-activity", query_string={"id": "T-1"})["items"]
+        self.assertEqual(len(activity), 4)
+        self.assertEqual({entry["actor"] for entry in activity}, {owner})
+
 
     def legacy_queue_fixture(self):
         app = self.app(portal_reader=True)
