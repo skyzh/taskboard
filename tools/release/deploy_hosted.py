@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+from time import monotonic
 from uuid import uuid4
 
 from ci_watch import build_checked_commit, resolve_commit
@@ -138,9 +139,20 @@ def deploy_changed(config, layout, records, commit, *, read, fetch, operate, att
     outcome = target["outcome"]
     if outcome is None:
         gate = gate or verify_required_checks(settings, commit, read)
+        preparation_started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        timings = {}
+        started = monotonic()
+
+        def finish_stage(name):
+            nonlocal started
+            finished = monotonic()
+            timings[name] = round((finished - started) * 1000)
+            started = finished
+
         if attempt is None:
             fetch(Path(config["repo"]), settings, commit)
             build = build_checked_commit(config["repo"], state, commit, python)
+            finish_stage("fetch_and_build")
         else:
             original = target["original"]
             if target["active"] != original["base"]:
@@ -150,6 +162,7 @@ def deploy_changed(config, layout, records, commit, *, read, fetch, operate, att
             build = json.loads(original_checked.read_text(encoding="utf-8"))["build"]
             if build["commit"] != commit or build["candidate"] != original["candidate"]:
                 raise ReleaseRejected("The saved build does not match the rejected artifact.")
+            finish_stage("load_saved_build")
         candidate = build["candidate"]
         artifact = state / "artifacts" / candidate
         stage = "compatibility"
@@ -159,7 +172,9 @@ def deploy_changed(config, layout, records, commit, *, read, fetch, operate, att
             policy = json.loads(Path(config["compatibility_policy"]).read_text(encoding="utf-8"))
             matrix = run_matrix(artifact, candidate, predecessor, base, policy, python)
             verify_policy_receipt(matrix, candidate, base, policy, predecessor)
-            evidence = {"github": gate, "build": build, "compatibility": matrix}
+            finish_stage("compatibility")
+            evidence = {"github": gate, "build": build, "compatibility": matrix,
+                        "preparation_started_at": preparation_started_at, "timings_ms": timings}
 
             def retry_preflight():
                 require_protected_tip(settings, commit, read)
@@ -169,8 +184,10 @@ def deploy_changed(config, layout, records, commit, *, read, fetch, operate, att
             with TemporaryDirectory(prefix=".package-", dir=records) as directory:
                 archive = Path(directory) / "release.tar"
                 stage_transfer(artifact, candidate, archive)
+                finish_stage("transfer_staging")
                 stage = "protected_tip"
                 require_protected_tip(settings, commit, read)
+                finish_stage("final_protected_tip")
                 stage = "checked_receipt"
                 write_json(checked, evidence)
                 with archive.open("rb") as source:

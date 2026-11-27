@@ -1,5 +1,6 @@
 """Read exact protected main and required check results from public GitHub."""
 
+from datetime import datetime
 import fcntl
 import json
 import re
@@ -123,7 +124,17 @@ def verify_required_checks(settings, commit, read):
             matches[0]["head_sha"], matches[0]["status"], matches[0]["conclusion"]
         ) != (commit, "completed", "success"):
             raise ReleaseRejected(f"Required check {name!r} needs a successful result on {commit}.")
-        checks[name] = {"app_id": app_id, "run_id": matches[0]["id"]}
+        run = matches[0]
+        checks[name] = {"app_id": app_id, "run_id": run["id"]}
+        completed_at = run.get("completed_at")
+        if isinstance(completed_at, str):
+            try:
+                completed = datetime.fromisoformat(completed_at)
+            except ValueError:
+                pass
+            else:
+                if completed.utcoffset() is not None:
+                    checks[name]["completed_at"] = completed_at
     require_protected_tip(settings, commit, read)
     rules = read(repo + "/rules/branches/main")
     policies = [rule["parameters"] for rule in rules if rule["type"] == "required_status_checks"]
