@@ -42,6 +42,23 @@ def read_github(path):
         raise
 
 
+def read_github_pages(path, *, field):
+    """Read CI runs or jobs in 100-item pages using the public REST transport."""
+    first = read_github(path)
+    total = first["total_count"]
+    if type(total) is not int or not 0 <= total <= 1000:
+        raise ValueError("GitHub result exceeds the supported 1,000-item window.")
+    pages = [first]
+    for offset in range(100, total, 100):
+        if len(pages[-1][field]) != 100:
+            raise ValueError("GitHub returned a short intermediate page.")
+        page = read_github(f"{path}&page={offset // 100 + 1}")
+        if page["total_count"] != total:
+            raise ValueError("GitHub changed the result count while it was being read.")
+        pages.append(page)
+    return pages
+
+
 def repository_path(settings):
     repo = settings["repo"]
     if not isinstance(repo, str) or re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+", repo) is None:
