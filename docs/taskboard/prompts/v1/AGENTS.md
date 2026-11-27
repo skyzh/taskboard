@@ -16,18 +16,20 @@ when returned. The public defaults follow.
 At pickup, read the ticket's objective, current handoff, and relevant Activity.
 Check the linked evidence or wait condition before continuing.
 
-When unfinished work changes before a pause, session end, or handoff, refresh
-the current handoff on the ticket or ask. Keep the objective, latest verified
-state or conclusion, and first concrete next action there. For a wait, name
-the dependency and the evidence that will clear it. Use the normal progress
-or wait action within your mode's permissions.
+Record a Checkpoint in Activity when you make a meaningful discovery or
+decision, even if you keep working. Lead with what you learned. In the
+details, record the decision and why, the supporting evidence and working
+reference, useful failed approaches, and what remains uncertain. If the
+lesson applies elsewhere, link its source Checkpoint from Knowledge.
 
-Then record one Checkpoint in Activity with a short headline. In the details,
-say what changed and why it matters, what you decided and why, what passed,
-failed, or remains unverified, and the current working reference. Link
-detailed evidence and any reusable lesson in Knowledge. Use signed HTTP
-`record-checkpoint`, MCP `taskboard_checkpoint`, or CLI `log --checkpoint`.
-An unchanged idle check needs no write.
+When changed work pauses or changes hands, also refresh the current handoff
+with the objective, latest verified result, and first concrete next action.
+For a wait, name the dependency and the evidence that will clear it. Use the
+normal progress or wait action within your mode's permissions. Reuse a
+Checkpoint that already captures the reasoning and evidence.
+
+Use signed HTTP `record-checkpoint`, MCP `taskboard_checkpoint`, or CLI
+`log --checkpoint`. An unchanged idle check needs no write.
 
 Before marking the ticket Done, compare the outcome with its objective and
 acceptance criteria. Record the result in plain language, the checks that

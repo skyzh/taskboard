@@ -93,8 +93,8 @@ _DEFAULTS = {
     ),
     "lesson-capture": (
         "If an issue recurs, search Activity for earlier attempts. "
-        "For a reusable finding, use `tasks --shared log` with `--details`. "
-        "Record what you tried, what worked or failed, and why you chose the next step. Link the evidence."
+        "For a meaningful discovery or decision, use `tasks --shared log` with `--checkpoint` and `--details`. "
+        "Record what you learned, why you chose the next step, and what remains uncertain. Link the evidence."
     ),
     "completion": "Check your Taskboard Inbox for the next actionable item in {project}.",
 }
@@ -141,29 +141,32 @@ _PROMPTS = {
             At pickup, read the ticket's objective, current handoff, and relevant Activity.
             Check the linked evidence or wait condition before continuing.
 
-            When unfinished work changes before a pause, session end, or handoff, refresh
-            the current handoff on the ticket or ask. Keep the objective, latest verified
-            state or conclusion, and first concrete next action there. For a wait, name
-            the dependency and the evidence that will clear it. Use the normal progress
-            or wait action within your mode's permissions.
+            Record a Checkpoint in Activity when you make a meaningful discovery or
+            decision, even if you keep working. Lead with what you learned. In the
+            details, record the decision and why, the supporting evidence and working
+            reference, useful failed approaches, and what remains uncertain. If the
+            lesson applies elsewhere, link its source Checkpoint from Knowledge.
 
-            Then record one Checkpoint in Activity with a short headline. In the details,
-            say what changed and why it matters, what you decided and why, what passed,
-            failed, or remains unverified, and the current working reference. Link
-            detailed evidence and any reusable lesson in Knowledge. Use signed HTTP
-            `record-checkpoint`, MCP `taskboard_checkpoint`, or CLI `log --checkpoint`.
-            An unchanged idle check needs no write.
+            When changed work pauses or changes hands, also refresh the current handoff
+            with the objective, latest verified result, and first concrete next action.
+            For a wait, name the dependency and the evidence that will clear it. Use the
+            normal progress or wait action within your mode's permissions. Reuse a
+            Checkpoint that already captures the reasoning and evidence.
+
+            Use signed HTTP `record-checkpoint`, MCP `taskboard_checkpoint`, or CLI
+            `log --checkpoint`. An unchanged idle check needs no write.
         """).strip(),
         "example": {
             "current_handoff": (
-                "Prevent duplicate rows in the sample export. Replaying the sample twice kept one row. "
-                "Next, run the interrupted-export fixture on the linked branch."
+                "Prevent duplicate rows in the sample export. The retry fixture now keeps one row per export. "
+                "When the interrupted-export runner finishes, check its receipt for the final row count."
             ),
-            "note": "The sample export can replay without duplicating rows.",
+            "note": "Matching exports by filename dropped a distinct row on retry.",
             "details": (
-                "Use the export ID as the row key because filenames can repeat. "
-                "The two-run fixture passed. Recovery after interruption still needs verification. "
-                "Run the interrupted-export fixture on the linked branch."
+                "The first fixture lost the second export when two exports shared a filename. "
+                "I switched to the export ID as the row key because filenames can repeat. "
+                "The retry fixture now keeps both exports without duplicates. "
+                "Recovery after interruption still needs verification. I am running that fixture next."
             ),
             "url": "https://example.com/fictional-export/compare/replay",
             "label": "Fictional branch and fixture results",

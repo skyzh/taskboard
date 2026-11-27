@@ -4156,11 +4156,15 @@ class TasksServiceTest(unittest.TestCase):
         self.assertFalse(any("export ID" in item["note"] for item in earlier_activity))
         self.assertFalse(any(item["links"] for item in earlier_activity))
 
-        example = self.action(author, "field-guidance")["prompts"]["checkpoint"]["example"]
-        self.action(author, "advance-task", {
-            "id": "T-1", "transition": "update", "note": example["current_handoff"],
-            "url": example["url"], "label": example["label"],
-        })
+        guidance = self.action(author, "field-guidance")["prompts"]["checkpoint"]
+        self.assertEqual(guidance["source"], "default")
+        self.assertEqual(self.call(author, "/api/v1/projects/T/field-guidance").json["prompts"]["checkpoint"], guidance)
+        self.assertIn("even if you keep working", guidance["prompt"])
+        example = guidance["example"]
+        code, output, error = self.shared_cli(author, "field-guidance", "--project", "T")
+        self.assertEqual((code, error), (0, ""))
+        self.assertIn(guidance["prompt"], output)
+        self.assertIn(example["note"], output)
         payload = {"id": "T-1", **{key: example[key] for key in ("note", "details", "url", "label")}}
         self.action(app.test_client(), "record-checkpoint", payload, status=401)
         self.action(author, "record-checkpoint", {**payload, "note": "Two\nlines"}, status=400)
@@ -4170,14 +4174,15 @@ class TasksServiceTest(unittest.TestCase):
         fresh, _ = self.login(app, "Blake")
         current = self.action(fresh, "task", query_string={"id": "T-1"})["task"]
         self.assertEqual((current["state"], current["dri"], current["action"]), ("in_progress", author_id, "update"))
-        self.assertEqual(current["note"], example["current_handoff"])
-        self.assertIn("Next, run the interrupted-export fixture", current["note"])
+        self.assertEqual(current["note"], earlier["task"]["note"])
+        self.assertEqual(current["event_id"], earlier["task"]["event_id"])
         activity = self.action(fresh, "task-activity", query_string={"id": "T-1"})["items"]
         entry = activity[0]
         self.assertEqual((entry["action"], entry["label"], entry["actor"]), ("log", "Checkpoint", author_id))
         self.assertIs(entry["context"]["checkpoint"], True)
         self.assertEqual(entry["headline"], example["note"])
         self.assertIn("export ID as the row key because filenames can repeat", entry["details"])
+        self.assertIn("lost the second export", entry["details"])
         self.assertIn("still needs verification", entry["details"])
         self.assertEqual(entry["links"], [{"url": example["url"], "label": example["label"], "unavailable": False}])
         self.assertEqual(self.call(fresh, "/api/v1/activity", query_string={"action": "checkpoint"}).json["items"], [entry])
@@ -4193,10 +4198,14 @@ class TasksServiceTest(unittest.TestCase):
         self.action(fresh, "field-guidance")
         self.action(fresh, "task-activity", query_string={"id": "T-1"})
         self.assertEqual(self.call(fresh, "/api/v1/revision").json, revision)
-        code, output, error = self.shared_cli(author, "log", "T-1", "Paused after the fixture.",
-                                              "--checkpoint", "--details", "Continue with the checked example.")
+        code, output, error = self.shared_cli(
+            author, "wait", "T-1", example["current_handoff"], "--on", "export fixture host", "--automation",
+        )
         self.assertEqual((code, error), (0, ""))
-        self.assertIn("T-1 · Checkpoint", output)
+        self.assertIn("T-1 · Wait recorded", output)
+        paused = self.action(fresh, "task", query_string={"id": "T-1"})["task"]
+        self.assertEqual((paused["state"], paused["note"]), ("waiting", example["current_handoff"]))
+        self.assertEqual(self.call(fresh, "/api/v1/activity", query_string={"action": "checkpoint"}).json["items"], [entry])
 
     def test_default_prompts_match_every_standalone_integration_template(self):
         app = self.app(portal_reader=True)
