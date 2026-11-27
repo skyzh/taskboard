@@ -808,6 +808,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   const actor = params.get('actor')?.trim().slice(0, 160) || ''
   const requestedAction = params.get('action')
   const wakes = requestedAction === 'wake'
+  const pendingWakes = wakes && params.get('wake_status') === 'pending'
   const action = wakes || Object.hasOwn(actions, requestedAction) ? requestedAction : ''
   const complete = params.get('detail') === 'all'
   const hideRequests = params.get('hide_requests') === 'true'
@@ -819,7 +820,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   const filterCount = [actor, action, complete, hideRequests].filter(Boolean).length
   const filtered = filterCount > 0
   const page = useLoadedPages('/activity', { ...projectFilters(project), actor, action, detail: full ? 'all' : 'outcomes',
-    ...(hideRequests && { hide_requests: true }) }, revision)
+    ...(hideRequests && { hide_requests: true }), ...(pendingWakes && { wake_status: 'pending' }) }, revision)
   const items = page.data?.items || []
   const onPage = !wakes && items.some(event => event.id === requested)
   const linked = useResource(requested && !onPage ? `/activity/${requested}` : null, revision)
@@ -841,11 +842,12 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
     : ([...actorNames].find(([, key]) => key === actor)?.[0] || profileName(actor))
 
   function changeFilters(next, replace = false) {
-    const filters = { actor, action, complete, hideRequests, ...next }
+    const filters = { actor, action, complete, hideRequests, pendingWakes, ...next }
     const scope = new URLSearchParams({
       ...(params.has('project') || params.get('scope') === 'all' ? projectFilters(project) : {}),
       ...(filters.actor && { actor: filters.actor }),
       ...(filters.action && { action: filters.action }),
+      ...(filters.action === 'wake' && filters.pendingWakes && { wake_status: 'pending' }),
       ...(filters.complete && { detail: 'all' }),
       ...(filters.hideRequests && { hide_requests: 'true' }),
     })
@@ -862,7 +864,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   return (
     <section className="work-log" id="work-log-title" aria-labelledby="activity" tabIndex={-1}>
       <div className="page-heading activity-heading">
-        <h1 id="activity">Activity</h1>
+        <h1 id="activity">{pendingWakes ? 'Pending notifications' : 'Activity'}</h1>
         {projectPicker}
         <div className="activity-filter-controls">
           <button type="button" className="activity-filter-toggle" ref={filterToggle}
@@ -903,7 +905,14 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
           Hide peer requests
         </label>
       </div>
-      {wakes && <p>Ready events are possible wake triggers. Each stage shows the evidence recorded for that event.</p>}
+      {wakes && <>
+        <button type="button" onClick={() => changeFilters({ pendingWakes: !pendingWakes })}>
+          {pendingWakes ? 'Show all wake activity' : 'Show pending notifications'}
+        </button>
+        <p>{pendingWakes
+          ? 'Current Ready work and the wake evidence recorded so far.'
+          : 'Ready events are possible wake triggers. Each stage shows the evidence recorded for that event.'}</p>
+      </>}
       <ResourceStatus resource={page} label="activity" />
       {showLinkedErrorAnchor
         ? <div id={eventHref(requested).slice(1)} tabIndex={-1}>
@@ -919,7 +928,8 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
         </section>
       )}
       {page.data?.items.length === 0 && !linked.pending && !linkedEvent && (
-        <p className="section-message" role="status">{filtered ? 'No matching activity.' : 'No activity to show.'}</p>
+        <p className="section-message" role="status">{pendingWakes ? 'No pending notifications for these filters.'
+          : filtered ? 'No matching activity.' : 'No activity to show.'}</p>
       )}
       {[...days].sort(([left], [right]) => right.localeCompare(left)).map(([day, events]) => (
         <section className="outcome-day" aria-label={day} key={day}>

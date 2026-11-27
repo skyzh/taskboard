@@ -2338,6 +2338,32 @@ class TasksServiceTest(unittest.TestCase):
         old_log = self.call(normal, "/api/v1/notifications/log", query_string={"project": "T"}).json
         self.assertNotIn(missing["event"], {row["id"] for row in old_log["items"]})
 
+        dispatched = create("Delivered, waiting for Start")
+        queued = create("Dispatch pending")
+        suppressed = create("Suppressed delivery")
+        receipt(dispatched, acceptance={"status": "accepted", "at": dispatched["at"]},
+                delivery={"status": "delivered", "at": dispatched["at"]})
+        receipt(queued, acceptance={"status": "pending", "at": queued["at"]})
+        receipt(suppressed, acceptance={"status": "accepted", "at": suppressed["at"]},
+                delivery={"status": "suppressed", "at": suppressed["at"]})
+        pending = wakes(normal, scope="all", wake_status="pending")["items"]
+        self.assertEqual([row["id"] for row in pending], [
+            source["event"] for source in (suppressed, queued, dispatched, partial, rejected, missing)
+        ])
+        self.assertTrue(all(row["reason"] == "ready" and not row["started_at"] for row in pending))
+        self.assertEqual([(row["acceptance"], row["delivery"]) for row in pending[:3]], [
+            ("accepted", "suppressed"), ("pending", None), ("accepted", "delivered"),
+        ])
+        self.assertEqual([row["id"] for row in wakes(avery, project="LAB", wake_status="pending")["items"]],
+                         [restricted["event"]])
+        with closing(open_sqlite(self.database)) as db, db:
+            task_id = int(missing["task"].removeprefix("T-"))
+            ready_update = record(db, task_id, "update", owner, "ready", "Peer result acknowledged.", None, [])
+        current = wakes(normal, project="T", wake_status="pending")["items"]
+        self.assertEqual(current[0]["id"], ready_update)
+        self.assertEqual(current[0]["trigger"], "update")
+        self.assertNotIn(missing["event"], {row["id"] for row in current})
+
         for source in (observed, restricted):
             self.action(avery, "delegate", {
                 "id": source["task"], "worker": reviewer, "role": "review", "brief": "Check this fixture.",

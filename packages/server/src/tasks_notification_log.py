@@ -370,7 +370,7 @@ def has_receipts(db, project, *, principal=None):
 
 
 def listing(db, project, recipient, state, kind, *, before, limit, before_wake=False, principal=None,
-            include_triggers=False, hide_requests=False):
+            include_triggers=False, hide_requests=False, pending_wakes=False):
     visibility, visible_args = ring1.visibility(db, "tasks.project_prefix", principal)
     filters, bindings = ["(? IS NULL OR tasks.project_prefix = ?)", visibility], [project, project, *visible_args]
     if recipient is not None:
@@ -390,6 +390,15 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
         bindings.append(int(state == "pending"))
     if include_triggers:
         filters.append("principals.kind = 'agent'")
+    if pending_wakes:
+        filters.append("""
+            events.state = 'ready' AND tasks.dri = notices.recipient
+            AND notices.start_event_id IS NULL
+            AND events.id = (
+                SELECT MAX(id) FROM events AS latest
+                WHERE latest.task_id = tasks.id AND latest.action NOT IN ('source-event', 'log')
+            )
+        """)
     if hide_requests:
         filters.append("NOT EXISTS (SELECT 1 FROM peer_asks WHERE peer_asks.task_id = tasks.id)")
     # Ready events are possible wake triggers. Their presence does not show
@@ -408,7 +417,7 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
                    {', '.join('NULL' for _ in (*TIME_COLUMNS, *WAKE_COLUMNS))}
             FROM events JOIN tasks ON tasks.id = events.task_id
             WHERE events.state = 'ready' AND tasks.record_kind = 'work'
-              AND events.action IN ('add', 'transfer', 'resume', 'unpark', 'decide', 'withdraw-decision')
+              AND events.action IN ('add', 'transfer', 'resume', 'unpark', 'decide', 'withdraw-decision', 'update')
               AND NOT EXISTS (SELECT 1 FROM wake_log WHERE source_event_id = events.id)
     """ if include_triggers else ""
     rows = db.execute(
@@ -428,6 +437,10 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
                events.at AS source_at, events.action AS source_action, notices.status_at, notices.status,
                {', '.join(TIME_COLUMNS)}, {', '.join(WAKE_COLUMNS)}, started.at AS started_at,
                tasks.id, tasks.project_prefix, tasks.project_number,
+               CASE WHEN peer_asks.result_event_id = events.id THEN 'review_result'
+                    WHEN peer_asks.review_run_id IS NOT NULL THEN 'review_request'
+                    WHEN peer_asks.task_id IS NOT NULL THEN 'follow_up'
+                    ELSE 'ready' END AS wake_reason,
                acknowledged.id AS request_ack_event_id, acknowledged.at AS request_ack_at
         FROM receipts AS notices
         JOIN events ON events.id = notices.source_event_id
@@ -435,11 +448,11 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
         JOIN board_principals AS principals ON principals.ledger_key = notices.recipient
         LEFT JOIN events AS started ON started.id = notices.start_event_id
         LEFT JOIN peer_asks ON notices.kind = 'wake' AND peer_asks.task_id = tasks.id
-            AND peer_asks.result_event_id = events.id AND peer_asks.requester = notices.recipient
         -- The first terminal event distinguishes acknowledgment from a cancellation followed by reconciliation.
         LEFT JOIN events AS acknowledged ON acknowledged.id = (
             SELECT terminal.id FROM events AS terminal
             WHERE terminal.task_id = peer_asks.task_id AND terminal.id > events.id AND terminal.state = 'done'
+                AND peer_asks.result_event_id = events.id AND peer_asks.requester = notices.recipient
             ORDER BY terminal.id LIMIT 1
         ) AND acknowledged.action = 'done' AND acknowledged.actor = peer_asks.requester
         WHERE {' AND '.join(filters)}
@@ -459,7 +472,7 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
             "task_id": row["id"], "task": projects.row_reference(row), "source_at": row["source_at"],
             "status": row["status"], "status_at": row["status_at"],
             **({
-                **({"trigger": row["source_action"]} if include_triggers else {}),
+                **({"trigger": row["source_action"], "reason": row["wake_reason"]} if include_triggers else {}),
                 "cue": f"{projects.row_reference(row)} became Ready for this agent.",
                 "started_at": row["started_at"],
                 **({"request_acknowledgment": {"id": row["request_ack_event_id"], "at": row["request_ack_at"]}}

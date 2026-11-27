@@ -3207,7 +3207,8 @@ def create_app(
             with tasks_storage.read(db()) as connection:
                 return notification_log.listing(
                     connection, project, actor, "all", "wake", principal=actor_key(),
-                    include_triggers=True, hide_requests=args.get("hide_requests") == "true", **page_args(args),
+                    include_triggers=True, hide_requests=args.get("hide_requests") == "true",
+                    pending_wakes=args.get("wake_status") == "pending", **page_args(args),
                 )
         return query().events(
             feed=feed, actor=actor, action=action, project=project,
