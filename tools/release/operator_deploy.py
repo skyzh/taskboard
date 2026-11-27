@@ -117,6 +117,16 @@ def retry_origin(config, commit):
     return outcome
 
 
+def require_reconciled_retries(original_receipt, current_receipt=None):
+    for journal in original_receipt.parent.glob(f"{original_receipt.stem}-retry-*.activation"):
+        result = journal.with_suffix(".json")
+        if result != current_receipt and not result.is_file():
+            raise ReleaseRejected(
+                f"Reconcile the interrupted Pi activation journal {journal.name} before retrying.",
+                "activation_unreconciled",
+            )
+
+
 def read_main_state(config, layout, commit, *, attempt=None):
     receipt = checked_main_receipt(config, commit, attempt)
     queue = receipt.parent.parent
@@ -128,6 +138,8 @@ def read_main_state(config, layout, commit, *, attempt=None):
         elif receipt.with_suffix(".activation").is_file():
             raise ReleaseRejected("An activation was interrupted before saving its outcome. Reconcile the Pi journal.")
         else:
+            if attempt is not None:
+                require_reconciled_retries(checked_main_receipt(config, commit))
             outcome = None
         return {"outcome": outcome, "active": file_hash(layout.current / "SHA256SUMS"),
                 **({"original": original} if original is not None else {})}
@@ -157,6 +169,8 @@ def receive_checked_main(config, layout, commit, candidate, base, source, verify
                 if (result["commit"], result["candidate"], result["base"]) != (commit, candidate, base):
                     raise ReleaseRejected("The stored result belongs to different release inputs.")
                 return result
+            if attempt is not None:
+                require_reconciled_retries(checked_main_receipt(config, commit), current_receipt=receipt)
             started = datetime.now(timezone.utc)
             stage = "fixtures"
             try:

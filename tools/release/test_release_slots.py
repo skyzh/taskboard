@@ -10,10 +10,10 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 
-from operator_deploy import checked_main_receipt, receive_checked_main
+from operator_deploy import checked_main_receipt, read_main_state, receive_checked_main
 from publish_receipt import publish_outcome, release_event
 from release_plan import (
-    MountedCheckFailed, ReleaseLayout, file_hash, run_release, switch_current, write_json,
+    MountedCheckFailed, ReleaseLayout, ReleaseRejected, file_hash, run_release, switch_current, write_json,
 )
 from release_slots import ReleaseSlots
 from stage_transfer import stage_transfer
@@ -199,11 +199,36 @@ class ReleaseSlotsTest(unittest.TestCase):
         events = list(self.events)
         self.assertEqual(submit("1" * 32), rolled)
         self.assertEqual(self.events, events)
-        released = submit("2" * 32)
+        interrupted_id = "2" * 32
+        next_id = "3" * 32
+        with patch.object(self.slots, "select", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                submit(interrupted_id)
+        self.assertEqual(self.events[-1], ("direct", CANDIDATE_PORT, PRIOR_PORT, self.previous))
+        unfinished = checked_main_receipt(config, commit, interrupted_id)
+        unfinished_journal = unfinished.with_suffix(".activation")
+        unfinished_bytes = unfinished_journal.read_bytes()
+        events = list(self.events)
+        self.assertFalse(unfinished.exists())
+        with self.assertRaisesRegex(ReleaseRejected, unfinished_journal.name):
+            read_main_state(config, self.layout, commit, attempt=next_id)
+        with self.assertRaisesRegex(ReleaseRejected, unfinished_journal.name):
+            submit(next_id)
+        self.assertEqual(submit("1" * 32), rolled)
+        self.assertEqual(read_main_state(config, self.layout, commit, attempt="1" * 32)["outcome"], rolled)
+        self.assertEqual(self.events, events)
+        self.assertFalse(checked_main_receipt(config, commit, next_id).exists())
+        self.assertEqual(unfinished_journal.read_bytes(), unfinished_bytes)
+        self.assertEqual((self.slots.selected(), self.layout.current.resolve()), (PRIOR_PORT, self.previous))
+
+        reconciled = submit(interrupted_id)
+        self.assertEqual((reconciled["status"], reconciled["reason_code"]), ("rejected", "activation_interrupted"))
+        self.assertEqual(unfinished_journal.read_bytes(), unfinished_bytes)
+        released = submit(next_id)
         self.assertEqual((released["status"], released["active"]), ("released", self.digest))
         self.assertEqual((self.slots.selected(), self.layout.current.resolve()), (CANDIDATE_PORT, self.candidate))
-        self.assertEqual(preflight.call_count, 2)
-        self.assertEqual(verified.call_count, 3)
+        self.assertEqual(preflight.call_count, 4)
+        self.assertEqual(verified.call_count, 4)
         self.assertEqual(original.read_bytes(), original_bytes)
         self.assertEqual(original.with_suffix(".activation").read_bytes(), journal_bytes)
 
