@@ -29,8 +29,10 @@ default. Local DRI registrations retain their existing native question mode.
 When an agent creates a signed board decision, the response includes a
 `decision_delivery` receipt with the effective destination, request ID and
 exact decision link. Use **Taskboard Needs me** when the route is unavailable.
-For **Raft**, send only the link to the verified recipient in a private
-message, and use Raft’s send receipt to confirm delivery. For **In-session**,
+For **Raft**, pass the receipt’s human DM `target` to `raft message send --target`
+and send only the link. Confirm delivery from Raft’s send receipt. If Raft
+cannot resolve the recipient, use the receipt’s `fallback` for the same
+decision in Taskboard Needs me. For **In-session**,
 show the link in the verified creator’s current Local DRI session if the
 runtime supports it. In every case, the recipient signs in to Taskboard to
 record the answer. Private projects stay in Taskboard.

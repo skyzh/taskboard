@@ -902,7 +902,8 @@ def shared_command(args):
         if delivery := result.get("decision_delivery"):
             output += f"\nDecision request ID: {delivery['request_id']}\n{delivery['url']}"
             if delivery["destination"] == "raft":
-                output += f"\nSend only this decision link in a private Raft message to verified human {delivery['recipient_subject']}."
+                output += (f"\nSend only this decision link with raft message send --target {delivery['target']}."
+                           "\nIf Raft cannot resolve the recipient, use the same decision in Taskboard Needs me.")
             elif delivery["destination"] == "local_prompt":
                 output += "\nShow this decision link in the recipient's current session."
             else:

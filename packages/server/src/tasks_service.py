@@ -3756,16 +3756,21 @@ def create_app(
         preference = ask_destination(connection, recipient, actor["ledger_key"])
         preferred = preference["destination"]
         destination, reason = "taskboard", None
+        carrier = {}
         local = g.get("local_dri")
         if preferred != "taskboard":
             if ring1.private(connection, project):
                 reason = "Private project decisions stay in Taskboard."
             elif preferred == local_dri.LOCAL_PROMPT and local is not None and local["owner"] == recipient:
                 destination = preferred
-            elif (preferred == "raft" and local is None and actor["server_id"] == (raft_config or {}).get("server_id")
-                  and actor["ledger_key"].startswith("raft:agent:") and recipient.startswith("raft:human:")):
-                destination = preferred
-            else:
+            elif preferred == "raft" and local is None and raft is not None:
+                person = profiles.get(connection, recipient)
+                if (person and person["kind"] == "human"
+                        and person["server_id"] == actor["server_id"] == (raft_config or {}).get("server_id")
+                        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", person["username"])):
+                    destination = preferred
+                    carrier = {"recipient_subject": person["subject"], "target": f"dm:@{person['username']}~human"}
+            if destination != preferred and reason is None:
                 reason = "The preferred destination is unavailable in this signed session. Use Taskboard Needs me."
         ticket = projects.row_reference(task)
         event = task["event_id"]
@@ -3773,7 +3778,7 @@ def create_app(
         return {
             **preference, "destination": destination, "preferred": preferred, "reason": reason,
             "request_id": event, "url": url, "fallback": {"destination": "taskboard", "url": url},
-            **({"recipient_subject": profiles.get(connection, recipient)["subject"]} if destination == "raft" else {}),
+            **carrier,
         }
 
     @app.post("/api/v1/notifications/watched/<int:event_id>/acknowledge")

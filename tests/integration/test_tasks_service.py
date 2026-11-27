@@ -8040,13 +8040,27 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(save(None, **scope), {"destination": "raft", "source": "recipient"})
         updated = self.action(agent, "decision-delivery", query_string=query)
         self.assertEqual((updated["destination"], updated["url"]), ("raft", result["url"]))
+        self.assertEqual(updated["target"], "dm:@sam~human")
         self.assertEqual(updated["recipient_subject"], self.provider.people["Sam"]["sub"])
+        with closing(open_sqlite(self.database)) as db, db:
+            db.execute("UPDATE board_principals SET username = '' WHERE ledger_key = ?", (sam_id,))
+        unresolved = self.action(agent, "decision-delivery", query_string=query)
+        self.assertEqual(unresolved["destination"], "taskboard")
+        self.assertEqual(unresolved["fallback"], {"destination": "taskboard", "url": result["url"]})
+        self.assertNotIn("target", unresolved)
+        with closing(open_sqlite(self.database)) as db, db:
+            db.execute("UPDATE board_principals SET username = 'sam' WHERE ledger_key = ?", (sam_id,))
         request, = self.call(sam, "/api/v1/notifications/decisions").json["items"]
         self.assertEqual(request["event_id"], result["request_id"])
         self.call(sam, "/api/v1/tasks/T-1/decision", method="POST", json={
             "request_id": result["request_id"], "note": "Use CSV.",
         })
         self.action(agent, "decision-delivery", query_string=query, status=404)
+        self.action(agent, "advance-task", {"id": "T-1", "transition": "start", "note": "Check the delimiter."})
+        code, output, errors = self.shared_cli(agent, "assign-human", "T-1", "Which delimiter?", "--on", sam_id)
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("raft message send --target dm:@sam~human", output)
+        self.assertIn("use the same decision in Taskboard Needs me", output)
         from tasks_projects import register
         from tasks_ring1 import mark_private
 
