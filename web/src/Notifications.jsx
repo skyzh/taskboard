@@ -151,7 +151,7 @@ function InboxEntries({ revision, owner, project, openCount, onChanged }) {
   const page = useLoadedPages('/notifications/inbox', {
     ...projectFilters(project), view: history ? 'acknowledged' : 'updates',
   }, revision)
-  const work = useResource(queryPath('/notifications/work', projectFilters(project)), revision)
+  const work = useResource(queryPath('/notifications/work', { ...projectFilters(project), refresh_guidance: 'true' }), revision)
   const items = (page.data?.items ?? []).filter(row => row.kind === 'watched' || row.kind === 'readiness')
   const datedGoals = work.data?.dated_goals || []
   const standingGoals = work.data?.standing_goals || []

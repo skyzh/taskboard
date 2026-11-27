@@ -763,7 +763,7 @@ test('a linked ticket request shows the exact update and its acknowledgment with
 test('Inbox keeps dated and standing goals after actionable work and every loaded page', () => {
   fixture.resources = {
     '/notifications/preferences': { data: { task_creations: true } },
-    '/notifications/work?scope=all': { data: {
+    '/notifications/work?scope=all&refresh_guidance=true': { data: {
       items: [
         { kind: 'ready', id: 1, key: 'T-1', title: 'Owned task' },
         { kind: 'review', id: 2, key: 'T-2', title: 'Independent check' },
@@ -821,7 +821,7 @@ test('Inbox handles dated goals as its only content and accepts older work respo
     fixture.resources = {
       '/notifications/preferences': { data: { task_creations: true } },
       '/notifications/open-count?scope=all': { data: { count: 0 } },
-      '/notifications/work?scope=all': { data: { items: [], ...work } },
+      '/notifications/work?scope=all&refresh_guidance=true': { data: { items: [], ...work } },
     }
     return renderToStaticMarkup(React.createElement(Notifications, { session, verified: true }))
   }
@@ -850,7 +850,7 @@ test('Inbox shows empty only after its required reads settle successfully', () =
     fixture.resources = {
       '/notifications/preferences': { data: { task_creations: true } },
       '/notifications/open-count?scope=all': actionCount,
-      '/notifications/work?scope=all': work,
+      '/notifications/work?scope=all&refresh_guidance=true': work,
     }
     return renderToStaticMarkup(React.createElement(Notifications, { session, verified: true }))
   }
@@ -886,7 +886,7 @@ test('Inbox shows scoped decision and acknowledgment actions when ordinary work 
   fixture.state = []
   fixture.resources = {
     '/notifications/open-count?project=T': { data: { count: 2 } },
-    '/notifications/work?project=T': { data: { items: [] } },
+    '/notifications/work?project=T&refresh_guidance=true': { data: { items: [] } },
   }
   fixture.pages = {
     '/notifications/inbox': { data: { items: [] } },

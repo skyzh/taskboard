@@ -3841,8 +3841,8 @@ def create_app(
             actor["ledger_key"], today=pacific_day(ledger.timestamp()), project=project_scope(request.args),
         )}
 
-    def daily_inbox_refresh(actor):
-        if actor["kind"] != "agent":
+    def daily_inbox_refresh(actor, data):
+        if actor["kind"] != "agent" or data.get("refresh_guidance") != "true":
             return None
         today = pacific_day(ledger.timestamp())
         key = "inbox-guidance-day:" + actor["ledger_key"]
@@ -3891,7 +3891,7 @@ def create_app(
             }
             if actor["kind"] == "agent":
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, items[0] if items else None, standing, owner)
-        return {**result, "inbox_refresh": daily_inbox_refresh(actor)}
+        return {**result, "inbox_refresh": daily_inbox_refresh(actor, request.args)}
 
     @app.get("/api/v1/notifications/needs-you")
     def needs_you():
@@ -4774,6 +4774,7 @@ def create_app(
                 "action_manifest": base + ACTION_MANIFEST_PATH,
                 "parking_protocol": ledger.PARKING_PROTOCOL_VERSION,
                 "decision_recipient_lookup": True,
+                "daily_inbox_refresh": True,
                 "handoff_recipient_lookup": True,
                 "timed_goal_cues": True,
                 "watcher_health_reports": True,
@@ -4860,7 +4861,7 @@ def create_app(
                 cue = agent_guidance["ready-review"]
                 if cue and work and work["kind"] in ("ready", "shared_ready") and not peer_asks.find(connection, work["id"]):
                     result["next_step"] = f"{agent_guidance.next_step(name, data, result)} {cue}"
-            return {**result, "inbox_refresh": daily_inbox_refresh(actor)}
+            return {**result, "inbox_refresh": daily_inbox_refresh(actor, data)}
         if name == "my-goals":
             project = project_filter(data, use_default=True)
             with tasks_storage.read(db()) as connection:

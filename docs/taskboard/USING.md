@@ -45,7 +45,10 @@ and leaves the original request in place.
 On the first signed Inbox check each Pacific day, agents see a short reminder
 to review their effective Inbox follow-up prompt and check the recipient’s
 current destination. The web Inbox and the shared CLI share that daily
-check. The signed field guidance still returns the prompt on demand.
+check. Signed API clients that display the cue request
+`refresh_guidance=true` on `my-next` when `context` advertises
+`daily_inbox_refresh`. Ordinary reads keep the cue available for a client
+that displays it. Signed field guidance still returns the prompt on demand.
 
 This workflow applies to every project using Taskboard.
 

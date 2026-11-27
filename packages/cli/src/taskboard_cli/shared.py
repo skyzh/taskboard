@@ -458,7 +458,7 @@ def completion_queue(cue, project):
     return None
 
 
-def completion_output(board, output, reference, fallback=None, *, cue=None):
+def completion_guidance(board, reference, fallback=None, *, cue=None):
     project, _ = projects.identifier(reference)
     inbox = f"`./tasks --shared next --project {project}`"
     unavailable = f"Check your Inbox with {inbox}. The next item could not be loaded."
@@ -467,24 +467,22 @@ def completion_output(board, output, reference, fallback=None, *, cue=None):
         if result is None:
             result = board.invoke("my-next", {"project": project})
         if result.get("unavailable"):
-            return with_guidance(output, unavailable)
-        if result.get("inbox_refresh"):
-            output = "\n".join([output, *inbox_guidance_lines(result)])
+            return unavailable
         if work := result["work"]:
             label = NEXT_LABELS.get(work["kind"], "Start Ready work")
-            return with_guidance(output, f"{label} on {work['key']} · {work['title']}. Read it with {inbox}.")
+            return f"{label} on {work['key']} · {work['title']}. Read it with {inbox}."
         if result["standing_goals"]:
             goal = result["standing_goals"][0]
             if ticket := goal["ticket"]:
-                return with_guidance(
-                    output, f"Standing goal {ticket} · {goal['summary']}\n"
+                return (
+                    f"Standing goal {ticket} · {goal['summary']}\n"
                     f'{result["next_step"]}\nWhen eligible, run '
                     f'`./tasks --shared start {ticket} "<what you will check>"`.'
                 )
     except (SharedActionUnavailable, SharedReadError, KeyError, TypeError):
         # A failed or incomplete read cannot invalidate the earlier write receipt.
-        return with_guidance(output, unavailable)
-    return with_guidance(output, fallback or f"Check your Inbox with {inbox}.")
+        return unavailable
+    return fallback or f"Check your Inbox with {inbox}."
 
 
 def queue_goal_lines(result, url):
@@ -524,9 +522,10 @@ def inbox_guidance_lines(result):
     return lines
 
 
-def shared_next(board, url, filters, actor):
+def shared_next(board, url, filters, actor, *, refresh_guidance=False):
     try:
-        result = board.invoke("my-next", filters)
+        guidance = {"refresh_guidance": "true"} if refresh_guidance else {}
+        result = board.invoke("my-next", {**filters, **guidance})
     except SharedActionUnavailable:
         ready = board.invoke("my-queue", {**filters, "state": "ready", "order": "priority", "limit": 1})["items"]
         if ready:
@@ -924,7 +923,7 @@ def shared_command(args):
         guidance = result.get("next_step")
         if command in {"done", "transfer"} or (command == PEER_ASK and args.change == "result"):
             fallback = prompts.get("completion") or guidance
-            return completion_output(board, output, args.id, fallback, cue=result.get("next_action"))
+            guidance = completion_guidance(board, args.id, fallback, cue=result.get("next_action"))
         return with_guidance(output, guidance or "Check the updated record or your Inbox.")
     if command == "readiness":
         project = args.project or context.get("project")
@@ -1036,7 +1035,7 @@ def shared_command(args):
         else:
             filters["scope"] = "all"
     if command == "next":
-        return shared_next(board, url, filters, actor)
+        return shared_next(board, url, filters, actor, refresh_guidance=context.get("daily_inbox_refresh") is True)
     if args.status:
         filters["state"] = args.status
     if args.status == "ready":
