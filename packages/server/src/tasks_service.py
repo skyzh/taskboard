@@ -2262,7 +2262,8 @@ def create_app(
     @app.get("/")
     @app.get("/<board_page:page>")
     def index(page=None):
-        if marketplace and raft.identity() is None:
+        published_knowledge = page == "public/knowledge" or bool(page and page.startswith("public/knowledge/"))
+        if marketplace and not published_knowledge and raft.identity() is None:
             login = f"{base}/auth/login"
             if page is not None or request.query_string:
                 target = quote(request.path, safe="/:") + (
@@ -2279,7 +2280,7 @@ def create_app(
                 login=login,
             )
         index_file = dist / "index.html"
-        if page and (request.args.get("project") or page.startswith((
+        if page and not published_knowledge and (request.args.get("project") or page.startswith((
             "tickets/", "knowledge/", "activity/events/", "schedules/",
         ))):
             check_document_target(page)

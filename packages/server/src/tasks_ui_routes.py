@@ -9,9 +9,10 @@ from werkzeug.routing import BaseConverter
 NUMBER = r"[1-9][0-9]{0,18}"
 RECORD = rf"(?:[A-Z][A-Z0-9]{{0,7}}-)?{NUMBER}"
 OWNER = r"(?!\.{1,2}$)[^/\\\x00-\x1f\x7f]{1,160}"
+PUBLIC_ID = r"[A-Za-z0-9_-]{1,80}"
 PAGE = (
     rf"(?:reports(?:/agents/{OWNER})?|tasks|tickets/{RECORD}|"
-    rf"activity(?:/events/{NUMBER})?|my-activity|knowledge(?:/{RECORD})?|"
+    rf"activity(?:/events/{NUMBER})?|my-activity|knowledge(?:/{RECORD})?|public/knowledge(?:/{PUBLIC_ID})?|"
     rf"schedules(?:/R-{NUMBER})?|team-overview|stats|notifications|settings|"
     r"integrations|personal-codex|search|about)"
 )
