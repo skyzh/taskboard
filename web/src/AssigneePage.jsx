@@ -218,7 +218,7 @@ export default function AssigneePage({ owner, section, revision, project, allPro
           )}
         </div>
       </header>
-      {agentReport && viewer && choices.length > 1 && (
+      {agentReport && choices.length > 1 && (
         <ProjectPicker projects={choices} value={routeProject} allProjects onChange={onProjectChange} />
       )}
       {viewer && typeof entry.watching === 'boolean' && (

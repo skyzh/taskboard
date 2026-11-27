@@ -10350,8 +10350,11 @@ class TasksServiceTest(unittest.TestCase):
         reports = "/api/v1/reports"
         asks = "/api/v1/reports/request-log"
         unsigned = app.test_client()
-        self.call(unsigned, reports, query_string={"scope": "all"}, status=401)
-        self.call(unsigned, asks, query_string={"scope": "all"}, status=401)
+        unsigned_reports = self.call(unsigned, reports, query_string={"scope": "all"}).json["items"]
+        public_work = next(row for row in unsigned_reports if row["owner"] == avery_id)
+        self.assertEqual({task["key"] for task in public_work["tasks"]}, {first_work, second_work})
+        self.call(unsigned, asks, query_string={"scope": "all"})
+        self.call(unsigned, reports, query_string={"scope": "all", "view": "watching"}, status=401)
         self.call(avery, reports, query_string={"scope": "all", "project": "T"}, status=400)
 
         def pages(path, **options):
@@ -10507,9 +10510,14 @@ class TasksServiceTest(unittest.TestCase):
 
         profile = "/api/v1/assignee"
         params = {"owner": owner, "scope": "all"}
-        self.call(app.test_client(), profile, query_string=params, status=401)
+        anonymous = app.test_client()
+        unsigned = self.call(anonymous, profile, query_string=params).json
+        self.call(anonymous, profile, query_string={"owner": owner, "project": "LAB"}, status=404)
         self.call(quinn, profile, query_string={"owner": owner, "project": "LAB"}, status=404)
         mixed = self.call(quinn, profile, query_string=params).json
+        self.assertEqual(unsigned, {key: value for key, value in mixed.items() if key != "watching"})
+        self.assertNotIn("watching", unsigned)
+        self.call(anonymous, profile + "/watch", method="POST", query_string=params, json={"watch": True}, status=401)
         selected = self.call(quinn, profile, query_string={"owner": owner, "project": "OPS"}).json
         self.assertEqual(mixed["profile"], selected["profile"])
         self.assertEqual(set(mixed["projects"]), {"OPS", "T"})
@@ -10523,15 +10531,23 @@ class TasksServiceTest(unittest.TestCase):
         member = self.call(sam, profile, query_string=params).json
         self.assertEqual(set(member["projects"]), {"LAB", "OPS", "T"})
         self.assertEqual(member["report_count"], 3)
+        membership = "/api/v1/projects/LAB/ring1"
+        self.call(sam, membership, method="PUT", json={"principal": owner, "allowed": False})
+        self.call(avery, profile, query_string={"owner": owner, "project": "LAB"}, status=404)
+        revoked = self.call(avery, profile, query_string=params).json
+        self.assertEqual(set(revoked["projects"]), {"OPS", "T"})
+        self.assertEqual(revoked["report_count"], 2)
+        self.assertNotIn("LAB", json.dumps(revoked))
 
         for path, extra in (("/api/v1/reports/workers", {"order": "execution"}),
                             ("/api/v1/reports/pending", {"view": "profile"})):
             filters = {**params, **extra, "limit": 1}
-            first = self.call(quinn, path, query_string=filters).json
-            second = self.call(quinn, path, query_string={**filters, "before": first["next_cursor"]}).json
-            self.assertEqual({row["task_key"] for row in first["items"] + second["items"]},
-                             {tickets["T"], tickets["OPS"]})
-            self.assertIsNone(second["next_cursor"])
+            for viewer in (quinn, anonymous):
+                first = self.call(viewer, path, query_string=filters).json
+                second = self.call(viewer, path, query_string={**filters, "before": first["next_cursor"]}).json
+                self.assertEqual({row["task_key"] for row in first["items"] + second["items"]},
+                                 {tickets["T"], tickets["OPS"]})
+                self.assertIsNone(second["next_cursor"])
 
     def test_configured_legacy_agent_can_be_watched_before_first_sign_in(self):
         roster = {self.provider.people["Blake"]["sub"]: "Blake"}
