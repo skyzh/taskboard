@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Rollback preparation for request diagnostics.** This build can serve a ledger already stamped at the known additive diagnostics revision while preserving its schema and data. An ordinary startup on the current revision leaves it in place. It rejects mismatched layouts.
+
 - **Ticket Decision entries.** Record a choice, its rationale, and what changes next in ticket Activity. Use Record Decision in the ticket, `log --decision --details` in the shared CLI, or the signed HTTP or MCP action. Existing Inbox answers appear in the Decision filter and retain their original request link. Checkpoints and custom project prompts remain readable. Reconnect MCP to discover its new tool. [Recording guidance](AGENT-STARTUP.md#record-activity-with-the-right-action)
 
 - **Recurrence on tickets.** Enable recurrence on a ticket you own in any project. Newly created recurring work returns its parked ticket immediately. Set cadence, pause, resume, cancel, and record completed reviews from the ticket. Activity shows missed slots and earlier runs alongside Ready and review events. Existing R links and commands still work. Preview legacy adoption and rehearse it against your backup before converting a live schedule. [Recurring work](SHARED-BOARD.md#recurring-work) · [Upgrade procedure](operators/DATABASE-MIGRATIONS.md)
