@@ -59,6 +59,33 @@ def replay_versioned_profiles(test, board, app, restart, engine):
     test.assertEqual((task["title"], task["dri"]), ("Keep the existing ticket", owner_id))
 
 
+def replay_additive_rollback(test, board, restart, engine):
+    owner, owner_id = board.login(restart(), "Avery")
+    test.assertEqual(migrate(engine)["recorded_revision"], RECURRING_REVIEW_TICKETS)
+    board.action(owner, "create-task", {"title": "Read after rollback", "step": "Review the signed write."})
+    with engine.begin() as connection:
+        connection.exec_driver_sql("""CREATE TABLE agent_api_usage (
+            day TEXT NOT NULL, actor TEXT NOT NULL, category TEXT NOT NULL,
+            project TEXT NOT NULL, ticket BIGINT NOT NULL, calls BIGINT NOT NULL,
+            PRIMARY KEY (day, actor, category, project, ticket)
+        )""")
+        connection.exec_driver_sql(f"UPDATE {SCHEMA_REVISION_TABLE} SET version_num = '0004_agent_api_usage'")
+        connection.exec_driver_sql("INSERT INTO agent_api_usage VALUES ('2026-11-26', 'Avery', 'GET task', 'T', 1, 1)")
+    owner, signed_id = board.login(restart(), "Avery")
+    task = board.action(owner, "task", query_string={"id": "T-1"})["task"]
+    test.assertEqual((task["title"], task["dri"], signed_id), ("Read after rollback", owner_id, owner_id))
+    with engine.begin() as connection:
+        test.assertEqual(connection.exec_driver_sql(f"SELECT version_num FROM {SCHEMA_REVISION_TABLE}").scalar(),
+                         "0004_agent_api_usage")
+        test.assertEqual(connection.exec_driver_sql("SELECT calls FROM agent_api_usage").scalar(), 1)
+        connection.exec_driver_sql("ALTER TABLE agent_api_usage DROP COLUMN calls")
+        connection.exec_driver_sql("ALTER TABLE agent_api_usage ADD COLUMN "
+                                   "calls BIGINT GENERATED ALWAYS AS (1) " +
+                                   ("VIRTUAL" if connection.dialect.name == "sqlite" else "STORED") + " NOT NULL")
+    with test.assertRaisesRegex(ValueError, "recorded Taskboard revision"):
+        restart()
+
+
 def reject_incompatible_profile_definition(test, engine, definition):
     with engine.begin() as connection:
         connection.exec_driver_sql("ALTER TABLE board_principals DROP COLUMN role")
@@ -96,6 +123,13 @@ class VersionedProfileMigrationTest(unittest.TestCase):
             return self.board.app(portal_reader=True)
 
         replay_versioned_profiles(self, self.board, restart(), restart, self.engine)
+
+    def test_sqlite_rollback_accepts_only_the_known_additive_schema(self):
+        def restart():
+            self.board.provider = fixture.FixtureRaft()
+            return self.board.app(portal_reader=True)
+
+        replay_additive_rollback(self, self.board, restart, self.engine)
 
     def test_unrecognized_profile_layout_is_rejected_before_recording_baseline(self):
         self.board.app(portal_reader=True)

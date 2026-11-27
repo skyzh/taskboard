@@ -19,7 +19,7 @@ add_tests()
 import test_tasks_service as fixture
 import test_tasks_github_webhooks as webhook_fixture
 from test_tasks_knowledge_sweeps import replay_knowledge_sweeps
-from test_tasks_migrations import reject_incompatible_profile_definition, replay_versioned_profiles
+from test_tasks_migrations import reject_incompatible_profile_definition, replay_additive_rollback, replay_versioned_profiles
 from test_tasks_project_move import replay_move
 from test_tasks_recurring import replay_project_tick, replay_reusable_upgrade, replay_team_schedules, replay_ticket_recurrence
 import test_tasks_ring1 as ring1_fixture
@@ -98,6 +98,12 @@ class StorageReplayTest(unittest.TestCase):
     def test_postgres_browser_push(self):
         dsn = self.postgres_fixture()
         self.board.replay_browser_push(lambda config: self.postgres_app(dsn, browser_push_config=config))
+
+    def test_postgres_rollback_accepts_only_the_known_additive_schema(self):
+        dsn = self.postgres_fixture()
+        engine = create_engine(dsn.replace("postgresql://", "postgresql+psycopg://", 1), poolclass=NullPool)
+        self.addCleanup(engine.dispose)
+        replay_additive_rollback(self, self.board, lambda: self.postgres_app(dsn), engine)
 
     def test_postgres_versioned_profiles_rollback_and_signed_readback(self):
         dsn = self.postgres_fixture()

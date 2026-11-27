@@ -149,8 +149,32 @@ def recognized_revision(connection):
     return profiles
 
 
+def agent_api_usage_rollback_schema(connection):
+    """Recognize the exact additive table from the next known release."""
+    catalog = inspect(connection)
+    table = "agent_api_usage"
+    if not catalog.has_table(table):
+        return False
+    expected = {"day": Text, "actor": Text, "category": Text, "project": Text,
+                "ticket": BigInteger, "calls": BigInteger}
+    columns = catalog.get_columns(table)
+    return (
+        {column["name"] for column in columns} == expected.keys()
+        and all(
+            isinstance(column["type"], expected[column["name"]]) and not column["nullable"]
+            and all(column.get(attribute) is None for attribute in ("computed", "identity", "default"))
+            for column in columns
+        )
+        and catalog.get_pk_constraint(table)["constrained_columns"] == ["day", "actor", "category", "project", "ticket"]
+        and not catalog.get_foreign_keys(table)
+        and not catalog.get_check_constraints(table)
+        and not catalog.get_unique_constraints(table)
+        and not any(index["unique"] for index in catalog.get_indexes(table))
+    )
+
+
 @contextmanager
-def migration(engine, *, apply=False, prepare=None):
+def migration(engine, *, apply=False, prepare=None, serve_rollback=False):
     with engine.connect() as connection:
         prepare_connection(connection, initialize=prepare is not None)
         if prepare is not None:
@@ -158,6 +182,12 @@ def migration(engine, *, apply=False, prepare=None):
         baseline = recognized_revision(connection)
         options = {"version_table": SCHEMA_REVISION_TABLE}
         current = MigrationContext.configure(connection, opts=options).get_current_revision()
+        if (serve_rollback and apply and prepare is not None and current == "0004_agent_api_usage"
+                and baseline == RECURRING_REVIEW_TICKETS and agent_api_usage_rollback_schema(connection)):
+            yield connection, {"recorded_revision": current, "recognized_revision": current,
+                               "target_revision": RECURRING_REVIEW_TICKETS, "applied_revision": current}
+            connection.commit()
+            return
         legacy_startup_upgrade = current == PROFILE_SHORT_ROLE and baseline == RECURRING_REVIEW_TICKETS
         if current is not None and current != baseline and not legacy_startup_upgrade:
             raise ValueError("The recorded Taskboard revision does not match the recognized schema.")
@@ -188,7 +218,7 @@ def migrate(engine, *, apply=False):
 
 def prepare_and_upgrade(engine, prepare, *, finish=None):
     try:
-        with migration(engine, apply=True, prepare=prepare) as (connection, _):
+        with migration(engine, apply=True, prepare=prepare, serve_rollback=finish is None) as (connection, _):
             if finish is not None:
                 return finish(connection.connection.driver_connection)
     except SQLAlchemyError as error:
