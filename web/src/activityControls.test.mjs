@@ -786,7 +786,7 @@ test('Inbox keeps dated and standing goals after actionable work and every loade
   }
   for (const [items, cursor] of [[[first], 'cursor'], [[first, second], null]]) {
     const markup = render(items, cursor)
-    assert.doesNotMatch(markup, /Include new tasks|A task creation broadcast/)
+    assert.doesNotMatch(markup, /Include new tasks|A task creation broadcast|>Project log<\//)
     assert.match(markup, /href="#activity\?action=add&amp;scope=all">Task created activity<\/a>/)
     const ordered = ['Owned task', 'Independent check', 'Shared task', ...items.map(row => row.item.title),
       ...(cursor ? ['More inbox items'] : []), 'Review the cutover', 'Verify the import', 'Improve handoffs when the queue drains']

@@ -255,10 +255,12 @@ function PersonalNotifications({ revision, session, onChanged, fragment, project
         <BoardLink href={projectHref('#notifications-needs-me', scope)} aria-current={needsMe ? 'page' : undefined}>
           Needs me{data && <span aria-live="polite"> ({data.count})</span>}
         </BoardLink>
-        <BoardLink href={logFilters ? `#${fragment}` : projectHref('#notifications-log', scope)} aria-current={logFilters ? 'page' : undefined}>Project log</BoardLink>
       </nav>
-      {logFilters ? <NotificationLog project={project} state={logFilters.state} kind={logFilters.kind} agent={logFilters.agent}
-        allProjects={logFilters.allProjects} projects={projects} revision={revision} /> : (
+      {logFilters ? <>
+        <BoardLink href={projectHref('#activity?action=wake', project || 'all')}>Wake activity</BoardLink>
+        <NotificationLog project={project} state={logFilters.state} kind={logFilters.kind} agent={logFilters.agent}
+          allProjects={logFilters.allProjects} projects={projects} revision={revision} />
+      </> : (
         <>
           {session.data?.actor?.kind === 'human' && <BrowserPush />}
           <TaskReminders revision={revision} project={project} />
