@@ -2736,6 +2736,41 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([item["key"] for item in self.call(avery, work).json["items"]], ["T-1"])
         self.assertEqual([item["key"] for item in self.call(blake, work + "?scope=all").json["items"]], ["COURSE-1"])
 
+        self.action(blake, "advance-task", {"id": "COURSE-1", "transition": "park", "note": "Deferred course work."})
+        self.action(avery, "save-goal", {"kind": "standing", "summary": "Improve project handoffs"})
+
+        def check_inbox_and_cue(client, *, actionable):
+            selected = self.action(client, "my-next")["work"]
+            self.assertEqual(selected["key"] if selected else None, "T-1" if actionable else None)
+            cue = self.action(client, "my-goal-cues")
+            self.assertEqual(cue["ordinary_busy"], actionable)
+            self.assertEqual(cue["standing"] is not None, not actionable)
+
+        check_inbox_and_cue(avery, actionable=True)
+        check_inbox_and_cue(blake, actionable=False)
+        self.assertEqual(self.call(avery, "/api/v1/tasks/T-1").json["transition_actions"], ["park"])
+        self.assertEqual(self.call(blake, "/api/v1/tasks/T-1").json["transition_actions"], [])
+        park = {"id": "T-1", "transition": "park", "note": "Deferred until selected."}
+        self.action(blake, "advance-task", park, status=409)
+        self.action(avery, "advance-task", park)
+        parked = self.call(avery, "/api/v1/tasks/T-1").json
+        self.assertEqual((parked["task"]["state"], parked["task"]["dri"]), ("parked", ""))
+        self.assertNotIn("defer_until", parked["task"]["context"])
+        self.assertNotIn("review_after", parked["task"]["context"])
+        self.assertEqual(parked["transition_actions"], ["unpark"])
+        self.assertIn("T-1 · Parked", self.shared_cli(avery, "list", "--unassigned", "--status", "parked")[1])
+        check_inbox_and_cue(avery, actionable=False)
+        check_inbox_and_cue(blake, actionable=False)
+
+        unpark = {"id": "T-1", "transition": "unpark", "note": "Ready to assign."}
+        self.action(blake, "advance-task", unpark, status=409)
+        self.call(avery, "/api/v1/tasks/T-1/transition", method="POST",
+                  json={"transition": "unpark", "note": "Ready to assign."})
+        restored = self.call(avery, "/api/v1/tasks/T-1").json["task"]
+        self.assertEqual((restored["state"], restored["dri"]), ("ready", ""))
+        check_inbox_and_cue(avery, actionable=True)
+        check_inbox_and_cue(blake, actionable=False)
+
     def test_all_project_overview_and_schedule_reads_keep_scope_and_ownership(self):
         app = self.app(portal_reader=True)
         avery, avery_id = self.login(app, "Avery")

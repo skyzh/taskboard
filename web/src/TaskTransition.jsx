@@ -7,6 +7,7 @@ const transitions = {
   wait: ['Record a wait', 'Unblock condition'],
   resume: ['Resume work', 'Current step'],
   done: ['Complete ticket', 'Outcome'],
+  park: ['Park as deferred', 'Reason for parking'],
   unpark: ['Return to Ready', 'Next step'],
 }
 

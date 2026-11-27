@@ -1681,6 +1681,9 @@ def create_app(
             if step not in ("park", "remind") and (step != "done" or not live_recurrence)
             and task["state"] in ledger.TRANSITIONS[step][0]
         ] if not recurring_park and ordinary and task["dri"] and (owns or collaborator) else []
+        if allowed and ordinary and not task["dri"] and not recurring_park:
+            if backlog_step := ledger.UNASSIGNED_BACKLOG_TRANSITIONS.get(task["state"]):
+                transition_actions = [backlog_step]
         needs_you_actions = []
         if owns and not is_note:
             needs_you_actions.append("attention")

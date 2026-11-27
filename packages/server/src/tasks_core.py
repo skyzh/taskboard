@@ -502,6 +502,9 @@ def ownership_actions(task):
     return ["unassign", "reassign"] if task["dri"] else ["reassign"]
 
 
+UNASSIGNED_BACKLOG_TRANSITIONS = {"ready": "park", "parked": "unpark"}
+
+
 class TransitionConfirmationRequired(ValueError):
     pass
 
@@ -970,7 +973,12 @@ def change_task(db, args, links, *, automation=None):
     collaboration = getattr(args, "project_collaboration", None) if args.command == "transfer" else None
     permitted = collaboration(db, task) if collaboration else False
     override = {}
-    if args.by != actor and not (actor and permitted):
+    manages_backlog = (
+        not actor and args.command == UNASSIGNED_BACKLOG_TRANSITIONS.get(task["state"])
+        and projects.manages(db, projects.row_project(task), args.by)
+        and not goal_kind and not peer_asks.find(db, task["id"])
+    )
+    if args.by != actor and not (actor and permitted) and not manages_backlog:
         if args.command == "decide":
             raise ValueError(f"{projects.row_reference(task)} is assigned to {actor} for a decision.")
         if not actor:
@@ -1084,7 +1092,7 @@ def change_task(db, args, links, *, automation=None):
     if args.command in ("park", "remind"):
         if getattr(args, "defer_until", None) is not None and context["defer_until"] <= timestamp():
             raise ValueError("Choose a future defer time.")
-        if (not goal_kind and not context.get("review_after") and not context.get("defer_until")
+        if (not goal_kind and not manages_backlog and not context.get("review_after") and not context.get("defer_until")
                 and not readiness.registered(db, task, context.get("readiness"))):
             raise ValueError("Choose a reminder or dependency review to park this ticket. Use Waiting on for a blocker.")
     if args.command == "redirect-decision" and not human_wait:
