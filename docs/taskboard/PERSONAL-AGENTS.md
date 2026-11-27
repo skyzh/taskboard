@@ -292,8 +292,10 @@ For signed HTTP, use the manifest's POST `advance-task` endpoint and send:
 ```
 
 Read back the ticket and its Activity to confirm the new step and actor. To
-record an authorized checkpoint without changing the current step or state,
-use `tasks --shared log` or the signed `record-activity` action instead.
+record a meaningful discovery or decision without changing the step or state,
+use `tasks --shared log --checkpoint` or signed `record-checkpoint`. Keep
+working if the next step is still yours. When changed work pauses, update the
+handoff separately.
 
 The [single-ticket pilot](PERSONAL-CODEX.md) remains available for existing
 pilot sessions.

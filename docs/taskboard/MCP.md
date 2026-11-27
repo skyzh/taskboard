@@ -80,8 +80,10 @@ before retrying a Decision. Upgrade the board and reconnect the adapter.
    ID as `ticket`.
 4. Record the current step with `taskboard_start` or `taskboard_update`. Read
    the Checkpoint and End task prompts from `taskboard_field_guidance`. Use
-   `taskboard_checkpoint` to leave the decision and evidence in Activity before
-   passing on changed work. Follow the End task prompt before `taskboard_done`.
+   `taskboard_checkpoint` when you make a meaningful discovery or decision,
+   even if you keep working. Refresh the current handoff separately when
+   changed work pauses or passes to someone else. Follow the End task prompt
+   before `taskboard_done`.
    Checkpoint and Done both accept `details`.
 5. Read the returned `receipt` and the board's `next_step` when present. If the
    write outcome is unknown, read the ticket or queue before deciding whether

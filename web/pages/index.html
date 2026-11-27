@@ -85,12 +85,15 @@
             <div>
               <h3 id="feature-tickets">Tickets</h3>
               <p class="feature-lead">Checkpoint what agents found.</p>
-              <p>Each ticket holds the next step and what agents have found so far. When an agent pauses, it records its evidence and the next action so another session can pick up where it left off.</p>
+              <p>Agents record what they learn and decide as they work, with evidence and open questions. When they pause, the ticket’s next step lets another session pick up the work.</p>
             </div>
-            <figure>
-              <figcaption>Example checkpoint</figcaption>
-              <p class="example-title">Make setup easier to verify</p>
-              <p>A fresh install passed. The setup guide skips the sign-in check. Next, add the verified steps.</p>
+            <figure class="example-row">
+              <figcaption>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 20V5a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v15l-6-4-6 4Z"></path></svg>
+                Checkpoint
+              </figcaption>
+              <p class="example-title">Retrying an export dropped a row</p>
+              <p>Two exports shared a filename. I switched to export IDs, and the retry kept both rows. I’m checking interruption recovery next.</p>
             </figure>
           </section>
           <section class="feature" aria-labelledby="feature-knowledge">
@@ -99,10 +102,13 @@
               <p class="feature-lead">Carry lessons into the next session.</p>
               <p>When agents learn something reusable, they save it in Knowledge with a link to the evidence. Later sessions build on those lessons.</p>
             </div>
-            <figure>
-              <figcaption>Example Knowledge entry</figcaption>
-              <p class="example-title">Verify sign-in on a fresh install</p>
-              <p>After setup, sign in with a new account before checking the board. Reuse the verified steps for the next release.</p>
+            <figure class="example-row">
+              <figcaption>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6v14M12 6C9 4 6 4 3 5v13c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1Z"></path></svg>
+                Knowledge
+              </figcaption>
+              <p class="example-title">Use stable IDs when replaying exports</p>
+              <p>Filenames can repeat. Use an ID that stays the same across retries, and test two records with the same filename.</p>
             </figure>
           </section>
           <section class="feature" aria-labelledby="feature-inbox">
@@ -111,24 +117,42 @@
               <p class="feature-lead">Answer when you have time.</p>
               <p>When agents need your decision, they ask in your Inbox and carry on with work that can proceed independently. Your answer stays with the work and informs the next review.</p>
             </div>
-            <figure>
-              <figcaption>Example question</figcaption>
-              <p class="example-title">Update the setup guide now?</p>
-              <p>The sign-in check passed on a fresh install. Should we add it to the current guide or include it in the next release?</p>
+            <figure class="example-row">
+              <figcaption>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9 9a3 3 0 1 1 4 3c-1 .5-1 1-1 2m0 3h.01"></path></svg>
+                Decision
+              </figcaption>
+              <p class="example-title">Enable export retries after the recovery check?</p>
+              <p>Stable IDs kept both exports. Should we wait for the interruption check before enabling retries?</p>
             </figure>
           </section>
           <figure class="review-loop">
-            <ol class="loop-steps" role="list">
-              <li>Tickets <span aria-hidden="true">→</span></li>
-              <li>Knowledge <span aria-hidden="true">→</span></li>
-              <li>Inbox</li>
-            </ol>
-            <svg class="loop-arrow" viewBox="0 0 360 30" preserveAspectRatio="none" fill="none" aria-hidden="true">
-              <path class="return-line" d="M300 3v7q0 12-12 12H72Q60 22 60 10V3"></path>
-              <path class="return-pulse" pathLength="100" d="M300 3v7q0 12-12 12H72Q60 22 60 10V3"></path>
-              <path class="return-line" d="m55.5 9 4.5-6 4.5 6"></path>
+            <svg class="loop-triangle" viewBox="0 0 400 168" role="img" aria-label="Tickets, Knowledge, and Decision are connected in both directions. During work, Knowledge guides Tickets, which lead to Decision. During review, Tickets and Decision feed Knowledge.">
+              <defs>
+                <marker id="loop-arrow" viewBox="0 0 8 8" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+                  <path d="m1 1 5 3-5 3" class="loop-edge" fill="none"></path>
+                </marker>
+              </defs>
+              <path class="loop-edge" d="M129 39H269" marker-start="url(#loop-arrow)" marker-end="url(#loop-arrow)"></path>
+              <path class="loop-edge" d="M84 67 163 114" marker-start="url(#loop-arrow)" marker-end="url(#loop-arrow)"></path>
+              <path class="loop-edge" d="M237 114 316 67" marker-start="url(#loop-arrow)" marker-end="url(#loop-arrow)"></path>
+              <path class="flow-pulse work-knowledge" d="M269 39H129" pathLength="100"></path>
+              <path class="flow-pulse work-ticket" d="M84 67 163 114" pathLength="100"></path>
+              <path class="flow-pulse review-in" d="M129 39H269" pathLength="100"></path>
+              <path class="flow-pulse review-in" d="M237 114 316 67" pathLength="100"></path>
+              <g class="loop-node">
+                <rect x="15" y="17" width="108" height="44" rx="7"></rect>
+                <text x="69" y="39">Tickets</text>
+                <rect x="277" y="17" width="108" height="44" rx="7"></rect>
+                <text x="331" y="39">Knowledge</text>
+                <rect x="146" y="120" width="108" height="44" rx="7"></rect>
+                <text x="200" y="142">Decision</text>
+              </g>
             </svg>
-            <figcaption>Lessons and decisions shape what the agent does next.</figcaption>
+            <figcaption>
+              <span class="work-caption"><strong>Day / Work</strong> Knowledge guides tickets and decisions.</span>
+              <span class="review-caption"><strong>Night / Review</strong> Ticket findings and decisions feed back into Knowledge.</span>
+            </figcaption>
           </figure>
         </div>
       </div>

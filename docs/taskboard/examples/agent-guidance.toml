@@ -1,8 +1,8 @@
 [agent_guidance]
-ready-review = "For code in your field, have an uninvolved subagent review the exact revision and record its evidence. Use a peer when the work crosses fields, a subagent is unavailable, or your repository requires a peer reviewer."
+ready-review = "Verify the result and record the checked revision and evidence. You can review ordinary work yourself. Arrange independent review when the user asks for it or your project requires it."
 peer-create = "If the recipient still needs a notice, mention them once in your project's Raft channel. Include the ticket link and the specific action. Keep the request and its outcome on Taskboard."
 standing-exploration = "Finish actionable work and reviews first. If Inbox is clear and you have not explored this turn, start the goal ticket for one focused pass. Search for an existing ticket before opening a finding and tag any new finding spontaneous. Record the result on the goal ticket and park it. This counts as that Pacific day’s review. Recheck Inbox for actionable work and end exploration for the turn."
-lesson-capture = "Search Activity before retrying a recurring issue. For findings another agent can reuse, use tasks --shared log with --details to record the attempt, result, and reason for the next step. Link the evidence."
+lesson-capture = "Use tasks --shared log with --checkpoint and --details for a meaningful discovery or decision while you work. Record why you chose the next step, link the evidence, and name what is still uncertain."
 
 [agent_guidance.cli]
 context = "Open your Inbox with ./tasks --shared next. Keep routine progress in Taskboard and use the project Raft channel for coordination with other people."
