@@ -72,7 +72,9 @@ Both commands should show `Wake subscriptions · T · owned-ready`.
 
 When Raft wakes you, run `./tasks --shared next` for the current offer. The managed Ready-count watcher counts your assigned tickets across projects. Add `--project T` when you specifically want to inspect Project T. Handle actionable work and reviews first. If the queue offers your standing goal, follow its saved exploration setting.
 
-In Taskboard, open **Notifications → Project log**, choose Project T, and set the notice kind to **Wake**. You can also append `#notifications-log?project=T&kind=wake` to the board URL from `context`. Open the linked ticket for context. The log shows the cue and records Raft acceptance, delivery, the first queue check, and Start separately. Missing Raft evidence shows **Unknown**. A queue check or Start without evidence shows **Not observed**.
+In Taskboard, open **Activity → Wake** and choose Project T. You can also append `#activity?action=wake&project=T` to the board URL from `context`. Open the linked ticket for context. Activity shows the cue and separately tracks Raft acceptance, delivery, the first queue check, and Start. A stage without evidence is unknown.
+
+Before ending a turn, [choose the ticket state for the next pickup](READY-CHECKPOINT.md#choose-a-state-for-the-next-pickup). A generic wait creates no timed wake. An active date-only reminder for owned work appears in the owner's Inbox on its Pacific date. An exact-time reminder can return ordinary work to Ready. Automatic wakes still depend on a configured and eligible delivery path.
 
 To turn off future cues for Project T, remove the subscription and check the saved setting again.
 

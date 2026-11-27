@@ -6449,7 +6449,7 @@ class TasksServiceTest(unittest.TestCase):
         app = self.app(portal_reader=True)
         owner, _ = self.login(app, "Avery")
         manager, manager_id = self.login(app, "Sam")
-        other, _ = self.login(app, "Blake")
+        other, other_id = self.login(app, "Blake")
         anonymous = app.test_client()
         self.cli("register-project", "T", "Taskboard", "--dri", manager_id)
         self.action(owner, "create-task", {"title": "Review the samples", "step": "Read the worksheet."})
@@ -6475,11 +6475,27 @@ class TasksServiceTest(unittest.TestCase):
 
         advance("start")
         self.assertTrue(can_park(owner))
-        advance("wait", on="Sample export", automation=True)
+        code, output, errors = self.shared_cli(
+            owner, "wait", "T-1", "Wait for the sample export.", "--on", "Sample export", "--automation",
+        )
+        self.assertEqual(code, 0, errors)
+        self.assertIn("Committed · T-1 · Wait recorded", output)
+        self.assertIn("This wait schedules no timed wake.", output)
         self.assertFalse(can_park(owner))
         self.call(owner, route + "/parking", method="POST", json=data, status=409)
         advance("resume")
-        self.call(owner, route + "/parking", method="POST", json=data)
+        code, output, errors = self.shared_cli(
+            owner, "park", "T-1", "Read the next worksheet.", "--review-after", "2030-04-01",
+        )
+        self.assertEqual(code, 0, errors)
+        self.assertIn("Committed · T-1 · Parked", output)
+        date_hint = ("An active date-only reminder on an owned work ticket appears in the owner's Inbox "
+                     "on the saved Pacific date. For a scheduled goal, use its recurring review.")
+        self.assertIn(date_hint, output)
+        self.action(owner, "set-wake-subscription", {"event_type": OWNED_READY, "enabled": "false"})
+        code, output, errors = self.shared_cli(owner, "remind", "T-1", "--until", "2030-04-01T12:30:00-07:00")
+        self.assertEqual(code, 0, errors)
+        self.assertIn("configured and eligible delivery path", output)
         self.assertTrue(can_park(owner))
         advance("unpark")
         advance("start")
@@ -6489,6 +6505,19 @@ class TasksServiceTest(unittest.TestCase):
         self.action(owner, "save-goal", {"kind": "standing", "summary": "Keep checking the sample."})
         goal = self.action(owner, "my-next")["standing_goals"][0]["ticket"]
         self.assertFalse(can_park(owner, f"/api/v1/tasks/{goal}"))
+        self.assertEqual(self.shared_cli(owner, "goal-review-time", goal, "--at", "17:00")[0], 0)
+        code, output, errors = self.shared_cli(owner, "remind", goal, "--on", "2030-04-01")
+        self.assertEqual(code, 0, errors)
+        self.assertIn(date_hint, output)
+
+        self.cli("register-project", "COURSE", "Example board", "--dri", other_id)
+        self.action(other, "create-task", {"project": "COURSE", "title": "Deferred sample", "step": "Keep for later."})
+        self.action(other, "change-ownership", {"id": "COURSE-1", "action": "unassign", "reason": "Keep for later."})
+        code, output, errors = self.shared_cli(
+            other, "park", "COURSE-1", "Defer the sample.", "--review-after", "2030-04-01",
+        )
+        self.assertEqual(code, 0, errors)
+        self.assertIn(date_hint, output)
 
     def test_task_parking_repairs_a_legacy_record_without_rewriting_history(self):
         app = self.app(portal_reader=True)

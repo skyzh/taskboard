@@ -311,6 +311,17 @@ class AgentGuidance:
             return "Recheck signed Inbox and assigned reviews before another standing-goal pass."
         if name == "advance-task" and data.get("standing_pass") == "criterion-met":
             return "Check other Inbox work until the next configured goal review."
+        if name == "advance-task":
+            if transition == "wait" and not (data.get("blocked_by") or data.get("attention_request_id")):
+                return (f"{self['advance-wait']} This wait schedules no timed wake. "
+                        "For a review at a specific time, use a parked ticket with an exact-time reminder.")
+            if transition in ("park", "remind"):
+                if data.get("defer_until"):
+                    return ("The scheduler can return the ticket to Ready at the saved time. "
+                            "An automatic wake needs a configured and eligible delivery path.")
+                if data.get("review_after"):
+                    return ("An active date-only reminder on an owned work ticket appears in the owner's Inbox "
+                            "on the saved Pacific date. For a scheduled goal, use its recurring review.")
         if name == "advance-task" and (transition == "start" or transition in _ADVANCE_STEPS):
             if transition == "start":
                 return f"{self['advance-checklist']} {self['lesson-capture']}"
