@@ -53,7 +53,7 @@ _SCHEMA = """
 
 
 class SampledIdleGate:
-    """Process-local eligibility for the disposable managed Ready replay."""
+    """Process-local eligibility for the one-shot managed Ready pilot."""
 
     def __init__(self, read_status, *, clock=monotonic):
         self.read_status = read_status
@@ -116,7 +116,7 @@ def _latest(db):
     return db.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]
 
 
-def initialize(state_path, db, scope):
+def initialize(state_path, db, scope, *, pilot=False):
     """Create a private, empty baseline, leaving already-Ready work to the fallback."""
     with tasks_storage.read(db):
         binding = scope.subscription(db)
@@ -126,6 +126,9 @@ def initialize(state_path, db, scope):
         with closing(connect(staged, "rwc")) as state, state:
             staged.chmod(0o600)
             state.execute(_SCHEMA)
+            if pilot:
+                state.execute("CREATE TABLE pilot (event INTEGER)")
+                state.execute("INSERT INTO pilot VALUES (NULL)")
             state.execute(
                 """INSERT INTO sender (singleton, ledger, board, server, recipient, owner, app,
                                       subscription, through_event)
@@ -137,13 +140,14 @@ def initialize(state_path, db, scope):
 
 
 class ManagedReadySender:
-    def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None):
+    def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None, event_id=None):
         self.db = db
         self.state = state
         self.scope = scope
         self.grant = grant
         self.clock = clock
         self.idle_gate = idle_gate
+        self.event_id = event_id
 
     def _check_subscription(self, saved):
         current = self.scope.subscription(self.db)
@@ -160,10 +164,10 @@ class ManagedReadySender:
             return self.db.execute(
                 ledger.current_tasks_sql(self.db) + """
                 WHERE tasks.dri = ? AND tasks.project_prefix = ? AND events.state = 'ready'
-                  AND events.id > ?
+                  AND events.id > ? AND (? IS NULL OR events.id = ?)
                 ORDER BY events.id LIMIT 1
                 """,
-                (saved["owner"], _PROJECT, saved["through_event"]),
+                (saved["owner"], _PROJECT, saved["through_event"], self.event_id, self.event_id),
             ).fetchone()
 
     def _finish(self, event, *, retry_at=0):
@@ -213,6 +217,8 @@ class ManagedReadySender:
         if row is None:
             if saved["attempt_event"] is not None and now >= saved["retry_at"]:
                 self._finish(saved["attempt_event"])
+            if self.event_id is not None:
+                return "pilot_event_unavailable", self.event_id
             return "idle", None
         if now < saved["retry_at"]:
             return "waiting", None
@@ -221,6 +227,8 @@ class ManagedReadySender:
             receipt = self.db.execute(
                 "SELECT recipient, acceptance FROM wake_log WHERE source_event_id = ?", (event,),
             ).fetchone()
+        if self.event_id is not None and receipt is None:
+            return "pilot_event_unavailable", event
         if receipt is not None:
             if receipt["recipient"] != saved["owner"]:
                 raise ValueError("The Ready receipt belongs to a different recipient.")

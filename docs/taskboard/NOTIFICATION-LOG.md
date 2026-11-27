@@ -205,6 +205,44 @@ restart using private state. A signed opt-out or a pending or denied Raft grant
 clears the bearer and stops the sender. A deliberate re-enable starts from
 fresh approval, a fresh signed opt-in, and a new baseline.
 
+### Try one enrolled Ready event while the recipient appears Idle
+
+Use this foreground experiment after the exact revision is reviewed and the
+operator has verified the approved app and recipient grant, the recipient's
+signed Project T opt-in and consent, and the handover for one cue. Confirm
+`raft auth whoami` resolves the same server from the operator shell and
+`raft user info @handle --limit 1` reports the intended agent. The command
+uses the recipient's signed board profile to look up the Raft handle.
+
+Create a fresh private pilot state with the same global arguments shown
+above and replace `init` with `init-pilot`. Coordinate with the owner to
+pause their existing fallback watcher before creating the one fresh Ready
+event. Verify the exact cue is Pending and has no outstanding fallback
+notification. Keep the signed Inbox available to the recipient.
+
+```sh
+./.venv/bin/python -B ./tasks_managed_ready.py --db "$ready_ledger" \
+  --state "$managed_state" --server-id "$approved_server_id" \
+  --recipient-id "$approved_agent_id" --client-id "$ready_app_id" \
+  run-pilot --event-id "$approved_ready_event" --server-slug "$approved_server_slug" \
+  --secret-fd 3 3<"$ready_app_secret_file"
+```
+
+The private state pins the event on first use. Reuse the same state and event
+for an authorized retry. The regular `run` command rejects pilot state.
+The foreground command samples current availability about every ten seconds
+for up to five minutes of polling. It requires more than thirty seconds from
+the first explicit Idle sample and another explicit Idle read just before
+transport. An ambiguous or failed read and a restart reset the sample window.
+Between-sample transitions can be missed, and the recipient can become busy
+after the final read.
+
+The command stops after a resolved outcome. When the window ends or the
+operator stops it, reconcile the exact cue before any retry or fallback.
+Record Raft acceptance, observed delivery and signed Start separately.
+Restore exactly one original watcher and verify its signed queue read. Leave
+other cues and watchers in their existing paths.
+
 ### Roll back the managed sender
 
 Stop the foreground process with Ctrl-C or send SIGTERM, then wait for it to

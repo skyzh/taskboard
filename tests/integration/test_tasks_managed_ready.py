@@ -1,6 +1,7 @@
 """Exercise a Project T Ready wake and pickup against disposable fixtures."""
 
 from contextlib import closing, redirect_stdout
+from functools import partial
 from hashlib import sha256
 from io import StringIO
 import json
@@ -486,6 +487,95 @@ class ManagedSenderTest(unittest.TestCase):
             {"status": "running"}, {"status": "accepted", "ready_event": ready["event"]}, {"status": "stopped"},
         ])
         self.assertEqual(self.calls(), ["agent", "token", "agent-events"])
+
+    def test_operator_pilot_restarts_and_delivers_only_the_pinned_event(self):
+        command = "taskboard_server.managed_ready_operator"
+        args = [
+            "--db", str(self.ledger), "--state", str(self.state), "--client-id", "fixture-client",
+            "--server-id", self.identity.server_id, "--recipient-id", self.identity.subject,
+        ]
+        with redirect_stdout(StringIO()):
+            self.assertEqual(managed_ready([*args, "init-pilot"], transport=self.provider), 0)
+        unrelated = self.create()["event"]
+        pinned = self.create()["event"]
+        fallback = offer_work(self.board, self.owner)
+        self.assertEqual(fallback["ready_event"], unrelated)
+        origin = self.now
+        runtime = "Idle"
+        stop_at = 50
+        reads = []
+
+        def carrier(*words):
+            nonlocal runtime
+            if words == ("auth", "whoami"):
+                return json.dumps({"data": {"serverConfirmed": True, "server": {
+                    "id": self.identity.server_id, "slug": "fixture",
+                }}})
+            self.assertEqual(tuple(word.casefold() for word in words),
+                             ("user", "info", f"@{RECIPIENT.casefold()}", "--limit", "1"))
+            reads.append(self.now - origin)
+            suffix = f": {runtime}" if runtime else ""
+            if self.now - origin == 50:
+                runtime = "Idle"
+            return f"## User\nUser: @{RECIPIENT}\nKind: agent\nStatus: active; online{suffix}\n"
+
+        def wait(seconds):
+            self.now += seconds
+
+        def run(mode, *options):
+            output = StringIO()
+            with (TemporaryFile(dir=self.ledger.parent) as secret, redirect_stdout(output),
+                  patch(f"{command}.Event") as stop,
+                  patch(f"{command}._raft", side_effect=carrier),
+                  patch(f"{command}.monotonic", side_effect=lambda: self.now - origin),
+                  patch(f"{command}.ManagedReadySender", partial(ManagedReadySender, clock=lambda: self.now)),
+                  patch(f"{command}.ManagedReadyGrant", partial(ManagedReadyGrant, clock=lambda: self.now))):
+                secret.write(b"fixture-secret\n")
+                secret.seek(0)
+                stop.return_value.is_set.side_effect = lambda: self.now - origin >= stop_at
+                stop.return_value.wait.side_effect = wait
+                result = managed_ready([
+                    *args, mode, "--server-slug", "fixture",
+                    "--secret-fd", str(os.dup(secret.fileno())), *options,
+                ], transport=self.provider)
+            return result, [json.loads(line)["status"] for line in output.getvalue().splitlines()]
+
+        def lose_reply(document):
+            nonlocal runtime
+            self.provider.accept(document)
+            runtime = "Working"
+            raise TimeoutError("Fixture accepted before reply and recipient became busy.")
+
+        self.provider.on_event = lose_reply
+        self.assertEqual(run("run-pilot", "--event-id", str(pinned)),
+                         (1, ["pilot_running", "retry", "pilot_stopped"]))
+        self.assertEqual(reads, [0, 10, 20, 30, 40, 40])
+        self.assertEqual(self.outcomes(), [(unrelated, "pending"), (pinned, "pending")])
+
+        # Ordinary run and a different pilot event both reject the enrolled state.
+        self.assertEqual(run("run"), (1, ["managed_sender_failed"]))
+        self.assertEqual(run("run-pilot", "--event-id", str(unrelated)), (1, ["managed_sender_failed"]))
+        self.assertEqual(self.calls(), ["agent", "token", "agent-events"])
+
+        stop_at = 160
+        runtime = ""
+        self.provider.on_event = self.provider.accept
+        self.assertEqual(run("run-pilot", "--event-id", str(pinned)),
+                         (0, ["pilot_running", "accepted"]))
+        self.assertEqual(reads[-7:], [50, 60, 70, 80, 90, 100, 100])
+        self.assertEqual(self.outcomes(), [(unrelated, "pending"), (pinned, "accepted")])
+        documents = [document for route, document in self.provider.calls if route == "agent-events"]
+        self.assertEqual(documents, [documents[0]] * 2)
+        self.assertEqual(list(self.provider.accepted), [documents[0]["externalEventId"]])
+        self.assertEqual(run("run-pilot", "--event-id", str(pinned)),
+                         (1, ["pilot_running", "pilot_event_unavailable"]))
+        self.assertEqual([route for route, _ in self.provider.calls].count("agent-events"), 2)
+        # Resume the same signed fallback queue after the bounded sender exits.
+        self.assertEqual(offer_work(self.board, self.owner), fallback)
+        self.board.invoke("advance-task", {
+            "id": fallback["task"], "transition": "start", "note": "Resume the other Ready ticket.",
+        }, write=True)
+        self.assertEqual(disposition(self.board, self.owner, fallback), "started")
 
     def test_subscription_removed_during_oauth_stops_before_exchange(self):
         self.baseline()
