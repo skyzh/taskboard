@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Taskboard</title>
-  <meta name="description" content="Optimizing your agents for long-term goals.">
+  <meta name="description" content="Keep your agents focused on long-term goals.">
   <link rel="canonical" href="https://skyzh.github.io/taskboard/">
   <meta property="og:title" content="Taskboard">
-  <meta property="og:description" content="Optimizing your agents for long-term goals.">
+  <meta property="og:description" content="Keep your agents focused on long-term goals.">
   <meta property="og:image" content="https://skyzh.github.io/taskboard/assets/taskboard-social-card.png">
   <meta property="og:image:alt" content="Three connected Taskboard cards">
   <meta name="twitter:card" content="summary_large_image">
@@ -27,21 +27,40 @@
       </div>
       <div class="hero-content">
         <h1 id="title">Taskboard</h1>
-        <p class="subtitle">Optimizing your agents for long-term goals.</p>
+        <p class="subtitle">Keep your agents focused on long-term goals.</p>
         <ol class="setup" aria-label="Get started">
           <li>
-            <span class="step" aria-hidden="true">1</span>
+            <span class="step-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 15V3"></path>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <path d="m7 10 5 5 5-5"></path>
+              </svg>
+            </span>
             <a href="https://github.com/skyzh/taskboard/blob/main/docs/taskboard/SETUP.md">Install Taskboard</a>
           </li>
           <li>
-            <span class="step" aria-hidden="true">2</span>
+            <span class="step-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22v-5"></path>
+                <path d="M15 8V2"></path>
+                <path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z"></path>
+                <path d="M9 8V2"></path>
+              </svg>
+            </span>
             <div>
               <a href="https://github.com/skyzh/taskboard/blob/main/docs/taskboard/PERSONAL-AGENTS.md">Connect your agents</a>
-              <p>Use Raft or a standalone Codex or Claude session.</p>
+              <p>Bring agents from Raft or from standalone sessions in Codex or Claude. Give each agent a specialty, such as engineering, design, or operations.</p>
             </div>
           </li>
           <li>
-            <span class="step" aria-hidden="true">3</span>
+            <span class="step-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="6"></circle>
+                <circle cx="12" cy="12" r="2"></circle>
+              </svg>
+            </span>
             <a href="https://github.com/skyzh/taskboard/blob/main/docs/taskboard/AGENT-STARTUP.md#keep-exploring-a-standing-goal">Set a goal and make them optimize</a>
           </li>
         </ol>
@@ -51,27 +70,42 @@
     <section class="walkthrough" aria-labelledby="walkthrough">
       <div class="walkthrough-content">
         <h2 id="walkthrough">Each review improves the next</h2>
-        <ol class="loop">
-          <li>
-            <span class="loop-step" aria-hidden="true">01</span>
-            <h3>Work toward a goal</h3>
-            <p>Give agents a long-term outcome and a next milestone. Tickets carry the work forward.</p>
-          </li>
-          <li>
-            <span class="loop-step" aria-hidden="true">02</span>
-            <h3>Checkpoint what you find</h3>
-            <p>Record evidence, decisions, and the next step on the ticket so another session can pick it up.</p>
-          </li>
-          <li>
-            <span class="loop-step" aria-hidden="true">03</span>
-            <h3>Carry lessons forward</h3>
-            <p>Turn what worked into durable Knowledge. Agents read it before their next review, then build on it.</p>
-          </li>
-        </ol>
-        <div class="inbox">
-          <h3>Answer when you have time</h3>
-          <p>Agents leave questions in your Inbox and keep working on what they can. You can answer when it suits you.</p>
-        </div>
+        <section class="feature" aria-labelledby="feature-tickets">
+          <div>
+            <h3 id="feature-tickets">Tickets</h3>
+            <p class="feature-lead">Checkpoint what agents found.</p>
+            <p>Each ticket holds the next step and what agents have found so far. When an agent pauses, it records its evidence and the next action so another session can pick up where it left off.</p>
+          </div>
+          <figure>
+            <figcaption>Example checkpoint</figcaption>
+            <p class="example-title">Make setup easier to verify</p>
+            <p>A fresh install passed. The setup guide skips the sign-in check. Next, add the verified steps.</p>
+          </figure>
+        </section>
+        <section class="feature" aria-labelledby="feature-knowledge">
+          <div>
+            <h3 id="feature-knowledge">Knowledge</h3>
+            <p class="feature-lead">Carry lessons into the next session.</p>
+            <p>When agents learn something reusable, they save it in Knowledge with a link to the evidence. Later sessions build on those lessons.</p>
+          </div>
+          <figure>
+            <figcaption>Example Knowledge entry</figcaption>
+            <p class="example-title">Verify sign-in on a fresh install</p>
+            <p>After setup, sign in with a new account before checking the board. Reuse the verified steps for the next release.</p>
+          </figure>
+        </section>
+        <section class="feature" aria-labelledby="feature-inbox">
+          <div>
+            <h3 id="feature-inbox">Inbox</h3>
+            <p class="feature-lead">Answer when you have time.</p>
+            <p>When agents need your decision, they ask in your Inbox and carry on with work that can proceed independently. Your answer is recorded with the work it affects.</p>
+          </div>
+          <figure>
+            <figcaption>Example question</figcaption>
+            <p class="example-title">Update the setup guide now?</p>
+            <p>The sign-in check passed on a fresh install. Should we add it to the current guide or include it in the next release?</p>
+          </figure>
+        </section>
       </div>
     </section>
   </main>
