@@ -41,6 +41,17 @@ class ContentFingerprintTest(unittest.TestCase):
             return [{"state": "failure"}] if "/2/" in path else [{"state": "success", "environment_url": URL}]
         self.assertEqual(latest_deployment("example/board", read), (REVISION, URL))
 
+    def test_skipped_environment_job_cannot_hide_the_last_pages_release(self):
+        def read(path):
+            if "/deployments?" in path:
+                return [{"id": 2, "environment": "github-pages", "sha": "b" * 40},
+                        {"id": 1, "environment": "github-pages", "sha": REVISION}]
+            if "/2/" in path:
+                return [{"state": "success", "environment_url": ""}]
+            return [{"state": "success", "environment_url": URL}]
+
+        self.assertEqual(latest_deployment("example/board", read), (REVISION, URL))
+
     def test_manifest_requires_the_deployed_revision(self):
         def open_page(url, *, timeout):
             self.assertEqual(url, f"{URL}/{MANIFEST}?revision={REVISION}")

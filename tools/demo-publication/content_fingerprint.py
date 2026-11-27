@@ -38,6 +38,9 @@ def latest_deployment(repository, read):
             continue
         revision = deployment["sha"]
         raw_url = states[0].get("environment_url") or ""
+        # A successful environment job can skip deploy-pages after the final main check.
+        if not raw_url:
+            continue
         page = urlsplit(raw_url)
         if (not isinstance(revision, str) or not COMMIT.fullmatch(revision)
                 or any(not char.isprintable() or char.isspace() for char in raw_url)
