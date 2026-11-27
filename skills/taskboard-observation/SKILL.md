@@ -7,7 +7,9 @@ description: Review Taskboard goals against evidence with a DRI and an independe
 
 Keep one directly responsible individual (DRI) per goal. Record the human-defined outcome, constraints and budget, baseline, evidence sources, and review cadence. Use a standing goal for ongoing upkeep. For a bounded run, set an end date and criteria for continuing, changing course, or stopping. Keep existing incident cadences and milestone deadlines.
 
-Use the existing goal review schedule. At each due review, read the last outcome and applicable decisions, inspect the agreed signals, and record one dated result on the same goal. Record what changed, what stayed steady, what could not be verified, and the next action. Link evidence. If a normal work pass already recorded the day's outcome, count it and avoid duplicate reminders and reports.
+Use the existing goal review schedule. Keep bounded exploration and scheduled review on the same goal ticket. An Explore pass answers one question, records evidence in Activity, and hands back the next useful step. Follow the saved exploration policy and recheck Inbox before another pass.
+
+At each due Review, read the last outcome and applicable decisions. Record findings, unknowns, the decision, and a named next step in Knowledge. Link it from the goal's dated review outcome. An Explore pass can supply the evidence. Record Review explicitly when the project tracks it separately. If the board counts a completed pass as that day’s review, honor that completion and reuse the recorded outcome. Use the existing reminder and report key so the day receives one review and one requested report.
 
 ## Evaluate the outcome
 
@@ -24,6 +26,6 @@ Choose evidence suited to the goal.
 
 Ask the human through a linked Taskboard decision when their answer changes the next action. Include the options, consequences, timing, and evidence. Preserve the original answer with the goal. If a decision sets a reusable rule, record the rule, scope, and source in Knowledge. Record completion separately from approval to expand a rollout or experiment.
 
-When the recipient requests recurring progress updates, send one nonblocking FYI per owner and review period. Link the recorded outcome and explain what changed, what improved or stayed steady, and what comes next. Reuse the same request key on retry. Keep questions that need a decision in the linked decision flow.
+After each Explore pass, use the evidence to choose Continue, Pivot, or Stop and record the next step. Use the scheduled Review for synthesis across passes. When the recipient requests recurring updates, follow the agreed reporting interval. Check it at each Review and send one nonblocking FYI per owner and reporting period when due. Link the outcome, explain what changed and what comes next, and reuse the request key on retry. Keep questions that need a decision in the linked decision flow.
 
 End a bounded review with the evidence, decision, and any open follow-up. For ongoing upkeep, improve this process by staging a narrow SOP edit, checking it against a later review, and retaining the decision source. When publishing team guidance, export reusable instructions and fictional examples through the repository's review process.
