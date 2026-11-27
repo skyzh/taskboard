@@ -380,6 +380,13 @@ class StorageReplayTest(unittest.TestCase):
         human, _ = self.board.login(destination_app, "Sam")
         self.assertEqual(self.board.call(human, PUBLISHING).json, INSTRUCTIONS)
         self.assertEqual(self.board.action(client, "idle-goal-offer", handoff)["offer"], original)
+        saved = self.board.action(client, "my-goals")
+        self.assertEqual(saved["review_times"], {"T-1": "09:15"})
+        self.assertEqual(saved["review_schedules"]["T-1"]["state"], "active")
+        self.board.action(client, "ticket-recurrence", {"id": "T-1", "change": "pause"})
+        paused = self.board.action(client, "my-goals")["review_schedules"]["T-1"]
+        self.assertEqual((paused["state"], paused["review_time"], paused["next_at"]), ("paused", "09:15", None))
+        self.board.action(client, "ticket-recurrence", {"id": "T-1", "change": "resume"})
         self.assertEqual(self.board.action(client, "my-goals")["review_times"], {"T-1": "09:15"})
         cues = self.board.action(client, "my-goal-cues", query_string={"project": "T"})
         self.assertEqual((cues["busy"], cues["drain_event"], cues["standing"]["ticket"]), (False, 0, "T-1"))

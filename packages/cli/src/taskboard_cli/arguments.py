@@ -318,6 +318,7 @@ def arguments(argv=None):
     ticket_recurrence.add_argument("--by", type=nonblank)
     ticket_recurrence.add_argument("--cadence-hours", type=int)
     ticket_recurrence.add_argument("--next-at", metavar="UTC")
+    ticket_recurrence.add_argument("--review-time", metavar="HH:MM", help="Daily Pacific review time for a goal.")
     ticket_recurrence.add_argument("--note", type=nonblank)
     add_details_flag(ticket_recurrence)
     add_link_flag(ticket_recurrence)

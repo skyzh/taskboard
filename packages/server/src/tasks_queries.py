@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 import tasks_core as ledger
+import tasks_goal_cadence as goal_cadence
 import tasks_goal_offers as goal_offers
 import tasks_goals as goals
 import tasks_knowledge as knowledge
@@ -321,24 +322,30 @@ class BoardQueries:
         rows = self.db.execute(
             f"""
             SELECT tasks.id, tasks.project_prefix, tasks.project_number, tasks.dri AS owner,
-                   tasks.title, goal.kind, goal.deadline, review.review_time
+                   tasks.title, goal.kind, goal.deadline, review.review_time, paused.value AS paused_time
             FROM task_goals AS goal
             JOIN tasks ON tasks.id = goal.task_id
             JOIN events AS current ON current.id = (
                 SELECT MAX(id) FROM events WHERE task_id = tasks.id AND action NOT IN ('source-event', 'log')
             )
             LEFT JOIN goal_review_times AS review ON review.task_id = tasks.id
+            LEFT JOIN board_settings AS paused ON paused.key = ? || CAST(tasks.id AS TEXT)
             WHERE goal.retired = 0 AND current.state <> 'done'
               AND (? IS NULL OR tasks.project_prefix = ?) AND {visibility}
             ORDER BY tasks.project_prefix, tasks.title, tasks.id
-            """, (project, project, *bindings),
+            """, (goal_cadence.PAUSED_REVIEW, project, project, *bindings),
         ).fetchall()
         people = profiles.visible_by_keys(self.db, [row["owner"] for row in rows], self.base)
+        now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
+        _, last_completed = goal_cadence.review_history(self.db, [row for row in rows if row["review_time"]])
         return [
             {"ticket": projects.row_reference(row), "project": row["project_prefix"],
              "title": row["title"], "kind": row["kind"], "deadline": row["deadline"],
              "owner": row["owner"], "owner_name": (people.get(row["owner"]) or {}).get("name"),
-             "review_time": row["review_time"], "editable": row["owner"] == owner}
+             "review_time": row["review_time"], "editable": row["owner"] == owner,
+             "review_schedule": goal_cadence.describe_schedule(
+                 row["review_time"], row["paused_time"], last_completed.get(row["id"]), now,
+             )}
             for row in rows
         ]
 
@@ -1184,6 +1191,9 @@ class BoardQueries:
             "last_activity": self.last_activity(task_id=number),
         }
         if owner is not None:
+            if (goal := result["goal"]) and row["state"] != "done":
+                goal["schedule_editable"] = owner == row["dri"]
+                goal["review_schedule"] = goal_cadence.ticket_schedule(self.db, row)
             if ledger.can_enable_recurrence(self.db, row, owner):
                 result["can_enable_recurrence"] = True
             if recurrence := self.ticket_recurrence(number, projects.row_project(row), owner):
@@ -2827,7 +2837,7 @@ class BoardQueries:
             **({"ask_recipient": row["recipient"]} if row["recipient"] else {}),
         } for row in rows]
 
-    def actionable_work(self, owner, *, today, project, ordinary_only=False):
+    def actionable_work(self, owner, *, today, project, ordinary_only=False, include_goal_reviews=True):
         """Yield the first actionable item in each queue in pickup order."""
         scope = {"project": project, "limit": 1}
         queues = (
@@ -2860,6 +2870,13 @@ class BoardQueries:
                     yield work
         if exploration:
             yield exploration
+        if include_goal_reviews and not ordinary_only:
+            now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
+            _, due = goal_cadence.due_reviews(self.db, owner, project, now, principal=self.principal)
+            if due:
+                cue = due[0]
+                number = projects.resolve(self.db, cue["ticket"])
+                yield {"kind": "goal_review", "id": number, "key": cue["ticket"], "title": cue["summary"]}
 
     def needs_you(self, actor, *, today, project, before, limit, reviews_only=False):
         owner = actor["ledger_key"]

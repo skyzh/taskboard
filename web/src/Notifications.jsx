@@ -57,6 +57,7 @@ const workLabels = {
   ready: 'Ready to start',
   review: 'Independent review',
   report: 'Collect a worker report',
+  goal_review: 'Goal review due',
   in_progress: 'Continue work in progress',
   shared_ready: 'Unassigned Ready work',
 }

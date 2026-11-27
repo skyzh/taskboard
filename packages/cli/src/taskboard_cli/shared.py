@@ -311,7 +311,7 @@ def shared_write(board, args, *, context):
     elif command == "ticket-recurrence":
         action = command
         data.update(id=task_ref(args.id), change=args.change, cadence_hours=args.cadence_hours,
-                    next_at=args.next_at, note=args.note, details=args.details)
+                    next_at=args.next_at, review_time=args.review_time, note=args.note, details=args.details)
     elif command == "complete-recurring-review":
         action = command
         data.update(id=f"R-{args.id}", note=args.note, details=args.details)
@@ -436,7 +436,7 @@ def shared_write(board, args, *, context):
 NEXT_LABELS = {
     "review": "Independent review", "report": "Collect a worker report", "readiness": "Check readiness",
     "request": "Answer an open request", "decision": "Decision requested", "reminder": "Review a task reminder",
-    "in_progress": "Continue work in progress", "shared_ready": "Review unassigned Ready work",
+    "goal_review": "Review a due goal", "in_progress": "Continue work in progress", "shared_ready": "Review unassigned Ready work",
 }
 
 
@@ -771,6 +771,11 @@ def shared_command(args):
                 lines.append(f"  Related tasks: {links}")
         for ticket, at in sorted(saved.get("review_times", {}).items()):
             lines.append(f"{ticket} · Daily review at {at} Pacific time.")
+        for ticket, schedule in sorted(saved.get("review_schedules", {}).items()):
+            if schedule["state"] == "paused":
+                lines.append(f"{ticket} · Daily review paused at {schedule['review_time']} Pacific time.")
+            elif schedule.get("next_at"):
+                lines.append(f"  {ticket} next scheduled slot · {schedule['next_at']}")
         guidance = saved.get("next_step") or "Choose a daily Pacific review time for each active goal with goal-review-time."
         if not standing:
             flag = f" --project {projects.prefix(args.project)}" if args.project else ""

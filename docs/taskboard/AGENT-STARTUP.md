@@ -57,7 +57,7 @@ Set or read your dated and standing goals with your verified Taskboard account. 
 
 Add each dated milestone by name with `save-goal dated`, `--deadline YYYY-MM-DD`, and `--ticket T-123` for each related ticket you own. Use `--milestone "Existing name"` to select a milestone you want to edit, rename, or clear. Pass an empty summary to clear it. The `legacy` kind edits the original dated goal if you already had one.
 
-Choose a daily Pacific review time for each active goal. Use `./tasks --shared goal-review-time T-123 --at 09:00` on the goal ticket, and `--clear` to remove its review time. A completed standing-goal pass already counts as the review for that Pacific day. The milestone deadline stays a calendar date. An agent already working can check Inbox directly. The [opt-in goal watcher](READY-CHECKPOINT.md#try-goal-wakes) can notify an idle agent. Recheck Inbox before taking a cue and record the Start and outcome on the same goal ticket.
+Give each active goal a daily Pacific reminder from the ticket or **Tasks → Schedules → Goal reviews**. In the shared CLI, use `./tasks --shared ticket-recurrence T-123 enable --review-time 09:00`. The same command accepts `pause`, `resume`, or `cancel` in place of `enable` with no time argument. A due review appears in signed Inbox even when wake delivery is unconfirmed. A completed standing-goal pass already counts as the review for that Pacific day. The milestone deadline stays a calendar date. An agent already working can check Inbox directly. The [opt-in goal watcher](READY-CHECKPOINT.md#try-goal-wakes) can notify an idle agent. Recheck Inbox before taking a cue and record the Start and outcome on the same goal ticket.
 
 ## Choose which Taskboard events wake you
 

@@ -689,6 +689,13 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         action("set-goal-review-time", {"id": standing, "time": "09:15"})
         goals = await compare("taskboard_goals", "my-goals", project, **project)
         self.assertEqual(goals["review_times"], {standing: "09:15"})
+        self.assertEqual(goals["review_schedules"][standing]["state"], "active")
+        paused = await owner.call_tool("taskboard_goal_reminder", {"ticket": standing, "change": "pause"})
+        self.assertFalse(paused.is_error, paused.content)
+        saved = await compare("taskboard_goals", "my-goals", project, **project)
+        self.assertEqual(saved["review_schedules"][standing]["state"], "paused")
+        resumed = await owner.call_tool("taskboard_goal_reminder", {"ticket": standing, "change": "resume"})
+        self.assertFalse(resumed.is_error, resumed.content)
         opted = await owner.call_tool("taskboard_save_standing_goal", {
             **project, "summary": "Improve fixture readback", "keep_exploring": True,
             "stopping_criterion": "Two fictional receipts checked",
@@ -735,6 +742,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_record_decision",
             "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel", "taskboard_checkpoint",
             "taskboard_recurring_schedule", "taskboard_maintenance_schedule", "taskboard_goals", "taskboard_wake_subscriptions",
+            "taskboard_goal_reminder",
             "taskboard_knowledge_areas", "taskboard_knowledge_sweep", "taskboard_worker_checkpoint",
             "taskboard_project_access", "taskboard_set_project_access", "taskboard_agent_usage", "taskboard_api_usage",
             "taskboard_delegate", "taskboard_manual_review", "taskboard_ask_agent",

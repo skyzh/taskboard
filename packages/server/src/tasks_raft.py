@@ -180,6 +180,7 @@ _ACTIONS = {
         "id": "Ticket key, such as T-1.", "change": "Enable, pause, resume, cancel, or complete.",
     }, {"cadence_hours": "Cadence in whole hours. Required on enable, optional on resume.",
         "next_at": "Next slot in UTC on enable or resume.", "note": "Outcome on complete.",
+        "review_time": "For a goal only, daily Pacific time as HH:MM on enable.",
         "details": "Optional review details.", **_EVIDENCE, **_TEXT_OVERRIDE}),
     "complete-recurring-review": _Action("POST", "Record a completed review and park its reusable ticket as the owner.", {
         "id": "Definition ID, such as R-1.", "note": "One-line reviewed outcome.",

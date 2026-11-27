@@ -128,8 +128,16 @@ def build_server(board: SharedBoard) -> MCPServer:
 
     @server.tool(annotations=read_only)
     def taskboard_goals(project: Project | None = None) -> dict[str, Any]:
-        """Read your saved standing and dated goals and review times for a project."""
+        """Read your saved standing and dated goals and recurring reminders for a project."""
         return board.invoke("my-goals", {"project": project} if project is not None else {})
+
+    @server.tool(annotations=ToolAnnotations(idempotent_hint=True))
+    def taskboard_goal_reminder(
+        ticket: Ticket, change: Literal["enable", "pause", "resume", "cancel"],
+        review_time: Annotated[str, Field(description="Daily Pacific time as HH:MM, for enable only.")] | None = None,
+    ) -> dict[str, Any]:
+        """Manage the recurring reminder on a goal you own."""
+        return ticket_write("ticket-recurrence", id=ticket, change=change, review_time=review_time)
 
     @server.tool(annotations=ToolAnnotations(idempotent_hint=True))
     def taskboard_save_standing_goal(

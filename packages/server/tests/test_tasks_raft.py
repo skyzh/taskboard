@@ -94,7 +94,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "recurring-add": ("POST", "key title step cadence_hours next_at", "project force_text"),
             "recurring-tick": ("POST", "project", ""),
             "recurring-state": ("POST", "id change", "next_at"),
-            "ticket-recurrence": ("POST", "id change", "cadence_hours next_at note details url label force_text"),
+            "ticket-recurrence": ("POST", "id change", "cadence_hours next_at review_time note details url label force_text"),
             "complete-recurring-review": ("POST", "id note", "details url label force_text"),
             "recurring-show": ("GET", "id", ""),
             "maintenance-show": ("GET", "project", ""),

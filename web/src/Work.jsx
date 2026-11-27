@@ -15,6 +15,7 @@ import { MergeQueue } from './MergeQueue.jsx'
 import ParkingForm from './ParkingForm.jsx'
 import RecordHistory, { historyHref } from './RecordHistory.jsx'
 import ReminderDate from './ReminderDate.jsx'
+import { GoalReviewTime } from './Schedules.jsx'
 import RecurringRuns, { RecurringRunList } from './RecurringRuns.jsx'
 import Kanban from './Kanban.jsx'
 import NeedsYouSend from './NeedsYouSend.jsx'
@@ -374,14 +375,16 @@ function TicketIdentity({ task, state, children }) {
 
 function ticketProperties({ task, goal, recurrence, recurring_runs: recurringRuns }, state, editingTags) {
   const { defer_until: deferUntil, review_after: reviewDate, readiness } = task.context || {}
-  const nextRun = recurrence ? recurrence.next_at : recurringRuns?.next_at
+  const nextRun = goal?.review_schedule?.next_at ?? (recurrence ? recurrence.next_at : recurringRuns?.next_at)
+  const reviewTime = goal?.review_schedule?.review_time ?? goal?.review_time
   return [
     deferUntil ? ['Defer until', <Timestamp at={deferUntil} />] :
       reviewDate && ['Review date', <time dateTime={reviewDate}>{reviewDate}</time>],
     state === 'parked' && readiness?.source_key && ['Review after',
       <TaskLink id={readiness.source_id} reference={readiness.source_key} />],
     nextRun && ['Next run', <Timestamp at={nextRun} />],
-    goal?.review_time && ['Daily review', <><time dateTime={goal.review_time}>{goal.review_time}</time> Pacific</>],
+    reviewTime && ['Daily review', <><time dateTime={reviewTime}>{reviewTime}</time> Pacific
+      {goal?.review_schedule?.state === 'paused' && ' · Paused'}</>],
     task.eta && state !== 'closed' && ['Estimated completion', <Timestamp at={task.eta} />],
     goal?.deadline && ['Due', <GoalDeadline deadline={goal.deadline} finished={state === 'done' || state === 'closed'} />],
     !editingTags && task.tags?.length && ['Tags', task.tags.join(', ')],
@@ -606,7 +609,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               </>}
               {record.goal?.resume_review_time && <p>Resume at the next {record.goal.resume_review_time} Pacific goal review.</p>}
               <ClosureReference context={task.context} />
-              {showReturnPath && !record.goal?.keep_exploring && <div hidden={!showActions}>{record.goal ? (
+              {showReturnPath && !record.goal?.keep_exploring && !record.goal?.review_schedule && <div hidden={!showActions}>{record.goal ? (
                   <ReminderDate key={`${id}:${task.context?.review_after || ''}`}
                     path={`/tasks/${id}/reminder`} saved={task.context?.review_after}
                     onChanged={onChanged} />
@@ -675,8 +678,11 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
             </div>
             <TaskTags task={task} editable={editingTags} canTagDecisionRecord={record.can_tag_decision_record ?? record.tag_editable}
               onChanged={onChanged} />
-            <TicketRecurrence key={`recurrence:${task.key || id}`} ticket={task.key || id} schedule={record.recurrence}
-              canEnable={record.can_enable_recurrence === true} signedIn={signedIn} onChanged={onChanged} />
+            {record.goal?.schedule_editable
+              ? <GoalReviewTime key={`goal-review:${task.key || id}`} goal={{ ...record.goal, ticket: task.key || id }}
+                onChanged={onChanged} />
+              : <TicketRecurrence key={`recurrence:${task.key || id}`} ticket={task.key || id} schedule={record.recurrence}
+                canEnable={record.can_enable_recurrence === true} signedIn={signedIn} onChanged={onChanged} />}
           </>}
         </div>
         {task && <TicketContext key={id} record={record} id={id} task={task} state={state} wide={sidebar} detailed={detailed} properties={properties}

@@ -1,12 +1,13 @@
 """Select signed goal-review cues without changing ticket state or queue priority."""
 
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 import re
 
 import tasks_core as ledger
 import tasks_goals as goals
 import tasks_projects as projects
-from tasks_queries import pacific_day
+import tasks_ring1 as ring1
 
 
 SCHEMA = """
@@ -18,38 +19,119 @@ SCHEMA = """
 DEADLINE_TIME = "09:00"
 
 
+PAUSED_REVIEW = "goal-review-paused:"
+REVIEW_TIME = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]")
+
+
+def paused_key(number):
+    return f"{PAUSED_REVIEW}{number}"
+
+
+def schedule_rows(db, owner, project):
+    return db.execute(
+        """SELECT tasks.id, review.review_time, paused.value AS paused_time
+           FROM tasks
+           JOIN task_goals AS goal ON goal.task_id = tasks.id AND goal.retired = 0
+           LEFT JOIN goal_review_times AS review ON review.task_id = tasks.id
+           LEFT JOIN board_settings AS paused ON paused.key = ? || CAST(tasks.id AS TEXT)
+           WHERE tasks.dri = ? AND (? IS NULL OR tasks.project_prefix = ?)
+             AND (review.review_time IS NOT NULL OR paused.value IS NOT NULL)""",
+        (PAUSED_REVIEW, owner, project, project),
+    )
+
+
+def schedule_times(db, number):
+    row = db.execute(
+        """SELECT review.review_time, paused.value AS paused_time FROM tasks
+           LEFT JOIN goal_review_times AS review ON review.task_id = tasks.id
+           LEFT JOIN board_settings AS paused ON paused.key = ?
+           WHERE tasks.id = ?""", (paused_key(number), number),
+    ).fetchone()
+    return row["review_time"], row["paused_time"]
+
+
 def save_review_time(db, owner, number, value):
-    if not isinstance(value, str) or (value != "" and not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", value)):
-        raise ValueError("Provide a Pacific review time in HH:MM or an empty value to clear it.")
+    return change_schedule(db, owner, number, "cancel" if value == "" else "enable", value)
+
+
+def change_schedule(db, owner, number, change, value=None):
     task = ledger.find_task(db, number)
     if task is None or task["dri"] != owner:
         raise PermissionError("Choose a goal you own.")
     if task["state"] == "done" or ledger.task_goal_kind(db, number) is None:
         raise ValueError("Choose an active goal ticket.")
-    if value == "":
-        changed = db.execute("DELETE FROM goal_review_times WHERE task_id = ?", (number,)).rowcount
+    project = projects.row_project(task)
+    current_time, paused_time = schedule_times(db, number)
+    if change == "enable":
+        if not isinstance(value, str) or not REVIEW_TIME.fullmatch(value):
+            raise ValueError("Provide a Pacific review time in HH:MM.")
+        next_time, next_paused = value, None
+    elif change == "pause":
+        next_time, next_paused = None, current_time or paused_time
+    elif change == "resume":
+        next_time, next_paused = paused_time or current_time, None
     else:
-        changed = db.execute(
-            """INSERT INTO goal_review_times (task_id, review_time) VALUES (?, ?)
-               ON CONFLICT (task_id) DO UPDATE SET review_time = excluded.review_time
-               WHERE goal_review_times.review_time <> excluded.review_time""",
-            (number, value),
-        ).rowcount
-    if changed:
-        ledger.bump_revision(db, projects.row_project(task))
-    return {"ticket": projects.row_reference(task), "review_time": value or None}
+        next_time, next_paused = None, None
+
+    # Older builds read only the active table, so a paused reminder stays silent on rollback.
+    if next_time != current_time:
+        if next_time is None:
+            db.execute("DELETE FROM goal_review_times WHERE task_id = ?", (number,))
+        else:
+            db.execute(
+                """INSERT INTO goal_review_times (task_id, review_time) VALUES (?, ?)
+                   ON CONFLICT (task_id) DO UPDATE SET review_time = excluded.review_time""",
+                (number, next_time),
+            )
+    if next_paused != paused_time:
+        if next_paused is None:
+            db.execute("DELETE FROM board_settings WHERE key = ?", (paused_key(number),))
+        else:
+            db.execute(
+                """INSERT INTO board_settings (key, value) VALUES (?, ?)
+                   ON CONFLICT (key) DO UPDATE SET value = excluded.value""",
+                (paused_key(number), next_paused),
+            )
+    if (next_time, next_paused) != (current_time, paused_time):
+        ledger.bump_revision(db, project)
+    return {"ticket": projects.row_reference(task), "review_time": next_time or next_paused,
+            "state": "active" if next_time else "paused" if next_paused else None}
 
 
-def review_times(db, owner, project):
-    active = {row["id"]: projects.row_reference(row) for row in goals.goal_rows(db, [owner], project)}
+def completed_today(at, now):
+    return at is not None and datetime.fromisoformat(at).astimezone(goals.PACIFIC).date() == now.date()
+
+
+def describe_schedule(active_time, paused_time, last_completed, now):
+    if not (active_time or paused_time):
+        return None
+    upcoming = None
+    if active_time:
+        day = now.date() + timedelta(days=1) if completed_today(last_completed, now) else now.date()
+        upcoming = goals.review_slot(day, active_time).isoformat().replace("+00:00", "Z")
+    return {"state": "active" if active_time else "paused", "review_time": active_time or paused_time,
+            "cadence": "daily", "time_zone": "America/Los_Angeles", "next_at": upcoming}
+
+
+def ticket_schedule(db, task):
+    number = task["id"]
+    current_time, paused_time = schedule_times(db, number)
+    if current_time is None and paused_time is None:
+        return None
+    _, last_completed = review_history(db, [task]) if current_time else ({}, {})
+    now = datetime.fromisoformat(ledger.timestamp()).astimezone(goals.PACIFIC)
+    return describe_schedule(current_time, paused_time, last_completed.get(number), now)
+
+
+def schedules(db, owner, project, now):
+    active = goals.goal_rows(db, [owner], project)
+    times = {row["id"]: row for row in schedule_rows(db, owner, project)}
+    _, last_completed = review_history(db, [row for row in active if row["id"] in times])
     return {
-        active[row["task_id"]]: row["review_time"]
-        for row in db.execute(
-            """SELECT schedule.task_id, schedule.review_time
-               FROM goal_review_times AS schedule JOIN tasks ON tasks.id = schedule.task_id
-               WHERE tasks.dri = ? AND tasks.project_prefix = ?""",
-            (owner, project),
-        ) if row["task_id"] in active
+        projects.row_reference(row): describe_schedule(
+            saved["review_time"], saved["paused_time"], last_completed.get(row["id"]), now,
+        )
+        for row in active if (saved := times.get(row["id"])) is not None
     }
 
 
@@ -110,7 +192,7 @@ def review_history(db, active):
 
 def candidates(db, owner, project, now, *, busy, ordinary_busy):
     """Read actor-owned cues. A consumer deduplicates each stable key across wakes."""
-    today, clock = now.date().isoformat(), now.strftime("%H:%M")
+    today = now.date().isoformat()
     result = {
         "busy": busy, "ordinary_busy": ordinary_busy, "day": today,
         "standing": None, "cues": [], "drain_event": drain_event(db, owner),
@@ -118,9 +200,23 @@ def candidates(db, owner, project, now, *, busy, ordinary_busy):
     if busy:
         return result
 
-    active = [row for row in goals.goal_rows(db, [owner], project) if row["state"] == "parked"]
-    times = review_times(db, owner, project)
+    result["standing"], result["cues"] = due_reviews(db, owner, project, now, principal=owner)
+    return result
+
+
+def due_reviews(db, owner, project, now, *, principal):
+    """Project the same due review for Inbox and the wake carrier."""
+    today = now.date().isoformat()
+    instant = now.astimezone(timezone.utc)
+    active = [
+        row for row in goals.goal_rows(db, [owner], project)
+        if row["state"] == "parked" and ring1.visible(db, row["project_prefix"], principal)
+    ]
+    if not active:
+        return None, []
+    times = {row["id"]: row["review_time"] for row in schedule_rows(db, owner, project)}
     counts, last_completed = review_history(db, active)
+    standing_offer = None
     deadlines, daily = [], []
     for row in active:
         number = row["id"]
@@ -130,17 +226,23 @@ def candidates(db, owner, project, now, *, busy, ordinary_busy):
         if standing:
             if not goals.exploration_available(db, row, now):
                 continue
-            result["standing"] = summary
-        review_time = times.get(ticket)
+            standing_offer = summary
+        review_time = times.get(number)
         deadline = row["deadline"]
-        if deadline and (deadline < today or (deadline == today and clock >= (review_time or DEADLINE_TIME))):
+        if completed_today(last_completed.get(number), now):
+            continue
+        daily_due = review_time is not None and instant >= goals.review_slot(now.date(), review_time)
+        deadline_due = deadline and (
+            deadline < today or (deadline == today and instant >= goals.review_slot(now.date(), review_time or DEADLINE_TIME))
+        )
+        # The deadline and daily clock can describe the same review. Keep the deadline key
+        # on its date and the daily key for later slots, including after a watcher restart.
+        if deadline_due and (not daily_due or deadline == today):
             deadlines.append((deadline, {
                 **summary, "kind": "deadline", "key": f"deadline:{ticket}:{deadline}", "day": today,
             }))
-        reviewed_today = number in last_completed and pacific_day(last_completed[number]) == today
-        if review_time and clock >= review_time and not reviewed_today:
+        elif daily_due:
             daily.append({
                 **summary, "kind": "standing-daily" if standing else "daily", "key": f"daily:{ticket}:{today}", "day": today,
             })
-    result["cues"] = [cue for _, cue in sorted(deadlines, key=lambda item: item[0])] + daily
-    return result
+    return standing_offer, [cue for _, cue in sorted(deadlines, key=lambda item: item[0])] + daily
