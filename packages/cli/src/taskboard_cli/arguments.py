@@ -462,6 +462,20 @@ def arguments(argv=None):
     review_time = goal_review.add_mutually_exclusive_group(required=True)
     review_time.add_argument("--at", type=nonblank, metavar="HH:MM", help="Daily review time in Pacific time.")
     review_time.add_argument("--clear", action="store_true", help="Remove the daily review time.")
+    goal_occurrences = commands.add_parser("goal-occurrences", help="Read your available Explore passes and scheduled Reviews.")
+    goal_occurrences.add_argument("--project", type=nonblank, help="Limit to one project prefix.")
+    goal_complete = commands.add_parser("goal-complete", help="Record one exact Explore or Review occurrence.")
+    goal_complete.add_argument("id", type=task_id, metavar="GOAL")
+    goal_complete.add_argument("occurrence_key", type=nonblank)
+    goal_complete.add_argument("note", type=nonblank)
+    add_details_flag(goal_complete)
+    add_link_flag(goal_complete)
+    goal_exploration = commands.add_parser("goal-exploration", help="Set the exploration mode on an owned dated goal.")
+    goal_exploration.add_argument("id", type=task_id, metavar="GOAL")
+    mode = goal_exploration.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--one-pass", action="store_true", help="Offer one Explore pass per Pacific day.")
+    mode.add_argument("--keep-exploring", metavar="CRITERION", type=nonblank,
+                      help="Offer more passes until the written stopping criterion is met.")
     for action, description in (
         ("wake-subscriptions", "Read your saved wake subscriptions in shared mode."),
         ("wake-subscribe", "Subscribe to a project wake event in shared mode."),
@@ -736,6 +750,7 @@ def arguments(argv=None):
         "cue-pauses", "cue-pause", "cue-ack", "attachment-list", "attachment-upload", "attachment-download", "attachment-remove",
         "knowledge-add", "knowledge-areas", "knowledge-assign", "knowledge-sweep", "knowledge-place",
         "knowledge-stage", "knowledge-reconcile", "record-merge", "agent-usage", "api-usage", "project-access", "ticket-recurrence",
+        "goal-occurrences", "goal-complete", "goal-exploration",
     } and args.mode != "shared":
         parser.error(f"{args.command} requires --shared.")
 

@@ -385,6 +385,8 @@ def dated_goal(db, project, owner, row):
         "summary": row["summary"],
         "deadline": row["deadline"],
         "tickets": tickets(db, project, owner, json.loads(row["ticket_ids"])),
+        **({"keep_exploring": True, "stopping_criterion": row["stopping_criterion"]}
+           if row["stopping_criterion"] else {}),
     }
 
 

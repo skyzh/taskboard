@@ -6502,6 +6502,50 @@ class TasksServiceTest(unittest.TestCase):
             self.assertNotEqual(next_explore["key"], continued["key"])
             self.assertNotEqual(next_review["key"], review["key"])
 
+    def test_signed_cli_records_goal_occurrences_and_reads_back_dated_mode(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        goal = "T-1"
+        explore = f"explore:{goal}:2030-04-01"
+        review = f"review:{goal}:2030-04-01"
+
+        def cli(*args):
+            code, output, error = self.shared_cli(owner, *args)
+            self.assertEqual((code, error), (0, ""))
+            return output
+
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.call(owner, "/api/v1/profile/milestone", method="PATCH", json={
+                "goal": {"summary": "Publish the sample", "deadline": "2030-04-10", "tickets": []},
+            })
+            cli("goal-review-time", goal, "--at", "09:00")
+            inbox = cli("next", "--project", "T")
+            self.assertIn(explore, inbox)
+            self.assertIn(review, inbox)
+            self.assertIn("Goal review", cli("goal-occurrences", "--project", "T"))
+
+            args = ("goal-complete", goal, explore, "Inspect the release sample.",
+                    "--details", "The fixture returned the expected receipt.")
+            receipt = cli(*args)
+            self.assertIn("#event-", receipt)
+            self.assertEqual(cli(*args), receipt)
+            remaining = cli("goal-occurrences", "--project", "T")
+            self.assertNotIn(explore, remaining)
+            self.assertIn(review, remaining)
+
+            self.assertIn("Keep exploring", cli(
+                "goal-exploration", goal, "--keep-exploring", "two samples are verified",
+            ))
+            self.assertIn("Keep exploring · Stop when two samples are verified", cli("goals", "--project", "T"))
+            self.assertIn("Keep exploring · Stop when two samples are verified", cli("show", goal))
+            next_pass = cli("goal-occurrences", "--project", "T")
+            self.assertIn(f"{explore}:", next_pass)
+            self.assertIn(review, next_pass)
+            self.action(owner, "create-task", {"title": "Take assigned work", "step": "Read it first."})
+            self.assertNotIn(explore, cli("next", "--project", "T"))
+            self.assertIn("One pass per day", cli("goal-exploration", goal, "--one-pass"))
+            self.assertNotIn("Keep exploring", cli("goals", "--project", "T"))
+
     def test_workflow_prompts_follow_signed_work_without_changing_selection(self):
         from tasks_guidance import AgentGuidance
 

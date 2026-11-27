@@ -5354,6 +5354,7 @@ def create_app(
         if name == "complete-goal-occurrence":
             number = task_number(data["id"])
             occurrence_key = text(data, "occurrence_key", maximum=100)
+            receipt = f"{occurrence_key} · Completed"
             fields = activity_text(data, "log")
             links = one_link(data)
             with tasks_storage.write(db()) as connection:
@@ -5363,7 +5364,8 @@ def create_app(
                 project = require_visible_task(connection, number)
                 previous = goal_cadence.occurrence_receipt(connection, number, occurrence_key)
                 if previous is not None:
-                    return {"occurrence_key": occurrence_key, "event_id": previous["id"], "completed_at": previous["at"]}
+                    return {"receipt": receipt, "occurrence_key": occurrence_key,
+                            "event_id": previous["id"], "completed_at": previous["at"]}
                 at = ledger.timestamp()
                 now = datetime.fromisoformat(at).astimezone(PACIFIC)
                 ticket = projects.row_reference(task)
@@ -5380,7 +5382,7 @@ def create_app(
                 event = ledger.record(connection, number, "log", key, task["state"], fields["note"],
                                       task["waiting_on"], links, context, at=at)
                 ledger.bump_revision(connection, project)
-            return {"occurrence_key": occurrence_key, "event_id": event, "completed_at": at}
+            return {"receipt": receipt, "occurrence_key": occurrence_key, "event_id": event, "completed_at": at}
         if name == "set-goal-exploration":
             number = task_number(data["id"])
             mode = data["keep_exploring"]
@@ -5403,8 +5405,9 @@ def create_app(
                 setting = goals.EXPLORATION_SETTING + str(number)
                 if tasks_guidance.set_project_value(connection, setting, criterion):
                     ledger.bump_revision(connection, project)
-            return {"ticket": projects.row_reference(task), "keep_exploring": mode,
-                    "stopping_criterion": criterion}
+            ticket = projects.row_reference(task)
+            receipt = f"{ticket} · {'Keep exploring' if mode else 'One pass per day'}"
+            return {"receipt": receipt, "ticket": ticket, "keep_exploring": mode, "stopping_criterion": criterion}
         if name == "my-goal-cues":
             project = project_filter(data, use_default=True)
             instant = ledger.timestamp()
