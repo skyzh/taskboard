@@ -1,7 +1,10 @@
 """Exercise private ticket attachments through a signed disposable board."""
 
-from contextlib import closing
-from io import BytesIO
+from base64 import b64decode, b64encode
+from contextlib import closing, redirect_stdout
+import json
+from subprocess import CompletedProcess
+from io import BytesIO, StringIO
 import os
 from shutil import copytree
 import sqlite3
@@ -12,6 +15,8 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import test_tasks_service as fixtures
+from taskboard_cli import main as tasks_main
+from taskboard_server.attachment_routes import AGENT_UPLOAD_BYTES
 from tasks_attachments import FilesystemStorage, MAX_UPLOAD_BYTES, PostgresStorage
 
 
@@ -116,6 +121,63 @@ class AttachmentTest(unittest.TestCase):
         with patch.object(self.storage, "read", side_effect=AssertionError("Access must be checked first")):
             self.board.call(self.blake, download, status=404)
         self.board.call(self.blake, path + "/" + item["id"], method="DELETE", status=404)
+
+    def test_signed_agent_cli_uses_the_same_ticket_storage(self):
+        self.configure()
+        route = self.create()
+        ticket = route.split("/")[-2]
+        payload = bytes(range(256)) * (AGENT_UPLOAD_BYTES // 256)
+        source = self.root.parent / (self.root.name + "-fixture.txt")
+        self.addCleanup(source.unlink, missing_ok=True)
+        source.write_bytes(payload)
+        target = source.with_suffix(".download")
+        self.addCleanup(target.unlink, missing_ok=True)
+        upload_id = uuid4().hex
+
+        def invoke(command, **options):
+            name = command[command.index("--action") + 1]
+            data = json.loads(options["input"]) if options["input"] is not None else None
+            filters = dict(command[index + 1].split("=", 1) for index, value in enumerate(command) if value == "--param")
+            result = self.board.action(self.avery, name, data, query_string=filters)
+            return CompletedProcess(command, 0, json.dumps({"ok": True, "data": {"result": result}}), "")
+
+        def cli(*args):
+            with patch("taskboard_client.connection.subprocess.run", side_effect=invoke), redirect_stdout(StringIO()) as printed:
+                self.assertEqual(tasks_main(["--shared", *args]), 0)
+                return printed.getvalue()
+
+        item = json.loads(cli("attachment-upload", ticket, str(source), "--upload-id", upload_id))
+        self.assertEqual(json.loads(cli("attachment-upload", ticket, str(source), "--upload-id", upload_id)), item)
+        self.assertEqual(json.loads(cli("attachment-list", ticket))["attachments"], [item])
+        cli("attachment-download", ticket, item["id"], "--output", str(target))
+        self.assertEqual(target.read_bytes(), payload)
+        self.assertEqual(self.board.call(self.avery, item["download_url"].removeprefix(fixtures.BASE)).data, payload)
+        cli("attachment-remove", ticket, item["id"])
+        self.assertEqual(self.board.call(self.avery, route).json["attachments"], [])
+
+    def test_agent_reads_browser_bytes_in_bounded_chunks(self):
+        self.configure()
+        path = self.create()
+        ticket = path.split("/")[-2]
+        payload = bytes(range(256)) * 768
+        item = self.upload(path, uuid4().hex, contents=payload)["attachment"]
+        params = {"id": ticket, "attachment_id": item["id"]}
+        offset = 0
+        chunks = []
+        while offset is not None:
+            result = self.board.action(self.blake, "read-attachment-chunk", query_string={**params, "offset": offset})
+            self.assertEqual(result["offset"], offset)
+            self.assertEqual(result["attachment"], item)
+            decoded = b64decode(result["content_base64"], validate=True)
+            self.assertLessEqual(len(decoded), 32 * 1024)
+            chunks.append(decoded)
+            offset = result["next_offset"]
+        self.assertEqual(b"".join(chunks), payload)
+        too_large = b64encode(bytes(AGENT_UPLOAD_BYTES + 1)).decode("ascii")
+        self.board.action(self.avery, "upload-attachment", {
+            "id": ticket, "upload_id": uuid4().hex, "filename": "fixture.txt",
+            "content_type": "text/plain", "content_base64": too_large,
+        }, status=413)
 
     def test_failed_filesystem_publish_is_retryable_without_metadata(self):
         self.configure()

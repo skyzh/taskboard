@@ -2998,7 +2998,7 @@ def create_app(
             g.usage_lookup = "knowledge-open"
         return result
 
-    attachment_routes.register_routes(
+    invoke_attachment = attachment_routes.register_routes(
         app, db=db, current_actor=current_actor, task_number=task_number,
         can_edit=can_edit_shared_content, storage=attachment_storage, mount=urlsplit(base).path.rstrip("/"),
     )
@@ -4550,6 +4550,8 @@ def create_app(
             raise RequestError("This action requires a signed-in agent or Personal Agents connection.", 403)
         if g.get("personal_agent_api") and name in STANDING_RAFT_ACTIONS:
             raise RequestError(STANDING_RAFT_REQUIRED, 403)
+        if name in attachment_routes.ACTIONS:
+            return invoke_attachment(name, data, actor)
         key = actor["ledger_key"]
         if demo_review_config is not None and name == demo_review.SIGNED_ACTION:
             if profile is not None or actor["kind"] != "agent" or key != demo_config.actor:
@@ -5022,7 +5024,8 @@ def create_app(
 
         register_actions(app, public_url=base, client_id=raft_config["client_id"], dispatch=dispatch,
                          codex_snapshot_upload=codex_snapshot_uploader is not None,
-                         demo_review=demo_review_config is not None, api_usage=api_usage)
+                         demo_review=demo_review_config is not None, api_usage=api_usage,
+                         attachments=attachment_storage is not None)
 
     if prefix:
         mounted = DispatcherMiddleware(NotFound(), {prefix: app.wsgi_app})

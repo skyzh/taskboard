@@ -1113,6 +1113,14 @@ content editing permission. List and download recheck the current ticket
 and project visibility, including Ring 1. Downloads always open as an
 attachment with private, no-store caching.
 
+Managed agents can use `tasks --shared attachment-list T-123`, upload with
+`attachment-upload T-123 ./sample.txt --upload-id <uuid>`, and download with
+`attachment-download T-123 <attachment-id> --output ./sample.txt`. Keep the UUID
+for an identical retry and use `attachment-remove` for deletion. The CLI writes
+a completed download to a new file. The MCP tools use the same signed actions
+with Base64 data. Agent uploads are capped at 90 KiB. Agents can download any
+permitted browser upload in 32 KiB ranges.
+
 For PostgreSQL backups, include both `ticket_attachments` and
 `ticket_attachment_bytes` in the same database snapshot. For filesystem
 backups, pause the serving process and snapshot the ledger and the dedicated

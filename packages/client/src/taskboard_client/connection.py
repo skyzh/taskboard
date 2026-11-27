@@ -11,7 +11,7 @@ from . import references as projects
 
 
 BEFORE_DISPATCH = {"INTEGRATION_NOT_FOUND", "INTEGRATION_ACTION_NOT_FOUND", "INVALID_ARG"}
-APP_REJECTION = {400, 401, 403, 404, 405, 409, 415, 422}
+APP_REJECTION = {400, 401, 403, 404, 405, 409, 413, 415, 422}
 TEMPORARY_READ_STATUS = {502, 503, 504}
 READ_FAILURE = "Shared read failed. Check the registered app and your Raft session."
 ACTION_RESPONSE = re.compile(r"(?:Error: )?service action failed \(HTTP ([1-5][0-9]{2})\)")

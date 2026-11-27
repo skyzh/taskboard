@@ -398,12 +398,26 @@ def _public_base(public_url):
 
 def register_actions(app: Flask, *, public_url: str, client_id: str,
                      dispatch: Callable[[str, dict], dict], codex_snapshot_upload: bool = False,
-                     demo_review: bool = False, api_usage: bool = False) -> None:
+                     demo_review: bool = False, api_usage: bool = False, attachments: bool = False) -> None:
     """Publish the action contract and delegate all authenticated work to dispatch."""
     origin, mount = _public_base(public_url)
     if not re.fullmatch(r"[a-z][a-z0-9-]{2,63}", client_id):
         raise ValueError("Invalid Raft client ID")
     actions = _ACTIONS
+    if attachments:
+        ticket = {"id": "Exact ticket reference, such as T-123."}
+        attachment = {**ticket, "attachment_id": "ID from the ticket attachment list."}
+        actions = {
+            **actions,
+            "list-attachments": _Action("GET", "List visible attachments and the signed upload limit.", ticket),
+            "upload-attachment": _Action("POST", "Attach one file. Reuse the upload ID on retry.", {
+                **ticket, "upload_id": "Client-generated UUID.", "filename": "Safe file basename.",
+                "content_type": "Declared media type.", "content_base64": "Base64 data up to 90 KiB before encoding.",
+            }),
+            "read-attachment-chunk": _Action("GET", "Read one Base64 chunk from a visible attachment.", attachment,
+                                             {"offset": "Byte offset from the prior result, starting at zero."}),
+            "remove-attachment": _Action("POST", "Remove one attachment using shared ticket edit permission.", attachment),
+        }
     if codex_snapshot_upload:
         actions = {**actions, CODEX_SNAPSHOT_ACTION: _Action(
             "POST", "Install one approved private Codex snapshot outcome.",

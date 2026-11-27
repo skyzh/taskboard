@@ -25,6 +25,8 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_project_access", "taskboard_set_project_access", "taskboard_agent_usage", "taskboard_api_usage",
             "taskboard_delegate", "taskboard_manual_review", "taskboard_ask_agent",
             "taskboard_save_standing_goal", "taskboard_standing_pass",
+            "taskboard_attachment_list", "taskboard_attachment_upload", "taskboard_attachment_read",
+            "taskboard_attachment_remove",
         })
         self.assertEqual(tools["taskboard_start"].input_schema["required"], ["ticket", "note"])
         self.assertTrue(tools["taskboard_context"].annotations.read_only_hint)
@@ -37,6 +39,26 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(tools["taskboard_checkpoint"].annotations.idempotent_hint)
         self.assertEqual(tools["taskboard_checkpoint"].input_schema["required"], ["ticket", "note"])
         self.assertFalse(tools["taskboard_create_ticket"].annotations.idempotent_hint)
+
+    async def test_attachment_upload_and_range_use_signed_actions(self):
+        board = SharedBoard("tasks-board")
+        server = build_server(board)
+        with patch.object(board, "invoke", return_value={"receipt": "Fixture attachment saved."}) as invoke:
+            await server.call_tool("taskboard_attachment_upload", {
+                "ticket": "T-1", "upload_id": "00000000-0000-0000-0000-000000000001",
+                "filename": "fixture.txt", "content_type": "text/plain", "content_base64": "Zml4dHVyZQ==",
+            })
+            invoke.assert_called_once_with("upload-attachment", {
+                "id": "T-1", "upload_id": "00000000-0000-0000-0000-000000000001",
+                "filename": "fixture.txt", "content_type": "text/plain", "content_base64": "Zml4dHVyZQ==",
+            }, write=True)
+        with patch.object(board, "invoke", return_value={"next_offset": None}) as invoke:
+            await server.call_tool("taskboard_attachment_read", {
+                "ticket": "T-1", "attachment_id": "opaque", "offset": 32,
+            })
+            invoke.assert_called_once_with("read-attachment-chunk", {
+                "id": "T-1", "attachment_id": "opaque", "offset": 32,
+            })
 
     async def test_record_decision_routes_choice_and_rationale(self):
         board = SharedBoard("tasks-board")
