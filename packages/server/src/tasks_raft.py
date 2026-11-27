@@ -246,6 +246,7 @@ _ACTIONS = {
         "review_after": "Optional review date for a parked task in YYYY-MM-DD format.",
         "review_on": "Dependency ticket to follow when parking.",
         "review_criteria": "What to check when the dependency records a qualifying event.",
+        "reviewed_event": "Exact pending dependency event reviewed by the owner while staying Parked.",
         "standing_pass": "With update, use complete for a finished Keep exploring pass. With park, use criterion-met.",
         "feature_deferred": "Use true when parking an explicitly deferred feature.",
         "defer_until": "For park or remind, the exact time to return to Ready, as an ISO datetime with a UTC offset.",

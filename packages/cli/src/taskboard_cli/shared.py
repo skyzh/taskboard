@@ -433,7 +433,8 @@ def shared_write(board, args, *, context):
             if command in ("park", "remind"):
                 data["defer_until"] = args.defer_until
             if command == "park":
-                data.update(review_on=args.review_on, review_criteria=args.review_criteria)
+                data.update(review_on=args.review_on, review_criteria=args.review_criteria,
+                            reviewed_event=args.reviewed_event)
                 if args.feature_deferred:
                     data["feature_deferred"] = "true"
     force = getattr(args, "force", False)

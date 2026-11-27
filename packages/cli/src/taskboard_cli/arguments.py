@@ -212,6 +212,8 @@ def arguments(argv=None):
             )
             command.add_argument("--review-criteria", type=nonblank, metavar="TEXT",
                                  help="Describe when this ticket can return to Ready. Requires --review-on.")
+            command.add_argument("--reviewed-event", type=int, metavar="ID",
+                                 help="Acknowledge the exact dependency event while leaving this ticket parked.")
             command.add_argument("--feature-deferred", action="store_true",
                                  help="Record an explicit feature deferral for dependent tickets.")
         if action == "transfer":
