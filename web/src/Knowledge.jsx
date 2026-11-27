@@ -256,6 +256,7 @@ export default function Knowledge({ session, verified, revision, projects, searc
     <section className="knowledge" aria-labelledby="knowledge">
       <div className="page-heading"><h1 id="knowledge" tabIndex={-1}>Knowledge</h1>
         {entry ? <BoardLink href={knowledgeListHref('board', '', { project })}>All entries</BoardLink> : projectPicker}
+        {!entry && !preview && <a href="./public/knowledge">Published Knowledge</a>}
         {verified && !entry && writableProjects.length > 0 &&
           <EditToggle label="Edit Knowledge" active={editing} onToggle={() => setEditing(value => !value)} />}
       </div>

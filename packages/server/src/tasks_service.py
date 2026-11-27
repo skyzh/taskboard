@@ -32,7 +32,7 @@ import tasks_api_usage
 import tasks_ticket_fields as ticket_fields
 import tasks_codex_usage
 import tasks_attachments
-from taskboard_server import attachment_routes
+from taskboard_server import attachment_routes, public_knowledge
 import tasks_core as ledger
 import tasks_browser_push as browser_push
 import tasks_maintenance as maintenance
@@ -417,7 +417,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     db.execute(goal_offers.INDEX)
     db.execute(profiles.IMPORT_SCHEMA)
     db.execute(INTAKE_ERRORS)
-    for statement in (*extensions.SCHEMA, *github_webhooks.SCHEMA):
+    for statement in (*extensions.SCHEMA, *github_webhooks.SCHEMA, *public_knowledge.SCHEMA):
         db.execute(statement)
     knowledge_records.ensure_schema(db)
     knowledge_records.migrate_records(db)
@@ -501,7 +501,8 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
         db.execute(cue_pauses.ACKNOWLEDGMENTS_SCHEMA)
         db.execute(goal_offers.SCHEMA)
         db.execute(goal_offers.INDEX)
-        for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA, *github_webhooks.SCHEMA):
+        for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA, *github_webhooks.SCHEMA,
+                          *public_knowledge.SCHEMA):
             db.execute(statement)
         knowledge_records.ensure_schema(db)
         knowledge_records.migrate_records(db)
@@ -1064,6 +1065,8 @@ def create_app(
     if marketplace or member_login is not None:
         @app.before_request
         def require_board_identity():
+            if request.endpoint in public_knowledge.PUBLIC_ENDPOINTS:
+                return
             if request.endpoint == "report_presence":
                 return  # The heartbeat uses its own origin and human-session check.
             if request.endpoint == "decision_receipt":
@@ -2262,7 +2265,8 @@ def create_app(
     @app.get("/")
     @app.get("/<board_page:page>")
     def index(page=None):
-        if marketplace and raft.identity() is None:
+        published_knowledge = page == "public/knowledge" or bool(page and page.startswith("public/knowledge/"))
+        if marketplace and not published_knowledge and raft.identity() is None:
             login = f"{base}/auth/login"
             if page is not None or request.query_string:
                 target = quote(request.path, safe="/:") + (
@@ -2279,7 +2283,7 @@ def create_app(
                 login=login,
             )
         index_file = dist / "index.html"
-        if page and (request.args.get("project") or page.startswith((
+        if page and not published_knowledge and (request.args.get("project") or page.startswith((
             "tickets/", "knowledge/", "activity/events/", "schedules/",
         ))):
             check_document_target(page)
@@ -3464,6 +3468,13 @@ def create_app(
     @app.get("/api/v1/knowledge")
     def knowledge():
         return knowledge_page(current_actor(required=True), request.args)
+
+    if not marketplace and not local_readonly:
+        public_knowledge.register_routes(
+            app, db=db, current_actor=current_actor, task_number=task_number,
+            can_edit=can_edit_shared_content, json_body=json_body, text=text, bad_request=RequestError,
+            storage=attachment_storage, base=base,
+        )
 
     def assign_knowledge_dri(actor, identifier, dri):
         key = actor["ledger_key"]

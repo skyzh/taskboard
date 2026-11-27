@@ -11,6 +11,7 @@ import sqlite3
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from urllib.parse import urlsplit
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -252,6 +253,17 @@ class PostgresAttachmentTest(unittest.TestCase):
         item = board.call(avery, path, method="POST", status=201, data={
             "file": (BytesIO(contents), "sample.txt"), "upload_id": uuid4().hex,
         }).json["attachment"]
+        knowledge = board.action(avery, "create-knowledge", {
+            "project": "T", "title": "Private draft", "brief": "Private draft body.",
+        })
+        publication = f"/api/v1/knowledge/{knowledge['id']}/publication"
+        published = board.call(avery, publication, method="PUT", json={
+            "title": "Public sample", "body": "Reviewed text.", "attachment_ids": [item["id"]],
+        }).json["publication"]
+        public_entry = f"/api/v1/public/knowledge/{published['id']}"
+        public_file = board.call(app.test_client(), public_entry).json["attachments"][0]
+        public_download = urlsplit(public_file["download_url"]).path.removeprefix(fixtures.BASE)
+        self.assertEqual(board.call(app.test_client(), public_download).data, contents)
         snapshot = board.database.with_name("attachment-backup.sqlite3")
         with closing(sqlite3.connect(board.database)) as source, closing(sqlite3.connect(snapshot)) as target:
             source.backup(target)
@@ -262,6 +274,7 @@ class PostgresAttachmentTest(unittest.TestCase):
             self.assertEqual(tasks_main(["--postgres", "postgres-import", str(snapshot)]), 0)
             counts = json.loads(printed.getvalue())
         self.assertEqual((counts["ticket_attachments"], counts["ticket_attachment_bytes"]), (1, 0))
+        self.assertEqual((counts["knowledge_publications"], counts["knowledge_publication_files"]), (1, 1))
         board.database = None
         board.provider = fixtures.FixtureRaft()
         app = board.app(postgres_dsn=self.dsn, attachment_storage=FilesystemStorage(restored_files))
@@ -275,6 +288,11 @@ class PostgresAttachmentTest(unittest.TestCase):
         self.assertEqual(result["attachment"], item)
         self.assertEqual(b64decode(result["content_base64"]), contents)
         self.assertIsNone(result["next_offset"])
+        anonymous = app.test_client()
+        self.assertEqual(board.call(anonymous, public_entry).json["attachments"], [public_file])
+        self.assertEqual(board.call(anonymous, public_download).data, contents)
+        board.call(signed, publication, method="DELETE")
+        board.call(anonymous, public_download, status=404)
 
     def test_shared_route_commits_and_deletes_bytea(self):
         board = fixtures.TasksServiceTest()

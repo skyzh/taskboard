@@ -3,6 +3,7 @@ import {
   BrowserRouter, HashRouter, Link, Navigate, useLocation, useNavigate, useNavigationType, useParams, useRoutes,
 } from 'react-router'
 import App from './App.jsx'
+import PublicKnowledge from './PublicKnowledge.jsx'
 import { boardRoutes, legacyLocation, pageFragment, routeAddress } from './boardRoutes.js'
 
 import { BoardLocation, ContentTitle } from './BoardNavigation.jsx'
@@ -46,6 +47,10 @@ function BoardPage({ route, preview, ...props }) {
 function BoardPages(props) {
   return useRoutes([
     ...boardRoutes.map(route => ({ path: route.path, element: <BoardPage route={route} {...props} /> })),
+    ...(!props.preview ? [
+      { path: '/public/knowledge', element: <PublicKnowledge /> },
+      { path: '/public/knowledge/:id', element: <PublicKnowledge /> },
+    ] : []),
     { path: '*', element: <BoardPage route={unknown} {...props} /> },
   ])
 }

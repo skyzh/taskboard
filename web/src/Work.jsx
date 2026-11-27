@@ -6,6 +6,7 @@ import { isBackendError } from './boardAvailability.js'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { ActivityDate } from './Overview.jsx'
 import { entryHref, StagedWork, TicketKnowledgeLinks } from './Knowledge.jsx'
+import KnowledgePublication from './KnowledgePublication.jsx'
 import AttentionRequests from './AttentionRequests.jsx'
 import ChecklistEdit from './ChecklistEdit.jsx'
 import DecisionForm, { LinkedDecision, mayAnswer } from './DecisionForm.jsx'
@@ -511,7 +512,7 @@ function TicketProgression({ id, record, activity }) {
   )
 }
 
-function KnowledgeRecordActions({ record, id, activity, signedIn, onChanged }) {
+function KnowledgeRecordActions({ record, id, activity, signedIn, revision, onChanged }) {
   const [editing, setEditing] = useState(false)
   return <>
     {signedIn && record.can_edit_details && <>
@@ -521,6 +522,7 @@ function KnowledgeRecordActions({ record, id, activity, signedIn, onChanged }) {
         <TaskTags task={record.task} editable={editing && record.tag_editable} canTagDecisionRecord={false}
           onChanged={onChanged} />
       </div>
+      <KnowledgePublication key={id} ticket={id} revision={revision} onChanged={onChanged} />
     </>}
     <RecordActivity id={id} task={record.task} activity={activity} knowledge />
   </>
@@ -534,7 +536,7 @@ export function KnowledgeRecordTools({ id, revision, onChanged }) {
   const activity = useLoadedPages(knowledge ? `${path}/activity` : null, {}, revision)
   if (!record) return <ResourceStatus resource={detail} label="record details" />
   if (!knowledge) return null
-  return <KnowledgeRecordActions record={record} id={id} activity={activity} signedIn onChanged={onChanged} />
+  return <KnowledgeRecordActions record={record} id={id} activity={activity} signedIn revision={revision} onChanged={onChanged} />
 }
 
 export function TaskDetail({ id, revision, session, onChanged, onMoved, moveReceipt,
@@ -630,7 +632,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
             <div className="ticket-context-content"><TicketReferences record={record} /></div>}
           <StagedWork changes={record.knowledge_stages?.filter(change => change.entry === task.key)} />
           {signedIn && <TicketKnowledgeLinks ticket={task.key} revision={revision} />}
-          <KnowledgeRecordActions record={record} id={id} activity={activity} signedIn={signedIn} onChanged={onChanged} />
+          <KnowledgeRecordActions record={record} id={id} activity={activity} signedIn={signedIn} revision={revision} onChanged={onChanged} />
         </div>
       ) : <div className="ticket-detail-layout">
         <div className="ticket-detail-work">
