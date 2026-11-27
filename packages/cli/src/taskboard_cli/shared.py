@@ -466,8 +466,7 @@ def completion_queue(cue, project):
         return None
     match cue:
         case {"kind": "work", "work": {"kind": str(), "key": str(), "title": str()} as work}:
-            return {"work": work, "standing_goals": [], "goal_review_prompt": cue.get("goal_review_prompt"),
-                    "workflow_prompt": cue.get("workflow_prompt")}
+            return {"work": work, "standing_goals": [], "goal_review_prompt": cue.get("goal_review_prompt")}
         case {"kind": "standing_goal", "goal": {"ticket": str(), "summary": str()} as goal,
               "instruction": str(instruction)}:
             return {"work": None, "standing_goals": [goal], "next_step": instruction,
@@ -493,9 +492,7 @@ def completion_guidance(board, reference, fallback=None, *, cue=None):
         goal_guidance = f"\nGoal review · {prompt['prompt']}" if prompt else ""
         if work := result["work"]:
             label = NEXT_LABELS.get(work["kind"], "Start Ready work")
-            workflow = result.get("workflow_prompt")
-            instructions = f"\n{workflow['prompt']}" if workflow else ""
-            return f"{label} on {work['key']} · {work['title']}. Read it with {inbox}.{goal_guidance}{instructions}"
+            return f"{label} on {work['key']} · {work['title']}. Read it with {inbox}.{goal_guidance}"
         if result["standing_goals"]:
             goal = result["standing_goals"][0]
             if ticket := goal["ticket"]:

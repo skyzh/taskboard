@@ -4951,8 +4951,7 @@ def create_app(
         try:
             with tasks_storage.read(db()) as connection:
                 if work := first_actionable_work(owner, project):
-                    return {"project": project, "kind": "work", "work": work,
-                            **offered_goal_prompt(connection, work, []), **offered_work_prompt(connection, work)}
+                    return {"project": project, "kind": "work", "work": work, **offered_goal_prompt(connection, work, [])}
                 if standing := goals.queue_context(connection, owner, project, principal=actor_key())["standing_goals"]:
                     return {
                         "project": project, "kind": "standing_goal", "goal": standing[0],
