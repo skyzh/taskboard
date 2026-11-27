@@ -176,7 +176,7 @@ function FollowThrough({ revision, project }) {
 function ReviewRequests({ revision, project }) {
   const page = useLoadedPages('/notifications/needs-you', { ...projectFilters(project), kind: 'review' }, revision)
   const reviews = page.data?.items
-  if ((!page.pending && !page.error && !reviews?.length) || page.error?.status === 404) return null
+  if ((!page.error && !reviews?.length) || page.error?.status === 404) return null
   return (
     <section aria-labelledby="review-requests-title">
       <h3 className="notification-subhead" id="review-requests-title">Review requests</h3>
@@ -235,7 +235,11 @@ function NeedsMe({ revision, session, onChanged, project, onlyOpen = false }) {
 function TaskReminders({ revision, project }) {
   const reminders = useLoadedPages('/notifications/task-reminders', projectFilters(project), revision)
   const items = reminders.data?.items
-  if (items?.length === 0 && !reminders.pending && !reminders.error) return null
+  if (!items?.length && !reminders.error) {
+    return reminders.pending && !reminders.data
+      ? <span className="visually-hidden" role="status">Loading task reminders…</span>
+      : null
+  }
   return (
     <section className="feed-section" aria-labelledby="reminders-title">
       <h2 id="reminders-title">Task reminders</h2>
