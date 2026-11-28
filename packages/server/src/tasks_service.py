@@ -5416,7 +5416,8 @@ def create_app(
                 raise RequestError("Encode source_ticket_ids as a JSON array.") from error
             expected = data.get("expected_revision_id")
             fields = {**data, "source_ticket_ids": sources, "expected_revision_id": None if expected == "" else expected}
-            return dri_postboard(actor, project, actor["ledger_key"], "append", fields)
+            saved = dri_postboard(actor, project, actor["ledger_key"], "append", fields)
+            return {**saved, "receipt": f"Saved {saved['project']} postboard revision {saved['current']['revision_id']}."}
         if name in attachment_routes.ACTIONS:
             return invoke_attachment(name, data, actor)
         key = actor["ledger_key"]
