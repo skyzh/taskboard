@@ -3623,6 +3623,7 @@ class TasksServiceTest(unittest.TestCase):
         events = self.call(owner, path + "/activity").json["items"]
         self.assertIn(estimate, [event["context"].get("eta") for event in events if event["action"] == "update"])
 
+    @patch("tasks_core.timestamp", new=lambda: "2026-11-28T16:59:00Z")
     def test_queue_goals_are_owner_scoped_and_work_keeps_priority(self):
         app = self.app(portal_reader=True)
         avery, owner = self.login(app, "Avery")
