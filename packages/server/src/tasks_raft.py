@@ -78,6 +78,9 @@ _ACTIONS = {
         "project": "Project prefix.", "key": "Resource key.", "request_key": "Stable request UUID.",
         "claim_id": "Exact claim ID.", "revision": "Exact current claim revision.",
     }),
+    "dependency-edges": _Action("GET", "Read current waiting dependencies in one visible project.", {
+        "project": "Exact project prefix.",
+    }),
     "list-projects": _Action("GET", "List accessible projects on the signed-in board. A Local DRI keeps its registered project as the default."),
     "project-owners": _Action("GET", "Read the project's owners and eligible candidates.", _PROJECT),
     "set-project-owner": _Action("POST", "Change a project owner grant as a project owner.", _PROJECT_ACCESS),

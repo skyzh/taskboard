@@ -7,7 +7,7 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from heapq import nsmallest
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo
 
 import tasks_core as ledger
@@ -320,6 +320,82 @@ class BoardQueries:
     def current_visible_tasks(self):
         scope, bindings = self.project_visibility()
         return ledger.current_tasks_sql(self.db) + f" WHERE {scope}", bindings
+
+    def dependency_edges(self, project):
+        current, params = self.current_visible_tasks()
+        rows = self.db.execute(
+            f"""
+            WITH current_tasks AS ({current})
+            SELECT * FROM current_tasks
+            WHERE project_prefix = ? AND display_state IN ('waiting', 'human_review')
+            ORDER BY project_number, id
+            """, (*params, project),
+        )
+
+        def visible_task(number):
+            task = ledger.find_task(self.db, number)
+            if (task is None or ledger.is_knowledge(task)
+                    or not ring1.visible(self.db, projects.row_project(task), self.principal)):
+                return None
+            return task
+
+        def person(key, project, kind=None):
+            if not key or not ring1.visible(self.db, project, key):
+                return None
+            profile = (profiles.public_profile(profiles.get(self.db, key), self.base) if kind
+                       else profiles.visible_by_keys(self.db, [key], self.base).get(key))
+            if profile is None or (kind and profile["kind"] != kind):
+                return None
+            return {"id": key, "name": profile["name"]}
+
+        def ticket(task):
+            key = projects.row_reference(task)
+            return {
+                "key": key, "title": task["title"], "state": task["display_state"],
+                "owner": person(task["dri"], projects.row_project(task)), "url": f"{self.base}/tickets/{key}",
+            }
+
+        def dependency(row):
+            if row["state"] == "human_review":
+                recipient = person(row["waiting_on"], project, "human")
+                if row["current_action"] not in ("assign-human", "redirect-decision") or not recipient:
+                    return "unavailable", None
+                target = ticket(row)
+                event_id = row["event_id"]
+                return "question", {
+                    **target, "owner": recipient, "event_id": event_id,
+                    "url": f"{target['url']}?decision-request={event_id}",
+                }
+            blocker = ledger.ticket_blocker(row)
+            if isinstance(blocker, str):
+                try:
+                    blocker = projects.resolve(self.db, blocker)
+                except LookupError:
+                    return "unavailable", None
+            if blocker is not None:
+                target = visible_task(blocker)
+                return ("ticket", ticket(target)) if target else ("unavailable", None)
+            if ledger.event_context(row).get("peer_ask_ticket"):
+                ask = peer_asks.current_wait(self.db, row)
+                request = visible_task(ask["task_id"]) if ask else None
+                if not request or ask["recipient"] != row["waiting_on"] or request["dri"] != ask["recipient"]:
+                    return "unavailable", None
+                recipient = person(ask["recipient"], projects.row_project(request), "agent")
+                if recipient is None:
+                    return "unavailable", None
+                actor = quote(recipient["id"], safe="")
+                return "agent", {**recipient, "url": f"{self.base}/reports/agents/{actor}?project={project}"}
+            return "legacy", None
+
+        items = []
+        for row in rows:
+            event_id = row["event_id"]
+            kind, target = dependency(row)
+            items.append({
+                "source": ticket(row), "wait": {"event_id": event_id, "url": f"{self.base}/activity/events/{event_id}"},
+                "kind": kind, "target": target,
+            })
+        return {"project": project, "items": items}
 
     def schedule_report(self, number, owner, as_of, project):
         report = recurring.report(self.db, number, owner, as_of, viewer=self.principal, project=project,
