@@ -85,11 +85,13 @@ def launch_ready_wake(
         source = {"task": task, "event": event_id, "at": current["at"]}
 
     signal = {"event_id": event_id, "task_id": task, "task_url": task_url}
+    accepted_app_key = None
     if command_delivery is None:
         try:
-            send_ready_event(signal, access_token=recipient.access_token, transport=transport)
+            acceptance = send_ready_event(signal, access_token=recipient.access_token, transport=transport)
         except ReadyEventSendError:
             return "unknown"
+        accepted_app_key = acceptance.external_event_id
         status = "accepted"
         carrier = "raft_app"
     else:
@@ -107,5 +109,5 @@ def launch_ready_wake(
     ledger.import_notification_on(db, {
         "schema": WAKE_SCHEMA, "source": source, "recipient": owner,
         "observations": {"acceptance": {"status": status, "at": ledger.timestamp()}, "carrier": carrier},
-    })
+    }, accepted_app_key=accepted_app_key)
     return status

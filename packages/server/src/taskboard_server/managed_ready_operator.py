@@ -18,8 +18,11 @@ from taskboard_server.managed_ready_grant import GrantStopped, ManagedReadyGrant
 from taskboard_server.ready_command import ReadyCommand
 from taskboard_server.ready_signal import connect
 from taskboard_server.ready_wake_operator import _Parser, _positive_id, _read_token, _token_fd, _uuid
+import tasks_app_wake_activity as app_wake_activity
+from tasks_core import timestamp
 from tasks_profiles import for_identity
-from tasks_storage import open_sqlite
+import tasks_ring1 as ring1
+from tasks_storage import open_sqlite, read, write
 from tasks_wake_subscriptions import MANAGED_READY_PROJECT
 
 
@@ -27,6 +30,7 @@ _POLL_SECONDS = 10
 _PILOT_SECONDS = 5 * 60
 _PILOT_RETRY = {"awaiting_idle", "waiting", "retry", "renewal_needed"}
 _PILOT_ACCEPTED = {"accepted", "already_accepted"}
+_DELIVERY_COMMANDS = {"delivery-status", "resume-delivery"}
 
 
 @contextmanager
@@ -61,10 +65,12 @@ def _emit(status, event=None):
 
 def _run(sender, stop):
     _emit("running")
+    previous = None
     while not stop.is_set():
         outcome, event = sender.tick()
-        if outcome not in ("idle", "waiting"):
+        if outcome not in ("idle", "waiting") and (outcome != "delivery_paused" or outcome != previous):
             _emit(outcome, event)
+        previous = outcome
         if outcome in ("subscription_stopped", "grant_stopped"):
             return 0
         stop.wait(_POLL_SECONDS)
@@ -126,6 +132,20 @@ def _check_run_mode(state, event_id, *, sampled=False, project=MANAGED_READY_PRO
             raise ValueError("The pilot state is pinned to another event.")
 
 
+def _operator_delivery_status(db, state, scope, *, resume):
+    _check_run_mode(state, None, sampled=True, project=scope.project)
+    saved = state.execute("SELECT * FROM sender WHERE singleton = 1").fetchone()
+    with (write(db) if resume else read(db)):
+        if ring1.private(db, scope.project) or scope.subscription(db) != tuple(saved[key] for key in (
+            "ledger", "board", "server", "recipient", "owner", "app", "subscription",
+        )):
+            raise ValueError("Use the current approved sender scope.")
+        owner = saved["owner"]
+        if resume:
+            app_wake_activity.operator_resume(db, owner, scope.project, timestamp())
+        return app_wake_activity.status(db, owner, scope.project)
+
+
 def _run_pilot(sender, stop, event_id):
     _emit("pilot_running", event_id)
     deadline = monotonic() + _PILOT_SECONDS
@@ -156,6 +176,8 @@ def main(argv=None, *, transport=http_json):
     commands.add_parser("init", help="Create a fresh baseline after the recipient opts in.")
     commands.add_parser("init-pilot", help="Create a private baseline for the one-event pilot.")
     commands.add_parser("init-sampled", help="Create private state for recurring observed-Idle delivery.")
+    commands.add_parser("delivery-status", help="Read the approved sampled app sender's pause status.")
+    commands.add_parser("resume-delivery", help="Resume paused app delivery as the authorized local operator.")
     run = commands.add_parser("run", help="Run in the foreground as the authorized operator.")
     sampled_run = commands.add_parser("run-sampled", help="Send pending Ready cues after observed Idle.")
     sampled_run.add_argument("--goal-occurrences", action="store_true",
@@ -171,7 +193,7 @@ def main(argv=None, *, transport=http_json):
     args = parser.parse_args(argv)
     goal_occurrences = getattr(args, "goal_occurrences", False)
     inbox_batches = getattr(args, "inbox_batches", False)
-    if args.project != MANAGED_READY_PROJECT and (args.command not in ("init-sampled", "run-sampled")
+    if args.project != MANAGED_READY_PROJECT and (args.command not in {"init-sampled", "run-sampled", *_DELIVERY_COMMANDS}
                                                   or args.delivery_command is not None):
         parser.error("Tiny LLM requires direct sampled Raft delivery.")
     if args.delivery_command is not None and (args.command not in ("init-sampled", "run-sampled")
@@ -195,6 +217,10 @@ def main(argv=None, *, transport=http_json):
                                                 sampled=args.command == "init-sampled"))
                 return 0
             with locked_state(state_path, ledger) as state:
+                if args.command in _DELIVERY_COMMANDS:
+                    print(json.dumps(_operator_delivery_status(db, state, scope, resume=args.command == "resume-delivery")),
+                          flush=True)
+                    return 0
                 event_id = getattr(args, "event_id", None)
                 sampled = args.command == "run-sampled"
                 _check_run_mode(state, event_id, sampled=sampled, project=scope.project)
