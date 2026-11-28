@@ -216,14 +216,21 @@ fresh approval, a fresh signed opt-in, and a new baseline.
 
 ### Run automatic delivery after observed Idle
 
-For an authorized Project T rollout, use `init-sampled` and `run-sampled`
+For an authorized rollout, use `init-sampled` and `run-sampled`
 with the same global arguments, app grant and private secret file descriptor
 shown above. Create one private state file and run one process for each
 approved recipient. Stop any overlapping sender or reminder carrier for that
 recipient before starting sampled delivery. Both the legacy `run` and the
 single-event `run-pilot` reject sampled state.
 
-After initialization, the sender considers new Project T Ready events for
+Project T remains the default and can reuse its current sampled state. For
+Tiny LLM, pass the global flag `--project TINYLLM` to both commands, use
+a new private state file, and use a direct Raft app grant. The approved
+recipient must opt into `owned-ready` in the selected project. Each owner
+can run one sender in one enrolled project. Resolve any overlapping owner
+on the rollout roster before activation.
+
+After initialization, the sender considers new Ready events in the selected project for
 the enrolled owner. These include a signed Return to Ready, exact one-off
 deferrals, and recurring releases. It follows the signed all-project
 `next --wake` choice, including its priority order and worker and pause
@@ -248,8 +255,8 @@ Eligible tickets remain available in signed Inbox for normal pickup.
 
 ### Add Explore and scheduled Review to the direct pilot
 
-For an approved Project T recipient, use their signed session to run
-`./tasks --shared wake-subscribe goal-occurrences --project T` in addition
+For an approved recipient, use their signed session to run
+`./tasks --shared wake-subscribe goal-occurrences --project PROJECT` in addition
 to the existing owned Ready subscription. Stop the owner's existing process,
 reuse its sampled state and app grant, and add `--goal-occurrences` to
 `run-sampled`. Run one sender for the owner. The local command delivery
@@ -267,7 +274,7 @@ outcome of the goal occurrence. Acceptance cannot complete Explore or Review,
 and no Ready or Start receipt is written for either. Retries use the same
 occurrence key across restarts. If the exact key and canonical ticket link
 cannot fit in a Raft event, a terminal unsendable receipt records the failure
-without an HTTP attempt. To stop goal delivery while continuing Ready delivery, run `./tasks --shared wake-unsubscribe goal-occurrences --project T`.
+without an HTTP attempt. To stop goal delivery while continuing Ready delivery, run `./tasks --shared wake-unsubscribe goal-occurrences --project PROJECT`.
 
 ### Use a trusted local delivery command
 

@@ -10,7 +10,7 @@ from tasks_merges import ACCEPTED_SQUASHES
 import tasks_projects as projects
 import tasks_ring1 as ring1
 import tasks_storage
-from tasks_wake_subscriptions import MANAGED_READY_PROJECT, OWNED_READY
+from tasks_wake_subscriptions import MANAGED_READY_PROJECTS, OWNED_READY
 
 
 RECEIPT_SCHEMA = "taskboard-notification/v1"
@@ -101,11 +101,11 @@ def queue_owned_ready(db, task, event, at):
         JOIN wake_subscriptions AS subscription
           ON subscription.project = tasks.project_prefix AND subscription.owner = tasks.dri
         JOIN board_principals AS recipient ON recipient.ledger_key = tasks.dri
-        WHERE tasks.id = ? AND tasks.project_prefix = ?
-          AND subscription.event_type = ? AND recipient.kind = 'agent'
+        WHERE tasks.id = ? AND subscription.event_type = ? AND recipient.kind = 'agent'
           AND tasks.record_kind = 'work'
-        """, (task, MANAGED_READY_PROJECT, OWNED_READY)).fetchone()
-    if row is None or ring1.private(db, row["project_prefix"]):
+        """, (task, OWNED_READY)).fetchone()
+    if (row is None or row["project_prefix"] not in MANAGED_READY_PROJECTS
+            or ring1.private(db, row["project_prefix"])):
         return
     db.execute("""
         INSERT INTO wake_log (source_event_id, recipient, acceptance, acceptance_at)

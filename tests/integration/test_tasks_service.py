@@ -42,7 +42,7 @@ from tasks_projects import register
 from tasks_queries import BoardQueries
 from tasks_ring1 import mark_private
 from tasks_storage import open_sqlite, write
-from tasks_wake_subscriptions import OWNED_READY, has_subscription
+from tasks_wake_subscriptions import GOAL_OCCURRENCES, OWNED_READY, has_subscription
 
 
 SERVER = str(UUID(int=17))
@@ -2207,6 +2207,88 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(saved(fresh, "COURSE"), [OWNED_READY])
         self.assertIn("Wake subscriptions · COURSE · owned-ready",
                       self.shared_cli(fresh, "wake-subscriptions", "--project", "COURSE")[1])
+
+    def test_tinyllm_signed_wakes_keep_project_consent_and_exact_recurring_ready_event(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        outside, _ = self.login(app, "Blake")
+        human, _ = self.login(app, "Sam")
+        project = "TINYLLM"
+        self.cli("register-project", project, "Tiny LLM fixture", "--dri", owner_id, "--maintenance-state", "paused")
+        self.cli("register-project", "COURSE", "Other fixture", "--dri", owner_id)
+
+        def set_preference(actor, event_type, *, prefix=project, status=200):
+            return self.action(actor, "set-wake-subscription", {
+                "project": prefix, "event_type": event_type, "enabled": "true",
+            }, status=status)
+
+        def preferences(actor, prefix):
+            return self.action(actor, "my-wake-subscriptions", query_string={"project": prefix})["subscriptions"]
+
+        def create(prefix):
+            result = self.action(owner, "create-task", {
+                "project": prefix, "title": "Check the synthetic sample.",
+                "step": "Read the example.",
+            })
+            return result["receipt"].split()[0]
+
+        def wake_choice():
+            return self.action(owner, "my-inbox-wake", query_string={
+                "scope": "all", "include_occurrences": "true",
+            })
+
+        def queued(event):
+            with closing(open_sqlite(self.database, write_existing=False)) as db:
+                return db.execute(
+                    "SELECT recipient, acceptance FROM wake_log WHERE source_event_id = ?", (event,),
+                ).fetchone()
+
+        set_preference(human, OWNED_READY, status=403)
+        set_preference(owner, GOAL_OCCURRENCES, prefix="COURSE", status=403)
+        set_preference(owner, GOAL_OCCURRENCES)
+        self.assertEqual(preferences(owner, project), [GOAL_OCCURRENCES])
+        self.assertEqual(preferences(outside, project), [])
+        self.assertEqual(preferences(owner, "T"), [])
+
+        due = "2030-04-01T17:00:00Z"
+        with patch("tasks_core.timestamp", return_value="2030-04-01T16:55:00Z"):
+            ticket = create(project)
+            self.assertIsNone(queued(self.task_event(owner, ticket)["event"]))
+            set_preference(owner, OWNED_READY)
+            self.assertEqual(preferences(owner, project), [GOAL_OCCURRENCES, OWNED_READY])
+            self.action(owner, "ticket-recurrence", {
+                "id": ticket, "change": "enable", "cadence_hours": 24, "next_at": due,
+            })
+            self.action(owner, "save-goal", {
+                "project": project, "kind": "standing", "summary": "Check the test quality.",
+            })
+            goal = self.action(owner, "my-goals", query_string={"project": project})["standing_goal"]["ticket"]
+            self.action(owner, "set-goal-review-time", {"id": goal, "time": "09:00"})
+
+        with patch("tasks_core.timestamp", return_value=due):
+            self.assertEqual(wake_choice()["goal_candidates"], [
+                {"ticket": goal, "key": f"review:{goal}:2030-04-01"},
+                {"ticket": goal, "key": f"explore:{goal}:2030-04-01"},
+            ])
+            self.assertEqual(self.action(owner, "recurring-tick", {"project": project})["issued"], 1)
+            ready = self.task_event(owner, ticket)
+            self.assertEqual(ready["at"], due)
+            self.assertEqual(tuple(queued(ready["event"])), (owner_id, "pending"))
+            self.assertEqual(wake_choice()["work"]["source_event"], ready["event"])
+            self.assertEqual(self.action(owner, "recurring-tick", {"project": project})["issued"], 0)
+            with closing(open_sqlite(self.database, write_existing=False)) as db:
+                run, = db.execute("SELECT due_at, ready_event_id FROM recurring_review_runs").fetchall()
+                self.assertEqual(tuple(run), (due, ready["event"]))
+
+        set_preference(owner, OWNED_READY, prefix="COURSE")
+        other = create("COURSE")
+        self.assertIsNone(queued(self.task_event(owner, other)["event"]))
+        with closing(open_sqlite(self.database)) as db, write(db):
+            mark_private(db, project, [owner_id])
+        set_preference(owner, GOAL_OCCURRENCES, status=404)
+        set_preference(outside, OWNED_READY, status=404)
+        restricted = create(project)
+        self.assertIsNone(queued(self.task_event(owner, restricted)["event"]))
 
     def test_owned_goal_cue_pause_preserves_schedule_and_expires_or_clears(self):
         app = self.app()

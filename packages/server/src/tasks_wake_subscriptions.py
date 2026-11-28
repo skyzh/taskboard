@@ -3,6 +3,7 @@
 OWNED_READY = "owned-ready"
 GOAL_OCCURRENCES = "goal-occurrences"
 MANAGED_READY_PROJECT = "T"
+MANAGED_READY_PROJECTS = frozenset({MANAGED_READY_PROJECT, "TINYLLM"})
 
 SCHEMA = """
     CREATE TABLE IF NOT EXISTS wake_subscriptions (
