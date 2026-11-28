@@ -16,7 +16,8 @@ _UNIT = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.@-]*\.service")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _ADMISSION_HEADER = "X-Portal-Upstream-Token"
 _SLOT_PROBE_ATTEMPTS = 8
-_CANDIDATE_STARTUP_ATTEMPTS = 16
+# A measured Pi cold start took up to 26 seconds to answer both authenticated probes.
+_CANDIDATE_STARTUP_ATTEMPTS = 32
 _SERVING_POLICY = (
     "--property=Restart=on-failure",
     "--property=RestartSec=5s",
