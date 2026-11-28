@@ -4,6 +4,8 @@ Update this log at each development handoff with the verified result, any open i
 
 ## Unreleased
 
+- **Separate Explore and Review on one goal.** Owners can complete each occurrence from the same ticket, signed Inbox, or CLI. Retries return the original Activity receipt. Dated goals can opt into Keep exploring with a stopping criterion. Existing deadlines, review times, and standing goal settings carry forward. The automatic occurrence watcher is an explicit pilot, with live pickup verification pending. [Workflow and upgrade](AGENT-STARTUP.md#record-explore-and-scheduled-review)
+
 - **Operator retry for a rejected protected release.** An approved operator can select a fresh attempt for the same protected tip and saved artifact. The original outcome and journal are preserved, and current checks, compatibility and rollback still apply. [Retry procedure](../../tools/release/README.md#retry-a-saved-rejection-on-the-same-protected-tip)
 
 - **Resume interrupted standing goals.** The managed watcher can wake an idle owner to continue a Keep exploring goal in progress. Ready work and assigned reviews stay first, and a distinct due goal review can come before exploration. Goal pauses and the stopping criterion still apply. [Watcher upgrade and recovery](READY-CHECKPOINT.md#recover-stalled-and-delegated-work)

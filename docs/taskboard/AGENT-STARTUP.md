@@ -37,13 +37,13 @@ If you are changing the release on an existing board, follow the [Taskboard Upgr
 3. Read the ticket's latest activity, linked evidence, checklist, and current owner. Continue from its recorded step or wait. Check current evidence before resuming a waiting ticket. If an earlier write had an uncertain result, read its Activity before retrying. Keep the same ticket across turns and Computers.
 4. When capacity is available, choose eligible work from your Ready queue. See [Find the agent commands](#find-the-agent-commands) for checklist, ETA, handoff, and wait options. Check it again after recording an outcome or handoff. The [Ready checkpoint guide](READY-CHECKPOINT.md) covers managed watcher commands and the runner callback for a finished work unit.
 5. If your queue has nothing you can move, check the project's unassigned Ready work with `./tasks --shared list --status ready --unassigned --project T`. Use the current project prefix in place of `T` when needed. Take suitable work within your role using the project's ownership rules.
-6. Once actionable work and assigned reviews clear, open the standing goal offered by Inbox or `next`. Check recent feedback, a finished ticket, or the current product. Verify a finding on the current build and search for an existing ticket before opening one. One focused pass is the default. Record its outcome on the goal ticket, park it, and recheck Inbox. Follow the saved setting for [Keep exploring](#keep-exploring-a-standing-goal).
+6. Once actionable work, assigned reviews, and due asks clear, open the goal offered by Inbox or `next`. Check recent feedback, a finished ticket, or the current product. Verify a finding on the current build and search for an existing ticket before opening one. Record the outcome on the goal ticket and recheck Inbox. Follow the saved setting for [Keep exploring](#keep-exploring-a-standing-goal) and complete each offered [Explore or Review](#record-explore-and-scheduled-review) on its own occurrence.
 
 ### Keep exploring a standing goal
 
 In your agent profile, edit the standing goal and select **Keep exploring while Inbox is clear**. Enter a criterion the agent can verify, such as “two useful pull requests have been opened today.” Leave **Stop when** empty to continue while the Inbox is clear. Set a daily Pacific review time in **Tasks → Schedules → Goal reviews** when using a stopping criterion.
 
-In Keep exploring mode, choose a distinct check each pass. Verify concrete findings and make focused fixes within your ordinary authority. Record a no-finding outcome after an actual check. Use `tasks --shared update GOAL "What I checked and verified" --standing-pass` and recheck all actionable Inbox work and assigned reviews. If work arrives, checkpoint and switch to it. When the written criterion is met, use `tasks --shared park GOAL "Evidence that the criterion is met" --criterion-met`. The same goal is offered from its next configured daily review.
+In Keep exploring mode, choose a distinct check each pass. Verify concrete findings and make focused fixes within your ordinary authority. Record a no-finding outcome after an actual check. Record the exact [Explore occurrence](#record-explore-and-scheduled-review) and recheck all actionable Inbox work and assigned reviews. On an earlier board, use `tasks --shared update GOAL "What I checked and verified" --standing-pass`. If work arrives, checkpoint and switch to it. When the written criterion is met, use `tasks --shared park GOAL "Evidence that the criterion is met" --criterion-met`. The same goal is offered from its next configured daily review.
 
 To configure the same setting from the CLI, use `tasks --shared save-goal standing "Goal summary" --keep-exploring --criterion "Two useful pull requests opened today"`. Omit `--criterion` to clear it in Keep exploring mode. Use `--one-pass` to restore the default. The agent observes its existing runtime stop controls and wake settings.
 
@@ -57,7 +57,24 @@ Set or read your dated and standing goals with your verified Taskboard account. 
 
 Add each dated milestone by name with `save-goal dated`, `--deadline YYYY-MM-DD`, and `--ticket T-123` for each related ticket you own. Use `--milestone "Existing name"` to select a milestone you want to edit, rename, or clear. Pass an empty summary to clear it. The `legacy` kind edits the original dated goal if you already had one.
 
-Give each active goal a daily Pacific reminder from the ticket or **Tasks → Schedules → Goal reviews**. In the shared CLI, use `./tasks --shared ticket-recurrence T-123 enable --review-time 09:00`. The same command accepts `pause`, `resume`, or `cancel` in place of `enable` with no time argument. A due review appears in signed Inbox even when wake delivery is unconfirmed. A completed standing-goal pass already counts as the review for that Pacific day. The milestone deadline stays a calendar date. An agent already working can check Inbox directly. The [opt-in goal watcher](READY-CHECKPOINT.md#try-goal-wakes) can notify an idle agent. Recheck Inbox before taking a cue and record the Start and outcome on the same goal ticket.
+Give each active goal a daily Pacific reminder from the ticket or **Tasks → Schedules → Goal reviews**. In the shared CLI, use `./tasks --shared ticket-recurrence T-123 enable --review-time 09:00`. The same command accepts `pause`, `resume`, or `cancel` in place of `enable` with no time argument. The milestone deadline stays a calendar date. A due Review appears in signed Inbox even when wake delivery is unconfirmed.
+
+### Record Explore and scheduled Review
+
+A goal ticket holds both Explore and scheduled Review. Explore is work on the goal. Review records feedback at the saved Pacific review time and can be due while the ticket is parked. An Explore receipt leaves Review available. Complete each offered occurrence separately from signed Inbox or the goal ticket, and attach an evidence link when available. Use the project's Goal review prompt for Review.
+
+Dated goals offer one Explore pass per Pacific day by default. Enable **Keep exploring while Inbox is clear** in the dated goal's Settings and enter a stopping criterion. To change or read the same setting and record an exact occurrence from the signed CLI, use the ticket and occurrence key returned by Taskboard.
+
+```sh
+./tasks --shared goal-exploration T-123 --keep-exploring "Two sample imports have been verified."
+./tasks --shared goals --project T
+./tasks --shared goal-occurrences --project T
+./tasks --shared goal-complete T-123 "$occurrence_key" "Verified the sample and recorded the next check."
+```
+
+Use `goal-exploration T-123 --one-pass` to restore the default for a dated goal. If a completion result is unclear, check Activity, then retry with the same occurrence key. A committed retry returns the original Activity receipt.
+
+When upgrading, keep the existing goal tickets, deadlines, review times, and saved standing exploration settings. Compare those values before and after on a restored copy. Upgrade the board and clients before using the new controls. An earlier server leaves the existing goal views and workflow available, and earlier clients can keep using that workflow. For an operator-managed watcher, see the [goal occurrence pilot](READY-CHECKPOINT.md#goal-occurrence-watcher-pilot).
 
 ## Choose which Taskboard events wake you
 
