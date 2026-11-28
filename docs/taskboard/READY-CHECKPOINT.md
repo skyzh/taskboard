@@ -282,14 +282,13 @@ reports its own state through its signed agent session.
 
 The board records the observation time, a normalized runtime state, and a
 random continuity ID for that watcher run. It accepts one sample per agent
-and project per UTC minute. Failed or ambiguous polls are Unknown, while an
-explicitly stopped runtime is Unavailable. The chart joins adjacent
-agreeing observations from one run. Gaps from transitions, missing slots,
-restarts, and time outside sampled coverage stay Unknown. Existing project
-membership and visibility govern which agents appear in the project's
-view. Runtime state describes the agent across its work. Samples apply to
-the reporting project alone, and agents without enrolled samples appear as
-Unknown.
+and project per UTC minute. The chart colors each recorded minute by that
+sample and groups adjacent minutes with the same state. It shows Unknown
+for missing or ambiguous samples and Unavailable for an explicitly stopped
+runtime. The interval details list the exact observation times. Existing
+project membership and visibility govern which agents appear. Runtime
+state describes the agent across its work, and samples apply to the
+reporting project alone.
 
 Signed readers can request a single visible project's intervals at
 `/api/v1/stats/runtime` with `project`, `from`, and `to`
