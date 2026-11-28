@@ -15,6 +15,7 @@ from time import monotonic
 from raft_auth import Identity
 from taskboard_server.managed_ready import SAMPLED_STATE, ManagedReadySender, SampledIdleGate, SenderScope, initialize
 from taskboard_server.managed_ready_grant import GrantStopped, ManagedReadyGrant, http_json
+from taskboard_server.ready_command import ReadyCommand
 from taskboard_server.ready_signal import connect
 from taskboard_server.ready_wake_operator import _Parser, _positive_id, _read_token, _token_fd, _uuid
 from tasks_profiles import for_identity
@@ -140,7 +141,10 @@ def main(argv=None, *, transport=http_json):
     parser.add_argument("--state", required=True, type=Path, help="Separate private managed sender state.")
     parser.add_argument("--server-id", required=True, type=_uuid, help="Approved Raft Server UUID.")
     parser.add_argument("--recipient-id", required=True, type=_uuid, help="Approved Raft agent UUID.")
-    parser.add_argument("--client-id", required=True, help="Public OAuth app client identifier.")
+    transport_options = parser.add_mutually_exclusive_group(required=True)
+    transport_options.add_argument("--client-id", help="Public OAuth app client identifier for direct Raft delivery.")
+    transport_options.add_argument("--delivery-command", type=ReadyCommand.parse,
+                                   help="Trusted local JSON argv array for sampled delivery.")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Create a fresh baseline after the recipient opts in.")
     commands.add_parser("init-pilot", help="Create a private baseline for the one-event pilot.")
@@ -151,9 +155,14 @@ def main(argv=None, *, transport=http_json):
     pilot.add_argument("--event-id", required=True, type=_positive_id, help="Exact enrolled Ready event number.")
     for command in (run, pilot, sampled_run):
         command.add_argument("--server-slug", required=True, help="Approved Raft Server slug.")
-        command.add_argument("--secret-fd", required=True, type=_token_fd,
-                             help="Private file descriptor containing the OAuth app secret.")
+        command.add_argument("--secret-fd", type=_token_fd,
+                             help="Private descriptor for the OAuth app secret in direct Raft delivery.")
     args = parser.parse_args(argv)
+    if args.delivery_command is not None and (args.command not in ("init-sampled", "run-sampled")
+                                              or getattr(args, "secret_fd", None) is not None):
+        parser.error("Use command delivery with sampled mode and no OAuth secret.")
+    if args.delivery_command is None and args.command.startswith("run") and args.secret_fd is None:
+        parser.error("Supply the private OAuth secret descriptor for direct Raft delivery.")
 
     try:
         ledger = args.db.expanduser().resolve(strict=True)
@@ -161,7 +170,8 @@ def main(argv=None, *, transport=http_json):
             raise ValueError("Use an existing SQLite ledger file.")
         state_path = args.state.expanduser().absolute()
         identity = Identity(args.server_id, args.recipient_id, "agent", None, None, None)
-        scope = SenderScope(ledger, identity, args.client_id)
+        binding = args.delivery_command.binding if args.delivery_command is not None else args.client_id
+        scope = SenderScope(ledger, identity, binding)
         with closing(open_sqlite(ledger)) as db:
             if args.command in ("init", "init-pilot", "init-sampled"):
                 _emit("initialized", initialize(state_path, db, scope, pilot=args.command == "init-pilot",
@@ -175,19 +185,23 @@ def main(argv=None, *, transport=http_json):
                 if sampled or event_id is not None:
                     idle_gate = SampledIdleGate(_pilot_status(db, identity, args.server_slug), clock=monotonic,
                                                 include_boundary=sampled)
-                grant = ManagedReadyGrant(args.client_id, _read_token(args.secret_fd),
-                                          server_slug=args.server_slug, identity=identity, transport=transport)
+                grant = None
+                if args.delivery_command is None:
+                    grant = ManagedReadyGrant(args.client_id, _read_token(args.secret_fd),
+                                              server_slug=args.server_slug, identity=identity, transport=transport)
                 stop = Event()
                 old_term = signal.signal(signal.SIGTERM, lambda *_: stop.set())
                 old_int = signal.signal(signal.SIGINT, lambda *_: stop.set())
                 try:
                     sender = ManagedReadySender(db, state, scope, grant, idle_gate=idle_gate, event_id=event_id,
-                                                sampled=sampled, stop_requested=stop.is_set)
+                                                sampled=sampled, stop_requested=stop.is_set,
+                                                command_delivery=args.delivery_command)
                     if event_id is not None:
                         return _run_pilot(sender, stop, event_id)
                     return _run(sender, stop)
                 finally:
-                    grant.clear()
+                    if grant is not None:
+                        grant.clear()
                     signal.signal(signal.SIGTERM, old_term)
                     signal.signal(signal.SIGINT, old_int)
     except GrantStopped:
