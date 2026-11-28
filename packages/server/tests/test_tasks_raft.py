@@ -76,7 +76,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "set-goal-exploration": ("POST", "id keep_exploring", "stopping_criterion"),
             "report-runtime-observation": ("POST", "project state observed_at run_id", ""),
             "report-watcher-health": ("POST", "state stalled goals", "project revision"),
-            "my-goal-cues": ("GET", "", "project include_timed for_wake"),
+            "my-goal-cues": ("GET", "", "project include_timed for_wake include_occurrences"),
             "set-goal-review-time": ("POST", "id time", ""),
             "my-cue-pauses": ("GET", "", ""),
             "acknowledge-stalled-cue": ("POST", "id event", ""),

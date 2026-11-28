@@ -2248,6 +2248,51 @@ class TasksServiceTest(unittest.TestCase):
             self.assertEqual(self.action(avery, "my-cue-pauses")["items"], [])
             self.assertEqual(self.action(avery, "my-goal-cues")["cues"], baseline["cues"])
 
+    def test_goal_occurrence_wakes_respect_signed_priority_and_pauses(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        recipient, recipient_id = self.login(app, "Sam")
+        with patch("tasks_core.timestamp", return_value="2030-04-01T19:00:00Z"):
+            self.action(owner, "save-goal", {
+                "kind": "dated", "summary": "Verify the sample", "deadline": "2030-04-10",
+            })
+            self.action(owner, "set-goal-review-time", {"id": "T-1", "time": "09:00"})
+            self.assertTrue(self.action(owner, "context")["goal_occurrence_cues"])
+
+            def offered():
+                return self.action(owner, "my-goal-cues", query_string={"include_occurrences": "true"})
+
+            self.assertNotIn("occurrences", self.action(owner, "my-goal-cues"))
+            keys = ["explore:T-1:2030-04-01", "review:T-1:2030-04-01"]
+            self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
+            self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Explore the sample."})
+            self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
+
+            pause = {"id": "T-1", "kind": "goal", "reason": "The sample is under review.",
+                     "until": "2030-04-01T20:00:00Z"}
+            self.action(owner, "set-cue-pause", pause)
+            self.assertEqual(offered()["occurrences"], [])
+            self.action(owner, "set-cue-pause", {"id": "T-1", "kind": "goal"})
+            self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
+
+            ordinary = self.action(owner, "create-task", {"title": "Check the queue", "step": "Read it."})
+            ticket = ordinary["receipt"].split()[0]
+            self.assertTrue(offered()["ordinary_busy"])
+            self.assertEqual(offered()["occurrences"], [])
+            self.action(owner, "advance-task", {
+                "id": ticket, "transition": "park", "review_after": "2030-04-02", "note": "Wait for the sample.",
+            })
+            raised = self.action(owner, "raise-attention", {
+                "id": ticket, "recipient": recipient_id, "reason": "Check the sample.",
+            })
+            self.call(recipient, f"/api/v1/notifications/requests/{raised['id']}/reminder",
+                      method="PUT", json={"date": "2030-04-01"})
+            ask, = self.action(owner, "my-requested-asks")["items"]
+            self.assertTrue(offered()["ordinary_busy"])
+            self.assertEqual(offered()["occurrences"], [])
+            self.action(owner, "acknowledge-ask-recheck", {"cue_key": ask["cue_key"]})
+            self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
+
     def test_wake_subscriptions_use_the_configured_project_roster(self):
         roster = {self.provider.people["Avery"]["sub"]: "Avery"}
         app = self.app(portal_reader=True, project_roster=roster)

@@ -99,7 +99,7 @@ def offer_work(board, actor):
 
 
 def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), acknowledged=None,
-                       include_goals=True, prefer_goals=False, goal_project=None):
+                       include_goals=True, prefer_goals=False, goal_project=None, occurrence_project=None):
     """Find an owned In progress event that can still use the agent's attention."""
     ordinary = None
     for queued in board.pages("my-queue", {"scope": "all", "state": "in_progress"}):
@@ -109,6 +109,8 @@ def offer_stalled_work(board, actor, *, exclude_events=(), paused=(), acknowledg
 
         is_goal = bool(queued.get("goal_kind"))
         if queued["key"] in paused or (is_goal and not include_goals) or (ordinary is not None and not is_goal):
+            continue
+        if occurrence_project and is_goal and queued["key"].startswith(f"{occurrence_project}-"):
             continue
         detail = board.invoke("task", {"id": queued["key"]})
         task = detail["task"]
@@ -356,7 +358,7 @@ class ReadyReadStopped(RuntimeError):
 def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
                       idle_delay=MINIMUM_CONFIRMED_IDLE_SECONDS, *, observe_status=None,
                       notify_stalled=None, goal_state=None, notify_goal=None, notify_ask=None, notify_inbox=None,
-                      report_health=None, measure_status=True):
+                      report_health=None, measure_status=True, goal_occurrences=False):
     """Wake for new Ready work, then check recovery paths during Idle."""
     try:
         context = agent_context(board, owner)
@@ -365,7 +367,12 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
     actor = context["actor"]["id"]
     shared_idle = notify_inbox is not None and context.get("inbox_wake_cues") is True
     primary_project = GOAL_PROJECT if goal_state else (context.get("default_project") or GOAL_PROJECT)
-    goal_options = {"include_timed": context.get("timed_goal_cues") is True, "for_wake": shared_idle}
+    include_occurrences = goal_occurrences and context.get("goal_occurrence_cues") is True
+    goal_options = {
+        "include_timed": context.get("timed_goal_cues") is True,
+        "for_wake": shared_idle,
+        "include_occurrences": include_occurrences,
+    }
     goal_wakes = {}
 
     def project_goals(project):
@@ -481,10 +488,13 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
             goal_project = (
                 goal_wake.state.project if goal_wake and context.get("goal_continuation_cues") is True else None
             )
+            occurrence_filter = {}
+            if goal_wake and goal_wake.include_occurrences:
+                occurrence_filter["occurrence_project"] = goal_wake.state.project
             return offer_stalled_work(
                 board, actor, exclude_events=noticed_stalled | next_stalled_attempt.keys(),
                 paused=paused, acknowledged=acknowledged, include_goals=long_idle, prefer_goals=long_idle,
-                goal_project=goal_project,
+                goal_project=goal_project, **occurrence_filter,
             )
         except SharedActionUnavailable as error:
             raise SharedReadError(str(error), reason="action-unavailable") from error
@@ -1023,6 +1033,8 @@ def main(*, managed_child=False):
     parser.add_argument("--measure", action="store_true", help="Emit sampled status and wake receipts in repeat mode.")
     parser.add_argument("--wake-stalled", action="store_true", help="Compatibility option. Stalled cues are enabled in repeat mode.")
     parser.add_argument("--goal-state", type=Path, help="Reuse an existing private Project T cue state file instead of the default.")
+    parser.add_argument("--goal-occurrences", action="store_true",
+                        help="Pilot separate Explore and Review cues on a board that supports them.")
     parser.add_argument("--report-runtime", metavar="PROJECT", help="Opt in to signed runtime samples for this project.")
     parser.add_argument("--report-status", metavar="PROJECT", help="Report redacted watcher health to this project.")
     parser.add_argument(
@@ -1043,6 +1055,8 @@ def main(*, managed_child=False):
         parser.error("Use --wake-stalled only with --watch-idle --repeat.")
     if args.goal_state and not (args.watch_idle and args.repeat):
         parser.error("Use --goal-state only with --watch-idle --repeat.")
+    if args.goal_occurrences and not (args.watch_idle and args.repeat):
+        parser.error("Use --goal-occurrences with --watch-idle --repeat.")
     if args.report_runtime and not (args.watch_idle and args.repeat):
         parser.error("Use --report-runtime only with --watch-idle --repeat.")
     if args.report_status and not (args.watch_idle and args.repeat):
@@ -1122,7 +1136,7 @@ def main(*, managed_child=False):
                         notify_stalled=notify_stalled,
                         goal_state=args.goal_state, notify_goal=notify_goal, notify_ask=notify_ask,
                         notify_inbox=notify_inbox,
-                        report_health=health,
+                        report_health=health, goal_occurrences=args.goal_occurrences,
                     )
                 except (KeyError, RuntimeError, ValueError) as error:
                     if health and not (isinstance(error, ReadyReadStopped) and error.reason == "interrupted"):

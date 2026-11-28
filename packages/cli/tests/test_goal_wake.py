@@ -22,6 +22,13 @@ def snapshot(*, standing=STANDING, cues=(), busy=False, ordinary_busy=False, dra
             "cues": list(cues), "drain_event": drain_event}
 
 
+def occurrence(ticket, kind, previous=None):
+    key = f"{kind}:{ticket}:{DAY}"
+    if previous is not None:
+        key += f":{previous}"
+    return {"kind": kind, "ticket": ticket, "key": key, "day": DAY}
+
+
 def cue(ticket, kind, date=DAY, *, day=DAY, completed_checks=0):
     recurrence = "deadline" if kind == "deadline" else "daily"
     return {"ticket": ticket, "summary": "Review the sample.", "kind": kind, "day": day,
@@ -55,6 +62,16 @@ class SignedFixture:
         if action != "my-queue" or filters["state"] != "ready":
             raise AssertionError((action, filters))
         yield from self.ready
+
+
+class OccurrenceFixture(SignedFixture):
+    def invoke(self, action, data=None, *, write=False):
+        if action == "context":
+            return {**super().invoke(action, data, write=write), "goal_occurrence_cues": True}
+        if action == "my-goal-cues" and data == {"project": "T", "include_occurrences": "true"} and not write:
+            self.reads.append(self.current)
+            return self.current
+        return super().invoke(action, data, write=write)
 
 
 class GoalWakeTest(unittest.TestCase):
@@ -142,6 +159,7 @@ class GoalWakeTest(unittest.TestCase):
         }
         self.assertEqual(offer_stalled_work(board, OWNER)["task"], "T-15")
         self.assertEqual(offer_stalled_work(board, OWNER, goal_project="T")["task"], "T-16")
+        self.assertEqual(offer_stalled_work(board, OWNER, occurrence_project="T")["task"], "T-16")
 
     def test_standing_daily_does_not_repeat_that_days_drain(self):
         first = self.state.select(snapshot())
@@ -302,7 +320,7 @@ class GoalWakeTest(unittest.TestCase):
             self.assertRaises(KeyboardInterrupt),
         ):
             watch_ready_count(board, OWNER, lambda _: True, notify_ready, observe, interval=10, idle_delay=0,
-                              goal_state=self.path, notify_goal=notify_goal)
+                              goal_state=self.path, notify_goal=notify_goal, goal_occurrences=True)
         self.assertEqual(ready_wakes, [(40, 1)])
         self.assertEqual(goal_wakes, [(80, "T-15")])
         self.assertEqual(log, ["wake-requested", "goal-wake-requested"])
@@ -375,6 +393,91 @@ class GoalWakeTest(unittest.TestCase):
         goal.assert_not_called()
         self.assertEqual(seen[0]["reminder"], "#00110022")
 
+
+    def test_separate_occurrences_survive_restart_and_allow_a_new_explore_pass(self):
+        first = occurrence("T-4", "explore")
+        review = occurrence("T-4", "review")
+        second = occurrence("T-4", "explore", previous=412)
+        board = OccurrenceFixture({**snapshot(cues=[cue("T-4", "daily")]), "occurrences": [first, review]})
+        sent = []
+
+        def deliver(watcher, item, *, lose_reply=False):
+            candidate = {**watcher.lookup(), "board": BOARD}
+            self.assertEqual(candidate["goal_key"], item["key"])
+
+            def send(offer, claim, record):
+                self.assertTrue(claim())
+                sent.append(reminder_title(offer))
+                if lose_reply:
+                    raise RuntimeError("Synthetic lost reply after scheduling.")
+                record("#00aa00bb")
+                return "wake-requested"
+
+            return watcher.notify(candidate, lambda: True, send)
+
+        watch = GoalWake(board, self.state, include_occurrences=True)
+        self.assertEqual(deliver(watch, review), "goal-wake-requested")
+        watch = GoalWake(board, self.open_state(), include_occurrences=True)
+        self.assertEqual(deliver(watch, first, lose_reply=True), "goal-wake-unknown")
+        self.assertIsNone(GoalWake(board, self.open_state(), include_occurrences=True).lookup())
+        self.assertEqual(board.offers, [])
+
+        board.current["occurrences"] = [second]
+        watch = GoalWake(board, self.open_state(), include_occurrences=True)
+        self.assertEqual(deliver(watch, second), "goal-wake-requested")
+        self.assertEqual(len(set(sent)), 3)
+        for item, title in zip((review, first, second), sent):
+            self.assertIn(f"goal-complete T-4 {item['key']}", title)
+        self.assertIsNone(GoalWake(board, self.open_state(), include_occurrences=True).lookup())
+
+    def test_opted_in_repeat_watcher_uses_signed_occurrence(self):
+        exact = occurrence("T-4", "explore")
+        board = OccurrenceFixture({**snapshot(), "occurrences": [exact]})
+        clock = 0
+
+        def sleep_for(seconds):
+            nonlocal clock
+            clock += seconds
+            self.assertLess(clock, 60)
+
+        def deliver(offer, can_wake, record):
+            self.assertEqual(offer["goal_key"], exact["key"])
+            self.assertGreater(clock, 30)
+            self.assertTrue(can_wake())
+            record("#00aa00bb")
+            return "wake-requested"
+
+        def observe(result):
+            self.assertEqual(result["outcome"], "goal-wake-requested")
+            self.assertEqual(result["reminder"], "#00aa00bb")
+            raise KeyboardInterrupt
+
+        with (
+            patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+            patch("taskboard_cli.ready_checkpoint.sleep", side_effect=sleep_for),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            watch_ready_count(board, OWNER, lambda _: True, self.fail, observe,
+                              goal_state=self.path, notify_goal=deliver, goal_occurrences=True)
+        self.assertIsNone(GoalWake(board, self.open_state(), include_occurrences=True).lookup())
+
+    def test_occurrence_needs_current_signed_offer_and_keeps_exact_time_fallback(self):
+        exact = occurrence("T-4", "explore")
+        timed = {**cue("T-4", "timed"), "key": "timed:T-4:2026-11-23T18:00:00Z"}
+        board = OccurrenceFixture({**snapshot(cues=[timed]), "occurrences": [exact]})
+        watch = GoalWake(board, self.state, include_occurrences=True)
+        fallback = watch.lookup()
+        self.assertEqual(fallback["goal_kind"], "timed")
+        self.assertTrue(self.state.reserve(fallback))
+        offer = {**watch.lookup(), "board": BOARD}
+        self.assertEqual(offer["goal_key"], exact["key"])
+
+        board.current = {**snapshot(busy=True, ordinary_busy=True), "occurrences": []}
+        result = watch.notify(offer, lambda: True, lambda _offer, claim, _record: self.assertFalse(claim()))
+        self.assertIsNone(result)
+        board.current = {**snapshot(), "occurrences": [occurrence("OTHER-4", "explore")]}
+        with self.assertRaisesRegex(RuntimeError, "invalid goal occurrence"):
+            watch.lookup()
 
 if __name__ == "__main__":
     unittest.main()

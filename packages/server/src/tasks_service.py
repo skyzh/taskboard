@@ -5218,6 +5218,7 @@ def create_app(
                 "handoff_recipient_lookup": True,
                 "timed_goal_cues": True,
                 "goal_continuation_cues": True,
+                "goal_occurrence_cues": True,
                 "ask_recheck_cues": True,
                 "inbox_wake_cues": profile is None and actor["kind"] == "agent" and not g.get("personal_agent_api"),
                 "watcher_health_reports": True,
@@ -5462,17 +5463,32 @@ def create_app(
             project = project_filter(data, use_default=True)
             instant = ledger.timestamp()
             now = datetime.fromisoformat(instant).astimezone(PACIFIC)
+            include_occurrences = str(data.get("include_occurrences", "")).lower() == "true"
             with tasks_storage.read(db()) as connection:
-                busy, ordinary = goal_queue_state(
-                    connection, key, project if profile is not None else None, now.date().isoformat(),
-                    wake_at=instant if data.get("for_wake") == "true" else None,
-                )
+                work_project = project if profile is not None else None
+                day = now.date().isoformat()
+                wake_at = instant if data.get("for_wake") == "true" else None
+                if include_occurrences:
+                    board = query()
+                    work = next(board.actionable_work(key, today=day, project=work_project,
+                                                      ordinary_only=True, include_goal_reviews=False,
+                                                      wake_at=wake_at, delivery=wake_at is not None), None)
+                    busy = ordinary = bool(work or board.requested_asks(
+                        key, project=work_project, today=day, due_only=True,
+                    ))
+                else:
+                    busy, ordinary = goal_queue_state(connection, key, work_project, day, wake_at=wake_at)
                 result = goal_cadence.candidates(connection, key, project, now, busy=busy,
                                                  ordinary_busy=ordinary,
                                                  include_timed=str(data.get("include_timed", "")).lower() == "true")
                 paused = {projects.row_reference(row) for row in
                           cue_pauses.active(connection, key, instant, "goal")}
                 result["cues"] = [cue for cue in result["cues"] if cue["ticket"] not in paused]
+                if include_occurrences:
+                    result["occurrences"] = [] if ordinary else [
+                        item for item in goal_cadence.occurrences(connection, key, project, now)
+                        if item["ticket"] not in paused
+                    ]
                 if result["standing"] and result["standing"]["ticket"] in paused:
                     result["standing"] = None
                 if result["standing"] or result["cues"]:
