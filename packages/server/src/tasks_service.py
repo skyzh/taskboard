@@ -4238,10 +4238,12 @@ def create_app(
             context = {"goal_occurrence": occurrence_key}
             if "details" in fields:
                 context["activity_details"] = fields["details"]
+            recovery_at = (app_wake_activity.observation_at()
+                           if native_signed_work("complete-goal-occurrence", g.actor) else None)
             event = ledger.record(connection, number, "log", key, task["state"], fields["note"],
                                   task["waiting_on"], links, context, at=at)
-            if native_signed_work("complete-goal-occurrence", g.actor):
-                app_wake_activity.signed_recovery(connection, key, project, event, at)
+            if recovery_at:
+                app_wake_activity.signed_recovery(connection, key, project, event, recovery_at)
             ledger.bump_revision(connection, project)
         return {"receipt": receipt, "occurrence_key": occurrence_key, "event_id": event, "completed_at": at}
 

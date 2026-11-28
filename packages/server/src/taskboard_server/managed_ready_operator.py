@@ -19,7 +19,6 @@ from taskboard_server.ready_command import ReadyCommand
 from taskboard_server.ready_signal import connect
 from taskboard_server.ready_wake_operator import _Parser, _positive_id, _read_token, _token_fd, _uuid
 import tasks_app_wake_activity as app_wake_activity
-from tasks_core import timestamp
 from tasks_profiles import for_identity
 import tasks_ring1 as ring1
 from tasks_storage import open_sqlite, read, write
@@ -142,7 +141,7 @@ def _operator_delivery_status(db, state, scope, *, resume):
             raise ValueError("Use the current approved sender scope.")
         owner = saved["owner"]
         if resume:
-            app_wake_activity.operator_resume(db, owner, scope.project, timestamp())
+            app_wake_activity.operator_resume(db, owner, scope.project, app_wake_activity.observation_at())
         return app_wake_activity.status(db, owner, scope.project)
 
 

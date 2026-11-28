@@ -1173,11 +1173,12 @@ def change_task(db, args, links, *, automation=None):
     context.update(override)
     signed_recovery = getattr(args, "signed_wake_recovery", False) and automation is None
     at = timestamp() if signed_recovery else None
+    recovery_at = app_wake_activity.observation_at() if signed_recovery else None
     event_id = record(db, args.id, action, attribution, state, note, waiting_on, links, context, at=at)
     if request_id is not None:
         link_attention_wait(db, args, event_id, request_id, task["event_id"])
     if signed_recovery:
-        app_wake_activity.signed_recovery(db, args.by, projects.row_project(task), event_id, at)
+        app_wake_activity.signed_recovery(db, args.by, projects.row_project(task), event_id, recovery_at)
     return f"{projects.row_reference(task)} · {label}"
 
 
@@ -2133,7 +2134,7 @@ def import_release_on(db, data):
             bump_revision(db)
         return result
 
-def import_notification_on(db, data, *, accepted_app_key=None):
+def import_notification_on(db, data, *, accepted_app_key=None, accepted_app_at=None):
     import tasks_notification_log as notification_log
 
     wake = isinstance(data, dict) and data.get("schema") == notification_log.WAKE_SCHEMA
@@ -2145,7 +2146,7 @@ def import_notification_on(db, data, *, accepted_app_key=None):
         if accepted_app_key is not None:
             project, _ = projects.identifier(data["source"]["task"])
             app_wake_activity.record_acceptance(db, data["recipient"], project, accepted_app_key,
-                                                data["observations"]["acceptance"]["at"])
+                                                accepted_app_at or data["observations"]["acceptance"]["at"])
         if changed:
             audit.record(db, scope="operator", actor=None, operation="record-notification",
                          record_type=table, record_id=event, at=timestamp())

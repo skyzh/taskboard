@@ -158,7 +158,8 @@ class InboxBatchDelivery:
     def _settle(self, saved, journal, members, acceptance):
         """Commit the applicable item receipts together before clearing the journal."""
         owner = saved["owner"]
-        observed = journal["accepted_at"] or ledger.timestamp()
+        accepted_at = journal["accepted_at"]
+        observed = app_wake_activity.whole_second(accepted_at) if accepted_at else ledger.timestamp()
         changed = False
         with tasks_storage.write(self.db):
             self.sender._check_binding(saved, self.sender.scope.binding(self.db))
@@ -193,7 +194,7 @@ class InboxBatchDelivery:
             if changed:
                 ledger.bump_revision(self.db)
             if acceptance == "accepted":
-                app_wake_activity.record_acceptance(self.db, owner, self.project, journal["event_key"], observed)
+                app_wake_activity.record_acceptance(self.db, owner, self.project, journal["event_key"], accepted_at)
         with self.state:
             self.state.execute(
                 "INSERT INTO inbox_batch_history VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
@@ -304,8 +305,9 @@ class InboxBatchDelivery:
         except ReadyEventSendError:
             pass
         else:
+            accepted_at = app_wake_activity.observation_at()
             with self.state:
-                self.state.execute("UPDATE inbox_batch SET accepted_at = ? WHERE singleton = 1", (ledger.timestamp(),))
+                self.state.execute("UPDATE inbox_batch SET accepted_at = ? WHERE singleton = 1", (accepted_at,))
                 if delay := sender._retry_delay():
                     self._remember_deadline(sender.clock() + delay)
             confirmed = self.state.execute("SELECT * FROM inbox_batch WHERE singleton = 1").fetchone()

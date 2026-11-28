@@ -33,12 +33,17 @@ class AppWakeActivityTest(unittest.TestCase):
         self.scope = SenderScope(self.ledger, self.recipient.identity, "fixture-app")
         self.now = "2030-04-01T19:00:00Z"
         self.enterContext(patch("tasks_core.timestamp", side_effect=lambda: self.now))
-        self.enterContext(patch("taskboard_server.managed_ready_operator.timestamp", side_effect=lambda: self.now))
+        self.microseconds = 0
+        self.enterContext(patch("tasks_app_wake_activity.observation_at", side_effect=self.observation_at))
         self.avery.invoke("set-wake-subscription", {
             "project": "T", "event_type": OWNED_READY, "enabled": "true",
         }, write=True)
         with closing(open_sqlite(self.ledger)) as db:
             initialize(self.state, db, self.scope, sampled=True)
+
+    def observation_at(self):
+        self.microseconds += 1
+        return self.now.replace("Z", f".{self.microseconds:06d}Z")
 
     def add(self, owner):
         ticket = owner.invoke("create-task", {
@@ -185,7 +190,7 @@ class AppWakeActivityTest(unittest.TestCase):
         self.assertTrue(self.status()["paused"])
         grant.event_transport.assert_called_once()
 
-    def test_signed_start_before_first_acceptance_audit_excludes_late_batch_settlement(self):
+    def exercise_late_batch_settlement(self, *, same_second, legacy=False):
         members = [self.add(self.avery) for _ in range(2)]
         grant, idle = Mock(), Mock()
         grant.token.return_value = self.recipient.access_token
@@ -202,8 +207,15 @@ class AppWakeActivityTest(unittest.TestCase):
             with (patch.object(sender.inbox_batch, "_settle", side_effect=OSError("Fixture restart before recording.")),
                   self.assertRaises(OSError)):
                 sender.tick()
+            accepted_at = state.execute("SELECT accepted_at FROM inbox_batch WHERE singleton = 1").fetchone()[0]
+            self.assertEqual(accepted_at, "2030-04-01T19:00:00.000001Z")
+            if legacy:
+                accepted_at = self.now
+                with state:
+                    state.execute("UPDATE inbox_batch SET accepted_at = ?", (accepted_at,))
 
-        self.now = "2030-04-01T19:01:00Z"
+        if not same_second:
+            self.now = "2030-04-01T19:01:00Z"
         self.start(self.avery, members[0]["task"])
         boundary = self.fixture.task_event(self.avery.client, members[0]["task"])["at"]
         self.assertEqual(boundary, self.now)
@@ -213,7 +225,10 @@ class AppWakeActivityTest(unittest.TestCase):
             accepted = db.execute(
                 "SELECT at FROM audit_events WHERE operation = 'accept-app-wake' AND actor = ?", (self.owner,),
             ).fetchone()
-            self.assertEqual(accepted["at"], "2030-04-01T19:00:00Z")
+            self.assertEqual(accepted["at"], accepted_at)
+            wake_at = db.execute("SELECT acceptance_at FROM wake_log WHERE source_event_id = ?",
+                                 (members[1]["event"],)).fetchone()["acceptance_at"]
+            self.assertEqual(wake_at, "2030-04-01T19:00:00.000000Z")
         self.assertEqual(self.status()["accepted_count"], 0)
         self.assertEqual(self.status()["latest_recovery_at"], boundary)
         self.assertEqual(self.status()["recovery_kind"], "signed_work")
@@ -225,7 +240,16 @@ class AppWakeActivityTest(unittest.TestCase):
         self.assertFalse(self.status()["paused"])
         self.assertEqual(self.status()["accepted_count"], 2)
 
-    def test_acceptance_and_recovery_with_equal_timestamps_follow_audit_order(self):
+    def test_signed_start_before_first_acceptance_audit_excludes_late_batch_settlement(self):
+        self.exercise_late_batch_settlement(same_second=False)
+
+    def test_same_second_confirmation_before_signed_start_stays_excluded_after_restart(self):
+        self.exercise_late_batch_settlement(same_second=True)
+
+    def test_legacy_whole_second_acceptance_does_not_cross_same_second_recovery(self):
+        self.exercise_late_batch_settlement(same_second=True, legacy=True)
+
+    def test_same_second_acceptance_after_recovery_counts(self):
         first, second = [self.add(self.avery) for _ in range(2)]
         accepted = Mock(return_value=(202, {"status": "queued"}))
         self.assertEqual(self.send(first, accepted), "accepted")

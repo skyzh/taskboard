@@ -266,8 +266,9 @@ existing receipts and per-cue retry limits in place.
 A newly recorded signed Raft Start, Progress, Done, Wait, Resume, Park or
 goal occurrence completion by that recipient in the same project clears the
 count. The board compares the saved carrier acceptance time with this work
-event, including when a restart records the acceptance later. Audit order
-breaks ties between equal timestamps. Read-only traffic and background watcher
+event, including when a restart records the acceptance later. When legacy
+whole-second evidence leaves the order unclear, the acceptance stays outside
+the new count. Read-only traffic and background watcher
 polls leave the count in place, as does a retry that returns an existing work
 receipt. The next send still needs a fresh sampled Idle window.
 

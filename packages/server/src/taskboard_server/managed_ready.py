@@ -405,7 +405,7 @@ class ManagedReadySender:
         first = previous["first_attempt"] if previous else now
         renewed = previous["renewed"] if previous else False
 
-        def record(acceptance, *, retry_at=0):
+        def record(acceptance, *, retry_at=0, accepted_app_at=None):
             at = ledger.timestamp()
             with tasks_storage.write(self.db):
                 goal_receipts.record_in_transaction(
@@ -414,7 +414,7 @@ class ManagedReadySender:
                 )
                 if acceptance == "accepted":
                     app_wake_activity.record_acceptance(self.db, owner, self.scope.project,
-                                                        document["externalEventId"], at)
+                                                        document["externalEventId"], accepted_app_at)
 
         if previous and now < previous["retry_at"]:
             return "waiting", None
@@ -471,7 +471,7 @@ class ManagedReadySender:
         except ReadyEventSendError:
             pass
         else:
-            record("accepted")
+            record("accepted", accepted_app_at=app_wake_activity.observation_at())
             if delay := self._retry_delay():
                 self._retry("accepted", key, delay=delay)
             self.idle_gate.reset()
