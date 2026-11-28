@@ -33,6 +33,7 @@ TABLES = (
     "knowledge_areas", "knowledge_entries", "knowledge_stages", "knowledge_maintenance_assignments",
     "agent_api_usage", "ticket_attachments", "ticket_attachment_bytes",
     "dri_postboards", "dri_postboard_revisions", "knowledge_publications", "knowledge_publication_files",
+    "project_resources", "project_resource_events",
 )
 ATTACHMENT_TABLES = {"ticket_attachments", "ticket_attachment_bytes"}
 # Ephemeral deployment records and migration history belong to the source database.
