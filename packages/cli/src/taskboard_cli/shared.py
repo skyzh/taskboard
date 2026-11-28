@@ -14,6 +14,7 @@ from taskboard_client.direct import DirectBoard, board_url
 from taskboard_client import references as projects
 from taskboard_client import work as ledger
 from taskboard_client.merge_details import merge_details
+from taskboard_client.wake_text import GOAL_OCCURRENCE_COMPLETION, KEEP_EXPLORING_CUE, RECHECK_INBOX
 from taskboard_client.work import PEER_ASK
 
 from .ask_hook import check_ask
@@ -478,7 +479,8 @@ def completion_queue(cue, project):
             return {"work": None, "standing_goals": [], "ask_recheck": ask}
         case {"kind": "goal_occurrences", "goal_occurrences": list() as occurrences,
               "instruction": str(instruction)}:
-            return {"work": None, "standing_goals": [], "goal_occurrences": occurrences, "next_step": instruction}
+            return {"work": None, "standing_goals": [], "goal_occurrences": occurrences,
+                    "goal_occurrence_guidance": instruction}
         case {"kind": "standing_goal", "goal": {"ticket": str(), "summary": str()} as goal,
               "instruction": str(instruction)}:
             return {"work": None, "standing_goals": [goal], "next_step": instruction,
@@ -501,7 +503,7 @@ def completion_guidance(board, reference, fallback=None, *, cue=None):
         if result.get("unavailable"):
             return unavailable
         if occurrences := result.get("goal_occurrences"):
-            return "\n".join((*goal_occurrence_lines(occurrences), result["next_step"]))
+            return "\n".join((*goal_occurrence_lines(occurrences), occurrence_instruction(result)))
         prompt = result.get("goal_review_prompt")
         goal_guidance = f"\nGoal review · {prompt['prompt']}" if prompt else ""
         if work := result["work"]:
@@ -572,6 +574,12 @@ def goal_occurrence_lines(items):
             yield f"  Goal review · {prompt['prompt']}"
 
 
+def occurrence_instruction(result):
+    return result.get("goal_occurrence_guidance") or (
+        f"{GOAL_OCCURRENCE_COMPLETION} {RECHECK_INBOX} {KEEP_EXPLORING_CUE}"
+    )
+
+
 def shared_next(board, url, filters, actor, *, refresh_guidance=False):
     try:
         guidance = {"refresh_guidance": "true"} if refresh_guidance else {}
@@ -600,7 +608,7 @@ def shared_next(board, url, filters, actor, *, refresh_guidance=False):
         )
     goal_lines.extend(inbox_guidance_lines(result))
     if occurrences:
-        return with_guidance("\n".join(goal_lines), result["next_step"])
+        return with_guidance("\n".join(goal_lines), occurrence_instruction(result))
     if work := result["work"]:
         details = task_details(board, url, work["key"], guidance=result.get("next_step"), context_lines=goal_lines)
         label = NEXT_LABELS.get(work["kind"])

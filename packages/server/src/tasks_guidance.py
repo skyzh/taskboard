@@ -158,7 +158,6 @@ WORKER_HANDOFF = "worker-handoff"
 NEXT_ACTION = "next-action"
 
 _LEGACY_PROMPT_KEYS = {
-    GOAL_EXPLORE: "standing-exploration",
     READY_PICKUP: "ready-review",
     REVIEW_HANDOFF: "next-review",
     WORKER_HANDOFF: "next-report",
@@ -353,16 +352,16 @@ class AgentGuidance:
                 return {"project": project, "prompt": override["value"], "source": "agent"}
         return self.project_prompt(db, project, name)
 
-    def project_prompt(self, db, project, name):
+    def project_prompt(self, db, project, name, *, legacy_key=None):
         project_prompts = project_values(db, project, "agent-prompt") if project is not None else {}
-        return {"project": project, **self.effective_prompt(name, project_prompts)}
+        return {"project": project, **self.effective_prompt(name, project_prompts, legacy_key=legacy_key)}
 
-    def effective_prompt(self, name, project_prompts):
+    def effective_prompt(self, name, project_prompts, *, legacy_key=None):
         if name in project_prompts:
             return {"prompt": project_prompts[name], "source": "project"}
         if name in self.prompts:
             return {"prompt": self.prompts[name], "source": "board"}
-        legacy_key = _LEGACY_PROMPT_KEYS.get(name)
+        legacy_key = legacy_key or _LEGACY_PROMPT_KEYS.get(name)
         if legacy_key in self.overrides:
             return {"prompt": self.overrides[legacy_key], "source": "board"}
         return {"prompt": _PROMPTS[name]["prompt"], "source": "default"}
@@ -377,8 +376,8 @@ class AgentGuidance:
         if result.get("next_cursor") is not None:
             return self["pagination"]
         if name == "my-next":
-            if occurrences := result.get("goal_occurrences"):
-                return goals.occurrence_guidance(result, occurrences)
+            if instruction := result.get("goal_occurrence_guidance"):
+                return instruction
             if result["work"]:
                 work = result["work"]
                 kind = work["kind"]

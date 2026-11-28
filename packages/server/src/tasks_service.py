@@ -4075,10 +4075,18 @@ def create_app(
                 continue
             scope, _ = projects.identifier(occurrence["ticket"])
             if occurrence["kind"] == "review":
-                field, name = "goal_review_prompt", tasks_guidance.GOAL_REVIEW
+                occurrence["goal_review_prompt"] = agent_guidance.project_prompt(
+                    connection, scope, tasks_guidance.GOAL_REVIEW,
+                )
             else:
-                field, name = "goal_explore_prompt", tasks_guidance.GOAL_EXPLORE
-            occurrence[field] = agent_guidance.project_prompt(connection, scope, name)
+                legacy_key = "standing-exploration"
+                standing_override = (
+                    legacy_key in agent_guidance.overrides
+                    and ledger.task_goal_kind(connection, projects.resolve(connection, occurrence["ticket"])) == "standing"
+                )
+                occurrence["goal_explore_prompt"] = agent_guidance.project_prompt(
+                    connection, scope, tasks_guidance.GOAL_EXPLORE, legacy_key=legacy_key if standing_override else None,
+                )
             items.append(occurrence)
         return items
 
@@ -5456,6 +5464,7 @@ def create_app(
                     }
                 if items := inbox_goal_occurrences(connection, key, project, work):
                     result["goal_occurrences"] = items
+                    result["goal_occurrence_guidance"] = goals.occurrence_guidance(result, items)
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, work, result["standing_goals"], key)
                 result.update(offered_goal_prompt(connection, work, result["standing_goals"]))
                 if candidates := query().wait_review_candidates(key, project):

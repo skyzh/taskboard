@@ -9,6 +9,7 @@ import tasks_core as ledger
 import tasks_projects as projects
 import tasks_ring1 as ring1
 import tasks_storage
+from taskboard_client.wake_text import GOAL_OCCURRENCE_COMPLETION
 from taskboard_client.work import task_title
 
 
@@ -93,10 +94,7 @@ KEEP_EXPLORING = f"{KEEP_EXPLORING_FLOW} Use `update --standing-pass` to record 
 
 
 def occurrence_guidance(context, occurrences):
-    prompt = (
-        "Record the offered Explore or Review with `goal-complete` and its exact occurrence key. "
-        "Record each occurrence separately."
-    )
+    prompt = GOAL_OCCURRENCE_COMPLETION
     tickets = {occurrence["ticket"] for occurrence in occurrences}
     if any(goal["ticket"] in tickets for goal in context.get("standing_goals", ())):
         prompt += " If you open a ticket from this standing goal, add the spontaneous tag."

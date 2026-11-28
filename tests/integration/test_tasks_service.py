@@ -6491,6 +6491,22 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("with `--checkpoint` and `--details`", started[1])
         self.assertIn("what remains uncertain", started[1])
 
+    def test_legacy_standing_guidance_does_not_replace_dated_explore_guidance(self):
+        from tasks_guidance import AgentGuidance
+
+        override = "Compare the standing goal's queue samples."
+        app = self.app(portal_reader=True, agent_guidance=AgentGuidance(
+            overrides={"standing-exploration": override},
+        ))
+        owner, _ = self.login(app, "Avery")
+        self.action(owner, "save-goal", {"kind": "standing", "summary": "Improve queue handling."})
+        self.action(owner, "save-goal", {"kind": "dated", "summary": "Publish the sample.", "deadline": "2030-04-10"})
+        occurrences = {item["ticket"]: item for item in self.action(owner, "my-goal-occurrences")["items"]}
+        self.assertEqual(occurrences["T-1"]["goal_explore_prompt"]["prompt"], override)
+        self.assertIn("Preserve the Review schedule and deadline.",
+                      occurrences["T-2"]["goal_explore_prompt"]["prompt"])
+        self.assertNotEqual(occurrences["T-2"]["goal_explore_prompt"]["prompt"], override)
+
     def test_agent_guidance_rejects_invalid_files_and_accepts_published_example(self):
         from tasks_guidance import load
 
@@ -6662,6 +6678,15 @@ class TasksServiceTest(unittest.TestCase):
             browser_inbox = self.call(owner, "/api/v1/notifications/work", query_string={"project": "T"}).json
             self.assertIn("with `goal-complete`", browser_inbox["standing_goal_guidance"])
             self.assertNotIn("update --standing-pass", browser_inbox["standing_goal_guidance"])
+            old_reply = self.action(owner, "my-next", query_string={"project": "T"})
+            del old_reply["goal_occurrence_guidance"]
+            old_reply["next_step"] = "Use `update --standing-pass` to record a completed check."
+            _, compatible, _ = self.shared_cli(
+                owner, "next", "--project", "T", carrier_results={"my-next": old_reply},
+            )
+            self.assertIn(continued["key"], compatible)
+            self.assertIn("with `goal-complete`", compatible)
+            self.assertNotIn("update --standing-pass", compatible)
             self.action(owner, "advance-task", {
                 "id": ticket, "transition": "start", "note": "Take the second sample.",
             })
