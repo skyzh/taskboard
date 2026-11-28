@@ -66,6 +66,58 @@ class InboxWakeTest(unittest.TestCase):
         samples = (InboxWakeItem("ready", "T-1", "ready:1"),)
         self.assertEqual(inbox_event_summary(samples, guidance="😀" * 601), inbox_event_summary(samples))
 
+    def test_resolved_wait_rebinds_after_blocker_reopens_and_rejects_old_confirmation(self):
+        blocker = self.add(self.blake)
+        self.advance(self.blake, blocker, "start")
+        self.advance(self.blake, blocker, "done")
+        waiting = self.add(self.avery)
+        self.advance(self.avery, waiting, "start")
+        self.advance(self.avery, waiting, "wait", blocked_by=blocker)
+        wait = self.fixture.task_event(self.avery.client, waiting)["event"]
+        first_done = self.fixture.task_event(self.blake.client, blocker)["event"]
+
+        def cue():
+            item, = self.snapshot()
+            self.assertEqual((item.kind, item.ticket, item.source_event, item.wait_event, item.blocker_ticket),
+                             ("resolved-wait", waiting, wait, wait, blocker))
+            result = self.signed_head()["work"]
+            self.assertEqual((result["kind"], result["wait_event"], result["blocker_event"], result["blocker_ticket"]),
+                             ("resolved-wait", wait, item.blocker_event, blocker))
+            summary = inbox_event_summary((item,), project="T")
+            self.assertIn(f"{blocker} finished. Confirm the blocker and resume in signed Inbox.", summary)
+            self.assertNotIn("://", summary)
+            return item
+
+        old = cue()
+        self.assertEqual(old.key, f"resolved-wait:{wait}:{first_done}")
+        self.blake.invoke("change-ownership", {"id": blocker, "action": "reopen", "reason": "Recheck the fixture."},
+                          write=True)
+        self.assertEqual(self.snapshot(), ())
+        proof = {"id": waiting, "wait_event": wait, "blocker_event": first_done, "note": "Verified completion."}
+        self.fixture.action(self.avery.client, "confirm-blocker", proof, status=409)
+        self.advance(self.blake, blocker, "start")
+        # Preserve a still-Waiting legacy record for the signed confirmation path.
+        with patch("tasks_core.live_board_url", return_value=None):
+            self.advance(self.blake, blocker, "done")
+        second_done = self.fixture.task_event(self.blake.client, blocker)["event"]
+        new = cue()
+        self.assertEqual(new.key, f"resolved-wait:{wait}:{second_done}")
+        self.assertNotEqual(new.key, old.key)
+        self.fixture.action(self.avery.client, "confirm-blocker", proof, status=409)
+        signed = self.avery.invoke("my-next", {"scope": "all", "for_wake": "true"})
+        self.assertIn(f"--blocker-event {second_done}", signed["next_step"])
+        code, output, errors = self.fixture.shared_cli(
+            self.avery.client, "confirm-blocker", waiting, str(wait), "Verified the new completion.",
+            "--blocker-event", str(second_done),
+        )
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("Blocker confirmed", output)
+        ready = self.avery.invoke("task", {"id": waiting})["task"]
+        self.assertEqual(ready["state"], "ready")
+        self.assertTrue(ready["links"][0]["url"].endswith(f"/#event-{second_done}-log"))
+        self.advance(self.avery, waiting, "start")
+        self.assertEqual(self.avery.invoke("task", {"id": waiting})["task"]["state"], "in_progress")
+
     def test_mixed_order_preserves_signed_head_visibility_and_worker_pauses(self):
         first = self.add(self.avery)
         self.fixture.cli("register-project", "OPS", "Fixture operations", "--dri", self.avery_id)

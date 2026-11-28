@@ -282,6 +282,8 @@ def shared_write(board, args, *, context):
     elif command == "confirm-blocker":
         action = command
         data.update(id=task_ref(args.id), wait_event=args.wait_event, note=args.note)
+        if args.blocker_event is not None:
+            data["blocker_event"] = args.blocker_event
     elif command == "close":
         action = "close-task"
         data.update(id=task_ref(args.id), reason=args.note)

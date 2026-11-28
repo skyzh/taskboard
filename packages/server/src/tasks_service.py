@@ -1912,7 +1912,7 @@ def create_app(
             "blocked_by" in context or context.get("wait_kind") in ("automation", "external")
         )
 
-    def confirm_blocker(actor, number, wait_event, note, links, force_reason=None):
+    def confirm_blocker(actor, number, wait_event, note, links, force_reason=None, *, blocker_event=None):
         key = actor["ledger_key"]
         with tasks_storage.write(db()) as connection:
             task = ledger.get_task(connection, number)
@@ -1931,11 +1931,19 @@ def create_app(
                 blocker = ledger.get_task(connection, blocker_id)
                 if blocker["display_state"] != "done":
                     raise RequestError("The linked ticket is not Done.", 409)
+                if blocker_event is not None:
+                    resolution = query(connection).linked_wait_resolution(number, project, wait_event)
+                    if not resolution or blocker_event != resolution["blocker_event"]:
+                        raise RequestError("The linked completion changed. Recheck signed Inbox before confirming it.", 409)
                 target = projects.row_reference(blocker)
                 anchor = blocker_id if projects.row_project(blocker) == projects.DEFAULT else target
-                links = [("Completed blocker", f"{base}/#task-{anchor}"), *links]
-            elif not links:
-                raise RequestError("Include a link to the verified automation result.")
+                reference = f"event-{blocker_event}-log" if blocker_event is not None else f"task-{anchor}"
+                links = [("Completed blocker", f"{base}/#{reference}"), *links]
+            else:
+                if blocker_event is not None:
+                    raise RequestError("Use a linked completion event only for a ticket blocker.")
+                if not links:
+                    raise RequestError("Include a link to the verified automation result.")
             override = {} if authorized or not task["dri"] else ledger.transition_override(
                 task, "confirm-blocker", force_reason,
             )
@@ -3420,10 +3428,11 @@ def create_app(
     @app.post("/api/v1/tasks/<number>/confirm-blocker")
     def task_confirm_blocker(number):
         actor = current_actor(write=True)
-        data = json_body({"wait_event", "note", "label", "url", *TRANSITION_OVERRIDE_FIELDS}, writing=True)
+        data = json_body({"wait_event", "blocker_event", "note", "label", "url", *TRANSITION_OVERRIDE_FIELDS}, writing=True)
         return confirm_blocker(
             actor, task_number(number), integer(data.get("wait_event"), "wait_event"),
             writing_text(data, "note"), one_link(data), transition_force_reason(data),
+            blocker_event=integer(data["blocker_event"], "blocker_event") if "blocker_event" in data else None,
         )
 
     @app.post("/api/v1/tasks/<number>/details")
@@ -5849,7 +5858,10 @@ def create_app(
                             f'"<what you can do now>" --review-wait {event}`, or record the blocker and when to recheck.'
                         )
                     elif kind == "resolved-wait":
-                        result["next_step"] = f"Confirm the linked blocker for {ticket} against wait event {event}."
+                        result["next_step"] = (
+                            f'{work["blocker_ticket"]} finished. Confirm it with `./tasks --shared confirm-blocker '
+                            f'{ticket} {event} "<verified outcome>" --blocker-event {work["blocker_event"]}`.'
+                        )
                     else:
                         result["next_step"] = f"Open worker run W-{work['worker_run']} on {ticket} and record its outcome or blocker."
                 if prompt := result.get("workflow_prompt"):
@@ -6026,6 +6038,7 @@ def create_app(
             return confirm_blocker(
                 actor, task_number(data.get("id")), integer(data.get("wait_event"), "wait_event"),
                 writing_text(data, "note"), one_link(data), transition_force_reason(data),
+                blocker_event=integer(data["blocker_event"], "blocker_event") if "blocker_event" in data else None,
             )
         if name == "task-activity":
             number = task_number(data.get("id"))

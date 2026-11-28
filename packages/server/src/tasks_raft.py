@@ -213,7 +213,7 @@ _ACTIONS = {
     "task-activity": _Action("GET", "Read a task's activity and evidence links.", _TASK, _PAGINATION),
     "confirm-blocker": _Action("POST", "Record proof that a current trigger was satisfied and return the ticket to Ready.", {
         **_TASK, "wait_event": "Event ID of the current recorded wait.", "note": "Verified outcome of that trigger.",
-    }, {**_EVIDENCE, **_TRANSITION_OVERRIDE}),
+    }, {"blocker_event": "Exact completion event for a linked ticket blocker.", **_EVIDENCE, **_TRANSITION_OVERRIDE}),
     "assignees": _Action("GET", "Find board assignees and their stable IDs.", optional={
         "query": "Search by name or handle.", **_PROJECT, **_PAGINATION,
     }),
