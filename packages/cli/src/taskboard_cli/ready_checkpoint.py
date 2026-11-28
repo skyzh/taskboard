@@ -499,11 +499,15 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
         except SharedActionUnavailable as error:
             raise SharedReadError(str(error), reason="action-unavailable") from error
 
+    inbox_filters = {"scope": "all"}
+    if include_occurrences:
+        inbox_filters["include_occurrences"] = "true"
+
     def signed_inbox_wake():
         nonlocal stage
         stage = INBOX_WAKE_READ
         try:
-            return board.invoke("my-inbox-wake", {"scope": "all"})
+            return board.invoke("my-inbox-wake", inbox_filters)
         except SharedActionUnavailable as error:
             raise SharedReadError(str(error), reason="action-unavailable") from error
 

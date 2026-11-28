@@ -5110,10 +5110,11 @@ def create_app(
     def inbox_work_result(work):
         return {key: work[key] for key in ("kind", "id", "key", "title")} if work else None
 
-    def inbox_selection(connection, owner, project, *, wake_at=None, delivery=False):
+    def inbox_selection(connection, owner, project, *, wake_at=None, delivery=False, ordinary_only=False):
         board = query()
         today = pacific_day(wake_at or ledger.timestamp())
-        work = next(board.actionable_work(owner, today=today, project=project, wake_at=wake_at, delivery=delivery), None)
+        work = next(board.actionable_work(owner, today=today, project=project, wake_at=wake_at,
+                                          delivery=delivery, ordinary_only=ordinary_only), None)
         exploration = (work is not None and work["kind"] == "in_progress"
                        and ledger.task_goal_kind(connection, work["id"]) is not None
                        and goals.exploration_criterion(connection, work["id"]) is not None)
@@ -5363,8 +5364,11 @@ def create_app(
         if name == "my-inbox-wake":
             project = project_scope(data)
             wake_at = ledger.timestamp()
+            include_occurrences = data.get("include_occurrences") == "true"
             with tasks_storage.read(db()) as connection:
-                work, ask = inbox_selection(connection, key, project, wake_at=wake_at, delivery=True)
+                work, ask = inbox_selection(
+                    connection, key, project, wake_at=wake_at, delivery=True, ordinary_only=include_occurrences,
+                )
                 if ask:
                     return {"ask_recheck": ask}
                 if work:
@@ -5376,6 +5380,17 @@ def create_app(
                     if goal_kind:
                         work["goal"] = True
                     return {"work": work}
+                if include_occurrences:
+                    now = datetime.fromisoformat(wake_at).astimezone(PACIFIC)
+                    paused = {projects.row_reference(row) for row in cue_pauses.active(connection, key, wake_at, "goal")}
+                    for occurrence in goal_cadence.occurrences(connection, key, project, now):
+                        if occurrence["ticket"] not in paused:
+                            return {"goal_project": projects.identifier(occurrence["ticket"])[0]}
+                    _, due = goal_cadence.due_reviews(connection, key, project, now, principal=actor_key())
+                    for cue in due:
+                        if cue["kind"] in ("timed", "deadline") and cue["ticket"] not in paused:
+                            return {"goal_project": projects.identifier(cue["ticket"])[0]}
+                    return {}
                 standing = goals.queue_context(connection, key, project, principal=actor_key())["standing_goals"]
                 if standing:
                     return {"goal_project": standing[0]["project"], "goal_ticket": standing[0]["ticket"]}
@@ -5469,13 +5484,11 @@ def create_app(
                 day = now.date().isoformat()
                 wake_at = instant if data.get("for_wake") == "true" else None
                 if include_occurrences:
-                    board = query()
-                    work = next(board.actionable_work(key, today=day, project=work_project,
-                                                      ordinary_only=True, include_goal_reviews=False,
-                                                      wake_at=wake_at, delivery=wake_at is not None), None)
-                    busy = ordinary = bool(work or board.requested_asks(
-                        key, project=work_project, today=day, due_only=True,
-                    ))
+                    work, ask = inbox_selection(
+                        connection, key, work_project, wake_at=wake_at, delivery=wake_at is not None,
+                        ordinary_only=True,
+                    )
+                    busy = ordinary = bool(work or ask)
                 else:
                     busy, ordinary = goal_queue_state(connection, key, work_project, day, wake_at=wake_at)
                 result = goal_cadence.candidates(connection, key, project, now, busy=busy,

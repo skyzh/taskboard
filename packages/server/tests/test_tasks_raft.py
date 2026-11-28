@@ -61,7 +61,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "field-guidance": ("GET", "", "project"),
             "configure-ticket-fields": ("POST", "project fields", ""),
             "my-next": ("GET", "", "project scope refresh_guidance for_wake"),
-            "my-inbox-wake": ("GET", "", "project scope"),
+            "my-inbox-wake": ("GET", "", "project scope include_occurrences"),
             "my-requested-asks": ("GET", "", "project scope cue_key"),
             "acknowledge-ask-recheck": ("POST", "cue_key", ""),
             "my-ticket-cues": ("GET", "", "project scope limit"),

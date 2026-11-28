@@ -461,6 +461,73 @@ class GoalWakeTest(unittest.TestCase):
                               goal_state=self.path, notify_goal=deliver, goal_occurrences=True)
         self.assertIsNone(GoalWake(board, self.open_state(), include_occurrences=True).lookup())
 
+    def test_shared_idle_uses_occurrences_only_with_flag_and_capability(self):
+        exact = occurrence("T-4", "explore")
+
+        for flag, capability in ((True, True), (True, False), (False, True)):
+            with self.subTest(flag=flag, capability=capability):
+                enabled = flag and capability
+                clock = 0
+                calls = []
+
+                class SharedIdleFixture(SignedFixture):
+                    def invoke(self, action, data=None, *, write=False):
+                        if action == "context":
+                            return {**super().invoke(action, data, write=write), "inbox_wake_cues": True,
+                                    "goal_occurrence_cues": capability}
+                        calls.append((action, dict(data), write, clock))
+                        if action == "my-inbox-wake":
+                            if enabled:
+                                return {"goal_project": "T"}
+                            return {"goal_project": "T", "goal_ticket": STANDING["ticket"]}
+                        if action == "my-goal-cues":
+                            if enabled:
+                                return {**snapshot(), "occurrences": [exact]}
+                            return snapshot()
+                        return super().invoke(action, data, write=write)
+
+                def sleep_for(seconds):
+                    nonlocal clock
+                    clock += seconds
+                    self.assertLess(clock, 60)
+
+                def deliver(offer, can_wake, record):
+                    self.assertEqual(offer["goal_key"], exact["key"] if enabled else "drain:T-15:1")
+                    self.assertEqual(clock, 30)
+                    self.assertTrue(can_wake())
+                    record("#00aa00bb")
+                    return "wake-requested"
+
+                def observe(result):
+                    self.assertEqual(result["outcome"], "goal-wake-requested")
+                    raise KeyboardInterrupt
+
+                with (
+                    patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+                    patch("taskboard_cli.ready_checkpoint.sleep", side_effect=sleep_for),
+                    self.assertRaises(KeyboardInterrupt),
+                ):
+                    watch_ready_count(SharedIdleFixture(), OWNER, lambda _: True, self.fail, observe,
+                                      goal_state=self.path.with_name(f"{flag}-{capability}.sqlite3"),
+                                      notify_goal=deliver, notify_inbox=self.fail, goal_occurrences=flag)
+
+                inbox_filters = {"scope": "all"}
+                goal_filters = {"project": "T", "for_wake": "true"}
+                if enabled:
+                    inbox_filters["include_occurrences"] = goal_filters["include_occurrences"] = "true"
+                self.assertEqual(calls[:4], [
+                    ("my-inbox-wake", inbox_filters, False, 30),
+                    ("my-goal-cues", goal_filters, False, 30),
+                    ("my-inbox-wake", inbox_filters, False, 30),
+                    ("my-goal-cues", goal_filters, False, 30),
+                ])
+                handoffs = [filters for action, filters, _, _ in calls if action == "idle-goal-offer"]
+                if enabled:
+                    self.assertEqual(handoffs, [])
+                else:
+                    handoff, = handoffs
+                    self.assertEqual(handoff["for_wake"], "true")
+
     def test_occurrence_needs_current_signed_offer_and_keeps_exact_time_fallback(self):
         exact = occurrence("T-4", "explore")
         timed = {**cue("T-4", "timed"), "key": "timed:T-4:2026-11-23T18:00:00Z"}

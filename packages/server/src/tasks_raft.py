@@ -77,7 +77,9 @@ _ACTIONS = {
     "my-ticket-cues": _Action("GET", "Preview your server-ranked ticket cues without sending a wake.",
                               optional=_PROJECT | _SCOPE | {"limit": "Maximum number of cues from 1 to 20."}),
     "my-inbox-wake": _Action("GET", "Read the next signed Inbox candidate eligible for an Idle wake.",
-                             optional=_PROJECT | _SCOPE),
+                             optional=_PROJECT | _SCOPE | {
+                                 "include_occurrences": "Use exact Explore and Review wakes.",
+                             }),
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE | {
         "for_wake": "Show the same signed selection as a wake, with delivery eligibility applied.",
         "refresh_guidance": "Use true when the client displays the daily Inbox guidance cue.",
