@@ -478,6 +478,7 @@ export default function Reports({
           <ReportPresence key={`${viewer.id}:${presenceScope}`} scope={presenceScope} />}>
         <BoardLink href={teamOverview}>Team overview</BoardLink>
         {!projects && project && <BoardLink href={`#${goalActivityFragment(project)}`}>Goal activity</BoardLink>}
+        {viewer && !projects && project && <BoardLink href={projectHref('#reports?view=dependencies', project)}>Dependencies</BoardLink>}
         {viewer && !projects && project && <BoardLink href={projectHref('#reports?view=agent-management', project)}>Agent management</BoardLink>}
         {headerAction}
         <label className="activity-mode">
