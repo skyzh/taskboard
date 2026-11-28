@@ -3321,7 +3321,7 @@ class BoardQueries:
         ]
 
     def actionable_work(self, owner, *, today, project, ordinary_only=False, include_goal_reviews=True,
-                        wake_at=None, delivery=False, all_ordinary=False):
+                        wake_at=None, delivery=False, all_ordinary=False, all_owned_ready=False):
         """Yield actionable lanes in pickup order, defaulting to one item per lane."""
         ordinary_only = ordinary_only or all_ordinary
         scope = {"project": project, "limit": 1}
@@ -3337,8 +3337,8 @@ class BoardQueries:
             ("shared_ready", self.tasks, {"dri": "", "state": "ready", "priority_order": True, "managed_by": owner}),
         )
 
-        def lane(query, filters, **kwargs):
-            if not all_ordinary:
+        def lane(query, filters, *, paginate=all_ordinary, **kwargs):
+            if not paginate:
                 yield from query(**scope, **filters, **kwargs)["items"]
                 return
             before = filters.get("before")
@@ -3360,7 +3360,7 @@ class BoardQueries:
                 filters["for_wake"] = True
             if ordinary_only and kind in ("reminder", "in_progress"):
                 filters["exclude_goals"] = True
-            for item in lane(query, filters):
+            for item in lane(query, filters, paginate=all_ordinary or (all_owned_ready and kind == "ready")):
                 work = {
                     "kind": kind,
                     "id": item.get("task_id", item.get("id")),

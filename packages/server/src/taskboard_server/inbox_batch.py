@@ -135,9 +135,10 @@ class InboxBatchDelivery:
                     continue
                 source_at = None
                 if item.kind == "ready":
-                    if (task["dri"] != owner or item.source_event != task["event_id"] or task["state"] != "ready"
-                            or item.source_event <= saved["through_event"]):
+                    if task["dri"] != owner or item.source_event != task["event_id"] or task["state"] != "ready":
                         break
+                    if item.source_event <= saved["through_event"]:
+                        continue
                     ready_at = datetime.fromisoformat(task["at"]).timestamp()
                     if now < ready_at or now >= ready_at + _MAX_READY_AGE:
                         break

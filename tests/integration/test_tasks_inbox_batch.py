@@ -75,6 +75,53 @@ class InboxBatchTest(unittest.TestCase):
         for offset in (first, first + 10, first + 20):
             self.assertEqual(self.poll(offset, goals=goals), ("awaiting_idle", None))
 
+    def test_singleton_finds_ready_after_the_enrollment_cursor(self):
+        self.replay_ready_after_cursor(batches=False)
+
+    def test_batch_finds_ordered_ready_after_the_enrollment_cursor(self):
+        self.replay_ready_after_cursor(batches=True)
+
+    def replay_ready_after_cursor(self, *, batches):
+        fixture = self.fixture
+        older = fixture.create()
+        fixture.board.invoke("set-priority", {"id": older["task"], "priority": "high"}, write=True)
+        fixture.state = fixture.ledger.with_name("enrolled-sender.sqlite")
+        cursor = fixture.baseline(sampled=True)
+        self.assertGreaterEqual(cursor, older["event"])
+        self.assertEqual(self.poll(0, batches=batches), ("idle", None))
+        self.assertEqual(self.wire, [])
+
+        ready = [fixture.create()]
+        if batches:
+            ready.append(fixture.create())
+        self.assertGreater(ready[0]["event"], cursor)
+        self.assertEqual(fixture.board.invoke("my-next", {"scope": "all"})["work"]["key"], older["task"])
+        source = None if batches else ready[0]["event"]
+        for offset in (10, 20):
+            self.assertEqual(self.poll(offset, batches=batches), ("awaiting_idle", source))
+        status, accepted = self.poll(30, batches=batches)
+        self.assertEqual(status, "accepted")
+        if batches:
+            members = json.loads(self.history(accepted)["members"])
+            self.assertEqual([item["source_event"] for item in members], [item["event"] for item in ready])
+        else:
+            self.assertEqual(accepted, ready[0]["event"])
+        expected = [(older["event"], "pending")]
+        expected.extend((item["event"], "accepted") for item in ready)
+        self.assertEqual(fixture.outcomes(), expected)
+
+        self.restart()
+        self.assertEqual(self.poll(40, batches=batches), ("idle", None))
+        self.assertEqual(len(self.wire), 1)
+        with closing(sqlite3.connect(fixture.state)) as state:
+            self.assertEqual(state.execute("SELECT through_event FROM sender").fetchone(), (cursor,))
+
+        for item in (older, *ready):
+            self.assertEqual(fixture.board.invoke("my-next", {"scope": "all"})["work"]["key"], item["task"])
+            fixture.board.invoke("advance-task", {
+                "id": item["task"], "transition": "start", "note": "Take the signed Inbox item.",
+            }, write=True)
+
     def test_completed_public_blocker_in_another_project_wakes_the_enrolled_ticket(self):
         from tasks_ring1 import mark_private
 
