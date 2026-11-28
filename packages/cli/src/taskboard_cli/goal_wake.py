@@ -18,6 +18,13 @@ GOAL_PROJECT = "T"
 _DUE_KINDS = {"deadline", "daily", "standing-daily", "timed"}
 
 
+class WakeScheduleStopped(RuntimeError):
+    def __init__(self, cue, reason):
+        self.cue = cue
+        self.reason = reason
+        super().__init__(f"Could not schedule the {cue} reminder ({reason}).")
+
+
 def _ticket(value, project):
     return isinstance(value, str) and re.fullmatch(rf"{re.escape(project)}-[1-9][0-9]{{0,18}}", value) is not None
 
@@ -124,6 +131,10 @@ class GoalWakeState:
             return db.execute("INSERT OR IGNORE INTO cue VALUES (?, ?, ?, 0, 'unknown', NULL)",
                               (key, "ask:" + offer["ticket"], offer["remind_on"])).rowcount == 1
 
+    def release_unstarted_ask(self, cue_key):
+        with self.transaction() as db:
+            db.execute("DELETE FROM cue WHERE key = ? AND outcome = 'unknown'", ("ask:" + cue_key,))
+
     def record_ask_wake(self, cue_key, reminder):
         with self.transaction() as db:
             db.execute("UPDATE cue SET outcome = 'requested', reminder = ? WHERE key = ?",
@@ -192,6 +203,15 @@ class GoalWakeState:
                     drain, offer["task"], offer["goal_day"], offer["completed_checks"],
                 ))
         return True
+
+    def release_unstarted(self, offer):
+        with self.transaction() as db:
+            removed = db.execute("DELETE FROM cue WHERE key = ? AND outcome = 'unknown'",
+                                 (offer["goal_key"],)).rowcount
+            if removed and offer["goal_kind"] in ("standing-daily", "standing-continuation"):
+                drain = f"drain:{offer['task']}:{offer['goal_episode']}"
+                db.execute("DELETE FROM cue WHERE key = ? AND day = ? AND outcome = 'coalesced'",
+                           (drain, offer["goal_day"]))
 
     def requested(self, offer, reminder):
         with self.transaction() as db:
@@ -271,6 +291,10 @@ class GoalWake:
 
         def claim():
             nonlocal reserved
+            # Scheduling calls this again only after proving the previous command never launched.
+            if reserved:
+                self.state.release_unstarted(candidate)
+                reserved = False
             if not can_wake() or self.lookup() != candidate:
                 return False
             if candidate["goal_kind"].startswith("standing-"):
@@ -292,6 +316,10 @@ class GoalWake:
 
         try:
             outcome = send(offer, claim, record)
+        except WakeScheduleStopped as error:
+            if reserved and error.reason == "carrier-not-started":
+                self.state.release_unstarted(candidate)
+            raise
         except RuntimeError:
             if reserved:
                 return "goal-wake-unknown"

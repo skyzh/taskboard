@@ -13,8 +13,10 @@ from time import monotonic, sleep
 from uuid import UUID, uuid4
 
 from taskboard_client import SharedActionUnavailable, SharedBoard, SharedReadError
-from taskboard_client.connection import RAFT_BINDING_GUIDANCE
-from taskboard_cli.goal_wake import GOAL_PROJECT, GoalWake, GoalWakeState, default_state_path, reminder_title
+from taskboard_client.connection import BEFORE_DISPATCH, RAFT_BINDING_GUIDANCE, carrier_error, reply_json
+from taskboard_cli.goal_wake import (
+    GOAL_PROJECT, GoalWake, GoalWakeState, WakeScheduleStopped, default_state_path, reminder_title,
+)
 from taskboard_cli.shared import assert_actor, task_url
 
 
@@ -505,16 +507,28 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
         if "cue_key" in notice:
             candidate = {key: value for key, value in notice.items() if key != "board"}
 
+            reserved = False
+
             def reserve_current_ask():
-                return (can_wake() and ask_offer() == candidate and can_wake()
-                        and goal_wake.state.reserve_ask(candidate))
+                nonlocal reserved
+                # A second call follows a confirmed failed spawn.
+                if reserved:
+                    goal_wake.state.release_unstarted_ask(candidate["cue_key"])
+                reserved = (can_wake() and ask_offer() == candidate and can_wake()
+                            and goal_wake.state.reserve_ask(candidate))
+                return reserved
 
             def record_ask(reference):
                 goal_wake.state.record_ask_wake(candidate["cue_key"], reference)
                 emit({"kind": "ask-recheck-wake-requested", "owner": actor, "at": observation_time(),
                       "ticket": candidate["ticket"], "cue_key": candidate["cue_key"], "reminder": reference})
 
-            outcome = notify_ask(notice, reserve_current_ask, record_ask)
+            try:
+                outcome = notify_ask(notice, reserve_current_ask, record_ask)
+            except WakeScheduleStopped as error:
+                if reserved and error.reason == "carrier-not-started":
+                    goal_wake.state.release_unstarted_ask(candidate["cue_key"])
+                raise
             if outcome == "already-queued":
                 reserve_current_ask()
             return outcome
@@ -654,15 +668,27 @@ def measured_idle(get_status, owner, ready_events, emit):
     return is_idle
 
 
+class RaftCommandError(RuntimeError):
+    def __init__(self, command, reason):
+        self.reason = reason
+        super().__init__(f"The Raft {command} command failed ({reason}).")
+
+
 def raft_cli(*args):
+    command = " ".join(args[:2])
     try:
         result = subprocess.run(
             ["raft", *args], text=True, capture_output=True, timeout=20,
         )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise RuntimeError("The Raft watcher command did not respond.") from error
+    except OSError as error:
+        reason = "carrier-not-started" if error.filename == "raft" else "carrier-no-reply"
+        raise RaftCommandError(command, reason) from None
+    except subprocess.TimeoutExpired:
+        raise RaftCommandError(command, "carrier-timeout") from None
     if result.returncode:
-        raise RuntimeError(f"The Raft {' '.join(args[:2])} command failed.")
+        _, code = carrier_error(result, reply_json(result.stdout))
+        reason = "carrier-rejected" if code in BEFORE_DISPATCH else "carrier-no-reply"
+        raise RaftCommandError(command, reason)
     return result.stdout
 
 
@@ -700,7 +726,7 @@ def raft_wake(offer, channel, message_id, can_wake):
     else:
         outcome = f"Finish {ticket} or record the blocker and who can act or when to recheck."
     return wake_with_title(f"{identity} Check signed Inbox first. {outcome} {_RECHECK_INBOX}", channel, message_id, can_wake,
-                           previous_title=previous)
+                           previous_title=previous, cue=offer["kind"])
 
 
 def raft_ready_count(notice, channel, message_id, can_wake, *, record_wake=None):
@@ -716,9 +742,9 @@ def raft_ready_count(notice, channel, message_id, can_wake, *, record_wake=None)
         previous = (f"You have {count} Ready {noun}. Check signed Taskboard Inbox and take the next eligible item. "
                     "When work and reviews clear, follow the offered goal’s saved exploration mode.")
         return wake_with_title(title, channel, message_id, can_wake, status="scheduled", record_wake=record_wake,
-                               previous_title=previous)
+                               previous_title=previous, cue="Ready")
     title += f" [Taskboard Ready through event {event}]"
-    return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake, ready_event=event)
+    return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake, ready_event=event, cue="Ready")
 
 
 def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None):
@@ -742,7 +768,7 @@ def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None)
         identity = f"Taskboard {offer['worker_status']} worker {run}{checkpoint} on {ticket}. Open {url}."
         title = f"{identity} {instruction} {_RECHECK_INBOX}"
         return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake,
-                               previous_title=f"{identity} {previous}")
+                               previous_title=f"{identity} {previous}", cue="worker")
     else:
         ticket = offer["task"]
         event = offer["event_id"]
@@ -757,11 +783,28 @@ def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None)
         title += (f" To postpone: ./tasks --shared cue-pause {ticket} stalled --minutes N --reason REASON. "
                   f"List with ./tasks --shared cue-pauses or clear with ./tasks --shared cue-pause {ticket} stalled --clear.")
         return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake,
-                               title_prefix=f"{identity}Open {url} ", retry_outstanding=offer.get("requires_disposition", False))
+                               title_prefix=f"{identity}Open {url} ",
+                               retry_outstanding=offer.get("requires_disposition", False), cue="stalled")
+
+
+def recover_schedule_receipt(title, channel, previous):
+    try:
+        reminders = raft_cli("reminder", "list", "--status", "scheduled,fired")
+    except RaftCommandError:
+        return None
+    old_ids = {line.split(maxsplit=1)[0] for line in previous.splitlines() if line.startswith("#")}
+    suffix = f' "{title}" ref={channel}'
+    for line in reminders.splitlines():
+        if not line.endswith(suffix):
+            continue
+        match = re.match(r"^(#[0-9a-f-]{8,36}) \[(?:scheduled|fired)\] ", line)
+        if match and match[1] not in old_ids:
+            return match[1]
+    return None
 
 
 def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fired", *, record_wake=None, ready_event=None,
-                    title_prefix=None, retry_outstanding=False, previous_title=None):
+                    title_prefix=None, retry_outstanding=False, previous_title=None, cue=None):
     reminders = raft_cli("reminder", "list", "--status", status)
     fired = None
     for line in reminders.splitlines():
@@ -793,19 +836,39 @@ def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fire
             return "pending-stalled-wake"
     if not can_wake():
         return None
-    receipt = raft_cli(
-        "reminder", "schedule", "--title", title, "--delay-seconds", "1",
-        "--channel", channel, "--message-id", message_id,
-    )
+    args = ("reminder", "schedule", "--title", title, "--delay-seconds", "1",
+            "--channel", channel, "--message-id", message_id)
+    try:
+        try:
+            receipt = raft_cli(*args)
+        except RaftCommandError as error:
+            # Only a failed spawn proves the command never reached Raft and is safe to retry.
+            if not cue or error.reason != "carrier-not-started":
+                raise
+            if not can_wake():
+                return None
+            receipt = raft_cli(*args)
+        match = re.search(r"^Reminder scheduled: (#[0-9a-f-]{8,36})\s", receipt, flags=re.MULTILINE)
+        reference = match[1] if match else None
+    except RaftCommandError as error:
+        if not cue:
+            raise
+        reference = None
+        if error.reason in ("carrier-timeout", "carrier-no-reply") and status == "scheduled,fired":
+            reference = recover_schedule_receipt(title, channel, reminders)
+        if reference is None:
+            raise WakeScheduleStopped(cue, error.reason) from None
     if record_wake is not None:
-        reference = re.search(r"^Reminder scheduled: (#[0-9a-f-]{8,36})\s", receipt, flags=re.MULTILINE)
-        record_wake(reference[1] if reference else None)
+        record_wake(reference)
     return "wake-requested"
 
 
 def recovery_wake(owner, channel, message_id, error, emit):
     if isinstance(error, ReadyReadStopped):
         title = f"Taskboard Ready watcher stopped during {error.stage} ({error.reason}). Check its Raft job log. {error.guidance}"
+    elif isinstance(error, WakeScheduleStopped):
+        title = (f"Taskboard watcher stopped scheduling a {error.cue} reminder ({error.reason}). "
+                 "Check signed Inbox and the Raft job log before restarting.")
     else:
         title = "Taskboard Ready watcher stopped on a checker error. Check its Raft job log and verify the signed queue before restarting."
     event = {"kind": "ready-recovery-wake", "at": observation_time()}
@@ -902,13 +965,15 @@ def main(*, managed_child=False):
 
                 def notify_goal(offer, can_wake, record_wake):
                     return wake_with_title(reminder_title(offer), args.channel, args.message_id, can_wake,
-                                           record_wake=record_wake, previous_title=reminder_title(offer, legacy=True))
+                                           record_wake=record_wake, previous_title=reminder_title(offer, legacy=True),
+                                           cue="goal")
 
                 def notify_ask(offer, can_wake, record_wake):
                     title = (f"Finish the due Taskboard ask recheck for {offer['ticket']}. "
                              "Read signed Inbox, record the outcome or real blocker, then recheck Inbox. "
                              f"[Taskboard ask {offer['cue_key']}]")
-                    return wake_with_title(title, args.channel, args.message_id, can_wake, record_wake=record_wake)
+                    return wake_with_title(title, args.channel, args.message_id, can_wake, record_wake=record_wake,
+                                           cue="ask recheck")
 
                 health = watcher_reporter(board, args.report_status, stalled=True, goals=True,
                                           emit=emit) if args.report_status else None
@@ -932,8 +997,11 @@ def main(*, managed_child=False):
                     # SharedBoard preserves an interrupted signed read as a read error.
                     if not (isinstance(error, ReadyReadStopped) and error.reason == "interrupted"):
                         alert_failed = recovery_wake(args.by, args.channel, args.message_id, error, emit)
-                        if (managed_child and alert_failed and isinstance(error, ReadyReadStopped)
-                                and (error.stage, error.reason) == (STALLED_READ, "carrier-no-reply")):
+                        restartable = (
+                            isinstance(error, ReadyReadStopped)
+                            and (error.stage, error.reason) == (STALLED_READ, "carrier-no-reply")
+                        ) or (isinstance(error, WakeScheduleStopped) and error.reason == "carrier-not-started")
+                        if managed_child and alert_failed and restartable:
                             print(f"ready checkpoint: {error}", file=sys.stderr)
                             return MANAGED_RESTART
                     raise

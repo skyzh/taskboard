@@ -7,8 +7,8 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 
-from taskboard_cli.goal_wake import GoalWake, GoalWakeState, reminder_title
-from taskboard_cli.ready_checkpoint import offer_stalled_work, watch_ready_count
+from taskboard_cli.goal_wake import GoalWake, GoalWakeState, WakeScheduleStopped, reminder_title
+from taskboard_cli.ready_checkpoint import RaftCommandError, offer_stalled_work, wake_with_title, watch_ready_count
 
 
 BOARD = "https://tasks.example.test/tasks/"
@@ -184,6 +184,45 @@ class GoalWakeTest(unittest.TestCase):
         self.assertEqual(len(board.offers), 1)
         with closing(sqlite3.connect(self.path)) as db:
             self.assertEqual(db.execute("SELECT outcome, reminder FROM cue").fetchone(), ("unknown", None))
+
+    def test_continuation_retries_failed_spawn_and_reopens_only_unstarted_reservation(self):
+        board = SignedFixture(snapshot(
+            standing={**STANDING, "keep_exploring": True, "continuation_event": 381},
+            busy=True,
+        ))
+        failure = RaftCommandError("reminder schedule", "carrier-not-started")
+        receipt = "Reminder scheduled: #00aa00bb "
+        timeout = RaftCommandError("reminder schedule", "carrier-timeout")
+
+        def send(offer, before_send, record):
+            return wake_with_title(reminder_title(offer), "#fixture", "fixture", before_send,
+                                   record_wake=record, cue="goal")
+
+        cases = (
+            ([failure, failure], "carrier-not-started", True),
+            ([failure, receipt], "goal-wake-requested", False),
+            ([failure, timeout, ""], "carrier-timeout", False),
+        )
+        for index, (replies, result, available_after_restart) in enumerate(cases):
+            with self.subTest(result=result):
+                self.path = self.path.with_name(f"goal-cues-{index}.sqlite3")
+                watch = GoalWake(board, self.open_state())
+                offer = watch.lookup()
+                with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", *replies]) as carrier:
+                    if result == "goal-wake-requested":
+                        self.assertEqual(watch.notify({**offer, "board": BOARD}, lambda: True, send), result)
+                    else:
+                        with self.assertRaises(WakeScheduleStopped) as failure_result:
+                            watch.notify({**offer, "board": BOARD}, lambda: True, send)
+                        self.assertEqual(failure_result.exception.reason, result)
+                self.assertEqual(carrier.call_args_list[1], carrier.call_args_list[2])
+                reopened = GoalWake(board, self.open_state())
+                self.assertEqual(reopened.lookup(), offer if available_after_restart else None)
+                if available_after_restart:
+                    with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", receipt]):
+                        self.assertEqual(reopened.notify({**offer, "board": BOARD}, lambda: True, send),
+                                         "goal-wake-requested")
+                    self.assertIsNone(GoalWake(board, self.open_state()).lookup())
 
     def test_final_checks_revalidate_exact_goal_and_do_not_consume_a_failed_preflight(self):
         board = SignedFixture()
