@@ -15,98 +15,23 @@ Before publishing, check the tour and direct links on phone and desktop, includi
 
 ## Refresh and publication
 
-**Taskboard demo comparison** runs for each pull request. It rebuilds the
-approved demo at the full commit in `web/demo/baseline.txt`. The pull request
-comparison reads the file from the base commit. The checked-main verifier and
-publisher read it from their protected checkout. It compares the proposed merge build with the approved
-build on the same runner, including the tour's target visibility and highlight,
-navigation, focus, and the Watching empty state. Both builds run the browser
-checks. When their static files differ, the checks also compare phone and
-desktop screenshots. A one-level RGB rounding variation is treated as equal. Changes to dimensions
-or larger channel differences must reproduce on a second capture. A changed
-result includes the step or screen and matching evidence. Missing
-baselines, build errors and privacy audit failures have their own outcomes.
+**Publish Summary demo** is scheduled once daily at 17:17 UTC. It builds
+protected main after the required checks pass. It compares the packaged
+homepage and demo with the last successful Pages deployment. Identical
+content skips publication. Changed content must pass the package privacy
+check and the Chromium and WebKit tours before it can publish. The run
+retains screenshots and checks that main is still current before deploying.
 
-After Taskboard CI passes for a push to protected main, **Publish Summary
-demo** verifies that commit against the required GitHub checks and repeats the
-comparison on that exact revision. Only an unchanged comparison and passing
-site privacy audit can publish automatically. Publication checks the current
-protected revision again after the Pages environment admits the job.
+To publish manually, run **Publish Summary demo** on main. The same checks
+and final revision check apply. Verify the published homepage and demo, and
+record the checked commit and deployment link. `summary-content.json` at
+the published site records the revision and content fingerprint used by
+the next scheduled run.
 
-To publish an intentionally changed demo, review the changed steps and
-screenshots, then run **Publish Summary demo** manually on main. Verify the
-published demo and record the exact checked commit and deployment link in the
-review ticket. Open a reviewed pull request to update `web/demo/baseline.txt`
-to that approved commit. Removing the file pauses automatic publication and comparison while
-leaving the checked manual publish available.
-
-## Review ticket routing
-
-**Verify Taskboard demo comparison** runs from the default branch after the
-PR check. It resolves the current PR revision through GitHub, builds it in a
-separate read-only job, then compares the static output with the reviewed
-browser harness. Only a verified result from that workflow can create or
-update a review ticket. Neither GitHub job needs Taskboard access.
-
-On the Mac, the poll uses the operator’s existing `gh` login to read and
-verify comparisons. It submits the verified result through the operator’s
-signed Taskboard connection. The shared-board operator enables this action
-with `TASKS_DEMO_REVIEW` and keeps the owner mapping on the board. It accepts
-only the configured signed project manager for a shared project.
-
-Set `TASKS_DEMO_REVIEW` to a JSON object with these fields.
-
-- `repository` and `project`, the exact GitHub repository and Taskboard project.
-- `baseline`, the reviewed commit in `web/demo/baseline.txt` on protected main.
-- `actor`, the existing Taskboard project manager’s ledger key.
-- `owners`, a map of affected labels to existing UI owners' ledger keys.
-- `fallback`, the frontend DRI's ledger key.
-
-Keep the configured baseline aligned with the approved protected-main pin.
-Once the board advertises `route-demo-review`, run a preview from the Mac
-under the configured signed operator. Use the exact ledger key in `--owner`.
-
-```sh
-PYTHONPATH=packages/server/src:packages/client/src \
-  uv run --locked python -B tools/release/watch_demo_reviews.py \
-  --board "$taskboard_url" --owner "$demo_operator" \
-  --repository skyzh/taskboard --baseline "$(cat web/demo/baseline.txt)"
-```
-
-The preview lists the proposed owner and existing ticket for each route.
-Add `--apply` only after a successful preview and owner-map review. Schedule
-this independently of the main CI failure poll. Use one applied routing
-scheduler for the configured project. The Mac validates the protected workflow,
-receipt digest, current PR and evidence artifact before sending a result.
-The board enforces the configured repository, baseline, signed owner and
-duplicate checks. The Mac uses its existing GitHub login, and the board
-does not receive that credential.
-
-For an operator already running directly against the ledger, the existing
-entry point still uses `TASKS_DEMO_ACTIONS_TOKEN` and `TASKS_DEMO_REVIEW`.
-On SQLite, preview it from the server release checkout.
-
-```sh
-PYTHONPATH=packages/server/src:packages/client/src \
-  uv run --locked python -B -m taskboard_server.demo_review --db "$board_db"
-```
-
-Use `--postgres` with the existing `TASKS_POSTGRES_DSN` for PostgreSQL.
-The direct operator entry point takes `--commit` to apply changes. Run the
-selected scheduler often enough to cover the default 24-hour lookback. A recent merged PR can still receive its review ticket. An older
-attempt or mismatched revision is counted without opening a ticket. Retries
-update one ticket per PR and preserve its existing owner. A later passing
-comparison records its outcome on an existing review ticket. The small
-machine receipt and the screenshot archive are separate downloads.
-
-For coverage, count successful automatic Pages deployments and successful
-manual deployments in the same reporting period. Keep superseded, unavailable,
-failed, and changed comparisons visible as separate outcomes. The ticket poll
-reports changed receipts as created, updated, duplicate, or pending operator
-action in preview. Report counts per distinct current PR attempt when comparing
-coverage across multiple polls. The target is roughly half of routine
-refreshes, measured from actual deployments.
-
+**Summary visual checks** continues to verify Reports layouts on relevant
+pull requests. The daily publisher uses the latest verified deployment as
+its baseline, so publication requires no separate baseline pin or review
+ticket routing.
 
 ## Development workflow fixture
 
