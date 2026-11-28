@@ -13,7 +13,7 @@ PAGE = (
     rf"(?:reports(?:/agents/{OWNER})?|tasks|tickets/{RECORD}|"
     rf"activity(?:/events/{NUMBER})?|my-activity|knowledge(?:/{RECORD})?|"
     r"public/knowledge(?:/[0-9a-f]{32})?|"
-    rf"schedules(?:/R-{NUMBER})?|team-overview|stats|notifications|settings|"
+    rf"schedules(?:/R-{NUMBER})?|resources|team-overview|stats|notifications|settings|"
     r"integrations|personal-codex|search|about)"
 )
 DOCUMENT_PATH = re.compile(rf"/(?:{PAGE})?")

@@ -1392,6 +1392,20 @@ button:disabled { opacity: .57; }
 .schedule-section-heading h2 { margin: 0; }
 .schedule-section-heading label { display: inline-flex; align-items: center; gap: .4rem; min-height: 2.75rem; }
 
+.resource-list, .resource-panel, .resource-controls { display: grid; gap: .7rem; }
+.resource-controls { justify-items: start; }
+.resource-controls:empty { display: none; }
+.resource-panel :is(h2, h3, p) { margin: 0; }
+.resource-panel header, .resource-conditions { overflow-wrap: anywhere; }
+.resource-conditions { white-space: pre-wrap; }
+.resource-form { max-width: 34rem; margin-top: .55rem; }
+.resource-form .resource-checkbox { display: flex; align-items: center; gap: .4rem; }
+.resource-history-list { display: grid; gap: .55rem; padding-inline-start: 1.35rem; }
+.resource-history-list .schedule-summary { margin-top: .25rem; }
+@media (pointer: coarse), (max-width: 40rem) {
+  .resource-panel :is(input, select, button, summary) { min-height: 2.75rem; }
+}
+
 .integrations-setup { max-width: 50rem; }
 .integration-paths {
   display: grid;

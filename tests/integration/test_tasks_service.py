@@ -10553,6 +10553,7 @@ class TasksServiceTest(unittest.TestCase):
             "/reports?project=OPS&view=watching", "/reports/agents/raft%3Aagent%3Afictional", "/tasks",
             "/tickets/OPS-1", "/activity", f"/activity/events/{activity_id}", "/my-activity", "/knowledge",
             "/knowledge/OPS-2", "/schedules", f"/schedules/{maintenance}", "/team-overview", "/stats",
+            "/resources?project=OPS",
             "/notifications", "/settings", "/integrations", "/personal-codex", "/search", "/about",
         )
         nested_html = html.replace(b'href="./"', f'href="{BASE}/"'.encode())
@@ -10586,6 +10587,7 @@ class TasksServiceTest(unittest.TestCase):
         for target in ("/tickets/OPS-12?history=all#task-steps",
                        "/reports?project=OPS&view=watching",
                        "/reports/agents/raft%3Aagent%3Afictional?project=OPS",
+                       "/resources?project=OPS",
                        "/search?q=https%3A%2F%2Fexample.test"):
             with self.subTest(target=target):
                 self.provider.issued.discard("Sam")

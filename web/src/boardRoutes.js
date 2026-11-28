@@ -11,6 +11,7 @@ export const boardRoutes = [
   { id: 'entry', path: '/knowledge/:id', title: 'Knowledge' },
   { id: 'schedules', path: '/schedules', title: 'Schedules' },
   { id: 'schedule', path: '/schedules/:id', title: 'Schedule' },
+  { id: 'resources', path: '/resources', title: 'Resources' },
   { id: 'team-overview', path: '/team-overview', title: 'Team overview' },
   { id: 'stats', path: '/stats', title: 'Stats' },
   { id: 'notifications', path: '/notifications', title: 'Notifications' },

@@ -25,6 +25,7 @@ import Profile from './Profile.jsx'
 import ProjectPicker from './ProjectPicker.jsx'
 import Reports, { ReportsHeading } from './Reports.jsx'
 import Schedules from './Schedules.jsx'
+import Resources from './Resources.jsx'
 import Settings from './Settings.jsx'
 import Stats from './Stats.jsx'
 import { watchBoardSections } from './sectionIndex.js'
@@ -298,6 +299,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
     else if (fragment === 'about') view = 'about'
     else if (taskAnchor === 'knowledge') view = 'knowledge'
     else if (scheduleId || params.has('schedules')) view = 'schedules'
+    else if (taskAnchor === 'resources') view = 'resources'
     else if (taskAnchor === 'stats') view = 'stats'
     else if (logFilters || ['notifications', 'notifications-needs-me'].includes(taskAnchor)) view = 'notifications'
     else if (taskAnchor === 'my-activity' && isAgent) view = 'my-activity'
@@ -312,7 +314,7 @@ export default function App({ previewNotice, tourSteps } = {}) {
     : showGoalActivity ? 'Goal activity' : assigneeView === 'watching' ? 'Watching' : null))
   const supportsAllProjects = !showAgentManagement && ['reports', 'board', 'activity', 'team-overview', 'knowledge',
     'stats', 'notifications', 'my-activity', 'schedules', 'assignee'].includes(view)
-  const scopedView = supportsAllProjects || showAgentManagement || view === 'task'
+  const scopedView = supportsAllProjects || showAgentManagement || ['task', 'resources'].includes(view)
   const canSelectProject = scopedView || ['settings', 'integrations'].includes(view)
   const knowledgeEntry = knowledgeFilters?.get('entry')
   const publicReport = ['assignee', 'reports'].includes(view) && !preview && !needsMemberSignIn && !sessionResource.pending
@@ -437,7 +439,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
       rememberReportsMode(reportsMode)
     }
   }, [view, reportsPending, reportsMode, projectUnavailable, showGoalActivity, showAgentManagement])
-  const activeTab = ['assignee', 'team-overview'].includes(view) ? 'reports' : ['task', 'schedules'].includes(view) ? 'board' : view
+  const activeTab = ['assignee', 'team-overview'].includes(view) ? 'reports'
+    : ['task', 'schedules', 'resources'].includes(view) ? 'board' : view
   const refresh = useCallback(() => setRevision(value => value + 1), [])
   const updateConnection = useCallback(status => {
     setConnection(previous => ({ ...previous, ...status }))
@@ -609,11 +612,15 @@ export default function App({ previewNotice, tourSteps } = {}) {
           {view === 'schedules' && <Schedules key={JSON.stringify([session.data?.actor?.id, scheduleId])}
             id={scheduleId} project={project} requestedProject={scheduleProject} projectPicker={projectPicker}
             allProjects={allProjectRead} revision={revision} session={session} verified={verified} onChanged={refresh} />}
+          {view === 'resources' && <Resources key={JSON.stringify([session.data?.actor?.id, project])}
+            project={project} projectPicker={projectPicker} revision={revision} session={session}
+            verified={verified && !preview} projectsPending={projectsPending} />}
           {view === 'board' && (
             <>
               {projectPicker && <div className="tasks-desktop-project">{projectPicker}</div>}
               <div className="page-heading tasks-heading"><h1 id="board">Tasks</h1>
                 {verified && <BoardLink href={schedulesHref(allProjectRead ? undefined : project, allProjectRead)}>Schedules</BoardLink>}
+                {verified && !preview && <BoardLink href={queryPath('#resources', { project })}>Resources</BoardLink>}
               </div>
               <WorkQueue revision={revision} overview={overview.data} filters={queueFilters} setFilters={setQueueFilters}
                 waitingLabel={waitingLabel} setWaitingLabel={setWaitingLabel}
