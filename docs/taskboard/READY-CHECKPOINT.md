@@ -117,11 +117,14 @@ raft proc start --name taskboard-ready-pilot --cwd "$taskboard_checkout" -- \
 ```
 
 Use the saved job name, owner, anchor, and existing state or reporting options.
-Stop the old job before starting this one. The supervisor reads release
+Stop the old job before starting this one. Verify that the managed job can
+read the configured Git remote with its own Git transport. The supervisor reads release
 metadata from the signed board's HTTPS URL and follows newer mounted revisions
 reachable from the checkout's configured `origin/main`. It stages a detached
 checkout, verifies the owner and signed Inbox, then lets the existing child finish any cue in flight before replacing it. A failed
-launch or readback restores the last working checkout. Cue history stays in its
+launch or readback restores the last working checkout. If the previous child
+takes longer to finish its cue, the supervisor waits for its exit and resumes
+the prior checkout before attempting another refresh. Cue history stays in its
 existing state file. The supervisor allows one classified restart per revision
 after a brief backoff and reports exhaustion through configured watcher health.
 

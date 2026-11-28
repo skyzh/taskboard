@@ -5,7 +5,9 @@ import json
 from pathlib import Path
 import signal
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
+from time import monotonic, sleep
 import unittest
 from unittest.mock import Mock, patch
 
@@ -109,20 +111,120 @@ class WatcherRefreshTest(unittest.TestCase):
         self.assertEqual((first["outcome"], second["outcome"]), ("wake-requested", "stopped"))
         lookup.assert_called_once_with()
 
-    def test_unfinished_cue_prevents_launching_the_replacement(self):
+    def test_drain_timeout_keeps_the_prior_child_alive_and_restores_it_after_exit(self):
         old = Mock()
         old.poll.return_value = None
         old.wait.side_effect = subprocess.TimeoutExpired("fixture", 55)
         self.supervisor.child = old
+
+        def recover(command):
+            self.assertEqual(Path(command[2]).parent, OLD.root)
+            self.assertEqual(old.poll.return_value, 0)
+            old.terminate.assert_not_called()
+            return Child()
+
+        def advance(seconds):
+            self.advance(seconds)
+            if self.supervisor.draining:
+                old.terminate.assert_not_called()
+                self.assertIs(self.supervisor.child, old)
+                if self.time > 64:
+                    old.poll.return_value = 0
+            elif self.supervisor.child is not old and self.supervisor.child is not None:
+                self.supervisor.stop()
+
+        self.sleep.side_effect = advance
         with (
-            patch.object(watcher_refresh.subprocess, "Popen") as carrier,
-            self.assertRaisesRegex(watcher_refresh.RefreshError, "watcher-drain-timeout"),
+            patch.object(watcher_refresh, "checked_revision", return_value=NEW.revision),
+            patch.object(watcher_refresh.subprocess, "Popen", side_effect=recover) as carrier,
         ):
-            self.supervisor.refresh(NEW.revision)
+            self.assertEqual(self.supervisor.run(), 0)
         old.send_signal.assert_called_once_with(signal.SIGUSR1)
-        carrier.assert_not_called()
+        old.terminate.assert_not_called()
         self.assertEqual(self.supervisor.current, OLD)
         self.source.discard.assert_called_once_with(NEW)
+        carrier.assert_called_once()
+
+    def test_running_supervisor_does_not_interrupt_a_real_slow_drain(self):
+        child_code = """
+import signal, sys, time
+from pathlib import Path
+def drain(*_):
+    time.sleep(0.12)
+    Path(sys.argv[2]).touch()
+    raise SystemExit(0)
+signal.signal(signal.SIGUSR1, drain)
+Path(sys.argv[1]).touch()
+while True:
+    time.sleep(0.01)
+"""
+        with TemporaryDirectory() as folder:
+            ready = Path(folder) / "ready"
+            finished = Path(folder) / "finished"
+            with subprocess.Popen([sys.executable, "-B", "-c", child_code, str(ready), str(finished)]) as child:
+                try:
+                    deadline = monotonic() + 3
+                    while not ready.exists() and monotonic() < deadline:
+                        sleep(0.01)
+                    self.assertTrue(ready.exists())
+                    self.supervisor.child = child
+
+                    def recover(command):
+                        self.assertEqual(Path(command[2]).parent, OLD.root)
+                        self.assertTrue(finished.exists())
+                        self.assertEqual(child.poll(), 0)
+                        return Child()
+
+                    def advance(seconds):
+                        if self.supervisor.child not in (child, None):
+                            self.supervisor.stop()
+                        if seconds < 0.1:
+                            sleep(seconds)
+                        self.advance(seconds)
+
+                    self.sleep.side_effect = advance
+                    with (
+                        patch.object(watcher_refresh, "checked_revision", return_value=NEW.revision),
+                        patch.object(watcher_refresh, "REFRESH_SECONDS", 0.01),
+                        patch.object(watcher_refresh, "POLL_SECONDS", 0.01),
+                        patch.object(watcher_refresh, "CUE_DRAIN_SECONDS", 0.01),
+                        patch.object(watcher_refresh.subprocess, "Popen", side_effect=recover) as carrier,
+                    ):
+                        self.assertEqual(self.supervisor.run(), 0)
+                    carrier.assert_called_once()
+                    self.source.discard.assert_called_once_with(NEW)
+                finally:
+                    if child.poll() is None:
+                        child.kill()
+
+    def test_clearing_maintenance_pause_waits_for_the_original_to_finish_draining(self):
+        old = Mock()
+        old.poll.return_value = None
+        old.wait.side_effect = subprocess.TimeoutExpired("fixture", 55)
+        self.supervisor.child = old
+        with TemporaryDirectory() as folder:
+            pause = Path(folder) / "paused"
+            pause.touch()
+            self.supervisor.pause_file = pause
+
+            def advance(seconds):
+                self.advance(seconds)
+                if self.supervisor.draining:
+                    old.terminate.assert_not_called()
+                    if pause.exists():
+                        pause.unlink()
+                    elif self.time > 4:
+                        old.poll.return_value = 0
+                elif self.supervisor.child is not old and self.supervisor.child is not None:
+                    self.supervisor.stop()
+
+            self.sleep.side_effect = advance
+            with patch.object(watcher_refresh.subprocess, "Popen", return_value=Child()) as carrier:
+                self.assertEqual(self.supervisor.run(), 0)
+        old.send_signal.assert_called_once_with(signal.SIGUSR1)
+        old.terminate.assert_not_called()
+        carrier.assert_called_once()
+        self.assertEqual(Path(carrier.call_args.args[0][2]).parent, OLD.root)
 
     def test_bad_candidate_preflight_leaves_the_live_child_running(self):
         old = Child()

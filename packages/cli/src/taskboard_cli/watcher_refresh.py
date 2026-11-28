@@ -151,6 +151,7 @@ class WatcherSupervisor:
         self.report_project = report_project
         self.child = None
         self.stopping = False
+        self.draining = False
         self.failed_revision = None
         self.restarted = False
 
@@ -164,24 +165,29 @@ class WatcherSupervisor:
 
     def stop_child(self, *, finish_cue=False):
         if self.child is None:
-            return
-        if self.child.poll() is None:
-            if finish_cue:
+            return True
+        status = self.child.poll()
+        if finish_cue:
+            if status is None:
                 self.child.send_signal(signal.SIGUSR1)
                 try:
                     status = self.child.wait(timeout=CUE_DRAIN_SECONDS)
                 except subprocess.TimeoutExpired:
-                    raise RefreshError("watcher-drain-timeout") from None
-                if status != 0 and not self.stopping:
-                    raise RefreshError("watcher-drain-failed")
-            else:
-                self.child.terminate()
-                try:
-                    self.child.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    self.child.kill()
-                    self.child.wait(timeout=5)
+                    self.draining = True
+                    emit({"kind": "watcher-drain-pending", "revision": self.current.revision})
+                    return False
+            if status != 0 and not self.stopping:
+                self.draining = True
+                return False
+        elif status is None:
+            self.child.terminate()
+            try:
+                self.child.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.child.kill()
+                self.child.wait(timeout=5)
         self.child = None
+        return True
 
     def launch(self, checkout):
         if self.stopping or self.paused():
@@ -224,7 +230,8 @@ class WatcherSupervisor:
             if self.stopping or self.paused():
                 return
 
-            self.stop_child(finish_cue=True)
+            if not self.stop_child(finish_cue=True):
+                return
             try:
                 self.launch(candidate)
                 if not self.verify_started(candidate):
@@ -270,11 +277,28 @@ class WatcherSupervisor:
         sleep(RESTART_BACKOFF_SECONDS)
         return True
 
+    def recover_exit(self, status):
+        crash = status < 0 and status not in (-signal.SIGINT, -signal.SIGTERM)
+        if status != MANAGED_RESTART and not crash:
+            return status if status >= 0 else 128 - status
+        reason = "child-crash" if crash else "recoverable-child-exit"
+        return None if self.retry(reason) else 1
+
     def run(self):
         next_refresh = monotonic() + REFRESH_SECONDS
         try:
             while not self.stopping:
-                if self.paused():
+                if self.draining:
+                    if (status := self.child.poll()) is not None:
+                        self.draining = False
+                        if status:
+                            if (exit_code := self.recover_exit(status)) is not None:
+                                return exit_code
+                        else:
+                            self.child = None
+                        # After a delayed drain, resume the prior checkout before another refresh attempt.
+                        next_refresh = monotonic() + REFRESH_SECONDS
+                elif self.paused():
                     self.stop_child(finish_cue=True)
                 elif self.child is None:
                     try:
@@ -283,12 +307,8 @@ class WatcherSupervisor:
                         if not self.retry(str(error)):
                             return 1
                 elif (status := self.child.poll()) is not None:
-                    crash = status < 0 and status not in (-signal.SIGINT, -signal.SIGTERM)
-                    if status != MANAGED_RESTART and not crash:
-                        return status if status >= 0 else 128 - status
-                    reason = "child-crash" if crash else "failed-recovery-alert"
-                    if not self.retry(reason):
-                        return 1
+                    if (exit_code := self.recover_exit(status)) is not None:
+                        return exit_code
                 elif monotonic() >= next_refresh:
                     next_refresh = monotonic() + REFRESH_SECONDS
                     try:
