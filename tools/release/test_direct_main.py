@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
 import test_ci_watch
-from deploy_hosted import deploy_once, git_main_tip, matching_public_runtime
+from deploy_hosted import deploy_once, git_main_tip, main as deploy_hosted_main, matching_public_runtime
 from deploy_main import run_main
 from github_main import GitHubRateLimited, read_github, respect_rate_limit
 from operator_deploy import (
@@ -227,6 +227,24 @@ class MainReleaseTest(unittest.TestCase):
             self.assertFalse(matching_public_runtime(policy, "fixture-python"))
             self.assertFalse(matching_public_runtime({"browser_executable": str(browser)}, "fixture-python"))
             probe.assert_not_called()
+
+    def test_hosted_cli_passes_an_explicit_public_proof_opt_in(self):
+        config = self.root / "deploy.json"
+        commit, attempt = "a" * 40, "b" * 32
+        for options, enabled, retry, attempt_id in (
+            ([], False, None, None),
+            (["--reuse-public-proof"], True, None, None),
+            (["--reuse-public-proof", "--retry-commit", commit, "--attempt-id", attempt], True, commit, attempt),
+        ):
+            with (self.subTest(options=options),
+                  patch("deploy_hosted.read_operator_config", return_value=self.config) as load,
+                  patch("deploy_hosted.deploy_once", return_value={"status": "unchanged"}) as deploy,
+                  redirect_stdout(StringIO()) as output):
+                self.assertEqual(deploy_hosted_main(["--config", str(config), *options]), 0)
+                self.assertEqual(json.loads(output.getvalue()), {"status": "unchanged"})
+                load.assert_called_once_with(config)
+                deploy.assert_called_once_with(self.config, retry_commit=retry, attempt=attempt_id,
+                                               reuse_public_proof=enabled)
 
     def test_public_git_lookup_requires_the_exact_main_ref(self):
         sha = "1" * 40
@@ -485,7 +503,10 @@ class MainReleaseTest(unittest.TestCase):
                 deploy_once(self.config, tip=lambda _: "f" * 40, read=Mock(), operate=Mock(),
                             retry_commit=commit, attempt=retry)
 
-            result = deploy(retry_commit=commit, attempt=retry)
+            with patch("deploy_hosted.public_compatibility_proof") as lookup:
+                result = deploy(retry_commit=commit, attempt=retry, reuse_public_proof=True)
+                lookup.assert_not_called()
+            self.assertEqual(matrix.call_args.kwargs, {})
             self.assertEqual((result["status"], result["candidate"], result["retry_of"]),
                              ("released", original["candidate"], original["release_id"]))
             retry_path = checked_main_receipt(self.config, commit, retry)

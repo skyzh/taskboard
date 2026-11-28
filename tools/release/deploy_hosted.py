@@ -257,14 +257,17 @@ def deploy_changed(config, layout, records, commit, *, read, fetch, operate, att
     return {**outcome, "evidence": evidence}
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True, help="Private Pi operator configuration.")
     parser.add_argument("--retry-commit", help="Exact still-protected main commit with a saved rejection.")
     parser.add_argument("--attempt-id", help="Explicit attempt ID for this checked retry.")
-    args = parser.parse_args()
+    parser.add_argument("--reuse-public-proof", action="store_true",
+                        help="Use an exact hosted proof for a fresh release. Checked retries use the full matrix.")
+    args = parser.parse_args(argv)
     try:
-        outcome = deploy_once(read_operator_config(args.config), retry_commit=args.retry_commit, attempt=args.attempt_id)
+        outcome = deploy_once(read_operator_config(args.config), retry_commit=args.retry_commit,
+                              attempt=args.attempt_id, reuse_public_proof=args.reuse_public_proof)
     except (OSError, KeyError, ValueError, subprocess.SubprocessError) as error:
         parser.exit(1, f"Deploy protected main: {error}\n")
     print(json.dumps(outcome))
