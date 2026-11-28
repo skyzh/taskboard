@@ -3,8 +3,12 @@
 from dataclasses import dataclass
 from hashlib import sha256
 import json
+from os import read
 from pathlib import Path
+from select import select
 import subprocess
+from tempfile import TemporaryFile
+from time import monotonic
 
 
 SCHEMA = "taskboard.ready-command.v1"
@@ -20,7 +24,7 @@ class ReadyCommand:
     def parse(cls, value):
         try:
             args = json.loads(value)
-        except ValueError:
+        except (ValueError, RecursionError):
             raise ValueError("Configure the delivery command as a JSON argv array.") from None
         if (not isinstance(args, list) or not 0 < len(args) <= 32
                 or any(not isinstance(arg, str) or len(arg) > 4096 or "\0" in arg for arg in args)
@@ -32,16 +36,36 @@ class ReadyCommand:
     def binding(self):
         return "command:" + sha256(json.dumps(self.argv).encode()).hexdigest()
 
+    def _response(self, cue):
+        with TemporaryFile() as stdin:
+            stdin.write(json.dumps({"schema": SCHEMA, **cue}).encode() + b"\n")
+            stdin.seek(0)
+            deadline = monotonic() + _TIMEOUT
+            with subprocess.Popen(
+                self.argv, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env={}, close_fds=True,
+            ) as process:
+                try:
+                    output = bytearray()
+                    while len(output) <= _MAX_OUTPUT:
+                        remaining = deadline - monotonic()
+                        if remaining <= 0 or not select([process.stdout], [], [], remaining)[0]:
+                            return None
+                        chunk = read(process.stdout.fileno(), _MAX_OUTPUT + 1 - len(output))
+                        if not chunk:
+                            if process.wait(timeout=max(0, deadline - monotonic())) == 0:
+                                return json.loads(output)
+                            return None
+                        output.extend(chunk)
+                    return None
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait()
+
     def __call__(self, cue):
         try:
-            result = subprocess.run(
-                self.argv, input=json.dumps({"schema": SCHEMA, **cue}).encode() + b"\n",
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env={}, timeout=_TIMEOUT, check=False,
-            )
-            if result.returncode or len(result.stdout) > _MAX_OUTPUT:
-                return "unknown"
-            response = json.loads(result.stdout)
-        except (OSError, ValueError, subprocess.TimeoutExpired):
+            response = self._response(cue)
+        except (OSError, ValueError, RecursionError, subprocess.TimeoutExpired):
             return "unknown"
         if (not isinstance(response, dict) or response.keys() != {"external_event_id", "status"}
                 or response["external_event_id"] != cue["external_event_id"]

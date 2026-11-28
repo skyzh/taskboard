@@ -261,7 +261,8 @@ Exit successfully and return one stdout JSON object with that exact
 Taskboard records acceptance and explicit rejection as terminal receipts.
 A timeout, unconfirmed or malformed response, wrong event ID, or failed
 process exit stays unknown and can retry with the same event ID after a new
-Idle window. There is no carrier fallback. Keep command output under 4 KiB.
+Idle window. There is no carrier fallback. Responses larger than 4 KiB
+stop the command and are treated as unknown.
 
 ### Try one enrolled Ready event while the recipient appears Idle
 
