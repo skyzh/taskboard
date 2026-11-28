@@ -5115,7 +5115,7 @@ def create_app(
         today = pacific_day(wake_at or ledger.timestamp())
         work = next(board.actionable_work(owner, today=today, project=project, wake_at=wake_at, delivery=delivery), None)
         exploration = (work is not None and work["kind"] == "in_progress"
-                       and ledger.task_goal_kind(connection, work["id"]) == "standing"
+                       and ledger.task_goal_kind(connection, work["id"]) is not None
                        and goals.exploration_criterion(connection, work["id"]) is not None)
         if work is None or exploration:
             asks = board.requested_asks(owner, project=project, today=today, due_only=True)

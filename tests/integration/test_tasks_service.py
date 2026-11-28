@@ -8782,6 +8782,38 @@ class TasksServiceTest(unittest.TestCase):
         result = self.action(avery, "my-requested-asks", query_string={"cue_key": ask["cue_key"]})["items"][0]
         self.assertEqual((result["state"], result["outcome"]), ("handled", "Handled"))
 
+    def test_due_ask_precedes_in_progress_dated_exploration(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        recipient, recipient_id = self.login(app, "Sam")
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.call(owner, "/api/v1/profile/milestone", method="PATCH", json={
+                "goal": {"summary": "Verify two samples", "deadline": "2030-04-10", "tickets": [],
+                         "keep_exploring": True, "stopping_criterion": "Two samples have passed."},
+            })
+            ticket = self.action(owner, "my-goals")["milestones"][0]["ticket"]
+            self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Check a sample."})
+            before = self.action(owner, "my-next")
+            self.assertEqual((before["work"]["kind"], before["work"]["key"]), ("in_progress", ticket))
+            self.assertEqual(before["goal_occurrences"][0]["kind"], "explore")
+
+            ask_id = self.action(owner, "raise-attention", {
+                "id": ticket, "recipient": recipient_id, "reason": "Confirm the sample format.",
+            })["id"]
+            self.call(recipient, f"/api/v1/notifications/requests/{ask_id}/reminder", method="PUT",
+                      json={"date": "2030-04-01"})
+            due = self.action(owner, "my-next")
+            self.assertIsNone(due["work"])
+            self.assertNotIn("goal_occurrences", due)
+            cue = due["ask_recheck"]
+            self.assertEqual((cue["kind"], cue["request_id"]), ("attention", ask_id))
+
+            self.action(owner, "acknowledge-ask-recheck", {"cue_key": cue["cue_key"]})
+            resumed = self.action(owner, "my-next")
+            self.assertNotIn("ask_recheck", resumed)
+            self.assertEqual(resumed["work"], before["work"])
+            self.assertEqual(resumed["goal_occurrences"], before["goal_occurrences"])
+
     def test_requester_acknowledges_an_all_project_cue_without_a_project_parameter(self):
         admin = self.provider.people["Sam"]["sub"]
         app = self.app(portal_reader=True, project_admin_subject=admin)
