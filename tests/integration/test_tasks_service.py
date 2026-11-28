@@ -6640,6 +6640,39 @@ class TasksServiceTest(unittest.TestCase):
             })
             self.assertEqual(self.action(owner, "my-goal-occurrences")["items"], [])
 
+    def test_goal_progression_marks_exact_and_legacy_reviews_but_not_explore(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        ticket = "T-1"
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.action(owner, "save-goal", {
+                "project": "T", "kind": "standing", "summary": "Review the fixture.",
+            })
+            self.action(owner, "set-goal-review-time", {"id": ticket, "time": "09:00"})
+            self.action(owner, "advance-task", {
+                "id": ticket, "transition": "start", "note": "Start a legacy review.",
+            })
+            self.action(owner, "advance-task", {
+                "id": ticket, "transition": "park", "note": "Record the legacy review outcome.",
+            })
+            legacy = self.task_event(owner, ticket)["event"]
+            explore, review = self.action(owner, "my-goal-occurrences")["items"]
+            explore_receipt = self.action(owner, "complete-goal-occurrence", {
+                "id": ticket, "occurrence_key": explore["key"], "note": "Record the Explore outcome.",
+            })
+            review_receipt = self.action(owner, "complete-goal-occurrence", {
+                "id": ticket, "occurrence_key": review["key"], "note": "Record the scheduled Review.",
+            })
+
+        activity = f"/api/v1/tasks/{ticket}/activity"
+        progression = self.call(owner, activity, query_string={"view": "progression"}).json["items"]
+        by_id = {event["id"]: event for event in progression}
+        self.assertIs(by_id[review_receipt["event_id"]]["goal_review_completed"], True)
+        self.assertNotIn("goal_review_completed", by_id[explore_receipt["event_id"]])
+        self.assertIs(by_id[legacy]["goal_review_completed"], True)
+        activity_items = self.call(owner, activity).json["items"]
+        self.assertTrue(all("goal_review_completed" not in event for event in activity_items))
+
     def test_signed_standing_explore_and_review_keep_separate_occurrences(self):
         app = self.app(portal_reader=True)
         owner, _ = self.login(app, "Avery")
