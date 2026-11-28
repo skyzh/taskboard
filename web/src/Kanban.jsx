@@ -45,6 +45,15 @@ function KanbanColumn({ state, count, filters, project, allProjects, revision, n
   )
 }
 
+function scrollColumns(event) {
+  if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+  const region = event.currentTarget
+  if (region.scrollWidth <= region.clientWidth) return
+  event.preventDefault()
+  region.scrollLeft += event.key === 'ArrowLeft' ? -40 : 40
+}
+
 export default function Kanban({ filters, project, allProjects, revision, closedAvailable, phoneColumn, setPhoneColumn, counts, navigation, onPage }) {
   const phone = usePhoneLayout()
   const availableColumns = closedAvailable ? [...columns, 'closed'] : columns
@@ -64,7 +73,7 @@ export default function Kanban({ filters, project, allProjects, revision, closed
       )}
       <div className={chosenState ? 'kanban-columns' : 'kanban-columns multiple'}
         role={chosenState ? undefined : 'region'} aria-label={chosenState ? undefined : 'Kanban columns'}
-        tabIndex={chosenState ? undefined : 0}>
+        tabIndex={chosenState ? undefined : 0} onKeyDown={chosenState ? undefined : scrollColumns}>
         {(chosenState ? [chosenState] : availableColumns).map(state => (
           <KanbanColumn key={state} state={state} count={phone && chosenState ? counts?.[state] : undefined}
             filters={filters} project={project} allProjects={allProjects}
