@@ -126,12 +126,11 @@ class InboxBatchDelivery:
                         "SELECT 1 FROM events WHERE id = ? AND actor = 'Taskboard'", (item.source_event,),
                     ).fetchone():
                         resolution = board.linked_wait_resolution(task["id"], self.project, wait_event)
-                        if resolution is None:
-                            break
-                        item = replace(
-                            item, key=f"ready:{item.source_event}:{wait_event}:{resolution['blocker_event']}",
-                            **resolution,
-                        )
+                        if resolution and projects.identifier(resolution["blocker_ticket"])[0] == self.project:
+                            item = replace(
+                                item, key=f"ready:{item.source_event}:{wait_event}:{resolution['blocker_event']}",
+                                **resolution,
+                            )
                 if item.blocker_ticket is not None and projects.identifier(item.blocker_ticket)[0] != self.project:
                     break
                 if (item.kind, item.key) in observed:

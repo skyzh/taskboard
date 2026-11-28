@@ -75,6 +75,41 @@ class InboxBatchTest(unittest.TestCase):
         for offset in (first, first + 10, first + 20):
             self.assertEqual(self.poll(offset, goals=goals), ("awaiting_idle", None))
 
+    def test_reopened_old_blocker_does_not_hide_current_ready_work(self):
+        fixture = self.fixture
+        waiting = fixture.create()["task"]
+        fixture.board.invoke("set-priority", {"id": waiting, "priority": "high"}, write=True)
+        blake, _ = fixture.service.login(fixture.service.app(portal_reader=True), "Blake")
+        blake = SignedBoard(fixture.service, blake)
+        blocker = blake.invoke("create-task", {"title": "Finish the dependency", "step": "Read the fixture."},
+                               write=True)["receipt"].split()[0]
+
+        def advance(board, ticket, transition, **fields):
+            board.invoke("advance-task", {
+                "id": ticket, "transition": transition, "note": "Check the fixture.", **fields,
+            }, write=True)
+
+        advance(blake, blocker, "start")
+        advance(fixture.board, waiting, "start")
+        advance(fixture.board, waiting, "wait", blocked_by=blocker)
+        advance(blake, blocker, "done")
+        ready = fixture.service.task_event(fixture.board.client, waiting)
+        other = fixture.create()
+        blake.invoke("change-ownership", {"id": blocker, "action": "reopen", "reason": "Check a second sample."},
+                     write=True)
+
+        signed = fixture.board.invoke("my-inbox-wake", {"scope": "all", "include_occurrences": "true"})["work"]
+        self.assertEqual((signed["kind"], signed["source_event"]), ("ready", ready["event"]))
+        self.established_idle()
+        status, key = self.poll(30)
+        self.assertEqual(status, "accepted")
+        members = json.loads(self.history(key)["members"])
+        self.assertEqual([member["source_event"] for member in members], [ready["event"], other["event"]])
+        self.assertTrue(all("blocker_event" not in member for member in members))
+        self.assertNotIn(f"{blocker} finished", fixture.provider.accepted[key]["summary"])
+        advance(fixture.board, waiting, "start")
+        self.assertEqual(fixture.board.invoke("task", {"id": waiting})["task"]["state"], "in_progress")
+
     def test_auto_released_blocker_keeps_ready_pickup_and_rebinds_the_batch_after_reopen(self):
         fixture = self.fixture
         waiting = fixture.create()["task"]
