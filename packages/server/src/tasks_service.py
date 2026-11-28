@@ -1265,8 +1265,8 @@ def create_app(
         event_type = data["event_type"]
         if event_type not in (wake_subscriptions.OWNED_READY, wake_subscriptions.GOAL_OCCURRENCES):
             raise RequestError("Choose owned-ready or goal-occurrences.")
-        if event_type == wake_subscriptions.GOAL_OCCURRENCES and project != wake_subscriptions.MANAGED_READY_PROJECT:
-            raise RequestError("Goal occurrence delivery is in the Project T pilot.", 403)
+        if event_type == wake_subscriptions.GOAL_OCCURRENCES and project not in wake_subscriptions.MANAGED_READY_PROJECTS:
+            raise RequestError("Goal occurrence delivery is available in Project T and Tiny LLM.", 403)
         enabled = data["enabled"]
         if enabled not in ("true", "false"):
             raise RequestError("enabled must be true or false.")
