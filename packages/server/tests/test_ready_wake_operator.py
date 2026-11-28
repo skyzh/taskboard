@@ -131,10 +131,10 @@ class ReadyWakeOperatorTest(unittest.TestCase):
 
         opener.open.assert_called_once()
         with closing(open_sqlite(self.ledger, write_existing=False)) as db:
-            receipts = db.execute("SELECT source_event_id, recipient, acceptance, delivery, next_result, start_event_id "
+            receipts = db.execute("SELECT source_event_id, recipient, acceptance, delivery, next_result, start_event_id, carrier "
                                   "FROM wake_log").fetchall()
         self.assertEqual([tuple(receipt) for receipt in receipts],
-                         [(self.event_id, self.owner, "accepted", None, None, None)])
+                         [(self.event_id, self.owner, "accepted", None, None, None, "raft_app")])
 
     def test_checkout_does_not_create_or_initialize_a_wrong_sqlite_path(self):
         missing = self.ledger.with_name("missing.sqlite")

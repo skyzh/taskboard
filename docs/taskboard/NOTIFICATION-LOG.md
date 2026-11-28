@@ -50,6 +50,14 @@ Taskboard's current Raft sign-in supplies identity. The current installation has
 ## Record wake evidence
 
 Choose **Kind → Wake** to follow the recorded wake for an owned Ready ticket.
+In **Wake activity**, Ready events with no receipt show **No wake attempt
+recorded**. Receipts show the furthest verified stage and the delivery mechanism
+when recorded. Older receipts may lack the mechanism.
+
+Switch **Wake records** to **Goal wake receipts** after signing in to see
+direct Raft app attempts for Explore and Scheduled Review. A signed outcome
+links to the exact occurrence and recipient. The sender's acceptance record
+does not confirm delivery into the recipient's session.
 The log shows Raft acceptance, delivery, the first signed project queue check,
 and Start separately. A missing delivery stays **Unknown**. **No eligible work**
 requires a recorded empty queue check. A Start links to its Activity entry.
@@ -83,6 +91,7 @@ that wake and recipient.
 | `next_result` | `status` of `offered` (the source ticket), `different_work`, or `no_work`, and `at`, from the first signed project queue check |
 | `start_event_id` | The integer Activity ID of the observed Start by the same recipient in the same project after the queue check |
 | `receipt_ref` | Optional lowercase SHA-256 digest of the accepted Raft event ID |
+| `carrier` | Optional verified delivery mechanism: `raft_app`, `raft_reminder`, or `local_command`. Supply it only for a recorded dispatch observation. |
 
 Use ISO timestamps with seconds and a UTC offset in each `at` field. Omit
 missing observations. Taskboard generates the cue from the source ticket.

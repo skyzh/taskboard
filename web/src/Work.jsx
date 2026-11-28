@@ -849,7 +849,9 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   const actor = params.get('actor')?.trim().slice(0, 160) || ''
   const requestedAction = params.get('action')
   const wakes = requestedAction === 'wake'
-  const pendingWakes = wakes && params.get('wake_status') === 'pending'
+  const wakeMode = wakes ? params.get('wake_status') : null
+  const pendingWakes = wakeMode === 'pending'
+  const goalWakes = wakeMode === 'goals'
   const action = wakes || Object.hasOwn(actions, requestedAction) ? requestedAction : ''
   const complete = params.get('detail') === 'all'
   const hideRequests = params.get('hide_requests') === 'true'
@@ -861,7 +863,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   const filterCount = [actor, action, complete, hideRequests].filter(Boolean).length
   const filtered = filterCount > 0
   const page = useLoadedPages('/activity', { ...projectFilters(project), actor, action, detail: full ? 'all' : 'outcomes',
-    ...(hideRequests && { hide_requests: true }), ...(pendingWakes && { wake_status: 'pending' }) }, revision)
+    ...(hideRequests && { hide_requests: true }), ...(wakeMode && { wake_status: wakeMode }) }, revision)
   const items = page.data?.items || []
   const onPage = !wakes && items.some(event => event.id === requested)
   const linked = useResource(requested && !onPage ? `/activity/${requested}` : null, revision)
@@ -883,12 +885,12 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
     : ([...actorNames].find(([, key]) => key === actor)?.[0] || profileName(actor))
 
   function changeFilters(next, replace = false) {
-    const filters = { actor, action, complete, hideRequests, pendingWakes, ...next }
+    const filters = { actor, action, complete, hideRequests, wakeMode, ...next }
     const scope = new URLSearchParams({
       ...(params.has('project') || params.get('scope') === 'all' ? projectFilters(project) : {}),
       ...(filters.actor && { actor: filters.actor }),
       ...(filters.action && { action: filters.action }),
-      ...(filters.action === 'wake' && filters.pendingWakes && { wake_status: 'pending' }),
+      ...(filters.action === 'wake' && filters.wakeMode && { wake_status: filters.wakeMode }),
       ...(filters.complete && { detail: 'all' }),
       ...(filters.hideRequests && { hide_requests: 'true' }),
     })
@@ -905,7 +907,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   return (
     <section className="work-log" id="work-log-title" aria-labelledby="activity" tabIndex={-1}>
       <div className="page-heading activity-heading">
-        <h1 id="activity">{pendingWakes ? 'Pending notifications' : 'Activity'}</h1>
+        <h1 id="activity">{pendingWakes ? 'Pending notifications' : goalWakes ? 'Goal wake receipts' : 'Activity'}</h1>
         {projectPicker}
         <div className="activity-filter-controls">
           <button type="button" className="activity-filter-toggle" ref={filterToggle}
@@ -947,12 +949,17 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
         </label>
       </div>
       {wakes && <>
-        <button type="button" onClick={() => changeFilters({ pendingWakes: !pendingWakes })}>
-          {pendingWakes ? 'Show all wake activity' : 'Show pending notifications'}
-        </button>
-        <p>{pendingWakes
-          ? 'Current Ready work and the wake evidence recorded so far.'
-          : 'Ready events are possible wake triggers. Each stage shows the evidence recorded for that event.'}</p>
+        <label>Wake records
+          <select value={pendingWakes || goalWakes ? wakeMode : ''}
+            onChange={event => changeFilters({ wakeMode: event.target.value })}>
+            <option value="">Ready wake activity</option>
+            <option value="pending">Pending notifications</option>
+            <option value="goals">Goal wake receipts</option>
+          </select>
+        </label>
+        <p>{pendingWakes ? 'Current Ready work and the wake evidence recorded so far.'
+          : goalWakes ? 'App acceptance and signed goal completion are recorded separately. App delivery is unconfirmed here.'
+            : 'Ready events can trigger a wake. The log shows the delivery method and steps when Taskboard has evidence.'}</p>
       </>}
       <ResourceStatus resource={page} label="activity" />
       {showLinkedErrorAnchor
@@ -970,6 +977,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
       )}
       {page.data?.items.length === 0 && !linked.pending && !linkedEvent && (
         <p className="section-message" role="status">{pendingWakes ? 'No pending notifications for these filters.'
+          : goalWakes ? 'No goal wake receipts for these filters.'
           : filtered ? 'No matching activity.' : 'No activity to show.'}</p>
       )}
       {[...days].sort(([left], [right]) => right.localeCompare(left)).map(([day, events]) => (

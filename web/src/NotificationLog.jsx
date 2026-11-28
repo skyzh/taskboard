@@ -26,7 +26,12 @@ const times = [
   ['failed_at', 'Failed'],
 ]
 
-const acceptance = { pending: 'Pending', accepted: 'Accepted', rejected: 'Rejected' }
+const acceptance = { pending: 'Queued', accepted: 'Accepted', rejected: 'Rejected' }
+const wakeCarriers = {
+  raft_app: 'Raft app event',
+  raft_reminder: 'Raft reminder',
+  local_command: 'Local delivery command',
+}
 const delivery = { delivered: 'Delivered', suppressed: 'Suppressed' }
 const nextResults = { offered: 'This ticket offered', different_work: 'Other work offered', no_work: 'No eligible work' }
 const wakeReasons = {
@@ -35,6 +40,8 @@ const wakeReasons = {
   review_request: 'Review requested',
   review_result: 'Review result returned',
   follow_up: 'Peer follow-up',
+  goal_review: 'Scheduled goal review',
+  goal_explore: 'Goal exploration',
 }
 
 export function wakeReason(item) {
@@ -42,39 +49,44 @@ export function wakeReason(item) {
 }
 
 function wakeStage(item) {
-  if (item.started_at) return 'Picked up'
+  if (item.goal_outcome) return 'Signed outcome recorded'
+  if (item.acceptance === 'unsendable') return 'Cue could not be prepared'
+  if (item.started_at) return item.next_result === 'different_work' ? 'Other work started' : 'Picked up'
   if (item.request_acknowledgment) return 'Acknowledged'
   if (item.next_result) return nextResults[item.next_result] || 'Queue checked'
   if (item.delivery === 'delivered') return 'Delivered · Start unconfirmed'
   if (item.delivery === 'suppressed') return 'Suppressed'
-  if (item.acceptance === 'accepted') return 'Dispatched · Delivery unconfirmed'
-  if (item.acceptance === 'pending') return 'Dispatch pending'
+  if (item.acceptance === 'accepted') return 'Accepted · Delivery unconfirmed'
+  if (item.acceptance === 'pending') return 'Queued for dispatch'
   if (item.acceptance === 'rejected') return 'Dispatch rejected'
   if (item.acceptance == null) return 'No wake attempt recorded'
-  return 'Wake evidence unknown'
+  return 'Dispatch unconfirmed'
 }
 
 function WakeEvidence({ item }) {
   const { formatDay, formatClock } = useTimeZone()
   const stages = [
-    ['Raft acceptance', acceptance[item.acceptance] ?? 'Unknown', item.acceptance_at],
-    ['Raft delivery', delivery[item.delivery] ?? 'Unknown', item.delivery_at],
-    ['First signed queue check', nextResults[item.next_result] ?? 'Not observed', item.next_at],
+    ['Dispatch', acceptance[item.acceptance], item.acceptance_at],
+    ['Delivery', delivery[item.delivery], item.delivery_at],
+    ['First signed queue check', nextResults[item.next_result], item.next_at],
     ...(item.request_acknowledgment ? [[
       'Request acknowledgment', 'Acknowledged', item.request_acknowledgment.at,
       item.request_acknowledgment.id, 'Acknowledgment activity',
     ]] : []),
-    ['Start', item.started_at ? 'Started' : 'Not observed', item.started_at, item.start_event_id, 'Start activity'],
-  ]
+    ...(item.goal_outcome ? [[
+      'Goal outcome', 'Completed', item.goal_outcome.at, item.goal_outcome.id, 'Outcome activity',
+    ]] : []),
+    ['Start', item.started_at && 'Started', item.started_at, item.start_event_id, 'Start activity'],
+  ].filter(([, outcome]) => outcome)
 
   return (
     <>
-      <p className="notification-log-cue">
+      {item.cue && <p className="notification-log-cue">
         {item.trigger && <><strong>{actions[item.trigger] || 'Ready event'}</strong>{' · '}</>}
         {item.cue}
-      </p>
+      </p>}
       {item.receipt_ref && <p className="event-meta"><span title={item.receipt_ref}>Receipt {item.receipt_ref.slice(0, 12)}</span></p>}
-      <dl className="notification-log-times wake-log-times">
+      {stages.length > 0 && <dl className="notification-log-times wake-log-times">
         {stages.map(([label, outcome, at, eventId, linkLabel]) => (
           <div key={label}>
             <dt>{label}</dt>
@@ -85,13 +97,16 @@ function WakeEvidence({ item }) {
             </dd>
           </div>
         ))}
-      </dl>
+      </dl>}
     </>
   )
 }
 
 export function NotificationLogEntry({ item }) {
   const isWake = item.kind === 'wake'
+  const goalWake = item.reason === 'goal_explore' || item.reason === 'goal_review'
+  const wakeCarrier = wakeCarriers[item.carrier]
+    || (['accepted', 'rejected'].includes(item.acceptance) || delivery[item.delivery] ? 'Delivery method not recorded' : null)
   return (
     <li className="event-row notification-log-entry">
       <p className="event-ticket"><TaskLink id={item.task_id} reference={item.task} /></p>
@@ -100,8 +115,9 @@ export function NotificationLogEntry({ item }) {
         {!isWake && <strong>{states[item.status]}</strong>}
         {!isWake && item.status === 'pending' && <span>Observed <ReportTime at={item.status_at} /></span>}
         {isWake && <strong>{wakeStage(item)}</strong>}
+        {isWake && wakeCarrier && <span>{wakeCarrier}</span>}
         {isWake && item.source_at && <ReportTime at={item.source_at} />}
-        <BoardLink href={eventHref(item.id)}>Source activity</BoardLink>
+        {!goalWake && <BoardLink href={eventHref(item.id)}>Source activity</BoardLink>}
       </p>
       {isWake ? <><p className="event-meta">{wakeReason(item)}</p><WakeEvidence item={item} /></> : <dl className="notification-log-times">
         {times.map(([field, label]) => (

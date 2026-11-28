@@ -2652,7 +2652,7 @@ class TasksServiceTest(unittest.TestCase):
 
         receipt(rejected, acceptance={"status": "rejected", "at": rejected["at"]})
         receipt(partial, acceptance={"status": "accepted", "at": partial["at"]})
-        receipt(observed, acceptance={"status": "accepted", "at": observed["at"]},
+        receipt(observed, carrier="raft_app", acceptance={"status": "accepted", "at": observed["at"]},
                 delivery={"status": "delivered", "at": observed["at"]},
                 next_result={"status": "offered", "at": observed["at"]})
         self.action(avery, "advance-task", {
@@ -2674,6 +2674,9 @@ class TasksServiceTest(unittest.TestCase):
         started, accepted, failed, unknown = first["items"] + second["items"]
         self.assertEqual(started["start_event_id"], start["event"])
         self.assertEqual(started["delivery"], "delivered")
+        self.assertEqual(started["carrier"], "raft_app")
+        self.assertIsNone(accepted["carrier"])
+        self.assertIsNone(unknown["carrier"])
         self.assertEqual(started["next_result"], "offered")
         self.assertEqual(accepted["acceptance"], "accepted")
         self.assertIsNone(accepted["delivery"])
@@ -2725,6 +2728,66 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.call(normal, route, query_string={**filters, "owner": owner}).json["items"], [])
         self.assertEqual({row["source_key"] for row in self.call(avery, route, query_string=filters).json["items"]},
                          {observed["task"], restricted["task"]})
+
+    def test_goal_wake_activity_matches_only_the_exact_recipient_and_occurrence(self):
+        admin = self.provider.people["Sam"]["sub"]
+        app = self.app(portal_reader=True, project_admin_subject=admin)
+        owner, owner_key = self.login(app, "Avery")
+        outsider, outsider_key = self.login(app, "Blake")
+        manager, _ = self.login(app, "Sam")
+        self.call(manager, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Restricted examples", "visibility": "ring1",
+        })
+        self.call(manager, "/api/v1/projects/LAB/ring1", method="PUT", json={
+            "principal": owner_key, "allowed": True,
+        })
+        for project in ("T", "LAB"):
+            self.action(owner, "create-task", {
+                "project": project, "title": "Fixture goal", "step": "Check the evidence.",
+            })
+        at = "2026-11-27T12:00:00Z"
+        review = "review:T-1:2026-11-27"
+        explore = "explore:T-1:2026-11-27:1"
+        from tasks_goal_wake_receipts import record as record_attempt
+
+        with closing(open_sqlite(self.database)) as db:
+            for number, key, status in ((1, review, "accepted"), (1, explore, "unknown"),
+                                        (2, "review:LAB-1:2026-11-27", "pending")):
+                record_attempt(db, owner_key, key, number, acceptance=status, attempts=1,
+                               first_attempt=1, retry_at=2, renewed=False, observed_at=at)
+            record_attempt(db, owner_key, "explore:T-1:2026-11-27:2", 1,
+                           acceptance="unsendable", attempts=0, first_attempt=1, retry_at=2,
+                           renewed=False, observed_at="2026-11-27T11:00:00Z")
+            with db:
+                record(db, 1, "log", outsider_key, "ready", "Different recipient.", None, [],
+                       {"goal_occurrence": explore}, at=at)
+                outcome = record(db, 1, "log", owner_key, "ready", "Goal reviewed.", None, [],
+                                 {"goal_occurrence": review}, at=at)
+
+        path = "/api/v1/activity"
+        filters = {"action": "wake", "wake_status": "goals", "scope": "all", "limit": 1}
+        first = self.call(outsider, path, query_string=filters).json
+        reviewed, = first["items"]
+        self.assertEqual((reviewed["task"], reviewed["reason"], reviewed["carrier"], reviewed["acceptance"]),
+                         ("T-1", "goal_review", "raft_app", "accepted"))
+        self.assertEqual(reviewed["goal_outcome"], {"id": outcome, "at": at})
+        self.assertNotIn("delivery", reviewed)
+        self.assertNotIn("start_event_id", reviewed)
+        middle = self.call(outsider, path, query_string={**filters, "before": first["next_cursor"]}).json
+        unexplained, = middle["items"]
+        self.assertEqual((unexplained["reason"], unexplained["acceptance"]), ("goal_explore", "unknown"))
+        self.assertEqual(unexplained["carrier"], "raft_app")
+        self.assertNotIn("goal_outcome", unexplained)
+        last = self.call(outsider, path, query_string={**filters, "before": middle["next_cursor"]}).json
+        preparation_failure, = last["items"]
+        self.assertEqual(preparation_failure["acceptance"], "unsendable")
+        self.assertNotIn("carrier", preparation_failure)
+        self.assertIsNone(last["next_cursor"])
+        self.assertEqual(self.call(outsider, path, query_string={**filters, "actor": outsider_key}).json["items"], [])
+        permitted = self.call(owner, path, query_string={**filters, "scope": None, "project": "LAB"}).json
+        self.assertEqual([item["task"] for item in permitted["items"]], ["LAB-1"])
+        self.call(outsider, path, query_string={**filters, "before": "bad"}, status=400)
+        self.call(app.test_client(), path, query_string=filters, status=401)
 
     def test_wake_log_links_only_the_exact_signed_request_acknowledgment(self):
         app = self.app(portal_reader=True)

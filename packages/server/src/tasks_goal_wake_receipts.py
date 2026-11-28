@@ -1,5 +1,9 @@
 """Durable delivery attempts for exact goal occurrences, independent of goal outcomes."""
 
+import json
+
+import tasks_projects as projects
+import tasks_ring1 as ring1
 import tasks_storage
 
 
@@ -47,3 +51,59 @@ def restore(db, owner, key, previous):
         return
     fields = ("acceptance", "attempts", "first_attempt", "retry_at", "renewed", "observed_at")
     record(db, owner, key, previous["task_id"], **{field: previous[field] for field in fields})
+
+
+def listing(db, project, recipient, *, before, limit, principal):
+    visibility, visible_args = ring1.visibility(db, "tasks.project_prefix", principal)
+    filters, bindings = [visibility], list(visible_args)
+    if project is not None:
+        filters.append("tasks.project_prefix = ?")
+        bindings.append(project)
+    if recipient is not None:
+        filters.append("receipts.recipient = ?")
+        bindings.append(recipient)
+    if before is not None:
+        try:
+            cursor = json.loads(before)
+            if not isinstance(cursor, list) or len(cursor) != 3 or not all(isinstance(field, str) for field in cursor):
+                raise ValueError
+        except ValueError:
+            raise ValueError("Use the cursor returned by goal wake activity.") from None
+        filters.append("(receipts.observed_at, receipts.occurrence_key, receipts.recipient) < (?, ?, ?)")
+        bindings.extend(cursor)
+    if not tasks_storage.has_table(db, "goal_wake_receipts"):
+        return {"items": [], "next_cursor": None}
+    rows = db.execute(
+        f"""
+        SELECT receipts.*, tasks.id, tasks.project_prefix, tasks.project_number, principals.name,
+               outcomes.id AS outcome_id, outcomes.at AS outcome_at
+        FROM goal_wake_receipts AS receipts
+        JOIN tasks ON tasks.id = receipts.task_id
+        JOIN board_principals AS principals ON principals.ledger_key = receipts.recipient
+        LEFT JOIN events AS outcomes ON outcomes.id = (
+            SELECT id FROM events
+            WHERE task_id = receipts.task_id AND actor = receipts.recipient AND action = 'log'
+                AND json_extract(context, '$.goal_occurrence') = receipts.occurrence_key
+            ORDER BY id LIMIT 1
+        )
+        WHERE {' AND '.join(filters)}
+        ORDER BY receipts.observed_at DESC, receipts.occurrence_key DESC, receipts.recipient DESC LIMIT ?
+        """, (*bindings, limit + 1),
+    ).fetchall()
+    cursor = None
+    if len(rows) > limit:
+        last = rows[limit - 1]
+        cursor = json.dumps([last["observed_at"], last["occurrence_key"], last["recipient"]], separators=(",", ":"))
+    return {
+        "items": [{
+            "id": f"{row['occurrence_key']}:{row['recipient']}",
+            "kind": "wake", "recipient": row["name"],
+            **({"carrier": "raft_app"} if row["attempts"] > 0 else {}),
+            "task_id": row["task_id"], "task": projects.row_reference(row),
+            "source_at": row["observed_at"], "acceptance": row["acceptance"], "acceptance_at": row["observed_at"],
+            "reason": "goal_review" if row["occurrence_key"].startswith("review:") else "goal_explore",
+            **({"goal_outcome": {"id": row["outcome_id"], "at": row["outcome_at"]}}
+               if row["outcome_id"] is not None else {}),
+        } for row in rows[:limit]],
+        "next_cursor": cursor,
+    }

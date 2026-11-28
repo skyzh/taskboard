@@ -444,8 +444,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     db.execute(NOTIFICATION_PREFERENCES)
     db.execute(wake_subscriptions.SCHEMA)
     db.execute(tasks_goal_wake_receipts.SCHEMA)
-    for statement in notification_log.SCHEMA:
-        db.execute(statement)
+    notification_log.ensure_schema(db)
     db.execute(ATTENTION_WAIT_SCHEMA)
     wait_columns = tasks_storage.table_columns(db, "attention_wait_links")
     if "started_event_id" not in wait_columns:
@@ -523,8 +522,8 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
         db.execute(cue_pauses.ACKNOWLEDGMENTS_SCHEMA)
         db.execute(goal_offers.SCHEMA)
         db.execute(goal_offers.INDEX)
-        for statement in (*notification_log.SCHEMA, *peer_asks.SCHEMA, *extensions.SCHEMA, *github_webhooks.SCHEMA,
-                          *public_knowledge.SCHEMA):
+        notification_log.ensure_schema(db)
+        for statement in (*peer_asks.SCHEMA, *extensions.SCHEMA, *github_webhooks.SCHEMA, *public_knowledge.SCHEMA):
             db.execute(statement)
         knowledge_records.ensure_schema(db)
         knowledge_records.migrate_records(db)
@@ -3397,6 +3396,17 @@ def create_app(
         if api_usage and action in {"decision", "decide"}:
             g.usage_lookup = "decision-lookup"
         if action == "wake":
+            if args.get("wake_status") == "goals":
+                current_actor(required=True)
+                before = text(args, "before", optional=True, maximum=560)
+                limit = integer(args.get("limit", 20), "limit", maximum=100)
+                try:
+                    with tasks_storage.read(db()) as connection:
+                        return tasks_goal_wake_receipts.listing(
+                            connection, project, actor, before=before, limit=limit, principal=actor_key(),
+                        )
+                except ValueError as error:
+                    raise RequestError(str(error)) from error
             with tasks_storage.read(db()) as connection:
                 return notification_log.listing(
                     connection, project, actor, "all", "wake", principal=actor_key(),
