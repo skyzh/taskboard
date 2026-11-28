@@ -132,9 +132,10 @@
 .runtime-agents h3 { margin: 0 0 .3rem; font-size: .95rem; overflow-wrap: anywhere; }
 .runtime-track { position: relative; height: 1.25rem; overflow: hidden; border: 1px solid var(--line); border-radius: .3rem; }
 .runtime-track span { position: absolute; inset-block: 0; }
-.runtime-state.working { background: #288260; }
-.runtime-state.idle { background: #6d83b4; }
-.runtime-state.unavailable { background: #a66a39; }
-.runtime-state.unknown { background: repeating-linear-gradient(135deg, transparent 0 3px, var(--line) 3px 5px); }
+/* Presence tokens from @botiverse/raft-ui 0.102.11 foundation.css. */
+.runtime-state.online { background: oklch(0.8272 0.1354 130.07); }
+.runtime-state.busy { background: oklch(0.8829 0.1623 91.9); }
+.runtime-state.error { background: oklch(0.7855 0.1227 50.11); }
+.runtime-state.offline { background: oklch(0.7892 0.0137 71.29); }
 .runtime-agents summary { min-height: 2.75rem; align-content: center; cursor: pointer; }
 .runtime-agents details ul { padding-inline-start: 1.25rem; }
