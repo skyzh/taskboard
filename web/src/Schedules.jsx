@@ -254,7 +254,7 @@ function GoalReviews({ goals, allProjects, onChanged }) {
               ? <><time dateTime={goal.review_schedule?.review_time ?? goal.review_time}>
                 {goal.review_schedule?.review_time ?? goal.review_time}</time> Pacific
                 {goal.review_schedule?.state === 'paused' && ' · Paused'}</> : 'No time set'}</dd></div>
-            {goal.review_schedule?.next_at && <div><dt>Next run</dt><dd><ScheduleDate value={goal.review_schedule.next_at} /></dd></div>}
+            {goal.review_schedule?.next_at && <div><dt>Next Review</dt><dd><ScheduleDate value={goal.review_schedule.next_at} /></dd></div>}
             {goal.deadline && <div><dt>Deadline</dt><dd><time dateTime={goal.deadline}>{goal.deadline}</time></dd></div>}
           </dl>
           {goal.editable === true && <GoalReviewTime goal={goal} onChanged={onChanged} />}
