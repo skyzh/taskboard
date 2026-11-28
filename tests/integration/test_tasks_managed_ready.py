@@ -1,6 +1,7 @@
-"""Exercise a Project T Ready wake and pickup against disposable fixtures."""
+"""Exercise managed Ready and goal delivery against disposable fixtures."""
 
 from contextlib import closing, redirect_stdout
+from dataclasses import replace
 from datetime import datetime, timezone
 from functools import partial
 from hashlib import sha256
@@ -18,11 +19,12 @@ from urllib.parse import urlsplit
 from taskboard_cli.ready_checkpoint import disposition, offer_work
 from taskboard_server.managed_ready import ManagedReadySender, SampledIdleGate, SenderScope, initialize
 from taskboard_server.managed_ready_grant import ManagedReadyGrant
-from taskboard_server.managed_ready_operator import locked_state, main as managed_ready
+from taskboard_server.managed_ready_operator import _check_run_mode, locked_state, main as managed_ready
 from taskboard_server.ready_wake_operator import main as send_wake
 from tasks_core import import_notification_on, timestamp
 from tasks_goal_wake_receipts import receipt as goal_receipt
 from tasks_notification_log import WAKE_SCHEMA
+from tasks_ring1 import mark_private
 from tasks_storage import open_sqlite, write
 from tasks_wake_subscriptions import GOAL_OCCURRENCES, OWNED_READY
 from test_ready_wake_operator import ENDPOINT, ProviderResponse
@@ -32,6 +34,7 @@ from tools.checkout import ROOT
 
 
 PROJECT = "T"
+TINYLLM = "TINYLLM"
 RECIPIENT = "Avery"
 BOARD = test_tasks_service.ORIGIN + test_tasks_service.BASE
 
@@ -273,8 +276,13 @@ class ManagedSenderTest(unittest.TestCase):
         self.subscribe(True)
 
     def subscribe(self, enabled):
-        self.board.invoke("set-wake-subscription", {"project": PROJECT, "event_type": OWNED_READY,
+        self.board.invoke("set-wake-subscription", {"project": self.scope.project, "event_type": OWNED_READY,
                                                    "enabled": str(enabled).lower()}, write=True)
+
+    def enroll_tinyllm(self):
+        self.service.cli("register-project", TINYLLM, "Fixture Tiny LLM", "--dri", self.owner)
+        self.scope = replace(self.scope, project=TINYLLM)
+        self.subscribe(True)
 
     def baseline(self, *, pilot=False, sampled=False):
         with closing(open_sqlite(self.ledger)) as db:
@@ -320,11 +328,19 @@ class ManagedSenderTest(unittest.TestCase):
     def test_reusable_schedule_releases_into_automatic_sampled_delivery(self):
         self.replay_scheduled_agent_event(recurring=True, sampled=True)
 
+    def test_tinyllm_deferral_releases_into_sampled_delivery(self):
+        self.enroll_tinyllm()
+        self.replay_scheduled_agent_event(recurring=False, sampled=True)
+
+    def test_tinyllm_recurrence_releases_into_sampled_delivery(self):
+        self.enroll_tinyllm()
+        self.replay_scheduled_agent_event(recurring=True, sampled=True)
+
     def replay_scheduled_agent_event(self, *, recurring, sampled=False):
         def as_utc(seconds):
             return datetime.fromtimestamp(seconds, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
-        ticket = self.create()["task"]
+        ticket = self.create(self.scope.project)["task"]
         due = int(self.now) + 120
         if recurring:
             self.board.invoke("ticket-recurrence", {
@@ -676,6 +692,33 @@ class ManagedSenderTest(unittest.TestCase):
                 self.fail("Two senders acquired the same sidecar.")
         self.assertEqual(self.tick(), ("idle", None))
 
+    def test_sampled_state_cannot_change_project(self):
+        self.baseline(sampled=True)
+        with locked_state(self.state, self.ledger) as state:
+            _check_run_mode(state, None, sampled=True, project=PROJECT)
+            with self.assertRaisesRegex(ValueError, "sampled sender project"):
+                _check_run_mode(state, None, sampled=True, project=TINYLLM)
+
+        self.enroll_tinyllm()
+        self.state = self.ledger.with_name("tinyllm-sender.sqlite")
+        self.baseline(sampled=True)
+        with locked_state(self.state, self.ledger) as state:
+            _check_run_mode(state, None, sampled=True, project=TINYLLM)
+            with self.assertRaisesRegex(ValueError, "sampled sender project"):
+                _check_run_mode(state, None, sampled=True, project=PROJECT)
+            with self.assertRaises(ValueError):
+                _check_run_mode(state, 1, project=PROJECT)
+
+    def test_tinyllm_stops_if_project_becomes_ring1(self):
+        self.enroll_tinyllm()
+        self.baseline(sampled=True)
+        self.create(TINYLLM)
+        with closing(open_sqlite(self.ledger)) as db, write(db):
+            mark_private(db, TINYLLM, [self.owner])
+        gate = SampledIdleGate(lambda: "idle", include_boundary=True)
+        self.assertEqual(self.tick(idle_gate=gate, sampled=True, goal_occurrences=True), ("subscription_stopped", None))
+        self.assertEqual(self.calls(), [])
+
     def test_operator_initializes_and_runs_against_one_signed_owner(self):
         fixture_args = [
             "--db", str(self.ledger), "--state", str(self.state), "--client-id", "fixture-client",
@@ -890,10 +933,17 @@ class ManagedSenderTest(unittest.TestCase):
         self.assertEqual(len(sends), 2)
 
     def test_sampled_stream_waits_for_higher_priority_work_in_another_project(self):
-        self.baseline(sampled=True)
-        project_t = self.create()
         self.service.cli("register-project", "COURSE", "Fixture course", "--dri", self.owner)
-        other = self.create("COURSE")
+        self.replay_cross_project_priority("COURSE")
+
+    def test_tinyllm_stream_waits_for_higher_priority_project_t_work(self):
+        self.enroll_tinyllm()
+        self.replay_cross_project_priority(PROJECT)
+
+    def replay_cross_project_priority(self, other_project):
+        self.baseline(sampled=True)
+        enrolled = self.create(self.scope.project)
+        other = self.create(other_project)
         self.board.invoke("set-priority", {"id": other["task"], "priority": "high"}, write=True)
         self.assertEqual(offer_work(self.board, self.owner)["ready_event"], other["event"])
 
@@ -908,13 +958,13 @@ class ManagedSenderTest(unittest.TestCase):
         for offset in (0, 10, 20, 30):
             self.assertEqual(poll(offset), ("idle", None))
         self.assertEqual(self.calls(), [])
-        self.assertEqual(self.outcomes(), [(project_t["event"], "pending")])
+        self.assertIn((enrolled["event"], "pending"), self.outcomes())
 
         self.board.invoke("advance-task", {
             "id": other["task"], "transition": "start", "note": "Take the higher-priority assignment.",
         }, write=True)
-        self.assertEqual(offer_work(self.board, self.owner)["ready_event"], project_t["event"])
-        self.assertEqual(poll(40), ("accepted", project_t["event"]))
+        self.assertEqual(offer_work(self.board, self.owner)["ready_event"], enrolled["event"])
+        self.assertEqual(poll(40), ("accepted", enrolled["event"]))
 
     def test_sampled_stream_follows_signed_wake_selection_around_running_worker(self):
         self.baseline(sampled=True)
@@ -1150,7 +1200,15 @@ class ManagedSenderTest(unittest.TestCase):
         self.assertEqual(self.calls(), [])
 
     def test_native_goal_review_and_explore_share_sender_without_faking_completion(self):
+        self.replay_native_goal_review_and_explore()
+
+    def test_tinyllm_ready_review_and_explore_share_sender_without_faking_completion(self):
+        self.enroll_tinyllm()
+        self.replay_native_goal_review_and_explore()
+
+    def replay_native_goal_review_and_explore(self):
         self.baseline(sampled=True)
+        project = self.scope.project
         origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()
 
         def stamp(offset):
@@ -1161,9 +1219,9 @@ class ManagedSenderTest(unittest.TestCase):
                 return self.board.invoke(action, data, write=write)
 
         invoke("save-goal", {
-            "kind": "standing", "summary": "Private goal content used solely to verify omission.",
+            "kind": "standing", "project": project, "summary": "Private goal content used solely to verify omission.",
         }, write=True)
-        goal = "T-1"
+        goal = f"{project}-1"
         invoke("set-goal-review-time", {"id": goal, "time": "09:00"}, write=True)
         review = f"review:{goal}:2030-04-01"
         explore = f"explore:{goal}:2030-04-01"
@@ -1185,9 +1243,11 @@ class ManagedSenderTest(unittest.TestCase):
 
         self.assertEqual(poll(0), ("idle", None))
         self.assertEqual(self.calls(), [])
-        preference = {"project": PROJECT, "event_type": GOAL_OCCURRENCES}
+        preference = {"project": project, "event_type": GOAL_OCCURRENCES}
         invoke("set-wake-subscription", {**preference, "enabled": "true"}, write=True)
-        ready_ticket = invoke("create-task", {"title": "Take the Ready item first.", "step": "Read it."}, write=True)
+        ready_ticket = invoke("create-task", {
+            "project": project, "title": "Take the Ready item first.", "step": "Read it.",
+        }, write=True)
         ready = ready_ticket["receipt"].split()[0]
         ready_event = self.service.task_event(self.board.client, ready)["event"]
         for offset in (10, 20):
@@ -1214,7 +1274,7 @@ class ManagedSenderTest(unittest.TestCase):
             self.assertEqual(poll(offset), ("awaiting_idle", review))
         self.assertEqual(poll(110), ("accepted", review))
         self.assertEqual((saved(review)["acceptance"], saved(review)["attempts"]), ("accepted", 2))
-        due = invoke("my-goal-occurrences", {}, offset=110)["items"]
+        due = invoke("my-goal-occurrences", {"project": project}, offset=110)["items"]
         self.assertEqual({item["key"] for item in due}, {review, explore})
 
         for offset in (120, 130, 140):
@@ -1239,7 +1299,8 @@ class ManagedSenderTest(unittest.TestCase):
             "id": goal, "occurrence_key": review, "note": "Recorded signed review outcome.",
         }, write=True, offset=170)
         self.assertEqual(done["occurrence_key"], review)
-        self.assertEqual([item["key"] for item in invoke("my-goal-occurrences", {}, offset=170)["items"]], [explore])
+        self.assertEqual([item["key"] for item in invoke("my-goal-occurrences", {"project": project}, offset=170)["items"]],
+                         [explore])
 
     def test_native_goal_wake_rechecks_running_workers_without_hiding_manual_occurrences(self):
         self.baseline(sampled=True)

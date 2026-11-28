@@ -13,13 +13,14 @@ from threading import Event
 from time import monotonic
 
 from raft_auth import Identity
-from taskboard_server.managed_ready import SAMPLED_STATE, ManagedReadySender, SampledIdleGate, SenderScope, initialize
+from taskboard_server.managed_ready import SAMPLED_STATE_BY_PROJECT, ManagedReadySender, SampledIdleGate, SenderScope, initialize
 from taskboard_server.managed_ready_grant import GrantStopped, ManagedReadyGrant, http_json
 from taskboard_server.ready_command import ReadyCommand
 from taskboard_server.ready_signal import connect
 from taskboard_server.ready_wake_operator import _Parser, _positive_id, _read_token, _token_fd, _uuid
 from tasks_profiles import for_identity
 from tasks_storage import open_sqlite
+from tasks_wake_subscriptions import MANAGED_READY_PROJECT
 
 
 _POLL_SECONDS = 10
@@ -101,7 +102,7 @@ def _pilot_status(db, identity, server_slug):
     return read_status
 
 
-def _check_run_mode(state, event_id, *, sampled=False):
+def _check_run_mode(state, event_id, *, sampled=False, project=MANAGED_READY_PROJECT):
     gated_state = state.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pilot'",
     ).fetchone()
@@ -111,9 +112,9 @@ def _check_run_mode(state, event_id, *, sampled=False):
         return
     with state:
         (pinned,) = state.execute("SELECT event FROM pilot").fetchone()
-        if sampled != (pinned == SAMPLED_STATE):
-            raise ValueError("Use state initialized for this managed sender mode.")
         if sampled:
+            if pinned != SAMPLED_STATE_BY_PROJECT[project]:
+                raise ValueError("Use state initialized for this sampled sender project.")
             return
         if pinned is None:
             state.execute("UPDATE pilot SET event = ?", (event_id,))
@@ -141,6 +142,8 @@ def main(argv=None, *, transport=http_json):
     parser.add_argument("--state", required=True, type=Path, help="Separate private managed sender state.")
     parser.add_argument("--server-id", required=True, type=_uuid, help="Approved Raft Server UUID.")
     parser.add_argument("--recipient-id", required=True, type=_uuid, help="Approved Raft agent UUID.")
+    parser.add_argument("--project", default=MANAGED_READY_PROJECT, choices=tuple(SAMPLED_STATE_BY_PROJECT),
+                        help="Enroll one project. Tiny LLM requires direct sampled Raft delivery.")
     transport_options = parser.add_mutually_exclusive_group(required=True)
     transport_options.add_argument("--client-id", help="Public OAuth app client identifier for direct Raft delivery.")
     transport_options.add_argument("--delivery-command", type=ReadyCommand.parse,
@@ -161,6 +164,9 @@ def main(argv=None, *, transport=http_json):
                              help="Private descriptor for the OAuth app secret in direct Raft delivery.")
     args = parser.parse_args(argv)
     goal_occurrences = getattr(args, "goal_occurrences", False)
+    if args.project != MANAGED_READY_PROJECT and (args.command not in ("init-sampled", "run-sampled")
+                                                  or args.delivery_command is not None):
+        parser.error("Tiny LLM requires direct sampled Raft delivery.")
     if args.delivery_command is not None and (args.command not in ("init-sampled", "run-sampled")
                                               or getattr(args, "secret_fd", None) is not None or goal_occurrences):
         parser.error("Use command delivery with sampled mode and no OAuth secret.")
@@ -174,7 +180,7 @@ def main(argv=None, *, transport=http_json):
         state_path = args.state.expanduser().absolute()
         identity = Identity(args.server_id, args.recipient_id, "agent", None, None, None)
         binding = args.delivery_command.binding if args.delivery_command is not None else args.client_id
-        scope = SenderScope(ledger, identity, binding)
+        scope = SenderScope(ledger, identity, binding, args.project)
         with closing(open_sqlite(ledger)) as db:
             if args.command in ("init", "init-pilot", "init-sampled"):
                 _emit("initialized", initialize(state_path, db, scope, pilot=args.command == "init-pilot",
@@ -183,7 +189,7 @@ def main(argv=None, *, transport=http_json):
             with locked_state(state_path, ledger) as state:
                 event_id = getattr(args, "event_id", None)
                 sampled = args.command == "run-sampled"
-                _check_run_mode(state, event_id, sampled=sampled)
+                _check_run_mode(state, event_id, sampled=sampled, project=scope.project)
                 idle_gate = None
                 if sampled or event_id is not None:
                     idle_gate = SampledIdleGate(_pilot_status(db, identity, args.server_slug), clock=monotonic,

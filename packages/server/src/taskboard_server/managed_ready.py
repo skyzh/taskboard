@@ -1,4 +1,4 @@
-"""Run the single-recipient Project T Ready sender against an existing SQLite board."""
+"""Run a project-scoped, single-recipient sender against an existing SQLite board."""
 
 from contextlib import closing
 from dataclasses import dataclass
@@ -30,14 +30,15 @@ from tasks_notification_log import WAKE_SCHEMA
 from tasks_wake_subscriptions import GOAL_OCCURRENCES, MANAGED_READY_PROJECT, OWNED_READY, has_subscription
 
 
-_PROJECT = MANAGED_READY_PROJECT
 _ATTEMPTS = 4
 _RETRY_WINDOW = 5 * 60
 _DELAY = 10
 _MAX_SAMPLE_GAP = 2 * _DELAY
 _MAX_READY_AGE = 24 * 60 * 60
 _MINIMUM_IDLE = 30
-SAMPLED_STATE = 0
+# Positive markers are reserved for the legacy one-event pilot. Keep zero for
+# existing Project T state so changing its checkout does not reset the baseline.
+SAMPLED_STATE_BY_PROJECT = {MANAGED_READY_PROJECT: 0, "TINYLLM": -1}
 
 _SCHEMA = """
     CREATE TABLE sender (
@@ -118,10 +119,18 @@ class SenderScope:
     ledger_path: Path
     identity: Identity
     app: str
+    project: str = MANAGED_READY_PROJECT
+
+    def validate_mode(self, *, sampled, direct=True):
+        if self.project not in SAMPLED_STATE_BY_PROJECT:
+            raise ValueError("Choose an enrolled managed sender project.")
+        if self.project != MANAGED_READY_PROJECT and not (sampled and direct):
+            raise ValueError("Tiny LLM requires direct sampled Raft delivery.")
 
     def subscription(self, db):
         owner = ready_wake_owner(db, self.identity)
-        if not has_subscription(db, _PROJECT, owner, OWNED_READY):
+        if ((self.project != MANAGED_READY_PROJECT and ring1.private(db, self.project))
+                or not has_subscription(db, self.project, owner, OWNED_READY)):
             raise GrantStopped("subscription_stopped")
         # Signed opt-outs and opt-ins both advance this audit record. A rapid
         # opt-out and opt-in between polls still ends the original authorization.
@@ -129,7 +138,7 @@ class SenderScope:
             """SELECT MAX(id) FROM audit_events
                WHERE scope = 'private' AND actor = ? AND operation = 'set-wake-subscription'
                  AND record_type = 'wake_subscription' AND record_id = ?""",
-            (owner, f"{_PROJECT}/{OWNED_READY}"),
+            (owner, f"{self.project}/{OWNED_READY}"),
         ).fetchone()[0]
         if revision is None:
             raise GrantStopped("subscription_stopped")
@@ -148,6 +157,7 @@ def initialize(state_path, db, scope, *, pilot=False, sampled=False):
     """Create private sender state with a baseline at the current ledger tip."""
     if pilot and sampled:
         raise ValueError("Choose one managed sender mode.")
+    scope.validate_mode(sampled=sampled)
     with tasks_storage.read(db):
         binding = scope.subscription(db)
         through = _latest(db)
@@ -160,7 +170,8 @@ def initialize(state_path, db, scope, *, pilot=False, sampled=False):
                 state.execute("CREATE TABLE pilot (event INTEGER)")
                 # The sampled marker also prevents older operators from
                 # opening this state as legacy or as a positive-event pilot.
-                state.execute("INSERT INTO pilot VALUES (?)", (SAMPLED_STATE if sampled else None,))
+                marker = SAMPLED_STATE_BY_PROJECT[scope.project] if sampled else None
+                state.execute("INSERT INTO pilot VALUES (?)", (marker,))
             state.execute(
                 """INSERT INTO sender (singleton, ledger, board, server, recipient, owner, app,
                                       subscription, through_event)
@@ -174,6 +185,7 @@ def initialize(state_path, db, scope, *, pilot=False, sampled=False):
 class ManagedReadySender:
     def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None, event_id=None, sampled=False,
                  stop_requested=None, command_delivery=None, goal_occurrences=False):
+        scope.validate_mode(sampled=sampled, direct=command_delivery is None)
         if goal_occurrences and (not sampled or grant is None):
             raise ValueError("Goal occurrences require direct sampled Raft delivery.")
         if (grant is None) != (command_delivery is not None) or (command_delivery is not None and not sampled):
@@ -216,7 +228,7 @@ class ManagedReadySender:
                   ))
                 ORDER BY events.id LIMIT 1
                 """,
-                (saved["owner"], _PROJECT, saved["through_event"], self.event_id, self.event_id, pending_only),
+                (saved["owner"], self.scope.project, saved["through_event"], self.event_id, self.event_id, pending_only),
             ).fetchone()
 
     def _sampled_candidate(self, saved):
@@ -231,7 +243,7 @@ class ManagedReadySender:
         event = pickup["source_event"]
         ready = ledger.find_task(self.db, pickup["id"])
         if (event <= saved["through_event"] or ready is None or ready["event_id"] != event
-                or projects.row_project(ready) != _PROJECT):
+                or projects.row_project(ready) != self.scope.project):
             return None
         return ready if self._receipt_allows_attempt(event, owner) else None
 
@@ -249,7 +261,7 @@ class ManagedReadySender:
             source = self.db.execute("SELECT task_id FROM events WHERE id = ?", (event,)).fetchone()
             row = ledger.find_task(self.db, source["task_id"]) if source else None
             current = (row is not None and row["event_id"] == event and row["state"] == "ready"
-                       and row["dri"] == owner and projects.row_project(row) == _PROJECT
+                       and row["dri"] == owner and projects.row_project(row) == self.scope.project
                        and self._receipt_allows_attempt(event, owner))
         if current:
             if not self._expired(row, now, saved["first_attempt"], saved["attempts"]):
@@ -324,7 +336,8 @@ class ManagedReadySender:
         with tasks_storage.read(self.db):
             self._check_subscription(saved)
             owner = saved["owner"]
-            if ring1.private(self.db, _PROJECT) or not has_subscription(self.db, _PROJECT, owner, GOAL_OCCURRENCES):
+            project = self.scope.project
+            if ring1.private(self.db, project) or not has_subscription(self.db, project, owner, GOAL_OCCURRENCES):
                 return None
             instant = datetime.fromtimestamp(self.clock(), timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
             board = BoardQueries(self.db, saved["board"], principal=owner)
@@ -333,7 +346,7 @@ class ManagedReadySender:
                 return None
             for item in selection.get("goal_candidates", ()):
                 key, ticket = item["key"], item["ticket"]
-                if not key.startswith(("review:", "explore:")) or projects.identifier(ticket)[0] != _PROJECT:
+                if not key.startswith(("review:", "explore:")) or projects.identifier(ticket)[0] != project:
                     return None
                 receipt = goal_receipts.receipt(self.db, owner, key)
                 if receipt is None or receipt["acceptance"] == "pending":
@@ -520,7 +533,7 @@ class ManagedReadySender:
             token = self.grant.token(preflight=preflight) if self.grant is not None else None
             preflight()
             outcome = launch_ready_wake(
-                self.db, project=_PROJECT, task=projects.row_reference(row), event_id=event,
+                self.db, project=self.scope.project, task=projects.row_reference(row), event_id=event,
                 recipient=WakeRecipient(self.scope.identity, token),
                 transport=submit if self.grant is not None else None,
                 command_delivery=submit_command if self.command_delivery is not None else None,
