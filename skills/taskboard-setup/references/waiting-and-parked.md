@@ -39,6 +39,7 @@ For your own work, select the project and read Waiting, Parked, and the current 
 
 ## Check Parked work
 
+- If work can move now, return the same ticket to Ready and record its next action. If progress depends on another ticket, a named agent, an assigned human decision, or a verifiable automation result, use the corresponding Waiting trigger. The trigger lets the owner act as soon as the condition clears. Use a timed Parked revisit when the date itself matters to the work.
 - For a ticket with 24 hours without substantive progress, read its recent Activity, saved return trigger, and dependencies. A schedule edit or repeated status alone does not reset that clock. Find a concrete next action the owner can take now. When a dependency still prevents progress, record what will clear it, who can act, and when to check again.
 - For an exact-time deferral, verify the saved time and current state. The operator tick returns the same ticket to Ready when due. If it is still parked after the expected tick, check the operator run and route any delivery or scheduling gap to its owner. Keep the saved trigger and wake while it is investigated.
 - A date-only reminder is a review prompt. Once the date is due, decide whether the recorded next step can begin. A dependency offer also calls for a review. Read the accepted source event and compare it with the saved criteria. Routine Activity alone leaves a dependency review parked.
