@@ -36,7 +36,7 @@ import { TaskRows } from './WorkRow.jsx'
 import {
   actions, ActivityMark, addFilterName, Assignee, AssigneeAvatar, ChecklistSteps, ClosureReference, Dependency, EvidenceLinks, LoadMore, Options, OutcomeNote, PeerRequestContext, RecordedActivity, ResourceStatus, Status,
   states, TaskLink, TaskPriority, Timestamp, WorkerAssignment, WorkerRunState, WorkerRunTiming, eventHref, isCheckpointActivity, isDecisionActivity, profileName,
-  taskHref, taskLabel, taskState,
+  taskHref, taskLabel, taskState, useSignInHref,
 } from './shared.jsx'
 import { activityHeadline, ticketActivityCopy, waitLabel } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
@@ -860,6 +860,7 @@ export function ActivityEntry({ event, full, selected = false, exact = selected 
 
 export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activity', project, projectPicker, onFiltersChange }) {
   const { formatDay } = useTimeZone()
+  const login = useSignInHref('#activity')
   const params = new URLSearchParams(fragment.split('?', 2)[1])
   const actor = params.get('actor')?.trim().slice(0, 160) || ''
   const requestedAction = params.get('action')
@@ -976,7 +977,9 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
           : goalWakes ? 'App acceptance and signed goal completion are recorded separately. App delivery is unconfirmed here.'
             : 'Ready events can trigger a wake. The log shows the delivery method and steps when Taskboard has evidence.'}</p>
       </>}
-      <ResourceStatus resource={page} label="activity" />
+      {goalWakes && page.error?.status === 401
+        ? <p className="section-message"><a href={login}>Sign in with Raft to view goal wake receipts</a></p>
+        : <ResourceStatus resource={page} label="activity" />}
       {showLinkedErrorAnchor
         ? <div id={eventHref(requested).slice(1)} tabIndex={-1}>
           <ResourceStatus resource={linked} label="linked activity" />
