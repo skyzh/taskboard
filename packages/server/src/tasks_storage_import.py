@@ -4,7 +4,7 @@ from contextlib import closing
 from functools import partial
 import sqlite3
 
-from taskboard_server import external_agents, personal_agents
+from taskboard_server import external_agents, personal_agents, wake_reports
 from tasks_attachments import BYTE_SCHEMA, METADATA_SCHEMA
 from tasks_goals import migrate_goal_tickets
 from tasks_knowledge import migrate_records
@@ -29,7 +29,7 @@ TABLES = (
     "intake_errors", "attention_requests", "attention_wait_links", "decision_reminders",
     "ask_recheck_acknowledgments", "notification_preferences", "notification_log",
     "watched_fyi_preferences", "watched_fyi_receipts",
-    "wake_subscriptions", "wake_log", "goal_idle_offers", "goal_wake_receipts",
+    "wake_subscriptions", "wake_log", "goal_idle_offers", "goal_wake_receipts", "external_wake_reports",
     "knowledge_areas", "knowledge_entries", "knowledge_stages", "knowledge_maintenance_assignments",
     "agent_api_usage", "ticket_attachments", "ticket_attachment_bytes",
     "dri_postboards", "dri_postboard_revisions", "knowledge_publications", "knowledge_publication_files",
@@ -104,6 +104,8 @@ def copy_snapshot(source, tables, settings, connection):
         destination.execute(BYTE_SCHEMA)
     if "external_agent_enrollments" in tables:
         destination.execute(external_agents.SCHEMA)
+    if "external_wake_reports" in tables:
+        destination.execute(wake_reports.SCHEMA)
     counts = {}
     for table in TABLES:
         if table in tables:

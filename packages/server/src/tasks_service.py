@@ -79,6 +79,7 @@ from taskboard_server.login import BrowserLogin, external_issuer
 from taskboard_server.migrate import postgres_engine, prepare_and_upgrade, sqlite_engine
 from taskboard_server.paths import CHECKOUT, DIST, PACKAGE
 from taskboard_server import external_agents, local_dri, personal_agents, personal_codex, project_admin, project_links, raft_channels, reports_presence
+from taskboard_server import wake_reports
 FRONTEND_BUILD_META = re.compile(rb'<meta name="tasks-frontend-build" content="([0-9a-f]{64})">')
 # Some Linux systems expose the host's localtime file alongside IANA zones.
 TIME_ZONE_NAMES = available_timezones() - {"localtime"}
@@ -904,6 +905,7 @@ def create_app(
             pilot_db = tasks_storage.Postgres(postgres_dsn) if postgres_dsn else connect(path)
             with closing(pilot_db), tasks_storage.write(pilot_db):
                 pilot_db.execute(external_agents.SCHEMA)
+                pilot_db.execute(wake_reports.SCHEMA)
         if attachment_storage is not None:
             attachment_db = tasks_storage.Postgres(postgres_dsn) if postgres_dsn else connect(path)
             with closing(attachment_db), tasks_storage.write(attachment_db):
@@ -5887,6 +5889,8 @@ def create_app(
     if external_agent_pilot:
         from tasks_raft import invoke_action
 
+        wake_report_scope = {"my-next", wake_reports.ACTION}
+
         def external_now():
             return datetime.fromisoformat(ledger.timestamp()).astimezone(timezone.utc)
 
@@ -5913,6 +5917,8 @@ def create_app(
                 not isinstance(action, str) or action not in external_agents.ACTION_FIELDS for action in actions
             ) or len(set(actions)) != len(actions):
                 raise RequestError("Provide a printable name and distinct pilot actions.")
+            if wake_reports.ACTION in actions and not wake_report_scope <= set(actions):
+                raise RequestError("Wake reports require signed Inbox access.")
             admit_ring1 = data.get("ring1", False)
             if type(admit_ring1) is not bool:
                 raise RequestError("Use a boolean Ring 1 enrollment confirmation.")
@@ -5966,6 +5972,38 @@ def create_app(
                              record_type="external-agent", record_id=str(identifier), at=ledger.timestamp())
             return {"revoked": True}
 
+        def external_work(connection, owner, project, states):
+            board = query(connection)
+            for state in states:
+                items = board.tasks(
+                    state=state, dri=owner, project=project, limit=1, priority_order=state == "ready",
+                    hide_requests=True, exclude_goals=True, exclude_recurring=True,
+                )["items"]
+                if items:
+                    return {"kind": state, **items[0]}
+            return None
+
+        def report_external_wake(owner, project, data):
+            try:
+                report = wake_reports.observation(data, integer(data["source_event"], "Ready source event"))
+            except ValueError as error:
+                raise RequestError(str(error)) from error
+            with tasks_storage.write(db()) as connection:
+                require_visible_project(connection, project)
+                number = task_number(data["id"])
+                task = ledger.find_task(connection, number)
+                if (task is None or task["dri"] != owner or projects.row_project(task) != project
+                        or projects.row_reference(task) != report["ticket"]):
+                    raise NotFound()
+                head = external_work(connection, owner, project, ("ready",))
+                current = bool(head and head["id"] == number and head["event_id"] == report["source_event"]
+                               and task["state"] == "ready" and task["event_id"] == report["source_event"])
+                try:
+                    wake_reports.record(connection, owner, report, current, task["at"], external_now())
+                except wake_reports.Conflict as error:
+                    raise RequestError(str(error), 409) from error
+            return {"report": {"recipient": owner, **report}}
+
         @app.route("/api/v1/external-agents/actions/<name>", methods=("GET", "POST"))
         def external_agent_action(name):
             scheme, _, bearer = request.headers.get("Authorization", "").partition(" ")
@@ -6000,20 +6038,19 @@ def create_app(
                     raise RequestError("The external agent pilot supports Start and Done.", 403)
                 if action == "my-next":
                     work = None
-                    if "advance-task" in granted:
+                    if "advance-task" in granted or wake_reports.ACTION in granted:
+                        states = ("ready", "in_progress") if "advance-task" in granted else ("ready",)
                         with tasks_storage.read(db()) as connection:
                             require_visible_project(connection, project)
-                            board = query(connection)
-                            for state in ("ready", "in_progress"):
-                                items = board.tasks(
-                                    state=state, dri=grant["principal"], project=project, limit=1,
-                                    priority_order=state == "ready", hide_requests=True,
-                                    exclude_goals=True, exclude_recurring=True,
-                                )["items"]
-                                if items:
-                                    work = inbox_work_result({"kind": state, **items[0]})
-                                    break
+                            item = external_work(connection, grant["principal"], project, states)
+                            work = inbox_work_result(item)
+                            if item and item["kind"] == "ready" and wake_reports.ACTION in granted:
+                                work["source_event"] = item["event_id"]
                     return {"work": work}
+                if action == wake_reports.ACTION:
+                    if not wake_report_scope <= set(granted):
+                        raise RequestError("Wake reports require signed Inbox access.", 403)
+                    return report_external_wake(grant["principal"], project, data)
                 if action == "my-queue":
                     data["project"] = project
                 if action == "context":

@@ -8,9 +8,11 @@ from tempfile import TemporaryDirectory
 from time import time
 from urllib.parse import parse_qs, urlencode, urlsplit
 import unittest
+from unittest.mock import patch
 
 from flask import redirect, request, session
 
+from taskboard_server import wake_reports
 from taskboard_server.login import LoginProvider, LoginRejected, VerifiedLogin
 from tasks_core import create_task_record
 import tasks_projects
@@ -158,6 +160,121 @@ class LoginProviderTest(unittest.TestCase):
                          [("done", receipt["principal"]), ("start", receipt["principal"])])
         self.call(agent, "/api/v1/raft/context", 401, headers=headers)
         self.call(agent, "/api/v1/session", 401, headers=headers)
+
+    def test_external_wake_reports_preserve_signed_pickup_and_enrolled_scope(self):
+        path = "/api/v1/external-agents"
+        app = self.board(external_agent_pilot=True, external_agent_manager=self.manager)
+        manager, agent = app.test_client(), app.test_client()
+        self.login(manager, "manager")
+        actions = ["my-next", "task", "advance-task", wake_reports.ACTION]
+        clock = "2030-04-01T16:00:00Z"
+
+        def enroll(name, granted, status=201):
+            registration = self.call(manager, path, status, method="POST", json={
+                "project": "T", "name": name, "actions": granted,
+            }).json
+            if status == 201:
+                session = self.call(agent, path + "/claim", method="POST",
+                                    json={"claim": registration["claim"]}).json
+                return registration, {"Authorization": "Bearer " + session["token"]}
+            return registration
+
+        def call_action(name, headers, body=None, status=200):
+            return self.call(agent, f"{path}/actions/{name}", status, headers=headers,
+                             method="GET" if body is None else "POST",
+                             **({} if body is None else {"json": body})).json
+
+        with patch("tasks_core.timestamp", side_effect=lambda: clock):
+            enroll("Missing cue grant", [wake_reports.ACTION], status=400)
+            runner, headers = enroll("Fictional Omnigent", actions)
+            peer, peer_headers = enroll("Report-only agent", ["my-next", wake_reports.ACTION])
+            reader, reader_headers = enroll("Without report grant", ["my-next", "advance-task"])
+            with closing(open_sqlite(self.database)) as connection, write(connection):
+                for title, registration in (("Read original evidence", runner), ("Read own evidence", peer),
+                                            ("No wake-report grant", reader), ("Read another sample", runner)):
+                    create_task_record(connection, Namespace(
+                        title=title, dri=registration["principal"], brief="", project="T", by=self.manager,
+                        step="Read the sample.",
+                    ), [])
+            cue = call_action("my-next", headers)["work"]
+            self.assertEqual((cue["key"], cue["kind"]), ("T-1", "ready"))
+            self.assertNotIn("source_event", call_action("my-next", reader_headers)["work"])
+            observation = {
+                "schema": wake_reports.VERSION, "project": "T", "id": cue["key"], "source_event": cue["source_event"],
+                "attempt_id": "00000000-0000-4000-8000-000000000001", "carrier": "omnigent",
+                "observed_at": clock, "outcome": "accepted",
+            }
+
+            def report(fields=None, *, as_agent=headers, status=200):
+                return call_action(wake_reports.ACTION, as_agent, {**observation, **(fields or {})}, status)
+
+            report(as_agent={}, status=401)
+            report(as_agent=peer_headers, status=404)
+            report(as_agent=reader_headers, status=403)
+            report({"project": "LAB"}, status=403)
+            report({"schema": "taskboard-wake-report/v2"}, status=400)
+            report({"carrier": "https://provider.example.test/internal"}, status=400)
+            report({"outcome": "rejected", "reason": "Raw diagnostics must never be stored."}, status=400)
+            non_head = self.call(agent, path + "/actions/task?id=T-4", headers=headers).json["task"]
+            report({"id": non_head["key"], "source_event": non_head["event_id"]}, status=409)
+            report({"observed_at": "2030-04-01T15:59:59Z"}, status=409)
+            report({"observed_at": "2030-04-01T16:01:00Z"}, status=409)
+
+            accepted = report()["report"]
+            self.assertEqual((accepted["recipient"], accepted["source_event"], accepted["outcome"]),
+                             (runner["principal"], cue["source_event"], "accepted"))
+            self.assertEqual(report()["report"], accepted)
+            report({"outcome": "unknown"}, status=409)
+            report({"outcome": "delivered", "carrier": "another-adapter"}, status=409)
+            clock = "2030-04-01T16:00:08Z"
+            delivered = {"outcome": "delivered", "observed_at": clock}
+            self.assertEqual(report(delivered)["report"]["outcome"], "delivered")
+            self.assertEqual(report()["report"], accepted)
+            clock = "2030-04-01T16:00:09Z"
+            unknown = {
+                "attempt_id": "00000000-0000-4000-8000-000000000002", "outcome": "unknown",
+                "reason": "carrier-timeout", "carrier": "custom-adapter", "observed_at": clock,
+            }
+            self.assertEqual(report(unknown)["report"]["reason"], "carrier-timeout")
+            clock = "2030-04-01T16:06:00Z"
+            self.assertEqual(report()["report"], accepted)
+            report({"attempt_id": "00000000-0000-4000-8000-000000000003"}, status=409)
+
+            self.assertEqual(call_action("my-next", headers)["work"], cue)
+            activity = self.call(manager, "/api/v1/tasks/T-1/activity").json["items"]
+            self.assertTrue(all(entry["action"] != "start" for entry in activity))
+            with closing(open_sqlite(self.database)) as connection:
+                latest = wake_reports.latest(connection, "T", runner["principal"])
+                self.assertEqual(latest["acceptance"]["outcome"], "unknown")
+                self.assertIsNone(latest["delivery"])
+                first = connection.execute("SELECT * FROM external_wake_reports WHERE attempt_id = ?",
+                                           (observation["attempt_id"],)).fetchone()
+                self.assertEqual((first["acceptance"], first["delivery_at"]),
+                                 ("accepted", "2030-04-01T16:00:08.000000Z"))
+                self.assertIsNone(wake_reports.latest(connection, "LAB", runner["principal"]))
+                self.assertIsNone(wake_reports.latest(connection, "T", peer["principal"]))
+                self.assertIsNone(connection.execute("SELECT 1 FROM wake_log").fetchone())
+
+            peer_cue = call_action("my-next", peer_headers)["work"]
+            self.assertEqual((peer_cue["key"], peer_cue["kind"]), ("T-2", "ready"))
+            peer_reported = report({
+                "id": peer_cue["key"], "source_event": peer_cue["source_event"], "observed_at": clock,
+            }, as_agent=peer_headers)["report"]
+            self.assertEqual((peer_reported["recipient"], peer_reported["source_event"]),
+                             (peer["principal"], peer_cue["source_event"]))
+            call_action("advance-task", peer_headers, {
+                "id": peer_cue["key"], "transition": "start", "note": "Reporting grants no ticket writes.",
+            }, status=403)
+            self.assertEqual(call_action("my-next", peer_headers)["work"], peer_cue)
+
+            call_action("advance-task", headers, {"id": "T-1", "transition": "start", "note": "Take signed Inbox work."})
+            self.assertEqual(report()["report"], accepted)
+            report({**unknown, "outcome": "delivered", "reason": None}, status=409)
+            report({"attempt_id": "00000000-0000-4000-8000-000000000003", "observed_at": clock}, status=409)
+            activity = self.call(manager, "/api/v1/tasks/T-1/activity").json["items"]
+            self.assertEqual((activity[0]["action"], activity[0]["actor"]), ("start", runner["principal"]))
+            self.call(manager, path + "/" + runner["id"], method="DELETE")
+            report(status=401)
 
     def test_issuer_and_subject_boundaries(self):
         client = self.app.test_client()

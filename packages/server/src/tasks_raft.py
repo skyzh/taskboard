@@ -429,6 +429,11 @@ def _invoke(name, action, dispatch):
 
 def invoke_action(name, dispatch):
     """Use the ordinary action contract with an independently authorized ingress."""
+    from taskboard_server import wake_reports
+
+    if name == wake_reports.ACTION:
+        return _invoke(name, _Action("POST", "Report an external wake observation.",
+                                     wake_reports.REQUIRED, wake_reports.OPTIONAL), dispatch)
     return _invoke(name, _ACTIONS[name], dispatch)
 
 

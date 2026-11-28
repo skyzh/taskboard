@@ -6,6 +6,8 @@ import re
 from secrets import token_urlsafe
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
+from taskboard_server import wake_reports
+
 CLAIM_PREFIX = "tbea_claim_"
 BEARER_PREFIX = "tbea_"
 SUFFIX = re.compile(r"[A-Za-z0-9_-]{43}")
@@ -17,6 +19,7 @@ ACTION_FIELDS = {
     "my-queue": frozenset({"project", "state", "before", "limit"}),
     "task": frozenset({"id"}),
     "advance-task": frozenset({"id", "transition", "note", "details", "force_text"}),
+    wake_reports.ACTION: frozenset(wake_reports.REQUIRED | wake_reports.OPTIONAL),
 }
 SCHEMA = """
     CREATE TABLE IF NOT EXISTS external_agent_enrollments (
