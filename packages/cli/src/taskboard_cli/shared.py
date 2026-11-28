@@ -476,6 +476,9 @@ def completion_queue(cue, project):
             return {"work": work, "standing_goals": [], "goal_review_prompt": cue.get("goal_review_prompt")}
         case {"kind": "ask_recheck", "ask_recheck": {"ticket": str()} as ask}:
             return {"work": None, "standing_goals": [], "ask_recheck": ask}
+        case {"kind": "goal_occurrences", "goal_occurrences": list() as occurrences,
+              "instruction": str(instruction)}:
+            return {"work": None, "standing_goals": [], "goal_occurrences": occurrences, "next_step": instruction}
         case {"kind": "standing_goal", "goal": {"ticket": str(), "summary": str()} as goal,
               "instruction": str(instruction)}:
             return {"work": None, "standing_goals": [goal], "next_step": instruction,
@@ -497,6 +500,8 @@ def completion_guidance(board, reference, fallback=None, *, cue=None):
             result = board.invoke("my-next", {"project": project})
         if result.get("unavailable"):
             return unavailable
+        if occurrences := result.get("goal_occurrences"):
+            return "\n".join((*goal_occurrence_lines(occurrences), result["next_step"]))
         prompt = result.get("goal_review_prompt")
         goal_guidance = f"\nGoal review · {prompt['prompt']}" if prompt else ""
         if work := result["work"]:
@@ -581,7 +586,8 @@ def shared_next(board, url, filters, actor, *, refresh_guidance=False):
     goal_lines = queue_goal_lines(result, url)
     if occurrences := result.get("goal_occurrences"):
         goal_lines.extend(goal_occurrence_lines(occurrences))
-        goal_lines.append("  Record an outcome with goal-complete using the exact occurrence key.")
+        goal_lines.extend(inbox_guidance_lines(result))
+        return with_guidance("\n".join(goal_lines), result["next_step"])
     for candidate in result.get("wait_review", ()):
         ticket = candidate["key"]
         goal_lines.append(f"{ticket} · Review waiting work · {candidate['title']}")

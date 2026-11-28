@@ -376,6 +376,8 @@ class AgentGuidance:
         if result.get("next_cursor") is not None:
             return self["pagination"]
         if name == "my-next":
+            if occurrences := result.get("goal_occurrences"):
+                return goals.occurrence_guidance(result, occurrences)
             if result["work"]:
                 work = result["work"]
                 kind = work["kind"]

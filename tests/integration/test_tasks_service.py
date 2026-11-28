@@ -2069,11 +2069,12 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.action(avery, "my-queue", query_string={"state": "ready"})["items"], [])
         empty = self.action(avery, "my-next")
         self.assertIsNone(empty["work"])
-        self.assertEqual(empty["next_step"], STANDING_EXPLORATION)
+        self.assertIn("with `goal-complete`", empty["next_step"])
         for project, reference in (("T", "T-1"), ("COURSE", "COURSE-1")):
             next_item = self.shared_cli(avery, "next", "--project", project)[1]
             self.assertIn(f"{reference} · Standing goal", next_item)
-            self.assertIn(STANDING_EXPLORATION, next_item)
+            self.assertIn(f"{reference} · Explore · explore:{reference}:", next_item)
+            self.assertNotIn(STANDING_EXPLORATION, next_item)
         self.action(avery, "advance-task", {
             "id": "T-1", "transition": "start", "note": "Inspect the current queue.",
         })
@@ -6244,8 +6245,9 @@ class TasksServiceTest(unittest.TestCase):
                 self.assertIn("The next item could not be loaded.", output)
                 self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "done")
             else:
-                self.assertIn(f"Standing goal {goal} · Improve handoffs.\n", output)
-                self.assertIn(f"./tasks --shared start {goal}", output)
+                self.assertIn(f"{goal} · Explore · explore:{goal}:", output)
+                self.assertIn("with `goal-complete`", output)
+                self.assertNotIn(f"./tasks --shared start {goal}", output)
                 self.assertIn("add the spontaneous tag.", output)
 
         self.assertEqual(self.shared_cli(owner, "start", goal, "Check one real handoff.")[0], 0)
@@ -6648,6 +6650,16 @@ class TasksServiceTest(unittest.TestCase):
             prompts = self.action(owner, "field-guidance")["prompts"]
             self.assertIn("including after an unrelated", prompts["end-task"]["prompt"])
             self.assertIn("Record the stop reason and what lets you resume.", prompts["end-task"]["prompt"])
+            _, inbox, _ = self.shared_cli(owner, "next", "--project", "T")
+            self.assertIn(continued["key"], inbox)
+            self.assertIn(scheduled["key"], inbox)
+            self.assertIn("with `goal-complete`", inbox)
+            self.assertIn("before ending any turn, including after an unrelated interruption", inbox)
+            self.assertNotIn("update --standing-pass", inbox)
+            self.assertNotIn("counts as today's Pacific daily review", inbox)
+            browser_inbox = self.call(owner, "/api/v1/notifications/work", query_string={"project": "T"}).json
+            self.assertIn("with `goal-complete`", browser_inbox["standing_goal_guidance"])
+            self.assertNotIn("update --standing-pass", browser_inbox["standing_goal_guidance"])
             self.action(owner, "advance-task", {
                 "id": ticket, "transition": "start", "note": "Take the second sample.",
             })

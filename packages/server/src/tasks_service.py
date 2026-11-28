@@ -4149,6 +4149,7 @@ def create_app(
             }
             if occurrences := inbox_goal_occurrences(connection, owner, project, items[0] if items else None):
                 result["goal_occurrences"] = occurrences
+                result["standing_goal_guidance"] = goals.occurrence_guidance(goal_context, occurrences)
             if actor["kind"] == "agent":
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, items[0] if items else None, standing, owner)
                 result.update(offered_work_prompt(connection, items[0] if items else None))
@@ -5162,6 +5163,12 @@ def create_app(
                 work, ask = inbox_selection(connection, owner, project, wake_at=inbox_wake_instant())
                 if ask:
                     return {"project": project, "kind": "ask_recheck", "ask_recheck": ask}
+                if occurrences := inbox_goal_occurrences(connection, owner, project, work):
+                    goal_context = goals.queue_context(connection, owner, project, principal=actor_key())
+                    return {
+                        "project": project, "kind": "goal_occurrences", "goal_occurrences": occurrences,
+                        "instruction": goals.occurrence_guidance(goal_context, occurrences),
+                    }
                 if work:
                     return {"project": project, "kind": "work", "work": inbox_work_result(work),
                             **offered_goal_prompt(connection, work, [])}
