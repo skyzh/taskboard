@@ -1831,8 +1831,8 @@ class TasksServiceTest(unittest.TestCase):
         blake, blake_key = self.login(app, "Blake")
         manager, manager_key = self.login(app, "Sam")
         other, other_key = self.login(app, "Quinn")
-        self.cli("register-project", "T", "Tasks Board", "--dri", manager_key)
-        self.cli("register-project", "COURSE", "Course", "--dri", other_key)
+        self.cli_in_process("register-project", "T", "Tasks Board", "--dri", manager_key)
+        self.cli_in_process("register-project", "COURSE", "Course", "--dri", other_key)
         path = "/api/v1/notifications/log"
 
         def sender(kind, *args, publish=True):
@@ -1862,8 +1862,8 @@ class TasksServiceTest(unittest.TestCase):
 
         sender("ready", "init")
         sender("merge", "init")
-        self.cli("add", "Main and merge fixture", "--dri", avery_key, "--step", "Review.")
-        self.cli("add", "Course queue fixture", "--dri", avery_key, "--step", "Review.", "--project", "COURSE")
+        self.cli_in_process("add", "Main and merge fixture", "--dri", avery_key, "--step", "Review.")
+        self.cli_in_process("add", "Course queue fixture", "--dri", avery_key, "--step", "Review.", "--project", "COURSE")
         self.assertEqual(log(manager), [])
         scanned = sender("ready", "scan")
         self.assertEqual(scanned["project_log"], {"status": "synced", "changed": 2})
@@ -1939,7 +1939,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIsNone(records[0]["read_at"])
         self.assertNotIn("synthetic-merge-message", json.dumps(records))
 
-        self.cli("add", "Legacy read-only sender", "--dri", avery_key, "--step", "Review.")
+        self.cli_in_process("add", "Legacy read-only sender", "--dri", avery_key, "--step", "Review.")
         self.assertNotIn("project_log", sender("ready", "scan", publish=False))
         self.assertEqual(log(avery, state="pending", kind="ready"), [])
         sender("ready", "pending")
@@ -1967,7 +1967,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(conflicting_send["project_log"]["status"], "partial")
         self.assertEqual(conflicting_send["project_log"]["conflicts"][0]["source_event"], int(next_event))
 
-        self.cli("add", "Independent merge", "--dri", avery_key, "--step", "Review.")
+        self.cli_in_process("add", "Independent merge", "--dri", avery_key, "--step", "Review.")
         merge("T-4", "e" * 40, "f" * 40)
         mixed = sender("merge", "pending")
         self.assertEqual([item["task_id"] for item in mixed["pending"]], ["T-4"])
@@ -11495,13 +11495,13 @@ class TasksServiceTest(unittest.TestCase):
             ("Morgan", "2026-11-22T09:00:00Z"),
         )
         for number, (owner, at) in enumerate(fixtures, start=1):
-            self.cli("add", f"Sample {number}", "--step", "Check the sample.", "--dri", owner)
-            self.cli("start", f"T-{number}", "Check the sample.", "--by", owner)
-            self.cli("done", f"T-{number}", "Verified the sample.", "--by", owner)
-        self.cli("register-project", "COURSE", "Fictional course", "--dri", "Avery")
-        self.cli("add", "Course sample", "--step", "Review.", "--dri", "Avery", "--project", "COURSE")
-        self.cli("start", "COURSE-1", "Review.", "--by", "Avery")
-        self.cli("done", "COURSE-1", "Reviewed.", "--by", "Avery")
+            self.cli_in_process("add", f"Sample {number}", "--step", "Check the sample.", "--dri", owner)
+            self.cli_in_process("start", f"T-{number}", "Check the sample.", "--by", owner)
+            self.cli_in_process("done", f"T-{number}", "Verified the sample.", "--by", owner)
+        self.cli_in_process("register-project", "COURSE", "Fictional course", "--dri", "Avery")
+        self.cli_in_process("add", "Course sample", "--step", "Review.", "--dri", "Avery", "--project", "COURSE")
+        self.cli_in_process("start", "COURSE-1", "Review.", "--by", "Avery")
+        self.cli_in_process("done", "COURSE-1", "Reviewed.", "--by", "Avery")
         with closing(sqlite3.connect(self.database)) as conn, conn:
             conn.executemany(
                 "UPDATE events SET at = ? WHERE task_id = ? AND action = 'done'",
@@ -12382,17 +12382,17 @@ class TasksServiceTest(unittest.TestCase):
         sam, sam_id = self.login(app, "Sam")
         quinn, _ = self.login(app, "Quinn")
         origin = {"Origin": ORIGIN}
-        self.cli("register-project", "T", "Example board", "--dri", avery_id)
-        self.cli("register-project", "OPS", "Example operations", "--dri", avery_id)
+        self.cli_in_process("register-project", "T", "Example board", "--dri", avery_id)
+        self.cli_in_process("register-project", "OPS", "Example operations", "--dri", avery_id)
         local = self.call(sam, "/api/v1/personal-agents/local-dris", method="POST", headers=origin,
                           json={"name": "Avery", "project": "OPS"}).json["local_dri"]["id"]
 
         def add(title, owner, project="T"):
             assignee = ("--dri", owner) if owner else ()
-            ticket = self.cli("add", title, "--project", project,
-                              "--step", "Check the sample.", *assignee).split()[0]
+            ticket = self.cli_in_process("add", title, "--project", project,
+                                         "--step", "Check the sample.", *assignee).split()[0]
             if owner:
-                self.cli("start", ticket, "Check the sample.", "--by", owner)
+                self.cli_in_process("start", ticket, "Check the sample.", "--by", owner)
             return ticket
 
         transfer = add("Watched ticket to transfer", avery_id)
