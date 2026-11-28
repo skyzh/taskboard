@@ -584,10 +584,9 @@ def shared_next(board, url, filters, actor, *, refresh_guidance=False):
         command_line = "`./tasks --shared list --status ready --unassigned" + project_flag + "`."
         return f"No ready tasks in your queue ({actor['name']}).\nNext: Check shared Ready work with {command_line}"
     goal_lines = queue_goal_lines(result, url)
-    if occurrences := result.get("goal_occurrences"):
+    occurrences = result.get("goal_occurrences")
+    if occurrences:
         goal_lines.extend(goal_occurrence_lines(occurrences))
-        goal_lines.extend(inbox_guidance_lines(result))
-        return with_guidance("\n".join(goal_lines), result["next_step"])
     for candidate in result.get("wait_review", ()):
         ticket = candidate["key"]
         goal_lines.append(f"{ticket} · Review waiting work · {candidate['title']}")
@@ -600,6 +599,8 @@ def shared_next(board, url, filters, actor, *, refresh_guidance=False):
             f'--review-wait {candidate["wait_event"]}`.'
         )
     goal_lines.extend(inbox_guidance_lines(result))
+    if occurrences:
+        return with_guidance("\n".join(goal_lines), result["next_step"])
     if work := result["work"]:
         details = task_details(board, url, work["key"], guidance=result.get("next_step"), context_lines=goal_lines)
         label = NEXT_LABELS.get(work["kind"])

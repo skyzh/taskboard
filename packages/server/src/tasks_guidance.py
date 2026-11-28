@@ -158,6 +158,7 @@ WORKER_HANDOFF = "worker-handoff"
 NEXT_ACTION = "next-action"
 
 _LEGACY_PROMPT_KEYS = {
+    GOAL_EXPLORE: "standing-exploration",
     READY_PICKUP: "ready-review",
     REVIEW_HANDOFF: "next-review",
     WORKER_HANDOFF: "next-report",

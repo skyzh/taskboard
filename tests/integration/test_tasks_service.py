@@ -2952,7 +2952,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIsNone(fallback["work"])
         self.assertEqual(fallback["standing_goals"], [{**standing, "ticket": standing_ticket}])
         self.assertEqual(fallback["dated_goals"], dates)
-        self.assertIn("start this goal ticket for one focused pass", fallback["next_step"])
+        self.assertIn("with `goal-complete`", fallback["next_step"])
         fallback_output = self.shared_cli(avery, "next", "--project", "T")[1]
         self.assertIn("Improve the work queue", fallback_output)
         self.assertIn("Check the import", fallback_output)
@@ -6451,7 +6451,9 @@ class TasksServiceTest(unittest.TestCase):
                          "Check any other project queues and assigned reviews before ending the turn.")
 
         self.action(avery, "save-goal", {"kind": "standing", "summary": "Explore sample work."})
-        self.assertIn("Next: Explore a sample and tag each new finding.", self.shared_cli(avery, "next")[1])
+        next_output = self.shared_cli(avery, "next")[1]
+        self.assertIn("Goal exploration · Explore a sample and tag each new finding.", next_output)
+        self.assertIn("Next: Record the offered Explore or Review with `goal-complete`", next_output)
         output = self.shared_cli(avery, "show", "T-1")[1]
         self.assertIn("Explore a sample and tag each new finding.", output)
         self.assertIn("Next: Use the goal ticket to record your plan.", output)

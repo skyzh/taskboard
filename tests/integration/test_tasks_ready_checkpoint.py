@@ -1682,8 +1682,8 @@ class ReadyCheckpointTest(unittest.TestCase):
         self.assertIn("Work ready at wake", shared("next"))
         shared("start", "T-2", "Read the queued sample.")
         completed = shared("done", "T-2", "Read the sample.")
-        self.assertIn('When eligible, run `./tasks --shared start T-1 ', completed)
-        self.assertIn("If your Inbox is clear and you have not explored this turn", shared("next"))
+        self.assertIn("T-1 · Explore · explore:T-1:", completed)
+        self.assertIn("with `goal-complete`", shared("next"))
 
         shared("start", "T-1", "Check handoff details on the sample.")
         first_park = shared("park", "T-1", "Recorded the handoff check.")
@@ -1694,14 +1694,14 @@ class ReadyCheckpointTest(unittest.TestCase):
         self.assertNotIn("start this goal ticket for one focused pass", next_item)
         shared("start", "T-3", "Verify the new receipt.")
         shared("done", "T-3", "Verified the receipt.")
-        self.assertIn("If your Inbox is clear and you have not explored this turn", shared("next"))
+        self.assertIn("with `goal-complete`", shared("next"))
 
         self.assertIn(
             "Recheck Inbox for actionable work. If you just recorded a standing-goal pass, end exploration for this turn.",
             first_park,
         )
         self.assertEqual(self.avery.invoke("task", {"id": "T-1"})["task"]["state"], "parked")
-        self.assertIn("If your Inbox is clear and you have not explored this turn", shared("next"))
+        self.assertIn("with `goal-complete`", shared("next"))
 
     @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_measurement_records_first_idle_and_empty_without_changing_wake_timing(self):

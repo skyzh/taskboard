@@ -120,7 +120,7 @@ class GoalWakeReplay(unittest.TestCase):
                                       query_string={"scope": "all"}).json
             self.assertEqual(inbox["items"], [])
             self.assertEqual(inbox["standing_goal_guidance"], next_item["next_step"])
-            self.assertIn("one focused pass", next_item["next_step"])
+            self.assertIn("with `goal-complete`", next_item["next_step"])
             self.transition(standing, "start", "Check the fictional handoff.")
         with patch("tasks_core.timestamp", return_value="2026-11-21T16:40:00Z"):
             parked = self.transition(standing, "park", "The same ticket retained the handoff evidence.")
@@ -142,7 +142,7 @@ class GoalWakeReplay(unittest.TestCase):
         standing = goal["ticket"]
         self.assertTrue(goal["keep_exploring"])
         self.assertEqual(goal["stopping_criterion"], "")
-        self.assertIn("update --standing-pass", action(client, "my-next")["next_step"])
+        self.assertIn("with `goal-complete`", action(client, "my-next")["next_step"])
         self.service.cli("register-project", "COURSE", "Fixture course", "--dri", self.owner)
         action(client, "save-goal", {
             "kind": "dated", "summary": "Review the fictional milestone", "deadline": "2026-12-01",
@@ -174,7 +174,7 @@ class GoalWakeReplay(unittest.TestCase):
             record("Tried to park without a criterion.", met=True, status=409)
             inbox = action(client, "my-next", query_string={"scope": "all"})
             self.assertEqual(inbox["work"]["key"], standing)
-            self.assertIn("update --standing-pass", inbox["next_step"])
+            self.assertIn("with `goal-complete`", inbox["next_step"])
             action(client, "save-goal", {**setup, "stopping_criterion": "Two sample handoffs have useful source links"})
             record("The stopping criterion is met.", met=True, status=409)
             action(client, "set-goal-review-time", {"id": standing, "time": "09:00"})
