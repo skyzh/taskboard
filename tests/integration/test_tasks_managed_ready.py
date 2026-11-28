@@ -26,6 +26,7 @@ from taskboard_server.ready_wake_operator import main as send_wake
 from tasks_core import import_notification_on, timestamp
 from tasks_goal_wake_receipts import receipt as goal_receipt
 from tasks_notification_log import WAKE_SCHEMA
+from tasks_release_info import release_info
 from tasks_ring1 import mark_private
 from tasks_storage import open_sqlite, write
 from tasks_wake_subscriptions import GOAL_OCCURRENCES, OWNED_READY
@@ -375,6 +376,13 @@ class ManagedSenderTest(unittest.TestCase):
         self.provider.on_event = lambda body: (429, {"error": "fixture_limit"}, {"Retry-After": "120"})
 
         def run_service(stop):
+            metadata_reads = 0
+
+            def read_release(path):
+                nonlocal metadata_reads
+                metadata_reads += 1
+                return {"commit": None} if board_wide and metadata_reads == 1 else release_info(path)
+
             def transport(request):
                 route = urlsplit(request.full_url).path.rsplit("/", 1)[-1]
                 with lock:
@@ -394,7 +402,7 @@ class ManagedSenderTest(unittest.TestCase):
                 side_effect=lambda *args, **kwargs: Mock(eligible=Mock(return_value=True)),
             ), patch("taskboard_server.managed_ready_service._POLL_SECONDS", .02), patch(
                 "taskboard_server.managed_ready_service._observed_at", side_effect=self.fixture_timestamp,
-            ):
+            ), patch("taskboard_server.managed_ready_service.release_info", side_effect=read_release):
                 fd = os.open(secret, os.O_RDONLY)
                 inherited = [replace(scope, secret=None) for scope in scopes]
                 credential = _read_slot_credential(inherited, ("fixture-client", str(fd)))

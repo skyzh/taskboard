@@ -126,7 +126,7 @@ def _worker_observation(db, owner, enrollment, build, observed_state):
                                   state=observed_state, observed_at=_observed_at())
 
 
-def _run_scope(ledger, server, slug, enrolled, stop, report, transport, slot_secret, build):
+def _run_scope(ledger, server, slug, enrolled, stop, report, transport, slot_secret, read_build):
     identity = Identity(server, enrolled.recipient, "agent", None, None, None)
     scope = SenderScope(ledger, identity, enrolled.client, enrolled.project, enrolled.board_wide)
     try:
@@ -174,7 +174,7 @@ def _run_scope(ledger, server, slug, enrolled, stop, report, transport, slot_sec
                         readback_due = monotonic() >= next_readback or outcome in _INACTIVE
                         if enrollment is not None and readback_due and outcome != "enrollment_changed":
                             observed_state = "stopped" if outcome in _NON_RUNNING else "running"
-                            _worker_observation(db, saved["owner"], enrollment, build, observed_state)
+                            _worker_observation(db, saved["owner"], enrollment, read_build(), observed_state)
                             next_readback = monotonic() + 30
                         report(outcome, **_progress(state))
                     except _TRANSIENT:
@@ -221,7 +221,15 @@ def _read_slot_credential(scopes, credential):
 
 def serve(path, release, ledger, server, slug, scopes, stop, slot_secret, *, transport=http_json):
     manifest = sha256((release / "SHA256SUMS").read_bytes()).hexdigest()
-    build = release_info(release)["commit"]
+    build = None
+
+    def read_build():
+        # A normal checked deployment writes the release receipt after worker health passes.
+        nonlocal build
+        if build is None:
+            build = release_info(release)["commit"]
+        return build
+
     progress = {scope.key: {"status": "starting"} for scope in scopes}
     lock = Lock()
 
@@ -237,7 +245,7 @@ def serve(path, release, ledger, server, slug, scopes, stop, slot_secret, *, tra
             for row in rows:
                 row["scope"] = "board"
         _write_status(path, {
-            "pid": os.getpid(), "manifest": manifest, "commit": build,
+            "pid": os.getpid(), "manifest": manifest, "commit": read_build(),
             "enrolled": len(rows), "active": sum(row["status"] not in _NON_RUNNING for row in rows),
             "scopes": rows,
         })
@@ -247,7 +255,7 @@ def serve(path, release, ledger, server, slug, scopes, stop, slot_secret, *, tra
         for scope in scopes:
             pool.submit(_run_scope, ledger, server, slug, scope, stop,
                         lambda status, scope=scope, **details: report(scope, status, **details),
-                        transport, slot_secret, build)
+                        transport, slot_secret, read_build)
         try:
             while not stop.wait(1):
                 snapshot()
