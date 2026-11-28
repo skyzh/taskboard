@@ -49,7 +49,9 @@ def _event_document(signal: Mapping[str, object]) -> dict[str, str]:
 
     board_key = sha256(board_url.encode()).hexdigest()
     event_key = f"taskboard-ready-{board_key}-{event_id}"
-    summary = f"Taskboard ticket {task_id} is Ready in your owned queue. Ready event {event_id}. {task_url}"
+    # Raft linkifies the summary, so use the mounted document path rather than the scanner's fragment.
+    document_url = f"{board_url}/tickets/{task_id}"
+    summary = f"Taskboard ticket {task_id} is Ready in your owned queue. Ready event {event_id}. {document_url}"
     if len(summary.encode("utf-16-le")) // 2 > _MAX_SUMMARY:
         raise ValueError("The Ready ticket link exceeds Raft's summary limit.")
     return {"kind": "event", "summary": summary, "externalEventId": event_key}

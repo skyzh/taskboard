@@ -2544,7 +2544,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.launch_fixture(ready, "T", "Avery", transport), "accepted")
         request = transport.call_args.args[0]
         self.assertEqual(request.get_header("Authorization"), "Bearer fixture-agent-events-Avery")
-        self.assertIn(f"{ORIGIN}{BASE}/#task-1", json.loads(request.data)["summary"])
+        self.assertIn(f"{ORIGIN}{BASE}/tickets/T-1", json.loads(request.data)["summary"])
         accepted = notice("wake")
         self.assertEqual(accepted["acceptance"], "accepted")
         self.assertGreaterEqual(accepted["acceptance_at"], observed_time(ready["at"]))
@@ -2788,7 +2788,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.launch_fixture(ready, "COURSE", "Avery", transport), "accepted")
         first, second = (json.loads(call.args[0].data) for call in transport.call_args_list)
         self.assertEqual(first, second)
-        self.assertIn(f"{ORIGIN}{BASE}/#task-COURSE-1", second["summary"])
+        self.assertIn(f"{ORIGIN}{BASE}/tickets/COURSE-1", second["summary"])
         items = self.call(avery, "/api/v1/notifications/log", query_string={"project": "COURSE", "kind": "wake"}).json["items"]
         self.assertEqual([(item["id"], item["acceptance"]) for item in items], [(ready["event"], "accepted")])
 

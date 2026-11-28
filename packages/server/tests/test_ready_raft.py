@@ -30,9 +30,16 @@ class ReadyRaftTest(unittest.TestCase):
         self.assertEqual(request.get_header("Content-type"), "application/json")
         self.assertEqual(json.loads(request.data), {
             "kind": "event",
-            "summary": f"Taskboard ticket T-12 is Ready in your owned queue. Ready event 42. {BOARD}/#task-12",
+            "summary": f"Taskboard ticket T-12 is Ready in your owned queue. Ready event 42. {BOARD}/tickets/T-12",
             "externalEventId": key,
         })
+
+    def test_uses_the_exact_project_ticket_in_the_document_path(self):
+        transport = Mock(return_value=(202, {"status": "queued"}))
+        source = self.signal | {"task_id": "COURSE-12", "task_url": f"{BOARD}/#task-COURSE-12"}
+        send_ready_event(source, access_token=TOKEN, transport=transport)
+        summary = json.loads(transport.call_args.args[0].data)["summary"]
+        self.assertTrue(summary.endswith(f"Ready event 42. {BOARD}/tickets/COURSE-12"))
 
     def test_retry_preserves_the_whole_request_and_accepts_dedup(self):
         transport = Mock(side_effect=[TimeoutError(TOKEN), (200, {"deduped": True})])
