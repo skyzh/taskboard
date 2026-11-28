@@ -157,7 +157,10 @@ def occurrences(db, owner, project, now):
         if row["state"] == "closed" or not ring1.visible(db, row["project_prefix"], owner):
             continue
         ticket = projects.row_reference(row)
-        if row["state"] in ("parked", "ready", "in_progress") and goals.exploration_available(db, row, now):
+        deferred_until = ledger.event_context(row).get("defer_until")
+        if (row["state"] in ("parked", "ready", "in_progress")
+                and (not deferred_until or now >= datetime.fromisoformat(deferred_until))
+                and goals.exploration_available(db, row, now)):
             key = f"explore:{ticket}:{day}"
             completed = occurrence_receipt(db, number, key)
             if completed is None:

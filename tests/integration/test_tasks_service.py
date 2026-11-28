@@ -6537,6 +6537,8 @@ class TasksServiceTest(unittest.TestCase):
                 "id": ticket, "transition": "park", "note": "Two samples checked.", "standing_pass": "criterion-met",
             })
             self.assertEqual(occurrences(), [review])
+            schedules = self.action(owner, "my-goals")["review_schedules"]
+            self.assertEqual(schedules[ticket]["next_at"], "2030-04-01T16:00:00Z")
             self.assertNotEqual(complete(review, "Record the scheduled synthesis.")["event_id"], first["event_id"])
             self.assertEqual(occurrences(), [])
             self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "parked")
@@ -6546,6 +6548,44 @@ class TasksServiceTest(unittest.TestCase):
             self.assertEqual((next_explore["kind"], next_review["kind"]), ("explore", "review"))
             self.assertNotEqual(next_explore["key"], continued["key"])
             self.assertNotEqual(next_review["key"], review["key"])
+
+    def test_signed_goal_explore_honors_exact_deferral_without_delaying_review(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        ticket = "T-1"
+        day = "2030-04-01"
+        explore = f"explore:{ticket}:{day}"
+        review = f"review:{ticket}:{day}"
+        complete_explore = {"id": ticket, "occurrence_key": explore, "note": "The sample passed."}
+
+        def keys():
+            return [offer["key"] for offer in self.action(owner, "my-goal-occurrences")["items"]]
+
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.action(owner, "save-goal", {
+                "kind": "dated", "summary": "Publish the sample", "deadline": "2030-04-10",
+            })
+            self.action(owner, "set-goal-review-time", {"id": ticket, "time": "09:00"})
+            self.assertEqual(keys(), [explore, review])
+            self.call(owner, f"/api/v1/tasks/{ticket}/reminder", method="PUT", json={
+                "at": f"{day}T12:30", "time_zone": "America/Los_Angeles",
+            })
+
+        with patch("tasks_core.timestamp", return_value="2030-04-01T19:29:59Z"):
+            self.assertEqual(keys(), [review])
+            cues = self.action(owner, "my-goal-cues", query_string={"include_occurrences": "true"})
+            self.assertEqual([offer["key"] for offer in cues["occurrences"]], [review])
+            self.action(owner, "complete-goal-occurrence", complete_explore, status=409)
+            receipt = self.action(owner, "complete-goal-occurrence", {
+                "id": ticket, "occurrence_key": review, "note": "Reviewed the results.",
+            })
+            self.assertEqual(receipt["occurrence_key"], review)
+            self.assertEqual(keys(), [])
+
+        with patch("tasks_core.timestamp", return_value="2030-04-01T19:30:00Z"):
+            self.assertEqual(keys(), [explore])
+            receipt = self.action(owner, "complete-goal-occurrence", complete_explore)
+            self.assertEqual(receipt["occurrence_key"], explore)
 
     def test_signed_cli_records_goal_occurrences_and_reads_back_dated_mode(self):
         app = self.app(portal_reader=True)

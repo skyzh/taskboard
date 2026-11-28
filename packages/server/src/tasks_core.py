@@ -1031,9 +1031,16 @@ def change_task(db, args, links, *, automation=None):
                 review = db.execute("SELECT review_time FROM goal_review_times WHERE task_id = ?", (task["id"],)).fetchone()
                 if review is None:
                     raise ValueError("Set a daily Pacific goal review time before parking for the criterion.")
-                goal_pass_context.update(
-                    goal_criterion_met=True, goal_review_time=review["review_time"], goal_explore_only=True,
-                )
+                goal_pass_context.update(goal_criterion_met=True, goal_review_time=review["review_time"])
+                if goal_kind == "standing":
+                    from tasks_goal_cadence import occurrence_receipt
+
+                    day = datetime.fromisoformat(timestamp()).astimezone(goals.PACIFIC).date()
+                    key = f"explore:{projects.row_reference(task)}:{day}"
+                    if occurrence_receipt(db, task["id"], key):
+                        goal_pass_context["goal_explore_only"] = True
+                else:
+                    goal_pass_context["goal_explore_only"] = True
             else:
                 raise ValueError("Record a pass with progress, or park after the saved stopping criterion is met.")
         elif criterion is not None and (
