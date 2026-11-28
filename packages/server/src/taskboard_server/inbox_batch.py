@@ -12,6 +12,7 @@ from taskboard_server.managed_ready import (
     _ATTEMPTS,
     _DELAY,
     _AppDeliveryPaused,
+    _DeliveryEnrollmentChanged,
     _IdleGateClosed,
     _MAX_READY_AGE,
     _RETRY_WINDOW,
@@ -78,15 +79,19 @@ class BatchMember:
     blocker_ticket: str | None = None
 
 
+_PRIVATE_SUMMARY = "Open your signed Taskboard Inbox for the next actionable item."
+
+
 class InboxBatchDelivery:
     def __init__(self, sender):
         self.sender = sender
         self.db = sender.db
         self.state = sender.state
-        self.project = sender.scope.project
+        self.project = None if sender.scope.board_wide else sender.scope.project
+        self.anchor_project = sender.scope.project
         self.guidance = tasks_guidance.load(os.environ.get("TASKS_AGENT_GUIDANCE_FILE"))
         marker, = self.state.execute("SELECT event FROM pilot").fetchone()
-        if marker != SAMPLED_STATE_BY_PROJECT[self.project]:
+        if marker != SAMPLED_STATE_BY_PROJECT[self.anchor_project]:
             raise ValueError("Use state initialized for this sampled sender project.")
         with self.state:
             self.state.execute(_SCHEMA)
@@ -95,6 +100,9 @@ class InboxBatchDelivery:
     def _selected(self, saved, ledger_tip=0):
         now = self.sender.clock()
         owner = saved["owner"]
+        cursors = {self.anchor_project: saved["through_event"]}
+        if self.project is None and tasks_storage.has_table(self.state, "board_wide_handover"):
+            cursors.update(self.state.execute("SELECT project, through_event FROM board_wide_handover"))
         wake_at = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         observed = {(row[0], row[1]) for row in self.state.execute("""
             SELECT json_extract(member.value, '$.kind'), json_extract(member.value, '$.key')
@@ -105,16 +113,17 @@ class InboxBatchDelivery:
             self.sender._check_app_delivery_pause(saved)
             self.sender._check_history(saved, ledger_tip)
             tip = _latest(self.db)
-            if ring1.private(self.db, self.project):
-                return [], (), tip, False
-            goal_enabled = self.sender.goal_occurrences and has_subscription(
+            if self.project is not None and ring1.private(self.db, self.project):
+                return [], (), tip, False, False
+            goal_enabled = self.project is None or (self.sender.goal_occurrences and has_subscription(
                 self.db, self.project, owner, GOAL_OCCURRENCES,
-            )
+            ))
             board = BoardQueries(self.db, saved["board"], principal=owner)
             selected, members = [], []
             pending_goal = False
             for item in inbox_wake_items(board, owner, project=None, wake_at=wake_at):
-                if projects.identifier(item.ticket)[0] != self.project:
+                project = projects.identifier(item.ticket)[0]
+                if self.project is not None and project != self.project:
                     break
                 if item.kind.startswith(_GOAL_PREFIX) and not goal_enabled:
                     break
@@ -126,7 +135,7 @@ class InboxBatchDelivery:
                     if wait_event is not None and self.db.execute(
                         "SELECT 1 FROM events WHERE id = ? AND actor = 'Taskboard'", (item.source_event,),
                     ).fetchone():
-                        resolution = board.linked_wait_resolution(task["id"], self.project, wait_event)
+                        resolution = board.linked_wait_resolution(task["id"], project, wait_event)
                         if resolution:
                             item = replace(
                                 item, key=f"ready:{item.source_event}:{wait_event}:{resolution['blocker_event']}",
@@ -138,7 +147,7 @@ class InboxBatchDelivery:
                 if item.kind == "ready":
                     if task["dri"] != owner or item.source_event != task["event_id"] or task["state"] != "ready":
                         break
-                    if item.source_event <= saved["through_event"]:
+                    if item.source_event <= cursors.get(project, 0):
                         continue
                     ready_at = datetime.fromisoformat(task["at"]).timestamp()
                     if now < ready_at or now >= ready_at + _MAX_READY_AGE:
@@ -161,7 +170,11 @@ class InboxBatchDelivery:
                     item.kind, item.ticket, item.key, task["id"], item.source_event, source_at,
                     item.wait_event, item.blocker_event, item.blocker_ticket,
                 ))
-            return members, tuple(selected), tip, pending_goal
+            requires_generic = self.project is None and any(
+                ring1.private(self.db, projects.identifier(ticket)[0])
+                for item in selected for ticket in (item.ticket, item.blocker_ticket) if ticket is not None
+            )
+            return members, tuple(selected), tip, pending_goal, requires_generic
 
     def _clear(self):
         with self.state:
@@ -192,8 +205,11 @@ class InboxBatchDelivery:
         with tasks_storage.write(self.db):
             self.sender._check_binding(saved, self.sender.scope.binding(self.db))
             self.sender._check_history(saved, journal["ledger_tip"])
-            visible = not ring1.private(self.db, self.project)
-            for member in members if visible else ():
+            for member in members:
+                project = projects.identifier(member.ticket)[0]
+                if (self.project is not None and ring1.private(self.db, project)
+                        or not ring1.visible(self.db, project, owner)):
+                    continue
                 row = ledger.find_task(self.db, member.task_id)
                 if row is None or row["dri"] != owner or projects.row_reference(row) != member.ticket:
                     continue
@@ -239,10 +255,11 @@ class InboxBatchDelivery:
             if journal["accepted_at"] is not None:
                 self._settle(saved, journal, members, "accepted")
                 return "accepted", key
-        selected, items, tip, pending_goal = self._selected(saved, journal["ledger_tip"] if journal else 0)
+        selected, items, tip, pending_goal, requires_generic = self._selected(saved, journal["ledger_tip"] if journal else 0)
         if journal is not None:
             expired = journal["attempts"] >= _ATTEMPTS or now >= journal["first_attempt"] + _RETRY_WINDOW
-            if selected != members or expired:
+            privacy_changed = requires_generic and json.loads(journal["document"])["summary"] != _PRIVATE_SUMMARY
+            if selected != members or expired or privacy_changed:
                 if journal["submitted"]:
                     self._settle(saved, journal, members, "unknown")
                 else:
@@ -261,7 +278,10 @@ class InboxBatchDelivery:
             try:
                 with tasks_storage.read(self.db):
                     prompt = self.guidance.project_prompt(self.db, self.project, tasks_guidance.APP_DELIVERY)["prompt"]
-                summary = inbox_event_summary(items, project=self.project, guidance=prompt)
+                if requires_generic:
+                    summary = _PRIVATE_SUMMARY
+                else:
+                    summary = inbox_event_summary(items, project=self.project, guidance=prompt)
             except ValueError:
                 return "batch_payload_unavailable", None
             journal = self._prepare(saved, selected, summary, now, tip)
@@ -283,8 +303,8 @@ class InboxBatchDelivery:
 
         def preflight():
             check_stop()
-            current, _, _, _ = self._selected(saved, journal["ledger_tip"])
-            if current != members:
+            current, _, _, _, requires_generic = self._selected(saved, journal["ledger_tip"])
+            if current != members or (requires_generic and json.loads(journal["document"])["summary"] != _PRIVATE_SUMMARY):
                 raise _SampledChoiceChanged
 
         def submit(request):
@@ -316,13 +336,14 @@ class InboxBatchDelivery:
             token = sender.grant.token(preflight=preflight)
             preflight()
             send_inbox_event(journal["document"], access_token=token, transport=submit)
-        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested, _AppDeliveryPaused) as error:
+        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested,
+                _AppDeliveryPaused, _DeliveryEnrollmentChanged) as error:
             with self.state:
                 self.state.execute(
                     "UPDATE inbox_batch SET attempts = ?, retry_at = ?, submitted = ? WHERE singleton = 1",
                     (journal["attempts"], journal["retry_at"], journal["submitted"]),
                 )
-            if isinstance(error, _AppDeliveryPaused):
+            if isinstance(error, (_AppDeliveryPaused, _DeliveryEnrollmentChanged)):
                 raise
             return ("awaiting_idle", key) if isinstance(error, _IdleGateClosed) else ("waiting", None)
         except _Unauthorized:

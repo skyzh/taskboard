@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 
 import tasks_audit as audit
+from tasks_storage import has_table
 from tasks_wake_subscriptions import MANAGED_READY_PROJECTS
 
 
@@ -34,15 +35,15 @@ def after_recovery(observed, observed_at, recovery):
 
 
 def status(db, owner, project):
-    record_type = f"app-wake:{project}"
+    record_type = f"app-wake:{project}" if project is not None else "app-wake:%"
     recovery = db.execute(
         """SELECT id, operation, at FROM audit_events
-           WHERE actor = ? AND record_type = ? AND operation IN (?, ?)
+           WHERE actor = ? AND record_type LIKE ? AND operation IN (?, ?)
            ORDER BY id DESC LIMIT 1""", (owner, record_type, _SIGNED, _OPERATOR),
     ).fetchone()
     observations = db.execute(
         """SELECT id, at FROM audit_events
-           WHERE actor = ? AND record_type = ? AND operation = ?""", (owner, record_type, _ACCEPTED),
+           WHERE actor = ? AND record_type LIKE ? AND operation = ?""", (owner, record_type, _ACCEPTED),
     )
     accepted = []
     for row in observations:
@@ -64,7 +65,7 @@ def status(db, owner, project):
 
 def record_acceptance(db, owner, project, event_key, at):
     """Record one confirmed carrier envelope in the caller's write transaction."""
-    record_type = f"app-wake:{project}"
+    record_type = f"app-wake:{project}" if project is not None else "app-wake:board"
     existing = db.execute(
         """SELECT 1 FROM audit_events
            WHERE actor = ? AND record_type = ? AND operation = ? AND record_id = ?""",
@@ -76,6 +77,11 @@ def record_acceptance(db, owner, project, event_key, at):
 
 
 def signed_recovery(db, owner, project, event_id, at):
+    if project not in MANAGED_READY_PROJECTS and has_table(db, "agent_delivery_enrollments") and db.execute(
+        "SELECT 1 FROM agent_delivery_enrollments WHERE owner = ?", (owner,),
+    ).fetchone():
+        audit.record(db, scope="private", actor=owner, operation=_SIGNED,
+                     record_type="app-wake:board", record_id=str(event_id), at=at)
     if project in MANAGED_READY_PROJECTS:
         audit.record(db, scope="private", actor=owner, operation=_SIGNED,
                      record_type=f"app-wake:{project}", record_id=str(event_id), at=at)

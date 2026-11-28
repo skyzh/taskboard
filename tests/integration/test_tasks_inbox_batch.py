@@ -16,8 +16,10 @@ from taskboard_server.managed_ready import ManagedReadySender, SampledIdleGate
 from taskboard_server.managed_ready_grant import ManagedReadyGrant
 from taskboard_server import managed_ready_operator as operator
 from taskboard_server.managed_ready_operator import locked_state
+from taskboard_server.managed_ready_service import Enrollment, _join_board_wide
 from tasks_goal_wake_receipts import receipt as goal_receipt
-from tasks_storage import open_sqlite, write
+from tasks_ring1 import mark_private
+from tasks_storage import has_table, open_sqlite, write
 from tasks_wake_subscriptions import GOAL_OCCURRENCES
 from test_tasks_idle_offer import SignedBoard
 import test_tasks_managed_ready as managed
@@ -49,14 +51,14 @@ class InboxBatchTest(unittest.TestCase):
     def stamp(self, offset):
         return datetime.fromtimestamp(self.origin + offset, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
-    def poll(self, offset, *, goals=False, batches=True):
+    def poll(self, offset, *, goals=False, batches=True, enrollment_revision=None):
         fixture = self.fixture
         fixture.now = self.origin + offset
         with (patch("tasks_core.timestamp", return_value=self.stamp(offset)),
               closing(open_sqlite(fixture.ledger)) as db, locked_state(fixture.state, fixture.ledger) as state):
             return ManagedReadySender(
                 db, state, fixture.scope, self.grant, clock=lambda: fixture.now, idle_gate=self.gate, sampled=True,
-                goal_occurrences=goals, inbox_batches=batches,
+                goal_occurrences=goals, inbox_batches=batches, enrollment_revision=enrollment_revision,
             ).tick()
 
     def journal(self):
@@ -947,6 +949,95 @@ class InboxBatchTest(unittest.TestCase):
                         outcomes.append(receipt["event_id"])
         self.assertEqual(len(set(envelopes)), 2)
         self.assertEqual(len(set(outcomes)), 2)
+
+    def test_board_wide_rechecks_private_preview_before_transport(self):
+        fixture = self.fixture
+        fixture.scope = replace(fixture.scope, board_wide=True)
+        fixture.service.call(fixture.board.client, f"/api/v1/agent-delivery/{fixture.owner}", method="PUT",
+                             json={"mechanism": "raft_app", "revision": 0})
+        fixture.service.cli("register-project", "LAB", "Fixture project", "--dri", fixture.owner)
+        ticket = fixture.create("LAB")["task"]
+
+        def restrict_project():
+            with closing(open_sqlite(fixture.ledger)) as db, write(db):
+                mark_private(db, "LAB", (fixture.owner,))
+
+        fixture.provider.on_exchange = restrict_project
+        for offset in (0, 10, 20):
+            self.assertEqual(self.poll(offset, enrollment_revision=1), ("awaiting_idle", None))
+        self.assertEqual(self.poll(30, enrollment_revision=1), ("waiting", None))
+        self.assertEqual(self.wire, [])
+        self.assertIn(ticket, json.loads(self.journal()["document"])["summary"])
+        self.assertEqual(self.poll(40, enrollment_revision=1)[0], "batch_superseded")
+        outcome, key = self.poll(50, enrollment_revision=1)
+        self.assertEqual(outcome, "accepted")
+        self.assertEqual(fixture.provider.accepted[key]["summary"],
+                         "Open your signed Taskboard Inbox for the next actionable item.")
+        self.assertEqual(len(self.wire), 1)
+
+    def test_board_wide_never_retries_submitted_detail_after_privacy_changes(self):
+        fixture = self.fixture
+        fixture.scope = replace(fixture.scope, board_wide=True)
+        fixture.service.call(fixture.board.client, f"/api/v1/agent-delivery/{fixture.owner}", method="PUT",
+                             json={"mechanism": "raft_app", "revision": 0})
+        fixture.service.cli("register-project", "LAB", "Fixture project", "--dri", fixture.owner)
+        ticket = fixture.create("LAB")["task"]
+
+        def lose_reply(document):
+            fixture.provider.accept(document)
+            raise OSError("Lost fixture reply.")
+
+        fixture.provider.on_event = lose_reply
+        for offset in (0, 10, 20):
+            self.assertEqual(self.poll(offset, enrollment_revision=1), ("awaiting_idle", None))
+        outcome, key = self.poll(30, enrollment_revision=1)
+        self.assertEqual(outcome, "retry")
+        self.assertIn(ticket, fixture.provider.accepted[key]["summary"])
+        with closing(open_sqlite(fixture.ledger)) as db, write(db):
+            mark_private(db, "LAB", (fixture.owner,))
+        self.assertEqual(self.poll(40, enrollment_revision=1), ("batch_superseded", key))
+        self.assertEqual(self.history(key)["acceptance"], "unknown")
+        self.assertEqual(self.poll(50, enrollment_revision=1), ("idle", None))
+        self.assertEqual(len(self.wire), 1)
+
+    def test_board_wide_retains_accepted_members_from_each_original_journal(self):
+        fixture = self.fixture
+        primary_path, primary_scope = fixture.state, fixture.scope
+        fixture.enroll_tinyllm()
+        fixture.state = primary_path.with_name("retiring-tinyllm.sqlite")
+        fixture.baseline(sampled=True)
+        ticket = fixture.create(managed.TINYLLM)["task"]
+        fixture.board.invoke("advance-task", {"id": ticket, "transition": "start", "note": "Read the sample."}, write=True)
+        self.established_idle()
+        outcome, old_key = self.poll(30)
+        self.assertEqual(outcome, "accepted")
+        retiring = fixture.state
+        fixture.state = primary_path
+        fixture.scope = replace(primary_scope, board_wide=True)
+        compatible = Enrollment(fixture.identity.subject, managed.PROJECT, primary_path, "fixture-client", None,
+                                False, True, True)
+        fixture.service.call(fixture.board.client, f"/api/v1/agent-delivery/{fixture.owner}", method="PUT",
+                             json={"mechanism": "raft_app", "revision": 0})
+        self.restart()
+        with closing(open_sqlite(fixture.ledger)) as db, locked_state(primary_path, fixture.ledger) as state:
+            sender = ManagedReadySender(db, state, fixture.scope, self.grant, idle_gate=self.gate, sampled=True,
+                                        inbox_batches=True, enrollment_revision=1)
+            saved = state.execute("SELECT * FROM sender").fetchone()
+            self.assertIsNotNone(sender.inbox_batch)
+            with self.assertRaisesRegex(ValueError, "every retiring project journal"):
+                _join_board_wide(db, state, compatible, saved, fixture.ledger)
+            wrong = replace(compatible, retiring=((managed.TINYLLM, primary_path.with_name("absent.sqlite")),))
+            with self.assertRaises(FileNotFoundError):
+                _join_board_wide(db, state, wrong, saved, fixture.ledger)
+            self.assertFalse(has_table(state, "board_wide_handover"))
+            paired = replace(compatible, retiring=((managed.TINYLLM, retiring),))
+            _join_board_wide(db, state, paired, saved, fixture.ledger)
+            self.assertEqual({row[0] for row in state.execute("SELECT project FROM board_wide_handover")},
+                             {managed.PROJECT, managed.TINYLLM})
+        self.assertEqual(self.history(old_key)["acceptance"], "accepted")
+        for offset in (40, 50, 60, 70):
+            self.assertEqual(self.poll(offset, enrollment_revision=1), ("idle", None))
+        self.assertEqual(len(self.wire), 1)
 
     def test_out_of_scope_leading_work_blocks_the_batch(self):
         fixture = self.fixture

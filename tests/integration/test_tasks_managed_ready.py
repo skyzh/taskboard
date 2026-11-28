@@ -26,6 +26,7 @@ from taskboard_server.ready_wake_operator import main as send_wake
 from tasks_core import import_notification_on, timestamp
 from tasks_goal_wake_receipts import receipt as goal_receipt
 from tasks_notification_log import WAKE_SCHEMA
+from tasks_release_info import release_info
 from tasks_ring1 import mark_private
 from tasks_storage import open_sqlite, write
 from tasks_wake_subscriptions import GOAL_OCCURRENCES, OWNED_READY
@@ -326,6 +327,12 @@ class ManagedSenderTest(unittest.TestCase):
         return [name for name, _ in self.provider.calls]
 
     def test_shared_service_keeps_ready_and_retry_isolated_across_two_dris(self):
+        self.replay_shared_service_isolation(board_wide=False)
+
+    def test_board_wide_service_keeps_one_worker_and_journal_per_agent(self):
+        self.replay_shared_service_isolation(board_wide=True)
+
+    def replay_shared_service_isolation(self, *, board_wide):
         app = self.service.app(portal_reader=True)
         other_client, other_owner = self.service.login(app, "Blake")
         other = SignedBoard(self.service, other_client)
@@ -339,17 +346,29 @@ class ManagedSenderTest(unittest.TestCase):
         second_state = root / "other-state.sqlite"
         with closing(open_sqlite(self.ledger)) as db:
             initialize(second_state, db, SenderScope(self.ledger, second, "fixture-client", TINYLLM), sampled=True)
-        first_task = self.create()["event"]
+        if board_wide:
+            for client, owner in ((self.board.client, self.owner), (other_client, other_owner)):
+                self.service.call(client, f"/api/v1/agent-delivery/{owner}", method="PUT",
+                                  json={"mechanism": "raft_app", "revision": 0})
+        first_task = self.create(TINYLLM if board_wide else PROJECT)["event"]
         second_key = other.invoke("create-task", {"project": TINYLLM, "title": "Other scope",
                                                   "step": "Inspect the other sample."}, write=True)["receipt"].split()[0]
         second_task = self.service.task_event(other_client, second_key)["event"]
         secret = root / "fixture-secret"
         secret.write_text("fixture-secret", encoding="ascii")
         secret.chmod(0o600)
-        (root / "SHA256SUMS").write_text("fixture artifact", encoding="ascii")
+        artifact = root / "release"
+        artifact.mkdir()
+        manifest = b"fixture artifact"
+        (artifact / "SHA256SUMS").write_bytes(manifest)
+        build = "a" * 40
+        (root / "active-release.json").write_text(json.dumps({
+            "manifest": sha256(manifest).hexdigest(), "commit": build,
+            "built_at": self.fixture_timestamp(), "deployed_at": self.fixture_timestamp(),
+        }), encoding="ascii")
         status = root / "status.json"
-        scopes = [Enrollment(self.identity.subject, PROJECT, self.state, "fixture-client", secret, False, False),
-                  Enrollment(second.subject, TINYLLM, second_state, "fixture-client", secret, False, False)]
+        scopes = [Enrollment(self.identity.subject, PROJECT, self.state, "fixture-client", secret, False, False, board_wide),
+                  Enrollment(second.subject, TINYLLM, second_state, "fixture-client", secret, False, False, board_wide)]
         seen = {}
         identities = {}
         providers = {self.identity.subject: self.provider, second.subject: FakeManagedRaft(second)}
@@ -357,6 +376,13 @@ class ManagedSenderTest(unittest.TestCase):
         self.provider.on_event = lambda body: (429, {"error": "fixture_limit"}, {"Retry-After": "120"})
 
         def run_service(stop):
+            metadata_reads = 0
+
+            def read_release(path):
+                nonlocal metadata_reads
+                metadata_reads += 1
+                return {"commit": None} if board_wide and metadata_reads == 1 else release_info(path)
+
             def transport(request):
                 route = urlsplit(request.full_url).path.rsplit("/", 1)[-1]
                 with lock:
@@ -374,11 +400,13 @@ class ManagedSenderTest(unittest.TestCase):
             with patch("taskboard_server.managed_ready_service._pilot_status", return_value=lambda: "idle"), patch(
                 "taskboard_server.managed_ready_service.SampledIdleGate",
                 side_effect=lambda *args, **kwargs: Mock(eligible=Mock(return_value=True)),
-            ), patch("taskboard_server.managed_ready_service._POLL_SECONDS", .02):
+            ), patch("taskboard_server.managed_ready_service._POLL_SECONDS", .02), patch(
+                "taskboard_server.managed_ready_service._observed_at", side_effect=self.fixture_timestamp,
+            ), patch("taskboard_server.managed_ready_service.release_info", side_effect=read_release):
                 fd = os.open(secret, os.O_RDONLY)
                 inherited = [replace(scope, secret=None) for scope in scopes]
                 credential = _read_slot_credential(inherited, ("fixture-client", str(fd)))
-                serve(status, root, self.ledger, self.identity.server_id, "fixture", inherited, stop,
+                serve(status, artifact, self.ledger, self.identity.server_id, "fixture", inherited, stop,
                       credential, transport=transport)
 
         stop = Event()
@@ -390,7 +418,9 @@ class ManagedSenderTest(unittest.TestCase):
             timer.cancel()
             timer.join()
         self.assertEqual(seen, {self.identity.subject: 1, second.subject: 1})
-        self.assertEqual(self.outcomes(), [(first_task, "pending"), (second_task, "accepted")])
+        expected = ([(second_task, "accepted")] if board_wide else
+                    [(first_task, "pending"), (second_task, "accepted")])
+        self.assertEqual(self.outcomes(), expected)
         with locked_state(self.state, self.ledger) as state:
             pending = state.execute("SELECT members, retry_at FROM inbox_batch").fetchone()
             self.assertEqual([member["source_event"] for member in json.loads(pending["members"])], [first_task])
@@ -399,6 +429,12 @@ class ManagedSenderTest(unittest.TestCase):
             accepted = state.execute("SELECT members FROM inbox_batch_history WHERE acceptance = 'accepted'").fetchone()
             self.assertEqual([member["source_event"] for member in json.loads(accepted["members"])], [second_task])
         self.assertFalse(status.exists())
+        if board_wide:
+            for client, owner in ((self.board.client, self.owner), (other_client, other_owner)):
+                enrolled = self.service.call(client, f"/api/v1/agent-delivery/{owner}").json
+                self.assertEqual(enrolled["runtime"]["state"], "running")
+                self.assertEqual(enrolled["runtime"]["revision"], build)
+                self.assertEqual({cue["state"] for cue in enrolled["cues"]}, {"enabled"})
 
         stop = Event()
         timer = Timer(.4, stop.set)
@@ -409,7 +445,7 @@ class ManagedSenderTest(unittest.TestCase):
             timer.cancel()
             timer.join()
         self.assertEqual(seen, {self.identity.subject: 1, second.subject: 1})
-        self.assertEqual(self.outcomes(), [(first_task, "pending"), (second_task, "accepted")])
+        self.assertEqual(self.outcomes(), expected)
 
     def test_exact_deferral_releases_into_the_pinned_agent_event(self):
         self.replay_scheduled_agent_event(recurring=False)

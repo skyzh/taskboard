@@ -533,6 +533,23 @@ UUID, and `slug` to that server’s slug. Each of the enrolled `scopes` has a
 `recipient` UUID, `project` prefix, absolute `state` path, OAuth `client`
 identifier, and boolean `goals` and `batches` flags.
 
+For board-wide delivery, use one configuration with `"board_wide": true`
+and one journal per agent. The `project` value identifies the original journal
+during migration. One signed **Raft app** selection in Agent management enables
+the agent's visible Inbox across projects. **Off** is read before the next send
+and retains the journal. The worker reports the enrolled agent, checked revision
+and running state. Ring 1 work triggers a generic Inbox instruction.
+
+Before the first transfer, confirm each original journal has no pending send
+and each previous sender has stopped. Reuse the exact journal and credential
+binding for that agent. If an agent used multiple project senders, list the
+other original files in `retiring` as a map from project prefix to absolute
+journal path. The first transfer preserves their delivered-member history and
+Ready cursors in the active journal. Both the selected and rollback releases must support
+the board-wide configuration before the checked deploy hook is enabled.
+Verify one process for the configured roster, exact runtime state, and a
+representative natural delivery matched to signed pickup.
+
 To reuse the existing serving-slot app credential, set
 `notification_slot_credential` in the private deploy configuration. Its
 `client_env` and `secret_env` values name the already approved variables in the
