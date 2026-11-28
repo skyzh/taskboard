@@ -214,13 +214,14 @@ approved recipient. Stop any overlapping sender or reminder carrier for that
 recipient before starting sampled delivery. Both the legacy `run` and the
 single-event `run-pilot` reject sampled state.
 
-After initialization, the sender considers new, pending Project T Ready events
-for the enrolled owner, including exact one-off deferrals and recurring releases.
-The Ready event must match the first all-project signed Inbox choice and the
-same delivery-eligible choice after worker and pause checks. The sender waits
-if a different ticket has priority or if the first choice is already accepted.
-The baseline stays fixed, so a newer high-priority acceptance does not hide
-older pending work after the first ticket is taken.
+After initialization, the sender considers new Project T Ready events for
+the enrolled owner. These include a signed Return to Ready, exact one-off
+deferrals, and recurring releases. It follows the signed all-project
+`next --wake` choice, including its priority order and worker and pause
+checks. An event can be discovered before its first delivery receipt exists.
+The sender waits if a different ticket has priority or if the first choice
+already has a terminal receipt. The baseline stays fixed, so a newer
+high-priority acceptance does not hide older unsent work after pickup.
 
 The operator samples explicit Idle about every ten seconds and requires fresh
 observations spanning at least 30 seconds, followed by a final Idle read and
@@ -229,7 +230,7 @@ of 20 seconds or more reset the observed window. An acceptance or an
 unconfirmed event transport starts a fresh window before any further send.
 An unresolved attempt keeps its retry limits and backoff while another
 ticket has priority. An operator stop observed before transport leaves the
-cue pending. This observes sampled availability,
+Ready event available for a later attempt. This observes sampled availability,
 so the agent may change state between reads or before delivery.
 
 Restart with the same sampled state. Signed opt-out or a stopped grant ends

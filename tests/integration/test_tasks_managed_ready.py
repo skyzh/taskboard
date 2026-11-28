@@ -912,6 +912,76 @@ class ManagedSenderTest(unittest.TestCase):
         self.assertEqual(offer_work(self.board, self.owner)["ready_event"], project_t["event"])
         self.assertEqual(poll(40), ("accepted", project_t["event"]))
 
+    def test_sampled_stream_follows_signed_wake_selection_around_running_worker(self):
+        self.baseline(sampled=True)
+        higher, deliverable = self.create(), self.create()
+        self.board.invoke("set-priority", {"id": higher["task"], "priority": "high"}, write=True)
+        self.board.invoke("delegate", {
+            "id": higher["task"], "worker": self.owner, "role": "build", "brief": "Check the sample.",
+        }, write=True)
+        self.board.invoke("worker-handoff", {
+            "run": "W-1", "transition": "start", "handle": "fixture-worker", "subagent": True,
+        }, write=True)
+
+        self.assertEqual(self.board.invoke("my-next", {"scope": "all"})["work"]["key"], higher["task"])
+        self.assertEqual(self.board.invoke("my-next", {"scope": "all", "for_wake": "true"})["work"]["key"],
+                         deliverable["task"])
+        projected = self.board.invoke("my-inbox-wake", {"scope": "all"})["work"]
+        self.assertEqual((projected["key"], projected["source_event"]), (deliverable["task"], deliverable["event"]))
+
+        origin = self.now
+        gate = SampledIdleGate(lambda: "idle", clock=lambda: self.now - origin, include_boundary=True)
+        grant = self.grant()
+        for offset in (0, 10, 20, 30):
+            self.now = origin + offset
+            status = "accepted" if offset == 30 else "awaiting_idle"
+            self.assertEqual(self.tick(grant, idle_gate=gate, sampled=True), (status, deliverable["event"]))
+        self.assertEqual(self.outcomes(), [(higher["event"], "pending"), (deliverable["event"], "accepted")])
+
+    def test_sampled_stream_discovers_signed_unpark_before_any_delivery_receipt(self):
+        added = self.create()
+        self.board.invoke("advance-task", {
+            "id": added["task"], "transition": "park", "note": "Wait for confirmation.", "review_after": "2099-01-01",
+        }, write=True)
+        baseline = self.baseline(sampled=True)
+        self.board.invoke("advance-task", {
+            "id": added["task"], "transition": "unpark", "note": "Confirmation received.",
+        }, write=True)
+        ready = self.service.task_event(self.board.client, added["task"])
+        event = ready["event"]
+        self.assertGreater(event, baseline)
+        self.assertEqual(self.outcomes(), [(added["event"], "pending")])
+        self.assertEqual(self.board.invoke("my-inbox-wake", {"scope": "all"})["work"]["source_event"], event)
+
+        origin = self.now
+        gate = SampledIdleGate(lambda: "idle", clock=lambda: self.now - origin, include_boundary=True)
+        grant = self.grant()
+
+        def lose_reply(document):
+            self.provider.accept(document)
+            raise TimeoutError("Fixture lost the acceptance reply.")
+
+        def poll(offset):
+            self.now = origin + offset
+            return self.tick(grant, idle_gate=gate, sampled=True)
+
+        self.provider.on_event = lose_reply
+        for offset in (0, 10, 20):
+            self.assertEqual(poll(offset), ("awaiting_idle", event))
+        self.assertEqual(poll(30), ("retry", event))
+        self.assertEqual(self.outcomes(), [(added["event"], "pending")])
+        gate = SampledIdleGate(lambda: "idle", clock=lambda: self.now - origin, include_boundary=True)
+        grant = self.grant()
+        self.provider.on_event = self.provider.accept
+        for offset in (40, 50, 60):
+            self.assertEqual(poll(offset), ("awaiting_idle", event))
+        self.assertEqual(poll(70), ("accepted", event))
+        self.assertEqual(self.outcomes(), [(added["event"], "pending"), (event, "accepted")])
+        self.assertEqual(poll(80), ("idle", None))
+        documents = [document for route, document in self.provider.calls if route == "agent-events"]
+        self.assertEqual(len(documents), 2)
+        self.assertEqual(documents[0], documents[1])
+
     def test_sampled_stream_preserves_unresolved_attempt_when_priority_changes(self):
         self.baseline(sampled=True)
         first = self.create()

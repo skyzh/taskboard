@@ -216,8 +216,7 @@ class ManagedReadySender:
         instant = now.isoformat(timespec="seconds").replace("+00:00", "Z")
         owner = saved["owner"]
         board = BoardQueries(self.db, saved["board"], principal=owner)
-        filters = {"project": None, "today": today, "wake_at": instant}
-        pickup = next(board.actionable_work(owner, **filters), None)
+        pickup = next(board.actionable_work(owner, project=None, today=today, wake_at=instant, delivery=True), None)
         if not pickup or pickup["kind"] != "ready":
             return None
         event = pickup["source_event"]
@@ -225,17 +224,13 @@ class ManagedReadySender:
         if (event <= saved["through_event"] or ready is None or ready["event_id"] != event
                 or projects.row_project(ready) != _PROJECT):
             return None
-        if not self._pending_receipt(event, owner):
-            return None
-        # Match both the signed pickup and the worker/pause-filtered delivery choice.
-        delivery = next(board.actionable_work(owner, **filters, delivery=True), None)
-        return ready if delivery == pickup else None
+        return ready if self._receipt_allows_attempt(event, owner) else None
 
-    def _pending_receipt(self, event, owner):
-        return self.db.execute(
-            "SELECT 1 FROM wake_log WHERE source_event_id = ? AND recipient = ? AND acceptance = 'pending'",
-            (event, owner),
-        ).fetchone() is not None
+    def _receipt_allows_attempt(self, event, owner):
+        receipt = self.db.execute(
+            "SELECT recipient, acceptance FROM wake_log WHERE source_event_id = ?", (event,),
+        ).fetchone()
+        return receipt is None or (receipt["recipient"] == owner and receipt["acceptance"] == "pending")
 
     def _expire_sampled_attempt(self, saved, now):
         event, owner = saved["attempt_event"], saved["owner"]
@@ -246,7 +241,7 @@ class ManagedReadySender:
             row = ledger.find_task(self.db, source["task_id"]) if source else None
             current = (row is not None and row["event_id"] == event and row["state"] == "ready"
                        and row["dri"] == owner and projects.row_project(row) == _PROJECT
-                       and self._pending_receipt(event, owner))
+                       and self._receipt_allows_attempt(event, owner))
         if current:
             if not self._expired(row, now, saved["first_attempt"], saved["attempts"]):
                 return "waiting", None
@@ -346,6 +341,8 @@ class ManagedReadySender:
         if (self.sampled or self.event_id is not None) and now < ready_at:
             return "waiting", None
         if self._expired(row, now, first_attempt, attempts):
+            if self.sampled and not attempts and receipt is None:
+                return "idle", None
             if attempts or (receipt is not None and receipt["acceptance"] == "pending"):
                 self._record_unknown(row, saved["owner"])
             self._finish(event)
