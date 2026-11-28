@@ -333,11 +333,25 @@ test('Needs you reads only the selected project on the signed-in human’s own r
   }
 })
 
-test('task reminders show the selected local time and reopen the exact instant in the board time zone', () => {
-  const context = { defer_at: '2030-04-01T12:30:00-07:00', defer_until: '2030-04-01T19:30:00Z' }
-  const task = { id: 1, title: 'Resume the export', state: 'parked', dri: 'Avery', context }
-  const row = renderToStaticMarkup(React.createElement(TaskRow, { task }))
-  assert.match(row, /Deferred until <time dateTime="2030-04-01T19:30:00Z">2030-04-01 12:30:00-07:00<\/time>/)
+test('task reminders display the saved instant in the browser time zone', () => {
+  const at = '2030-04-01T19:30:00Z'
+  const browser = createTimeZoneFormatters(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
+  const expected = `<time dateTime="${at}">${browser.formatDay(at)} ${browser.formatClock(at)}</time>`
+  const task = { id: 1, title: 'Resume the export', state: 'parked', dri: 'Avery' }
+  const render = context => renderToStaticMarkup(React.createElement(TimeZoneContext.Provider, {
+    value: createTimeZoneFormatters('Asia/Shanghai'),
+  }, React.createElement(TaskRow, { task: { ...task, context } })))
+
+  const context = { defer_at: '2030-04-01T12:30:00-07:00', defer_until: at }
+  assert.ok(render(context).includes(`Deferred until ${expected}`))
+  assert.ok(render({ defer_until: at, wait_kind: 'external' }).includes(`Recheck at ${expected}`))
+  const review = render({ ...context, review_after: '2030-04-01' })
+  assert.match(review, /Review on or after <time dateTime="2030-04-01">2030-04-01<\/time>/)
+  assert.doesNotMatch(review, /Deferred until/)
+})
+
+test('task reminder edits retain the exact instant in the selected board time zone', () => {
+  const context = { defer_until: '2030-04-01T19:30:00Z' }
 
   const exact = renderToStaticMarkup(React.createElement(TimeZoneContext.Provider, {
     value: createTimeZoneFormatters('Asia/Shanghai'),
