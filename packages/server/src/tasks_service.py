@@ -52,6 +52,7 @@ import tasks_merges as merges
 import tasks_app_wake_activity as app_wake_activity
 import tasks_goal_wake_receipts
 import tasks_notification_log as notification_log
+import tasks_agent_delivery as agent_delivery
 import tasks_watcher_health as watcher_health
 import tasks_runtime_observations as runtime_observations
 import tasks_oidc as oidc_auth
@@ -431,7 +432,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     if marketplace:
         db.execute("INSERT INTO board_settings VALUES ('marketplace_server_id', ?) ON CONFLICT (key) DO NOTHING", (server_id,))
     profiles.ensure_principals(db, versioned=True)
-    for statement in (*reports_presence.SCHEMA, *postboards.SCHEMA, *resources.SCHEMA):
+    for statement in (*reports_presence.SCHEMA, *postboards.SCHEMA, *resources.SCHEMA, *agent_delivery.SCHEMA):
         db.execute(statement)
     db.execute(project_admin.SCHEMA)
     db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
@@ -506,7 +507,7 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
         ledger.ensure_record_kind(db)
         ledger.ensure_checklist_schema(db)
         profiles.ensure_principals(db, versioned=True)
-        for statement in (*reports_presence.SCHEMA, *postboards.SCHEMA, *resources.SCHEMA):
+        for statement in (*reports_presence.SCHEMA, *postboards.SCHEMA, *resources.SCHEMA, *agent_delivery.SCHEMA):
             db.execute(statement)
         ensure_attention_requests(db)
         db.execute(DECISION_REMINDER_SCHEMA)
@@ -4098,6 +4099,61 @@ def create_app(
                 **page,
                 "agent_options": [{"id": row["subject"], "name": row["name"]} for row in agents],
                 "has_receipts": bool(page["items"]) or notification_log.has_receipts(connection, project, principal=actor_key()),
+            }
+
+    def delivery_directory(connection, actor):
+        entries = agent_delivery.directory(connection, actor["ledger_key"], projects.DEFAULT, project_roster or {})
+        if actor["kind"] == "agent":
+            owner = actor["ledger_key"]
+            entries.setdefault(owner, {"agent_id": owner, "name": actor["name"], "project_scopes": []})
+        return entries
+
+    def can_edit_delivery(actor, owner):
+        return (actor["kind"] == "agent" and actor["ledger_key"] == owner) or manages_project_admin_permissions(actor)
+
+    @app.get("/api/v1/agent-delivery")
+    def agent_delivery_directory():
+        actor = current_actor(required=True)
+        with tasks_storage.read(db()) as connection:
+            entries = sorted(delivery_directory(connection, actor).values(),
+                             key=lambda entry: (entry["name"].casefold(), entry["agent_id"]))
+            now = datetime.fromisoformat(ledger.timestamp())
+            return jsonify(items=[
+                agent_delivery.status(connection, entry, can_edit=can_edit_delivery(actor, entry["agent_id"]), now=now)
+                for entry in entries
+            ]), {"Cache-Control": "no-store"}
+
+    @app.route("/api/v1/agent-delivery/<owner>", methods=["GET", "PUT"])
+    def agent_delivery_enrollment(owner):
+        write = request.method == "PUT"
+        actor = current_actor(required=True, write=write)
+        transaction = tasks_storage.write if write else tasks_storage.read
+        with transaction(db()) as connection:
+            entry = delivery_directory(connection, actor).get(owner)
+            if entry is None:
+                raise RequestError("Choose an available agent.", 404)
+            can_edit = can_edit_delivery(actor, owner)
+            if write:
+                if not can_edit:
+                    raise RequestError("Only the agent or a board administrator can change delivery.", 403)
+                data = request.get_json()
+                if not isinstance(data, dict) or set(data) != {"mechanism", "revision"}:
+                    raise RequestError("Send a mechanism and its displayed revision.")
+                mechanism, revision = data["mechanism"], data["revision"]
+                if not isinstance(mechanism, str) or mechanism not in agent_delivery.MECHANISMS:
+                    raise RequestError("Choose Raft app delivery or Off.")
+                if type(revision) is not int or revision < 0 or revision > 2**63 - 2:
+                    raise RequestError("Send the displayed enrollment revision as an integer.")
+                changed = agent_delivery.save(connection, owner, mechanism, revision)
+                if changed is None:
+                    raise RequestError("The enrollment changed. Refresh and try again.", 409)
+                if changed:
+                    audit.record(connection, scope="private", actor=actor["ledger_key"], operation="set",
+                                 record_type="agent_delivery_enrollment", record_id=owner, at=ledger.timestamp())
+                    ledger.bump_revision(connection)
+            return jsonify(agent_delivery.status(connection, entry, can_edit=can_edit,
+                                                 now=datetime.fromisoformat(ledger.timestamp()))), {
+                "Cache-Control": "no-store",
             }
 
     @app.get("/api/v1/reports/watchers")

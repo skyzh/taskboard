@@ -3179,6 +3179,63 @@ class TasksServiceTest(unittest.TestCase):
             exited = self.call(blake, path).json["items"][0]["watcher"]
             self.assertEqual((exited["state"], exited["stale"]), ("exited", False))
 
+    @patch("tasks_core.timestamp", new=lambda: "2026-11-28T17:30:00Z")
+    def test_agent_delivery_enrollment_is_board_wide_with_signed_agent_and_admin_access(self):
+        app = self.app(portal_reader=True, project_admin_subject=self.provider.people["Sam"]["sub"])
+        avery, owner = self.login(app, "Avery")
+        blake, private_owner = self.login(app, "Blake")
+        sam, admin = self.login(app, "Sam")
+        quinn, _ = self.login(app, "Quinn")
+        endpoint = "/api/v1/agent-delivery"
+        avery_path = f"{endpoint}/{owner}"
+        blake_path = f"{endpoint}/{private_owner}"
+        self.call(app.test_client(), endpoint, status=401)
+        self.action(avery, "create-task", {"title": "Public work", "step": "Check the result."})
+        self.call(sam, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Restricted work", "visibility": "ring1",
+        })
+        for principal in (owner, private_owner):
+            self.call(sam, "/api/v1/projects/LAB/ring1", method="PUT", json={
+                "principal": principal, "allowed": True,
+            })
+        for agent in (avery, blake):
+            self.action(agent, "create-task", {"project": "LAB", "title": "Private work", "step": "Check the result."})
+
+        public, = self.call(quinn, endpoint).json["items"]
+        self.assertEqual((public["agent_id"], public["project_scopes"], public["can_edit"]), (owner, ["T"], False))
+        self.assertEqual((public["mechanism"], public["revision"], public["runtime"]["state"]), ("off", 0, "unknown"))
+        self.assertEqual({row["state"] for row in public["cues"]}, {"unknown"})
+        self.assertIn("in_progress", {row["kind"] for row in public["cues"]})
+        self.call(quinn, blake_path, status=404)
+        self.call(avery, blake_path, method="PUT", json={"mechanism": "raft_app", "revision": 0}, status=403)
+        self.call(quinn, avery_path, method="PUT", json={"mechanism": "raft_app", "revision": 0}, status=403)
+        self.call(avery, avery_path, method="PUT", json={"mechanism": "raft_app", "revision": True}, status=400)
+        self.call(avery, avery_path, method="PUT", json={"mechanism": "other", "revision": 0}, status=400)
+
+        first = self.call(avery, avery_path, method="PUT", json={"mechanism": "raft_app", "revision": 0}).json
+        self.assertEqual((first["mechanism"], first["revision"], first["project_scopes"]), ("raft_app", 1, ["LAB", "T"]))
+        self.assertTrue(first["can_edit"])
+        self.assertEqual(first["runtime"]["state"], "unknown")
+        same = self.call(avery, avery_path, method="PUT", json={"mechanism": "raft_app", "revision": 1}).json
+        self.assertEqual(same, first)
+        self.call(sam, avery_path, method="PUT", json={"mechanism": "off", "revision": 0}, status=409)
+
+        with closing(open_sqlite(self.database)) as connection, connection:
+            connection.execute(
+                "INSERT INTO agent_delivery_runtime VALUES (?, 1, 'checked-fixture', 'raft_app', 'running', ?)",
+                (owner, "2026-11-28T17:29:00Z"),
+            )
+        running = self.call(avery, avery_path).json
+        self.assertEqual(running["runtime"]["revision"], "checked-fixture")
+        self.assertEqual({row["state"] for row in running["cues"]}, {"enabled"})
+        off = self.call(sam, avery_path, method="PUT", json={"mechanism": "off", "revision": 1}).json
+        self.assertEqual((off["mechanism"], off["revision"], off["runtime"]["state"]), ("off", 2, "unknown"))
+        changes = [row[:5] for row in self.audit_events() if row[3] == "agent_delivery_enrollment"]
+        self.assertEqual(changes, [
+            ("private", owner, "set", "agent_delivery_enrollment", owner),
+            ("private", admin, "set", "agent_delivery_enrollment", owner),
+        ])
+
     def test_human_agent_inbox_uses_signed_pickup_order_and_project_access(self):
         app = self.app(portal_reader=True, project_admin_subject=self.provider.people["Sam"]["sub"])
         avery, owner = self.login(app, "Avery")
