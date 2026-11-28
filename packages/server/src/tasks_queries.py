@@ -3158,6 +3158,44 @@ class BoardQueries:
                     break
         return items
 
+    def inbox_selection(self, owner, *, project, today, wake_at=None, delivery=False, ordinary_only=False):
+        work = next(self.actionable_work(owner, today=today, project=project, wake_at=wake_at,
+                                         delivery=delivery, ordinary_only=ordinary_only), None)
+        exploration = (work is not None and work["kind"] == "in_progress"
+                       and ledger.task_goal_kind(self.db, work["id"]) is not None
+                       and goals.exploration_criterion(self.db, work["id"]) is not None)
+        if work is None or exploration:
+            asks = self.requested_asks(owner, project=project, today=today, due_only=True)
+            if asks:
+                return None, asks[0]
+        return work, None
+
+    def inbox_wake_occurrences(self, owner, *, project, wake_at):
+        """Return the signed delivery choice or the ordered exact goal cues."""
+        now = datetime.fromisoformat(wake_at).astimezone(PACIFIC)
+        work, ask = self.inbox_selection(
+            owner, project=project, today=now.date().isoformat(), wake_at=wake_at,
+            delivery=True, ordinary_only=True,
+        )
+        if ask:
+            return {"ask_recheck": ask}
+        if work:
+            return {"work": work}
+
+        paused = {projects.row_reference(row) for row in cue_pauses.active(self.db, owner, wake_at, "goal")}
+        occurrences = [item for item in goal_cadence.occurrences(self.db, owner, project, now)
+                       if item["ticket"] not in paused]
+        reviews = [item for item in occurrences if item["kind"] == "review"]
+        scheduled = {item["ticket"] for item in reviews}
+        _, due = goal_cadence.due_reviews(self.db, owner, project, now, principal=self.principal)
+        fallback = [cue for cue in due if cue["ticket"] not in paused and (
+            cue["kind"] == "timed" or (cue["kind"] == "deadline" and cue["ticket"] not in scheduled)
+        )]
+        explore = [item for item in occurrences if item["kind"] == "explore"]
+        return {"goal_candidates": [
+            {"ticket": item["ticket"], "key": item["key"]} for item in (*reviews, *fallback, *explore)
+        ]}
+
     def actionable_work(self, owner, *, today, project, ordinary_only=False, include_goal_reviews=True,
                         wake_at=None, delivery=False):
         """Yield the first actionable item in each queue in pickup order."""
