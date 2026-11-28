@@ -8026,6 +8026,8 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([row["id"] for row in self.call(sam, requests).json["items"]], [other, original])
         self.assertEqual(self.call(owner, detail).json["task"]["event_id"], waiting)
 
+        self.call(sam, "/api/v1/notifications/preferences/ask-destination", method="POST", headers=headers,
+                  json={"destination": "raft"})
         browser = {key: value for key, value in payload.items() if key != "id"}
         browser["options"] = ["First", "Second"]
         next_step = "Check your Taskboard Inbox for the next actionable item."
@@ -8046,6 +8048,11 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([row["id"] for row in self.call(sam, requests).json["items"]], [other])
         handled = self.call(sam, f"{requests}/{original}/handled", method="POST", headers=headers).json
         self.assertEqual(handled, {"id": original, "handled_at": receipt["retired_at"]})
+        route = {"id": "T-1", "request_id": receipt["question_event_id"]}
+        delivery = self.action(owner, "decision-delivery", query_string=route)
+        self.assertEqual((delivery["destination"], delivery["target"]), ("raft", "dm:@sam~human"))
+        self.assertTrue(delivery["url"].endswith(f"/tickets/T-1?decision-request={receipt['question_event_id']}"))
+        self.action(peer, "decision-delivery", query_string=route, status=404)
         self.call(sam, detail + "/decision", method="POST", headers=headers,
                   json={"request_id": receipt["question_event_id"], "choice": "First"})
         self.assertEqual(self.action(owner, action, payload), {**receipt, "next_step": next_step})
