@@ -3182,13 +3182,19 @@ class BoardQueries:
         if work:
             return {"work": work}
 
-        paused = {projects.row_reference(row) for row in cue_pauses.active(self.db, owner, wake_at, "goal")}
+        excluded = {projects.row_reference(row) for row in cue_pauses.active(self.db, owner, wake_at, "goal")}
+        active_workers = self.db.execute(
+            f"""SELECT DISTINCT tasks.id, tasks.project_prefix, tasks.project_number
+                FROM tasks JOIN worker_runs ON worker_runs.task_id = tasks.id
+                WHERE tasks.dri = ? AND ({RUNNING})""", (owner,),
+        )
+        excluded.update(projects.row_reference(row) for row in active_workers)
         occurrences = [item for item in goal_cadence.occurrences(self.db, owner, project, now)
-                       if item["ticket"] not in paused]
+                       if item["ticket"] not in excluded]
         reviews = [item for item in occurrences if item["kind"] == "review"]
         scheduled = {item["ticket"] for item in reviews}
         _, due = goal_cadence.due_reviews(self.db, owner, project, now, principal=self.principal)
-        fallback = [cue for cue in due if cue["ticket"] not in paused and (
+        fallback = [cue for cue in due if cue["ticket"] not in excluded and (
             cue["kind"] == "timed" or (cue["kind"] == "deadline" and cue["ticket"] not in scheduled)
         )]
         explore = [item for item in occurrences if item["kind"] == "explore"]

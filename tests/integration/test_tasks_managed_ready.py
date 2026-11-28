@@ -1237,6 +1237,69 @@ class ManagedSenderTest(unittest.TestCase):
         self.assertEqual(done["occurrence_key"], review)
         self.assertEqual([item["key"] for item in invoke("my-goal-occurrences", {}, offset=170)["items"]], [explore])
 
+    def test_native_goal_wake_rechecks_running_workers_without_hiding_manual_occurrences(self):
+        self.baseline(sampled=True)
+        instant = "2030-04-01T16:00:00Z"
+        origin = datetime.fromisoformat(instant).timestamp()
+        self.now = origin
+        reads = []
+        wake_order = ["review:T-1:2030-04-01", "explore:T-1:2030-04-01"]
+
+        def goal_keys(action, options, field):
+            return [item["key"] for item in self.board.invoke(action, options)[field]]
+
+        def sampled_keys():
+            return goal_keys("my-inbox-wake", {"scope": "all", "include_occurrences": "true"}, "goal_candidates")
+
+        def manual_keys():
+            return goal_keys("my-goal-occurrences", {}, "items")
+
+        def read_status():
+            reads.append(self.now - origin)
+            if reads[-2:] == [30, 30]:
+                self.board.invoke("worker-handoff", {
+                    "run": "W-1", "transition": "start", "handle": "fictional-worker",
+                }, write=True)
+            return "idle"
+
+        gate = SampledIdleGate(read_status, clock=lambda: self.now - origin, include_boundary=True)
+        grant = self.grant()
+
+        def poll(offset):
+            self.now = origin + offset
+            return self.tick(grant, idle_gate=gate, sampled=True, goal_occurrences=True)
+
+        with patch("tasks_core.timestamp", return_value=instant):
+            self.board.invoke("set-wake-subscription", {
+                "project": PROJECT, "event_type": GOAL_OCCURRENCES, "enabled": "true",
+            }, write=True)
+            self.board.invoke("save-goal", {"kind": "standing", "summary": "Check the signed sample."}, write=True)
+            self.board.invoke("set-goal-review-time", {"id": "T-1", "time": "09:00"}, write=True)
+            self.board.invoke("advance-task", {
+                "id": "T-1", "transition": "start", "note": "Start the sample.",
+            }, write=True)
+            self.board.invoke("delegate", {
+                "id": "T-1", "worker": self.owner, "role": "build", "brief": "Check the second fixture.",
+            }, write=True)
+            self.assertEqual(sampled_keys(), wake_order)
+            for offset in (0, 10, 20):
+                self.assertEqual(poll(offset), ("awaiting_idle", wake_order[0]))
+
+            self.assertEqual(poll(30), ("waiting", None))
+            self.assertEqual(sampled_keys(), [])
+            self.assertEqual(manual_keys(), wake_order[::-1])
+            self.assertEqual(poll(40), ("idle", None))
+            self.assertEqual(self.calls(), ["agent", "token"])
+            with closing(open_sqlite(self.ledger)) as db:
+                self.assertTrue(all(goal_receipt(db, self.owner, key) is None for key in wake_order))
+
+            self.board.invoke("worker-handoff", {
+                "run": "W-1", "transition": "stop", "note": "The fixture is stopped.",
+            }, write=True)
+            self.assertEqual(sampled_keys(), wake_order)
+            self.assertEqual(poll(50), ("accepted", wake_order[0]))
+            self.assertEqual(self.calls(), ["agent", "token", "agent-events"])
+
     def test_native_goal_wake_preserves_unsupported_timed_choice(self):
         self.baseline(sampled=True)
         early = "2030-04-01T15:00:00Z"
