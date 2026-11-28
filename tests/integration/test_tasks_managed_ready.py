@@ -274,6 +274,9 @@ class ManagedSenderTest(unittest.TestCase):
         self.scope = SenderScope(self.ledger, self.identity, "fixture-client")
         self.now = time()
         self.enterContext(patch("tasks_core.timestamp", side_effect=self.fixture_timestamp))
+        self.enterContext(patch("tasks_app_wake_activity.observation_at", side_effect=lambda: (
+            datetime.fromtimestamp(self.now, timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+        )))
         self.subscribe(True)
 
     def fixture_timestamp(self):

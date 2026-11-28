@@ -253,6 +253,34 @@ Restart with the same sampled state. Signed opt-out or a stopped grant ends
 the sender. The sender delivers accepted cues through Raft Agent Events.
 Eligible tickets remain available in signed Inbox for normal pickup.
 
+### Check a direct app delivery pause
+
+Three distinct confirmed Raft app messages for one recipient and project
+pause new sampled app messages in that scope. Replaying one external event
+ID counts once. An accepted batch counts as one message regardless of the
+number of Inbox items. The board records confirmations from this launcher forward.
+Acceptance records what the carrier acknowledged. Delivery, Inbox pickup
+and access failures require their own evidence. The pause leaves the queue,
+existing receipts and per-cue retry limits in place.
+
+A newly recorded signed Raft Start, Progress, Done, Wait, Resume, Park or
+goal occurrence completion by that recipient in the same project clears the
+count. The board compares the saved carrier acceptance time with this work
+event, including when a restart records the acceptance later. When legacy
+whole-second evidence leaves the order unclear, the acceptance stays outside
+the new count. Read-only traffic and background watcher
+polls leave the count in place, as does a retry that returns an existing work
+receipt. The next send still needs a fresh sampled Idle window.
+
+An authorized operator can inspect or resume a paused sampled app sender
+after stopping it and taking its normal private state lock. Use the same
+global arguments as `init-sampled`, including the recipient, project and
+`--client-id`, followed by `delivery-status` or `resume-delivery`. These
+commands require the current signed subscription and sender binding. They
+do not call Raft or require the OAuth secret. The response gives the pause
+reason, current acceptance count, pause time and latest recovery type and
+time. Check the response before restarting the existing scoped sender.
+
 ### Add Explore and scheduled Review to the direct pilot
 
 For an approved recipient, use their signed session to run

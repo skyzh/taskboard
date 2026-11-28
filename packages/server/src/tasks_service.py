@@ -46,6 +46,7 @@ import tasks_history as history
 import tasks_integration_stats as integration_stats
 import tasks_knowledge as knowledge_records
 import tasks_merges as merges
+import tasks_app_wake_activity as app_wake_activity
 import tasks_goal_wake_receipts
 import tasks_notification_log as notification_log
 import tasks_watcher_health as watcher_health
@@ -1986,8 +1987,14 @@ def create_app(
             raise RequestError("Use force=true when supplying a force reason.")
         return reason
 
+    def native_signed_work(action, actor):
+        return (request.endpoint == f"raft_action_{action}" and actor["kind"] == "agent"
+                and not any(g.get(kind) for kind in ("local_dri", "personal_agent_api", "external_agent")))
+
     def mutate(command, actor, data, **fields):
         args = Namespace(command=command, by=actor["ledger_key"], force_text=force_text(data), **fields)
+        args.signed_wake_recovery = (command in ("start", "update", "done", "wait", "resume", "park")
+                                     and native_signed_work("advance-task", actor))
 
         def authorize(connection):
             if command in tasks_recurring.EDITS - {"recurring-add"} or command == "complete-recurring-review":
@@ -4231,8 +4238,12 @@ def create_app(
             context = {"goal_occurrence": occurrence_key}
             if "details" in fields:
                 context["activity_details"] = fields["details"]
+            recovery_at = (app_wake_activity.observation_at()
+                           if native_signed_work("complete-goal-occurrence", g.actor) else None)
             event = ledger.record(connection, number, "log", key, task["state"], fields["note"],
                                   task["waiting_on"], links, context, at=at)
+            if recovery_at:
+                app_wake_activity.signed_recovery(connection, key, project, event, recovery_at)
             ledger.bump_revision(connection, project)
         return {"receipt": receipt, "occurrence_key": occurrence_key, "event_id": event, "completed_at": at}
 

@@ -20,6 +20,7 @@ from taskboard_server.ready_wake import (
     launch_ready_wake,
     ready_wake_owner,
 )
+import tasks_app_wake_activity as app_wake_activity
 import tasks_goal_wake_receipts as goal_receipts
 from tasks_goals import PACIFIC
 import tasks_projects as projects
@@ -107,6 +108,10 @@ class _SampledChoiceChanged(RuntimeError):
 
 
 class _SampledStopRequested(RuntimeError):
+    pass
+
+
+class _AppDeliveryPaused(RuntimeError):
     pass
 
 
@@ -222,6 +227,11 @@ class ManagedReadySender:
         if current[6] != saved["subscription"]:
             raise GrantStopped("subscription_stopped")
 
+    def _check_app_delivery_pause(self, saved):
+        if (self.sampled and self.grant is not None
+                and app_wake_activity.status(self.db, saved["owner"], self.scope.project)["paused"]):
+            raise _AppDeliveryPaused
+
     def _check_binding(self, saved, current):
         if current != tuple(saved[key] for key in ("ledger", "board", "server", "recipient", "owner", "app")):
             raise ValueError("Managed Ready sender scope changed.")
@@ -233,6 +243,7 @@ class ManagedReadySender:
     def _candidate(self, saved, *, pending_only=False):
         with tasks_storage.read(self.db):
             self._check_subscription(saved)
+            self._check_app_delivery_pause(saved)
             self._check_history(saved)
             if self.sampled:
                 return self._sampled_candidate(saved)
@@ -346,6 +357,10 @@ class ManagedReadySender:
             if tasks_storage.has_table(self.state, "inbox_batch") and self.state.execute("SELECT 1 FROM inbox_batch").fetchone():
                 raise ValueError("Settle the pending Inbox batch before changing delivery mode.")
             return self._tick(saved, eligible=eligible)
+        except _AppDeliveryPaused:
+            if self.idle_gate is not None:
+                self.idle_gate.reset()
+            return "delivery_paused", None
         except GrantStopped:
             with tasks_storage.read(self.db):
                 try:
@@ -357,6 +372,7 @@ class ManagedReadySender:
     def _goal_candidate(self, saved):
         with tasks_storage.read(self.db):
             self._check_subscription(saved)
+            self._check_app_delivery_pause(saved)
             owner = saved["owner"]
             project = self.scope.project
             if ring1.private(self.db, project) or not has_subscription(self.db, project, owner, GOAL_OCCURRENCES):
@@ -389,11 +405,16 @@ class ManagedReadySender:
         first = previous["first_attempt"] if previous else now
         renewed = previous["renewed"] if previous else False
 
-        def record(acceptance, *, retry_at=0):
-            goal_receipts.record(
-                self.db, owner, key, task_id, acceptance=acceptance, attempts=attempts,
-                first_attempt=first, retry_at=retry_at, renewed=renewed, observed_at=ledger.timestamp(),
-            )
+        def record(acceptance, *, retry_at=0, accepted_app_at=None):
+            at = ledger.timestamp()
+            with tasks_storage.write(self.db):
+                goal_receipts.record_in_transaction(
+                    self.db, owner, key, task_id, acceptance=acceptance, attempts=attempts,
+                    first_attempt=first, retry_at=retry_at, renewed=renewed, observed_at=at,
+                )
+                if acceptance == "accepted":
+                    app_wake_activity.record_acceptance(self.db, owner, self.scope.project,
+                                                        document["externalEventId"], accepted_app_at)
 
         if previous and now < previous["retry_at"]:
             return "waiting", None
@@ -434,8 +455,10 @@ class ManagedReadySender:
             token = self.grant.token(preflight=preflight)
             preflight()
             send_goal_event(document, access_token=token, transport=submit)
-        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested) as error:
+        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested, _AppDeliveryPaused) as error:
             goal_receipts.restore(self.db, owner, key, previous)
+            if isinstance(error, _AppDeliveryPaused):
+                raise
             return ("awaiting_idle", key) if isinstance(error, _IdleGateClosed) else ("waiting", None)
         except _Unauthorized:
             if renewed:
@@ -448,7 +471,7 @@ class ManagedReadySender:
         except ReadyEventSendError:
             pass
         else:
-            record("accepted")
+            record("accepted", accepted_app_at=app_wake_activity.observation_at())
             if delay := self._retry_delay():
                 self._retry("accepted", key, delay=delay)
             self.idle_gate.reset()
@@ -521,6 +544,7 @@ class ManagedReadySender:
             check_stop()
             with tasks_storage.read(self.db):
                 self._check_subscription(saved)
+                self._check_app_delivery_pause(saved)
 
         def require_current_delivery():
             preflight()
@@ -560,13 +584,15 @@ class ManagedReadySender:
                 transport=submit if self.grant is not None else None,
                 command_delivery=submit_command if self.command_delivery is not None else None,
             )
-        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested) as error:
+        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested, _AppDeliveryPaused) as error:
             with self.state:
                 self.state.execute(
                     """UPDATE sender SET attempt_event = ?, attempts = ?, first_attempt = ?,
                                          retry_at = ?, renewed = ? WHERE singleton = 1""",
                     tuple(saved[key] for key in ("attempt_event", "attempts", "first_attempt", "retry_at", "renewed")),
                 )
+            if isinstance(error, _AppDeliveryPaused):
+                raise
             return ("awaiting_idle", event) if isinstance(error, _IdleGateClosed) else ("waiting", None)
         except (ReadyWakeEventChanged, ReadyWakeOwnerChanged, _PilotCueChanged):
             outcome = "superseded"
