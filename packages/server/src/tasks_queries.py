@@ -464,8 +464,9 @@ class BoardQueries:
              "title": row["title"], "kind": row["kind"], "deadline": row["deadline"],
              "owner": row["owner"], "owner_name": (people.get(row["owner"]) or {}).get("name"),
              "review_time": row["review_time"], "editable": row["owner"] == owner,
-             "review_schedule": goal_cadence.describe_schedule(
-                 row["review_time"], row["paused_time"], last_completed.get(row["id"]), now,
+             "review_schedule": goal_cadence.ticket_schedule(
+                 self.db, row, row["review_time"], row["paused_time"], now=now,
+                 last_completed=last_completed.get(row["id"]),
              )}
             for row in rows
         ]

@@ -2201,9 +2201,14 @@ def create_app(
         if ledger.task_goal_kind(db(), number) is not None:
             if change == "complete":
                 raise RequestError("Start the goal and record its outcome on the goal ticket.")
-            if data.keys() - {"id", "change"} - ({"review_time"} if change == "enable" else set()):
-                raise RequestError("A goal review uses a daily Pacific time.")
-            saved = save_goal_schedule(actor["ledger_key"], number, change, data.get("review_time"))
+            enabled_fields = {"review_time", "cadence_hours", "next_at"} if change == "enable" else set()
+            if data.keys() - {"id", "change"} - enabled_fields:
+                raise RequestError("Supply the daily time or interval and first Review time only when enabling a schedule.")
+            hours = integer(data["cadence_hours"], "Cadence hours") if "cadence_hours" in data else None
+            first = text(data, "next_at", optional=True, maximum=40)
+            saved = save_goal_schedule(
+                actor["ledger_key"], number, change, data.get("review_time"), cadence_hours=hours, next_at=first,
+            )
             state = {"active": "active", "paused": "paused", None: "unset"}[saved["state"]]
             return {**saved, "receipt": f"{saved['ticket']} · Goal reminder {state}"}
         optional = {"enable": {"cadence_hours", "next_at"}, "resume": {"cadence_hours", "next_at"},
@@ -3249,12 +3254,14 @@ def create_app(
             raise NotFound()
         return schedule
 
-    def save_goal_schedule(owner, number, change, value):
+    def save_goal_schedule(owner, number, change, value, *, cadence_hours=None, next_at=None):
         try:
             with tasks_storage.write(db()) as connection:
                 if change is None:
                     return goal_cadence.save_review_time(connection, owner, number, value)
-                return goal_cadence.change_schedule(connection, owner, number, change, value)
+                return goal_cadence.change_schedule(
+                    connection, owner, number, change, value, cadence_hours=cadence_hours, next_at=next_at,
+                )
         except ValueError as error:
             raise RequestError(str(error)) from error
         except PermissionError as error:
@@ -5964,7 +5971,7 @@ def create_app(
                 if schedules := goal_cadence.schedules(connection, key, project, now):
                     result["review_schedules"] = schedules
                     times = {ticket: schedule["review_time"] for ticket, schedule in schedules.items()
-                             if schedule["state"] == "active"}
+                             if schedule["state"] == "active" and schedule.get("review_time")}
                     if times:
                         result["review_times"] = times
                 return result

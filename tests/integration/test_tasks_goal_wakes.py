@@ -3,6 +3,7 @@
 import os
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import test_tasks_service
@@ -15,11 +16,20 @@ class GoalWakeReplay(unittest.TestCase):
         self.service = test_tasks_service.TasksServiceTest()
         self.service.setUp()
         self.addCleanup(self.service.doCleanups)
-        client, self.owner = self.service.login(self.service.app(portal_reader=True), "Avery")
+        self.sessions = self.service.database.parent / "sessions"
+        app = self.service.app(portal_reader=True, session_dir=self.sessions)
+        client, self.owner = self.service.login(app, "Avery")
         self.board = SignedBoard(self.service, client)
         self.origin = test_tasks_service.ORIGIN + test_tasks_service.BASE + "/"
         self.state = self.service.database.with_name("goal-wakes.sqlite")
         self.reminders = []
+
+    def reopened_board(self):
+        domain = urlsplit(test_tasks_service.ORIGIN).hostname
+        cookie = self.board.client.get_cookie("raft_board_session", domain=domain, path=test_tasks_service.BASE + "/")
+        client = self.service.app(portal_reader=True, session_dir=self.sessions).test_client()
+        client.set_cookie(cookie.key, cookie.value, domain=cookie.domain, path=cookie.path)
+        return client
 
     def watcher(self):
         return GoalWake(self.board, GoalWakeState(self.state, self.origin, self.owner))
@@ -115,6 +125,135 @@ class GoalWakeReplay(unittest.TestCase):
         again = self.board.invoke("complete-goal-occurrence", result, write=True)
         self.assertEqual(first["event_id"], again["event_id"])
         self.assertEqual(first["occurrence_key"], occurrence["key"])
+
+    def test_six_hour_review_slots_are_independent_and_missed_slots_coalesce(self):
+        client = self.board.client
+        action = self.service.action
+        action(client, "save-goal", {"kind": "standing", "summary": "Check the sample."})
+        ticket = action(client, "my-goals")["standing_goal"]["ticket"]
+        anchor = "2030-04-01T08:00:00Z"
+
+        def reviews():
+            return [item for item in action(client, "my-goal-occurrences")["items"] if item["kind"] == "review"]
+
+        def finish(occurrence):
+            return action(client, "complete-goal-occurrence", {
+                "id": ticket, "occurrence_key": occurrence["key"], "note": "Verified this interval.",
+            })
+
+        def description():
+            return action(client, "my-goals")["review_schedules"][ticket]
+
+        def cli(*args):
+            code, output, error = self.service.shared_cli(client, *args)
+            self.assertEqual((code, error), (0, ""))
+            return output
+
+        def wake_keys():
+            data = action(client, "my-inbox-wake", query_string={"include_occurrences": "true"})
+            return [item["key"] for item in data["goal_candidates"]]
+
+        with patch("tasks_core.timestamp", return_value="2030-04-01T07:59:59Z"):
+            cli("ticket-recurrence", ticket, "enable", "--cadence-hours", "6", "--next-at", anchor)
+            self.assertEqual(description()["next_at"], anchor)
+            self.assertIn("Review every 6 hours", cli("goals", "--project", "T"))
+            self.assertEqual(reviews(), [])
+        with patch("tasks_core.timestamp", return_value="2030-04-01T08:00:00Z"):
+            first, = reviews()
+            self.assertEqual(first["due_at"], anchor)
+            self.assertIn(first["key"], wake_keys())
+            self.assertEqual(finish(first), finish(first))
+            self.assertEqual(reviews(), [])
+            self.assertEqual(description()["next_at"], "2030-04-01T14:00:00Z")
+        with patch("tasks_core.timestamp", return_value="2030-04-01T14:00:00Z"):
+            second, = reviews()
+            self.assertEqual(second["day"], first["day"])
+            self.assertNotEqual(second["key"], first["key"])
+            self.assertIn(second["key"], wake_keys())
+            self.assertNotIn(first["key"], wake_keys())
+            receipt = cli("goal-complete", ticket, second["key"], "Verified the second interval.")
+            self.assertIn(f"#event-{finish(second)['event_id']}-log", receipt)
+            self.assertNotEqual(finish(second)["event_id"], finish(first)["event_id"])
+            restarted = self.reopened_board()
+            saved = action(restarted, "my-goals")["review_schedules"][ticket]
+            self.assertEqual(saved["next_at"], "2030-04-01T20:00:00Z")
+            self.assertEqual(action(restarted, "my-goal-occurrences")["items"], action(client, "my-goal-occurrences")["items"])
+            projection = self.service.call(client, f"/api/v1/tasks/{ticket}").json["goal"]["review_schedule"]
+            self.assertEqual(projection, description())
+            action(client, "ticket-recurrence", {"id": ticket, "change": "pause"})
+        with patch("tasks_core.timestamp", return_value="2030-04-02T03:00:00Z"):
+            self.assertEqual(reviews(), [])
+            self.assertIsNone(description()["next_at"])
+            action(client, "ticket-recurrence", {"id": ticket, "change": "resume"})
+            self.assertEqual(reviews(), [])
+            self.assertEqual(description()["next_at"], "2030-04-02T08:00:00Z")
+        with patch("tasks_core.timestamp", return_value="2030-04-03T14:15:00Z"):
+            latest, = reviews()
+            self.assertEqual(latest["due_at"], "2030-04-03T14:00:00Z")
+
+    def test_switch_to_daily_preserves_the_daily_slot_after_an_interval_outcome(self):
+        action = self.service.action
+        client = self.board.client
+        action(client, "save-goal", {"kind": "standing", "summary": "Review the sample."})
+        ticket = action(client, "my-goals")["standing_goal"]["ticket"]
+        interval = "2030-04-01T15:00:00Z"
+        daily = "2030-04-01T16:00:00Z"
+        daily_key = f"review:{ticket}:2030-04-01"
+
+        def finish(key):
+            return action(client, "complete-goal-occurrence", {
+                "id": ticket, "occurrence_key": key, "note": "Reviewed this slot.",
+            })
+
+        with patch("tasks_core.timestamp", return_value=interval):
+            action(client, "ticket-recurrence", {
+                "id": ticket, "change": "enable", "cadence_hours": 6, "next_at": interval,
+            })
+            finish(f"review:{ticket}:{interval}")
+            action(client, "set-goal-review-time", {"id": ticket, "time": "09:00"})
+
+        with patch("tasks_core.timestamp", return_value=daily):
+            schedule = action(client, "my-goals")["review_schedules"][ticket]
+            self.assertEqual(schedule["next_at"], daily)
+            self.assertEqual(self.service.call(client, f"/api/v1/tasks/{ticket}").json["goal"]["review_schedule"], schedule)
+            cue = action(client, "my-inbox-wake", query_string={"include_occurrences": "true"})
+            self.assertIn(daily_key, [item["key"] for item in cue["goal_candidates"]])
+            receipt = finish(daily_key)
+            self.assertEqual(finish(daily_key), receipt)
+            self.assertEqual(action(client, "my-goals")["review_schedules"][ticket]["next_at"], "2030-04-02T16:00:00Z")
+
+    def test_daily_review_state_persists_across_dst_with_an_interval_neighbor(self):
+        action = self.service.action
+        client = self.board.client
+        action(client, "save-goal", {"kind": "standing", "summary": "Daily handoffs."})
+        daily = action(client, "my-goals")["standing_goal"]["ticket"]
+        for label in ("Paused milestone", "Interval milestone"):
+            action(client, "save-goal", {"kind": "dated", "summary": label, "deadline": "2026-12-01"})
+        goals = {item["summary"]: item["ticket"] for item in action(client, "my-goals")["milestones"]}
+        paused, interval = goals["Paused milestone"], goals["Interval milestone"]
+        with patch("tasks_core.timestamp", return_value="2026-10-31T16:00:00Z"):
+            for goal in (daily, paused):
+                action(client, "set-goal-review-time", {"id": goal, "time": "09:00"})
+            action(client, "ticket-recurrence", {"id": paused, "change": "pause"})
+            key = f"review:{daily}:2026-10-31"
+            original = action(client, "complete-goal-occurrence", {
+                "id": daily, "occurrence_key": key, "note": "Completed the daily Review.",
+            })
+            action(client, "ticket-recurrence", {
+                "id": interval, "change": "enable", "cadence_hours": 6, "next_at": "2026-11-01T07:00:00Z",
+            })
+        with patch("tasks_core.timestamp", return_value="2026-11-01T16:00:00Z"):
+            reopened = self.reopened_board()
+            schedule = action(reopened, "my-goals")["review_schedules"]
+            self.assertEqual(schedule[daily]["next_at"], "2026-11-01T17:00:00Z")
+            self.assertEqual((schedule[paused]["state"], schedule[paused]["review_time"]), ("paused", "09:00"))
+            self.assertIsNone(schedule[paused]["next_at"])
+            self.assertEqual(schedule[interval]["next_at"], "2026-11-01T13:00:00Z")
+            reviews = [item for item in action(reopened, "my-goal-occurrences")["items"] if item["kind"] == "review"]
+            self.assertEqual([item["key"] for item in reviews], [f"review:{interval}:2026-11-01T13:00:00Z"])
+            self.assertEqual(action(reopened, "complete-goal-occurrence", {
+                "id": daily, "occurrence_key": key, "note": "Completed the daily Review.",
+            }), original)
 
     def test_standing_pass_before_review_time_counts_for_the_pacific_day(self):
         self.board.invoke("save-goal", {"kind": "standing", "summary": "Improve fictional handoffs"}, write=True)

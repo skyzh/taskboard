@@ -279,10 +279,15 @@ def exploration_available(db, row, now):
     if (row["state"] != "parked" or not row["stopping_criterion"]
             or not context.get("goal_criterion_met")):
         return True
+    from tasks_goal_intervals import current_slot, next_after, read as read_interval
+
+    criterion_at = datetime.fromisoformat(context.get("goal_criterion_at", row["at"]))
+    if (interval := read_interval(db, row["id"])) is not None:
+        slot = current_slot(interval, now)
+        return slot is not None and slot >= next_after(interval, criterion_at)
     schedule = db.execute("SELECT review_time FROM goal_review_times WHERE task_id = ?", (row["id"],)).fetchone()
     if schedule is None:
         return False
-    criterion_at = datetime.fromisoformat(context.get("goal_criterion_at", row["at"]))
     next_day = criterion_at.astimezone(PACIFIC).date() + timedelta(days=1)
     return now.astimezone(timezone.utc) >= review_slot(next_day, schedule["review_time"])
 

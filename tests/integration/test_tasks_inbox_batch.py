@@ -738,6 +738,38 @@ class InboxBatchTest(unittest.TestCase):
             self.assertEqual({item["key"] for item in fixture.board.invoke("my-goal-occurrences", {})["items"]},
                              {review, explore})
 
+    def test_two_interval_reviews_get_separate_app_and_signed_outcome_receipts(self):
+        self.origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()
+        self.restart()
+        fixture = self.fixture
+        with patch("tasks_core.timestamp", return_value=self.stamp(0)):
+            fixture.board.invoke("set-wake-subscription", {
+                "project": managed.PROJECT, "event_type": GOAL_OCCURRENCES, "enabled": "true",
+            }, write=True)
+            fixture.board.invoke("save-goal", {"kind": "standing", "summary": "Check interval reviews."}, write=True)
+            fixture.board.invoke("ticket-recurrence", {
+                "id": "T-1", "change": "enable", "cadence_hours": 6, "next_at": self.stamp(0),
+            }, write=True)
+
+        envelopes, outcomes = [], []
+        for offset in (0, 6 * 3600):
+            self.established_idle(offset, goals=True)
+            status, envelope = self.poll(offset + 30, goals=True)
+            self.assertEqual(status, "accepted")
+            envelopes.append(envelope)
+            members = json.loads(self.history(envelope)["members"])
+            review, = [item["key"] for item in members if item["kind"] == "goal_review"]
+            self.assertEqual(review, f"review:T-1:{self.stamp(offset)}")
+            with patch("tasks_core.timestamp", return_value=self.stamp(offset + 40)):
+                for member in members:
+                    receipt = fixture.board.invoke("complete-goal-occurrence", {
+                        "id": member["ticket"], "occurrence_key": member["key"], "note": "Verified the signed slot.",
+                    }, write=True)
+                    if member["kind"] == "goal_review":
+                        outcomes.append(receipt["event_id"])
+        self.assertEqual(len(set(envelopes)), 2)
+        self.assertEqual(len(set(outcomes)), 2)
+
     def test_out_of_scope_leading_work_blocks_the_batch(self):
         fixture = self.fixture
         fixture.create()

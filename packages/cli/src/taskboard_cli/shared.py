@@ -969,9 +969,14 @@ def shared_command(args):
         for ticket, at in sorted(saved.get("review_times", {}).items()):
             lines.append(f"{ticket} · Daily review at {at} Pacific time.")
         for ticket, schedule in sorted(saved.get("review_schedules", {}).items()):
-            if schedule["state"] == "paused":
+            if schedule["cadence"] == "interval":
+                hours = schedule["cadence_hours"]
+                label = "hour" if hours == 1 else f"{hours} hours"
+                state = " · Paused" if schedule["state"] == "paused" else ""
+                lines.append(f"{ticket} · Review every {label} from {schedule['anchor_at']}{state}.")
+            elif schedule["state"] == "paused":
                 lines.append(f"{ticket} · Daily review paused at {schedule['review_time']} Pacific time.")
-            elif schedule.get("next_at"):
+            if schedule.get("next_at"):
                 lines.append(f"  {ticket} next scheduled slot · {schedule['next_at']}")
         guidance = saved.get("next_step") or "Choose a daily Pacific review time for each active goal with goal-review-time."
         if not standing:

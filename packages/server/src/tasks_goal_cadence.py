@@ -6,8 +6,10 @@ import re
 
 import tasks_core as ledger
 import tasks_goals as goals
+import tasks_goal_intervals as intervals
 import tasks_projects as projects
 import tasks_ring1 as ring1
+from tasks_recurring import checked_slot, utc, utc_text
 
 
 SCHEMA = """
@@ -54,7 +56,7 @@ def save_review_time(db, owner, number, value):
     return change_schedule(db, owner, number, "cancel" if value == "" else "enable", value)
 
 
-def change_schedule(db, owner, number, change, value=None):
+def change_schedule(db, owner, number, change, value=None, *, cadence_hours=None, next_at=None):
     task = ledger.find_task(db, number)
     if task is None or task["dri"] != owner:
         raise PermissionError("Choose a goal you own.")
@@ -62,10 +64,34 @@ def change_schedule(db, owner, number, change, value=None):
         raise ValueError("Choose an active goal ticket.")
     project = projects.row_project(task)
     current_time, paused_time = schedule_times(db, number)
+    current_interval = intervals.read(db, number)
+    next_interval = current_interval
     if change == "enable":
-        if not isinstance(value, str) or not REVIEW_TIME.fullmatch(value):
-            raise ValueError("Provide a Pacific review time in HH:MM.")
-        next_time, next_paused = value, None
+        if cadence_hours is not None or next_at is not None:
+            if value is not None or type(cadence_hours) is not int or cadence_hours <= 0 or next_at is None:
+                raise ValueError("Choose a daily Pacific time or a positive interval and its first Review time.")
+            start = utc(next_at)
+            checked_slot(start, cadence_hours)
+            next_interval = {"cadence_hours": cadence_hours, "anchor_at": utc_text(start), "paused": False}
+            if current_interval and not current_interval["paused"] and all(
+                next_interval[field] == current_interval[field] for field in next_interval
+            ):
+                next_interval = current_interval
+            next_time, next_paused = None, ""
+        else:
+            if not isinstance(value, str) or not REVIEW_TIME.fullmatch(value):
+                raise ValueError("Provide a Pacific review time in HH:MM.")
+            next_interval = None
+            next_time, next_paused = value, None
+    elif current_interval is not None:
+        next_time, next_paused = None, ""
+        if change == "pause":
+            next_interval = {**current_interval, "paused": True}
+        elif change == "resume":
+            if current_interval["paused"]:
+                next_interval = {**current_interval, "paused": False, "resumed_at": ledger.timestamp()}
+        else:
+            next_interval = None
     elif change == "pause":
         next_time, next_paused = None, current_time or paused_time
     elif change == "resume":
@@ -95,9 +121,15 @@ def change_schedule(db, owner, number, change, value=None):
                    ON CONFLICT (key) DO UPDATE SET value = excluded.value""",
                 (inactive_key(number), next_paused),
             )
-    if (next_time, next_paused) != (current_time, paused_time):
+    if next_interval != current_interval:
+        intervals.write(db, number, next_interval)
+    if (next_time, next_paused, next_interval) != (current_time, paused_time, current_interval):
         ledger.bump_revision(db, project)
-    return {"ticket": projects.row_reference(task), "review_time": next_time or next_paused or None,
+    ticket = projects.row_reference(task)
+    if next_interval is not None:
+        now = datetime.fromisoformat(ledger.timestamp())
+        return {"ticket": ticket, "review_time": None, **describe_interval(db, task, next_interval, now)}
+    return {"ticket": ticket, "review_time": next_time or next_paused or None,
             "state": "active" if next_time else "paused" if next_paused else None}
 
 
@@ -116,26 +148,46 @@ def describe_schedule(active_time, paused_time, last_completed, now):
             "cadence": "daily", "time_zone": "America/Los_Angeles", "next_at": upcoming}
 
 
-def ticket_schedule(db, task, current_time, paused_time):
+def describe_interval(db, task, schedule, now):
+    upcoming = None
+    if not schedule["paused"]:
+        slot = intervals.current_slot(schedule, now)
+        if slot is None or occurrence_receipt(db, task["id"], intervals.occurrence_key(projects.row_reference(task), slot)):
+            slot = intervals.next_after(schedule, now)
+        upcoming = utc_text(slot)
+    return {"state": "paused" if schedule["paused"] else "active", "cadence": "interval",
+            "cadence_hours": schedule["cadence_hours"], "anchor_at": schedule["anchor_at"], "next_at": upcoming}
+
+
+def ticket_schedule(db, task, current_time, paused_time, *, now=None, last_completed=None):
     number = task["id"]
-    if current_time is None and paused_time is None:
+    interval = intervals.read(db, number)
+    if interval is None and current_time is None and paused_time is None:
         return None
-    _, last_completed = review_history(db, [task]) if current_time else ({}, {})
-    now = datetime.fromisoformat(ledger.timestamp()).astimezone(goals.PACIFIC)
-    return describe_schedule(current_time, paused_time, last_completed.get(number), now)
+    supplied_time = now is not None
+    now = now or datetime.fromisoformat(ledger.timestamp()).astimezone(goals.PACIFIC)
+    if interval is not None:
+        return describe_interval(db, task, interval, now)
+    if not supplied_time and current_time:
+        _, history = review_history(db, [task])
+        last_completed = history.get(number)
+    return describe_schedule(current_time, paused_time, last_completed, now)
 
 
 def schedules(db, owner, project, now):
     active = goals.goal_rows(db, [owner], project)
     times = {row["id"]: row for row in schedule_rows(db, owner, project)}
     _, last_completed = review_history(db, [row for row in active if row["id"] in times])
-    return {
-        projects.row_reference(row): describe_schedule(
-            saved["review_time"], saved["paused_time"], last_completed.get(row["id"]), now,
+    result = {}
+    for row in active:
+        saved = times.get(row["id"])
+        description = ticket_schedule(
+            db, row, saved["review_time"] if saved else None, saved["paused_time"] if saved else None,
+            now=now, last_completed=last_completed.get(row["id"]),
         )
-        for row in active if (saved := times.get(row["id"])) is not None
-        and (saved["review_time"] or saved["paused_time"])
-    }
+        if description:
+            result[projects.row_reference(row)] = description
+    return result
 
 
 def occurrence_receipt(db, number, occurrence_key):
@@ -184,12 +236,17 @@ def _occurrence_slots(db, owner, project, now):
                 last_completed = (last or completed)["id"]
                 yield last_completed, {"kind": "explore", "ticket": ticket, "key": f"{key}:{last_completed}",
                                        "day": day}
-        if not review_time:
-            continue
-        due_at = goals.review_slot(now.date(), review_time)
-        if now < due_at:
-            continue
-        key = f"review:{ticket}:{day}"
+        if review_time:
+            due_at = goals.review_slot(now.date(), review_time)
+            if now < due_at:
+                continue
+            key = f"review:{ticket}:{day}"
+        else:
+            schedule = intervals.read(db, number)
+            due_at = intervals.current_slot(schedule, now) if schedule else None
+            if due_at is None:
+                continue
+            key = intervals.occurrence_key(ticket, due_at)
         if occurrence_receipt(db, number, key) is None:
             yield 0, {"kind": "review", "ticket": ticket, "key": key, "day": day,
                       "due_at": due_at.isoformat().replace("+00:00", "Z")}
@@ -247,7 +304,10 @@ def review_history(db, active):
     for event, review in goals.review_events(rows):
         if review == "completed":
             counts[event["id"]] += 1
-            last_completed[event["id"]] = event["at"]
+            key = ledger.event_context(event).get("goal_occurrence", "")
+            # Fixed intervals have a UTC time in the key. Their outcomes do not consume a daily slot.
+            if event["action"] != "log" or key.count(":") == 2:
+                last_completed[event["id"]] = event["at"]
     return counts, last_completed
 
 
@@ -285,7 +345,7 @@ def due_reviews(db, owner, project, now, *, principal, include_timed=True):
     times = {row["id"]: row["review_time"] for row in schedule_rows(db, owner, project)}
     counts, last_completed = review_history(db, active)
     standing_offer = None
-    deadlines, timed, daily = [], [], []
+    deadlines, timed, scheduled = [], [], []
     for row in active:
         number = row["id"]
         ticket = projects.row_reference(row)
@@ -305,6 +365,12 @@ def due_reviews(db, owner, project, now, *, principal, include_timed=True):
             if instant >= due:
                 timed.append((due, {**summary, "kind": "timed", "key": f"timed:{ticket}:{until}", "day": today}))
                 continue
+        interval = intervals.read(db, number)
+        if interval and (slot := intervals.current_slot(interval, now)) is not None:
+            key = intervals.occurrence_key(ticket, slot)
+            if occurrence_receipt(db, number, key) is None:
+                scheduled.append({**summary, "kind": "interval", "key": key, "day": today})
+                continue
         review_time = times.get(number)
         deadline = row["deadline"]
         if completed_today(last_completed.get(number), now):
@@ -320,8 +386,8 @@ def due_reviews(db, owner, project, now, *, principal, include_timed=True):
                 **summary, "kind": "deadline", "key": f"deadline:{ticket}:{deadline}", "day": today,
             }))
         elif daily_due:
-            daily.append({
+            scheduled.append({
                 **summary, "kind": "standing-daily" if standing else "daily", "key": f"daily:{ticket}:{today}", "day": today,
             })
     return standing_offer, ([cue for _, cue in sorted(deadlines, key=lambda item: item[0])]
-                            + [cue for _, cue in sorted(timed, key=lambda item: item[0])] + daily)
+                            + [cue for _, cue in sorted(timed, key=lambda item: item[0])] + scheduled)

@@ -43,7 +43,7 @@ If you are changing the release on an existing board, follow the [Taskboard Upgr
 
 In your agent profile, edit the standing goal and select **Keep exploring while Inbox is clear**. Enter a criterion the agent can verify, such as “two useful pull requests have been opened today.” Leave **Stop when** empty to continue while the Inbox is clear. Set a daily Pacific review time in **Tasks → Schedules → Goal reviews** when using a stopping criterion.
 
-In Keep exploring mode, choose a distinct check each pass. Verify concrete findings and make focused fixes within your ordinary authority. Record a no-finding outcome after an actual check. Record the exact [Explore occurrence](#record-explore-and-scheduled-review) and recheck all actionable Inbox work and assigned reviews. On an earlier board, use `tasks --shared update GOAL "What I checked and verified" --standing-pass`. If work arrives, checkpoint and switch to it. When the written criterion is met, use `tasks --shared park GOAL "Evidence that the criterion is met" --criterion-met`. The same goal is offered from its next configured daily review.
+In Keep exploring mode, choose a distinct check each pass. Verify concrete findings and make focused fixes within your ordinary authority. Record a no-finding outcome after an actual check. Record the exact [Explore occurrence](#record-explore-and-scheduled-review) and recheck all actionable Inbox work and assigned reviews. On an earlier board, use `tasks --shared update GOAL "What I checked and verified" --standing-pass`. If work arrives, checkpoint and switch to it. When the written criterion is met, use `tasks --shared park GOAL "Evidence that the criterion is met" --criterion-met`. The same goal is offered from its next configured Review.
 
 To configure the same setting from the CLI, use `tasks --shared save-goal standing "Goal summary" --keep-exploring --criterion "Two useful pull requests opened today"`. Omit `--criterion` to clear it in Keep exploring mode. Use `--one-pass` to restore the default. The agent observes its existing runtime stop controls and wake settings.
 
@@ -60,6 +60,12 @@ Add each dated milestone by name with `save-goal dated`, `--deadline YYYY-MM-DD`
 Give each active goal a daily Pacific reminder from the ticket or **Tasks → Schedules → Goal reviews**. In the shared CLI, use `./tasks --shared ticket-recurrence T-123 enable --review-time 09:00`. The same command accepts `pause`, `resume`, or `cancel` in place of `enable` with no time argument. The milestone deadline stays a calendar date. A due Review appears in signed Inbox even when wake delivery is unconfirmed.
 
 ### Record Explore and scheduled Review
+
+For an interval schedule, use `./tasks --shared ticket-recurrence T-123 enable --cadence-hours 6 --next-at 2026-12-01T16:00:00Z`
+or choose **Fixed interval** in the goal's Review schedule. The first UTC time
+anchors later slots. The newest due slot is offered after missed intervals, and
+resuming a paused schedule starts at the next eligible slot. Each slot has its
+own receipt, even when two Reviews fall on the same Pacific day.
 
 A goal ticket holds both Explore and scheduled Review. Explore is work on the goal. Review records feedback at the saved Pacific review time and can be due while the ticket is parked. An Explore receipt leaves Review available. Complete each offered occurrence separately from signed Inbox or the goal ticket, and attach an evidence link when available. Use the project's Goal review prompt for Review.
 
