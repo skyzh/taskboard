@@ -582,6 +582,30 @@ class StorageReplayTest(unittest.TestCase):
         })
         self.assertTrue(self.board.call(avery, path).json["items"][0]["watcher"]["goals"])
 
+    def test_agent_delivery_choice_survives_import_and_worker_readback_expires(self):
+        source = self.board.app(portal_reader=True)
+        agent, owner = self.board.login(source, "Avery")
+        self.board.action(agent, "create-task", {"title": "Replay", "step": "Check enrollment."})
+        endpoint = f"/api/v1/agent-delivery/{owner}"
+        self.board.call(agent, endpoint, method="PUT", json={"mechanism": "raft_app", "revision": 0})
+        snapshot = self.board.database.with_name("agent-delivery.sqlite3")
+        with closing(sqlite3.connect(self.board.database)) as current, closing(sqlite3.connect(snapshot)) as backup:
+            with current:
+                current.execute(
+                    "INSERT INTO agent_delivery_runtime VALUES (?, 1, 'fixture', 'raft_app', 'running', ?)",
+                    (owner, "2026-11-28T18:00:00Z"),
+                )
+            current.backup(backup)
+
+        dsn = self.postgres_fixture()
+        counts = import_snapshot(snapshot, dsn)
+        self.assertEqual(counts["agent_delivery_enrollments"], 1)
+        self.assertNotIn("agent_delivery_runtime", counts)
+        target = self.postgres_app(dsn)
+        agent, _ = self.board.login(target, "Avery")
+        saved = self.board.call(agent, endpoint).json
+        self.assertEqual((saved["mechanism"], saved["revision"], saved["runtime"]["state"]), ("raft_app", 1, "unknown"))
+
     def test_ring1_project_visibility_on_postgres(self):
         root = self.board.provider.people["Sam"]["sub"]
         app = self.postgres_app(self.postgres_fixture(), project_admin_subject=root)

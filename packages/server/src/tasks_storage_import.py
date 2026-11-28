@@ -29,7 +29,7 @@ TABLES = (
     "intake_errors", "attention_requests", "attention_wait_links", "ticket_rollouts", "decision_reminders",
     "ask_recheck_acknowledgments", "notification_preferences", "notification_log",
     "watched_fyi_preferences", "watched_fyi_receipts",
-    "wake_subscriptions", "wake_log", "goal_idle_offers", "goal_wake_receipts", "external_wake_reports",
+    "wake_subscriptions", "agent_delivery_enrollments", "wake_log", "goal_idle_offers", "goal_wake_receipts", "external_wake_reports",
     "knowledge_areas", "knowledge_entries", "knowledge_stages", "knowledge_maintenance_assignments",
     "agent_api_usage", "ticket_attachments", "ticket_attachment_bytes",
     "dri_postboards", "dri_postboard_revisions", "knowledge_publications", "knowledge_publication_files",
@@ -39,7 +39,7 @@ ATTACHMENT_TABLES = {"ticket_attachments", "ticket_attachment_bytes"}
 # Ephemeral deployment records and migration history belong to the source database.
 NON_PORTABLE_TABLES = {
     "personal_agent_connections", "personal_agent_cli_approvals", "local_dri_watchers", "reports_presence",
-    "watcher_health", "runtime_observations", SCHEMA_REVISION_TABLE,
+    "watcher_health", "runtime_observations", "agent_delivery_runtime", SCHEMA_REVISION_TABLE,
 }
 IDENTITIES = {
     "tasks": "id", "events": "id", "sources": "id", "worker_runs": "id",
@@ -150,6 +150,7 @@ def copy_table(source, destination, table):
     ordering = {
         "tasks": "id", "events": "id", "ticket_attachments": "id", "ticket_attachment_bytes": "attachment_id",
         "dri_postboards": "project, dri", "dri_postboard_revisions": "project, dri, revision_id",
+        "agent_delivery_enrollments": "owner",
     }
     if order := ordering.get(table):
         expected = source.execute(f"SELECT {fields_sql} FROM {table_sql} ORDER BY {order}")
