@@ -1,4 +1,4 @@
-import React, { useId, useRef, useState } from 'react'
+import React, { useEffect, useEffectEvent, useId, useRef, useState } from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
 import { LoadMore, ResourceStatus, TaskLink, Timestamp, useSignInHref } from './shared.jsx'
@@ -6,6 +6,30 @@ import { LoadMore, ResourceStatus, TaskLink, Timestamp, useSignInHref } from './
 const actions = { claim: 'Claimed', renew: 'Renewed', release: 'Released', expire: 'Expired' }
 const ticketKey = /^[A-Z][A-Z0-9]{0,7}-[1-9]\d{0,18}$/
 const identity = () => crypto.randomUUID()
+
+export function scheduleResourceExpiry(data, refreshedThrough, refresh) {
+  const asOf = Date.parse(data.as_of)
+  if (!Number.isFinite(asOf)) return
+  let earliest = Infinity
+  for (const { claim } of data.items) {
+    const expiry = Date.parse(claim?.expires_at)
+    if (expiry > asOf && expiry > refreshedThrough) earliest = Math.min(earliest, expiry)
+  }
+  if (!Number.isFinite(earliest)) return
+
+  // Servers report whole seconds. Leave time for that clock to cross the boundary.
+  const maxTimeout = 2 ** 31 - 1
+  let timer
+  function arm(remaining) {
+    const delay = Math.min(remaining, maxTimeout)
+    timer = setTimeout(() => {
+      if (remaining > delay) arm(remaining - delay)
+      else refresh(earliest)
+    }, delay)
+  }
+  arm(earliest - asOf + 1000)
+  return () => clearTimeout(timer)
+}
 
 export function resourceRequest(previous, path, body, createKey = identity) {
   const signature = JSON.stringify([path, body])
@@ -250,12 +274,21 @@ export default function Resources({ project, projectPicker, revision, session, v
   const resource = useResource(verified && !projectsPending ? listPath : null, revision)
   const [checked, setChecked] = useState(null)
   const [historyRevision, setHistoryRevision] = useState(0)
+  const refreshedThrough = useRef(-Infinity)
   const data = checked?.revision === revision && !resource.error ? checked.data : resource.data
   const refreshClaims = () => {
     setChecked(null)
     resource.retry()
     setHistoryRevision(value => value + 1)
   }
+  const refreshAfterExpiry = useEffectEvent(expiry => {
+    refreshedThrough.current = expiry
+    refreshClaims()
+  })
+  useEffect(() => {
+    if (data?.project !== project || !verified || projectsPending || resource.pending || resource.error) return
+    return scheduleResourceExpiry(data, refreshedThrough.current, expiry => refreshAfterExpiry(expiry))
+  }, [data, project, verified, projectsPending, resource.pending, resource.error])
   const writeContext = {
     project, listPath,
     onReadback: readback => {
@@ -270,7 +303,10 @@ export default function Resources({ project, projectPicker, revision, session, v
       <div className="page-heading schedule-heading">
         <h1>Resources</h1>{projectPicker}
         {verified && <button type="button" disabled={resource.pending || projectsPending}
-          onClick={refreshClaims}>Refresh claims</button>}
+          onClick={() => {
+            refreshedThrough.current = -Infinity
+            refreshClaims()
+          }}>Refresh claims</button>}
         <BoardLink href={'#' + new URLSearchParams({ project })}>Back to Tasks</BoardLink>
       </div>
       {verified ? (

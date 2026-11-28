@@ -10,6 +10,7 @@ let ResourcesContents
 let ResourceHistoryRows
 let matchesResourceReadback
 let resourceRequest
+let scheduleResourceExpiry
 
 before(async () => {
   vite = await createServer({
@@ -18,7 +19,7 @@ before(async () => {
     optimizeDeps: { noDiscovery: true },
     server: { middlewareMode: true, ws: false, hmr: false, watch: null },
   })
-  ;({ ResourcesContents, ResourceHistoryRows, matchesResourceReadback, resourceRequest } =
+  ;({ ResourcesContents, ResourceHistoryRows, matchesResourceReadback, resourceRequest, scheduleResourceExpiry } =
     await vite.ssrLoadModule('/src/Resources.jsx'))
 })
 
@@ -108,4 +109,36 @@ test('checks each saved result against the signed project list', () => {
     'T', resource.key, 'release', {}, { ...receipt, claim: null }), true)
   assert.equal(matchesResourceReadback(data, 'T', resource.key, 'define', resource, {}), true)
   assert.equal(matchesResourceReadback(data, 'T', resource.key, 'define', { ...resource, max_minutes: 60 }, {}), false)
+})
+
+test('refreshes at the earliest server-relative expiry and advances past an unchanged early response', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const snapshot = {
+    as_of: '2030-04-01T16:29:55Z',
+    items: [{ ...resource, claim: { ...claim, expires_at: '2030-04-01T16:31:00Z' } }, resource],
+  }
+  const refreshed = []
+  const record = expiry => refreshed.push(expiry)
+  scheduleResourceExpiry(snapshot, -Infinity, record)
+  t.mock.timers.tick(5999)
+  assert.deepEqual(refreshed, [])
+  t.mock.timers.tick(1)
+  const firstExpiry = Date.parse(claim.expires_at)
+  assert.deepEqual(refreshed, [firstExpiry])
+
+  assert.equal(scheduleResourceExpiry({ ...snapshot, items: [resource] }, firstExpiry, record), undefined)
+  scheduleResourceExpiry(snapshot, firstExpiry, record)
+  t.mock.timers.tick(65999)
+  assert.deepEqual(refreshed, [firstExpiry])
+  t.mock.timers.tick(1)
+  assert.deepEqual(refreshed, [firstExpiry, Date.parse(snapshot.items[0].claim.expires_at)])
+})
+
+test('cancels an obsolete expiry timer and leaves lists without a server clock on manual refresh', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const unexpected = () => assert.fail('Expiry timer fired')
+  const cancel = scheduleResourceExpiry({ as_of: claim.claimed_at, items: [resource] }, -Infinity, unexpected)
+  cancel()
+  assert.equal(scheduleResourceExpiry({ items: [resource] }, -Infinity, unexpected), undefined)
+  t.mock.timers.tick(24 * 60 * 60 * 1000)
 })

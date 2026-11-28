@@ -2874,7 +2874,7 @@ def create_app(
                 }
 
             if operation == "list":
-                return {"project": project, "can_define": manager, "items": [
+                return {"project": project, "can_define": manager, "as_of": now, "items": [
                     present_resource(row) for row in resources.listing(connection, project)
                 ]}
             if not isinstance(key, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", key):

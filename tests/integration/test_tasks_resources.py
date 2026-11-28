@@ -45,6 +45,7 @@ def replay_resource_claims(test, board, make_app, open_board):
     test.assertTrue(board.call(manager, browser).json["can_define"])
     listing = board.call(member, browser).json
     test.assertEqual(listing, board.action(member, "project-resources", query_string={"project": "LAB"}))
+    test.assertEqual(listing["as_of"], now)
     test.assertFalse(listing["can_define"])
     test.assertTrue(listing["items"][0]["can_claim"])
 
@@ -86,9 +87,19 @@ def replay_resource_claims(test, board, make_app, open_board):
     release = {**lookup, "request_key": request_key(4), "claim_id": identifier, "revision": 1}
     board.action(member, "release-resource", release, status=409)
 
+    now = "2030-04-01T12:05:59Z"
+    before_expiry = board.action(member, "project-resources", query_string={"project": "LAB"})
+    test.assertEqual(before_expiry["as_of"], now)
+    test.assertEqual(before_expiry["items"][0]["claim"], renewed["claim"])
+
+    revision = board.call(member, "/api/v1/revision").json
     now = renewed["claim"]["expires_at"]
+    at_expiry = board.action(member, "project-resources", query_string={"project": "LAB"})
+    test.assertEqual(at_expiry["as_of"], now)
+    test.assertEqual(board.call(member, browser).json, at_expiry)
+    test.assertEqual(board.call(member, "/api/v1/revision").json, revision)
     board.action(member, "renew-resource", {**renew, "request_key": request_key(5), "revision": 2}, status=409)
-    item, = board.call(member, browser).json["items"]
+    item, = at_expiry["items"]
     test.assertIsNone(item["claim"])
     test.assertTrue(item["can_claim"])
     test.assertFalse(item["can_renew"])
