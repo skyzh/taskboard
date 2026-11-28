@@ -35,3 +35,43 @@ Extend the existing release admission path with a required compatibility policy 
 The private receipt records the candidate and predecessor digests, client and browser artifact pins, the observed operations for each pairing, and the result. Bind the receipt to the same candidate and active base as the queue record. The release maintainer owns the first real release designation and any promotion of the compatibility-enabled launcher.
 
 Once the compatibility-enabled launcher is in use, a manual release needs the same passing receipt for the exact candidate and active base before activation. Public CI exercises the compatibility contract with synthetic fixtures. The exact release gate uses the approved private artifacts.
+
+## Prototype public predecessor qualification
+
+The private Pi gate checks the retained clients with the checked candidate built
+on the Pi. Keep those inputs and checks on the operator host. A protected CI job
+can exercise the two reciprocal CLI pairings and the predecessor browser using
+fresh builds from public commits. The prototype command takes those artifacts
+and a disposable browser policy with `playwright_module` and, if needed,
+`node` and `browser_executable`:
+
+```sh
+python -B tools/release/release_compatibility.py --public-proof \
+  --artifact "$candidate_build" --candidate "$candidate_manifest" \
+  --predecessor "$predecessor_build" --base "$predecessor_manifest" \
+  --policy "$fixture_browser_policy"
+```
+
+To trial the CI handoff, the reviewed `Qualify public release pairings` step
+would emit the successful command's one-line JSON as a GitHub check-run notice
+titled `Taskboard public compatibility`. The receipt carries public manifest
+digests, pairing results, browser version, and observed browser asset hashes.
+A dedicated hosted step still needs to be configured and tested with exact
+public commits and the operator's browser version.
+
+The prototype reader starts from the existing verified required-check receipt.
+It checks the matching `Portable checks` job, its qualification step, and the
+current run attempt for the exact protected main push from `.github/workflows/ci.yml`.
+It accepts one notice from that job. The Pi-side matcher requires the exact
+fresh candidate and active predecessor manifests, matching browser evidence
+and version, and a policy without a selected unavailable-action probe. It
+uses local checks for all retained clients. Missing or inapplicable proof
+runs the full matrix. The composed matrix must still pass the existing
+complete receipt check before activation.
+
+The installed launcher and workflow have no prototype integration. Before
+enabling it, verify a hosted notice through the existing anonymous reader,
+compare the hosted and Pi manifests and browser version, and replay both
+reuse and fallback through the installed launcher in disposable slots. The
+normal Pi backup, mounted health check, and rollback remain part of release
+activation.

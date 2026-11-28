@@ -16,6 +16,7 @@ from release_plan import verify_manifest
 
 
 SCHEMA = "taskboard-compatibility/v1"
+PUBLIC_SCHEMA = "taskboard-public-compatibility/v1"
 
 
 def supported_clients(policy, predecessor, base_sha):
@@ -122,38 +123,110 @@ def verify_rollback_ledger(python, predecessor, candidate):
                    "The prior release did not observe the upgraded ledger revision.")
 
 
-def run_matrix(artifact, candidate_sha, predecessor, base_sha, policy, python=sys.executable):
+def candidate_pair(artifact, candidate, predecessor, base, policy, root, tls, python):
+    with fixture_server(python, predecessor, root / "predecessor", *tls) as old:
+        origin, cookie, database, env = old
+        actor = seed(python, predecessor, origin, cookie, database)
+        previous_actions = actions(read_json(origin, MANIFEST))
+        verify_queue(origin, cookie)
+        verify_cli(python, artifact, env, origin, cookie, actor)
+        with fixture_server(python, artifact, root / "candidate-contract", *tls) as current:
+            candidate_actions = actions(read_json(current[0], MANIFEST))
+        verify_contract(previous_actions, candidate_actions)
+        unavailable = verify_missing_action(policy, artifact, candidate_actions, previous_actions, old, python)
+    return {"client": candidate, "server": base, "roles": ["candidate"],
+            "workflow": "start-wait-resume", "unavailable_action": unavailable}
+
+
+def client_pair(artifact, candidate, digest, client, root, tls, python):
+    legacy = "legacy" in client["roles"]
+    with fixture_server(python, artifact, root, *tls) as current:
+        origin, cookie, database, env = current
+        actor = seed(python, artifact, origin, cookie, database)
+        verify_queue(origin, cookie)
+        verify_cli(python, client["artifact"], env, origin, cookie, actor, legacy=legacy)
+    return {"client": digest, "server": candidate, "roles": client["roles"],
+            "workflow": "start-wait-resume", "default_scope": "T" if legacy else "all"}
+
+
+def browser_pair(artifact, candidate, predecessor, base, policy, root, tls, python):
+    return {"client": base, "server": candidate,
+            **verify_browser(artifact, predecessor, policy, root, tls, python)}
+
+
+def run_public_matrix(artifact, candidate, predecessor, base, browser_policy, python=sys.executable):
+    """Produce evidence solely for the two public manifests and predecessor browser."""
+    artifact, predecessor = Path(artifact).resolve(strict=True), Path(predecessor).resolve(strict=True)
+    verify_manifest(artifact, candidate)
+    verify_manifest(predecessor, base)
+    expect((predecessor / "web/dist/index.html").is_file(), "Public qualification requires a predecessor browser.")
+    with TemporaryDirectory(prefix="taskboard-public-compatibility-") as temporary:
+        root = Path(temporary)
+        tls = certificate(root)
+        pairings = [
+            candidate_pair(artifact, candidate, predecessor, base, {}, root, tls, python),
+            client_pair(artifact, candidate, base, {"artifact": predecessor, "roles": ["predecessor"]},
+                        root / "candidate-predecessor", tls, python),
+        ]
+        browser = browser_pair(artifact, candidate, predecessor, base, browser_policy, root, tls, python)
+    return {"schema": PUBLIC_SCHEMA, "status": "pass", "candidate": candidate, "base": base,
+            "pairings": pairings, "browser": browser}
+
+
+def applicable_public_proof(proof, candidate, base, policy, predecessor, browser_version):
+    if (not isinstance(proof, dict) or policy.get("unavailable_action") is not None or not browser_version
+            or (proof.get("schema"), proof.get("status"), proof.get("candidate"), proof.get("base"))
+            != (PUBLIC_SCHEMA, "pass", candidate, base)):
+        return False
+    if proof.get("pairings") != [
+        {"client": candidate, "server": base, "roles": ["candidate"], "workflow": "start-wait-resume",
+         "unavailable_action": "no-new-cli-action-selected"},
+        {"client": base, "server": candidate, "roles": ["predecessor"], "workflow": "start-wait-resume",
+         "default_scope": "all"},
+    ]:
+        return False
+
+    browser = proof.get("browser")
+    old_index = predecessor / "web/dist/index.html"
+    if (not isinstance(browser, dict) or not old_index.is_file()
+            or (browser.get("client"), browser.get("server"), browser.get("chromium"), browser.get("rendered"))
+            != (base, candidate, browser_version, True)
+            or browser["rendered"] is not True
+            or browser.get("old_html") != sha256(old_index.read_bytes()).hexdigest()):
+        return False
+
+    assets = browser.get("assets")
+    if not isinstance(assets, dict) or not any(path.endswith(".js") for path in assets):
+        return False
+    manifest = {
+        line[66:]: line[:64] for line in (predecessor / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+    }
+    return all(path.startswith("web/dist/assets/") and digest == manifest.get(path) and digest is not None
+               for path, digest in assets.items())
+
+
+def run_matrix(artifact, candidate_sha, predecessor, base_sha, policy, python=sys.executable, *,
+               public_proof=None, browser_version=None):
+    """Run the full matrix unless a verified protected-run proof applies exactly."""
     artifact, predecessor = Path(artifact).resolve(strict=True), Path(predecessor).resolve(strict=True)
     verify_manifest(artifact, candidate_sha)
     clients = supported_clients(policy, predecessor, base_sha)
-    pairings = []
+    reuse = applicable_public_proof(public_proof, candidate_sha, base_sha, policy, predecessor, browser_version)
+    pairings = list(public_proof["pairings"]) if reuse else []
     with TemporaryDirectory(prefix="taskboard-compatibility-") as temporary:
         root = Path(temporary)
         tls = certificate(root)
-        with fixture_server(python, predecessor, root / "predecessor", *tls) as old:
-            origin, cookie, database, env = old
-            actor = seed(python, predecessor, origin, cookie, database)
-            previous_actions = actions(read_json(origin, MANIFEST))
-            verify_queue(origin, cookie)
-            verify_cli(python, artifact, env, origin, cookie, actor)
-            with fixture_server(python, artifact, root / "candidate-contract", *tls) as current:
-                candidate_actions = actions(read_json(current[0], MANIFEST))
-            verify_contract(previous_actions, candidate_actions)
-            unavailable = verify_missing_action(policy, artifact, candidate_actions, previous_actions, old, python)
-        pairings.append({"client": candidate_sha, "server": base_sha, "roles": ["candidate"],
-                         "workflow": "start-wait-resume", "unavailable_action": unavailable})
+        if not reuse:
+            pairings.append(candidate_pair(artifact, candidate_sha, predecessor, base_sha, policy, root, tls, python))
         for index, (digest, client) in enumerate(clients.items()):
-            with fixture_server(python, artifact, root / f"candidate-{index}", *tls) as current:
-                origin, cookie, database, env = current
-                actor = seed(python, artifact, origin, cookie, database)
-                verify_queue(origin, cookie)
-                legacy = "legacy" in client["roles"]
-                verify_cli(python, client["artifact"], env, origin, cookie, actor, legacy=legacy)
-            pairings.append({"client": digest, "server": candidate_sha, "roles": client["roles"],
-                             "workflow": "start-wait-resume", "default_scope": "T" if legacy else "all"})
-        browser = verify_browser(artifact, predecessor, policy, root, tls, python)
+            if reuse and client["roles"] == ["predecessor"]:
+                continue
+            pairings.append(client_pair(artifact, candidate_sha, digest, client, root / f"candidate-{index}",
+                                        tls, python))
+        browser = (public_proof["browser"] if reuse else
+                   browser_pair(artifact, candidate_sha, predecessor, base_sha, policy, root, tls, python))
     return {"schema": SCHEMA, "status": "pass", "candidate": candidate_sha, "base": base_sha,
-            "pairings": pairings, "browser": {"client": base_sha, "server": candidate_sha, **browser}}
+            "pairings": pairings, "browser": browser}
 
 
 def verify_receipt(receipt, candidate, base, *, legacy, first_real=None,
@@ -198,10 +271,16 @@ def main():
     parser.add_argument("--predecessor", type=Path, required=True)
     parser.add_argument("--base", required=True)
     parser.add_argument("--policy", type=Path, required=True)
-    parser.add_argument("--receipt", type=Path, help="Revalidate a saved receipt for a manual release.")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--receipt", type=Path, help="Revalidate a saved receipt for a manual release.")
+    mode.add_argument("--public-proof", action="store_true", help="Check public pairings without a retained-client policy.")
     arguments = parser.parse_args()
     try:
         policy = json.loads(arguments.policy.read_text())
+        if arguments.public_proof:
+            print(json.dumps(run_public_matrix(arguments.artifact, arguments.candidate, arguments.predecessor,
+                                               arguments.base, policy)))
+            return
         if arguments.receipt is None:
             result = run_matrix(arguments.artifact, arguments.candidate, arguments.predecessor, arguments.base, policy)
         else:
