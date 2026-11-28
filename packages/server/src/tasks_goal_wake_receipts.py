@@ -58,7 +58,24 @@ def restore(db, owner, key, previous):
     record(db, owner, key, previous["task_id"], **{field: previous[field] for field in fields})
 
 
-def listing(db, project, recipient, *, before, limit, principal):
+def latest_signed_outcome(db, project, recipient):
+    if not tasks_storage.has_table(db, "goal_wake_receipts"):
+        return None
+    row = db.execute(
+        """SELECT outcome.id AS event_id, outcome.at, tasks.id, tasks.project_prefix, tasks.project_number
+           FROM goal_wake_receipts AS receipt
+           JOIN tasks ON tasks.id = receipt.task_id
+           JOIN events AS outcome ON outcome.task_id = receipt.task_id AND outcome.actor = receipt.recipient
+               AND outcome.action = 'log' AND json_extract(outcome.context, '$.goal_occurrence') = receipt.occurrence_key
+           WHERE tasks.project_prefix = ? AND receipt.recipient = ? AND receipt.attempts > 0
+           ORDER BY outcome.id DESC LIMIT 1""", (project, recipient),
+    ).fetchone()
+    if row is None:
+        return None
+    return {"event_id": row["event_id"], "at": row["at"], "ticket": projects.row_reference(row)}
+
+
+def listing(db, project, recipient, *, before, limit, principal, attempted_only=False):
     visibility, visible_args = ring1.visibility(db, "tasks.project_prefix", principal)
     filters, bindings = [visibility], list(visible_args)
     if project is not None:
@@ -67,6 +84,8 @@ def listing(db, project, recipient, *, before, limit, principal):
     if recipient is not None:
         filters.append("receipts.recipient = ?")
         bindings.append(recipient)
+    if attempted_only:
+        filters.append("receipts.attempts > 0")
     if before is not None:
         try:
             cursor = json.loads(before)

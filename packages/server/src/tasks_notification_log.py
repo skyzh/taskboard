@@ -412,7 +412,7 @@ def has_receipts(db, project, *, principal=None):
 
 
 def listing(db, project, recipient, state, kind, *, before, limit, before_wake=False, principal=None,
-            include_triggers=False, hide_requests=False, pending_wakes=False):
+            include_triggers=False, hide_requests=False, pending_wakes=False, carrier=None):
     visibility, visible_args = ring1.visibility(db, "tasks.project_prefix", principal)
     filters, bindings = ["(? IS NULL OR tasks.project_prefix = ?)", visibility], [project, project, *visible_args]
     if recipient is not None:
@@ -421,6 +421,9 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
     if kind is not None:
         filters.append("notices.kind = ?")
         bindings.append(kind)
+    if carrier is not None:
+        filters.append("notices.carrier = ?")
+        bindings.append(carrier)
     if before is not None:
         filters.append("(notices.source_event_id < ? OR (notices.source_event_id = ? AND notices.kind != 'wake'))"
                        if before_wake else "notices.source_event_id < ?")
@@ -443,6 +446,7 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
         """)
     if hide_requests:
         filters.append("NOT EXISTS (SELECT 1 FROM peer_asks WHERE peer_asks.task_id = tasks.id)")
+    order = "notices.status_at DESC, " if carrier is not None else ""
     # Ready events are possible wake triggers. Their presence does not show
     # that a watcher was configured, attempted dispatch, or reached the owner.
     triggers = f"""
@@ -461,7 +465,7 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
             WHERE events.state = 'ready' AND tasks.record_kind = 'work'
               AND events.action IN ('add', 'transfer', 'resume', 'unpark', 'decide', 'withdraw-decision', 'update')
               AND NOT EXISTS (SELECT 1 FROM wake_log WHERE source_event_id = events.id)
-    """ if include_triggers else ""
+    """ if include_triggers and carrier is None else ""
     rows = db.execute(
         f"""
         WITH receipts AS (
@@ -500,7 +504,7 @@ def listing(db, project, recipient, state, kind, *, before, limit, before_wake=F
             ORDER BY terminal.id LIMIT 1
         ) AND acknowledged.action = 'done' AND acknowledged.actor = peer_asks.requester
         WHERE {' AND '.join(filters)}
-        ORDER BY notices.source_event_id DESC, CASE WHEN notices.kind = 'wake' THEN 0 ELSE 1 END LIMIT ?
+        ORDER BY {order}notices.source_event_id DESC, CASE WHEN notices.kind = 'wake' THEN 0 ELSE 1 END LIMIT ?
         """, (*bindings, limit + 1),
     ).fetchall()
     cursor = None

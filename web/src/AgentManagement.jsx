@@ -1,8 +1,108 @@
 import React, { useState } from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
 import { queryPath, useLoadedPages, useResource } from './data.js'
+import { wakeReason } from './NotificationLog.jsx'
 import { projectHref } from './projectScope.js'
 import { LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref } from './shared.jsx'
+
+const cueLabels = {
+  'owned-ready': 'Ready work',
+  'goal-occurrences': 'Explore and Review',
+}
+const acceptanceLabels = {
+  pending: 'Dispatch pending',
+  accepted: 'Accepted',
+  unknown: 'Acceptance unconfirmed',
+  rejected: 'Rejected',
+  unsendable: 'Cue could not be prepared',
+}
+
+export function AppDelivery({ data, pause, project, agent }) {
+  const { cues, latest, last_signed_activity: activity } = data
+  const goal = latest?.reason === 'goal_review' || latest?.reason === 'goal_explore'
+  const history = new URLSearchParams({
+    project, action: 'wake', actor: agent,
+    ...(goal && { wake_status: 'goals' }),
+  })
+  const outcome = latest?.goal_outcome || latest?.request_acknowledgment
+  const startLabel = latest?.next_result === 'different_work' ? 'Other work started' : 'Signed pickup'
+  const sourceHref = latest && !goal ? projectHref(eventHref(latest.id), project) : null
+  return <>
+    <p className="event-meta">
+      <strong>{cues.length ? 'App cues enabled' : 'No app cues enabled'}</strong>
+      {cues.length > 0 && <span>{cues.map(cue => cueLabels[cue] || cue).join(' · ')}</span>}
+      <BoardLink href={`#activity?${history}`}>Wake history</BoardLink>
+    </p>
+    {pause?.paused && <p className="event-meta">
+      <strong>App delivery paused</strong>
+      <span>{pause.accepted_count} accepted app events without signed work</span>
+      <Timestamp at={pause.paused_at} />
+    </p>}
+    {!pause?.paused && pause?.latest_recovery_at && <p className="event-meta">
+      <span>{pause.recovery_kind === 'operator_resume' ? 'Operator resumed app delivery' : 'Signed work recorded'}</span>
+      <Timestamp at={pause.latest_recovery_at} />
+    </p>}
+    {latest ? <dl className="notification-log-times">
+      <div><dt>Latest app record</dt><dd>{wakeReason(latest)}{' · '}
+        <TaskLink id={latest.task_id} reference={latest.task} />{' · '}
+        <Timestamp at={latest.acceptance_at} />
+        {sourceHref && <> · <BoardLink href={sourceHref}>Source activity</BoardLink></>}
+      </dd></div>
+      <div><dt>Dispatch</dt><dd>{acceptanceLabels[latest.acceptance]}
+        {latest.carrier === 'raft_app' && ' · Raft app event'}
+      </dd></div>
+      {latest.delivery && <div><dt>Delivery</dt><dd>
+        {latest.delivery === 'delivered' ? 'Delivered' : 'Suppressed'}
+        {latest.delivery_at && <> · <Timestamp at={latest.delivery_at} /></>}
+      </dd></div>}
+      {outcome && <div><dt>{goal ? 'Signed outcome' : 'Request acknowledged'}</dt><dd>
+        <BoardLink href={projectHref(eventHref(outcome.id), project)}><Timestamp at={outcome.at} /></BoardLink>
+      </dd></div>}
+      {latest.started_at && <div><dt>{startLabel}</dt><dd>
+        <BoardLink href={projectHref(eventHref(latest.start_event_id), project)}>
+          <Timestamp at={latest.started_at} />
+        </BoardLink>
+      </dd></div>}
+      {latest.acceptance === 'accepted' && !latest.delivery && <div><dt>Delivery</dt><dd>Unconfirmed</dd></div>}
+    </dl> : <p className="event-meta">No app wake attempt recorded</p>}
+    {activity && <p className="event-meta">Last verified signed wake activity{' '}
+      {activity.event_id ? <BoardLink href={projectHref(eventHref(activity.event_id), project)}>
+        {activity.ticket} · <Timestamp at={activity.at} />
+      </BoardLink> : <Timestamp at={activity.at} />}
+    </p>}
+  </>
+}
+
+const reportedOutcomes = {
+  accepted: 'Reported accepted',
+  rejected: 'Reported rejected',
+  unknown: 'Acceptance unconfirmed',
+  delivered: 'Reported delivered',
+}
+const reportedReasons = {
+  'carrier-not-started': 'Carrier did not start',
+  'carrier-no-reply': 'Carrier did not reply',
+  'carrier-timeout': 'Carrier timed out',
+  'carrier-rejected': 'Carrier rejected the cue',
+}
+
+function ExternalReport({ report, project }) {
+  return <>
+    <p className="event-meta">
+      <strong>External watcher report</strong>
+      <span>{report.carrier}</span>
+      <BoardLink href={projectHref(eventHref(report.source_event), project)}>{report.ticket} Ready activity</BoardLink>
+    </p>
+    <dl className="notification-log-times">
+      {[['Acceptance', report.acceptance], ['Delivery', report.delivery]].map(([label, observation]) =>
+        observation && <div key={label}><dt>{label}</dt><dd>
+          {reportedOutcomes[observation.outcome]} · <Timestamp at={observation.observed_at} />
+          {observation.reason && <span> · {reportedReasons[observation.reason]}</span>}
+        </dd></div>
+      )}
+    </dl>
+  </>
+}
 
 function WatcherRow({ row, project }) {
   const watcher = row.watcher
@@ -11,6 +111,10 @@ function WatcherRow({ row, project }) {
   return (
     <li className="event-row">
       <p className="event-ticket"><BoardLink href={`#${agent}`}>{row.name}</BoardLink></p>
+      {row.app_delivery && <AppDelivery data={row.app_delivery} pause={row.app_pause} project={project} agent={row.agent} />}
+      {row.external_report && <ExternalReport report={row.external_report} project={project} />}
+      <details open={!row.app_delivery}>
+      <summary>Managed watcher</summary>
       {watcher ? <>
         <p className="event-meta">
           <strong>{watcher.stale ? `Stale · last reported ${state.toLowerCase()}` : state}</strong>
@@ -23,11 +127,12 @@ function WatcherRow({ row, project }) {
           <div><dt>Stalled work</dt><dd>{watcher.stalled ? 'On' : 'Off'}</dd></div>
         </dl>
       </> : <p className="event-meta">Watcher report unavailable</p>}
-      <p className="event-meta">Last verified pickup{' '}
-        {row.pickup ? <BoardLink href={projectHref(eventHref(row.pickup.event_id), project)}>
+      </details>
+      {!row.app_delivery && row.pickup && <p className="event-meta">Last verified pickup{' '}
+        <BoardLink href={projectHref(eventHref(row.pickup.event_id), project)}>
           {row.pickup.ticket} · <Timestamp at={row.pickup.at} />
-        </BoardLink> : 'Unknown'}
-      </p>
+        </BoardLink>
+      </p>}
     </li>
   )
 }
@@ -139,13 +244,13 @@ export default function AgentManagement({ project, revision, canViewInbox }) {
     <section className="feed-section" aria-labelledby="agent-management">
       <h1 id="agent-management">Agent management</h1>
       {canViewInbox && <AgentInboxPicker project={project} revision={revision} />}
-      <h2>Watcher reports</h2>
-      <p>Watcher reports describe the managed watcher process. Runtime activity and ticket status are separate.</p>
-      <button type="button" onClick={() => setRefresh(value => value + 1)} disabled={!project || health.pending}>Refresh watcher reports</button>
-      <ResourceStatus resource={health} label="watcher reports" />
+      <h2>Delivery and watcher status</h2>
+      <p>App cue preferences, recorded delivery and signed pickup are shown separately.</p>
+      <button type="button" onClick={() => setRefresh(value => value + 1)} disabled={!project || health.pending}>Refresh agent status</button>
+      <ResourceStatus resource={health} label="agent status" />
       {health.data && rows.length === 0 && <p className="section-message">No agents in this project.</p>}
       {rows.length > 0 && (
-        <ul className="event-list" aria-label="Agent watchers">
+        <ul className="event-list" aria-label="Project agents">
           {rows.map(row => <WatcherRow row={row} project={project} key={row.agent} />)}
         </ul>
       )}
