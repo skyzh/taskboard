@@ -601,8 +601,13 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const canEditChecklist = record?.can_edit_checklist ?? record?.tag_editable
   const canEditChecklistText = record?.can_edit_checklist_text ?? canEditChecklist
   const canAnswer = task && mayAnswer(task, session)
-  const focusedAttention = Boolean(task && attentionRequest && decisionRequest === undefined
-    && session.data?.actor?.kind === 'human')
+  const human = session.data?.actor?.kind === 'human'
+  const focusedAttention = Boolean(task && attentionRequest && decisionRequest === undefined && human)
+  const requestId = focusedAttention ? attentionRequest : undefined
+  const ticketRequests = task && human && <AttentionRequests
+    key={`attention:${session.data.actor.id}:${id}:${requestId || 'all'}`}
+    taskId={id} requestId={requestId} revision={revision} onChanged={onChanged}
+    onRequestLoaded={focusedAttention ? focusOutcome : undefined} />
   const returnToDecisions = <BoardLink className="decision-return" href={decisionsHref(decisionProject)}>Return to decisions</BoardLink>
   const ownsTicket = task && signedIn && session.data.actor.id && session.data.actor.id === task.dri
   const ownsReturnPath = ownsTicket
@@ -676,20 +681,20 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               : <LinkedDecision key={`${id}:${decisionRequest}:${session.data?.actor?.id || ''}`}
               ticket={id} requestId={decisionRequest} task={task} session={session} revision={revision}
               onChanged={onChanged} receiptAction={<DecisionReceiptActions project={decisionProject} revision={revision} showReturn={false} />} />}
+            {ticketRequests}
           </section> : <section className={task ? `ticket-focus ${state}` : undefined}
             aria-label={focusedAttention ? 'Outcome' : summary} ref={outcome}
             id={focusedAttention ? 'ticket-outcome' : undefined} tabIndex={focusedAttention ? -1 : undefined}>
             {task && <>
               {focusedAttention && <>
                 <h2>Outcome</h2>
-                <AttentionRequests key={`attention:${session.data.actor.id}:${id}:${attentionRequest}`}
-                  taskId={id} requestId={attentionRequest} revision={revision} onChanged={onChanged}
-                  onRequestLoaded={focusOutcome} />
+                {ticketRequests}
               </>}
               {canAnswer ? <div className="ticket-focus-heading">
                 {focusedAttention ? <h3>{summary}</h3> : <h2>{summary}</h2>}
                 {returnToDecisions}
               </div> : focusedAttention ? summary !== 'Outcome' && <h3>{summary}</h3> : <h2>{summary}</h2>}
+              {!focusedAttention && ticketRequests}
               <TaskWaitAge task={task} />
               {(task.waiting_on || task.blockers) && <p><Dependency task={task} /></p>}
               {task.peer_request && <PeerRequestContext task={task} />}
@@ -797,10 +802,6 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
           session={session} revision={revision} onChanged={onChanged} showActions={showActions} />}
         {task && (
           <div className="ticket-detail-history">
-            {!attentionRequest && session.data?.actor?.kind === 'human' && (
-              <AttentionRequests key={`attention:${session.data.actor.id}:${id}`}
-                taskId={id} revision={revision} onChanged={onChanged} showControls={showActions} />
-            )}
             {record.workers.length > 0 && (
               <section className="detail-workers" aria-label="Recorded worker runs">
                 <h3>Recorded worker runs</h3>

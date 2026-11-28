@@ -1,6 +1,8 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
 import { useLoadedPages, useResource } from './data.js'
+import { attentionTicketHref } from './AttentionRequests.jsx'
+import { decisionTicketHref } from './DecisionReceiptActions.jsx'
 import {
   ActivityMark, AssigneeAvatar, DriWorkStatus, EvidenceLinks, LoadMore, ResourceStatus, TaskLink, WorkerResult,
   eventHref, ownerHref, profileName, taskHref, taskLabel,
@@ -373,6 +375,14 @@ function ProjectLinks({ project, revision }) {
 
 const attentionLabels = { decision: 'Decision', request: 'Request', review: 'Review' }
 
+function needsYouHref(item, project) {
+  const [kind, id] = /^(decision|request):([1-9]\d*)$/.exec(item.id)?.slice(1) ?? []
+  if (!id || kind !== item.kind) return taskHref(item.ticket)
+  return kind === 'decision'
+    ? decisionTicketHref({ key: item.ticket, decision_request_id: id }, project)
+    : attentionTicketHref(null, item.ticket, id)
+}
+
 export function NeedsYou({ project, revision, showAllAsks = false }) {
   const page = useLoadedPages('/notifications/needs-you', project ? { project } : { scope: 'all' }, revision, { limit: 10 })
   const items = page.data?.items
@@ -409,7 +419,7 @@ export function NeedsYou({ project, revision, showAllAsks = false }) {
             const requester = profileName(item.requester, item.requester_profile)
             return (
               <li key={item.id}>
-                <BoardLink href={taskHref(item.ticket)}>
+                <BoardLink href={needsYouHref(item, project)}>
                   <span className="needs-you-task">
                     <span className="ticket-id">{item.ticket}</span> <MarkdownInline text={item.title} links={false} />
                   </span>

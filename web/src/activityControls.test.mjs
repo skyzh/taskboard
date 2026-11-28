@@ -307,6 +307,8 @@ test('Needs you reads only the selected project on the signed-in human’s own r
       { id: 'decision:1', ticket: 'COURSE-1', title: 'Choose a date', kind: 'decision' },
       { id: 'request:2', ticket: 'COURSE-2', title: 'Check the outline', kind: 'request',
         asked_at: '2025-11-21T17:15:00Z' },
+      { id: 'request:3', ticket: 'COURSE-2', title: 'Confirm the figures', kind: 'request' },
+      { id: 'review:peer:5', ticket: 'COURSE-5', title: 'Review the evidence', kind: 'review' },
     ] } }
   }
   const render = viewer => renderToStaticMarkup(React.createElement(AssigneePage, { ...props, viewer }))
@@ -321,11 +323,14 @@ test('Needs you reads only the selected project on the signed-in human’s own r
 
     const ownReport = render({ id: owner, name: 'Sam', kind: 'human' })
     assert.match(ownReport, /Needs you/)
-    const [legacy, dated] = ownReport.match(/<a href="#task-COURSE-[12]"[^>]*>.*?<\/a>/g)
-    assert.match(legacy, /Choose a date/)
-    assert.doesNotMatch(legacy, /Asked|<time/)
+    const [decision, dated, second, review] = ownReport.match(/<a href="#task-COURSE-[125][^"]*"[^>]*>.*?<\/a>/g)
+    assert.match(decision, /decision-scope=COURSE&amp;decision-request=1".*Choose a date/)
+    assert.doesNotMatch(decision, /Asked|<time/)
+    assert.match(dated, /attention-request=2"/)
     assert.match(dated, /Check the outline.*Asked <time dateTime="2025-11-21T17:15:00Z" title="[^"]+"/)
     assert.doesNotMatch(dated, /<button/)
+    assert.match(second, /attention-request=3".*Confirm the figures/)
+    assert.match(review, /href="#task-COURSE-5".*Review the evidence/)
     assert.deepEqual(scopes, [{ project }])
   } finally {
     delete fixture.resources[path]
@@ -709,6 +714,29 @@ test('attention cards link a separate blocked ticket and report only a recorded 
   const completed = renderRequests('handled', { ...handled, unblocks: { ...task, ready_event_id: 24 } })
   assert.match(completed, /Moved <a href="#task-COURSE-3".* to Ready/)
   assert.match(completed, /href="#event-24-log">View Ready event<\/a>/)
+})
+
+test('a plain ticket shows the recipient’s open acknowledgment in the main ticket panel', () => {
+  const item = {
+    id: 8, task_id: 1, task_key: 'T-1', sender: 'Avery', reason: 'Check the chart labels.',
+    raised_at: '2026-11-21T07:00:00Z', links: [],
+  }
+  fixture.resources = { '/tasks/1': { data: {
+    task: { id: 1, key: 'T-1', title: 'Review the chart', state: 'ready', summary_label: 'Next step', dri: 'Avery' },
+    checklist: [], sources: [], workers: [],
+  } } }
+  fixture.pages = { '/notifications/requests': filters => {
+    assert.deepEqual(filters, { state: 'open', task_id: 1, scope: 'all' })
+    return { data: { items: [item] } }
+  } }
+  const render = kind => {
+    fixture.state = []
+    return renderToStaticMarkup(React.createElement(TaskDetail, {
+      id: 1, session: { data: { actor: { id: 'Sam', kind } } },
+    }))
+  }
+  assert.match(render('human'), /class="ticket-focus ready".*Check the chart labels.*Mark handled/)
+  assert.doesNotMatch(render('agent'), /Check the chart labels|Mark handled/)
 })
 
 test('ticket attention hides stale requests while refreshing and preserves the handled receipt', () => {
