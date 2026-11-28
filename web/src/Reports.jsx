@@ -294,7 +294,6 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
           </ul>
         </div>
       )}
-      {(previewGoals.length > 0 || outcomes.size > 0) && ownerLinks}
       {previewGoals.length > 0 && <ReportGoals goals={previewGoals} owner={owner}
         project={multipleProjects ? undefined : ownerProject} publicPreview={publicPreview}
         target={tourTargets.goals} heading={WorkHeading} highlighted={tourTargets.goals === activeTarget && Boolean(activeTarget)} />}
@@ -306,11 +305,11 @@ export function AssigneeReport({ entry, revision, project, projectTitle, publicP
           </ol>
         </div>
       )}
+      {ownerLinks}
       {!publicPreview && reports.length > 0 && (
         <PendingReports owner={owner} project={project} projectTitle={projectTitle} name={name} initial={reports}
           total={reportCount} cursor={before} reportFilters={reportFilters} />
       )}
-      {previewGoals.length === 0 && outcomes.size === 0 && ownerLinks}
     </li>
   )
 }
