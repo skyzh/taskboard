@@ -4,7 +4,7 @@ from contextlib import closing
 from functools import partial
 import sqlite3
 
-from taskboard_server import personal_agents
+from taskboard_server import external_agents, personal_agents
 from tasks_attachments import BYTE_SCHEMA, METADATA_SCHEMA
 from tasks_goals import migrate_goal_tickets
 from tasks_knowledge import migrate_records
@@ -20,7 +20,7 @@ TABLES = (
     "task_tags", "tasknote_snapshots", "sources", "source_deliveries", "task_sources",
     "task_references", "task_watches", "assignee_watches", "worker_runs", "peer_asks", "recurring_definitions",
     "recurring_occurrences", "recurring_review_tickets", "recurring_review_runs", "project_maintenance", "release_batches", "release_events",
-    "release_tasks", "release_changelogs", "merge_candidates", "board_principals", "project_admin_grants", "project_owner_grants", "personal_agent_instructions", "local_dris",
+    "release_tasks", "release_changelogs", "merge_candidates", "board_principals", "project_admin_grants", "project_owner_grants", "personal_agent_instructions", "local_dris", "external_agent_enrollments",
     "board_assignee_imports", "board_project_goals", "board_standing_goals", "board_goal_milestones", "task_goals",
     "goal_review_times", "cue_pauses", "stalled_cue_acknowledgments",
     "oidc_members", "audit_events",
@@ -102,6 +102,8 @@ def copy_snapshot(source, tables, settings, connection):
     if ATTACHMENT_TABLES <= tables:
         destination.execute(METADATA_SCHEMA)
         destination.execute(BYTE_SCHEMA)
+    if "external_agent_enrollments" in tables:
+        destination.execute(external_agents.SCHEMA)
     counts = {}
     for table in TABLES:
         if table in tables:
@@ -122,6 +124,9 @@ def copy_table(source, destination, table):
     cursor_sql = f"SELECT * FROM {table_sql}"
     if table == "board_principals":
         cursor_sql = f"SELECT *, rowid AS principal_order FROM {table_sql}"
+    elif table == "external_agent_enrollments":
+        # A different deployment can reissue claims for the same ledger principals.
+        cursor_sql = f"SELECT id, principal, project, actions FROM {table_sql}"
     rows = source.execute(cursor_sql)
     columns = [field[0] for field in rows.description]
     if set(columns) - target_columns:
