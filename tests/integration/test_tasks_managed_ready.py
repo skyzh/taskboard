@@ -983,7 +983,7 @@ class ManagedSenderTest(unittest.TestCase):
         projected = self.board.invoke("my-inbox-wake", {"scope": "all"})["work"]
         self.assertEqual((projected["key"], projected["source_event"]), (deliverable["task"], deliverable["event"]))
 
-        origin = self.now
+        origin = datetime.fromisoformat(deliverable["at"]).timestamp()
         gate = SampledIdleGate(lambda: "idle", clock=lambda: self.now - origin, include_boundary=True)
         grant = self.grant()
         for offset in (0, 10, 20, 30):
