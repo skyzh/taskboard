@@ -1546,6 +1546,8 @@ class TasksServiceTest(unittest.TestCase):
             "id": worker_source, "transition": "create", "force_delivery": True, "recipient": blake_key, "note": "Provide the sample.",
         })
         self.assertEqual(view(sam, project="T"), [("decision", decision, "Avery"), ("request", request, "Avery")])
+        signed_rows = self.call(sam, path, query_string={"project": "T"}).json["items"]
+        self.assertEqual([item.get("intent") for item in signed_rows], [None, "request"])
         self.assertEqual(view(sam, project="COURSE"), [("request", course, "Avery")])
         self.assertCountEqual(view(sam, scope="all"), [
             ("decision", decision, "Avery"), ("request", course, "Avery"), ("request", request, "Avery"),
@@ -8198,7 +8200,9 @@ class TasksServiceTest(unittest.TestCase):
         one = self.action(avery, "raise-attention", item)
         self.action(blake, "raise-attention", item, status=403)
         self.action(sam, "raise-attention", item, status=403)
-        two = self.action(avery, "raise-attention", {**item, "reason": "Review the sample totals."})
+        two = self.action(avery, "raise-attention", {
+            **item, "reason": "Review the sample totals.", "unblocks": "T-2",
+        })
         other = self.action(blake, "raise-attention", {
             "id": "T-2", "recipient": quinn_id, "reason": "Review the JSON fixture.",
         })
@@ -8211,8 +8215,10 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("no-store", page.headers["Cache-Control"])
         self.assertEqual(page.json["items"][0]["id"], two["id"])
         self.assertEqual(page.json["items"][0]["sender"], avery_id)
+        self.assertEqual(page.json["items"][0]["intent"], "ask")
         older = self.call(sam, requests + f"?before={page.json['next_cursor']}&limit=1").json["items"][0]
         self.assertEqual((older["id"], older["links"][0]["url"]), (one["id"], item["url"]))
+        self.assertEqual(older["intent"], "request")
         self.assertEqual(self.call(sam, requests + "?task_id=2").get_json()["items"], [])
         self.assertEqual([row["id"] for row in self.call(quinn, requests).get_json()["items"]], [other["id"]])
         self.assertEqual(self.call(avery, requests).get_json()["items"], [])
@@ -8591,6 +8597,31 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "advance-task", {"id": "T-2", "transition": "start", "note": "Verify intended coverage."})
         self.action(avery, "advance-task", {"id": "T-2", "transition": "done", "note": "Everyone has the release."})
         self.assertEqual(self.call(avery, ticket).json["task"]["dri"], avery_id)
+
+    def test_nonblocking_ask_and_fyi_keep_the_explicit_sender_intent(self):
+        app = self.app(portal_reader=True)
+        avery, _ = self.login(app, "Avery")
+        sam, sam_key = self.login(app, "Sam")
+        self.action(avery, "create-task", {"title": "Inspect a sample", "step": "Review the fixture."})
+        body = {"recipient": sam_key, "reason": "Check the sample chart."}
+        path = "/api/v1/tasks/T-1/needs-you"
+        headers = {"Origin": ORIGIN}
+        ask = {"kind": "attention", "request_key": "fixture-ask", **body}
+        sent = self.call(avery, path, method="POST", headers=headers, json=ask).json
+        self.assertEqual(self.call(avery, path, method="POST", headers=headers, json=ask).json, sent)
+        self.call(avery, path, method="POST", headers=headers, json={**ask, "kind": "fyi"}, status=409)
+        fyi = self.call(avery, path, method="POST", headers=headers, json={
+            **body, "kind": "fyi", "request_key": "fixture-fyi",
+        }).json
+        legacy = self.action(avery, "raise-attention", {"id": "T-1", **body})
+        cli_fyi = self.action(avery, "raise-attention", {"id": "T-1", "intent": "fyi", **body})
+        rows = self.call(sam, "/api/v1/notifications/needs-you", query_string={"limit": 10}).json["items"]
+        expected = {sent["id"]: "ask", fyi["id"]: "fyi", legacy["id"]: "request", cli_fyi["id"]: "fyi"}
+        self.assertEqual({int(row["id"].split(":")[1]): row["intent"] for row in rows}, expected)
+        requests = self.call(sam, "/api/v1/notifications/requests").json["items"]
+        self.assertEqual({row["id"]: row["intent"] for row in requests}, expected)
+        self.assertTrue(all(row["reason"] == body["reason"] and row["unblocks"] is None for row in requests))
+        self.assertEqual(self.action(avery, "task", query_string={"id": "T-1"})["task"]["state"], "ready")
 
     def test_attention_reminder_updates_same_open_request_and_respects_recipient(self):
         self.cli("add", "Legacy task", "--dri", "Avery", "--step", "Keep its recorded request.")
@@ -8978,7 +9009,12 @@ class TasksServiceTest(unittest.TestCase):
             db.execute("INSERT INTO attention_wait_links VALUES (22, 1, NULL)")
         self.app(portal_reader=True)
         with closing(sqlite3.connect(self.database)) as db:
-            self.assertEqual(db.execute("SELECT * FROM attention_requests").fetchall(), [(*before, None, None, None)])
+            requests = db.execute("""
+                SELECT id, task_id, sender, recipient, reason, links, raised_at, handled_at,
+                       remind_on, unblocks_task_id, request_key, intent
+                FROM attention_requests
+            """).fetchall()
+            self.assertEqual(requests, [(*before, None, None, None, None)])
             self.assertEqual(db.execute("SELECT * FROM attention_wait_links").fetchall(), [(22, 1, None, None)])
 
     def test_milestone_and_history_labels_preserve_stable_profile_keys(self):

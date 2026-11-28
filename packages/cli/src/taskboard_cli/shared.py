@@ -263,10 +263,10 @@ def shared_write(board, args, *, context):
     if command == "raise-attention":
         reference = task_ref(args.id)
         unblocks = task_ref(args.unblocks) if args.unblocks is not None else None
-        check_ask(command, reference, args.reason, recipient=args.on, unblocks=unblocks, evidence=data or None)
+        check_ask(command, reference, args.reason, recipient=args.on, unblocks=unblocks, intent=args.intent, evidence=data or None)
         return board.raise_attention(
             reference, args.reason, recipient=args.on, request_key=args.request_key,
-            unblocks=unblocks, force_text=force_text, **data,
+            unblocks=unblocks, intent=args.intent, force_text=force_text, **data,
         )
     if command == "save-goal":
         action = command

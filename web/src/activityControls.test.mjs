@@ -305,9 +305,9 @@ test('Needs you reads only the selected project on the signed-in human’s own r
     scopes.push(filters)
     return { data: { items: [
       { id: 'decision:1', ticket: 'COURSE-1', title: 'Choose a date', kind: 'decision' },
-      { id: 'request:2', ticket: 'COURSE-2', title: 'Check the outline', kind: 'request',
+      { id: 'request:2', ticket: 'COURSE-2', title: 'Check the outline', kind: 'request', intent: 'fyi',
         asked_at: '2025-11-21T17:15:00Z' },
-      { id: 'request:3', ticket: 'COURSE-2', title: 'Confirm the figures', kind: 'request' },
+      { id: 'request:3', ticket: 'COURSE-2', title: 'Confirm the figures', kind: 'request', intent: 'ask' },
       { id: 'review:peer:5', ticket: 'COURSE-5', title: 'Review the evidence', kind: 'review' },
     ] } }
   }
@@ -323,14 +323,17 @@ test('Needs you reads only the selected project on the signed-in human’s own r
 
     const ownReport = render({ id: owner, name: 'Sam', kind: 'human' })
     assert.match(ownReport, /Needs you/)
-    const [decision, dated, second, review] = ownReport.match(/<a href="#task-COURSE-[125][^"]*"[^>]*>.*?<\/a>/g)
+    const [decision, dated, ask, review] = ownReport.match(/<a href="#task-COURSE-[125][^"]*"[^>]*>.*?<\/a>/g)
     assert.match(decision, /decision-scope=COURSE&amp;decision-request=1".*Choose a date/)
+    assert.match(decision, /<\/svg>Decision<\/span>/)
     assert.doesNotMatch(decision, /Asked|<time/)
     assert.match(dated, /attention-request=2"/)
-    assert.match(dated, /Check the outline.*Asked <time dateTime="2025-11-21T17:15:00Z" title="[^"]+"/)
-    assert.doesNotMatch(dated, /<button/)
-    assert.match(second, /attention-request=3".*Confirm the figures/)
+    assert.match(dated, /Check the outline.*aria-hidden="true".*<\/svg>FYI<\/span>.*<time dateTime="2025-11-21T17:15:00Z" title="[^"]+"/)
+    assert.doesNotMatch(dated, /<button|Asked/)
+    assert.match(ask, /attention-request=3".*Confirm the figures/)
+    assert.match(ask, /<\/svg>Ask<\/span>/)
     assert.match(review, /href="#task-COURSE-5".*Review the evidence/)
+    assert.match(review, /<\/svg>Review<\/span>/)
     assert.deepEqual(scopes, [{ project }])
   } finally {
     delete fixture.resources[path]
@@ -668,7 +671,7 @@ test('decision rows render block Markdown while ordinary queue notes stay compac
 test('a deferred request keeps its original age and a handled request has no active age', t => {
   t.mock.method(Date, 'now', () => Date.parse('2026-11-21T08:00:00Z'))
   const request = { id: 4, task_id: 1, sender: 'Avery', reason: 'Review it.',
-    raised_at: '2026-11-20T07:00:00Z', remind_on: '2026-11-22', links: [] }
+    intent: 'ask', raised_at: '2026-11-20T07:00:00Z', remind_on: '2026-11-22', links: [] }
   const zone = createTimeZoneFormatters('America/Los_Angeles')
   const render = (state, item) => {
     fixture.state = [state]
@@ -706,8 +709,9 @@ test('attention cards link a separate blocked ticket and report only a recorded 
     return renderToStaticMarkup(React.createElement(AttentionRequests, state === 'open' ? { taskId: 1 } : {}))
   }
   assert.match(renderRequests('open', item), /Unblocks <a href="#task-COURSE-3".*Verify the release/)
-  const informationalRequest = renderRequests('open', { ...item, unblocks: null })
-  assert.match(informationalRequest, /For your information/)
+  const informationalRequest = renderRequests('open', { ...item, intent: 'fyi', unblocks: null })
+  assert.match(informationalRequest, /<\/svg>FYI<\/span>/)
+  assert.doesNotMatch(informationalRequest, /Unanswered/)
   assert.doesNotMatch(informationalRequest, /Unblocks|View Ready event/)
   const handled = { ...item, handled_at: '2026-11-21T08:00:00Z' }
   assert.doesNotMatch(renderRequests('handled', handled), /Moved|Unblocks|View Ready event/)
@@ -793,7 +797,7 @@ test('ticket attention hides stale requests while refreshing and preserves the h
 })
 
 test('a linked ticket request shows the exact update and its acknowledgment without editing', () => {
-  const item = { id: 8, task_id: 1, sender: 'Avery', reason: 'Daily review summary.',
+  const item = { id: 8, task_id: 1, sender: 'Avery', intent: 'fyi', reason: 'Daily review summary.',
     raised_at: '2026-11-26T16:00:00Z', links: [] }
   fixture.pages = { '/notifications/requests': filters => {
     assert.deepEqual(filters, { state: 'open', task_id: 1, request_id: '8', scope: 'all' })
@@ -802,7 +806,7 @@ test('a linked ticket request shows the exact update and its acknowledgment with
   const markup = renderToStaticMarkup(React.createElement(AttentionRequests, { taskId: 1, requestId: '8' }))
   assert.match(markup, /Inbox request/)
   assert.match(markup, /Daily review summary/)
-  assert.match(markup, /Received <time datetime="2026-11-26T16:00:00Z"/i)
+  assert.match(markup, /<\/svg>FYI<\/span><time datetime="2026-11-26T16:00:00Z"/i)
   assert.match(markup, />Mark handled<\/button>/)
 })
 

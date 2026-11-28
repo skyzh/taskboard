@@ -3,7 +3,7 @@ import { useLoadedPages } from './data.js'
 import { LoadMore, ResourceStatus, profileName } from './shared.jsx'
 import TransitionFeedback, { useTransitionRequest } from './TransitionFeedback.jsx'
 
-const labels = { decision: 'Decision', attention: 'Attention request' }
+const labels = { decision: 'Decision', attention: 'Attention request', fyi: 'FYI' }
 
 export default function NeedsYouSend({ ticket, actions, replacement, project, revision, onChanged }) {
   const [open, setOpen] = useState(false)
@@ -21,7 +21,7 @@ export default function NeedsYouSend({ ticket, actions, replacement, project, re
     onChanged()
   }, 'Needs You ask sent.')
 
-  const available = Object.keys(labels).filter(kind => actions?.includes(kind))
+  const available = Object.keys(labels).filter(kind => actions?.includes(kind === 'fyi' ? 'attention' : kind))
   const replacing = Boolean(replacement)
   const kind = replacing ? 'replace-attention'
     : available.includes(selection) ? selection : available.length === 1 ? available[0] : ''
@@ -47,7 +47,7 @@ export default function NeedsYouSend({ ticket, actions, replacement, project, re
       }
       return mutation.submit(path, { ...question, kind, on: recipient })
     }
-    const payload = JSON.stringify([recipient, text])
+    const payload = JSON.stringify([kind, recipient, text])
     if (pendingAttention.current?.payload !== payload) {
       pendingAttention.current = { payload, key: crypto.randomUUID() }
     }
@@ -74,7 +74,8 @@ export default function NeedsYouSend({ ticket, actions, replacement, project, re
         </> : <>
           {kind && <p>{decision
             ? 'The ticket waits for the recipient’s answer.'
-            : 'The recipient gets an attention request. The ticket keeps its current status.'}</p>}
+            : kind === 'fyi' ? 'The recipient can acknowledge the update.'
+              : 'The recipient gets an attention request. The ticket keeps its current status.'}</p>}
           <label>Recipient
             <select required value={recipient} onChange={event => {
               setRecipient(event.target.value)
@@ -101,7 +102,7 @@ export default function NeedsYouSend({ ticket, actions, replacement, project, re
         </label>}
         <button type="submit" disabled={mutation.blocked || !ready}>
           {mutation.saving ? 'Sending…' : replacing ? 'Replace request and send Question'
-            : decision ? 'Request decision' : kind ? 'Request attention' : 'Send ask'}
+            : decision ? 'Request decision' : kind === 'fyi' ? 'Send FYI' : kind ? 'Request attention' : 'Send ask'}
         </button>
         <TransitionFeedback mutation={mutation} />
       </form>

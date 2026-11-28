@@ -276,15 +276,19 @@ test('the public Summary renders captured next steps and blocker references with
   assert.doesNotMatch(html, /example\.test|#event-|#task-|Private evidence/)
 })
 
-test('the public Summary renders captured asks and responses without a live service', () => {
+test('the public Summary renders captured asks and ages without a live service', t => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-21T05:09:00Z'))
   const at = '2026-11-21T05:00:00Z'
+  const later = '2026-11-21T05:04:00Z'
   const waits = [{ id: 'ask-1', task_id: 1, task_key: 'T-1', task_title: 'Check the sample', requester: 'Avery', recipient: 'Blake',
     public_url: 'https://example.test/sample', at }]
-  const responses = [{ id: 'response-1', task_id: 2, task_key: 'T-2', task_title: 'Review the result', responder: 'Blake', recipient: 'Avery', at }]
+  const responses = [{ id: 'response-1', task_id: 2, task_key: 'T-2', task_title: 'Review the result', responder: 'Blake', recipient: 'Avery', at: later }]
   const html = renderToStaticMarkup(React.createElement(QueuedAsksContent, { snapshot: { reviews: [], waits, responses } }))
   assert.match(html, /Request log[\s\S]*aria-pressed="true"[^>]*>Compact<\/button>[\s\S]*aria-pressed="false"[^>]*>Verbose<\/button>/)
   assert.match(html, /href="https:\/\/example.test\/sample"[^>]*>Check the sample<\/a>[\s\S]*Waiting[\s\S]*Blake/)
   assert.match(html, /request-terminal[\s\S]*Review the result[\s\S]*Done/)
+  assert.match(html, /Check the sample<\/a>[\s\S]*<time dateTime="2026-11-21T05:00:00Z" title="[^"]+">9 min ago/)
+  assert.match(html, /Review the result[\s\S]*<time dateTime="2026-11-21T05:04:00Z" title="[^"]+">5 min ago/)
   assert.equal((html.match(/aria-label="Requests"/g) || []).length, 1)
   assert.doesNotMatch(html, /href="#task-|<summary|Loading|Load more/)
   assert.equal(renderToStaticMarkup(React.createElement(QueuedAsksContent, { snapshot: { reviews: [], waits: [], responses: [] } })), '')

@@ -5,11 +5,11 @@ import { DemoUnavailableAction } from './DemoControl.jsx'
 const ReportClock = createContext(null)
 const relativeTime = new Intl.RelativeTimeFormat('en', { style: 'narrow' })
 
-export function relativeAge(at, now) {
+export function relativeAge(at, now, { showMinuteUnit = false } = {}) {
   const minutes = Math.max(0, Math.floor((now - Date.parse(at)) / 60_000))
   if (!Number.isFinite(minutes)) return at
   if (minutes === 0) return 'just now'
-  if (minutes < 60) return relativeTime.format(-minutes, 'minute')
+  if (minutes < 60) return showMinuteUnit ? `${minutes} min ago` : relativeTime.format(-minutes, 'minute')
   if (minutes < 1440) return relativeTime.format(-Math.floor(minutes / 60), 'hour')
   return relativeTime.format(-Math.floor(minutes / 1440), 'day')
 }
@@ -61,10 +61,10 @@ function ExactTimeDisclosure({ at, age, exact }) {
   )
 }
 
-export function ReportTime({ at, linked = false }) {
+export function ReportTime({ at, linked = false, showMinuteUnit = false }) {
   const now = useReportNow()
   const { formatTimestamp } = useTimeZone()
-  const age = relativeAge(at, now)
+  const age = relativeAge(at, now, { showMinuteUnit })
   if (age === at) return <time dateTime={at}>{at}</time>
   const exact = formatTimestamp(at)
   if (linked) {

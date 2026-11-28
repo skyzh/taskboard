@@ -227,6 +227,7 @@
 .request-row + .request-row { border-top: 1px solid var(--line); }
 .request-summary { display: flex; align-items: center; gap: .4rem; min-height: 2.5rem; }
 .request-summary svg { flex: none; }
+.request-summary-age { color: var(--muted); font-size: .78rem; white-space: nowrap; }
 .request-summary-copy { display: grid; flex: 1; min-width: 0; }
 .request-summary-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .request-summary-avatar { display: inline-flex; flex: none; }

@@ -16,6 +16,7 @@ import { TaskRows } from './WorkRow.jsx'
 import { EventRow } from './Work.jsx'
 import { TaskWaitAge } from './WaitAge.jsx'
 import { ReportTime } from './ReportTime.jsx'
+import RequestKind from './RequestKind.jsx'
 import TaskOwnership from './TaskOwnership.jsx'
 import TransitionFeedback, { useTransitionRequest } from './TransitionFeedback.jsx'
 import { projectFilters, projectHref } from './projectScope.js'
@@ -26,7 +27,7 @@ function DecisionRequest({ task, current, session, onChanged, onAnswerStarted, p
       <p className="event-ticket"><TaskLink reference={task.key} id={task.id} title={task.title}
         publicHref={decisionTicketHref(task, project)} /></p>
       <p className="event-meta">
-        <span>{current ? 'Decision requested' : 'Decision'}</span>
+        <RequestKind kind="decision" />
         {current && <TaskWaitAge task={task} href={eventHref(task.event_id)} />}
       </p>
       <Markdown text={task.note} />
@@ -120,7 +121,7 @@ const watchedAckPreference = '/notifications/preferences/watched-ack'
 function WatchedUpdate({ row, canAcknowledge, revision, onChanged }) {
   const mutation = useTransitionRequest(onChanged)
   return (
-    <EventRow event={row.item} showTask>
+    <EventRow event={row.item} showTask timeLabel={<RequestKind kind="fyi" />}>
       {canAcknowledge && <button type="button" disabled={mutation.saving}
         onClick={() => mutation.submit(`/notifications/watched/${row.id}/acknowledge`, {})}>
         {mutation.saving ? 'Acknowledging…' : 'Acknowledge'}
@@ -298,8 +299,9 @@ function ReviewRequests({ revision, project }) {
             <li className="event-row" key={item.id}>
               <p className="event-ticket"><TaskLink reference={item.ticket} title={item.title} /></p>
               <p className="event-meta">
+                <RequestKind kind="review" />
+                {item.asked_at && <ReportTime at={item.asked_at} linked />}
                 <span>{profileName(item.requester, item.requester_profile)}</span>
-                {item.asked_at && <span>Asked <ReportTime at={item.asked_at} linked /></span>}
               </p>
             </li>
           ))}

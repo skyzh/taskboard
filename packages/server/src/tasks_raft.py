@@ -426,6 +426,7 @@ _ACTIONS = {
         "recipient": "Human's stable ID from assignees. A Taskboard-mode Local DRI defaults to its creator.",
         "recipient_name": "Exact handle or display name of a signed-in human, instead of recipient.",
         "request_key": "Optional unique key for this send. Reuse the same key and fields when retrying.",
+        "intent": "Use ask for action or fyi for an informational acknowledgment.",
         "unblocks": "Optional ticket ID whose owner can link its wait to this request.", **_EVIDENCE, **_TEXT_OVERRIDE,
     }),
     "link-github": _Action("POST", "Link a GitHub issue or pull request to a task you own.", {

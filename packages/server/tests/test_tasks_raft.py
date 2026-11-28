@@ -157,7 +157,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "watch-task": ("POST", "id", "watch"),
             "my-watches": ("GET", "", "project scope before limit"),
             "my-activity": ("GET", "", "project scope before limit"),
-            "raise-attention": ("POST", "id reason", "recipient recipient_name request_key unblocks url label force_text"),
+            "raise-attention": ("POST", "id reason", "recipient recipient_name request_key intent unblocks url label force_text"),
             "link-github": ("POST", "id github_url", ""),
             "link-reference": ("POST", "id label url", ""),
             "fetch-github": ("POST", "id", "merge_url merge_commit"),
