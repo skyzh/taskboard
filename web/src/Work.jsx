@@ -31,6 +31,7 @@ import TaskProjectMove from './TaskProjectMove.jsx'
 import TaskTags from './TaskTags.jsx'
 import TaskTransition from './TaskTransition.jsx'
 import TicketFields from './TicketFields.jsx'
+import RolloutStatus from './RolloutStatus.jsx'
 import TicketRecurrence from './TicketRecurrence.jsx'
 import { TaskRows } from './WorkRow.jsx'
 import {
@@ -437,18 +438,22 @@ function TicketReferences({ record }) {
 function TicketContext({ record, id, task, state, wide, detailed, properties, session, revision, onChanged, showActions }) {
   const [open, setOpen] = useState(false)
   const watch = <div hidden={!showActions}><TaskWatch id={id} session={session} revision={revision} onChanged={onChanged} /></div>
+  const rollout = record.rollout
   const content = (
     <div className="ticket-context-content">
       {wide && <h2>Ticket details</h2>}
       {wide ? <TicketIdentity task={task} state={state}>
         {watch}
       </TicketIdentity> : watch}
-      {(properties.length > 0 || record.ticket_fields?.fields?.length > 0) && (
+      {(properties.length > 0 || record.ticket_fields?.fields?.length > 0 ||
+        rollout?.current || (showActions && rollout?.editable)) && (
         <dl className="ticket-properties">
           {properties.map(([label, value]) => (
             <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
           ))}
           <TicketFields configuration={record.ticket_fields} ticket={task.key || id}
+            editing={showActions} onChanged={onChanged} />
+          <RolloutStatus configuration={rollout} task={task} revision={revision}
             editing={showActions} onChanged={onChanged} />
         </dl>
       )}
@@ -614,7 +619,8 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   const properties = task && !knowledge ? ticketProperties(record, state, editingTags) : []
   const detailed = Boolean(record && !knowledge && (record.brief || record.checklist.length || record.sources.length
     || record.related_tasks?.length || record.goal?.tickets.length || state === 'human_review' || properties.length
-    || record.ticket_fields?.fields?.length || editingTags))
+    || record.ticket_fields?.fields?.length || record.rollout?.current
+    || (showActions && record.rollout?.editable) || editingTags))
   const sidebar = wide && detailed && !showProgression
   const anchor = taskHref(id)
   const context = new URLSearchParams()

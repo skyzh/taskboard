@@ -124,7 +124,7 @@ export default function AttentionRequests({ revision, onChanged, onRequestLoaded
               {!onTicket && <p className="event-ticket"><TaskLink reference={item.task_key} id={item.task_id} title={item.task_title}
                 publicHref={`${taskHref(item.task_id, item.task_key)}?attention-request=${item.id}`} /></p>}
               <p className="event-meta">
-                <span>{profileName(item.sender, item.sender_profile)}</span>
+                <span>{item.rollout_check ? 'Rollout check' : profileName(item.sender, item.sender_profile)}</span>
                 {requestId ? <span>Received <Timestamp at={item.raised_at} /></span>
                   : item.handled_at ? <Timestamp at={item.raised_at} /> : <WaitAge since={item.raised_at} label="Unanswered" />}
               </p>
@@ -135,7 +135,7 @@ export default function AttentionRequests({ revision, onChanged, onRequestLoaded
             </div>
             {item.handled_at
               ? <span className="event-meta">Handled <Timestamp at={item.handled_at} /></span>
-              : showControls && (
+              : showControls && !item.rollout_check && (
                 <div>
                   {notice?.id === item.id && <p role="alert" className="section-message">{notice.error}</p>}
                   <button type="button" aria-busy={pending === item.id || undefined}

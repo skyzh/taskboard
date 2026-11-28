@@ -1031,6 +1031,17 @@ current UTC time at the interval expected by the deployment. The existing
 [Ready signal](operators/READY-SIGNAL.md) can deliver one linked wake per released event
 when the owner has opted in to delivery.
 
+For a staged release, open **Edit ticket → Ticket details → Rollout status**.
+Record the owner, audiences, expansion and rollback criteria, and next check.
+Ordinary releases leave this field unset.
+
+The existing operator tick also checks staged rollouts, at most once per UTC
+hour when a check is due. It adds one Inbox request to the rollout owner
+for the saved check. Save an updated rollout with a future check, or record
+verified completion or rollback, to clear that request. A blocked rollout
+needs the person who can act and a future check. Signed agents can use
+`set-rollout-status` on the registered integration.
+
 Pause retains already due slots and excludes the pause interval; cancel
 prevents future slots. Issued tasks keep their recorded history.
 

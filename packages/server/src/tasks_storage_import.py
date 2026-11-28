@@ -26,7 +26,7 @@ TABLES = (
     "oidc_members", "audit_events",
     "github_source_status", "extension_deliveries", "extension_notifications", "stamp_review_health",
     "github_webhook_deliveries", "github_webhook_refresh",
-    "intake_errors", "attention_requests", "attention_wait_links", "decision_reminders",
+    "intake_errors", "attention_requests", "attention_wait_links", "ticket_rollouts", "decision_reminders",
     "ask_recheck_acknowledgments", "notification_preferences", "notification_log",
     "watched_fyi_preferences", "watched_fyi_receipts",
     "wake_subscriptions", "wake_log", "goal_idle_offers", "goal_wake_receipts", "external_wake_reports",

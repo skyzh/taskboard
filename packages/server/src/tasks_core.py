@@ -36,6 +36,7 @@ import tasks_releases as releases
 import tasks_references as references
 import tasks_recurring
 import tasks_runtime_observations as runtime_observations
+import tasks_rollouts as rollouts
 import tasks_readiness as readiness
 import watches
 import workers
@@ -398,6 +399,8 @@ def wait_starts(db, rows):
 
 
 def record(db, number, action, actor, state, note, waiting_on, links, context=None, *, at=None):
+    if action in ("done", "close"):
+        rollouts.guard_ticket_end(db, number)
     at = at or timestamp()
     context = context or {}
     event = tasks_storage.insert_id(
@@ -2450,6 +2453,9 @@ def save_task(db, path, args, links):
                     result["released_deferrals"] = released
             for reference in result.get("released_deferrals", ()):
                 touched_projects.add(projects.identifier(reference)[0])
+            if checks := rollouts.sweep(db, as_of, project):
+                result["rollout_checks"] = checks
+                touched_projects.update(projects.identifier(reference)[0] for reference in checks)
             output = json.dumps(result)
         elif args.command == peer_asks.COMMAND:
             output = peer_asks.change(db, args, links)

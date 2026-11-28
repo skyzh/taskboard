@@ -343,6 +343,20 @@ _ACTIONS = {
         "method": "measured, estimated, or unknown.", "basis": "Source or estimation basis.",
     }, _EVIDENCE | {"value": "Typed value as text. Use whole seconds for duration.",
                     "currency": "Three-letter currency for money.", "coverage": "complete or partial."}),
+    "set-rollout-status": _Action("POST", "Record or resolve a staged rollout on its release ticket.", {
+        **_TASK, "status": "active, blocked, completed, or rolled_back.",
+        "owner": "The verified rollout owner's stable board ID.",
+        "current_audience": "Audience that has the release now.",
+        "intended_audience": "Full intended audience.",
+        "expansion_criteria": "Evidence required to expand.",
+        "rollback_criteria": "Condition that requires rollback.",
+    }, {
+        "next_check_at": "Future ISO datetime with UTC offset, required for active and blocked rollouts.",
+        "blocker": "Who can act on the blocker, required when blocked.",
+        "outcome": "What was verified or what blocks progress, required for blocked and terminal outcomes.",
+        "expected_event": "Current rollout event ID, or 0 to expect no saved rollout.",
+        **_EVIDENCE, **_TEXT_OVERRIDE,
+    }),
     "edit-task-details": _Action("POST", "Edit the title or brief of a work ticket or Knowledge entry with project write access.", {
         **_TASK, "reason": "Reason for correcting the ticket.",
     }, {"title": "Short, actionable replacement title. Read field-guidance for the project’s wording and example.",
