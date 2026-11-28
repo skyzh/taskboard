@@ -593,6 +593,34 @@ class StorageReplayTest(unittest.TestCase):
         app = self.postgres_app(dsn, project_admin_subject=root)
         ring1_fixture.Ring1Test().replay_legacy_stages(self.board, app, lambda: Postgres(dsn))
 
+    def test_wake_members_and_signed_dispositions_survive_sqlite_import(self):
+        from taskboard_server.inbox_batch import BatchMember
+        from tasks_wake_members import record
+
+        source = self.board.app(portal_reader=True)
+        agent, owner = self.board.login(source, "Avery")
+        self.board.action(agent, "create-task", {"title": "Replay", "step": "Check wake history."})
+        self.board.action(agent, "advance-task", {"id": "T-1", "transition": "start", "note": "Check the source."})
+        event = self.board.task_event(agent, "T-1")["event"]
+        self.board.action(agent, "acknowledge-stalled-cue", {"id": "T-1", "event": str(event)})
+        snapshot = self.board.database.with_name("wake-members.sqlite3")
+        with closing(open_sqlite(self.board.database)) as current, closing(sqlite3.connect(snapshot)) as backup:
+            member = BatchMember("in_progress", "T-1", f"in_progress:{event}", 1, event, None)
+            with current:
+                record(current, recipient=owner, envelope="fixture", members=[member], acceptance="accepted",
+                       at="2026-11-28T18:00:00.123456Z")
+            current.backup(backup)
+
+        endpoint = "/api/v1/notifications/wake-members"
+        before = self.board.call(agent, endpoint, query_string={"recipient": owner}).json
+        dsn = self.postgres_fixture()
+        counts = import_snapshot(snapshot, dsn)
+        self.assertEqual(counts["inbox_wake_members"], 1)
+        self.assertEqual(counts["inbox_wake_stalled_dispositions"], 1)
+        target = self.postgres_app(dsn)
+        agent, _ = self.board.login(target, "Avery")
+        self.assertEqual(self.board.call(agent, endpoint, query_string={"recipient": owner}).json, before)
+
     def test_ring1_membership_survives_sqlite_import(self):
         root = self.board.provider.people["Sam"]["sub"]
         source = self.board.app(portal_reader=True, project_admin_subject=root)
