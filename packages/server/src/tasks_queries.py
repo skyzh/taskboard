@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 import tasks_core as ledger
 import tasks_goal_cadence as goal_cadence
 import tasks_goal_offers as goal_offers
+import tasks_cue_pauses as cue_pauses
 import tasks_goals as goals
 import tasks_knowledge as knowledge
 import tasks_maintenance as maintenance
@@ -816,7 +817,7 @@ class BoardQueries:
               decided_by=None, search=None, priority_order=False, review_due=None, project=None, tag=None,
               managed_by=None, hide_requests=False, exclude_goals=False, github_url=None, include_knowledge=False,
               current_work=False, unfinished=False, summary_personal_owner=None, watching_viewer=None,
-              exclude_exploration=False, decision_reminder_day=None, decision_deferred=False):
+              exclude_exploration=False, decision_reminder_day=None, decision_deferred=False, wake_at=None):
         scope, bindings = self.project_visibility()
         terms, args = [scope], list(bindings)
         filter_search = None
@@ -847,6 +848,25 @@ class BoardQueries:
             if dri not in projects.roster_owners(self.db, writer_roster):
                 terms.append("tasks.project_prefix <> ?")
                 args.append(projects.DEFAULT)
+        if wake_at is not None:
+            terms.extend((
+                f"NOT EXISTS (SELECT 1 FROM worker_runs WHERE task_id = tasks.id AND ({RUNNING}))",
+                """NOT EXISTS (SELECT 1 FROM cue_pauses
+                    WHERE task_id = tasks.id AND owner = tasks.dri AND kind = 'goal' AND until_at > ?)""",
+            ))
+            args.append(wake_at)
+            if state == "in_progress":
+                terms.extend((
+                    "events.waiting_on IS NULL",
+                    f"""NOT EXISTS (SELECT 1 FROM peer_asks
+                        JOIN worker_runs ON worker_runs.id = peer_asks.review_run_id
+                        WHERE peer_asks.task_id = tasks.id AND ({RUNNING}))""",
+                    """NOT EXISTS (SELECT 1 FROM cue_pauses
+                        WHERE task_id = tasks.id AND owner = tasks.dri AND kind = 'stalled' AND until_at > ?)""",
+                    """NOT EXISTS (SELECT 1 FROM stalled_cue_acknowledgments
+                        WHERE task_id = tasks.id AND owner = tasks.dri AND source_event_id = events.id)""",
+                ))
+                args.append(wake_at)
         if exclude_goals:
             terms.append("NOT EXISTS (SELECT 1 FROM task_goals WHERE task_goals.task_id = tasks.id AND retired = 0)")
         if exclude_exploration:
@@ -1666,7 +1686,7 @@ class BoardQueries:
             result["next_cursor"] = f"{last['execution_rank']}:{last['id']}"
         return result
 
-    def actionable_reviews(self, person, *, before, limit, project=None, unlinked=False):
+    def actionable_reviews(self, person, *, before, limit, project=None, unlinked=False, for_wake=False):
         unlinked_filter = ""
         if unlinked and watches.has_table(self.db, "peer_asks"):
             unlinked_filter = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)"
@@ -1680,14 +1700,15 @@ class BoardQueries:
             JOIN current ON current.id = tasks.id
             WHERE worker_runs.worker = ? AND worker_runs.role = 'review'
                 AND worker_runs.status IN ('planned', 'running') AND worker_runs.id < ?
+                AND (NOT ? OR NOT ({RUNNING}))
                 AND current.display_state <> 'closed'
                 AND (? IS NULL OR tasks.project_prefix = ?) AND {visibility} {unlinked_filter}
             ORDER BY worker_runs.id DESC LIMIT ?
-            """, (person, before or projects.MAX_ID, project, project, *bindings, limit + 1),
+            """, (person, before or projects.MAX_ID, for_wake, project, project, *bindings, limit + 1),
         ).fetchall()
         return page(rows, limit, "id", lambda visible: [dict(row) for row in visible])
 
-    def wake_workers(self, person, status, *, before, limit):
+    def wake_workers(self, person, status, *, before, limit, project=None):
         """Return minimal wake routing for the signed worker, using current task state."""
         mode = "json_extract(wake.context, '$.audit.mode')"
         check_at = "json_extract(wake.context, '$.audit.at')"
@@ -1719,9 +1740,9 @@ class BoardQueries:
             JOIN current ON current.id = tasks.id
             LEFT JOIN events AS wake ON wake.id = ({workers.LATEST_WAKE_CHECK})
             WHERE current.display_state IN ('ready', 'in_progress') AND worker_runs.id < ?
-              AND ({eligible}) AND {visibility} {unlinked}
+              AND ({eligible}) AND (? IS NULL OR tasks.project_prefix = ?) AND {visibility} {unlinked}
             ORDER BY worker_runs.id DESC LIMIT ?
-            """, (person, before or projects.MAX_ID, *params, *bindings, limit + 1),
+            """, (person, before or projects.MAX_ID, *params, project, project, *bindings, limit + 1),
         ).fetchall()
         return page(rows, limit, "id", lambda visible: [dict(row) for row in visible])
 
@@ -2989,7 +3010,7 @@ class BoardQueries:
             if len(rows) > limit else None,
         }
 
-    def wait_review_candidates(self, owner, project, *, for_delivery=False, after=0):
+    def wait_review_candidates(self, owner, project, *, for_delivery=False, after=0, verified_only=False):
         visibility, scope = self.project_visibility("current.project_prefix")
         project_filter = "" if project is None else "AND current.project_prefix = ?"
         project_values = () if project is None else (project,)
@@ -2997,14 +3018,14 @@ class BoardQueries:
             f"""WITH current AS ({ledger.current_tasks_sql(self.db)})
                 SELECT current.id, current.title, current.event_id, current.project_prefix,
                        current.project_number, current.waiting_on, current.note,
-                       peer.ledger_key AS recipient
+                       CASE WHEN peer.kind = 'agent' THEN peer.ledger_key END AS recipient
                 FROM current
                 LEFT JOIN board_principals AS peer ON peer.ledger_key = COALESCE(
                     (SELECT ledger_key FROM board_principals WHERE ledger_key = current.waiting_on),
                     (SELECT MIN(ledger_key) FROM board_principals
                      WHERE username <> '' AND LOWER(username) = LOWER(current.waiting_on)
                      HAVING COUNT(*) = 1)
-                ) AND peer.kind = 'agent' AND peer.ledger_key <> current.dri
+                ) AND peer.kind IN ('agent', 'human') AND peer.ledger_key <> current.dri
                   AND COALESCE(json_extract(current.context, '$.wait_kind'), '') <> 'automation'
                 WHERE current.dri = ? AND current.state = 'waiting' AND current.event_id > ?
                   AND json_extract(current.context, '$.peer_ask_ticket') IS NULL
@@ -3014,6 +3035,7 @@ class BoardQueries:
                       WHERE link.event_id = current.event_id AND link.ready_event_id IS NULL
                   )
                   AND {visibility} {project_filter}
+                  AND (NOT ? OR peer.ledger_key IS NOT NULL)
                   AND (NOT ? OR (
                       COALESCE(json_extract(current.context, '$.wait_kind'), '') <> 'automation'
                       AND NOT EXISTS (
@@ -3025,7 +3047,7 @@ class BoardQueries:
                   ))
                 ORDER BY current.event_id
                 LIMIT 5""",
-            (owner, after, *scope, *project_values, for_delivery),
+            (owner, after, *scope, *project_values, verified_only, for_delivery),
         )
         return [{
             "key": projects.row_reference(row), "title": row["title"], "wait_event": row["event_id"],
@@ -3033,7 +3055,7 @@ class BoardQueries:
             **({"ask_recipient": row["recipient"]} if row["recipient"] else {}),
         } for row in rows]
 
-    def virtual_ticket_cues(self, owner, *, project, now, limit):
+    def virtual_ticket_cues(self, owner, *, project, now, limit, waiting_only=False):
         """Derive the signed recovery order from current work and its bound results."""
         visible, bindings = self.current_visible_tasks()
         priority = ledger.PRIORITY_ORDER_SQL.replace("tasks.priority", "owned.priority")
@@ -3042,6 +3064,7 @@ class BoardQueries:
                 owned AS (
                     SELECT task.* FROM current AS task
                     WHERE task.dri = ? AND (? IS NULL OR task.project_prefix = ?)
+                      AND (NOT ? OR task.state = 'waiting')
                       AND NOT EXISTS (
                           SELECT 1 FROM task_goals AS goal WHERE goal.task_id = task.id AND goal.retired = 0
                       )
@@ -3092,7 +3115,7 @@ class BoardQueries:
                 SELECT * FROM eligible WHERE cue_rank IS NOT NULL
                 ORDER BY cue_rank, CASE WHEN cue_rank = 5 THEN priority_rank ELSE 0 END, event_id
                 LIMIT ?""",
-            (*bindings, owner, project, project, now, limit),
+            (*bindings, owner, project, project, waiting_only, now, limit),
         ).fetchall()
         kinds = {
             1: ("recovery", "resume-work"),
@@ -3111,7 +3134,8 @@ class BoardQueries:
         remaining = min(5, limit - len(items))
         after = 0
         while remaining:
-            waits = self.wait_review_candidates(owner, project, for_delivery=True, after=after)
+            waits = self.wait_review_candidates(owner, project, for_delivery=True, after=after,
+                                                verified_only=waiting_only)
             if not waits:
                 break
             after = waits[-1]["wait_event"]
@@ -3127,7 +3151,8 @@ class BoardQueries:
                     break
         return items
 
-    def actionable_work(self, owner, *, today, project, ordinary_only=False, include_goal_reviews=True):
+    def actionable_work(self, owner, *, today, project, ordinary_only=False, include_goal_reviews=True,
+                        wake_at=None, delivery=False):
         """Yield the first actionable item in each queue in pickup order."""
         scope = {"project": project, "limit": 1}
         queues = (
@@ -3143,6 +3168,10 @@ class BoardQueries:
         )
         exploration = None
         for kind, query, filters in queues:
+            if delivery and kind in ("ready", "in_progress", "shared_ready", "reminder"):
+                filters["wake_at"] = wake_at
+            if delivery and kind == "review":
+                filters["for_wake"] = True
             if ordinary_only and kind in ("reminder", "in_progress"):
                 filters["exclude_goals"] = True
             for item in query(**scope, **filters)["items"]:
@@ -3152,19 +3181,38 @@ class BoardQueries:
                     "key": item.get("task_key") or item["key"],
                     "title": item.get("task_title") or item["title"],
                 }
+                if wake_at is not None:
+                    work["source_event"] = item.get("event_id") or item.get("id")
                 if kind == "in_progress" and not ordinary_only and goals.exploration_criterion(self.db, work["id"]) is not None:
                     exploration = work
                     for current in self.tasks(**scope, **filters, exclude_exploration=True)["items"]:
-                        yield {"kind": kind, "id": current["id"], "key": current["key"], "title": current["title"]}
+                        replacement = {"kind": kind, "id": current["id"], "key": current["key"],
+                                       "title": current["title"]}
+                        if wake_at is not None:
+                            replacement["source_event"] = current["event_id"]
+                        yield replacement
                 else:
                     yield work
+        if wake_at is not None:
+            for item in self.wake_workers(owner, "checkpoint", project=project, before=None, limit=1)["items"]:
+                task = ledger.find_task(self.db, item["task_id"])
+                yield {"kind": "worker_checkpoint", "id": item["task_id"], "key": item["task_key"],
+                       "title": task["title"], "source_event": item["check_event"], "worker_run": item["id"],
+                       "check_mode": item["check_mode"], "coordinator": bool(item["coordinator"])}
         if include_goal_reviews and not ordinary_only:
             now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
             _, due = goal_cadence.due_reviews(self.db, owner, project, now, principal=self.principal)
+            if delivery:
+                paused = {projects.row_reference(row) for row in cue_pauses.active(self.db, owner, wake_at, "goal")}
+                due = [cue for cue in due if cue["ticket"] not in paused]
             if due:
                 cue = due[0]
                 number = projects.resolve(self.db, cue["ticket"])
                 yield {"kind": "goal_review", "id": number, "key": cue["ticket"], "title": cue["summary"]}
+        if wake_at is not None:
+            for item in self.virtual_ticket_cues(owner, project=project, now=wake_at, limit=1, waiting_only=True):
+                yield {"kind": item["kind"], "id": projects.resolve(self.db, item["ticket"]), "key": item["ticket"],
+                       "title": item["title"], "source_event": item["event_id"]}
         if exploration:
             yield exploration
 

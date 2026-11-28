@@ -249,7 +249,7 @@ def watch_idle(board, owner, is_idle, notify, duration, interval=10, idle_delay=
 
 
 def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_delay, *, delayed_lookup=None,
-                    continue_after=None):
+                    continue_after=None, shared_idle=False):
     handle = context["actor"]["username"]
     if not handle:
         raise ValueError("The signed-in Taskboard agent has no verified Raft handle.")
@@ -276,11 +276,9 @@ def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_d
         if idle_since is None:
             idle_since = now
         observed_idle = now - idle_since
-        return (
-            now < deadline
-            and observed_idle > MINIMUM_CONFIRMED_IDLE_SECONDS
-            and observed_idle >= idle_delay
-        )
+        if shared_idle:
+            return now < deadline and observed_idle >= MINIMUM_CONFIRMED_IDLE_SECONDS
+        return now < deadline and observed_idle > MINIMUM_CONFIRMED_IDLE_SECONDS and observed_idle >= idle_delay
 
     while monotonic() < deadline:
         if can_wake():
@@ -291,7 +289,7 @@ def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_d
                 outcome = notify({**offer, "board": context["board"]}, can_wake)
                 if outcome is not None:
                     result = {"outcome": outcome, **offer}
-                    if idle_delay:
+                    if shared_idle or idle_delay:
                         result.update(idle_seconds=round(observed_idle, 3), status_checks=status_checks)
                     if continue_after is None or not continue_after(result):
                         return result
@@ -335,6 +333,7 @@ FOLLOW_UP_POLL_SECONDS = 30
 STALLED_READ = "stalled work"
 GOAL_READ = "goal cues"
 ASK_RECHECK_READ = "ask recheck"
+INBOX_WAKE_READ = "Inbox wake"
 MANAGED_RESTART = 75
 
 
@@ -356,7 +355,7 @@ class ReadyReadStopped(RuntimeError):
 
 def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
                       idle_delay=MINIMUM_CONFIRMED_IDLE_SECONDS, *, observe_status=None,
-                      notify_stalled=None, goal_state=None, notify_goal=None, notify_ask=None,
+                      notify_stalled=None, goal_state=None, notify_goal=None, notify_ask=None, notify_inbox=None,
                       report_health=None, measure_status=True):
     """Wake for new Ready work, then check recovery paths during Idle."""
     try:
@@ -364,12 +363,24 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
     except SharedReadError as error:
         context = recover_ready_read(lambda: agent_context(board, owner), "startup context", error, emit, interval)
     actor = context["actor"]["id"]
-    goal_wake = None
-    if notify_goal is not None:
-        project = GOAL_PROJECT if goal_state else (context.get("default_project") or GOAL_PROJECT)
-        path = goal_state or default_state_path(context["board"], actor, project)
-        goal_wake = GoalWake(board, GoalWakeState(path, context["board"], actor, project=project),
-                             include_timed=context.get("timed_goal_cues") is True)
+    shared_idle = notify_inbox is not None and context.get("inbox_wake_cues") is True
+    primary_project = GOAL_PROJECT if goal_state else (context.get("default_project") or GOAL_PROJECT)
+    goal_options = {"include_timed": context.get("timed_goal_cues") is True, "for_wake": shared_idle}
+    goal_wakes = {}
+
+    def project_goals(project):
+        if project not in goal_wakes:
+            path = goal_state if project == primary_project and goal_state else default_state_path(
+                context["board"], actor, project,
+            )
+            goal_wakes[project] = GoalWake(
+                board, GoalWakeState(path, context["board"], actor, project=project), **goal_options,
+            )
+        return goal_wakes[project]
+
+    goal_wake = project_goals(primary_project) if notify_goal is not None else None
+    selected_goal = goal_wake
+    noticed_inbox = set()
     filters = {"scope": "all", "state": "ready", "limit": 100}
     noticed_ready_event = 0
     current = frozenset()
@@ -478,6 +489,47 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
         except SharedActionUnavailable as error:
             raise SharedReadError(str(error), reason="action-unavailable") from error
 
+    def signed_inbox_wake():
+        nonlocal stage
+        stage = INBOX_WAKE_READ
+        try:
+            return board.invoke("my-inbox-wake", {"scope": "all"})
+        except SharedActionUnavailable as error:
+            raise SharedReadError(str(error), reason="action-unavailable") from error
+
+    def next_inbox():
+        nonlocal stage, selected_goal
+        snapshot = signed_inbox_wake()
+        if work := snapshot.get("work"):
+            if goal_wake is not None:
+                for goals in goal_wakes.values():
+                    goals.state.observe_busy()
+            event_id = work.get("source_event")
+            kind = work.get("kind")
+            if (type(event_id) is not int or event_id < 1 or not isinstance(kind, str)
+                    or type(work.get("id")) is not int or not isinstance(work.get("key"), str)
+                    or not re.fullmatch(r"[A-Z][A-Z0-9]*-[1-9][0-9]*", work["key"])):
+                raise SharedReadError("The signed Inbox wake is missing its source event.", reason="queue-scope")
+            if kind == "in_progress" and not work.get("goal") and notify_stalled is not None:
+                if event_id in noticed_stalled or monotonic() < next_stalled_attempt.get(event_id, 0):
+                    return None
+                return {"inbox_work": work, "event_id": event_id, "requires_disposition": True}
+            return {"inbox_work": work} if (kind, event_id) not in noticed_inbox else None
+        if snapshot.get("ask_recheck") and ask_wakes:
+            offer = ask_offer()
+            if offer is not None and goal_wake.state.ask_available(offer["cue_key"]):
+                return offer
+            return None
+        if goal_wake is not None and (project := snapshot.get("goal_project")):
+            if not isinstance(project, str) or not re.fullmatch(r"[A-Z][A-Z0-9]*", project):
+                raise SharedReadError("The signed Inbox wake returned an invalid project.", reason="queue-scope")
+            stage = GOAL_READ
+            selected_goal = project_goals(project)
+            offer = selected_goal.lookup()
+            ticket = snapshot.get("goal_ticket")
+            return offer if not ticket or (offer and offer["task"] == ticket) else None
+        return None
+
     def next_follow_up(idle_seconds):
         nonlocal stage, next_planned_check, next_stalled_check, long_idle
         now = monotonic()
@@ -502,6 +554,28 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
         return None
 
     def notify_current(notice, can_wake):
+        if "inbox_work" in notice:
+            work = notice["inbox_work"]
+
+            def still_selected():
+                return can_wake() and signed_inbox_wake().get("work") == work and can_wake()
+
+            if notice.get("requires_disposition"):
+                offer = {"kind": "in_progress", "task": work["key"], "task_id": work["id"],
+                         "event_id": work["source_event"], "requires_disposition": True, "board": notice["board"]}
+                outcome = notify_stalled(offer, still_selected)
+                if outcome == "pending-stalled-wake":
+                    next_stalled_attempt[work["source_event"]] = monotonic() + STALLED_IDLE_SECONDS
+                    return None
+                return outcome
+            if work["kind"] == "worker_checkpoint" and notify_stalled is not None:
+                return notify_stalled({
+                    "kind": "worker", "task": work["key"], "task_id": work["id"], "board": notice["board"],
+                    "worker_run": work["worker_run"], "worker_status": "checkpoint",
+                    "check_event": work["source_event"], "check_mode": work["check_mode"],
+                    "coordinator": work["coordinator"],
+                }, still_selected)
+            return notify_inbox(notice, still_selected)
         if "ready_count" in notice:
             return notify_count(notice, can_wake)
         if "cue_key" in notice:
@@ -533,7 +607,15 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
                 reserve_current_ask()
             return outcome
         if "goal_key" in notice:
-            return goal_wake.notify(notice, can_wake, notify_goal)
+            def goal_still_selected():
+                if shared_idle:
+                    selected = signed_inbox_wake()
+                    if (selected.get("goal_project") != selected_goal.state.project
+                            or selected.get("goal_ticket") not in (None, notice["task"])):
+                        return False
+                return can_wake()
+
+            return selected_goal.notify(notice, goal_still_selected, notify_goal)
 
         changed = False
 
@@ -564,8 +646,9 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
     if observe_status is not None:
         def observed_status(handle):
             status = observe_status(handle)
-            if status == "working" and goal_wake is not None:
-                goal_wake.state.observe_working()
+            if status == "working":
+                for goals in goal_wakes.values():
+                    goals.state.observe_working()
             return status
 
         is_idle = measured_idle(
@@ -580,16 +663,21 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
 
     while True:
         try:
-            result = check_when_idle(context, is_idle, next_count, notify_current, float("inf"), interval, idle_delay,
-                                     delayed_lookup=next_follow_up if notify_stalled is not None or goal_wake else None,
-                                     continue_after=continue_after)
+            follow_up = next_follow_up if not shared_idle and (notify_stalled is not None or goal_wake) else None
+            result = check_when_idle(
+                context, is_idle, next_inbox if shared_idle else next_count, notify_current,
+                float("inf"), interval, idle_delay, delayed_lookup=follow_up, continue_after=continue_after,
+                shared_idle=shared_idle,
+            )
         except SharedReadError as error:
             if stage == GOAL_READ:
                 if error.reason == "action-unavailable":
                     emit({"kind": "goal-check-unavailable", "at": observation_time(), "reason": error.reason})
                     goal_wake = None
                 else:
-                    recover_ready_read(goal_wake.lookup, stage, error, emit, interval)
+                    recover_ready_read(selected_goal.lookup, stage, error, emit, interval)
+            elif stage == INBOX_WAKE_READ:
+                recover_ready_read(signed_inbox_wake, stage, error, emit, interval)
             elif stage == ASK_RECHECK_READ:
                 recover_ready_read(ask_offer, stage, error, emit, interval)
             elif stage == STALLED_READ:
@@ -604,7 +692,11 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
         elif "worker_run" in result:
             noticed_workers.add((result["worker_status"], result["worker_run"], result["check_event"]))
         elif "goal_key" in result:
-            result.update(at=observation_time(), owner=actor, reminder=goal_wake.state.reminder(result))
+            result.update(at=observation_time(), owner=actor, reminder=selected_goal.state.reminder(result))
+        elif "inbox_work" in result:
+            work = result["inbox_work"]
+            if not result.get("requires_disposition"):
+                noticed_inbox.add((work["kind"], work["source_event"]))
         elif "cue_key" not in result and not result.get("requires_disposition"):
             noticed_stalled.add(result["event_id"])
         emit(result)
@@ -745,6 +837,34 @@ def raft_ready_count(notice, channel, message_id, can_wake, *, record_wake=None)
                                previous_title=previous, cue="Ready")
     title += f" [Taskboard Ready through event {event}]"
     return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake, ready_event=event, cue="Ready")
+
+
+def raft_inbox_wake(notice, channel, message_id, can_wake, *, record_wake=None):
+    work = notice["inbox_work"]
+    if work["kind"] == "review":
+        return raft_stalled_work({
+            "kind": "worker", "task": work["key"], "task_id": work["id"], "board": notice["board"],
+            "worker_run": work["source_event"], "worker_status": "planned",
+        }, channel, message_id, can_wake, record_wake=record_wake)
+    action = {
+        "ready": "Finish the offered ticket",
+        "shared_ready": "Take the offered shared ticket",
+        "review": "Finish the offered review",
+        "report": "Review the worker report",
+        "request": "Handle the offered request",
+        "decision": "Handle the offered decision",
+        "resolved-wait": "Confirm the resolved blocker",
+        "wait-review": "Review the waiting ticket for an actionable step",
+    }.get(work["kind"], "Advance the offered item")
+    event = work["source_event"]
+    ready_event = event if work["kind"] == "ready" else None
+    marker = (f"Taskboard Ready through event {event}" if ready_event
+              else f"Taskboard Inbox {work['kind']} {event}")
+    url = task_url(notice["board"], {"key": work["key"], "id": work["id"]})
+    title = (f"{action} on {work['key']}. Open {url}. Check signed Inbox with ./tasks --shared next --wake. "
+             f"Finish it or record the blocker and who can act or when to recheck. {_RECHECK_INBOX} [{marker}]")
+    return wake_with_title(title, channel, message_id, can_wake, cue=work["kind"], ready_event=ready_event,
+                           record_wake=record_wake)
 
 
 def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None):
@@ -899,7 +1019,7 @@ def main(*, managed_child=False):
     parser.add_argument("--watch-idle", action="store_true", help="Request one Raft wake when the agent becomes idle.")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--two-pickups", action="store_true", help="In watcher mode, verify up to two successive starts.")
-    mode.add_argument("--repeat", action="store_true", help="Stay armed and report the count of owned Ready tickets.")
+    mode.add_argument("--repeat", action="store_true", help="Stay armed and wake for the next signed Inbox item.")
     parser.add_argument("--measure", action="store_true", help="Emit sampled status and wake receipts in repeat mode.")
     parser.add_argument("--wake-stalled", action="store_true", help="Compatibility option. Stalled cues are enabled in repeat mode.")
     parser.add_argument("--goal-state", type=Path, help="Reuse an existing private Project T cue state file instead of the default.")
@@ -907,7 +1027,7 @@ def main(*, managed_child=False):
     parser.add_argument("--report-status", metavar="PROJECT", help="Report redacted watcher health to this project.")
     parser.add_argument(
         "--idle-delay-seconds", type=int,
-        help="Require a longer observed Idle delay for watcher cues. All work cues require more than 30 seconds.",
+        help="Set a longer delay on older boards. Shared Inbox wakes use a 30-second Idle gate.",
     )
     parser.add_argument("--idle-handoff", type=UUID, help="Stable runner UUID for an explicit idle goal offer.")
     parser.add_argument("--channel", help="Raft conversation anchoring the watcher.")
@@ -953,6 +1073,18 @@ def main(*, managed_child=False):
                         record_wake=record_wake if args.measure else None,
                     )
 
+                def notify_inbox(notice, can_wake):
+                    work = notice["inbox_work"]
+
+                    def record_wake(reference):
+                        emit({
+                            "kind": "inbox-wake-requested", "owner": args.by, "at": observation_time(),
+                            "ticket": work["key"], "cue": work["kind"], "source_event": work["source_event"],
+                            "reminder": reference,
+                        })
+
+                    return raft_inbox_wake(notice, args.channel, args.message_id, can_wake, record_wake=record_wake)
+
                 def notify_stalled(offer, can_wake):
                     def record_wake(reference):
                         emit({
@@ -989,6 +1121,7 @@ def main(*, managed_child=False):
                         observe_status=observe, measure_status=args.measure,
                         notify_stalled=notify_stalled,
                         goal_state=args.goal_state, notify_goal=notify_goal, notify_ask=notify_ask,
+                        notify_inbox=notify_inbox,
                         report_health=health,
                     )
                 except (KeyError, RuntimeError, ValueError) as error:

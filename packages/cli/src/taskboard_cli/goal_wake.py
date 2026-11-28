@@ -224,10 +224,16 @@ class GoalWakeState:
 
 
 class GoalWake:
-    def __init__(self, board, state, *, include_timed=False):
+    def __init__(self, board, state, *, include_timed=False, for_wake=False):
         self.board = board
         self.state = state
-        self.filters = {"project": state.project, **({"include_timed": "true"} if include_timed else {})}
+        self.filters = {"project": state.project}
+        if include_timed:
+            self.filters["include_timed"] = "true"
+        self.handoff = {"project": state.project}
+        if for_wake:
+            self.filters["for_wake"] = "true"
+            self.handoff["for_wake"] = "true"
 
     def lookup(self):
         try:
@@ -301,7 +307,7 @@ class GoalWake:
                 handoff = uuid5(NAMESPACE_URL, f"{self.state.scope}\n{candidate['goal_key']}")
                 try:
                     result = self.board.invoke("idle-goal-offer", {
-                        "handoff_id": str(handoff), "project": self.state.project,
+                        "handoff_id": str(handoff), **self.handoff,
                     }, write=True)
                 except SharedActionUnavailable as error:
                     raise SharedReadError(str(error), reason="action-unavailable") from error
