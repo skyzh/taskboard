@@ -12,7 +12,8 @@ import tasks_storage
 
 
 RETENTION = timedelta(days=7)
-MAX_GAP = timedelta(minutes=2)
+MINUTE = timedelta(minutes=1)
+MAX_SAMPLE_AGE = timedelta(minutes=2)
 STATES = frozenset(("working", "idle", "unavailable", "unknown"))
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS runtime_observations (
@@ -66,7 +67,7 @@ def timestamp(value):
 def observation(state, at, run_id, now):
     sample = utc(at)
     if (state not in STATES or sample.microsecond
-            or not now - MAX_GAP <= sample <= now):
+            or not now - MAX_SAMPLE_AGE <= sample <= now):
         raise ValueError("Supply a valid state and a recent UTC timestamp with whole seconds.")
     return timestamp(sample), str(UUID(run_id))
 
@@ -90,26 +91,24 @@ def record(db, project, owner, at, run_id, state):
 def intervals(samples, start, end, retained_since):
     result = []
 
-    def append(left, right, state):
+    def append(left, right, state, reading=None):
         if left >= right:
             return
         if result and result[-1]["state"] == state:
             result[-1]["end_at"] = timestamp(right)
         else:
-            result.append({"start_at": timestamp(left), "end_at": timestamp(right), "state": state})
+            result.append({"start_at": timestamp(left), "end_at": timestamp(right), "state": state, "readings": []})
+        if reading is not None:
+            result[-1]["readings"].append(reading)
 
     cursor = start
-    for first, second in zip(samples, samples[1:]):
-        left, right = utc(first["observed_at"]), utc(second["observed_at"])
-        if (first["run_id"] != second["run_id"] or first["state"] != second["state"]
-                or first["state"] == "unknown" or right - left > MAX_GAP
-                or right.replace(second=0) - left.replace(second=0) != timedelta(minutes=1)):
-            continue
-        low, high = max(start, left, retained_since), min(end, right)
+    for sample in samples:
+        slot = utc(sample["slot"])
+        low, high = max(start, slot, retained_since), min(end, slot + MINUTE)
         if high <= low:
             continue
         append(cursor, low, "unknown")
-        append(low, high, first["state"])
+        append(low, high, sample["state"], sample["observed_at"])
         cursor = high
     append(cursor, end, "unknown")
     return result
@@ -131,11 +130,11 @@ def listing(db, project, roster, *, principal, subjects, start, end, now):
     observed_through = None
     if owners:
         placeholders = ", ".join("?" for _ in owners)
-        rows = db.execute(f"""SELECT owner, observed_at, run_id, state FROM runtime_observations
-                              WHERE project = ? AND owner IN ({placeholders}) AND observed_at >= ? AND observed_at <= ?
-                              ORDER BY observed_at""",
-                          (project, *owners, timestamp(max(cutoff, start - MAX_GAP)),
-                           timestamp(min(now, end + MAX_GAP))))
+        rows = db.execute(f"""SELECT owner, slot, observed_at, state FROM runtime_observations
+                              WHERE project = ? AND owner IN ({placeholders}) AND slot >= ? AND slot < ?
+                              AND observed_at >= ? AND observed_at <= ? ORDER BY observed_at""",
+                          (project, *owners, timestamp(start.replace(second=0)), timestamp(end),
+                           timestamp(cutoff), timestamp(min(now, end))))
         for row in rows:
             samples[row["owner"]].append(row)
             observed_through = row["observed_at"]

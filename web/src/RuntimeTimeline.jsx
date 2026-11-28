@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useTimeZone } from './timeZone.js'
 
 const states = {
@@ -6,6 +6,20 @@ const states = {
   idle: ['Idle', 'idle'],
   unavailable: ['Unavailable', 'unavailable'],
   unknown: ['Unknown', 'unknown'],
+}
+
+function ReadingTimes({ readings }) {
+  const [open, setOpen] = useState(false)
+  const { formatDay, formatClock } = useTimeZone()
+  const time = at => <time dateTime={at}>{formatDay(at)} {formatClock(at)}</time>
+  if (!readings.length) return null
+  if (readings.length === 1) return <span> · Reading at {time(readings[0])}</span>
+  return (
+    <details onToggle={event => setOpen(event.currentTarget.open)}>
+      <summary>{readings.length} readings</summary>
+      {open && <ul>{readings.map(at => <li key={at}>{time(at)}</li>)}</ul>}
+    </details>
+  )
 }
 
 export default function RuntimeTimeline({ timeline }) {
@@ -17,7 +31,7 @@ export default function RuntimeTimeline({ timeline }) {
   return (
     <section className="panel runtime-timeline" aria-labelledby="runtime-timeline-title">
       <h2 id="runtime-timeline-title">Agent working periods</h2>
-      <p className="stats-note">Each row shows the agent’s overall runtime, including time spent on other projects.</p>
+      <p className="stats-note">Each minute shows its recorded reading. Rows include the agent’s overall runtime, including time spent on other projects.</p>
       <ul className="runtime-legend" role="list">
         {Object.values(states).map(([name, style]) => <li key={style}><span className={`runtime-state ${style}`} aria-hidden="true" />{name}</li>)}
       </ul>
@@ -37,8 +51,11 @@ export default function RuntimeTimeline({ timeline }) {
             <details>
               <summary>Intervals for {agent.name}</summary>
               <ul>
-                {agent.intervals.map(({ start_at: from, end_at: to, state }) => (
-                  <li key={from}>{states[state]?.[0] ?? 'Unknown'} · <time dateTime={from}>{label(from)}</time> to <time dateTime={to}>{label(to)}</time></li>
+                {agent.intervals.map(({ start_at: from, end_at: to, state, readings = [] }) => (
+                  <li key={from}>
+                    {states[state]?.[0] ?? 'Unknown'} · <time dateTime={from}>{label(from)}</time> to <time dateTime={to}>{label(to)}</time>
+                    <ReadingTimes readings={readings} />
+                  </li>
                 ))}
               </ul>
             </details>

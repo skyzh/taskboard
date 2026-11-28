@@ -183,29 +183,53 @@ class TasksServiceTest(unittest.TestCase):
         owner, owner_id = self.login(app, "Avery")
         peer, _ = self.login(app, "Blake")
         endpoint = "/api/v1/stats/runtime"
-        first, second, end = ("2026-11-27T18:00:00Z", "2026-11-27T18:01:00Z", "2026-11-27T18:02:00Z")
+        first, second, third, fourth, fifth, end = [f"2026-11-27T18:0{minute}:00Z" for minute in range(6)]
+        working, idle, unavailable, unknown = [f"2026-11-27T18:{minute}:{second}Z" for minute, second in (
+            ("00", "07"), ("01", "19"), ("03", "05"), ("04", "31"),
+        )]
         bounds = {"project": "T", "from": first, "to": end}
         report = "report-runtime-observation"
-        sample = {"project": "T", "observed_at": first, "state": "working",
+        sample = {"project": "T", "observed_at": working, "state": "working",
                   "run_id": "123e4567-e89b-12d3-a456-426614174000"}
 
         self.call(app.test_client(), endpoint, query_string=bounds, status=401)
         self.call(owner, endpoint, query_string={"from": first, "to": end}, status=400)
         self.call(owner, endpoint, query_string={**bounds, "to": "2026-12-05T18:00:00Z"}, status=400)
-        with patch("tasks_core.timestamp", return_value=end):
+        def span(left, right, state, *readings):
+            return {"start_at": left, "end_at": right, "state": state, "readings": list(readings)}
+
+        with patch("tasks_core.timestamp", return_value=working):
             self.action(peer, report, sample, status=403)
             self.action(owner, report, sample)
             self.action(owner, report, sample)
             self.action(owner, report, {**sample, "state": "idle"}, status=409)
-            self.action(owner, report, {**sample, "observed_at": second})
             projection = self.call(peer, endpoint, query_string=bounds).get_json()
-            self.assertEqual(projection["observed_through"], second)
             self.assertEqual(projection["agents"][0]["intervals"], [
-                {"start_at": first, "end_at": second, "state": "working"},
-                {"start_at": second, "end_at": end, "state": "unknown"},
+                span(first, second, "working", working), span(second, end, "unknown"),
+            ])
+
+        restarted = str(UUID(int=99))
+        for at, state, run_id in ((idle, "idle", sample["run_id"]), (unavailable, "unavailable", restarted),
+                                  (unknown, "unknown", restarted)):
+            with patch("tasks_core.timestamp", return_value=at):
+                self.action(owner, report, {**sample, "observed_at": at, "state": state, "run_id": run_id})
+
+        with patch("tasks_core.timestamp", return_value=end):
+            projection = self.call(peer, endpoint, query_string=bounds).get_json()
+            self.assertEqual(projection["observed_through"], unknown)
+            self.assertEqual(projection["agents"][0]["intervals"], [
+                span(first, second, "working", working), span(second, third, "idle", idle),
+                span(third, fourth, "unknown"), span(fourth, fifth, "unavailable", unavailable),
+                span(fifth, end, "unknown", unknown),
             ])
             self.assertEqual(projection["agents"][1]["intervals"], [
-                {"start_at": first, "end_at": end, "state": "unknown"},
+                span(first, end, "unknown"),
+            ])
+            clipped_start, clipped_end = "2026-11-27T18:00:30Z", "2026-11-27T18:01:30Z"
+            clipped = self.call(peer, endpoint, query_string={**bounds, "from": clipped_start, "to": clipped_end}).get_json()
+            self.assertEqual(clipped["observed_through"], idle)
+            self.assertEqual(clipped["agents"][0]["intervals"], [
+                span(clipped_start, second, "working", working), span(second, clipped_end, "idle", idle),
             ])
         self.assertNotIn("runtime_timeline", self.call(owner, "/api/v1/stats").get_json())
 
@@ -260,8 +284,8 @@ class TasksServiceTest(unittest.TestCase):
             result = self.call(person, endpoint, query_string={"project": project, **bounds}).get_json()
             return result["observed_through"], {agent["id"]: agent["intervals"] for agent in result["agents"]}
 
-        def span(left, right, state):
-            return {"start_at": left, "end_at": right, "state": state}
+        def span(left, right, state, *readings):
+            return {"start_at": left, "end_at": right, "state": state, "readings": list(readings)}
 
         with patch("tasks_core.timestamp", return_value=third):
             self.action(avery, report, {**sample, "project": "COURSE"}, status=403)
@@ -276,11 +300,11 @@ class TasksServiceTest(unittest.TestCase):
                                             "observed_at": observed})
 
             self.assertEqual(intervals(human, "T"), (second, {
-                avery_id: [span(first, second, "working"), span(second, end, "unknown")],
-                blake_id: [span(first, second, "idle"), span(second, end, "unknown")],
+                avery_id: [span(first, third, "working", first, second), span(third, end, "unknown")],
+                blake_id: [span(first, third, "idle", first, second), span(third, end, "unknown")],
             }))
             self.assertEqual(intervals(human, "COURSE"), (third, {blake_id: [
-                span(first, second, "unknown"), span(second, third, "unavailable"), span(third, end, "unknown"),
+                span(first, second, "unknown"), span(second, end, "unavailable", second, third),
             ]}))
             self.assertEqual(intervals(human, "LAB"), (None, {blake_id: [span(first, end, "unknown")]}))
             self.call(human, endpoint, query_string={"project": "OPS", **bounds}, status=404)
@@ -296,7 +320,7 @@ class TasksServiceTest(unittest.TestCase):
         with patch("tasks_core.timestamp", return_value=third):
             self.action(blake, report, {**sample, "project": "T"}, status=403)
             self.assertEqual(intervals(blake, "T"), (second, {
-                avery_id: [span(first, second, "working"), span(second, end, "unknown")],
+                avery_id: [span(first, third, "working", first, second), span(third, end, "unknown")],
                 blake_id: [span(first, end, "unknown")],
             }))
             self.assertEqual(intervals(blake, "COURSE")[0], third)
