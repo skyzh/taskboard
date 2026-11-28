@@ -2,10 +2,23 @@ import React, { useState } from 'react'
 import { useTimeZone } from './timeZone.js'
 
 const states = {
-  working: ['Working', 'working'],
-  idle: ['Idle', 'idle'],
-  unavailable: ['Unavailable', 'unavailable'],
-  unknown: ['Unknown', 'unknown'],
+  online: 'Online',
+  busy: 'Busy',
+  error: 'Error',
+  offline: 'Offline',
+}
+
+const activityPresence = {
+  online: 'online',
+  thinking: 'busy',
+  working: 'busy',
+  error: 'error',
+  offline: 'offline',
+}
+const legacyPresence = { working: 'busy', idle: 'online', unavailable: 'offline' }
+
+function presence(interval) {
+  return interval.raft_activity ? activityPresence[interval.raft_activity] : legacyPresence[interval.state]
 }
 
 function ReadingTimes({ readings }) {
@@ -33,16 +46,17 @@ export default function RuntimeTimeline({ timeline }) {
       <h2 id="runtime-timeline-title">Agent working periods</h2>
       <p className="stats-note">Each minute shows its recorded reading. Rows include the agent’s overall runtime, including time spent on other projects.</p>
       <ul className="runtime-legend" role="list">
-        {Object.values(states).map(([name, style]) => <li key={style}><span className={`runtime-state ${style}`} aria-hidden="true" />{name}</li>)}
+        {Object.entries(states).map(([state, name]) => <li key={state}><span className={`runtime-state ${state}`} aria-hidden="true" />{name}</li>)}
       </ul>
       <div className="runtime-axis"><time dateTime={from}>{label(from)}</time><time dateTime={to}>{label(to)}</time></div>
       {agents.length ? <ul className="runtime-agents" role="list">
         {agents.map(agent => (
           <li key={agent.id}>
             <h3>{agent.name}</h3>
-            <div className="runtime-track runtime-state unknown" aria-hidden="true">
+            <div className="runtime-track" aria-hidden="true">
               {agent.intervals.map(interval => {
-                const [, state] = states[interval.state] ?? states.unknown
+                const state = presence(interval)
+                if (!state) return null
                 const left = (Date.parse(interval.start_at) - start) / duration * 100
                 const width = (Date.parse(interval.end_at) - Date.parse(interval.start_at)) / duration * 100
                 return <span key={interval.start_at} className={`runtime-state ${state}`} style={{ left: `${left}%`, width: `${width}%` }} />
@@ -51,10 +65,12 @@ export default function RuntimeTimeline({ timeline }) {
             <details>
               <summary>Intervals for {agent.name}</summary>
               <ul>
-                {agent.intervals.map(({ start_at: from, end_at: to, state, readings = [] }) => (
-                  <li key={from}>
-                    {states[state]?.[0] ?? 'Unknown'} · <time dateTime={from}>{label(from)}</time> to <time dateTime={to}>{label(to)}</time>
-                    <ReadingTimes readings={readings} />
+                {agent.intervals.map(interval => (
+                  <li key={interval.start_at}>
+                    {states[presence(interval)] ?? (interval.readings?.length ? 'Unknown' : 'No reading')} ·{' '}
+                    <time dateTime={interval.start_at}>{label(interval.start_at)}</time> to <time dateTime={interval.end_at}>{label(interval.end_at)}</time>
+                    {interval.raft_status && <span> · {interval.raft_status}</span>}
+                    <ReadingTimes readings={interval.readings || []} />
                   </li>
                 ))}
               </ul>

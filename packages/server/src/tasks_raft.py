@@ -142,10 +142,10 @@ _ACTIONS = {
     }, {"stopping_criterion": "Written condition for stopping exploration."}),
     "report-runtime-observation": _Action("POST", "Report an opted-in agent’s own runtime observation.", {
         "project": "Explicit enrolled project prefix.",
-        "state": "Working, idle, unavailable or unknown, lowercase.",
+        "state": "Raft activity enum with raft_status, or a legacy working, idle, unavailable or unknown value.",
         "observed_at": "Actual UTC observation time, in whole seconds. One observation per minute.",
         "run_id": "Stable collector-run UUID used only for continuity.",
-    }),
+    }, {"raft_status": "Original Raft lifecycle and activity status label, without free-form work detail."}),
     "report-watcher-health": _Action("POST", "Report the signed agent's managed Ready watcher's status.", {
         "state": "running or exited.", "stalled": "Whether stalled-work wakes are enabled.",
         "goals": "Whether goal wakes are enabled.",

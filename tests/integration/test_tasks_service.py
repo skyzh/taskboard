@@ -246,6 +246,35 @@ class TasksServiceTest(unittest.TestCase):
         self.call(disabled_owner, endpoint, query_string=bounds, status=404)
         self.action(disabled_owner, report, sample, status=403)
 
+    def test_stats_retains_raft_activity_and_leaves_unobserved_minutes_blank(self):
+        subject = self.provider.people["Avery"]["sub"]
+        app = self.app(runtime_pilot=("T", subject), project_roster={subject: "Avery"})
+        agent, _ = self.login(app, "Avery")
+        peer, _ = self.login(app, "Blake")
+        moments = [f"2026-11-27T18:0{minute}:00Z" for minute in range(9)]
+        samples = [("online", "active; online"), ("thinking", "active; thinking"),
+                   ("working", "active; working"), ("error", "active; error"), ("offline", "stopped")]
+        for at, (activity, label) in zip(moments, samples, strict=False):
+            sample = {"project": "T", "state": activity, "raft_status": label,
+                      "observed_at": at, "run_id": str(UUID(int=52))}
+            with patch("tasks_core.timestamp", return_value=at):
+                self.action(agent, "report-runtime-observation", sample)
+                self.action(agent, "report-runtime-observation", sample)
+                self.action(agent, "report-runtime-observation", {**sample, "raft_status": "active; other"}, status=400)
+        unknown = {"project": "T", "state": "unknown", "observed_at": moments[6], "run_id": str(UUID(int=52))}
+        with patch("tasks_core.timestamp", return_value=moments[6]):
+            self.action(agent, "report-runtime-observation", unknown)
+        with patch("tasks_core.timestamp", return_value=moments[-1]):
+            result = self.call(peer, "/api/v1/stats/runtime", query_string={
+                "project": "T", "from": moments[0], "to": moments[-1],
+            }).get_json()
+        intervals = result["agents"][0]["intervals"]
+        self.assertEqual([(row["raft_activity"], row["raft_status"]) for row in intervals[:5]], samples)
+        self.assertEqual([(row["start_at"], row["end_at"], row["readings"]) for row in intervals[5:]], [
+            (moments[5], moments[6], []), (moments[6], moments[7], [moments[6]]), (moments[7], moments[8], []),
+        ])
+        self.assertTrue(all("raft_activity" not in row for row in intervals[5:]))
+
     def test_runtime_enrollments_isolate_projects_and_hide_removed_subject_samples(self):
         from tasks_runtime_observations import configuration
 

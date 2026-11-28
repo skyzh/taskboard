@@ -445,7 +445,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     goals.migrate_goal_tickets(db)
     db.execute(goal_cadence.SCHEMA)
     db.execute(watcher_health.SCHEMA)
-    db.execute(runtime_observations.SCHEMA)
+    runtime_observations.ensure_schema(db)
     db.execute(cue_pauses.SCHEMA)
     db.execute(cue_pauses.ACKNOWLEDGMENTS_SCHEMA)
     db.execute(goal_offers.SCHEMA)
@@ -5908,10 +5908,11 @@ def create_app(
                     or actor["subject"] not in runtime_enrollments.get(project, ())):
                 raise RequestError("Runtime reporting is not enabled for this signed agent and project.", 403)
             state = text(data, "state", maximum=11)
+            raft_status = text(data, "raft_status", optional=True, maximum=64)
             now = runtime_observations.utc(ledger.timestamp())
             try:
                 observed, run_id = runtime_observations.observation(
-                    state, text(data, "observed_at", maximum=40), text(data, "run_id", maximum=36), now,
+                    state, text(data, "observed_at", maximum=40), text(data, "run_id", maximum=36), now, raft_status,
                 )
             except ValueError as error:
                 raise RequestError(str(error)) from error
@@ -5921,7 +5922,7 @@ def create_app(
                 agents = runtime_observations.project_agents(connection, project, roster, principal=key)
                 if not any(agent["ledger_key"] == key for agent in agents):
                     raise RequestError("Use an agent recorded in this project.", 403)
-                if not runtime_observations.record(connection, project, key, observed, run_id, state):
+                if not runtime_observations.record(connection, project, key, observed, run_id, state, raft_status):
                     raise RequestError("That runtime observation slot already has a different result.", 409)
             return {"receipt": f"{project} · Runtime observation recorded"}
         if name == "report-watcher-health":

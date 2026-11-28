@@ -3,6 +3,7 @@
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 import json
+import re
 from uuid import UUID
 
 import tasks_notification_log as notices
@@ -15,6 +16,7 @@ RETENTION = timedelta(days=7)
 MINUTE = timedelta(minutes=1)
 MAX_SAMPLE_AGE = timedelta(minutes=2)
 STATES = frozenset(("working", "idle", "unavailable", "unknown"))
+RAFT_ACTIVITIES = frozenset(("online", "thinking", "working", "error", "offline"))
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS runtime_observations (
     project TEXT NOT NULL REFERENCES projects (prefix),
@@ -23,8 +25,19 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS runtime_observations (
     observed_at TEXT NOT NULL,
     run_id TEXT NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('working', 'idle', 'unavailable', 'unknown')),
+    raft_activity TEXT,
+    raft_status TEXT,
     PRIMARY KEY (project, owner, slot)
 )"""
+
+
+def ensure_schema(db):
+    db.execute(SCHEMA)
+    columns = tasks_storage.table_columns(db, "runtime_observations")
+    if "raft_activity" not in columns:
+        db.execute("ALTER TABLE runtime_observations ADD COLUMN raft_activity TEXT")
+    if "raft_status" not in columns:
+        db.execute("ALTER TABLE runtime_observations ADD COLUMN raft_status TEXT")
 
 
 def configuration(environ):
@@ -64,11 +77,19 @@ def timestamp(value):
     return value.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def observation(state, at, run_id, now):
+def observation(state, at, run_id, now, raft_status=None):
     sample = utc(at)
-    if (state not in STATES or sample.microsecond
+    if (state not in (RAFT_ACTIVITIES if raft_status is not None else STATES) or sample.microsecond
             or not now - MAX_SAMPLE_AGE <= sample <= now):
         raise ValueError("Supply a valid state and a recent UTC timestamp with whole seconds.")
+    if raft_status is not None:
+        expected = rf"(?:active|inactive|stopped); {re.escape(state)}"
+        if state == "online":
+            expected += "(?:: Idle)?"
+        elif state == "offline":
+            expected += "|stopped"
+        if not re.fullmatch(expected, raft_status):
+            raise ValueError("Supply the original Raft status label for the recorded activity.")
     return timestamp(sample), str(UUID(run_id))
 
 
@@ -77,27 +98,34 @@ def prune_expired(db, now):
         db.execute("DELETE FROM runtime_observations WHERE observed_at < ?", (timestamp(now - RETENTION),))
 
 
-def record(db, project, owner, at, run_id, state):
+def record(db, project, owner, at, run_id, state, raft_status=None):
     slot = timestamp(utc(at).replace(second=0))
-    db.execute("""INSERT INTO runtime_observations (project, owner, slot, observed_at, run_id, state)
-                  VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (project, owner, slot) DO NOTHING""",
-               (project, owner, slot, at, run_id, state))
-    saved = db.execute("""SELECT observed_at, run_id, state FROM runtime_observations
+    source = state if raft_status is not None else None
+    legacy_state = "unknown" if source is not None else state
+    values = (at, run_id, legacy_state, source, raft_status)
+    db.execute("""INSERT INTO runtime_observations (project, owner, slot, observed_at, run_id, state, raft_activity, raft_status)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (project, owner, slot) DO NOTHING""",
+               (project, owner, slot, *values))
+    saved = db.execute("""SELECT observed_at, run_id, state, raft_activity, raft_status FROM runtime_observations
                           WHERE project = ? AND owner = ? AND slot = ?""",
                        (project, owner, slot)).fetchone()
-    return (saved["observed_at"], saved["run_id"], saved["state"]) == (at, run_id, state)
+    return tuple(saved[key] for key in ("observed_at", "run_id", "state", "raft_activity", "raft_status")) == values
 
 
 def intervals(samples, start, end, retained_since):
     result = []
 
-    def append(left, right, state, reading=None):
+    def append(left, right, state, reading=None, activity=None, status=None):
         if left >= right:
             return
-        if result and result[-1]["state"] == state:
+        if (result and result[-1]["state"] == state
+                and bool(result[-1]["readings"]) == (reading is not None)
+                and result[-1].get("raft_activity") == activity and result[-1].get("raft_status") == status):
             result[-1]["end_at"] = timestamp(right)
         else:
             result.append({"start_at": timestamp(left), "end_at": timestamp(right), "state": state, "readings": []})
+            if activity is not None:
+                result[-1].update(raft_activity=activity, raft_status=status)
         if reading is not None:
             result[-1]["readings"].append(reading)
 
@@ -108,7 +136,7 @@ def intervals(samples, start, end, retained_since):
         if high <= low:
             continue
         append(cursor, low, "unknown")
-        append(low, high, sample["state"], sample["observed_at"])
+        append(low, high, sample["state"], sample["observed_at"], sample["raft_activity"], sample["raft_status"])
         cursor = high
     append(cursor, end, "unknown")
     return result
@@ -130,7 +158,7 @@ def listing(db, project, roster, *, principal, subjects, start, end, now):
     observed_through = None
     if owners:
         placeholders = ", ".join("?" for _ in owners)
-        rows = db.execute(f"""SELECT owner, slot, observed_at, state FROM runtime_observations
+        rows = db.execute(f"""SELECT owner, slot, observed_at, state, raft_activity, raft_status FROM runtime_observations
                               WHERE project = ? AND owner IN ({placeholders}) AND slot >= ? AND slot < ?
                               AND observed_at >= ? AND observed_at <= ? ORDER BY observed_at""",
                           (project, *owners, timestamp(start.replace(second=0)), timestamp(end),

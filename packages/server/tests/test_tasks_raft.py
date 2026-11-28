@@ -83,7 +83,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "my-goal-occurrences": ("GET", "", "project scope"),
             "complete-goal-occurrence": ("POST", "id occurrence_key note", "url label details"),
             "set-goal-exploration": ("POST", "id keep_exploring", "stopping_criterion"),
-            "report-runtime-observation": ("POST", "project state observed_at run_id", ""),
+            "report-runtime-observation": ("POST", "project state observed_at run_id", "raft_status"),
             "report-watcher-health": ("POST", "state stalled goals", "project revision"),
             "my-goal-cues": ("GET", "", "project include_timed for_wake include_occurrences"),
             "set-goal-review-time": ("POST", "id time", ""),

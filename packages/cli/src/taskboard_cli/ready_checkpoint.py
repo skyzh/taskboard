@@ -21,7 +21,7 @@ from taskboard_cli.goal_wake import (
 from taskboard_cli.shared import assert_actor, task_url
 
 
-def runtime_observer(board, project, observe, emit):
+def runtime_observer(board, project, observe, emit, *, raft_source=False):
     run_id = str(uuid4())
     last_slot = None
 
@@ -32,12 +32,19 @@ def runtime_observer(board, project, observe, emit):
         if last_slot is not None and slot <= last_slot:
             return
         last_slot = slot
-        state = {"working": "working", "idle": "idle", "stopped": "unavailable"}.get(status, "unknown")
+        if raft_source:
+            if not status:
+                return
+            state, label = status
+            source = {"raft_status": label}
+        else:
+            state = {"working": "working", "idle": "idle", "stopped": "unavailable"}.get(status, "unknown")
+            source = {}
         try:
             board.invoke("report-runtime-observation", {
                 "project": project, "state": state,
                 "observed_at": now.isoformat(timespec="seconds").replace("+00:00", "Z"),
-                "run_id": run_id,
+                "run_id": run_id, **source,
             }, write=True, timeout=5)
         except RuntimeError:
             emit({"kind": "runtime-observation-unavailable", "at": observation_time()})
@@ -848,12 +855,31 @@ def raft_cli(*args):
     return result.stdout
 
 
-def raft_status(handle):
+def raft_status_line(handle):
     info = raft_cli("user", "info", f"@{handle}", "--limit", "1")
     header = re.split(r"\n(?:Description |### )", info, maxsplit=1)[0].splitlines()
     status = next((line for line in header if line.startswith("Status: ")), None)
     if "Kind: agent" not in header or not any(line.casefold() == f"user: @{handle}".casefold() for line in header):
-        return "unavailable"
+        return None
+    return status
+
+
+def raft_runtime_status(handle):
+    status = raft_status_line(handle)
+    if status == "Status: stopped":
+        return "offline", "stopped"
+    match = re.fullmatch(r"Status: ((?:active|inactive|stopped); (online|thinking|working|error|offline))(?:: (.*))?",
+                         status or "")
+    if match is None:
+        return None
+    label, activity, detail = match.groups()
+    if activity == "online" and detail == "Idle":
+        label += ": Idle"
+    return activity, label
+
+
+def raft_status(handle):
+    status = raft_status_line(handle)
     if status == "Status: active; online: Idle":
         return "idle"
     if status and status.startswith("Status: active; working"):
