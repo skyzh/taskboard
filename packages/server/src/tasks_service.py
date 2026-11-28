@@ -52,6 +52,7 @@ import tasks_merges as merges
 import tasks_app_wake_activity as app_wake_activity
 import tasks_goal_wake_receipts
 import tasks_notification_log as notification_log
+import tasks_wake_members as wake_members
 import tasks_watcher_health as watcher_health
 import tasks_runtime_observations as runtime_observations
 import tasks_oidc as oidc_auth
@@ -463,6 +464,8 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     db.execute(wake_subscriptions.SCHEMA)
     db.execute(tasks_goal_wake_receipts.SCHEMA)
     notification_log.ensure_schema(db)
+    for statement in wake_members.SCHEMA:
+        db.execute(statement)
     db.execute(ATTENTION_WAIT_SCHEMA)
     wait_columns = tasks_storage.table_columns(db, "attention_wait_links")
     if "started_event_id" not in wait_columns:
@@ -541,6 +544,8 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
         db.execute(goal_offers.SCHEMA)
         db.execute(goal_offers.INDEX)
         notification_log.ensure_schema(db)
+        for statement in wake_members.SCHEMA:
+            db.execute(statement)
         for statement in (*peer_asks.SCHEMA, *extensions.SCHEMA, *github_webhooks.SCHEMA, *public_knowledge.SCHEMA):
             db.execute(statement)
         knowledge_records.ensure_schema(db)
@@ -1361,7 +1366,9 @@ def create_app(
                 raise RequestError("Choose a ticket you own.", 403)
             if task["state"] != "in_progress" or task["event_id"] != int(event):
                 raise RequestError("This stalled cue is no longer current. Recheck the ticket.", 409)
-            cue_pauses.acknowledge(connection, number, owner, int(event), ledger.timestamp())
+            now = ledger.timestamp()
+            cue_pauses.acknowledge(connection, number, owner, int(event), now)
+            wake_members.acknowledge_stalled(connection, owner, number, int(event), now)
             return {"receipt": f"{projects.row_reference(task)} · Stalled cue for event {event} acknowledged"}
 
     def project_channel(actor, project, data=None):
@@ -4099,6 +4106,26 @@ def create_app(
                 "agent_options": [{"id": row["subject"], "name": row["name"]} for row in agents],
                 "has_receipts": bool(page["items"]) or notification_log.has_receipts(connection, project, principal=actor_key()),
             }
+
+    @app.get("/api/v1/notifications/wake-members")
+    def wake_member_history():
+        actor = current_actor(required=True)
+        principal = actor["ledger_key"]
+        project = project_scope(request.args, use_default=False)
+        limit = integer(request.args.get("limit", 20), "limit", maximum=100)
+        before = text(request.args, "before", optional=True, maximum=256)
+        requested = text(request.args, "recipient", optional=True, maximum=160)
+        with tasks_storage.read(db()) as connection:
+            recipient = None
+            if requested is not None:
+                roster = (project_roster or {}) if project in (None, projects.DEFAULT) else {}
+                agents = notification_log.project_agents(connection, project, roster, principal=principal)
+                agent = next((row for row in agents if requested in (row["subject"], row["ledger_key"])), None)
+                if agent is None:
+                    raise RequestError("Choose an available agent for the selected projects.", 404)
+                recipient = agent["ledger_key"]
+            return jsonify(wake_members.listing(connection, project, recipient, before=before, limit=limit,
+                                               principal=principal)), {"Cache-Control": "no-store"}
 
     @app.get("/api/v1/reports/watchers")
     def project_watchers():

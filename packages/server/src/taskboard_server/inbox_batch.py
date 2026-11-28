@@ -31,6 +31,7 @@ from tasks_notification_log import WAKE_SCHEMA, record_wake
 import tasks_projects as projects
 from tasks_queries import BoardQueries
 import tasks_ring1 as ring1
+import tasks_wake_members as wake_members
 import tasks_storage
 from tasks_wake_subscriptions import GOAL_OCCURRENCES, has_subscription
 
@@ -219,6 +220,9 @@ class InboxBatchDelivery:
                         renewed=journal["renewed"], observed_at=observed,
                     )
                     changed = True
+            if visible:
+                changed |= wake_members.record(self.db, recipient=owner, envelope=journal["event_key"],
+                                               members=members, acceptance=acceptance, at=observed)
             if changed:
                 ledger.bump_revision(self.db)
             if acceptance == "accepted":

@@ -916,6 +916,31 @@ class InboxBatchTest(unittest.TestCase):
         summary = fixture.provider.accepted[key]["summary"]
         self.assertLess(summary.index(ordinary), summary.index(goal))
 
+    def test_signed_wake_member_history_distinguishes_delivery_and_acknowledgment(self):
+        fixture = self.fixture
+        board = fixture.board
+        ordinary = fixture.create()["task"]
+        board.invoke("advance-task", {"id": ordinary, "transition": "start", "note": "Read the sample."}, write=True)
+        event = fixture.service.task_event(board.client, ordinary)["event"]
+        self.established_idle()
+        status, key = self.poll(30)
+        self.assertEqual(status, "accepted")
+        endpoint = "/api/v1/notifications/wake-members"
+        query = {"project": "T", "recipient": fixture.owner, "limit": 1}
+        first, = fixture.service.call(board.client, endpoint, query_string=query).json["items"]
+        self.assertEqual((first["acceptance"], first["ticket"], first["source_event_id"], first["receipt_ref"]),
+                         ("accepted", ordinary, event, key))
+        self.assertIsNone(first["disposition_at"])
+        with patch("tasks_core.timestamp", return_value=self.stamp(40)):
+            board.invoke("acknowledge-stalled-cue", {"id": ordinary, "event": str(event)}, write=True)
+        after, = fixture.service.call(board.client, endpoint, query_string=query).json["items"]
+        self.assertEqual(after["disposition_at"], self.stamp(40))
+        self.assertEqual(after["accepted_at"], self.stamp(30))
+        self.assertEqual(after["id"], first["id"])
+        older = fixture.service.call(board.client, endpoint,
+                                     query_string={**query, "before": json.dumps(after["sort_key"])}).json
+        self.assertEqual(older, {"items": [], "next_cursor": None})
+
     def test_two_interval_reviews_get_separate_app_and_signed_outcome_receipts(self):
         self.origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()
         self.restart()
