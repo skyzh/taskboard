@@ -20,9 +20,10 @@ _OCCURRENCE_KINDS = {"explore", "review"}
 
 
 class WakeScheduleStopped(RuntimeError):
-    def __init__(self, cue, reason):
+    def __init__(self, cue, reason, identity=None):
         self.cue = cue
         self.reason = reason
+        self.identity = identity
         super().__init__(f"Could not schedule the {cue} reminder ({reason}).")
 
 

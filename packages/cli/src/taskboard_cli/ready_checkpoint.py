@@ -54,8 +54,8 @@ def runtime_observer(board, project, observe, emit):
     return sample
 
 
-def watcher_reporter(board, project, *, stalled, goals, emit):
-    root = Path(__file__).resolve().parents[4]
+def watcher_reporter(board, project, *, stalled, goals, emit, checkout=None):
+    root = checkout or Path(__file__).resolve().parents[4]
     fields = {"project": project, "stalled": str(stalled).lower(), "goals": str(goals).lower()}
     try:
         def git(*args):
@@ -252,7 +252,7 @@ def watch_idle(board, owner, is_idle, notify, duration, interval=10, idle_delay=
 
 
 def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_delay, *, delayed_lookup=None,
-                    continue_after=None, shared_idle=False):
+                    continue_after=None, shared_idle=False, stop_requested=None):
     handle = context["actor"]["username"]
     if not handle:
         raise ValueError("The signed-in Taskboard agent has no verified Raft handle.")
@@ -263,7 +263,7 @@ def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_d
 
     def can_wake():
         nonlocal idle_since, observed_idle, status_checks
-        if monotonic() >= deadline:
+        if (stop_requested and stop_requested()) or monotonic() >= deadline:
             return False
         status_checks += 1
         try:
@@ -279,11 +279,15 @@ def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_d
         if idle_since is None:
             idle_since = now
         observed_idle = now - idle_since
+        if stop_requested and stop_requested():
+            return False
         if shared_idle:
             return now < deadline and observed_idle >= MINIMUM_CONFIRMED_IDLE_SECONDS
         return now < deadline and observed_idle > MINIMUM_CONFIRMED_IDLE_SECONDS and observed_idle >= idle_delay
 
     while monotonic() < deadline:
+        if stop_requested and stop_requested():
+            return {"outcome": "stopped"}
         if can_wake():
             offer = lookup()
             if offer is None and delayed_lookup is not None:
@@ -296,6 +300,8 @@ def check_when_idle(context, is_idle, lookup, notify, deadline, interval, idle_d
                         result.update(idle_seconds=round(observed_idle, 3), status_checks=status_checks)
                     if continue_after is None or not continue_after(result):
                         return result
+        if stop_requested and stop_requested():
+            return {"outcome": "stopped"}
         pause = deadline - monotonic()
         if pause > 0:
             sleep(min(interval, pause))
@@ -359,12 +365,15 @@ class ReadyReadStopped(RuntimeError):
 def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
                       idle_delay=MINIMUM_CONFIRMED_IDLE_SECONDS, *, observe_status=None,
                       notify_stalled=None, goal_state=None, notify_goal=None, notify_ask=None, notify_inbox=None,
-                      report_health=None, measure_status=True, goal_occurrences=False):
+                      report_health=None, measure_status=True, goal_occurrences=False, stop_requested=None):
     """Wake for new Ready work, then check recovery paths during Idle."""
     try:
         context = agent_context(board, owner)
     except SharedReadError as error:
-        context = recover_ready_read(lambda: agent_context(board, owner), "startup context", error, emit, interval)
+        context = recover_ready_read(lambda: agent_context(board, owner), "startup context", error, emit, interval,
+                                     stop_requested=stop_requested)
+        if context is None:
+            return
     actor = context["actor"]["id"]
     shared_idle = notify_inbox is not None and context.get("inbox_wake_cues") is True
     primary_project = GOAL_PROJECT if goal_state else (context.get("default_project") or GOAL_PROJECT)
@@ -713,24 +722,29 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
             result = check_when_idle(
                 context, is_idle, next_inbox if shared_idle else next_count, notify_current,
                 float("inf"), interval, idle_delay, delayed_lookup=follow_up, continue_after=continue_after,
-                shared_idle=shared_idle,
+                shared_idle=shared_idle, stop_requested=stop_requested,
             )
         except SharedReadError as error:
+            if stop_requested and stop_requested():
+                return
             if stage == GOAL_READ:
                 if error.reason == "action-unavailable":
                     emit({"kind": "goal-check-unavailable", "at": observation_time(), "reason": error.reason})
                     goal_wake = None
                 else:
-                    recover_ready_read(selected_goal.lookup, stage, error, emit, interval)
+                    recover_ready_read(selected_goal.lookup, stage, error, emit, interval, stop_requested=stop_requested)
             elif stage == INBOX_WAKE_READ:
-                recover_ready_read(signed_inbox_wake, stage, error, emit, interval)
+                recover_ready_read(signed_inbox_wake, stage, error, emit, interval, stop_requested=stop_requested)
             elif stage == ASK_RECHECK_READ:
-                recover_ready_read(ask_offer, stage, error, emit, interval)
+                recover_ready_read(ask_offer, stage, error, emit, interval, stop_requested=stop_requested)
             elif stage == STALLED_READ:
-                recover_ready_read(stalled_offer, stage, error, emit, interval)
+                recover_ready_read(stalled_offer, stage, error, emit, interval, stop_requested=stop_requested)
             else:
-                recover_ready_read(lambda: ready_events(stage), stage, error, emit, interval, count_ready=True)
+                recover_ready_read(lambda: ready_events(stage), stage, error, emit, interval, count_ready=True,
+                                   stop_requested=stop_requested)
             continue
+        if result["outcome"] == "stopped":
+            return
         if result["outcome"] == "stalled-step-changed":
             continue
         if "ready_count" in result:
@@ -748,7 +762,7 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
         emit(result)
 
 
-def recover_ready_read(read, stage, error, emit, interval, *, count_ready=False):
+def recover_ready_read(read, stage, error, emit, interval, *, count_ready=False, stop_requested=None):
     for attempt in range(1, 4):
         if not error.retryable:
             break
@@ -756,6 +770,8 @@ def recover_ready_read(read, stage, error, emit, interval, *, count_ready=False)
         emit({"kind": "ready-read-retry", "at": observation_time(), "stage": stage,
               "reason": error.reason, "attempt": attempt, "retry_in_seconds": delay})
         sleep(delay)
+        if stop_requested and stop_requested():
+            return None
         try:
             result = read()
         except SharedReadError as failure:
@@ -766,6 +782,8 @@ def recover_ready_read(read, stage, error, emit, interval, *, count_ready=False)
                 event["ready_count"] = len(result)
             emit(event)
             return result
+    if stop_requested and stop_requested():
+        return None
     stopped = {"kind": "ready-read-stopped", "at": observation_time(), "stage": stage,
                "reason": error.reason, "retryable": error.retryable}
     if error.carrier is not None:
@@ -883,7 +901,8 @@ def raft_ready_count(notice, channel, message_id, can_wake, *, record_wake=None)
         return wake_with_title(title, channel, message_id, can_wake, status="scheduled", record_wake=record_wake,
                                previous_title=previous, cue="Ready")
     title += f" [Taskboard Ready through event {event}]"
-    return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake, ready_event=event, cue="Ready")
+    return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake, ready_event=event,
+                           cue="Ready", cue_identity=str(event))
 
 
 def raft_inbox_wake(notice, channel, message_id, can_wake, *, record_wake=None):
@@ -911,7 +930,7 @@ def raft_inbox_wake(notice, channel, message_id, can_wake, *, record_wake=None):
     title = (f"{action} on {work['key']}. Open {url}. Check signed Inbox with ./tasks --shared next --wake. "
              f"Finish it or record the blocker and who can act or when to recheck. {_RECHECK_INBOX} [{marker}]")
     return wake_with_title(title, channel, message_id, can_wake, cue=work["kind"], ready_event=ready_event,
-                           record_wake=record_wake)
+                           cue_identity=f"{work['key']}:{event}", record_wake=record_wake)
 
 
 def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None):
@@ -935,7 +954,8 @@ def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None)
         identity = f"Taskboard {offer['worker_status']} worker {run}{checkpoint} on {ticket}. Open {url}."
         title = f"{identity} {instruction} {_RECHECK_INBOX}"
         return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake,
-                               previous_title=f"{identity} {previous}", cue="worker")
+                               previous_title=f"{identity} {previous}", cue="worker",
+                               cue_identity=f"{ticket}:{run}:{offer.get('check_event') or 0}")
     else:
         ticket = offer["task"]
         event = offer["event_id"]
@@ -955,7 +975,8 @@ def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None)
             title = f"{action} Board {board}."
         return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake,
                                title_prefix=f"{identity}Open {url} ",
-                               retry_outstanding=offer.get("requires_disposition", False), cue="stalled")
+                               retry_outstanding=offer.get("requires_disposition", False), cue="stalled",
+                               cue_identity=f"{ticket}:{event}")
 
 
 def recover_schedule_receipt(title, channel, previous):
@@ -975,9 +996,9 @@ def recover_schedule_receipt(title, channel, previous):
 
 
 def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fired", *, record_wake=None, ready_event=None,
-                    title_prefix=None, retry_outstanding=False, previous_title=None, cue=None):
+                    title_prefix=None, retry_outstanding=False, previous_title=None, cue=None, cue_identity=None):
     if not title.strip() or len(title) > RAFT_REMINDER_TITLE_LIMIT or any(ch in title for ch in "\r\n\0"):
-        raise WakeScheduleStopped(cue or "recovery", "carrier-rejected")
+        raise WakeScheduleStopped(cue or "recovery", "carrier-rejected", cue_identity)
     reminders = raft_cli("reminder", "list", "--status", status)
     fired = None
     for line in reminders.splitlines():
@@ -1030,7 +1051,7 @@ def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fire
         if error.reason in ("carrier-timeout", "carrier-no-reply") and status == "scheduled,fired":
             reference = recover_schedule_receipt(title, channel, reminders)
         if reference is None:
-            raise WakeScheduleStopped(cue, error.reason) from None
+            raise WakeScheduleStopped(cue, error.reason, cue_identity) from None
     if record_wake is not None:
         record_wake(reference)
     return "wake-requested"
@@ -1065,9 +1086,12 @@ def recovery_wake(owner, channel, message_id, error, emit):
     return owner_verified and event["outcome"] == "wake-failed"
 
 
-def main(*, managed_child=False):
+def main(*, managed_child=False, stop_requested=None, auto_recover=False):
     duration = 300
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog="Put --follow-checked before watcher flags to follow checked releases in managed repeat mode.",
+    )
     parser.add_argument("--by", required=True, help="Expected signed-in Taskboard agent.")
     parser.add_argument("--watch-idle", action="store_true", help="Request one Raft wake when the agent becomes idle.")
     mode = parser.add_mutually_exclusive_group()
@@ -1155,14 +1179,14 @@ def main(*, managed_child=False):
                 def notify_goal(offer, can_wake, record_wake):
                     return wake_with_title(reminder_title(offer), args.channel, args.message_id, can_wake,
                                            record_wake=record_wake, previous_title=reminder_title(offer, legacy=True),
-                                           cue="goal")
+                                           cue="goal", cue_identity=offer["goal_key"])
 
                 def notify_ask(offer, can_wake, record_wake):
                     title = (f"Finish the due Taskboard ask recheck for {offer['ticket']}. "
                              "Read signed Inbox, record the outcome or real blocker, then recheck Inbox. "
                              f"[Taskboard ask {offer['cue_key']}]")
                     return wake_with_title(title, args.channel, args.message_id, can_wake, record_wake=record_wake,
-                                           cue="ask recheck")
+                                           cue="ask recheck", cue_identity=offer["cue_key"])
 
                 health = watcher_reporter(board, args.report_status, stalled=True, goals=True,
                                           emit=emit) if args.report_status else None
@@ -1175,13 +1199,18 @@ def main(*, managed_child=False):
                         board, args.by, raft_idle, notify_count, emit,
                         idle_delay=(MINIMUM_CONFIRMED_IDLE_SECONDS if args.idle_delay_seconds is None
                                     else args.idle_delay_seconds),
-                        observe_status=observe, measure_status=args.measure,
+                        observe_status=observe, measure_status=args.measure, stop_requested=stop_requested,
                         notify_stalled=notify_stalled,
                         goal_state=args.goal_state, notify_goal=notify_goal, notify_ask=notify_ask,
                         notify_inbox=notify_inbox,
                         report_health=health, goal_occurrences=args.goal_occurrences,
                     )
                 except (KeyError, RuntimeError, ValueError) as error:
+                    if isinstance(error, WakeScheduleStopped):
+                        emit({"kind": "watcher-schedule-stopped", "at": observation_time(),
+                              "cue": error.cue, "identity": error.identity, "reason": error.reason})
+                    if stop_requested and stop_requested():
+                        return 0
                     if health and not (isinstance(error, ReadyReadStopped) and error.reason == "interrupted"):
                         health("exited")
                     # SharedBoard preserves an interrupted signed read as a read error.
@@ -1189,12 +1218,15 @@ def main(*, managed_child=False):
                         alert_failed = recovery_wake(args.by, args.channel, args.message_id, error, emit)
                         restartable = (
                             isinstance(error, ReadyReadStopped)
-                            and (error.stage, error.reason) == (STALLED_READ, "carrier-no-reply")
+                            and error.reason == "carrier-no-reply" and (auto_recover or error.stage == STALLED_READ)
                         ) or (isinstance(error, WakeScheduleStopped) and error.reason == "carrier-not-started")
-                        if managed_child and alert_failed and restartable:
+                        if managed_child and restartable and (alert_failed or auto_recover):
                             print(f"ready checkpoint: {error}", file=sys.stderr)
                             return MANAGED_RESTART
                     raise
+                if health and stop_requested and stop_requested():
+                    health("exited")
+                return 0
             else:
                 watch = watch_two_pickups if args.two_pickups else watch_idle
                 result = watch(

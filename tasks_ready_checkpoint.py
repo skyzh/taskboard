@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Launch taskboard_cli.ready_checkpoint from this checkout."""
 
+import json
 import signal
 import subprocess
 import sys
@@ -46,7 +47,33 @@ def supervise(command):
     return 1
 
 
+def follow_child():
+    stopping = False
+
+    def stop_after_current_cue(_signum, _frame):
+        nonlocal stopping
+        stopping = True
+
+    signal.signal(signal.SIGUSR1, stop_after_current_cue)
+    del sys.argv[1]
+    return main(managed_child=True, stop_requested=lambda: stopping, auto_recover=True)
+
+
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--follow-child"]:
+        raise SystemExit(follow_child())
+    if sys.argv[1:2] == ["--follow-checked"]:
+        from taskboard_cli.watcher_refresh import follow_checked
+
+        raise SystemExit(follow_checked(sys.argv[2:]))
+    if len(sys.argv) == 3 and sys.argv[1] == "--verify-watcher":
+        from taskboard_cli.watcher_refresh import signed_probe
+
+        try:
+            print(json.dumps(signed_probe(sys.argv[2])))
+        except (RuntimeError, ValueError):
+            raise SystemExit(1) from None
+        raise SystemExit(0)
     if sys.argv[1:2] == ["--restart-once"]:
         command = [sys.executable, "-B", str(Path(__file__).resolve()), "--managed-child", *sys.argv[2:]]
         raise SystemExit(supervise(command))
