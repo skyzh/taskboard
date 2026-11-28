@@ -427,6 +427,11 @@ def _invoke(name, action, dispatch):
     return _json(dispatch(name, data))
 
 
+def invoke_action(name, dispatch):
+    """Use the ordinary action contract with an independently authorized ingress."""
+    return _invoke(name, _ACTIONS[name], dispatch)
+
+
 def _public_base(public_url):
     try:
         parsed = urlsplit(public_url)

@@ -8712,6 +8712,175 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(page(sam)["items"], [])
         self.assertEqual([row["id"] for row in page(sam, "acknowledged")["items"]], [old_id])
 
+    def test_external_agent_pilot_scopes_claims_actions_and_stable_identity(self):
+        api = "/api/v1/external-agents"
+        app = self.app(portal_reader=True, external_agent_pilot=True,
+                       project_admin_subject=self.provider.people["Sam"]["sub"])
+        manager, manager_id = self.login(app, "Sam")
+        other_human, _ = self.login(app, "Quinn")
+        anonymous = app.test_client()
+        self.call(manager, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Restricted sample", "visibility": "ring1",
+        })
+        actions = ["context", "my-next", "my-queue", "task", "advance-task"]
+        clock = "2030-04-01T16:00:00Z"
+
+        def enroll(project, name, *, approved=False, granted=None, client=manager, status=201):
+            return self.call(client, api, method="POST", status=status, json={
+                "project": project, "name": name, "actions": actions if granted is None else granted,
+                "ring1": approved,
+            }).json
+
+        def exchange(claim, *, client=anonymous, status=200):
+            return self.call(client, api + "/claim", method="POST", status=status, json={"claim": claim}).json
+
+        def action(session, name, *, query=None, payload=None, status=200, client=anonymous):
+            return self.call(client, f"{api}/actions/{name}", status=status,
+                             headers={"Authorization": "Bearer " + session["token"]},
+                             method="POST" if payload is not None else "GET",
+                             **({"json": payload} if payload is not None else {}), query_string=query).json
+
+        with patch("tasks_core.timestamp", side_effect=lambda: clock):
+            enroll("T", "External sample", client=other_human, status=403)
+            enroll("LAB", "Restricted sample", status=403)
+            primary = enroll("T", "External sample")
+            restricted = enroll("LAB", "Restricted external sample", approved=True,
+                                granted=["context", "my-next", "task", "advance-task"])
+            self.assertNotEqual(primary["principal"], restricted["principal"])
+            active = exchange(primary["claim"])
+            private = exchange(restricted["claim"])
+            exchange(primary["claim"], status=401)
+            self.assertEqual(active["principal"], primary["principal"])
+            self.assertEqual(private["principal"], restricted["principal"])
+            self.assertTrue(primary["principal"].startswith("external-agent:"))
+            for grant, session, project in ((primary, active, "T"), (restricted, private, "LAB")):
+                context = action(session, "context", client=manager)
+                self.assertEqual((context["actor"]["id"], context["actor"]["kind"]), (grant["principal"], "agent"))
+                self.assertEqual(context["project"], project)
+                self.assertEqual(context["default_project"], project)
+                self.assertNotIn("raft_agent_subject", context)
+                self.assertNotIn("inbox_wake_cues", context)
+            bearer = {"Authorization": "Bearer " + active["token"]}
+            for ordinary in ("/api/v1/session", "/api/v1/raft/context", "/api/v1/tasks"):
+                self.call(manager, ordinary, headers=bearer, status=401)
+            self.call(manager, api + "/actions/context", status=401)
+            self.call(manager, api + "/actions/advance-task", headers=bearer, status=405)
+            action(private, "my-queue", query={"state": "ready"}, status=403)
+            action(active, "create-task", status=403)
+            action(active, "my-next", query={"scope": "all"}, status=403)
+            action(active, "my-next", query={"project": "LAB"}, status=403)
+            action(active, "my-next", query={"refresh_guidance": "true"}, status=403)
+
+            self.cli("add", "Public sample", "--dri", primary["principal"], "--step", "Check the evidence.")
+            self.cli("add", "Restricted sample", "--dri", restricted["principal"],
+                     "--step", "Check the evidence.", "--project", "LAB")
+            self.cli("add", "Other owner's work", "--dri", manager_id, "--step", "Check the evidence.")
+            t_ticket = action(active, "my-next")["work"]["key"]
+            lab_ticket = action(private, "my-next")["work"]["key"]
+            self.assertEqual(t_ticket, "T-1")
+            self.assertEqual(lab_ticket, "LAB-1")
+            self.assertEqual([item["key"] for item in action(active, "my-queue")["items"]], [t_ticket])
+            self.assertEqual(action(active, "task", query={"id": t_ticket})["task"]["dri"], primary["principal"])
+            action(active, "task", query={"id": lab_ticket}, status=403)
+            action(private, "task", query={"id": t_ticket}, status=403)
+            action(active, "task", query={"id": "1"}, status=403)
+            action(active, "task", query={"id": "T-3"}, status=404)
+            action(active, "advance-task", payload={"id": "T-3", "transition": "start", "note": "Start."}, status=403)
+            action(active, "advance-task", payload={"id": lab_ticket, "transition": "start", "note": "Start."}, status=403)
+            action(active, "advance-task", payload={"id": t_ticket, "transition": "wait", "note": "Wait."}, status=403)
+            action(active, "advance-task", payload={
+                "id": t_ticket, "transition": "start", "note": "Start.", "force": "true",
+            }, status=403)
+            for session, ticket, grant in ((active, t_ticket, primary), (private, lab_ticket, restricted)):
+                action(session, "advance-task", payload={"id": ticket, "transition": "start", "note": "Start."})
+                action(session, "advance-task", payload={"id": ticket, "transition": "done", "note": "Verified."})
+                history = self.call(manager, f"/api/v1/tasks/{ticket}/activity").json["items"]
+                self.assertEqual([(event["action"], event["actor"]) for event in history[:2]],
+                                 [("done", grant["principal"]), ("start", grant["principal"])])
+
+            self.call(manager, "/api/v1/projects/LAB/ring1", method="PUT", json={
+                "principal": restricted["principal"], "allowed": False,
+            })
+            action(private, "context", status=404)
+
+            def reissue():
+                return self.call(manager, api + f"/{primary['id']}/claim", method="POST").json
+
+            pending = reissue()
+            clock = "2030-04-01T16:05:00Z"
+            exchange(pending["claim"], status=401)
+            fresh = reissue()
+            rotated = exchange(fresh["claim"])
+            self.assertEqual(rotated["principal"], primary["principal"])
+            action(active, "context", status=401)
+            action(rotated, "context")
+            clock = "2030-04-01T17:05:00Z"
+            action(rotated, "context", status=401)
+            latest = exchange(reissue()["claim"])
+            outstanding = reissue()
+            self.call(manager, api + f"/{primary['id']}", method="DELETE")
+            action(latest, "context", status=401)
+            exchange(outstanding["claim"], status=401)
+
+            with closing(open_sqlite(self.database)) as connection:
+                row = connection.execute("SELECT * FROM external_agent_enrollments WHERE id = ?", (primary["id"],)).fetchone()
+                self.assertIsNone(row["bearer_digest"])
+                self.assertIsNone(row["claim_digest"])
+                stored = connection.execute(
+                    "SELECT bearer_digest FROM external_agent_enrollments WHERE id = ?", (restricted["id"],),
+                ).fetchone()["bearer_digest"]
+                self.assertRegex(stored, r"^[a-f0-9]{64}$")
+                events = connection.execute(
+                    "SELECT operation, actor FROM audit_events WHERE record_type = 'external-agent' "
+                    "AND record_id = ? ORDER BY id", (primary["id"],),
+                ).fetchall()
+                self.assertEqual([events[0]["operation"], events[-1]["operation"]], ["enroll", "revoke"])
+                self.assertTrue(all(event["actor"] == manager_id for event in events))
+
+    def test_external_agent_inbox_only_offers_runnable_owned_work(self):
+        from tasks_queries import BoardQueries
+
+        app = self.app(portal_reader=True, external_agent_pilot=True,
+                       project_admin_subject=self.provider.people["Sam"]["sub"])
+        manager, _ = self.login(app, "Sam")
+        requester, requester_key = self.login(app, "Avery")
+        runner = app.test_client()
+        path = "/api/v1/external-agents"
+
+        def enrolled(name, actions):
+            registration = self.call(manager, path, method="POST", status=201,
+                                     json={"project": "T", "name": name, "actions": actions}).json
+            session = self.call(runner, path + "/claim", method="POST",
+                                json={"claim": registration["claim"]}).json
+            return registration["principal"], {"Authorization": "Bearer " + session["token"]}
+
+        owner, credentials = enrolled("Review recipient", ["my-next", "advance-task"])
+        observer, read_only = enrolled("Read-only runner", ["my-next"])
+        self.cli("add", "Owned assignment", "--dri", owner, "--step", "Check the sample.")
+        self.cli("add", "Delegated review target", "--dri", requester_key, "--step", "Prepare the sample.")
+        self.cli("add", "Read-only assignment", "--dri", observer, "--step", "Check another sample.")
+
+        def inbox(headers=credentials):
+            return self.call(runner, path + "/actions/my-next", headers=headers).json["work"]
+
+        self.assertEqual((inbox()["key"], inbox()["kind"]), ("T-1", "ready"))
+        self.call(runner, path + "/actions/advance-task", headers=credentials, method="POST", json={
+            "id": "T-1", "transition": "start", "note": "Check the sample.",
+        })
+        self.action(requester, "advance-task", {"id": "T-2", "transition": "start", "note": "Prepare the sample."})
+        self.action(requester, "delegate", {
+            "id": "T-2", "worker": owner, "role": "review", "brief": "Review the sample.",
+        })
+        with closing(open_sqlite(self.database)) as db:
+            team = BoardQueries(db, ORIGIN + BASE, principal=owner)
+            offered = next(team.actionable_work(owner, today="2030-04-01", project="T"))
+            self.assertEqual((offered["key"], offered["kind"]), ("T-2", "review"))
+        self.assertEqual((inbox()["key"], inbox()["kind"]), ("T-1", "in_progress"))
+        self.assertIsNone(inbox(read_only))
+
+        self.cli("add", "Next owned assignment", "--dri", owner, "--step", "Check a fresh sample.")
+        self.assertEqual((inbox()["key"], inbox()["kind"]), ("T-4", "ready"))
+
     def test_watched_fyi_history_and_write_follow_current_project_access(self):
         app = self.app(portal_reader=True, project_admin_subject=self.provider.people["Sam"]["sub"])
         sam, _ = self.login(app, "Sam")

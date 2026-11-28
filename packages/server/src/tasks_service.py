@@ -77,7 +77,7 @@ from taskboard_client.connection import exact_person_id
 from taskboard_server.login import BrowserLogin, external_issuer
 from taskboard_server.migrate import postgres_engine, prepare_and_upgrade, sqlite_engine
 from taskboard_server.paths import CHECKOUT, DIST, PACKAGE
-from taskboard_server import local_dri, personal_agents, personal_codex, project_admin, project_links, raft_channels, reports_presence
+from taskboard_server import external_agents, local_dri, personal_agents, personal_codex, project_admin, project_links, raft_channels, reports_presence
 FRONTEND_BUILD_META = re.compile(rb'<meta name="tasks-frontend-build" content="([0-9a-f]{64})">')
 # Some Linux systems expose the host's localtime file alongside IANA zones.
 TIME_ZONE_NAMES = available_timezones() - {"localtime"}
@@ -662,6 +662,8 @@ def create_app(
     demo_review_config=None,
     attachment_storage=None,
     runtime_pilot=None,
+    external_agent_pilot=False,
+    external_agent_manager=None,
 ):
     """Configure the board with Raft, OIDC, or one deployment-provided login adapter."""
     if login_provider is not None and oidc_config is not None:
@@ -707,6 +709,13 @@ def create_app(
             project_admin_subject = str(UUID(project_admin_subject))
         except ValueError as error:
             raise ValueError("Set TASKS_PROJECT_ADMIN_HUMAN_SUBJECT to a verified human subject UUID.") from error
+    if external_agent_pilot and (
+        marketplace or local_readonly or not (
+            (personal_api_enabled and project_admin_subject is not None)
+            or (member_mode is not None and external_agent_manager)
+        )
+    ):
+        raise ValueError("Configure one shared board and an authenticated manager for external agent enrollment.")
     if personal_agent_tailnet_subject is not None:
         if not personal_api_enabled:
             raise ValueError("Personal Agents tailnet access requires a fixed-server shared board with Raft sign-in.")
@@ -889,6 +898,10 @@ def create_app(
                 if personal_api_enabled:
                     pilot_db.execute(personal_agents.SCHEMA)
                     pilot_db.execute(personal_agents.CLI_SCHEMA)
+        if external_agent_pilot:
+            pilot_db = tasks_storage.Postgres(postgres_dsn) if postgres_dsn else connect(path)
+            with closing(pilot_db), tasks_storage.write(pilot_db):
+                pilot_db.execute(external_agents.SCHEMA)
         if attachment_storage is not None:
             attachment_db = tasks_storage.Postgres(postgres_dsn) if postgres_dsn else connect(path)
             with closing(attachment_db), tasks_storage.write(attachment_db):
@@ -950,7 +963,7 @@ def create_app(
         actor = g.get("actor")
         if not api_usage or actor is None or actor["kind"] != "agent" or not request.path.startswith("/api/v1/"):
             return response
-        if request.method == "OPTIONS" or not request.endpoint or g.get("personal_agent_api"):
+        if request.method == "OPTIONS" or not request.endpoint or g.get("personal_agent_api") or g.get("external_agent"):
             return response
         declared = request.headers.get(tasks_api_usage.HEADER, g.get("work_ticket_context"))
         category = f"{request.method} {request.endpoint.removeprefix('raft_action_')}"
@@ -1083,9 +1096,20 @@ def create_app(
             raise RequestError(f"This action requires a signed-in Raft {kind}.", 403)
         return g.actor
 
+    external_agent_ingress = {"claim_external_agent", "external_agent_action"}
+
+    @app.before_request
+    def keep_external_bearers_scoped():
+        scheme, _, value = request.headers.get("Authorization", "").partition(" ")
+        if (scheme.lower() == "bearer" and value.startswith(external_agents.BEARER_PREFIX)
+                and request.endpoint != "external_agent_action"):
+            raise RequestError("Use external agent credentials on the pilot action endpoint.", 401)
+
     if marketplace or member_login is not None:
         @app.before_request
         def require_board_identity():
+            if external_agent_pilot and request.endpoint in external_agent_ingress:
+                return
             if request.endpoint in public_knowledge.PUBLIC_ENDPOINTS:
                 return
             if request.endpoint == "report_presence":
@@ -1103,6 +1127,8 @@ def create_app(
         return actor["ledger_key"] if actor is not None and g.get("personal_agent_api") != "tailnet" else None
 
     def require_visible_project(connection, project):
+        if (external := g.get("external_agent")) is not None and project != external["project"]:
+            raise NotFound()
         if tasks_storage.has_table(connection, "project_ring1") and not ring1.visible(connection, project, actor_key()):
             raise NotFound()
 
@@ -1961,6 +1987,9 @@ def create_app(
             if project is None:
                 return
             require_visible_project(connection, project)
+            if g.get("external_agent") and getattr(args, "id", None) is not None:
+                if ledger.get_work_task(connection, args.id)["dri"] != args.by:
+                    raise RequestError("Only the assigned external agent can advance this ticket.", 403)
             if getattr(args, "reviewed_event", None) is not None:
                 task = ledger.get_work_task(connection, args.id)
                 registration = ledger.event_context(task).get("readiness")
@@ -2449,6 +2478,8 @@ def create_app(
         register_revision_socket(app, origin, current_actor, lambda: json.dumps({"revision": read_revision()}))
 
     def project_agent(actor, project):
+        if external_agent_pilot and actor and actor["ledger_key"].startswith("external-agent:"):
+            return external_agents.enrolled_project(db(), actor["ledger_key"]) == project
         return actor is not None and actor["kind"] == "agent" and (
             project != projects.DEFAULT or project_roster is None
             or actor["subject"] in projects.writer_roster(db(), project_roster)
@@ -5103,7 +5134,7 @@ def create_app(
 
     def inbox_wake_instant():
         actor = g.get("actor")
-        if actor and actor["kind"] == "agent" and g.get("local_dri") is None and not g.get("personal_agent_api"):
+        if actor and actor["kind"] == "agent" and g.get("local_dri") is None and not g.get("personal_agent_api") and not g.get("external_agent"):
             return ledger.timestamp()
         return None
 
@@ -5563,7 +5594,12 @@ def create_app(
         if name == "task":
             number = task_number(data.get("id"))
             prompt_enabled = progress_prompt_interval and actor["kind"] == "agent"
-            with tasks_storage.read(db()) if prompt_enabled else nullcontext():
+            external = g.get("external_agent")
+            with tasks_storage.read(db()) if prompt_enabled or external else nullcontext():
+                if external:
+                    owned = ledger.find_task(db(), number)
+                    if owned is None or owned["dri"] != key or ledger.is_knowledge(owned):
+                        raise NotFound()
                 result = detail(number, actor)
                 task = result["task"]
                 if api_usage and task["record_kind"] == "knowledge":
@@ -5839,6 +5875,148 @@ def create_app(
             return fetch_github(actor, number, data)
         raise RequestError("Unknown Tasks action.", 404)
 
+    if external_agent_pilot:
+        from tasks_raft import invoke_action
+
+        def external_now():
+            return datetime.fromisoformat(ledger.timestamp()).astimezone(timezone.utc)
+
+        def external_manager():
+            actor = current_actor("human", write=True, required=True)
+            if member_login is not None:
+                allowed = actor["ledger_key"] == external_agent_manager
+            else:
+                allowed = manages_project_admin_permissions(actor)
+            if not allowed:
+                raise RequestError("Use this board's authenticated enrollment manager.", 403)
+            return actor
+
+        @app.post("/api/v1/external-agents")
+        def enroll_external_agent():
+            manager = external_manager()
+            data = json_body({"project", "name", "actions", "ring1"})
+            project = project_filter(data)
+            name = text(data, "name", maximum=100)
+            actions = data.get("actions")
+            if project is None:
+                raise RequestError("Choose one project.")
+            if not name.isprintable() or not isinstance(actions, list) or not actions or any(
+                not isinstance(action, str) or action not in external_agents.ACTION_FIELDS for action in actions
+            ) or len(set(actions)) != len(actions):
+                raise RequestError("Provide a printable name and distinct pilot actions.")
+            admit_ring1 = data.get("ring1", False)
+            if type(admit_ring1) is not bool:
+                raise RequestError("Use a boolean Ring 1 enrollment confirmation.")
+            with tasks_storage.write(db()) as connection:
+                require_visible_project(connection, project)
+                if ring1.private(connection, project) and not admit_ring1:
+                    raise RequestError("Confirm enrollment in this Ring 1 project explicitly.", 403)
+                result = external_agents.enroll(connection, base, project, name, actions, external_now())
+                if ring1.private(connection, project):
+                    principal = result["principal"]
+                    ring1.set_member(connection, project, principal, True)
+                    audit.record(connection, scope="private", actor=manager["ledger_key"], operation="grant",
+                                 record_type="ring1-member", record_id=f"{project}:{principal}", at=ledger.timestamp())
+                audit.record(connection, scope="private", actor=manager["ledger_key"], operation="enroll",
+                             record_type="external-agent", record_id=result["id"], at=ledger.timestamp())
+                ledger.bump_revision(connection, project)
+            return result, 201
+
+        @app.post("/api/v1/external-agents/<uuid:identifier>/claim")
+        def reissue_external_agent_claim(identifier):
+            manager = external_manager()
+            with tasks_storage.write(db()) as connection:
+                project = external_agents.enrollment_project(connection, str(identifier))
+                if project is None:
+                    raise NotFound()
+                require_visible_project(connection, project)
+                result = external_agents.issue_claim(connection, base, str(identifier), external_now())
+                audit.record(connection, scope="private", actor=manager["ledger_key"], operation="issue-claim",
+                             record_type="external-agent", record_id=str(identifier), at=ledger.timestamp())
+            return result
+
+        @app.post("/api/v1/external-agents/claim")
+        def claim_external_agent():
+            data = json_body({"claim"})
+            with tasks_storage.write(db()) as connection:
+                result = external_agents.exchange(connection, base, data.get("claim"), external_now())
+            if result is None:
+                raise RequestError("A fresh claim issued by this board is required.", 401)
+            return result
+
+        @app.delete("/api/v1/external-agents/<uuid:identifier>")
+        def revoke_external_agent(identifier):
+            manager = external_manager()
+            with tasks_storage.write(db()) as connection:
+                project = external_agents.enrollment_project(connection, str(identifier))
+                if project is None:
+                    raise NotFound()
+                require_visible_project(connection, project)
+                external_agents.revoke(connection, str(identifier))
+                audit.record(connection, scope="private", actor=manager["ledger_key"], operation="revoke",
+                             record_type="external-agent", record_id=str(identifier), at=ledger.timestamp())
+            return {"revoked": True}
+
+        @app.route("/api/v1/external-agents/actions/<name>", methods=("GET", "POST"))
+        def external_agent_action(name):
+            scheme, _, bearer = request.headers.get("Authorization", "").partition(" ")
+            grant = external_agents.authorize(db(), base, bearer, external_now()) if scheme.lower() == "bearer" else None
+            if grant is None:
+                raise RequestError("A valid external agent credential is required.", 401)
+            granted = grant["actions"].split(",")
+            if name not in granted:
+                raise RequestError("This action is outside the external agent grant.", 403)
+            g.actor = profiles.get(db(), grant["principal"])
+            if g.actor is None or g.actor["kind"] != "agent":
+                raise RequestError("A valid external agent credential is required.", 401)
+            g.external_agent = grant
+            project = grant["project"]
+            require_visible_project(db(), project)
+
+            def dispatch_external(action, data):
+                if data.keys() - external_agents.ACTION_FIELDS[action]:
+                    raise RequestError("This parameter is outside the external agent pilot.", 403)
+                if "project" in data and data["project"] != project:
+                    raise RequestError("Use the external agent's enrolled project.", 403)
+                if "id" in data:
+                    requested = text(data, "id", maximum=32)
+                    try:
+                        ticket_project, _ = projects.identifier(requested)
+                    except ValueError as error:
+                        raise RequestError(str(error)) from error
+                    if ticket_project != project or "-" not in requested:
+                        raise RequestError("Use an explicit ticket reference in the enrolled project.", 403)
+                    require_visible_task(db(), task_number(requested))
+                if action == "advance-task" and data.get("transition") not in ("start", "done"):
+                    raise RequestError("The external agent pilot supports Start and Done.", 403)
+                if action == "my-next":
+                    work = None
+                    if "advance-task" in granted:
+                        with tasks_storage.read(db()) as connection:
+                            require_visible_project(connection, project)
+                            board = query(connection)
+                            for state in ("ready", "in_progress"):
+                                items = board.tasks(
+                                    state=state, dri=grant["principal"], project=project, limit=1,
+                                    priority_order=state == "ready", hide_requests=True,
+                                    exclude_goals=True, exclude_recurring=True,
+                                )["items"]
+                                if items:
+                                    work = inbox_work_result({"kind": state, **items[0]})
+                                    break
+                    return {"work": work}
+                if action == "my-queue":
+                    data["project"] = project
+                if action == "context":
+                    return {
+                        "actor": actor_profile(g.actor), "board": base + "/", "project": project,
+                        "default_project": project, "actions": granted,
+                        "authentication": "external-agent",
+                    }
+                return external_agents.action_result(action, dispatch_action(action, data))
+
+            return invoke_action(name, dispatch_external)
+
     if raft_config:
         from tasks_raft import (
             ACTION_MANIFEST_PATH, CODEX_SNAPSHOT_ACTION, STANDING_RAFT_ACTIONS, STANDING_RAFT_REQUIRED, register_actions,
@@ -5975,6 +6153,8 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             github_webhook_secrets=os.environ.get("TASKS_GITHUB_WEBHOOK_SECRETS"),
             demo_review_config=os.environ.get("TASKS_DEMO_REVIEW") or None,
             runtime_pilot=runtime_observations.configuration(os.environ),
+            external_agent_pilot=os.environ.get("TASKS_EXTERNAL_AGENT_PILOT") == "1",
+            external_agent_manager=os.environ.get("TASKS_EXTERNAL_AGENT_MANAGER") or None,
             attachment_storage=tasks_attachments.configured_storage(
                 os.environ.get("TASKS_ATTACHMENT_BACKEND"), os.environ.get("TASKS_ATTACHMENT_DIRECTORY"),
                 postgres=bool(postgres_dsn),

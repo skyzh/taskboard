@@ -1,5 +1,6 @@
 """Exercise the deployment login contract with a fictional verified provider."""
 
+from argparse import Namespace
 from contextlib import closing
 from pathlib import Path
 from secrets import token_urlsafe
@@ -11,6 +12,7 @@ import unittest
 from flask import redirect, request, session
 
 from taskboard_server.login import LoginProvider, LoginRejected, VerifiedLogin
+from tasks_core import create_task_record
 import tasks_projects
 import tasks_ring1
 from tasks_service import create_app, set_login_member, set_oidc_member
@@ -64,8 +66,8 @@ class LoginProviderTest(unittest.TestCase):
             tasks_projects.register(db, "LAB", "Private example workspace", self.manager)
             tasks_ring1.mark_private(db, "LAB", (self.manager,))
 
-    def board(self, **options):
-        return create_app(self.database, public_url=PUBLIC, portal_upstream_token=PORTAL["X-Portal-Upstream-Token"],
+    def board(self, *, public_url=PUBLIC, **options):
+        return create_app(self.database, public_url=public_url, portal_upstream_token=PORTAL["X-Portal-Upstream-Token"],
                           login_provider=self.provider, initial_project=("T", "Taskboard"), **options)
 
     def member(self, subject, admitted=True):
@@ -117,6 +119,45 @@ class LoginProviderTest(unittest.TestCase):
         self.assertIsNone(self.actor(manager))
         self.call(manager, "/api/v1/projects", 401)
         self.assertEqual(self.member("manager"), self.manager)
+
+    def test_external_agent_claims_on_a_board_without_raft(self):
+        path = "/api/v1/external-agents"
+        disabled = self.app.test_client()
+        self.login(disabled, "manager")
+        self.call(disabled, path, 404, method="POST", json={})
+        options = {"external_agent_pilot": True, "external_agent_manager": self.manager}
+        app = self.board(**options)
+        manager = app.test_client()
+        self.login(manager, "manager")
+        receipt = self.call(manager, path, 201, method="POST", json={
+            "project": "T", "name": "Fictional outside runner",
+            "actions": ["context", "my-next", "my-queue", "task", "advance-task"],
+        }).json
+
+        alternate = self.board(public_url="https://alternate.example.test/tasks", **options).test_client()
+        self.call(alternate, path + "/claim", 401, method="POST", json={"claim": receipt["claim"]})
+        agent = app.test_client()
+        credential = self.call(agent, path + "/claim", method="POST", json={"claim": receipt["claim"]}).json
+        headers = {"Authorization": "Bearer " + credential["token"]}
+        self.call(alternate, path + "/actions/context", 401, headers=headers)
+        context = self.call(agent, path + "/actions/context", headers=headers).json
+        self.assertEqual((context["actor"]["id"], context["project"]), (receipt["principal"], "T"))
+        with closing(open_sqlite(self.database)) as connection, write(connection):
+            create_task_record(connection, Namespace(
+                title="Review the sample", dri=receipt["principal"], brief="Use the disposable sample.",
+                project="T", by=self.manager, step="Read the sample.",
+            ), [])
+        inbox = self.call(agent, path + "/actions/my-next", headers=headers).json["work"]
+        self.assertEqual(inbox["key"], "T-1")
+        for transition, note in (("start", "Reading the sample."), ("done", "Verified the sample.")):
+            self.call(agent, path + "/actions/advance-task", method="POST", headers=headers, json={
+                "id": inbox["key"], "transition": transition, "note": note,
+            })
+        activity = self.call(manager, "/api/v1/tasks/T-1/activity").json["items"]
+        self.assertEqual([(entry["action"], entry["actor"]) for entry in activity[:2]],
+                         [("done", receipt["principal"]), ("start", receipt["principal"])])
+        self.call(agent, "/api/v1/raft/context", 401, headers=headers)
+        self.call(agent, "/api/v1/session", 401, headers=headers)
 
     def test_issuer_and_subject_boundaries(self):
         client = self.app.test_client()
