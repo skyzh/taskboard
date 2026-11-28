@@ -389,8 +389,18 @@ function Breakdown({ activity }) {
   )
 }
 
+function PullRequestCount({ metric }) {
+  if (metric.count == null) return metric.status === 'manual' ? 'Manual only' : 'Unavailable'
+  return <>
+    {number.format(metric.count)}
+    {metric.status !== 'recorded' && <div className="stats-note">
+      {metric.status === 'manual' ? 'Manual only' : 'Saved records only'}
+    </div>}
+  </>
+}
+
 function IntegrationActivity({ integrations }) {
-  const { github, raft_messages: messages, raft_notices: notices } = integrations
+  const { github, github_pull_requests: pullRequests, raft_messages: messages, raft_notices: notices } = integrations
   const githubStatus = { disabled: 'Off', manual: 'Manual only' }[github.status] || 'Unavailable'
   const noticeCount = notices.count == null ? (notices.status === 'sign_in' ? 'Sign in' : 'Unavailable') : number.format(notices.count)
   return (
@@ -405,6 +415,19 @@ function IntegrationActivity({ integrations }) {
       {github.status === 'disabled' && github.count != null && <p className="stats-note">GitHub activity collection is off. The count uses saved records.</p>}
       {github.status === 'manual' && github.count != null && <p className="stats-note">GitHub activity can only be imported manually.</p>}
       {github.older_records && <p className="stats-note">Some older GitHub records lack an event ID and are excluded.</p>}
+      {pullRequests?.length > 0 && <>
+        <h3 id="stats-pull-requests">Linked pull requests</h3>
+        <table className="stats-table" aria-labelledby="stats-pull-requests">
+          <thead><tr><th scope="col">Project</th><th scope="col">Opened</th><th scope="col">Merged</th></tr></thead>
+          <tbody>
+            {pullRequests.map(row => <tr key={row.project}>
+              <th scope="row">{row.title}</th>
+              <td><PullRequestCount metric={row.opened} /></td>
+              <td><PullRequestCount metric={row.merged} /></td>
+            </tr>)}
+          </tbody>
+        </table>
+      </>}
     </section>
   )
 }
