@@ -1,6 +1,7 @@
 """Exercise a Project T Ready wake and pickup against disposable fixtures."""
 
 from contextlib import closing, redirect_stdout
+from datetime import datetime, timezone
 from functools import partial
 from hashlib import sha256
 from io import StringIO
@@ -264,9 +265,9 @@ class ManagedSenderTest(unittest.TestCase):
         self.board.invoke("set-wake-subscription", {"project": PROJECT, "event_type": OWNED_READY,
                                                    "enabled": str(enabled).lower()}, write=True)
 
-    def baseline(self):
+    def baseline(self, *, pilot=False):
         with closing(open_sqlite(self.ledger)) as db:
-            return initialize(self.state, db, self.scope)
+            return initialize(self.state, db, self.scope, pilot=pilot)
 
     def create(self, project=PROJECT):
         ticket = self.board.invoke("create-task", {"project": project, "title": "Check the sample",
@@ -294,6 +295,120 @@ class ManagedSenderTest(unittest.TestCase):
 
     def calls(self):
         return [name for name, _ in self.provider.calls]
+
+    def test_exact_deferral_releases_into_the_pinned_agent_event(self):
+        self.replay_scheduled_agent_event(recurring=False)
+
+    def test_reusable_schedule_releases_into_the_pinned_agent_event(self):
+        self.replay_scheduled_agent_event(recurring=True)
+
+    def replay_scheduled_agent_event(self, *, recurring):
+        def as_utc(seconds):
+            return datetime.fromtimestamp(seconds, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+        ticket = self.create()["task"]
+        due = int(self.now) + 120
+        if recurring:
+            self.board.invoke("ticket-recurrence", {
+                "id": ticket, "change": "enable", "cadence_hours": 24, "next_at": as_utc(due),
+            }, write=True)
+        else:
+            self.board.invoke("advance-task", {
+                "id": ticket, "transition": "park", "note": "Check at the scheduled instant.",
+                "defer_until": as_utc(due),
+            }, write=True)
+        parked = self.service.task_event(self.board.client, ticket)
+        through = self.baseline(pilot=True)
+        before = self.outcomes()
+        self.assertGreaterEqual(through, parked["event"])
+
+        def scheduler_tick(seconds):
+            return json.loads(self.service.cli("recurring-tick", "--as-of", as_utc(seconds)))
+
+        early = scheduler_tick(due - 1)
+        self.assertEqual((early["issued"], early.get("released_deferrals")), (0, None))
+        self.assertEqual(self.service.task_event(self.board.client, ticket), parked)
+        self.assertEqual(self.outcomes(), before)
+        self.assertIsNone(offer_work(self.board, self.owner))
+
+        released = scheduler_tick(due)
+        self.assertEqual((released["issued"], released.get("released_deferrals")),
+                         (1, None) if recurring else (0, [ticket]))
+        ready = self.service.task_event(self.board.client, ticket)
+        event = ready["event"]
+        self.assertGreater(event, through)
+        self.assertEqual(ready["at"], as_utc(due))
+        self.assertEqual(self.outcomes(), [*before, (event, "pending")])
+        if recurring:
+            with closing(open_sqlite(self.ledger, write_existing=False)) as db:
+                run, = db.execute("SELECT due_at, ready_event_id FROM recurring_review_runs").fetchall()
+                self.assertEqual(tuple(run), (as_utc(due), event))
+        replay = scheduler_tick(due)
+        self.assertEqual((replay["issued"], replay.get("released_deferrals")), (0, None))
+        self.assertEqual(self.outcomes(), [*before, (event, "pending")])
+        self.assertEqual(self.service.task_event(self.board.client, ticket), ready)
+
+        status = "idle"
+        gate = SampledIdleGate(lambda: status, clock=lambda: self.now - due)
+        grant = self.grant()
+
+        def poll(offset):
+            self.now = due + offset
+            with patch("tasks_core.timestamp", return_value=as_utc(self.now)):
+                return self.tick(grant, idle_gate=gate, event_id=event)
+
+        # The disposable operator tick already produced a future-dated row.
+        # Reaching the Idle threshold early must still leave the carrier unopened.
+        for offset in (-50, -40, -30, -20, -10, -1):
+            self.assertEqual(poll(offset), ("waiting", None))
+        self.assertEqual(self.calls(), [])
+
+        def become_busy():
+            nonlocal status
+            status = "working"
+
+        self.provider.on_exchange = become_busy
+        self.assertEqual(poll(0), ("awaiting_idle", event))
+        self.assertEqual(self.calls(), ["agent", "token"])
+        self.assertEqual(self.outcomes(), [*before, (event, "pending")])
+        status = "idle"
+        for offset in (10, 20, 30, 40):
+            self.assertEqual(poll(offset), ("awaiting_idle", event))
+
+        def lose_reply(document):
+            self.provider.accept(document)
+            raise TimeoutError("Fixture lost the response after acceptance.")
+
+        self.provider.on_event = lose_reply
+        self.assertEqual(poll(50), ("retry", event))
+        self.assertEqual(self.outcomes(), [*before, (event, "pending")])
+
+        gate = SampledIdleGate(lambda: status, clock=lambda: self.now - due)
+        grant = self.grant()
+        self.provider.on_exchange = lambda: None
+        self.provider.on_event = self.provider.accept
+        for offset in (60, 70, 80, 90):
+            self.assertEqual(poll(offset), ("awaiting_idle", event))
+        self.assertEqual(poll(100), ("accepted", event))
+        self.assertEqual(self.outcomes(), [*before, (event, "accepted")])
+        expected = {
+            "kind": "event", "externalEventId": f"taskboard-ready-{sha256(BOARD.encode()).hexdigest()}-{event}",
+            "summary": f"Taskboard ticket {ticket} is Ready in your owned queue. Ready event {event}. {BOARD}/tickets/{ticket}",
+        }
+        self.assertEqual([document for route, document in self.provider.calls if route == "agent-events"],
+                         [expected, expected])
+        self.assertEqual(list(self.provider.accepted.values()), [expected])
+
+        with patch("tasks_core.timestamp", return_value=as_utc(self.now)):
+            offer = offer_work(self.board, self.owner)
+            self.assertEqual(offer, {"kind": "task", "task": ticket, "ready_event": event})
+            self.board.invoke("advance-task", {
+                "id": ticket, "transition": "start", "note": "Take the exact signed Inbox offer.",
+            }, write=True)
+            self.assertEqual(disposition(self.board, self.owner, offer), "started")
+        calls = tuple(self.calls())
+        self.assertEqual(poll(110), ("pilot_event_unavailable", event))
+        self.assertEqual(tuple(self.calls()), calls)
 
     def test_sampled_idle_keeps_one_cue_pending_and_retries_exactly(self):
         through = self.baseline()
