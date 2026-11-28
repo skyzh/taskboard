@@ -3000,7 +3000,10 @@ def create_app(
 
             result = {"project": project, "key": key}
             if operation == "history":
-                events, cursor = resources.history(connection, row, now, **page_args(data))
+                paging = page_args(data)
+                events, cursor = resources.history(connection, row, now, **paging)
+                if paging["before"] is None:
+                    result.update(as_of=now, claim=present_claim(resources.current_claim(row, now)))
                 return {**result, "items": [present_event(event) for event in events], "next_cursor": cursor}
 
             try:
