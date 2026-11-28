@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from admit_review import enqueue_admitted
 from compatibility_fixture import (
-    MANIFEST, CompatibilityFailure, actions, fixture_server, read_json, seed, verify_cli,
+    MANIFEST, CompatibilityFailure, actions, cli, fixture_server, read_json, seed, verify_cli,
     verify_contract, verify_queue,
 )
 from hosted_compatibility import QUALIFICATION, STEP, WORKFLOW
@@ -83,6 +83,22 @@ class ReleaseCompatibilityTest(unittest.TestCase):
         added["context"]["parameters"]["detail"]["required"] = True
         with self.assertRaisesRegex(CompatibilityFailure, "added required parameter"):
             verify_contract(manifest, added)
+
+    def test_retained_cli_workflow_uses_its_supported_named_agent_wait(self):
+        def retained_cli(python, client, env, *arguments):
+            if arguments[0] in {"list", "next"}:
+                arguments += ("--project", "T")
+            if arguments[0] == "wait":
+                self.assertEqual(arguments[3:], ("--on", "Blake"))
+            return cli(python, client, env, *arguments)
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            with fixture_server(sys.executable, SOURCE, root / "board", *certificate(root)) as server:
+                origin, cookie, database, env = server
+                actor = seed(sys.executable, SOURCE, origin, cookie, database)
+                with patch("compatibility_fixture.cli", side_effect=retained_cli):
+                    verify_cli(sys.executable, SOURCE, env, origin, cookie, actor, legacy=True)
 
     def test_first_release_client_is_required_after_bootstrap_and_pins_are_verified(self):
         with TemporaryDirectory() as directory:
