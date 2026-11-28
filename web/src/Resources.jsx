@@ -1,6 +1,7 @@
 import React, { useEffect, useEffectEvent, useId, useRef, useState } from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
+import ResourceTimeline from './ResourceTimeline.jsx'
 import { LoadMore, ResourceStatus, TaskLink, Timestamp, useSignInHref } from './shared.jsx'
 
 const actions = { claim: 'Claimed', renew: 'Renewed', release: 'Released', expire: 'Expired' }
@@ -137,7 +138,7 @@ export function ResourceHistoryRows({ items }) {
   )
 }
 
-function ResourceHistory({ path, revision }) {
+function ResourceHistory({ path, revision, current, asOf }) {
   const [open, setOpen] = useState(false)
   const page = useLoadedPages(`${path}/history`, {}, revision, { limit: 10, enabled: open })
   return (
@@ -145,7 +146,10 @@ function ResourceHistory({ path, revision }) {
       <summary>Claim history</summary>
       {open && <>
         <ResourceStatus resource={page} label="claim history" />
-        {page.data && <ResourceHistoryRows items={page.data.items} />}
+        {page.data && <>
+          <ResourceTimeline items={page.data.items} current={current} asOf={asOf} />
+          <ResourceHistoryRows items={page.data.items} />
+        </>}
         <LoadMore page={page} label="claim history" />
       </>}
     </details>
@@ -225,7 +229,7 @@ function ClaimControls({ resource, pending, save }) {
   )
 }
 
-function ResourceCard({ resource, canDefine, revision, busy, writeContext }) {
+function ResourceCard({ resource, asOf, canDefine, revision, busy, writeContext }) {
   const label = useId()
   const writer = useResourceWrite(writeContext)
   const pending = busy || writer.pending
@@ -241,7 +245,8 @@ function ResourceCard({ resource, canDefine, revision, busy, writeContext }) {
       <ClaimControls key={JSON.stringify([resource.conditions, resource.claim?.revision])}
         resource={resource} pending={pending} save={writer.save} />
       <WriteResult result={writer.result} />
-      <ResourceHistory path={`${writeContext.listPath}/${encodeURIComponent(resource.key)}`} revision={revision} />
+      <ResourceHistory path={`${writeContext.listPath}/${encodeURIComponent(resource.key)}`} revision={revision}
+        current={resource.claim} asOf={asOf} />
     </section>
   )
 }
@@ -261,7 +266,7 @@ export function ResourcesContents({ data, revision, busy, writeContext }) {
   return (
     <div className="resource-list">
       {data.can_define === true && <DefineResource busy={busy} writeContext={writeContext} />}
-      {data.items.map(resource => <ResourceCard key={resource.key} resource={resource}
+      {data.items.map(resource => <ResourceCard key={resource.key} resource={resource} asOf={data.as_of}
         canDefine={data.can_define === true} revision={revision} busy={busy} writeContext={writeContext} />)}
       {!data.items.length && <p className="section-message">No resources in this project.</p>}
     </div>
