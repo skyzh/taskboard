@@ -2,8 +2,14 @@
 
 from datetime import datetime, timedelta
 
+from taskboard_server import wake_reports
+
+import tasks_app_wake_activity as app_activity
+import tasks_goal_wake_receipts as goal_wakes
 import tasks_notification_log as notices
 import tasks_projects as projects
+import tasks_ring1 as ring1
+from tasks_wake_subscriptions import MANAGED_READY_PROJECTS, subscriptions
 
 
 SCHEMA = """
@@ -31,8 +37,33 @@ def report(db, project, owner, revision, state, stalled, goals, at):
     """, (project, owner, revision, state, int(stalled), int(goals), at))
 
 
+def app_delivery(db, project, owner, *, principal, last_ready_pickup):
+    cues = subscriptions(db, project, owner)
+    ready = next(iter(notices.listing(
+        db, project, owner, "all", "wake", before=None, limit=1,
+        principal=principal, include_triggers=True, carrier="raft_app",
+    )["items"]), None)
+    goal = next(iter(goal_wakes.listing(
+        db, project, owner, before=None, limit=1, principal=principal, attempted_only=True,
+    )["items"]), None)
+    attempts = [record for record in (ready, goal) if record is not None]
+    latest = max(attempts, key=lambda row: datetime.fromisoformat(row["acceptance_at"]), default=None)
+    signed = [last_ready_pickup] if last_ready_pickup else []
+    if ready and ready["next_at"]:
+        signed.append({"at": ready["next_at"], "ticket": ready["task"]})
+    if outcome := goal_wakes.latest_signed_outcome(db, project, owner):
+        signed.append(outcome)
+    return {
+        "cues": cues, "latest": latest,
+        "last_signed_activity": max(signed, key=lambda item: datetime.fromisoformat(item["at"]), default=None),
+    }
+
+
 def listing(db, project, roster, *, principal, now):
     agents = notices.project_agents(db, project, roster, principal=principal)
+    if ring1.private(db, project):
+        members = ring1.members(db, project)
+        agents = [agent for agent in agents if agent["ledger_key"] in members]
     reports = {
         row["owner"]: row for row in db.execute("SELECT * FROM watcher_health WHERE project = ?", (project,))
     }
@@ -63,5 +94,11 @@ def listing(db, project, roster, *, principal, now):
                 "stale": now - datetime.fromisoformat(row["reported_at"]) >= FRESHNESS,
                 "ready": True, "stalled": bool(row["stalled"]), "goals": bool(row["goals"]),
             }
-        result.append({"agent": owner, "name": agent["name"], "watcher": watcher, "pickup": pickups.get(owner)})
+        pickup = pickups.get(owner)
+        result.append({
+            "agent": owner, "name": agent["name"], "watcher": watcher, "pickup": pickup,
+            "app_delivery": app_delivery(db, project, owner, principal=principal, last_ready_pickup=pickup),
+            "external_report": wake_reports.latest(db, project, owner),
+            **({"app_pause": app_activity.status(db, owner, project)} if project in MANAGED_READY_PROJECTS else {}),
+        })
     return {"project": project, "items": result}

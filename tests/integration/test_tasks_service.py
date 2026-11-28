@@ -2779,6 +2779,114 @@ class TasksServiceTest(unittest.TestCase):
             {field: item[field] for field in ("key", "title", "wait_event")} for item in signed_candidates
         ])
 
+    def test_watcher_reports_show_latest_app_attempt_and_verified_pickup_separately(self):
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        quinn, _ = self.login(app, "Quinn")
+        for title in ("First app wake", "Second app wake"):
+            self.action(avery, "create-task", {"title": title, "step": "Check the result."})
+
+        def report():
+            row, = self.call(quinn, "/api/v1/reports/watchers", query_string={"project": "T"}).json["items"]
+            return row["app_delivery"]
+
+        self.assertIsNone(report()["latest"])
+        self.action(avery, "set-wake-subscription", {"event_type": OWNED_READY, "enabled": "true"})
+
+        first = self.task_event(avery, "T-1")
+        second = self.task_event(avery, "T-2")
+        latest = "2099-01-04T12:00:00Z"
+        def attempt(source, status, at):
+            with closing(open_sqlite(self.database)) as db:
+                import_notification_on(db, {
+                    "schema": WAKE_SCHEMA, "source": source, "recipient": owner,
+                    "observations": {"acceptance": {"status": status, "at": at}, "carrier": "raft_app"},
+                })
+
+        attempt(second, "accepted", second["at"])
+        accepted = report()["latest"]
+        self.assertEqual((accepted["task"], accepted["acceptance"]), ("T-2", "accepted"))
+        self.assertIsNone(accepted["delivery"])
+        self.assertIsNone(accepted["started_at"])
+
+        self.action(avery, "advance-task", {"id": "T-2", "transition": "start", "note": "Read the result."})
+        start = self.task_event(avery, "T-2")
+        with closing(open_sqlite(self.database)) as db:
+            import_notification_on(db, {
+                "schema": WAKE_SCHEMA, "source": second, "recipient": owner,
+                "observations": {
+                    "delivery": {"status": "delivered", "at": second["at"]},
+                    "next_result": {"status": "offered", "at": second["at"]},
+                    "start_event_id": start["event"],
+                },
+            })
+        projection = report()
+        self.assertEqual((projection["latest"]["delivery"], projection["latest"]["start_event_id"]),
+                         ("delivered", start["event"]))
+        self.assertEqual(projection["last_signed_activity"], {
+            "at": start["at"], "event_id": start["event"], "ticket": "T-2",
+        })
+        attempt(first, "rejected", latest)
+        projection = report()
+        self.assertEqual(projection["cues"], [OWNED_READY])
+        self.assertEqual((projection["latest"]["task"], projection["latest"]["acceptance"]), ("T-1", "rejected"))
+        self.assertIsNone(projection["latest"]["started_at"])
+
+        from tasks_goal_wake_receipts import record as record_attempt
+
+        at = "2099-01-04T12:05:00Z"
+        review = "review:T-1:2099-01-04"
+        with closing(open_sqlite(self.database)) as db:
+            record_attempt(db, owner, review, 1, acceptance="accepted", attempts=1,
+                           first_attempt=1, retry_at=2, renewed=False, observed_at=at)
+            record_attempt(db, owner, "explore:T-1:2099-01-04:1", 1, acceptance="unsendable", attempts=0,
+                           first_attempt=1, retry_at=2, renewed=False, observed_at="2099-01-04T12:06:00Z")
+            with db:
+                signed = record(db, 1, "log", owner, "ready", "Reviewed the goal.", None, [],
+                                {"goal_occurrence": review}, at=at)
+        resolved = report()
+        self.assertEqual(resolved["latest"]["carrier"], "raft_app")
+        self.assertEqual(resolved["latest"]["goal_outcome"], {"id": signed, "at": at})
+        self.assertNotIn("delivery", resolved["latest"])
+        with closing(open_sqlite(self.database)) as db:
+            record_attempt(db, owner, "explore:T-1:2099-01-04", 1, acceptance="accepted", attempts=1,
+                           first_attempt=1, retry_at=2, renewed=False, observed_at="2099-01-04T12:07:00Z")
+        after = report()
+        self.assertEqual(after["latest"]["reason"], "goal_explore")
+        self.assertNotIn("goal_outcome", after["latest"])
+        self.assertEqual(after["last_signed_activity"], {"event_id": signed, "at": at, "ticket": "T-1"})
+
+    def test_watcher_reports_scope_app_pause_and_verified_recovery(self):
+        from tasks_app_wake_activity import PAUSED_REASON, record_acceptance
+
+        admin = self.provider.people["Sam"]["sub"]
+        app = self.app(portal_reader=True, project_admin_subject=admin)
+        avery, owner = self.login(app, "Avery")
+        quinn, _ = self.login(app, "Quinn")
+        self.cli("register-project", "OTHER", "Another project", "--dri", owner)
+        self.action(avery, "create-task", {"title": "Resume verified work", "step": "Check the result."})
+
+        def report(project="T"):
+            row, = self.call(quinn, "/api/v1/reports/watchers", query_string={"project": project}).json["items"]
+            return row
+
+        with closing(open_sqlite(self.database)) as db, db:
+            for minute in range(3):
+                record_acceptance(db, owner, "T", f"fixture:{minute}", f"2026-01-04T12:0{minute}:00Z")
+        watched = report()
+        self.assertIsNone(watched["app_delivery"]["latest"])
+        self.assertEqual(watched["app_pause"], {
+            "paused": True, "reason": PAUSED_REASON, "accepted_count": 3, "paused_at": "2026-01-04T12:02:00Z",
+            "latest_recovery_at": None, "recovery_kind": None,
+        })
+        self.assertNotIn("app_pause", report("OTHER"))
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Open the sample."})
+        recovered = report()["app_pause"]
+        self.assertFalse(recovered["paused"])
+        self.assertEqual(recovered["accepted_count"], 0)
+        self.assertEqual(recovered["recovery_kind"], "signed_work")
+        self.assertIsNotNone(recovered["latest_recovery_at"])
+
     def test_wake_activity_distinguishes_missing_partial_and_observed_receipts(self):
         admin = self.provider.people["Sam"]["sub"]
         app = self.app(portal_reader=True, project_admin_subject=admin)

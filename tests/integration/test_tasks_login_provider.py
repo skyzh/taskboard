@@ -236,6 +236,12 @@ class LoginProviderTest(unittest.TestCase):
                 "reason": "carrier-timeout", "carrier": "custom-adapter", "observed_at": clock,
             }
             self.assertEqual(report(unknown)["report"]["reason"], "carrier-timeout")
+            rows = self.call(manager, "/api/v1/reports/watchers?project=T").json["items"]
+            reported = next(row for row in rows if row["agent"] == runner["principal"])
+            self.assertEqual(reported["external_report"]["carrier"], "custom-adapter")
+            self.assertEqual(reported["external_report"]["acceptance"]["reason"], "carrier-timeout")
+            self.assertIsNone(reported["app_delivery"]["latest"])
+            self.assertIsNone(reported["pickup"])
             clock = "2030-04-01T16:06:00Z"
             self.assertEqual(report()["report"], accepted)
             report({"attempt_id": "00000000-0000-4000-8000-000000000003"}, status=409)
