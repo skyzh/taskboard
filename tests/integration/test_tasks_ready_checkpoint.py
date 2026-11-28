@@ -8,9 +8,9 @@ import unittest
 from unittest.mock import Mock, patch
 
 from taskboard_client import SharedBoard, SharedReadError
-from taskboard_cli.goal_wake import reminder_title
+from taskboard_cli.goal_wake import WakeScheduleStopped, reminder_title
 from taskboard_cli.ready_checkpoint import (
-    MANAGED_RESTART, STALLED_READ, ReadyReadStopped,
+    MANAGED_RESTART, STALLED_READ, RaftCommandError, ReadyReadStopped,
     checkpoint, main, measured_idle, raft_idle, raft_ready_count, raft_stalled_work, raft_status, raft_wake,
     recovery_wake, run_handler, runtime_observer, watch_idle, watch_ready_count, watch_two_pickups, watcher_reporter,
     wake_with_title,
@@ -25,6 +25,85 @@ COUNT_WAKE_GUIDANCE = (
     "or record the blocker and who can act or when to recheck. "
     "Recheck Inbox. For a goal, record one outcome and follow its saved mode."
 )
+
+
+class ReminderScheduleRecoveryTest(unittest.TestCase):
+    title = "Finish the offered Ready ticket. [Taskboard Ready through event 42]"
+    channel = "#fixture:12345678"
+
+    def dispatch(self, can_wake, record_wake=None):
+        return wake_with_title(self.title, self.channel, "12345678", can_wake,
+                               record_wake=record_wake, cue="Ready")
+
+    def test_retry_only_after_failed_spawn_and_current_signed_offer(self):
+        can_wake = Mock(return_value=True)
+        record = Mock()
+        replies = [
+            subprocess.CompletedProcess([], 0, "", ""),
+            FileNotFoundError(2, "private command diagnostic", "raft"),
+            subprocess.CompletedProcess([], 0, "Reminder scheduled: #87654321 fixture", ""),
+        ]
+        with patch("taskboard_cli.ready_checkpoint.subprocess.run", side_effect=replies) as run:
+            self.assertEqual(self.dispatch(can_wake, record), "wake-requested")
+        self.assertEqual(can_wake.call_count, 2)
+        self.assertEqual(run.call_args_list[1], run.call_args_list[2])
+        record.assert_called_once_with("#87654321")
+
+        can_wake = Mock(side_effect=[True, False])
+        with patch("taskboard_cli.ready_checkpoint.subprocess.run", side_effect=replies[:2]) as run:
+            self.assertIsNone(self.dispatch(can_wake))
+        self.assertEqual(run.call_count, 2)
+
+    def test_lost_reply_recovers_exact_receipt_and_prevents_repeat_dispatch(self):
+        accepted = f'#87654321 [fired] "{self.title}" ref={self.channel}'
+        wrong_anchor = f'#11111111 [scheduled] "{self.title}" ref=#other'
+        record = Mock()
+        replies = [
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.TimeoutExpired(["raft", "reminder", "schedule"], 20),
+            subprocess.CompletedProcess([], 0, f"{wrong_anchor}\n{accepted}", ""),
+            subprocess.CompletedProcess([], 0, accepted, ""),
+        ]
+        with patch("taskboard_cli.ready_checkpoint.subprocess.run", side_effect=replies) as run:
+            self.assertEqual(self.dispatch(lambda: True, record), "wake-requested")
+            self.assertEqual(self.dispatch(self.fail), "already-queued")
+        record.assert_called_once_with("#87654321")
+        self.assertEqual([call.args[0][2] for call in run.call_args_list], ["list", "schedule", "list", "list"])
+
+    def test_unconfirmed_or_rejected_schedule_reports_safe_failure_without_resending(self):
+        private = "private command diagnostic"
+        for code, reason, commands in (
+            ("", "carrier-no-reply", ["list", "schedule", "list"]),
+            ("Code: INVALID_ARG", "carrier-rejected", ["list", "schedule"]),
+        ):
+            with self.subTest(reason=reason):
+                replies = [
+                    subprocess.CompletedProcess([], 0, "", ""),
+                    subprocess.CompletedProcess([], 1, "", f"{private}\n{code}"),
+                    subprocess.CompletedProcess([], 0, f'#87654321 [fired] "{self.title}" ref=#wrong', ""),
+                ]
+                with patch("taskboard_cli.ready_checkpoint.subprocess.run", side_effect=replies) as run:
+                    with self.assertRaises(WakeScheduleStopped) as outcome:
+                        self.dispatch(lambda: True)
+                self.assertEqual((outcome.exception.cue, outcome.exception.reason), ("Ready", reason))
+                self.assertNotIn(private, str(outcome.exception))
+                self.assertEqual([call.args[0][2] for call in run.call_args_list], commands)
+
+    def test_intentional_interrupt_does_not_retry_or_reconcile(self):
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", KeyboardInterrupt]) as cli:
+            with self.assertRaises(KeyboardInterrupt):
+                self.dispatch(lambda: True)
+        self.assertEqual(cli.call_count, 2)
+
+    def test_reserved_cue_does_not_call_claim_again(self):
+        can_wake = Mock(return_value=True)
+        failure = RaftCommandError("reminder schedule", "carrier-not-started")
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", failure]) as cli:
+            with self.assertRaises(WakeScheduleStopped):
+                wake_with_title(self.title, self.channel, "12345678", can_wake,
+                                cue="goal", reserved_cue=True)
+        can_wake.assert_called_once_with()
+        self.assertEqual(cli.call_count, 2)
 
 
 class RuntimeObserverTest(unittest.TestCase):
@@ -1175,6 +1254,33 @@ class ReadyCheckpointTest(unittest.TestCase):
                 patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=replies),
             ):
                 self.assertEqual(main(managed_child=managed), expected)
+
+    def test_schedule_failure_sends_one_recovery_alert_and_preserves_signed_work(self):
+        argv = ["ready-checkpoint", "--watch-idle", "--repeat", "--by", "Avery",
+                "--channel", "#example", "--message-id", "12345678"]
+        auth = json.dumps({"ok": True, "data": {"serverConfirmed": True, "agentId": "fixture-agent",
+                                               "agent": {"id": "fixture-agent", "name": "Avery"}}})
+        self.avery.invoke("create-task", {"title": "Ready after failure", "step": "Check it."}, write=True)
+        for reason, alert, expected in (
+            ("carrier-not-started", "Scheduled", 1),
+            ("carrier-not-started", RuntimeError("alert failed"), MANAGED_RESTART),
+            ("carrier-no-reply", RuntimeError("alert failed"), 1),
+        ):
+            with (
+                self.subTest(reason=reason, status=expected),
+                patch.object(sys, "argv", argv),
+                patch.object(sys, "stdout", new_callable=StringIO),
+                patch.object(sys, "stderr", new_callable=StringIO),
+                patch("taskboard_cli.ready_checkpoint.SharedBoard", return_value=self.avery),
+                patch("taskboard_cli.ready_checkpoint.watch_ready_count", side_effect=WakeScheduleStopped("Ready", reason)),
+                patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=[auth, "", alert]) as raft,
+            ):
+                self.assertEqual(main(managed_child=True), expected)
+            self.assertEqual([call.args[:2] for call in raft.call_args_list],
+                             [("auth", "whoami"), ("reminder", "list"), ("reminder", "schedule")])
+            self.assertIn(f"Ready reminder ({reason})", raft.call_args.args[3])
+            ready = self.avery.invoke("my-queue", {"scope": "all", "state": "ready"})["items"]
+            self.assertEqual([item["key"] for item in ready], ["T-1"])
 
     @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_interrupting_a_signed_carrier_read_exits_without_recovery_wake(self):

@@ -18,6 +18,13 @@ GOAL_PROJECT = "T"
 _DUE_KINDS = {"deadline", "daily", "standing-daily", "timed"}
 
 
+class WakeScheduleStopped(RuntimeError):
+    def __init__(self, cue, reason):
+        self.cue = cue
+        self.reason = reason
+        super().__init__(f"Could not schedule the {cue} reminder ({reason}).")
+
+
 def _ticket(value, project):
     return isinstance(value, str) and re.fullmatch(rf"{re.escape(project)}-[1-9][0-9]{{0,18}}", value) is not None
 
@@ -292,6 +299,9 @@ class GoalWake:
 
         try:
             outcome = send(offer, claim, record)
+        except WakeScheduleStopped:
+            # Keep the reservation and let the watcher report the classified failure.
+            raise
         except RuntimeError:
             if reserved:
                 return "goal-wake-unknown"
