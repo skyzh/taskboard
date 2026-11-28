@@ -459,6 +459,8 @@ NEXT_LABELS = {
     "review": "Independent review", "report": "Collect a worker report", "readiness": "Check readiness",
     "request": "Answer an open request", "decision": "Decision requested", "reminder": "Review a task reminder",
     "goal_review": "Review a due goal", "in_progress": "Continue work in progress", "shared_ready": "Review unassigned Ready work",
+    "resolved-wait": "Confirm a resolved blocker", "wait-review": "Review waiting work",
+    "worker_checkpoint": "Check a due worker handoff",
 }
 
 

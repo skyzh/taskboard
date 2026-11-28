@@ -525,7 +525,9 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
                 raise SharedReadError("The signed Inbox wake returned an invalid project.", reason="queue-scope")
             stage = GOAL_READ
             selected_goal = project_goals(project)
-            return selected_goal.lookup()
+            offer = selected_goal.lookup()
+            ticket = snapshot.get("goal_ticket")
+            return offer if not ticket or (offer and offer["task"] == ticket) else None
         return None
 
     def next_follow_up(idle_seconds):
@@ -606,8 +608,11 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
             return outcome
         if "goal_key" in notice:
             def goal_still_selected():
-                if shared_idle and signed_inbox_wake().get("goal_project") != selected_goal.state.project:
-                    return False
+                if shared_idle:
+                    selected = signed_inbox_wake()
+                    if (selected.get("goal_project") != selected_goal.state.project
+                            or selected.get("goal_ticket") not in (None, notice["task"])):
+                        return False
                 return can_wake()
 
             return selected_goal.notify(notice, goal_still_selected, notify_goal)
@@ -836,6 +841,11 @@ def raft_ready_count(notice, channel, message_id, can_wake, *, record_wake=None)
 
 def raft_inbox_wake(notice, channel, message_id, can_wake, *, record_wake=None):
     work = notice["inbox_work"]
+    if work["kind"] == "review":
+        return raft_stalled_work({
+            "kind": "worker", "task": work["key"], "task_id": work["id"], "board": notice["board"],
+            "worker_run": work["source_event"], "worker_status": "planned",
+        }, channel, message_id, can_wake, record_wake=record_wake)
     action = {
         "ready": "Finish the offered ticket",
         "shared_ready": "Take the offered shared ticket",

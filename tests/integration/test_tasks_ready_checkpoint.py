@@ -16,7 +16,8 @@ from taskboard_cli.goal_wake import WakeScheduleStopped, reminder_title
 from taskboard_cli.ready_checkpoint import (
     MANAGED_RESTART, STALLED_READ, RaftCommandError, ReadyReadStopped,
     checkpoint, main, measured_idle, raft_idle, raft_ready_count, raft_stalled_work, raft_status, raft_wake,
-    recovery_wake, run_handler, runtime_observer, watch_idle, watch_ready_count, watch_two_pickups, watcher_reporter,
+    raft_inbox_wake, recovery_wake, run_handler, runtime_observer, watch_idle, watch_ready_count, watch_two_pickups,
+    watcher_reporter,
     wake_with_title,
 )
 from tasks_goal_offers import idle_offer_counts
@@ -1059,6 +1060,51 @@ class ReadyCheckpointTest(unittest.TestCase):
                 notify_inbox=self.fail, notify_goal=send, goal_state=Path(location) / "goals.sqlite",
             )
         self.assertEqual(wakes, [30])
+
+    def test_signed_wake_and_pickup_rank_the_same_due_review_before_a_reviewable_wait(self):
+        from argparse import Namespace
+
+        from tasks_core import change_task
+        from tasks_projects import resolve
+        from tasks_storage import open_sqlite, write
+
+        self.avery.invoke("create-task", {"title": "Waiting work", "step": "Read the fixture."}, write=True)
+        self.avery.invoke("advance-task", {
+            "id": "T-1", "transition": "start", "note": "Record the test disposition.",
+        }, write=True)
+        with closing(open_sqlite(self.avery.service.database)) as db, write(db):
+            change_task(db, Namespace(command="wait", id=resolve(db, "T-1"), by=self.avery_id,
+                                      on="Legacy review", automation=False, note="Check this wait later."), [])
+        self.avery.invoke("save-goal", {"kind": "standing", "summary": "Review the queue."}, write=True)
+        self.avery.invoke("set-goal-review-time", {"id": "T-2", "time": "09:00"}, write=True)
+        filters = {"scope": "all"}
+        with patch("tasks_core.timestamp", return_value="2030-01-01T18:00:00Z"):
+            signed = self.avery.invoke("my-next", filters)["work"]
+            self.assertEqual((signed["kind"], signed["key"]), ("goal_review", "T-2"))
+            wake = self.avery.invoke("my-inbox-wake", filters)
+            self.assertEqual(wake["goal_ticket"], signed["key"])
+            cues = self.avery.invoke("my-goal-cues", {"project": "T", "for_wake": "true"})
+            self.assertEqual(cues["cues"][0]["ticket"], signed["key"])
+        with patch("tasks_core.timestamp", return_value="2030-01-01T16:00:00Z"):
+            signed = self.avery.invoke("my-next", filters)["work"]
+            wake = self.avery.invoke("my-inbox-wake", filters)["work"]
+            self.assertEqual((signed["kind"], signed["key"]), ("wait-review", "T-1"))
+            self.assertEqual((wake["kind"], wake["key"]), (signed["kind"], signed["key"]))
+
+    def test_signed_review_wake_reuses_scheduled_and_fired_legacy_run_receipts(self):
+        board = "https://fixture.example/tasks/"
+        channel = "#fixture:12345678"
+        old_offer = {"kind": "worker", "task": "T-7", "task_id": 7, "board": board,
+                     "worker_run": 42, "worker_status": "planned"}
+        notice = {"board": board, "inbox_work": {"kind": "review", "key": "T-7", "id": 7, "source_event": 42}}
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", "Scheduled"]) as carrier:
+            self.assertEqual(raft_stalled_work(old_offer, channel, "12345678", lambda: True), "wake-requested")
+        title = carrier.call_args.args[3]
+        for status in ("scheduled", "fired"):
+            receipt = f'#87654321 [{status}] "{title}" ref={channel}'
+            with patch("taskboard_cli.ready_checkpoint.raft_cli", return_value=receipt) as carrier:
+                self.assertEqual(raft_inbox_wake(notice, channel, "12345678", self.fail), "already-queued")
+            carrier.assert_called_once_with("reminder", "list", "--status", "scheduled,fired")
 
     def test_signed_inbox_wake_skips_paused_recovery_active_workers_and_unresolved_waits(self):
         def advance(board, ticket, transition, **fields):

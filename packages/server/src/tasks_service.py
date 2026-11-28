@@ -4960,8 +4960,10 @@ def create_app(
 
     def goal_queue_state(connection, owner, project, today, *, wake_at=None):
         board = query()
-        scope = {"today": today, "project": project, "include_goal_reviews": False, "wake_at": wake_at}
+        scope = {"today": today, "project": project, "include_goal_reviews": wake_at is not None, "wake_at": wake_at}
         work = next(board.actionable_work(owner, **scope), None)
+        if work and work["kind"] == "goal_review":
+            return False, False
         ordinary = work is not None
         if work and work["kind"] == "in_progress" and ledger.task_goal_kind(connection, work["id"]) == "standing":
             ordinary = next(board.actionable_work(owner, ordinary_only=True, **scope), None) is not None
@@ -5000,6 +5002,15 @@ def create_app(
             return {"offer": offer, **offered_goal_prompt(connection, None, [offer]),
                     "receipt": "Idle goal offer recorded."}
 
+    def inbox_wake_instant():
+        actor = g.get("actor")
+        if actor and actor["kind"] == "agent" and g.get("local_dri") is None and not g.get("personal_agent_api"):
+            return ledger.timestamp()
+        return None
+
+    def inbox_work_result(work):
+        return {key: work[key] for key in ("kind", "id", "key", "title")} if work else None
+
     def inbox_selection(connection, owner, project, *, wake_at=None):
         board = query()
         today = pacific_day(wake_at or ledger.timestamp())
@@ -5016,11 +5027,12 @@ def create_app(
     def next_action_after_write(owner, project):
         try:
             with tasks_storage.read(db()) as connection:
-                work, ask = inbox_selection(connection, owner, project)
+                work, ask = inbox_selection(connection, owner, project, wake_at=inbox_wake_instant())
                 if ask:
                     return {"project": project, "kind": "ask_recheck", "ask_recheck": ask}
                 if work:
-                    return {"project": project, "kind": "work", "work": work, **offered_goal_prompt(connection, work, [])}
+                    return {"project": project, "kind": "work", "work": inbox_work_result(work),
+                            **offered_goal_prompt(connection, work, [])}
                 if standing := goals.queue_context(connection, owner, project, principal=actor_key())["standing_goals"]:
                     return {
                         "project": project, "kind": "standing_goal", "goal": standing[0],
@@ -5260,17 +5272,19 @@ def create_app(
                     goal_kind = ledger.task_goal_kind(connection, work["id"]) if kind in ("in_progress", "reminder") else None
                     if (kind == "goal_review" or (kind == "reminder" and goal_kind)
                             or (goal_kind == "standing" and goals.exploration_criterion(connection, work["id"]))):
-                        return {"goal_project": projects.identifier(work["key"])[0]}
+                        return {"goal_project": projects.identifier(work["key"])[0], "goal_ticket": work["key"]}
                     if goal_kind:
                         work["goal"] = True
                     return {"work": work}
                 standing = goals.queue_context(connection, key, project, principal=actor_key())["standing_goals"]
-                return {"goal_project": standing[0]["project"] if standing else project or projects.default_project(connection)}
+                if standing:
+                    return {"goal_project": standing[0]["project"], "goal_ticket": standing[0]["ticket"]}
+                return {"goal_project": project or projects.default_project(connection)}
         if name == "my-next":
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:
-                work, ask = inbox_selection(connection, key, project)
-                result = {"work": work, **goals.queue_context(connection, key, project, principal=actor_key())}
+                work, ask = inbox_selection(connection, key, project, wake_at=inbox_wake_instant())
+                result = {"work": inbox_work_result(work), **goals.queue_context(connection, key, project, principal=actor_key())}
                 if ask:
                     return {
                         **result,
@@ -5285,6 +5299,19 @@ def create_app(
                 if candidates := query().wait_review_candidates(key, project):
                     result["wait_review"] = candidates
                 result.update(offered_work_prompt(connection, work))
+                if work and work["kind"] in ("wait-review", "resolved-wait", "worker_checkpoint"):
+                    kind = work["kind"]
+                    ticket = work["key"]
+                    event = work["source_event"]
+                    if kind == "wait-review":
+                        result["next_step"] = (
+                            f'Open {ticket} and record an actionable step with `./tasks --shared resume {ticket} '
+                            f'"<what you can do now>" --review-wait {event}`, or record the blocker and when to recheck.'
+                        )
+                    elif kind == "resolved-wait":
+                        result["next_step"] = f"Confirm the linked blocker for {ticket} against wait event {event}."
+                    else:
+                        result["next_step"] = f"Open worker run W-{work['worker_run']} on {ticket} and record its outcome or blocker."
                 if prompt := result.get("workflow_prompt"):
                     if prompt["key"] == tasks_guidance.READY_PICKUP:
                         result["next_step"] = f"{agent_guidance.next_step(name, data, result)} {prompt['prompt']}"

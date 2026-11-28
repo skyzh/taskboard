@@ -857,6 +857,7 @@ class BoardQueries:
             args.append(wake_at)
             if state == "in_progress":
                 terms.extend((
+                    "events.waiting_on IS NULL",
                     f"""NOT EXISTS (SELECT 1 FROM peer_asks
                         JOIN worker_runs ON worker_runs.id = peer_asks.review_run_id
                         WHERE peer_asks.task_id = tasks.id AND ({RUNNING}))""",
@@ -3192,12 +3193,10 @@ class BoardQueries:
                     yield work
         if wake_at is not None:
             for item in self.wake_workers(owner, "checkpoint", project=project, before=None, limit=1)["items"]:
+                task = ledger.find_task(self.db, item["task_id"])
                 yield {"kind": "worker_checkpoint", "id": item["task_id"], "key": item["task_key"],
-                       "source_event": item["check_event"], "worker_run": item["id"],
+                       "title": task["title"], "source_event": item["check_event"], "worker_run": item["id"],
                        "check_mode": item["check_mode"], "coordinator": bool(item["coordinator"])}
-            for item in self.virtual_ticket_cues(owner, project=project, now=wake_at, limit=1, waiting_only=True):
-                yield {"kind": item["kind"], "id": projects.resolve(self.db, item["ticket"]), "key": item["ticket"],
-                       "title": item["title"], "source_event": item["event_id"]}
         if include_goal_reviews and not ordinary_only:
             now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
             _, due = goal_cadence.due_reviews(self.db, owner, project, now, principal=self.principal)
@@ -3208,6 +3207,10 @@ class BoardQueries:
                 cue = due[0]
                 number = projects.resolve(self.db, cue["ticket"])
                 yield {"kind": "goal_review", "id": number, "key": cue["ticket"], "title": cue["summary"]}
+        if wake_at is not None:
+            for item in self.virtual_ticket_cues(owner, project=project, now=wake_at, limit=1, waiting_only=True):
+                yield {"kind": item["kind"], "id": projects.resolve(self.db, item["ticket"]), "key": item["ticket"],
+                       "title": item["title"], "source_event": item["event_id"]}
         if exploration:
             yield exploration
 
