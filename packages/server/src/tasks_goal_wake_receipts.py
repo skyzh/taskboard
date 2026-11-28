@@ -97,7 +97,8 @@ def listing(db, project, recipient, *, before, limit, principal):
     return {
         "items": [{
             "id": f"{row['occurrence_key']}:{row['recipient']}",
-            "kind": "wake", "carrier": "raft_app", "recipient": row["name"],
+            "kind": "wake", "recipient": row["name"],
+            **({"carrier": "raft_app"} if row["attempts"] > 0 else {}),
             "task_id": row["task_id"], "task": projects.row_reference(row),
             "source_at": row["observed_at"], "acceptance": row["acceptance"], "acceptance_at": row["observed_at"],
             "reason": "goal_review" if row["occurrence_key"].startswith("review:") else "goal_explore",

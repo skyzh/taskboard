@@ -269,6 +269,9 @@ test('wake evidence keeps request acknowledgment separate from delivery and Star
   assert.match(goal, /<dt>Dispatch<\/dt><dd><span>Accepted<\/span>/)
   assert.match(goal, /href="#event-57-log">Outcome activity<\/a>/)
   assert.doesNotMatch(goal, /Source activity|<dt>(Start|Delivery)<|Picked up/)
+  const unsendable = renderWake({ reason: 'goal_explore', acceptance: 'unsendable', next_result: null })
+  assert.match(unsendable, /Cue could not be prepared/)
+  assert.doesNotMatch(unsendable, /Raft app event|<dt>Dispatch<|Delivery method not recorded/)
 })
 
 test('a restored queue renders the selected filters and the friendly waiting label', () => {

@@ -2755,6 +2755,9 @@ class TasksServiceTest(unittest.TestCase):
                                         (2, "review:LAB-1:2026-11-27", "pending")):
                 record_attempt(db, owner_key, key, number, acceptance=status, attempts=1,
                                first_attempt=1, retry_at=2, renewed=False, observed_at=at)
+            record_attempt(db, owner_key, "explore:T-1:2026-11-27:2", 1,
+                           acceptance="unsendable", attempts=0, first_attempt=1, retry_at=2,
+                           renewed=False, observed_at="2026-11-27T11:00:00Z")
             with db:
                 record(db, 1, "log", outsider_key, "ready", "Different recipient.", None, [],
                        {"goal_occurrence": explore}, at=at)
@@ -2770,10 +2773,15 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(reviewed["goal_outcome"], {"id": outcome, "at": at})
         self.assertNotIn("delivery", reviewed)
         self.assertNotIn("start_event_id", reviewed)
-        last = self.call(outsider, path, query_string={**filters, "before": first["next_cursor"]}).json
-        unexplained, = last["items"]
+        middle = self.call(outsider, path, query_string={**filters, "before": first["next_cursor"]}).json
+        unexplained, = middle["items"]
         self.assertEqual((unexplained["reason"], unexplained["acceptance"]), ("goal_explore", "unknown"))
+        self.assertEqual(unexplained["carrier"], "raft_app")
         self.assertNotIn("goal_outcome", unexplained)
+        last = self.call(outsider, path, query_string={**filters, "before": middle["next_cursor"]}).json
+        preparation_failure, = last["items"]
+        self.assertEqual(preparation_failure["acceptance"], "unsendable")
+        self.assertNotIn("carrier", preparation_failure)
         self.assertIsNone(last["next_cursor"])
         self.assertEqual(self.call(outsider, path, query_string={**filters, "actor": outsider_key}).json["items"], [])
         permitted = self.call(owner, path, query_string={**filters, "scope": None, "project": "LAB"}).json
