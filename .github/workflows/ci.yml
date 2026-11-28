@@ -51,7 +51,7 @@ jobs:
         run: uv run --no-sync python -B tools/check_package_installs.py
 
       - name: Run Python tests
-        run: uv run --no-sync python -B -W error::ResourceWarning tools/test_python.py
+        run: uv run --no-sync python -B -W error::ResourceWarning tools/test_python.py --durations 12
 
       - name: Run Node tests
         working-directory: web
