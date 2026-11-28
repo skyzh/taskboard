@@ -3491,6 +3491,8 @@ class BoardQueries:
                 "id", "task_id", "task_key", "task_title", "sender", "reason", "raised_at", "handled_at", "remind_on",
             )},
             "sender_profile": senders.get(row["sender"]),
+            **({"rollout_check": True} if row["sender"] == "Taskboard"
+               and (row["request_key"] or "").startswith("rollout-") else {}),
             "links": self.links(json.loads(row["links"])),
             "unblocks": {
                 "id": row["blocked_id"], "key": row["blocked_key"], "title": row["blocked_title"],

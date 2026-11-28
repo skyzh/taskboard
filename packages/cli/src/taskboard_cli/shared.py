@@ -173,6 +173,20 @@ def task_details(board, url, number, *, workers_only=False, guidance=None, conte
         text.append(f"Keep exploring · Stop when {criterion}" if criterion else "Keep exploring")
     if detail["brief"]:
         text.append(detail["brief"])
+    if not workers_only and (rollout := (detail.get("rollout") or {}).get("current")):
+        status = rollout["status"].replace("_", " ").capitalize()
+        owner = detail["rollout"].get("owner_name") or rollout["owner"]
+        text.extend(("", f"Rollout status · {status} · {owner}",
+                     f"  Current audience · {rollout['current_audience']}",
+                     f"  Intended audience · {rollout['intended_audience']}",
+                     f"  Expand when · {rollout['expansion_criteria']}",
+                     f"  Roll back when · {rollout['rollback_criteria']}"))
+        for field, label in (("next_check_at", "Next check"), ("blocker", "Blocker owner"), ("outcome", "Outcome")):
+            if value := rollout[field]:
+                text.append(f"  {label} · {value}")
+        if rollout["check_request_id"]:
+            text.append("  Check due. Verify coverage and use set-rollout-status to record expansion, "
+                        "a blocker and next check, completion, or rollback.")
     if not workers_only and (configuration := detail.get("ticket_fields")):
         text.extend(("", "Project ticket fields"))
         for field in configuration["fields"]:

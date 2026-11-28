@@ -30,6 +30,7 @@ import tasks_audit as audit
 import tasks_agent_usage
 import tasks_api_usage
 import tasks_ticket_fields as ticket_fields
+import tasks_rollouts as rollouts
 import tasks_codex_usage
 import tasks_attachments
 from taskboard_server import attachment_routes, public_knowledge
@@ -417,6 +418,7 @@ def ensure_attention_requests(db):
             db.execute(f"ALTER TABLE attention_requests ADD COLUMN {name} {declaration}")
     db.execute("CREATE INDEX IF NOT EXISTS attention_recipient ON attention_requests (recipient, id)")
     db.execute("CREATE UNIQUE INDEX IF NOT EXISTS attention_request_key ON attention_requests (task_id, sender, request_key)")
+    db.execute(rollouts.SCHEMA)
 
 
 def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, initial_project=None,
@@ -1845,6 +1847,17 @@ def create_app(
                     field["links"] = query().links(field["links"], event_id=field["event_id"])
             result["ticket_fields"] = configured
         ordinary = not (is_note or result["goal"] or task.get("peer_request"))
+        if key is not None and ordinary:
+            rollout = rollouts.get(db(), number)
+            rollout_editable = task["state"] not in ("done", "closed") and (
+                details_editable or (rollout is not None and rollout["owner"] == key)
+            )
+            if rollout or rollout_editable:
+                owner = profiles.get(db(), rollout["owner"]) if rollout else None
+                result["rollout"] = {
+                    "current": rollout, "editable": rollout_editable,
+                    "owner_name": (owner["name"] or owner["username"]) if owner else None,
+                }
         collaborator = ordinary and can_collaborate_on_transition(db(), actor, task)
         may_close = (editable or collaborator) and not is_note
         if ask := task.get("peer_request"):
@@ -2284,6 +2297,67 @@ def create_app(
                 ticket_fields.save_receipt(connection, event, project, value, links)
                 ledger.bump_revision(connection, project)
         return {"receipt": f"{projects.row_reference(task)} · Ticket field recorded", "event_id": event, "field": value}
+
+    def set_rollout_status(actor, number, data):
+        status = text(data, "status", maximum=16)
+        if status not in rollouts.ACTIVE | rollouts.TERMINAL:
+            raise RequestError("Choose Active, Blocked, Completed, or Rolled back.")
+        owner = text(data, "owner", maximum=160)
+        active = status in rollouts.ACTIVE
+        outcome = writing_text(data, "outcome", optional=active and status != "blocked")
+        blocker = writing_text(data, "blocker", optional=status != "blocked")
+        links = one_link(data)
+        if not active and not links:
+            raise RequestError("Link the evidence of intended coverage or rollback.")
+        now = ledger.timestamp()
+        check_at = None
+        if active:
+            if "at" in data or "time_zone" in data:
+                if "next_check_at" in data:
+                    raise RequestError("Choose a local check time or a check time with a UTC offset.")
+                next_check = local_defer_time(data)
+            else:
+                next_check = data.get("next_check_at")
+            try:
+                check_at = rollouts.due_time(next_check, now)
+            except ValueError as error:
+                raise RequestError(str(error)) from error
+        value = {
+            "status": status, "owner": owner, "outcome": outcome,
+            "blocker": blocker if status == "blocked" else None, "next_check_at": check_at,
+            **{field: writing_text(data, field) for field in (
+                "current_audience", "intended_audience", "expansion_criteria", "rollback_criteria",
+            )},
+        }
+        with tasks_storage.write(db()) as connection:
+            task = ledger.find_task(connection, number)
+            if task is None or ledger.is_knowledge(task) or ledger.task_goal_kind(connection, number) or peer_asks.find(connection, number):
+                raise NotFound()
+            project = projects.row_project(task)
+            require_visible_project(connection, project)
+            previous = rollouts.get(connection, number)
+            key = actor["ledger_key"]
+            if not can_edit_shared_content(connection, actor, task, project) and (
+                previous is None or previous["owner"] != key
+            ):
+                raise RequestError("This ticket requires project write access.", 403)
+            if task["state"] in ("done", "closed"):
+                raise RequestError("Choose an open release ticket.", 409)
+            value["owner"] = require_person(owner, task_id=number)
+            if "expected_event" in data:
+                raw_event = data["expected_event"]
+                expected_event = 0 if str(raw_event) == "0" else integer(raw_event, "rollout event ID")
+                if expected_event != (previous["event_id"] if previous else 0):
+                    raise RequestError("Rollout status changed. Refresh the ticket before editing.", 409)
+            for _, url in links:
+                require_same_ring(connection, project, internal_link_project(connection, url))
+            event = ledger.record(
+                connection, number, "log", key, task["state"], "Updated rollout status.", None, links,
+                {"audit": {"action": rollouts.ACTION, "rollout": value}}, at=now,
+            )
+            rollouts.save(connection, number, event, previous, value, now)
+            ledger.bump_revision(connection, project)
+        return {"receipt": f"{projects.row_reference(task)} · Rollout status saved", "event_id": event, **value}
 
     def move_ticket(actor, reference, data):
         destination = project_filter({"project": text(data, "project", maximum=8)})
@@ -3491,6 +3565,12 @@ def create_app(
             raise RequestError("Provide a reminder date or a local defer time and time zone.")
         return mutate("remind", actor, data, id=task_number(number), note="", review_after=day, defer_until=instant)
 
+    @app.put("/api/v1/tasks/<number>/rollout")
+    def task_rollout(number):
+        actor = current_actor(write=True, required=True)
+        fields = {*rollouts.FIELDS, "at", "time_zone", "url", "label", "expected_event"}
+        return set_rollout_status(actor, task_number(number), json_body(fields, writing=True))
+
     def parking_fields(data, command):
         reviewed_event = integer(data["reviewed_event"], "reviewed_event") if "reviewed_event" in data else None
         if reviewed_event is not None and command != "park":
@@ -4619,6 +4699,8 @@ def create_app(
             project = require_visible_task(connection, row["task_id"])
             if row["handled_at"] is not None:
                 raise RequestError("This request is already handled.", 409)
+            if rollouts.is_check_request(connection, number):
+                raise RequestError("Save the next check on the ticket’s Rollout status.", 409)
             if row["remind_on"] != day:
                 connection.execute("UPDATE attention_requests SET remind_on = ? WHERE id = ?", (day, number))
                 audit.record(connection, scope="private", actor=actor["ledger_key"], operation="set-attention-reminder",
@@ -4649,6 +4731,8 @@ def create_app(
             ready_event = row["ready_event_id"]
             unblocked_task = row["task_id"] if ready_event is not None else None
             if handled_at is None:
+                if rollouts.is_check_request(connection, number):
+                    raise RequestError("Record the check outcome on the ticket’s Rollout status.", 409)
                 handled_at = ledger.timestamp()
                 connection.execute("UPDATE attention_requests SET handled_at = ? WHERE id = ?", (handled_at, number))
                 linked_task = row["task_id"]
@@ -6214,6 +6298,8 @@ def create_app(
             return edit_ticket(actor, number, data)
         if name == "set-ticket-field":
             return set_ticket_field(actor, number, data)
+        if name == rollouts.ACTION:
+            return set_rollout_status(actor, number, data)
         if name == "edit-checklist":
             return edit_ticket_checklist(actor, number, data)
         if name == "raise-attention":

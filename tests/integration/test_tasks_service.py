@@ -8302,6 +8302,72 @@ class TasksServiceTest(unittest.TestCase):
         history = self.call(restart, route + "/activity").json["items"]
         self.assertEqual([(r["actor"], r["at"]) for r in history if r["action"] == "unpark"], [("Taskboard", instant)])
 
+    def test_staged_rollout_due_checks_are_exact_and_close_on_disposition(self):
+        app = self.app(portal_reader=True)
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        ticket = "/api/v1/tasks/T-1"
+        self.action(avery, "create-task", {"title": "Release checked build", "step": "Check the release."})
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Run the checked release."})
+        self.assertIsNone(self.call(avery, ticket).json["rollout"]["current"])
+        self.assertNotIn("rollout", self.call(app.test_client(), ticket).json)
+
+        fields = {
+            "status": "active", "owner": blake_id, "current_audience": "Pilot project",
+            "intended_audience": "All projects", "expansion_criteria": "Review signed health receipts.",
+            "rollback_criteria": "Restore the old release on a health check failure.",
+        }
+        with patch("tasks_core.timestamp", return_value="2030-04-01T18:00:00Z"):
+            self.action(avery, "set-rollout-status", {"id": "T-1", **fields}, status=400)
+            first = self.call(avery, ticket + "/rollout", method="PUT", json={
+                **fields, "expected_event": 0, "at": "2030-04-01T13:00",
+                "time_zone": "America/Los_Angeles",
+            }).json
+        self.assertEqual(first["next_check_at"], "2030-04-01T20:00:00Z")
+        self.assertEqual(self.call(blake, ticket).json["rollout"]["current"]["owner"], blake_id)
+        self.action(avery, "advance-task", {
+            "id": "T-1", "transition": "done", "note": "Wrap up too soon.",
+        }, status=409)
+
+        def sweep(at):
+            try:
+                return json.loads(self.cli("recurring-tick", "--deferrals-only", "--as-of", at))
+            except subprocess.CalledProcessError as error:
+                self.fail(error.stderr)
+
+        self.assertNotIn("rollout_checks", sweep("2030-04-01T19:59:59Z"))
+        self.assertIsNone(self.action(blake, "my-next")["work"])
+        self.assertEqual(sweep("2030-04-01T20:00:00Z")["rollout_checks"], ["T-1"])
+        self.assertEqual(self.action(blake, "my-next")["work"]["kind"], "request")
+        self.assertEqual(self.action(avery, "my-next")["work"]["kind"], "in_progress")
+        first_request = self.call(blake, ticket).json["rollout"]["current"]["check_request_id"]
+        self.assertNotIn("rollout_checks", sweep("2030-04-01T21:00:00Z"))
+        self.call(blake, f"/api/v1/notifications/requests/{first_request}/handled", method="POST", status=409)
+
+        blocked = {
+            **fields, "id": "T-1", "status": "blocked", "outcome": "Health evidence is missing.",
+            "blocker": "The release operator", "next_check_at": "2030-04-01T22:00:00Z",
+        }
+        with patch("tasks_core.timestamp", return_value="2030-04-01T21:05:00Z"):
+            self.action(blake, "set-rollout-status", {**blocked, "expected_event": 0}, status=409)
+            self.action(blake, "set-rollout-status", {**blocked, "expected_event": first["event_id"]})
+        self.assertIsNone(self.action(blake, "my-next")["work"])
+        self.assertEqual(sweep("2030-04-01T22:00:00Z")["rollout_checks"], ["T-1"])
+        second_request = self.call(blake, ticket).json["rollout"]["current"]["check_request_id"]
+        self.assertNotEqual(first_request, second_request)
+        self.assertEqual(self.action(blake, "my-next")["work"]["kind"], "request")
+        self.action(blake, "set-rollout-status", {
+            **fields, "id": "T-1", "status": "rolled_back", "outcome": "Verified the previous build is healthy.",
+            "url": "https://example.test/rollback",
+        })
+        self.assertIsNone(self.action(blake, "my-next")["work"])
+        self.assertNotIn("rollout_checks", sweep("2030-04-02T23:00:00Z"))
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "done", "note": "Verified the rollback."})
+        self.action(avery, "create-task", {"title": "Normal release", "step": "Verify the full release."})
+        self.action(avery, "advance-task", {"id": "T-2", "transition": "start", "note": "Verify intended coverage."})
+        self.action(avery, "advance-task", {"id": "T-2", "transition": "done", "note": "Everyone has the release."})
+        self.assertEqual(self.call(avery, ticket).json["task"]["dri"], avery_id)
+
     def test_attention_reminder_updates_same_open_request_and_respects_recipient(self):
         self.cli("add", "Legacy task", "--dri", "Avery", "--step", "Keep its recorded request.")
         with closing(sqlite3.connect(self.database)) as db, db:
