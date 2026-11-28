@@ -3,9 +3,10 @@
 from dataclasses import dataclass
 from hashlib import sha256
 import json
-from os import read
+from os import killpg, read
 from pathlib import Path
 from select import select
+from signal import SIGKILL
 import subprocess
 from tempfile import TemporaryFile
 from time import monotonic
@@ -43,7 +44,9 @@ class ReadyCommand:
             deadline = monotonic() + _TIMEOUT
             with subprocess.Popen(
                 self.argv, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env={}, close_fds=True,
+                start_new_session=True,
             ) as process:
+                returncode = None
                 try:
                     output = bytearray()
                     while len(output) <= _MAX_OUTPUT:
@@ -52,14 +55,19 @@ class ReadyCommand:
                             return None
                         chunk = read(process.stdout.fileno(), _MAX_OUTPUT + 1 - len(output))
                         if not chunk:
-                            if process.wait(timeout=max(0, deadline - monotonic())) == 0:
+                            returncode = process.wait(timeout=max(0, deadline - monotonic()))
+                            if returncode == 0:
                                 return json.loads(output)
                             return None
                         output.extend(chunk)
                     return None
                 finally:
-                    if process.poll() is None:
-                        process.kill()
+                    if returncode is None:
+                        # A helper can still hold the pipe after its wrapper exits.
+                        try:
+                            killpg(process.pid, SIGKILL)
+                        except ProcessLookupError:
+                            pass
                         process.wait()
 
     def __call__(self, cue):
