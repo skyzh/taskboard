@@ -282,13 +282,17 @@ h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: 
 .example-row figcaption {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.65rem;
+  color: #f8f7ff;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+.example-row figcaption img { flex: none; border-radius: 0.25rem; image-rendering: pixelated; }
+.example-kind {
   color: var(--accent-on-dark);
-  font-size: 0.8rem;
   font-weight: 650;
 }
-.example-row figcaption svg { width: 1rem; height: 1rem; flex: none; }
-.feature .example-row p { margin: 0.2rem 0 0 1.45rem; font-size: 0.93rem; line-height: 1.45; }
+.feature .example-row p { margin: 0.3rem 0 0 2.65rem; font-size: 0.93rem; line-height: 1.45; }
 .feature .example-row .example-title { color: #f8f7ff; font-size: 1rem; font-weight: 675; }
 
 .squad {
@@ -327,17 +331,15 @@ h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: 
   gap: 1rem;
   padding: 1.25rem 0.75rem;
   text-align: center;
-  border: 1px solid #272346;
-  border-top: 4px solid var(--accent);
+  border: 1px solid #dfddf0;
+  border-radius: 0.75rem;
   background: #fff;
-  box-shadow: 3px 3px 0 #272346;
 }
 
 .squad-roster img {
   display: block;
   width: 5rem;
   height: 5rem;
-  outline: 1px solid #272346;
   image-rendering: pixelated;
 }
 
@@ -368,8 +370,6 @@ h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: 
     gap: 0.85rem;
     padding: 0.7rem 0.8rem;
     text-align: start;
-    border-top: 1px solid #272346;
-    border-inline-start: 4px solid var(--accent);
   }
   .squad-roster img { width: 3rem; height: 3rem; }
 }
