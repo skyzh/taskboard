@@ -239,6 +239,89 @@ class InboxBatchTest(unittest.TestCase):
         advance(fixture.board, waiting, "start")
         self.assertEqual(fixture.board.invoke("task", {"id": waiting})["task"]["state"], "in_progress")
 
+    def test_single_goal_sender_offers_dated_first_passes_before_standing_repeat(self):
+        self.replay_goal_fairness(batches=False)
+
+    def test_batch_orders_dated_first_passes_before_standing_repeat(self):
+        self.replay_goal_fairness(batches=True)
+
+    def replay_goal_fairness(self, *, batches):
+        self.origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()
+        self.fixture.now = self.origin
+        self.restart()
+        board = self.fixture.board
+
+        def action(name, fields=None, *, write=False):
+            with patch("tasks_core.timestamp", return_value=self.stamp(self.fixture.now - self.origin)):
+                return board.invoke(name, fields or {}, write=write)
+
+        def complete(ticket, key):
+            return action("complete-goal-occurrence", {
+                "id": ticket, "occurrence_key": key, "note": "Record verified fixture evidence.",
+            }, write=True)["event_id"]
+
+        def signed():
+            return action("my-inbox-wake", {"scope": "all", "include_occurrences": "true"})
+
+        def keys():
+            return [item["key"] for item in signed()["goal_candidates"]]
+
+        def dispatch(at):
+            for offset in (at, at + 10, at + 20):
+                self.assertEqual(self.poll(offset, goals=True, batches=batches)[0], "awaiting_idle")
+            status, key = self.poll(at + 30, goals=True, batches=batches)
+            self.assertEqual(status, "accepted")
+            if batches:
+                return [item["key"] for item in json.loads(self.history(key)["members"])]
+            return key
+
+        action("set-wake-subscription", {
+            "project": "T", "event_type": GOAL_OCCURRENCES, "enabled": "true",
+        }, write=True)
+        action("save-goal", {"kind": "standing", "summary": "Review the standing work", "keep_exploring": True,
+                             "stopping_criterion": "Finish the bounded set of standing samples."}, write=True)
+        for label, deadline in (("Review the first dated goal", "2030-04-03"),
+                                ("Review the second dated goal", "2030-04-04")):
+            action("save-goal", {"kind": "dated", "summary": label, "deadline": deadline}, write=True)
+        action("set-goal-exploration", {
+            "id": "T-2", "keep_exploring": True, "stopping_criterion": "Finish the dated sample set.",
+        }, write=True)
+        action("set-goal-review-time", {"id": "T-1", "time": "09:00"}, write=True)
+        standing, first_dated, second_dated = [f"explore:T-{number}:2030-04-01" for number in (1, 2, 3)]
+        review = "review:T-1:2030-04-01"
+        first = complete("T-1", standing)
+        second = complete("T-1", f"{standing}:{first}")
+        repeated_standing = f"{standing}:{second}"
+        ordinary = action("create-task", {"title": "Check ordinary work", "step": "Check the sample."},
+                          write=True)["receipt"].split()[0]
+        self.assertNotIn("goal_candidates", signed())
+        self.assertEqual(signed()["work"]["key"], ordinary)
+        for transition in ("start", "done"):
+            action("advance-task", {"id": ordinary, "transition": transition, "note": "Checked ordinary work."},
+                   write=True)
+
+        initial = keys()
+        sent = dispatch(0)
+        if batches:
+            self.assertEqual(sent, [review, first_dated, second_dated, repeated_standing])
+        else:
+            self.assertEqual(sent, review)
+        complete("T-1", review)
+        if not batches:
+            self.assertEqual(dispatch(40), first_dated)
+        self.assertEqual(initial, [review, first_dated, second_dated, repeated_standing])
+        observed = complete("T-2", first_dated)
+        repeated_dated = f"{first_dated}:{observed}"
+        self.assertEqual(keys(), [second_dated, repeated_standing, repeated_dated])
+        if not batches:
+            self.assertEqual(dispatch(80), second_dated)
+        complete("T-3", second_dated)
+        self.assertEqual(keys(), [repeated_standing, repeated_dated])
+        if not batches:
+            self.assertEqual(dispatch(120), repeated_standing)
+        observed = complete("T-1", repeated_standing)
+        self.assertEqual(keys(), [repeated_dated, f"{standing}:{observed}"])
+
     def test_operator_enables_batches_only_with_the_explicit_direct_flag(self):
         fixture = self.fixture
         common = ["--db", str(fixture.ledger), "--state", str(fixture.state),
