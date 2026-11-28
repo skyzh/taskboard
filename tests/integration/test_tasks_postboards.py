@@ -43,15 +43,25 @@ def replay_postboards(test, board, app):
     call(other, history, method="POST", json=data, status=403)
     call(owner, history, method="POST", json={**data, "source_ticket_ids": [source_keys["Shared sample"]]}, status=404)
 
-    first = call(owner, history, method="POST", json=data).json["current"]
+    initial = {"project": "LAB", "content": data["content"], "source_ticket_ids": '["LAB-1", "LAB-1"]'}
+    first = action(owner, "save-dri-postboard", initial)["current"]
     test.assertEqual((first["revision_id"], first["updated_by"], first["content"]), (1, owner_id, data["content"]))
     test.assertEqual([(source["key"], source["title"]) for source in first["sources"]], [("LAB-1", "First sample")])
     call(owner, history, method="POST", json=data, status=409)
+    action(owner, "save-dri-postboard", initial, status=409)
+    action(outsider, "save-dri-postboard", initial, status=403)
+    action(other, "save-dri-postboard", {**initial, "dri": owner_id}, status=400)
+    legacy_first = action(other, "save-dri-postboard", {
+        "project": "LAB", "content": "Other owner's first note", "source_ticket_ids": '["LAB-2"]',
+        "expected_revision_id": "",
+    })["current"]
+    test.assertEqual((legacy_first["revision_id"], legacy_first["updated_by"]), (1, other_id))
     second = action(owner, "save-dri-postboard", {
         "project": "LAB", "content": "Reviewed the sample.",
         "source_ticket_ids": '["LAB-2"]', "expected_revision_id": "1",
     })["current"]
     test.assertEqual(second["revision_id"], 2)
+    action(owner, "save-dri-postboard", {**initial, "expected_revision_id": "1"}, status=409)
     options = {"project": "LAB", "dri": owner_id}
     test.assertEqual(action(owner, "dri-postboard", query_string=options)["current"], second)
     page = action(owner, "dri-postboard-history", query_string={**options, "limit": "1"})
