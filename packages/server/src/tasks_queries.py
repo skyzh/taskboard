@@ -3498,7 +3498,7 @@ class BoardQueries:
                     "id", "task_id", "task_key", "task_title", "sender", "reason", "raised_at", "handled_at", "remind_on",
                 )},
                 "sender_profile": senders.get(row["sender"]),
-                "intent": "ask" if row["blocked_id"] is not None or rollout_check else "fyi",
+                "intent": "ask" if row["blocked_id"] is not None or rollout_check else row["intent"] or "request",
                 **({"rollout_check": True} if rollout_check else {}),
                 "links": self.links(json.loads(row["links"])),
                 "unblocks": {

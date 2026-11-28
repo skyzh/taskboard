@@ -709,7 +709,7 @@ test('attention cards link a separate blocked ticket and report only a recorded 
     return renderToStaticMarkup(React.createElement(AttentionRequests, state === 'open' ? { taskId: 1 } : {}))
   }
   assert.match(renderRequests('open', item), /Unblocks <a href="#task-COURSE-3".*Verify the release/)
-  const informationalRequest = renderRequests('open', { ...item, unblocks: null })
+  const informationalRequest = renderRequests('open', { ...item, intent: 'fyi', unblocks: null })
   assert.match(informationalRequest, /<\/svg>FYI<\/span>/)
   assert.doesNotMatch(informationalRequest, /Unanswered/)
   assert.doesNotMatch(informationalRequest, /Unblocks|View Ready event/)
@@ -797,7 +797,7 @@ test('ticket attention hides stale requests while refreshing and preserves the h
 })
 
 test('a linked ticket request shows the exact update and its acknowledgment without editing', () => {
-  const item = { id: 8, task_id: 1, sender: 'Avery', reason: 'Daily review summary.',
+  const item = { id: 8, task_id: 1, sender: 'Avery', intent: 'fyi', reason: 'Daily review summary.',
     raised_at: '2026-11-26T16:00:00Z', links: [] }
   fixture.pages = { '/notifications/requests': filters => {
     assert.deepEqual(filters, { state: 'open', task_id: 1, request_id: '8', scope: 'all' })

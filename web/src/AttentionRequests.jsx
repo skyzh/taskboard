@@ -125,7 +125,7 @@ export default function AttentionRequests({ revision, onChanged, onRequestLoaded
         : <AttentionReceipt receipt={notice.receipt} />)}
       {items.length > 0 && <ol className="event-list" role="list">
         {items.map(item => {
-          const kind = item.intent || (item.unblocks || item.rollout_check ? 'ask' : 'fyi')
+          const kind = item.intent || (item.unblocks || item.rollout_check ? 'ask' : 'request')
           return (
             <li className="event-row attention-row" key={item.id}>
               <div>
@@ -133,7 +133,7 @@ export default function AttentionRequests({ revision, onChanged, onRequestLoaded
                   publicHref={attentionTicketHref(item.task_id, item.task_key, item.id)} /></p>}
                 <p className="event-meta">
                   <RequestKind kind={kind} />
-                  {item.handled_at ? <Timestamp at={item.raised_at} /> : kind === 'fyi' || requestId
+                  {item.handled_at ? <Timestamp at={item.raised_at} /> : kind !== 'ask' || requestId
                     ? <ReportTime at={item.raised_at} linked /> : <WaitAge since={item.raised_at} label="Unanswered" />}
                   <span>{item.rollout_check ? 'Rollout check' : profileName(item.sender, item.sender_profile)}</span>
                 </p>

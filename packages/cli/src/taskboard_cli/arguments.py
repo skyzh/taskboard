@@ -125,6 +125,7 @@ def arguments(argv=None):
                            help="Exact human handle, name, or ID. A Taskboard-mode Local DRI defaults to its creator.")
     attention.add_argument("--by", type=nonblank)
     attention.add_argument("--unblocks", type=task_id, help="Separate ticket whose owner can wait on this request.")
+    attention.add_argument("--intent", choices=("ask", "fyi"), help="Choose an actionable ask or an informational FYI.")
     attention.add_argument("--request-key", type=nonblank, help="Reuse this key and the same fields when retrying a send.")
     add_link_flag(attention, SHARED_EVIDENCE_HELP)
 

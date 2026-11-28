@@ -246,18 +246,20 @@ class StorageReplayTest(unittest.TestCase):
         with closing(Postgres(dsn)) as db:
             self.assertEqual(db.execute("SELECT schema_version FROM taskboard_writer WHERE id = 1").fetchone()[0], 1)
             db.execute("ALTER TABLE attention_requests DROP COLUMN request_key")
+            db.execute("ALTER TABLE attention_requests DROP COLUMN intent")
 
         upgraded = self.postgres_app(dsn)
         owner, _ = self.board.login(upgraded, "Avery")
         recipient, recipient_id = self.board.login(upgraded, "Sam")
         inbox = "/api/v1/notifications/requests"
         self.assertEqual([row["id"] for row in self.board.call(recipient, inbox).json["items"]], [legacy["id"]])
-        fields = {"id": "T-1", "reason": "Check the totals.", "recipient": recipient_id, "request_key": "sample"}
+        fields = {"id": "T-1", "reason": "Check the totals.", "recipient": recipient_id,
+                  "request_key": "sample", "intent": "fyi"}
         first = action(owner, "raise-attention", fields)
         self.assertEqual(action(owner, "raise-attention", fields), first)
         action(owner, "raise-attention", {**fields, "reason": "Different request."}, status=409)
-        self.assertEqual([row["id"] for row in self.board.call(recipient, inbox).json["items"]],
-                         [first["id"], legacy["id"]])
+        self.assertEqual([(row["id"], row["intent"]) for row in self.board.call(recipient, inbox).json["items"]],
+                         [(first["id"], "fyi"), (legacy["id"], "request")])
         self.board.call(recipient, f"{inbox}/{first['id']}/handled", method="POST", headers=ORIGIN)
         self.assertEqual(action(owner, "raise-attention", fields), first)
         self.assertEqual([row["id"] for row in self.board.call(recipient, inbox).json["items"]], [legacy["id"]])

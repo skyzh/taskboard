@@ -102,6 +102,7 @@ function RequestRow({ item, viewer, publicPreview, verbose, projectLabel }) {
           {projectLabel && <span className="report-project-label">{projectLabel}</span>}
         </div>
         <span className="relative-time-accessible">{status}</span>
+        {item.at && <span className="request-summary-age"><ReportTime at={item.at} linked showMinuteUnit /></span>}
         {owner && <span className="request-summary-avatar" title={ownerName}>
           <AssigneeAvatar name={ownerName} url={ownerProfile?.avatar_url} />
           <span className="relative-time-accessible">{item.next_owner ? `Next for ${ownerName}` : ownerName}</span>

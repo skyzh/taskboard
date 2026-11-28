@@ -211,13 +211,13 @@ class SharedBoard:
             raise RuntimeError("The registered Taskboard manifest differs from the signed board context.")
         return data.get("actions")
 
-    def raise_attention(self, ticket, reason, *, recipient=None, request_key=None, unblocks=None, url=None, label=None,
+    def raise_attention(self, ticket, reason, *, recipient=None, request_key=None, unblocks=None, intent=None, url=None, label=None,
                         force_text=False):
         params = {"id": ticket, "reason": reason, "request_key": request_key if request_key is not None else str(uuid4())}
         if recipient is not None:
             field = "recipient" if is_stable_person_id(recipient, "human") else "recipient_name"
             params[field] = recipient
-        params.update({key: value for key, value in {"unblocks": unblocks, "url": url, "label": label}.items()
+        params.update({key: value for key, value in {"unblocks": unblocks, "intent": intent, "url": url, "label": label}.items()
                        if value is not None})
         if force_text:
             params["force_text"] = True

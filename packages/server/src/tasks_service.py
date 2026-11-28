@@ -130,7 +130,8 @@ ATTENTION_SCHEMA = """
         handled_at TEXT,
         remind_on TEXT,
         unblocks_task_id INTEGER REFERENCES tasks (id),
-        request_key TEXT
+        request_key TEXT,
+        intent TEXT CHECK (intent IN ('ask', 'fyi'))
     )
 """
 
@@ -414,6 +415,7 @@ def ensure_attention_requests(db):
         ("remind_on", "TEXT"),
         ("unblocks_task_id", "INTEGER REFERENCES tasks (id)"),
         ("request_key", "TEXT"),
+        ("intent", "TEXT CHECK (intent IN ('ask', 'fyi'))"),
     ):
         if name not in columns:
             db.execute(f"ALTER TABLE attention_requests ADD COLUMN {name} {declaration}")
@@ -3495,8 +3497,8 @@ def create_app(
             if "options" in data:
                 data["options"] = json.dumps(data["options"])
             return advance(actor, {**data, "transition": "assign-human"}, task_number(number))
-        if kind == "attention" and data.keys() <= {"reason", "recipient", "request_key", "force_text"}:
-            return raise_attention(actor, task_number(number), data)
+        if kind in ("attention", "fyi") and data.keys() <= {"reason", "recipient", "request_key", "force_text"}:
+            return raise_attention(actor, task_number(number), {**data, "intent": "ask" if kind == "attention" else "fyi"})
         raise RequestError("Choose a Decision or attention request and send its documented fields.")
 
     @app.post("/api/v1/tasks/<number>/request-question")
@@ -4894,6 +4896,11 @@ def create_app(
         if request_key is not None and not re.fullmatch(r"[A-Za-z0-9_-]+", request_key):
             raise RequestError("Use letters, digits, hyphens or underscores in the request key.")
         unblocks = task_number(data["unblocks"]) if "unblocks" in data else None
+        intent = text(data, "intent", optional=True, maximum=8)
+        if intent not in (None, "ask", "fyi"):
+            raise RequestError("Choose Ask or FYI.")
+        if intent == "fyi" and unblocks is not None:
+            raise RequestError("Use Ask for a request that unblocks a ticket.")
         with tasks_storage.write(db()) as connection:
             task = ledger.find_task(connection, number)
             if task is None:
@@ -4914,13 +4921,13 @@ def create_app(
             receipt = f"{projects.row_reference(task)} · Attention requested"
             if request_key is not None:
                 previous = connection.execute(
-                    "SELECT id, recipient, reason, links, raised_at, unblocks_task_id FROM attention_requests "
+                    "SELECT id, recipient, reason, links, raised_at, unblocks_task_id, intent FROM attention_requests "
                     "WHERE task_id = ? AND sender = ? AND request_key = ?", (number, sender, request_key),
                 ).fetchone()
                 if previous is not None:
-                    if (previous["recipient"], previous["reason"], previous["links"], previous["unblocks_task_id"]) != (
+                    if ((previous["recipient"], previous["reason"], previous["links"], previous["unblocks_task_id"]) != (
                         recipient, reason, links, unblocks,
-                    ):
+                    ) or (previous["intent"] is not None and intent is not None and previous["intent"] != intent)):
                         raise RequestError("This request key was already used for a different attention request.", 409)
                     return {"id": previous["id"], "task_id": number, "raised_at": previous["raised_at"], "receipt": receipt}
             if unblocks is not None and connection.execute(
@@ -4930,8 +4937,9 @@ def create_app(
             raised_at = ledger.timestamp()
             identifier = tasks_storage.insert_id(
                 connection, "INSERT INTO attention_requests "
-                "(task_id, sender, recipient, reason, links, raised_at, unblocks_task_id, request_key) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (number, sender, recipient, reason, links, raised_at, unblocks, request_key),
+                "(task_id, sender, recipient, reason, links, raised_at, unblocks_task_id, request_key, intent) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (number, sender, recipient, reason, links, raised_at, unblocks, request_key, intent),
             )
             ledger.bump_revision(connection, project)
         if push_delivery and not ring1.private(db(), project):
