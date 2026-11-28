@@ -10,6 +10,7 @@ from taskboard_server.managed_ready import (
     SAMPLED_STATE_BY_PROJECT,
     _ATTEMPTS,
     _DELAY,
+    _AppDeliveryPaused,
     _IdleGateClosed,
     _MAX_READY_AGE,
     _RETRY_WINDOW,
@@ -20,6 +21,7 @@ from taskboard_server.managed_ready import (
 )
 from taskboard_server.managed_ready_grant import RaftRetry
 from taskboard_server.ready_raft import ReadyEventSendError, send_inbox_event
+import tasks_app_wake_activity as app_wake_activity
 import tasks_audit as audit
 import tasks_core as ledger
 import tasks_goal_wake_receipts as goals
@@ -94,6 +96,7 @@ class InboxBatchDelivery:
         """)}
         with tasks_storage.read(self.db):
             self.sender._check_subscription(saved)
+            self.sender._check_app_delivery_pause(saved)
             self.sender._check_history(saved, ledger_tip)
             tip = _latest(self.db)
             if ring1.private(self.db, self.project):
@@ -189,6 +192,8 @@ class InboxBatchDelivery:
                     changed = True
             if changed:
                 ledger.bump_revision(self.db)
+            if acceptance == "accepted":
+                app_wake_activity.record_acceptance(self.db, owner, self.project, journal["event_key"], observed)
         with self.state:
             self.state.execute(
                 "INSERT INTO inbox_batch_history VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
@@ -279,12 +284,14 @@ class InboxBatchDelivery:
             token = sender.grant.token(preflight=preflight)
             preflight()
             send_inbox_event(journal["document"], access_token=token, transport=submit)
-        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested) as error:
+        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested, _AppDeliveryPaused) as error:
             with self.state:
                 self.state.execute(
                     "UPDATE inbox_batch SET attempts = ?, retry_at = ?, submitted = ? WHERE singleton = 1",
                     (journal["attempts"], journal["retry_at"], journal["submitted"]),
                 )
+            if isinstance(error, _AppDeliveryPaused):
+                raise
             return ("awaiting_idle", key) if isinstance(error, _IdleGateClosed) else ("waiting", None)
         except _Unauthorized:
             if renewed:

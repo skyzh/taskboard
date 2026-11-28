@@ -148,3 +148,39 @@ class AppWakeActivityTest(unittest.TestCase):
         self.assertNotEqual(complete("explore")["event_id"], review["event_id"])
         self.assertEqual(self.status()["accepted_count"], 0)
         self.assertEqual(self.status()["recovery_kind"], "signed_work")
+
+    def test_multi_item_batch_counts_once_after_restart_and_pauses_next_send(self):
+        accepted = Mock(return_value=(202, {"status": "queued"}))
+        for _ in range(2):
+            self.assertEqual(self.send(self.add(self.avery), accepted), "accepted")
+        members = [self.add(self.avery) for _ in range(2)]
+        grant, idle = Mock(), Mock()
+        grant.token.return_value = self.recipient.access_token
+        grant.event_transport.return_value = (202, {"status": "queued"})
+        grant.retry_delay.return_value = 0
+        idle.eligible.return_value = True
+
+        def make_sender(db, state):
+            return ManagedReadySender(db, state, self.scope, grant, idle_gate=idle, sampled=True, inbox_batches=True,
+                                      clock=lambda: datetime.fromisoformat(self.now).timestamp())
+
+        with closing(open_sqlite(self.ledger)) as db, locked_state(self.state, self.ledger) as state:
+            sender = make_sender(db, state)
+            with (patch.object(sender.inbox_batch, "_settle", side_effect=OSError("Fixture restart before recording.")),
+                  self.assertRaises(OSError)):
+                sender.tick()
+        self.assertEqual(self.status()["accepted_count"], 2)
+        waiting = self.add(self.avery)
+        with closing(open_sqlite(self.ledger)) as db, locked_state(self.state, self.ledger) as state:
+            sender = make_sender(db, state)
+            outcome, key = sender.tick()
+            self.assertEqual(outcome, "accepted")
+            self.assertEqual(sender.tick(), ("delivery_paused", None))
+            refs = [db.execute("SELECT acceptance, receipt_ref FROM wake_log WHERE source_event_id = ?",
+                               (item["event"],)).fetchone() for item in members]
+            self.assertEqual([tuple(row) for row in refs], [("accepted", key.removeprefix("taskboard-inbox-"))] * 2)
+            self.assertEqual(db.execute("SELECT acceptance FROM wake_log WHERE source_event_id = ?",
+                                        (waiting["event"],)).fetchone()["acceptance"], "pending")
+        self.assertEqual(self.status()["accepted_count"], 3)
+        self.assertTrue(self.status()["paused"])
+        grant.event_transport.assert_called_once()

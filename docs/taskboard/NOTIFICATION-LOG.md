@@ -257,7 +257,8 @@ Eligible tickets remain available in signed Inbox for normal pickup.
 
 Three distinct confirmed Raft app messages for one recipient and project
 pause new sampled app messages in that scope. Replaying one external event
-ID counts once. The board records confirmations from this launcher forward.
+ID counts once. An accepted batch counts as one message regardless of the
+number of Inbox items. The board records confirmations from this launcher forward.
 Acceptance records what the carrier acknowledged. Delivery, Inbox pickup
 and access failures require their own evidence. The pause leaves the queue,
 existing receipts and per-cue retry limits in place.
