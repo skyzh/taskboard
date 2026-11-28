@@ -2700,6 +2700,85 @@ class TasksServiceTest(unittest.TestCase):
             exited = self.call(blake, path).json["items"][0]["watcher"]
             self.assertEqual((exited["state"], exited["stale"]), ("exited", False))
 
+    def test_human_agent_inbox_uses_signed_pickup_order_and_project_access(self):
+        app = self.app(portal_reader=True, project_admin_subject=self.provider.people["Sam"]["sub"])
+        avery, owner = self.login(app, "Avery")
+        blake, empty_owner = self.login(app, "Blake")
+        sam, _ = self.login(app, "Sam")
+        quinn, viewer = self.login(app, "Quinn")
+        endpoint = "/api/v1/reports/agent-inbox"
+        self.call(app.test_client(), endpoint, status=401)
+        self.call(blake, endpoint, status=403)
+        self.assertEqual(self.call(quinn, endpoint).json["agents"], [
+            {"id": owner, "name": "Avery"}, {"id": empty_owner, "name": "Blake"},
+        ])
+        self.assertEqual(self.call(quinn, endpoint, query_string={"agent": empty_owner}).json["work"], [])
+
+        for title in ("Work underway", "Normal assignment", "High priority assignment"):
+            self.action(avery, "create-task", {"title": title, "step": "Check the evidence."})
+        self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Read the sample."})
+        self.action(avery, "set-priority", {"id": "T-3", "priority": "high"})
+
+        self.call(sam, "/api/v1/projects", method="POST", json={
+            "prefix": "LAB", "title": "Protected examples", "visibility": "ring1",
+        })
+        membership = "/api/v1/projects/LAB/ring1"
+        self.call(sam, membership, method="PUT", json={"principal": owner, "allowed": True})
+        self.action(avery, "create-task", {
+            "project": "LAB", "title": "Restricted assignment", "step": "Read the private sample.",
+        })
+        watched = self.action(blake, "create-task", {
+            "title": "Watched from Project T", "step": "Check the sample.",
+        })["receipt"].split()[0]
+        self.action(avery, "watch-task", {"id": watched})
+        for note in ("First observed change.", "Second observed change."):
+            self.action(blake, "record-activity", {"id": watched, "note": note})
+
+        restricted = {"project": "LAB", "agent": owner}
+        self.call(quinn, endpoint, query_string=restricted, status=404)
+
+        filters = {"project": "T", "agent": owner, "limit": 1}
+        report = self.call(quinn, endpoint, query_string=filters)
+        public = report.json
+        self.assertIn("no-store", report.headers["Cache-Control"])
+        self.assertEqual(public["work"][0], self.action(avery, "my-next")["work"])
+        signed_updates = self.call(avery, "/api/v1/notifications/inbox", query_string={"view": "updates"}).json["items"]
+        next_page = self.call(quinn, endpoint, query_string={**filters, "before": public["next_cursor"]}).json
+        self.assertEqual([row["id"] for row in public["items"] + next_page["items"]],
+                         [row["id"] for row in signed_updates])
+        self.assertEqual([work["key"] for work in public["work"]], ["T-3", "T-1"])
+        self.assertNotIn("Restricted assignment", str(public))
+        self.assertEqual(self.call(quinn, "/api/v1/session").json["actor"]["id"], viewer)
+
+        self.call(sam, membership, method="PUT", json={"principal": viewer, "allowed": True})
+        self.assertEqual(self.call(quinn, endpoint, query_string={"project": "LAB"}).json["agents"], [
+            {"id": owner, "name": "Avery"},
+        ])
+        private = self.call(quinn, endpoint, query_string=restricted).json
+        self.assertEqual(private["work"][0], self.action(avery, "my-next", query_string={"project": "LAB"})["work"])
+        self.call(quinn, endpoint, query_string={**restricted, "agent": empty_owner}, status=404)
+        self.call(quinn, endpoint, method="POST", query_string=restricted, status=405)
+        self.call(sam, membership, method="PUT", json={"principal": viewer, "allowed": False})
+        self.call(quinn, endpoint, query_string=restricted, status=404)
+
+    def test_human_agent_inbox_includes_ordered_wait_review_offers(self):
+        app = self.app(portal_reader=True)
+        avery, owner = self.login(app, "Avery")
+        quinn, _ = self.login(app, "Quinn")
+        for title in ("First waiting assignment", "Second waiting assignment"):
+            self.action(avery, "create-task", {"title": title, "step": "Check the evidence."})
+        with closing(open_sqlite(self.database)) as db, db:
+            for number in (2, 1):
+                record(db, number, "wait", owner, "waiting", "Review the latest result.", "Build", [],
+                       {"wait_kind": "automation"})
+        signed_candidates = self.action(avery, "my-next")["wait_review"]
+        report = self.call(quinn, "/api/v1/reports/agent-inbox", query_string={"agent": owner}).json
+        self.assertEqual(report["work"], [])
+        self.assertEqual([item["key"] for item in report["wait_review"]], ["T-2", "T-1"])
+        self.assertEqual(report["wait_review"], [
+            {field: item[field] for field in ("key", "title", "wait_event")} for item in signed_candidates
+        ])
+
     def test_wake_activity_distinguishes_missing_partial_and_observed_receipts(self):
         admin = self.provider.people["Sam"]["sub"]
         app = self.app(portal_reader=True, project_admin_subject=admin)
