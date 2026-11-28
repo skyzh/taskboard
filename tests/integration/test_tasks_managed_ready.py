@@ -288,11 +288,11 @@ class ManagedSenderTest(unittest.TestCase):
                                  identity=self.identity, transport=self.provider, clock=lambda: self.now,
                                  jitter=lambda: 0)
 
-    def tick(self, grant=None, *, idle_gate=None, event_id=None, sampled=False):
+    def tick(self, grant=None, *, idle_gate=None, event_id=None, sampled=False, stop_requested=None):
         with closing(open_sqlite(self.ledger)) as db, locked_state(self.state, self.ledger) as state:
             return ManagedReadySender(
                 db, state, self.scope, grant or self.grant(), clock=lambda: self.now,
-                idle_gate=idle_gate, event_id=event_id, sampled=sampled,
+                idle_gate=idle_gate, event_id=event_id, sampled=sampled, stop_requested=stop_requested,
             ).tick()
 
     def receipts(self):
@@ -938,9 +938,49 @@ class ManagedSenderTest(unittest.TestCase):
 
         self.board.invoke("set-priority", {"id": second["task"], "priority": "normal"}, write=True)
         self.provider.on_event = self.provider.accept
-        self.assertEqual(poll(60), ("accepted", first["event"]))
+        self.assertEqual(poll(60), ("awaiting_idle", first["event"]))
+        self.assertEqual(poll(70), ("accepted", first["event"]))
         self.assertEqual(self.outcomes(), [(first["event"], "accepted"), (second["event"], "pending")])
         self.assertEqual(self.calls().count("agent-events"), 2)
+
+    def test_sampled_operator_stop_after_oauth_or_final_idle_leaves_pending(self):
+        self.baseline(sampled=True)
+        ready = self.create()["event"]
+        for phase in ("oauth", "final-idle"):
+            with self.subTest(phase=phase):
+                origin = self.now
+                stopping = False
+                reads = []
+
+                def request_stop():
+                    nonlocal stopping
+                    stopping = True
+
+                def read_status():
+                    reads.append(self.now - origin)
+                    if phase == "final-idle" and reads[-2:] == [30, 30]:
+                        request_stop()
+                    return "idle"
+
+                self.provider.on_exchange = request_stop if phase == "oauth" else lambda: None
+                self.provider.calls.clear()
+                gate = SampledIdleGate(read_status, clock=lambda: self.now - origin, include_boundary=True)
+                grant = self.grant()
+
+                def poll(offset):
+                    self.now = origin + offset
+                    return self.tick(grant, idle_gate=gate, sampled=True, stop_requested=lambda: stopping)
+
+                for offset in (0, 10, 20):
+                    self.assertEqual(poll(offset), ("awaiting_idle", ready))
+                self.assertEqual(poll(30), ("waiting", None))
+                self.assertTrue(stopping)
+                self.assertEqual(self.calls(), ["agent", "token"])
+                self.assertEqual(reads, [0, 10, 20, 30] if phase == "oauth" else [0, 10, 20, 30, 30])
+                self.assertEqual(self.outcomes(), [(ready, "pending")])
+                with locked_state(self.state, self.ledger) as state:
+                    saved = state.execute("SELECT attempt_event, attempts FROM sender").fetchone()
+                    self.assertEqual(tuple(saved), (None, 0))
 
     def test_subscription_removed_during_oauth_stops_before_exchange(self):
         self.baseline()

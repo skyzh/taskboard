@@ -102,6 +102,10 @@ class _SampledChoiceChanged(RuntimeError):
     pass
 
 
+class _SampledStopRequested(RuntimeError):
+    pass
+
+
 class _Unauthorized(RuntimeError):
     pass
 
@@ -165,7 +169,8 @@ def initialize(state_path, db, scope, *, pilot=False, sampled=False):
 
 
 class ManagedReadySender:
-    def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None, event_id=None, sampled=False):
+    def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None, event_id=None, sampled=False,
+                 stop_requested=None):
         if sampled and (idle_gate is None or event_id is not None):
             raise ValueError("Sampled delivery requires the Idle gate and has no pinned event.")
         self.db = db
@@ -176,6 +181,7 @@ class ManagedReadySender:
         self.idle_gate = idle_gate
         self.event_id = event_id
         self.sampled = sampled
+        self.stop_requested = stop_requested
 
     def _check_subscription(self, saved):
         current = self.scope.subscription(self.db)
@@ -353,7 +359,12 @@ class ManagedReadySender:
                 (event, attempts + 1, first_attempt, now + _DELAY, renewed),
             )
 
+        def check_stop():
+            if self.sampled and self.stop_requested is not None and self.stop_requested():
+                raise _SampledStopRequested
+
         def preflight():
+            check_stop()
             with tasks_storage.read(self.db):
                 self._check_subscription(saved)
 
@@ -368,7 +379,13 @@ class ManagedReadySender:
                     raise _PilotCueChanged
                 if not idle or ((self.sampled or self.event_id is not None) and self.clock() < ready_at):
                     raise _IdleGateClosed
-            status, payload = self.grant.event_transport(request)
+            check_stop()
+            try:
+                status, payload = self.grant.event_transport(request)
+            except RaftRetry:
+                if self.sampled:
+                    self.idle_gate.reset()
+                raise
             if status == 401:
                 raise _Unauthorized
             return status, payload
@@ -380,16 +397,14 @@ class ManagedReadySender:
                 self.db, project=_PROJECT, task=projects.row_reference(row), event_id=event,
                 recipient=WakeRecipient(self.scope.identity, token), transport=submit,
             )
-        except (_IdleGateClosed, _SampledChoiceChanged) as error:
+        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested) as error:
             with self.state:
                 self.state.execute(
                     """UPDATE sender SET attempt_event = ?, attempts = ?, first_attempt = ?,
                                          retry_at = ?, renewed = ? WHERE singleton = 1""",
                     tuple(saved[key] for key in ("attempt_event", "attempts", "first_attempt", "retry_at", "renewed")),
                 )
-            if isinstance(error, _SampledChoiceChanged):
-                return "waiting", None
-            return "awaiting_idle", event
+            return ("awaiting_idle", event) if isinstance(error, _IdleGateClosed) else ("waiting", None)
         except (ReadyWakeEventChanged, ReadyWakeOwnerChanged, _PilotCueChanged):
             outcome = "superseded"
         except _Unauthorized:
@@ -404,6 +419,8 @@ class ManagedReadySender:
             preflight()
             raise
         if outcome == "unknown":
+            if self.sampled:
+                self.idle_gate.reset()
             return self._retry("retry", event)
         delay = self.grant.retry_delay()
         self._finish(event, retry_at=self.clock() + delay if delay else 0)

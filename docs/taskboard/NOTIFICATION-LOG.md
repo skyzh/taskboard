@@ -225,9 +225,11 @@ older pending work after the first ticket is taken.
 The operator samples explicit Idle about every ten seconds and requires fresh
 observations spanning at least 30 seconds, followed by a final Idle read and
 Ready recheck before sending. Busy, offline, failed or ambiguous reads and gaps
-of 20 seconds or more reset the observed window. An acceptance starts a fresh
-window for the next cue. An unresolved attempt keeps its retry limits and
-backoff while another ticket has priority. This observes sampled availability,
+of 20 seconds or more reset the observed window. An acceptance or an
+unconfirmed event transport starts a fresh window before any further send.
+An unresolved attempt keeps its retry limits and backoff while another
+ticket has priority. An operator stop observed before transport leaves the
+cue pending. This observes sampled availability,
 so the agent may change state between reads or before delivery.
 
 Restart with the same sampled state. Signed opt-out or a stopped grant ends

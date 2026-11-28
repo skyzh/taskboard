@@ -182,7 +182,7 @@ def main(argv=None, *, transport=http_json):
                 old_int = signal.signal(signal.SIGINT, lambda *_: stop.set())
                 try:
                     sender = ManagedReadySender(db, state, scope, grant, idle_gate=idle_gate, event_id=event_id,
-                                                sampled=sampled)
+                                                sampled=sampled, stop_requested=stop.is_set)
                     if event_id is not None:
                         return _run_pilot(sender, stop, event_id)
                     return _run(sender, stop)
