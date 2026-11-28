@@ -9,6 +9,7 @@ import DecisionForm, { mayAnswer } from './DecisionForm.jsx'
 import DecisionReceiptActions, { decisionTicketHref } from './DecisionReceiptActions.jsx'
 import BrowserPush from './BrowserPush.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
+import GoalOccurrences from './GoalOccurrences.jsx'
 import { WorkflowPrompt } from './FieldGuidance.jsx'
 import { Markdown } from './Markdown.jsx'
 import { TaskRows } from './WorkRow.jsx'
@@ -163,12 +164,16 @@ function InboxEntries({ revision, owner, project, openCount, onChanged }) {
   const items = (page.data?.items ?? []).filter(row => row.kind === 'watched' || row.kind === 'readiness')
   const datedGoals = work.data?.dated_goals || []
   const standingGoals = work.data?.standing_goals || []
-  const actionable = (work.data?.items || []).filter(item => Object.hasOwn(workLabels, item.kind))
+  const occurrences = work.data?.goal_occurrences || []
+  const reviewTickets = new Set(occurrences.filter(item => item.kind === 'review').map(item => item.ticket))
+  const actionable = (work.data?.items || []).filter(item => Object.hasOwn(workLabels, item.kind)
+    && (item.kind !== 'goal_review' || !reviewTickets.has(item.key)))
   const legacyWorkEndpoint = work.error?.status === 404
   const showEmpty = page.data && !page.pending && !page.error
     && !work.pending && (work.data || legacyWorkEndpoint)
     && !openCount.pending && !openCount.error && openCount.data?.count === 0
     && items.length === 0 && actionable.length === 0 && datedGoals.length === 0 && standingGoals.length === 0
+    && occurrences.length === 0
 
   return (
     <>
@@ -176,7 +181,7 @@ function InboxEntries({ revision, owner, project, openCount, onChanged }) {
       {openCount.error && <ResourceStatus resource={openCount} label="Inbox action count" />}
       {work.error && !legacyWorkEndpoint && <ResourceStatus resource={work} label="next actionable work" />}
       <InboxWork items={actionable} />
-      {work.data?.goal_review_prompt && <>
+      {work.data?.goal_review_prompt && !reviewTickets.size && <>
         <h3>Goal review</h3>
         <Markdown text={work.data.goal_review_prompt.prompt} />
       </>}
@@ -198,6 +203,7 @@ function InboxEntries({ revision, owner, project, openCount, onChanged }) {
         </ol>
       )}
       <LoadMore page={page} label="inbox items" />
+      <GoalOccurrences key={`${owner}:${project || 'all'}`} items={occurrences} onChanged={onChanged} showTicket />
       <InboxDatedGoals goals={datedGoals} />
       <InboxStandingGoals goals={standingGoals} owner={owner} />
       {work.data?.standing_goal_guidance && <p className="section-message">{work.data.standing_goal_guidance}</p>}

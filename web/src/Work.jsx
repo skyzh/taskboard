@@ -44,6 +44,7 @@ import { TaskWaitAge } from './WaitAge.jsx'
 import { useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
+import GoalOccurrences from './GoalOccurrences.jsx'
 import SegmentedControl from './SegmentedControl.jsx'
 import { projectFilters } from './projectScope.js'
 import { groupWatcherActivity } from './watcherActivity.js'
@@ -677,7 +678,9 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
                 <Markdown text={record.goal.parked_note} relatedTasks={record.related_tasks} />
               </>}
               {record.goal?.resume_review_time && <p>Resume at the next {record.goal.resume_review_time} Pacific goal review.</p>}
-              {record.goal_review_prompt && <>
+              {signedIn && session.data.actor.id === task.dri && <GoalOccurrences key={`${id}:${session.data.actor.id}`}
+                items={record.goal_occurrences} onChanged={onChanged} />}
+              {record.goal_review_prompt && !record.goal_occurrences?.some(item => item.kind === 'review') && <>
                 <h3>Goal review</h3>
                 <Markdown text={record.goal_review_prompt.prompt} />
               </>}

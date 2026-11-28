@@ -6575,6 +6575,55 @@ class TasksServiceTest(unittest.TestCase):
         self.assertFalse(detail["goal"].get("keep_exploring", False))
         self.assertEqual(self.action(owner, "my-goals")["review_times"][ticket], "09:00")
 
+    def test_browser_goal_occurrences_are_owner_scoped_and_share_signed_receipts(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        other, _ = self.login(app, "Blake")
+        ticket = "T-1"
+        detail = f"/api/v1/tasks/{ticket}"
+        complete = detail + "/goal-occurrences/complete"
+        inbox = "/api/v1/notifications/work"
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.call(owner, "/api/v1/profile/milestone", method="PATCH", json={
+                "goal": {"summary": "Publish the sample", "deadline": "2030-04-10", "tickets": []},
+            })
+            self.action(owner, "set-goal-review-time", {"id": ticket, "time": "09:00"})
+            occurrences = self.call(owner, detail).json["goal_occurrences"]
+            self.assertEqual(self.call(owner, inbox).json["goal_occurrences"], occurrences)
+            self.assertEqual(self.action(owner, "my-next")["goal_occurrences"], occurrences)
+            explore, review = occurrences
+            self.assertEqual((explore["kind"], review["kind"]), ("explore", "review"))
+            self.assertEqual(review["goal_review_prompt"]["project"], "T")
+            self.assertNotIn("goal_occurrences", self.call(other, detail).json)
+            self.assertNotIn("goal_occurrences", self.call(other, inbox).json)
+
+            result = {"occurrence_key": explore["key"], "note": "The checked sample passed.",
+                      "url": "https://example.test/evidence"}
+            self.call(other, complete, method="POST", json=result, status=404)
+            self.call(app.test_client(), complete, method="POST", json=result, status=401)
+            self.call(owner, complete, method="POST", headers={"Origin": "https://example.test"}, json=result, status=403)
+            original = self.call(owner, complete, method="POST", headers={"Origin": ORIGIN}, json=result).json
+            self.assertEqual(self.call(owner, complete, method="POST", json=result).json, original)
+            retry = self.action(owner, "complete-goal-occurrence", {"id": ticket, **result})
+            self.assertEqual({key: retry[key] for key in original}, original)
+            recorded = self.call(owner, f"/api/v1/activity/{original['event_id']}").json
+            self.assertEqual(recorded["links"][0]["url"], result["url"])
+            self.assertEqual(self.call(owner, inbox).json["goal_occurrences"], [review])
+            self.assertEqual(self.call(owner, detail).json["task"]["state"], "parked")
+
+            self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Check the review."})
+            self.assertEqual(self.call(owner, inbox).json["goal_occurrences"], [review])
+            self.assertEqual(self.action(owner, "my-next")["goal_occurrences"], [review])
+            self.action(owner, "create-task", {"title": "New ready work", "step": "Take priority."})
+            self.assertNotIn("goal_occurrences", self.call(owner, inbox).json)
+            self.assertNotIn("goal_occurrences", self.action(owner, "my-next"))
+            self.assertEqual(self.call(owner, detail).json["goal_occurrences"], [review])
+            reviewed = self.call(owner, complete, method="POST", json={
+                "occurrence_key": review["key"], "note": "Keep the published result.",
+            }).json
+            self.assertNotEqual(reviewed["event_id"], original["event_id"])
+            self.assertEqual(self.call(owner, detail).json["goal_occurrences"], [])
+
     def test_workflow_prompts_follow_signed_work_without_changing_selection(self):
         from tasks_guidance import AgentGuidance
 
@@ -8613,6 +8662,7 @@ class TasksServiceTest(unittest.TestCase):
             self.assertIn("Open the due ask", inbox["next_step"])
             self.assertNotIn("goal_review_prompt", inbox)
             self.assertNotIn("inbox_follow_up", inbox)
+            self.assertNotIn("goal_occurrences", self.call(avery, "/api/v1/notifications/work").json)
             return inbox["ask_recheck"]
 
         self.call(sam, reminder, method="PUT", json={"date": "2000-01-01"})
@@ -8647,6 +8697,8 @@ class TasksServiceTest(unittest.TestCase):
         resumed = self.action(avery, "my-next")
         self.assertNotIn("ask_recheck", resumed)
         self.assertEqual(resumed["work"]["key"], standing)
+        resumed_browser = self.call(avery, "/api/v1/notifications/work").json
+        self.assertEqual(resumed_browser["goal_occurrences"][0]["ticket"], standing)
         self.call(sam, reminder, method="PUT", json={"date": None})
         self.assertIsNone(self.call(sam, route).json["items"][0]["remind_on"])
         self.call(sam, reminder, method="PUT", json={"date": "2000-01-02"})

@@ -1759,6 +1759,8 @@ def create_app(
         owns = key is not None and key == task["dri"]
         if owns and result["goal"] and task["state"] not in ("done", "closed"):
             result["goal_review_prompt"] = agent_guidance.project_prompt(db(), project, tasks_guidance.GOAL_REVIEW)
+            with tasks_storage.read(db()) as connection:
+                result["goal_occurrences"] = presented_goal_occurrences(connection, key, project, ticket=task["key"])
         if key is not None and task["state"] in ("ready", "in_progress"):
             run = next((run for run in result["workers"]
                         if run["status"] in ("planned", "running", "reported")
@@ -4034,6 +4036,70 @@ def create_app(
         prompt = agent_guidance.workflow_prompt(connection, project, name)
         return {"workflow_prompt": prompt} if prompt["prompt"] else {}
 
+    def presented_goal_occurrences(connection, owner, project, *, ticket=None):
+        now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
+        items = []
+        for occurrence in goal_cadence.occurrences(connection, owner, project, now):
+            if ticket is not None and occurrence["ticket"] != ticket:
+                continue
+            if occurrence["kind"] == "review":
+                scope, _ = projects.identifier(occurrence["ticket"])
+                occurrence["goal_review_prompt"] = agent_guidance.project_prompt(
+                    connection, scope, tasks_guidance.GOAL_REVIEW,
+                )
+            items.append(occurrence)
+        return items
+
+    def inbox_goal_occurrences(connection, owner, project, work):
+        today = pacific_day(ledger.timestamp())
+        if work:
+            if work["kind"] == "in_progress" and ledger.task_goal_kind(connection, work["id"]):
+                if next(query(connection).actionable_work(owner, today=today, project=project, ordinary_only=True), None):
+                    return []
+            elif work["kind"] != "goal_review":
+                return []
+        if query(connection).requested_asks(owner, project=project, today=today, due_only=True):
+            return []
+        return presented_goal_occurrences(connection, owner, project)
+
+    def complete_goal_occurrence(key, number, data):
+        occurrence_key = text(data, "occurrence_key", maximum=100)
+        receipt = f"{occurrence_key} · Completed"
+        fields = activity_text(data, "log")
+        links = one_link(data)
+        with tasks_storage.write(db()) as connection:
+            task = ledger.find_task(connection, number)
+            if task is None or task["dri"] != key:
+                raise NotFound()
+            project = require_visible_task(connection, number)
+            previous = goal_cadence.occurrence_receipt(connection, number, occurrence_key)
+            if previous is not None:
+                return {"receipt": receipt, "occurrence_key": occurrence_key,
+                        "event_id": previous["id"], "completed_at": previous["at"]}
+            at = ledger.timestamp()
+            now = datetime.fromisoformat(at).astimezone(PACIFIC)
+            ticket = projects.row_reference(task)
+            if not any(item["key"] == occurrence_key and item["ticket"] == ticket for item in
+                       goal_cadence.occurrences(connection, key, project, now)):
+                raise RequestError("This goal occurrence is no longer eligible.", 409)
+            for _, url in links:
+                if related := internal_link_project(connection, url):
+                    require_visible_project(connection, related)
+                    require_same_ring(connection, project, related)
+            context = {"goal_occurrence": occurrence_key}
+            if "details" in fields:
+                context["activity_details"] = fields["details"]
+            event = ledger.record(connection, number, "log", key, task["state"], fields["note"],
+                                  task["waiting_on"], links, context, at=at)
+            ledger.bump_revision(connection, project)
+        return {"receipt": receipt, "occurrence_key": occurrence_key, "event_id": event, "completed_at": at}
+
+    @app.post("/api/v1/tasks/<number>/goal-occurrences/complete")
+    def complete_browser_goal_occurrence(number):
+        actor = current_actor(write=True, required=True)
+        data = json_body({"occurrence_key", "note", "details", "url", "label"})
+        return complete_goal_occurrence(actor["ledger_key"], task_number(number), data)
+
     @app.get("/api/v1/notifications/work")
     def notification_work():
         actor = current_actor(required=True)
@@ -4049,6 +4115,8 @@ def create_app(
                 **({"standing_goal_guidance": goals.KEEP_EXPLORING if standing[0].get("keep_exploring")
                    else agent_guidance["standing-exploration"]} if not items and standing else {}),
             }
+            if occurrences := inbox_goal_occurrences(connection, owner, project, items[0] if items else None):
+                result["goal_occurrences"] = occurrences
             if actor["kind"] == "agent":
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, items[0] if items else None, standing, owner)
                 result.update(offered_work_prompt(connection, items[0] if items else None))
@@ -5327,10 +5395,8 @@ def create_app(
                             "Record the outcome or blocker, acknowledge the recheck with its cue key, and recheck Inbox."
                         ),
                     }
-                if work is None or work["kind"] == "goal_review":
-                    now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
-                    if items := list(goal_cadence.occurrences(connection, key, project, now)):
-                        result["goal_occurrences"] = items
+                if items := inbox_goal_occurrences(connection, key, project, work):
+                    result["goal_occurrences"] = items
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, work, result["standing_goals"], key)
                 result.update(offered_goal_prompt(connection, work, result["standing_goals"]))
                 if candidates := query().wait_review_candidates(key, project):
@@ -5372,47 +5438,9 @@ def create_app(
         if name == "my-goal-occurrences":
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:
-                now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
-                items = list(goal_cadence.occurrences(connection, key, project, now))
-                for item in items:
-                    if item["kind"] == "review":
-                        scope, _ = projects.identifier(item["ticket"])
-                        item["goal_review_prompt"] = agent_guidance.project_prompt(
-                            connection, scope, tasks_guidance.GOAL_REVIEW,
-                        )
-            return {"items": items}
+                return {"items": presented_goal_occurrences(connection, key, project)}
         if name == "complete-goal-occurrence":
-            number = task_number(data["id"])
-            occurrence_key = text(data, "occurrence_key", maximum=100)
-            receipt = f"{occurrence_key} · Completed"
-            fields = activity_text(data, "log")
-            links = one_link(data)
-            with tasks_storage.write(db()) as connection:
-                task = ledger.find_task(connection, number)
-                if task is None or task["dri"] != key:
-                    raise NotFound()
-                project = require_visible_task(connection, number)
-                previous = goal_cadence.occurrence_receipt(connection, number, occurrence_key)
-                if previous is not None:
-                    return {"receipt": receipt, "occurrence_key": occurrence_key,
-                            "event_id": previous["id"], "completed_at": previous["at"]}
-                at = ledger.timestamp()
-                now = datetime.fromisoformat(at).astimezone(PACIFIC)
-                ticket = projects.row_reference(task)
-                if not any(item["key"] == occurrence_key and item["ticket"] == ticket for item in
-                           goal_cadence.occurrences(connection, key, project, now)):
-                    raise RequestError("This goal occurrence is no longer eligible.", 409)
-                for _, url in links:
-                    if related := internal_link_project(connection, url):
-                        require_visible_project(connection, related)
-                        require_same_ring(connection, project, related)
-                context = {"goal_occurrence": occurrence_key}
-                if "details" in fields:
-                    context["activity_details"] = fields["details"]
-                event = ledger.record(connection, number, "log", key, task["state"], fields["note"],
-                                      task["waiting_on"], links, context, at=at)
-                ledger.bump_revision(connection, project)
-            return {"receipt": receipt, "occurrence_key": occurrence_key, "event_id": event, "completed_at": at}
+            return complete_goal_occurrence(key, task_number(data["id"]), data)
         if name == "set-goal-exploration":
             number = task_number(data["id"])
             mode, criterion = dated_exploration(data)
