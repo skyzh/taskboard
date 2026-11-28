@@ -14,6 +14,11 @@ checking its identity and access, use the [parallel work example](AGENT-STARTUP.
 and the [exact revision review workflow](AGENT-STARTUP.md#review-an-exact-revision)
 when the project calls for delegation or formal review.
 
+Include a [daily Waiting and Parked review](AGENT-STARTUP.md#set-up-a-waiting-and-parked-review)
+in owner setup. Reuse a review that already covers the owner's queue. For
+Parked work with 24 hours without substantive progress, identify what can move
+now or record who can clear the current blocker.
+
 ## Choose the setup
 
 Start by asking the person which setup they want. If they already answered one of these questions, use that answer and ask only what remains.

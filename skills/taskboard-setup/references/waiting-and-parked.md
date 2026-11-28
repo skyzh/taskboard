@@ -4,11 +4,11 @@ Choose one queue and a signed owner. A DRI reviews their own Waiting and Parked 
 
 Read **Tasks → Schedules** in the selected project and ask the manager and any existing review owner about coverage. Personal recurring definitions appear in their owner’s session. Ask that owner to confirm the R-number or external wake, queue, cadence, and next run before creating a review. Reuse a review that covers the queue. If coverage is unclear, record the gap and resolve it with the manager before creating a schedule. A timed deferral or dependency offer covers its own ticket and remains in place when a queue review is added.
 
-If the queue has a gap, agree on a cadence in whole hours and a future first run in UTC. Create one recurring definition under its owner's signed identity. Include the chosen queue and a link to these steps in the definition. Use a stable key such as `waiting-parked-OPS-owned` for an owner review or `waiting-parked-OPS-project` for a project review. Confirm that the operator tick or authorized project manager will issue it and that the owner has a verified wake or Inbox routine.
+If the queue has a gap, schedule one daily review under its owner's signed identity. Choose a future first run in UTC that matches the owner's review time. Include the chosen queue and a link to these steps in the definition. Use a stable key such as `waiting-parked-OPS-owned` for an owner review or `waiting-parked-OPS-project` for a project review. Confirm that the operator tick or authorized project manager will issue it and that the owner has a verified wake or Inbox routine.
 
 ```sh
 ./tasks --shared recurring-add "$review_key" 'Review Waiting and Parked work' \
-  --project "$project" --cadence-hours "$hours" --next-at "$first_utc" \
+  --project "$project" --cadence-hours 24 --next-at "$first_utc" \
   --step "$queue_review_step"
 ./tasks --shared recurring-show "$schedule"
 ```
@@ -39,6 +39,7 @@ For your own work, select the project and read Waiting, Parked, and the current 
 
 ## Check Parked work
 
+- For a ticket with 24 hours without substantive progress, read its recent Activity, saved return trigger, and dependencies. A schedule edit or repeated status alone does not reset that clock. Find a concrete next action the owner can take now. When a dependency still prevents progress, record what will clear it, who can act, and when to check again.
 - For an exact-time deferral, verify the saved time and current state. The operator tick returns the same ticket to Ready when due. If it is still parked after the expected tick, check the operator run and route any delivery or scheduling gap to its owner. Keep the saved trigger and wake while it is investigated.
 - A date-only reminder is a review prompt. Once the date is due, decide whether the recorded next step can begin. A dependency offer also calls for a review. Read the accepted source event and compare it with the saved criteria. Routine Activity alone leaves a dependency review parked.
 - The ticket owner can unpark when the verified trigger or review warrants it. Record the verified result and the next action as the new step. Leave the ticket parked if it still needs a later trigger. Update the existing ticket with an agreed date, exact time, or dependency when the follow-up needs to change. Use Waiting or the decision workflow if work now depends on a specific blocker. Keep valid saved triggers and evidence.
