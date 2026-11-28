@@ -2,8 +2,10 @@ from contextlib import closing
 from datetime import datetime, timezone
 from io import StringIO
 import json
+from pathlib import Path
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -911,6 +913,179 @@ class ReadyCheckpointTest(unittest.TestCase):
                               interval=1, idle_delay=2)
         self.assertEqual(wakes, [(3, 1), (8, 2)])
 
+    def test_signed_inbox_wakes_ready_then_recovery_at_the_same_idle_threshold(self):
+        def advance(ticket, transition):
+            self.avery.invoke("advance-task", {
+                "id": ticket, "transition": transition, "note": "Record the test disposition.",
+            }, write=True)
+
+        for title in ("Existing recovery", "Higher-priority Ready"):
+            self.avery.invoke("create-task", {"title": title, "step": "Read the fixture."}, write=True)
+        advance("T-1", "start")
+        drops = []
+
+        def ready(notice, can_wake):
+            self.assertEqual(notice["inbox_work"]["key"], "T-2")
+            self.assertTrue(can_wake())
+            drops.append(("ready", clock))
+            advance("T-2", "start")
+            advance("T-2", "done")
+            return "wake-requested"
+
+        def recovery(offer, can_wake):
+            self.assertEqual(offer["task"], "T-1")
+            self.assertTrue(can_wake())
+            drops.append(("recovery", clock))
+            raise KeyboardInterrupt
+
+        clock = 0
+
+        def sleep_for(seconds):
+            nonlocal clock
+            clock += seconds
+            self.assertLess(clock, 100, drops)
+
+        with (
+            patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+            patch("taskboard_cli.ready_checkpoint.sleep", side_effect=sleep_for),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            watch_ready_count(
+                self.avery, "Avery", lambda _: True, self.fail, lambda _: None, idle_delay=120,
+                notify_inbox=ready, notify_stalled=recovery,
+            )
+        self.assertEqual(drops, [("ready", 30), ("recovery", 60)])
+
+    def test_new_ready_work_invalidates_recovery_at_the_last_inbox_check(self):
+        self.avery.invoke("create-task", {"title": "Recovery first", "step": "Read the fixture."}, write=True)
+        self.avery.invoke("advance-task", {
+            "id": "T-1", "transition": "start", "note": "Record the test disposition.",
+        }, write=True)
+        clock = 0
+        selected = []
+
+        def sleep_for(seconds):
+            nonlocal clock
+            clock += seconds
+            self.assertLess(clock, 60)
+
+        def recovery(offer, can_wake):
+            self.assertEqual((offer["task"], clock), ("T-1", 30))
+            self.avery.invoke("create-task", {"title": "New Ready", "step": "Read the fixture."}, write=True)
+            self.assertFalse(can_wake())
+            return None
+
+        def ready(notice, can_wake):
+            self.assertTrue(can_wake())
+            selected.append((notice["inbox_work"]["key"], clock))
+            raise KeyboardInterrupt
+
+        with (
+            patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+            patch("taskboard_cli.ready_checkpoint.sleep", side_effect=sleep_for),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            watch_ready_count(self.avery, "Avery", lambda _: True, self.fail, self.fail,
+                              notify_inbox=ready, notify_stalled=recovery)
+        self.assertEqual(selected, [("T-2", 40)])
+
+    def test_signed_goal_uses_the_same_idle_threshold_after_unknown_status(self):
+        self.avery.invoke("save-goal", {"kind": "standing", "summary": "Improve the queue."}, write=True)
+        clock = 0
+        wakes = []
+
+        def sleep_for(seconds):
+            nonlocal clock
+            clock += seconds
+            self.assertLess(clock, 100)
+
+        def send(offer, can_wake, record):
+            self.assertTrue(can_wake())
+            wakes.append((offer["task"], clock))
+            record("#12345678")
+            return "wake-requested"
+
+        def emit(result):
+            self.assertEqual(result["outcome"], "goal-wake-requested")
+            self.assertEqual(result["idle_seconds"], 30)
+            raise KeyboardInterrupt
+
+        with (
+            TemporaryDirectory() as location,
+            patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+            patch("taskboard_cli.ready_checkpoint.sleep", side_effect=sleep_for),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            watch_ready_count(
+                self.avery, "Avery", lambda _: None if clock == 20 else True, self.fail, emit,
+                idle_delay=120, notify_inbox=self.fail, notify_goal=send,
+                goal_state=Path(location) / "goals.sqlite",
+            )
+        self.assertEqual(wakes, [("T-1", 60)])
+
+    def test_signed_due_goal_review_uses_the_first_idle_window(self):
+        self.avery.invoke("save-goal", {"kind": "standing", "summary": "Review the queue."}, write=True)
+        self.avery.invoke("set-goal-review-time", {"id": "T-1", "time": "09:00"}, write=True)
+        clock = 0
+        wakes = []
+
+        def sleep_for(seconds):
+            nonlocal clock
+            clock += seconds
+            self.assertLess(clock, 80)
+
+        def send(offer, can_wake, record):
+            self.assertTrue(can_wake())
+            self.assertEqual(offer["goal_kind"], "standing-daily")
+            wakes.append(clock)
+            record("#12345678")
+            return "wake-requested"
+
+        def emit(result):
+            self.assertEqual(result["outcome"], "goal-wake-requested")
+            raise KeyboardInterrupt
+
+        with (
+            TemporaryDirectory() as location,
+            patch("tasks_core.timestamp", return_value="2030-01-01T18:00:00Z"),
+            patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+            patch("taskboard_cli.ready_checkpoint.sleep", side_effect=sleep_for),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            work = self.avery.invoke("my-next", {"scope": "all"})["work"]
+            self.assertEqual((work["kind"], work["key"]), ("goal_review", "T-1"))
+            watch_ready_count(
+                self.avery, "Avery", lambda _: True, self.fail, emit, idle_delay=120,
+                notify_inbox=self.fail, notify_goal=send, goal_state=Path(location) / "goals.sqlite",
+            )
+        self.assertEqual(wakes, [30])
+
+    def test_signed_inbox_wake_skips_paused_recovery_active_workers_and_unresolved_waits(self):
+        def advance(board, ticket, transition, **fields):
+            board.invoke("advance-task", {
+                "id": ticket, "transition": transition, "note": "Record the test disposition.", **fields,
+            }, write=True)
+
+        for title in ("Paused recovery", "Unresolved wait", "Delegated work"):
+            self.avery.invoke("create-task", {"title": title, "step": "Read the fixture."}, write=True)
+        self.blake.invoke("create-task", {"title": "Blocker", "step": "Read the fixture."}, write=True)
+        advance(self.avery, "T-1", "start")
+        self.avery.invoke("set-cue-pause", {"id": "T-1", "kind": "stalled", "minutes": "30",
+                                           "reason": "Wait for the measured sample."}, write=True)
+        advance(self.avery, "T-2", "start")
+        advance(self.avery, "T-2", "wait", blocked_by="T-4")
+        advance(self.avery, "T-3", "start")
+        blake = self.blake.invoke("context")["actor"]["id"]
+        self.avery.invoke("delegate", {"id": "T-3", "worker": blake, "role": "build",
+                                      "brief": "Run the fixture."}, write=True)
+        self.avery.invoke("worker-handoff", {"run": "W-1", "transition": "start",
+                                            "handle": "fixture"}, write=True)
+        self.assertNotIn("work", self.avery.invoke("my-inbox-wake", {"scope": "all"}))
+        advance(self.blake, "T-4", "start")
+        advance(self.blake, "T-4", "done")
+        work = self.avery.invoke("my-inbox-wake", {"scope": "all"})["work"]
+        self.assertEqual((work["kind"], work["key"]), ("ready", "T-2"))
+
     def test_ready_default_waits_past_thirty_seconds_and_rechecks_the_signed_queue(self):
         self.avery.invoke("create-task", {"title": "Ready before Idle", "step": "Read it."}, write=True)
         clock = 0
@@ -1167,6 +1342,8 @@ class ReadyCheckpointTest(unittest.TestCase):
 
     @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
     def test_repeat_checker_sends_an_anchored_recovery_wake_only_on_terminal_failure(self):
+        context = {**self.avery.invoke("context"), "inbox_wake_cues": False}
+        self.enterContext(patch("taskboard_cli.ready_checkpoint.agent_context", return_value=context))
         argv = ["ready-checkpoint", "--watch-idle", "--repeat", "--by", "Avery",
                 "--channel", "#example", "--message-id", "12345678", "--idle-delay-seconds", "0"]
         auth = {"ok": True, "data": {"serverConfirmed": True, "agentId": "fixture-agent",

@@ -4958,13 +4958,15 @@ def create_app(
                 ledger.bump_revision(connection)
         return result
 
-    def goal_queue_state(connection, owner, project, today):
+    def goal_queue_state(connection, owner, project, today, *, wake_at=None):
         board = query()
-        scope = {"today": today, "project": project, "include_goal_reviews": False}
+        scope = {"today": today, "project": project, "include_goal_reviews": False, "wake_at": wake_at}
         work = next(board.actionable_work(owner, **scope), None)
         ordinary = work is not None
         if work and work["kind"] == "in_progress" and ledger.task_goal_kind(connection, work["id"]) == "standing":
             ordinary = next(board.actionable_work(owner, ordinary_only=True, **scope), None) is not None
+        if wake_at is not None and not ordinary:
+            ordinary = bool(board.requested_asks(owner, project=project, today=today, due_only=True))
         return work is not None, ordinary
 
     def idle_goal_offer(owner, data):
@@ -4979,7 +4981,8 @@ def create_app(
                 return {"offer": offer, **offered_goal_prompt(connection, None, [offer]),
                         "receipt": "Idle goal offer already recorded."}
             now = ledger.timestamp()
-            busy, ordinary = goal_queue_state(connection, owner, None, pacific_day(now))
+            wake_at = now if data.get("for_wake") == "true" else None
+            busy, ordinary = goal_queue_state(connection, owner, None, pacific_day(now), wake_at=wake_at)
             if ordinary:
                 return {"offer": None, "receipt": "Actionable work is available."}
             pacific = datetime.fromisoformat(now).astimezone(PACIFIC)
@@ -4997,10 +5000,10 @@ def create_app(
             return {"offer": offer, **offered_goal_prompt(connection, None, [offer]),
                     "receipt": "Idle goal offer recorded."}
 
-    def inbox_selection(connection, owner, project):
+    def inbox_selection(connection, owner, project, *, wake_at=None):
         board = query()
-        today = pacific_day(ledger.timestamp())
-        work = next(board.actionable_work(owner, today=today, project=project), None)
+        today = pacific_day(wake_at or ledger.timestamp())
+        work = next(board.actionable_work(owner, today=today, project=project, wake_at=wake_at), None)
         exploration = (work is not None and work["kind"] == "in_progress"
                        and ledger.task_goal_kind(connection, work["id"]) == "standing"
                        and goals.exploration_criterion(connection, work["id"]) is not None)
@@ -5105,6 +5108,7 @@ def create_app(
                 "timed_goal_cues": True,
                 "goal_continuation_cues": True,
                 "ask_recheck_cues": True,
+                "inbox_wake_cues": profile is None and actor["kind"] == "agent",
                 "watcher_health_reports": True,
                 "watcher_cue_pauses": True,
                 "can_create_project": project_admin_access(db(), actor),
@@ -5244,6 +5248,24 @@ def create_app(
                         (key, raw, at),
                     )
             return {"cue_key": raw, "acknowledged": True}
+        if name == "my-inbox-wake":
+            project = project_scope(data)
+            wake_at = ledger.timestamp()
+            with tasks_storage.read(db()) as connection:
+                work, ask = inbox_selection(connection, key, project, wake_at=wake_at)
+                if ask:
+                    return {"ask_recheck": ask}
+                if work:
+                    kind = work["kind"]
+                    goal_kind = ledger.task_goal_kind(connection, work["id"]) if kind in ("in_progress", "reminder") else None
+                    if (kind == "goal_review" or (kind == "reminder" and goal_kind)
+                            or (goal_kind == "standing" and goals.exploration_criterion(connection, work["id"]))):
+                        return {"goal_project": projects.identifier(work["key"])[0]}
+                    if goal_kind:
+                        work["goal"] = True
+                    return {"work": work}
+                standing = goals.queue_context(connection, key, project, principal=actor_key())["standing_goals"]
+                return {"goal_project": standing[0]["project"] if standing else project or projects.default_project(connection)}
         if name == "my-next":
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:
@@ -5290,6 +5312,7 @@ def create_app(
             with tasks_storage.read(db()) as connection:
                 busy, ordinary = goal_queue_state(
                     connection, key, project if profile is not None else None, now.date().isoformat(),
+                    wake_at=instant if data.get("for_wake") == "true" else None,
                 )
                 result = goal_cadence.candidates(connection, key, project, now, busy=busy,
                                                  ordinary_busy=ordinary,

@@ -29,7 +29,7 @@ _NOTE = "Activity or decision to record."
 _DETAILS = "Optional handoff details. Send an empty string for a headline alone. With this field, note is a one-line headline."
 CODEX_SNAPSHOT_ACTION = "install-codex-snapshot"
 STANDING_RAFT_ACTIONS = {
-    "my-wake-subscriptions", "set-wake-subscription", "idle-goal-offer", "my-ticket-cues",
+    "my-wake-subscriptions", "set-wake-subscription", "idle-goal-offer", "my-ticket-cues", "my-inbox-wake",
     "my-wake-workers", "worker-check", "my-cue-pauses", "set-cue-pause", "acknowledge-stalled-cue",
 }
 STANDING_RAFT_REQUIRED = "This action requires a standing Raft agent."
@@ -76,6 +76,8 @@ _ACTIONS = {
     }),
     "my-ticket-cues": _Action("GET", "Preview your server-ranked ticket cues without sending a wake.",
                               optional=_PROJECT | _SCOPE | {"limit": "Maximum number of cues from 1 to 20."}),
+    "my-inbox-wake": _Action("GET", "Read the next signed Inbox candidate eligible for an Idle wake.",
+                             optional=_PROJECT | _SCOPE),
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE | {
         "refresh_guidance": "Use true when the client displays the daily Inbox guidance cue.",
     }),
@@ -101,7 +103,7 @@ _ACTIONS = {
     }),
     "idle-goal-offer": _Action("POST", "Return a standing goal at a verified idle runner handoff.", {
         "handoff_id": "Stable runner handoff UUID. Use only after observing Idle and reuse the same ID on retry.",
-    }, _PROJECT),
+    }, {**_PROJECT, "for_wake": "Apply Idle delivery eligibility before recording a standing offer."}),
     "my-goals": _Action("GET", "Read your standing and dated goals for one project.", optional=_PROJECT),
     "report-runtime-observation": _Action("POST", "Report an opted-in agent’s own runtime observation.", {
         "project": "Explicit pilot project prefix.",
@@ -114,7 +116,8 @@ _ACTIONS = {
         "goals": "Whether goal wakes are enabled.",
     }, {**_PROJECT, "revision": "Optional exact Git revision of a clean checkout."}),
     "my-goal-cues": _Action("GET", "Read your eligible goal review cues after checking actionable work across projects.",
-                            optional={**_PROJECT, "include_timed": "Set true to include exact-time goal cues."}),
+                            optional={**_PROJECT, "include_timed": "Set true to include exact-time goal cues.",
+                                      "for_wake": "Apply Idle delivery eligibility before offering goals."}),
     "set-goal-review-time": _Action("POST", "Set or clear the daily review time for an owned goal.", {
         **_TASK, "time": "Pacific 24-hour review time as HH:MM. Send an empty string to clear it.",
     }),
