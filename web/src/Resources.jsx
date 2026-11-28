@@ -141,7 +141,7 @@ function DefinitionFields({ resource, pending, save }) {
       })
       if (saved && !resource) form.reset()
     }}>
-      {!resource && <label>Resource key <input name="key" required pattern="[a-z0-9\-]+"
+      {!resource && <label>Resource key <input name="key" required pattern="[a-z][a-z0-9_\-]{0,63}"
         autoCapitalize="none" spellCheck={false} disabled={pending} /></label>}
       <label>Title <input name="title" required defaultValue={resource?.title} disabled={pending} /></label>
       <label>Conditions <textarea name="conditions" rows={4} required defaultValue={resource?.conditions}
@@ -251,6 +251,11 @@ export default function Resources({ project, projectPicker, revision, session, v
   const [checked, setChecked] = useState(null)
   const [historyRevision, setHistoryRevision] = useState(0)
   const data = checked?.revision === revision && !resource.error ? checked.data : resource.data
+  const refreshClaims = () => {
+    setChecked(null)
+    resource.retry()
+    setHistoryRevision(value => value + 1)
+  }
   const writeContext = {
     project, listPath,
     onReadback: readback => {
@@ -258,16 +263,14 @@ export default function Resources({ project, projectPicker, revision, session, v
       else resource.retry()
       setHistoryRevision(value => value + 1)
     },
-    onReadFailure: () => {
-      setChecked(null)
-      resource.retry()
-      setHistoryRevision(value => value + 1)
-    },
+    onReadFailure: refreshClaims,
   }
   return (
     <>
       <div className="page-heading schedule-heading">
         <h1>Resources</h1>{projectPicker}
+        {verified && <button type="button" disabled={resource.pending || projectsPending}
+          onClick={refreshClaims}>Refresh claims</button>}
         <BoardLink href={'#' + new URLSearchParams({ project })}>Back to Tasks</BoardLink>
       </div>
       {verified ? (
