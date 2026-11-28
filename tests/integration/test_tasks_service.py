@@ -903,13 +903,15 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(edges[named]["wait"]["event_id"], agent_wait)
         self.assertEqual(edges[named]["target"]["id"], agent_id)
         self.assertEqual(edges[named]["target"]["name"], "Blake")
-        self.assertTrue(edges[named]["target"]["url"].endswith("?project=T"))
+        encoded_agent = agent_id.replace(":", "%3A")
+        self.assertEqual(edges[named]["target"]["url"], f"{board}/reports/agents/{encoded_agent}?project=T")
         self.assertEqual(edges[question]["kind"], "question")
         self.assertEqual(edges[question]["source"]["state"], "human_review")
         self.assertEqual(edges[question]["wait"]["event_id"], current_request)
         self.assertEqual(edges[question]["target"]["event_id"], current_request)
         self.assertEqual(edges[question]["target"]["owner"], {"id": quinn_id, "name": "Quinn"})
-        self.assertTrue(edges[question]["target"]["url"].endswith(f"?decision-request={current_request}"))
+        self.assertEqual(edges[question]["target"]["url"],
+                         f"{board}/tickets/{question}?decision-request={current_request}")
         self.assertNotEqual(current_request, old_request)
         self.assertEqual({(edges[key]["kind"], edges[key]["target"]) for key in (automation, request)}, {("legacy", None)})
         self.assertNotIn("Internal", json.dumps(browser))
@@ -952,7 +954,8 @@ class TasksServiceTest(unittest.TestCase):
             self.action(member, "advance-task", {"id": source, "transition": "wait", "note": "Private reason.",
                                                  "blocked_by": private_target})
         with closing(open_sqlite(self.database)) as db, db:
-            mark_private(db, "LAB", [member_id])
+            mark_private(db, "LAB", [member_id, human_id])
+        self.action(member, "set-ring1-member", {"project": "LAB", "principal": human_id, "allowed": False})
 
         self.call(outsider, "/api/v1/projects/LAB/dependency-edges", status=404)
         self.action(outsider, "dependency-edges", query_string={"project": "LAB"}, status=404)
@@ -960,6 +963,10 @@ class TasksServiceTest(unittest.TestCase):
         inside = {edge["source"]["key"]: edge for edge in member_payload["items"]}
         self.assertEqual(set(inside), {private_source, question})
         self.assertEqual(inside[private_source]["target"]["key"], private_target)
+        private_event = inside[private_source]["wait"]["event_id"]
+        self.assertEqual(inside[private_source]["wait"]["url"], f"{ORIGIN}{BASE}/activity/events/{private_event}")
+        self.call(outsider, f"/api/v1/activity/{private_event}", status=404)
+        self.assertEqual(self.call(member, f"/api/v1/activity/{private_event}").json["task_key"], private_source)
         hidden = inside[question]
         self.assertEqual((hidden["kind"], hidden["target"]), ("unavailable", None))
         self.assertNotIn(human_id, json.dumps(hidden))
