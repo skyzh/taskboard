@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 from tempfile import TemporaryFile
+from threading import Event, Lock, Timer, get_ident
 from time import time
 import unittest
 from unittest.mock import Mock, patch
@@ -20,6 +21,7 @@ from taskboard_cli.ready_checkpoint import disposition, offer_work
 from taskboard_server.managed_ready import ManagedReadySender, SampledIdleGate, SenderScope, initialize
 from taskboard_server.managed_ready_grant import ManagedReadyGrant
 from taskboard_server.managed_ready_operator import _check_run_mode, locked_state, main as managed_ready
+from taskboard_server.managed_ready_service import Enrollment, _read_slot_credential, serve
 from taskboard_server.ready_wake_operator import main as send_wake
 from tasks_core import import_notification_on, timestamp
 from tasks_goal_wake_receipts import receipt as goal_receipt
@@ -322,6 +324,89 @@ class ManagedSenderTest(unittest.TestCase):
 
     def calls(self):
         return [name for name, _ in self.provider.calls]
+
+    def test_shared_service_keeps_ready_and_retry_isolated_across_two_dris(self):
+        app = self.service.app(portal_reader=True)
+        other_client, other_owner = self.service.login(app, "Blake")
+        other = SignedBoard(self.service, other_client)
+        second = self.service.provider.wake_recipient("Blake").identity
+        self.service.cli("register-project", TINYLLM, "Fixture Tiny LLM", "--dri", other_owner)
+        other.invoke("set-wake-subscription", {
+            "project": TINYLLM, "event_type": OWNED_READY, "enabled": "true",
+        }, write=True)
+        self.baseline(sampled=True)
+        root = self.ledger.parent
+        second_state = root / "other-state.sqlite"
+        with closing(open_sqlite(self.ledger)) as db:
+            initialize(second_state, db, SenderScope(self.ledger, second, "fixture-client", TINYLLM), sampled=True)
+        first_task = self.create()["event"]
+        second_key = other.invoke("create-task", {"project": TINYLLM, "title": "Other scope",
+                                                  "step": "Inspect the other sample."}, write=True)["receipt"].split()[0]
+        second_task = self.service.task_event(other_client, second_key)["event"]
+        secret = root / "fixture-secret"
+        secret.write_text("fixture-secret", encoding="ascii")
+        secret.chmod(0o600)
+        (root / "SHA256SUMS").write_text("fixture artifact", encoding="ascii")
+        status = root / "status.json"
+        scopes = [Enrollment(self.identity.subject, PROJECT, self.state, "fixture-client", secret, False, False),
+                  Enrollment(second.subject, TINYLLM, second_state, "fixture-client", secret, False, False)]
+        seen = {}
+        identities = {}
+        providers = {self.identity.subject: self.provider, second.subject: FakeManagedRaft(second)}
+        lock = Lock()
+        self.provider.on_event = lambda body: (429, {"error": "fixture_limit"}, {"Retry-After": "120"})
+
+        def run_service(stop):
+            def transport(request):
+                route = urlsplit(request.full_url).path.rsplit("/", 1)[-1]
+                with lock:
+                    if route == "agent":
+                        identities[get_ident()] = json.loads(request.data)["agentId"]
+                    recipient = identities[get_ident()]
+                    provider = providers[recipient]
+                    result = provider(request)
+                    if route == "agent-events":
+                        seen[recipient] = seen.get(recipient, 0) + 1
+                        if len(seen) == 2:
+                            stop.set()
+                    return result
+
+            with patch("taskboard_server.managed_ready_service._pilot_status", return_value=lambda: "idle"), patch(
+                "taskboard_server.managed_ready_service.SampledIdleGate",
+                side_effect=lambda *args, **kwargs: Mock(eligible=Mock(return_value=True)),
+            ), patch("taskboard_server.managed_ready_service._POLL_SECONDS", .02):
+                fd = os.open(secret, os.O_RDONLY)
+                inherited = [replace(scope, secret=None) for scope in scopes]
+                credential = _read_slot_credential(inherited, ("fixture-client", str(fd)))
+                serve(status, root, self.ledger, self.identity.server_id, "fixture", inherited, stop,
+                      credential, transport=transport)
+
+        stop = Event()
+        timer = Timer(3, stop.set)
+        timer.start()
+        try:
+            run_service(stop)
+        finally:
+            timer.cancel()
+            timer.join()
+        self.assertEqual(seen, {self.identity.subject: 1, second.subject: 1})
+        self.assertEqual(self.outcomes(), [(first_task, "pending"), (second_task, "accepted")])
+        with locked_state(self.state, self.ledger) as state:
+            pending = state.execute("SELECT attempt_event, retry_at FROM sender").fetchone()
+            self.assertEqual(pending["attempt_event"], first_task)
+            self.assertGreater(pending["retry_at"], self.now + 60)
+        self.assertFalse(status.exists())
+
+        stop = Event()
+        timer = Timer(.4, stop.set)
+        timer.start()
+        try:
+            run_service(stop)
+        finally:
+            timer.cancel()
+            timer.join()
+        self.assertEqual(seen, {self.identity.subject: 1, second.subject: 1})
+        self.assertEqual(self.outcomes(), [(first_task, "pending"), (second_task, "accepted")])
 
     def test_exact_deferral_releases_into_the_pinned_agent_event(self):
         self.replay_scheduled_agent_event(recurring=False)

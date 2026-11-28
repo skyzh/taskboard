@@ -496,3 +496,65 @@ as the authorized owner of that private directory. They share the existing
 deadline and serialize each REST request while updating it. A preview checks the
 deadline without writing it. This coordination leaves deploy’s exact-main and
 required-check verification in place.
+
+### Run the checked notification service
+
+Stage the complete verified operator launcher first, following the atomic
+launcher exchange above. The Pi timer uses the installed launcher tree. The
+notification integration becomes available there after that exchange. Retain
+the previous launcher for rollback.
+
+Install the reviewed `taskboard-notifications.service` under the existing
+operator account. Point it at the same installed launcher and deploy
+configuration as the deploy timer. The launcher inherits its `current` pointer
+and serving-slot Python interpreter from that configuration and uses `exec` so
+systemd tracks the process that sends notifications. Use a private user-unit
+drop-in to point PATH and the Raft profile at the operator’s already authorized
+availability command.
+
+Keep the notification scope configuration private and owned by the operator.
+Set `ledger` to the existing SQLite ledger, `server` to the approved Raft server
+UUID, and `slug` to that server’s slug. Each of the enrolled `scopes` has a
+`recipient` UUID, `project` prefix, absolute `state` path, OAuth `client`
+identifier, and boolean `goals` and `batches` flags.
+
+To reuse the existing serving-slot app credential, set
+`notification_slot_credential` in the private deploy configuration. Its
+`client_env` and `secret_env` values name the already approved variables in the
+selected serving process. Use `"secret": null` for scopes bound to that app
+client. The launcher verifies the selected slot’s process and release, then
+copies the intended value into an anonymous file descriptor. The worker checks
+the client binding and closes the descriptor before checking availability or
+sending. The unit gets a fresh descriptor on boot, restart, and rollback.
+The existing serving process remains the credential source. A scope can instead
+use its existing operator-owned credential file by setting `secret` to its
+absolute path.
+
+For the initial cutover, mount the reviewed release and keep the normal release
+lock held while transferring ownership. Stop the old owner for each selected
+scope and confirm its Pi child is gone. Start the notification unit with only
+those transferred scopes and their original state files. A scope that still has
+an owner reports `state_locked` and sends nothing. Leave the other scopes with
+their existing processes until their transfer. Stop the new unit and verify it
+has exited before restarting a previous launcher against the same state.
+
+The private `%t/taskboard-notifications/status.json` gives the running PID,
+artifact manifest, commit when release metadata is available, enrolled and active
+scope counts, and each scope’s latest outcome and Ready or batch retry state.
+Compare the PID to the unit’s `MainPID` and the manifest to the checked mounted
+release. Verify each transferred scope’s existing subscription and state paths
+and match a naturally delivered cue with the recipient’s signed outcome.
+
+After the initial checked handover passes, add `notification_worker` to the
+existing deploy configuration with `unit` set to the notification unit name and
+`status` set to its absolute private status-file path. Set `scope_config` to the
+same absolute scope configuration path used by the service unit. The checked
+release waits for the candidate web mount before restarting the notification
+unit. It verifies the worker PID, manifest, and exact configured scope set.
+A configured scope with a stopped subscription or grant remains in the report
+as inactive. If the
+worker check fails, the slot transaction restores the previous web release and
+verifies that its worker is running. Normal upgrades reuse existing sender state
+throughout. A deliberately stopped scope remains stopped. Keep the rollout
+setting off during the first migration until the prior and next release can both
+start the unit.

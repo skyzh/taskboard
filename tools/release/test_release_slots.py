@@ -3,6 +3,7 @@
 from contextlib import closing
 from pathlib import Path
 import json
+import os
 import sqlite3
 from subprocess import CalledProcessError, CompletedProcess, TimeoutExpired
 import sys
@@ -10,6 +11,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 
+from notification_worker import checked_worker, exec_notification_worker
 from operator_deploy import checked_main_receipt, read_main_state, receive_checked_main
 from publish_receipt import publish_outcome, release_event
 from release_plan import (
@@ -132,6 +134,89 @@ class ReleaseSlotsTest(unittest.TestCase):
         return run_release(
             self.layout, self.artifact, self.entry, restart, smoke or self.smoke, self.journal, slots=self.slots,
         )
+
+    def test_notification_worker_uses_the_configured_slot_interpreter_and_pointer(self):
+        launcher = Mock()
+        scope_config = self.layout.current.parent / "configured-scopes.json"
+        status = self.layout.current.parent / "worker-status.json"
+        python = "/fixture/ssd/bin/python"
+        config = {"python": "/fixture/launcher/bin/python", "slots": {"python": python}}
+        exec_notification_worker(config, self.layout, scope_config, status, exec_worker=launcher)
+        launcher.assert_called_once_with(python, [
+            python, "-B", str(self.layout.current / "tasks_managed_ready.py"), "run-service",
+            "--config", str(scope_config), "--status", str(status),
+        ])
+
+    def test_notification_launch_copies_only_the_verified_selected_slot_credential(self):
+        config = {"slots": self.settings,
+                  "notification_slot_credential": {"client_env": "FIXTURE_CLIENT", "secret_env": "FIXTURE_VALUE"}}
+        read_environment = Mock(return_value=b"UNRELATED=ignore\0FIXTURE_CLIENT=dummy-client\0FIXTURE_VALUE=dummy=value\0")
+        calls = []
+
+        def exec_worker(executable, command):
+            client, fd = command[-2:]
+            self.assertEqual((executable, command[-3], client), (sys.executable, "--slot-credential", "dummy-client"))
+            self.assertNotIn("dummy=value", command)
+            self.assertTrue(os.get_inheritable(int(fd)))
+            calls.append(os.read(int(fd), 100))
+
+        options = dict(exec_worker=exec_worker, run=self.systemd, read_environment=read_environment)
+        exec_notification_worker(config, self.layout, "scope.json", "status.json", **options)
+        self.assertEqual(calls, [b"dummy=value\n"])
+        read_environment.assert_called_once_with(123)
+
+        read_environment.return_value = b"FIXTURE_CLIENT=dummy-client\0"
+        with self.assertRaisesRegex(ValueError, "credential is missing"):
+            exec_notification_worker(config, self.layout, "scope.json", "status.json", **options)
+
+        read_environment.reset_mock()
+        self.processes[self.units[PRIOR_PORT]] = self.candidate
+        with self.assertRaises(MountedCheckFailed):
+            exec_notification_worker(config, self.layout, "scope.json", "status.json", **options)
+        read_environment.assert_not_called()
+        self.assertEqual(calls, [b"dummy=value\n"])
+
+    def test_checked_worker_restart_runs_after_mount_and_restores_prior_on_failure(self):
+        status = self.layout.current.parent / "notification-status.json"
+        unit = "fixture-notifications.service"
+        restarts = []
+        shared = status.with_name("scope.sqlite")
+        shared.write_text("durable sender cursor", encoding="ascii")
+
+        scope_config = status.with_name("worker-config.json")
+        active = {"project": "T", "recipient": "fixture"}
+        opted_out = {"project": "TINYLLM", "recipient": "other"}
+        write_json(scope_config, {"scopes": [active, opted_out]})
+        scope_config.chmod(0o600)
+
+        def write_status(digest, missing_scope=False):
+            scopes = [{**opted_out, "status": "subscription_stopped"}]
+            if not missing_scope:
+                scopes.append({**active, "status": "running"})
+            write_json(status, {"manifest": digest, "pid": 321, "enrolled": len(scopes),
+                                "active": int(not missing_scope), "scopes": scopes})
+            status.chmod(0o600)
+
+        write_status(self.base)
+
+        def restart():
+            current = self.layout.current.resolve()
+            restarts.append(current)
+            self.assertEqual(self.events[-1][0], "mounted")
+            self.assertEqual(self.events[-1][-1], current)
+            write_status(current.name, missing_scope=current == self.candidate)
+
+        def run(command, **kwargs):
+            self.assertEqual(command, ["systemctl", "--user", "show", "--value", "--property=MainPID", unit])
+            return CompletedProcess(command, 0, stdout="321\n")
+
+        smoke = checked_worker(self.smoke, unit, status, scope_config, restart, run=run, pause=lambda _: None)
+        result = self.release(smoke=smoke)
+        self.assertEqual(result["status"], "rolled_back")
+        self.assertEqual((self.layout.current.resolve(), self.slots.selected()), (self.previous, PRIOR_PORT))
+        self.assertEqual(restarts, [self.candidate, self.previous])
+        self.assertEqual(shared.read_text(), "durable sender cursor")
+        self.assertEqual(json.loads(status.read_text())["manifest"], self.base)
 
     def test_candidate_is_pinned_and_healthy_before_routing_changes(self):
         result = self.release()

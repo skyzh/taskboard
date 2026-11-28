@@ -14,6 +14,7 @@ import tarfile
 import time
 
 from local_queue import checked_results, drain_queue, elapsed_ms, fixture_verifier, queue_lock, write_json
+from notification_worker import checked_worker, exec_notification_worker
 from publish_receipt import publish_outcome, release_event, signed_in_service
 from queue_provenance import GIT_COMMIT, ticket_number
 from release_plan import (
@@ -229,6 +230,13 @@ def run_config(config, record, run=subprocess.run, *, checked_main=None, candida
     verify = fixture_verifier(package, pin, python, config["suites"])
     restart = service_restart(config["unit"], run)
     healthy = mounted_verifier(layout, package, pin, python, config["mount"], config.get("avatars", ()), run)
+    if "notification_worker" in config:
+        worker = config["notification_worker"]
+        if (not isinstance(worker, dict) or worker.keys() != {"unit", "status", "scope_config"}
+                or worker["unit"] == config["unit"]):
+            raise ValueError("Configure the separate checked notification unit and its private status file.")
+        worker_restart = service_restart(worker["unit"], run)
+        healthy = checked_worker(healthy, worker["unit"], worker["status"], worker["scope_config"], worker_restart, run=run)
     slots = ReleaseSlots(config["slots"], layout.database, run=run) if "slots" in config else None
     if checked_main is not None:
         return receive_checked_main(config, layout, checked_main, candidate, base, source, verify, restart, healthy,
@@ -256,7 +264,11 @@ def main():
     action.add_argument("--activity-url", help="Project the saved outcome linked to its exact Activity event.")
     action.add_argument("--read-state", action="store_true", help="Read the Pi manifest and any saved outcome.")
     action.add_argument("--restore-selected-slot", action="store_true", help="Start the configured pinned slot at boot.")
+    action.add_argument("--run-notification-worker", nargs=2, metavar=("SCOPE_CONFIG", "STATUS"), type=Path,
+                        help="Run enrolled notifications from the selected release and operator interpreter.")
     args = parser.parse_args()
+    if args.run_notification_worker and (args.checked_main or args.record_service):
+        parser.error("Run the notification worker as a standalone operator action.")
     if args.checked_main is None and any((args.candidate, args.base, args.activity_url, args.read_state)):
         parser.error("The selected operation requires --checked-main.")
     if args.attempt_id is not None and not (args.checked_main and (args.activity_url or args.read_state)):
@@ -271,6 +283,11 @@ def main():
         parser.error("Read or project a saved outcome without a new transfer.")
     try:
         config = read_operator_config(args.config)
+        if args.run_notification_worker:
+            if type(config.get("operator_uid")) is not int or config["operator_uid"] != os.getuid():
+                raise ValueError("Run under the existing authorized Taskboard service account.")
+            exec_notification_worker(config, deployment_layout(config), *args.run_notification_worker)
+            return 0
         invoke = signed_in_service(args.record_service) if args.record_service else None
 
         def record(outcome):

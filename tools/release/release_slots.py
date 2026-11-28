@@ -137,7 +137,7 @@ class ReleaseSlots:
         ])
         self.verify(port, release, attempts=attempts)
 
-    def verify(self, port, release, *, attempts=_SLOT_PROBE_ATTEMPTS):
+    def pinned_pid(self, port, release):
         unit = self.units[port]
         properties = self._systemctl(
             "show", unit, "--property=WorkingDirectory", "--property=MainPID", "--property=ActiveState",
@@ -148,6 +148,10 @@ class ReleaseSlots:
             or not re.fullmatch(r"[1-9][0-9]*", values.get("MainPID", ""))
         ):
             raise MountedCheckFailed([{"name": "slot", "reason": "not_pinned_to_release"}])
+        return int(values["MainPID"])
+
+    def verify(self, port, release, *, attempts=_SLOT_PROBE_ATTEMPTS):
+        self.pinned_pid(port, release)
         credential = self.admission.read_text(encoding="utf-8").strip()
         if not credential:
             raise MountedCheckFailed([{"name": "slot", "reason": "missing_portal_admission"}])
