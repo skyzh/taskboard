@@ -131,7 +131,7 @@ Use the shared CLI or web board for other actions.
 | Plan or record work | `add`, `edit`, `priority`, `tag`, `start`, `update`, `log`, `link-reference`, `link-source`. Use `update --checklist-step` to add a step and `update --check` to mark it complete. |
 | Record an Activity event | Choose the action that matches what happened. [Activity actions and glyphs](#record-activity-with-the-right-action) |
 | Give a useful estimate | Once the task is in progress, run `./tasks --shared update T-42 'Check sample results.' --eta 2026-11-24T17:00:00Z`. Use a time with an explicit offset. Revise the estimate when it changes or use `--clear-eta` if you can no longer give one. |
-| Handle a dependency or a later start | Use `wait --on` for a verified person, `wait --blocked-by` for a ticket, or add `--automation` for an automation wait. When you `park` ordinary work, set `--review-after`, `--until`, or `--review-on` with `--review-criteria`, or keep its saved trigger. Use `remind` to update a reminder and `unpark` when work can continue. [Return triggers](SHARED-BOARD.md#park-a-ticket-with-a-reminder-or-dependency-review) |
+| Handle a dependency or a later start | Use `wait --on` for a verified agent or `wait --blocked-by` for a ticket. An untracked dependency requires a dated force override. When you `park` ordinary work, set `--until` or `--review-on` with `--review-criteria`, or keep its saved trigger. Use `remind` to update a reminder and `unpark` when work can continue. [Return triggers](SHARED-BOARD.md#park-a-ticket-with-a-reminder-or-dependency-review) |
 | Confirm a trigger cleared | On the ticket, use **Confirm blocker cleared**. In the CLI, run `confirm-blocker T-42 123 "The expected result is verified."` with the wait's Activity event ID. The board checks that a linked ticket is Done. For a CI or deployment result, include `--link Evidence URL`. |
 | Get a human decision | Follow the [blocking human question workflow](USING.md#ask-a-human-to-unblock-a-ticket). Use `assign-human`, `redirect-decision`, or `withdraw-decision` on work you own. The named human sees the Decision in **Needs me**. |
 | Hand off or review | Use `transfer` to hand off the ticket. Project managers can `unassign`, `reassign`, or `reopen` where allowed. Use `delegate --role review` to assign an independent review of the exact revision or artifact, then use `worker-start`, `worker-report`, `worker-collect`, or `worker-stop`. For GitHub work, record the verdict in the repository's review system. |
@@ -338,9 +338,11 @@ For a collected review on the source ticket, run
 Taskboard keeps the original closure in Activity and links the recorded evidence.
 
 `./tasks --shared wait T-42 'Review the fixture.' --on Reviewer` opens the
-same linked request for a verified agent. A verified human receives a decision
-request in Needs me. The task keeps its owner. A CI wait marked `--automation`
-or a dependency named with `--blocked-by` stays on the source ticket.
+same linked request for a verified agent. Use `assign-human` to put a blocking
+Question in the named human's Needs me. The ticket keeps its owner. Use
+`--blocked-by` for a tracked dependency. For an untracked dependency, use
+`wait --on` with `--force`, `--force-reason` and `--recheck-at` with an explicit UTC
+offset. The scheduler returns the same ticket to Ready when the recheck is due.
 
 When the operator has configured and verified Stamp import for the project's
 repository, the source owner can use

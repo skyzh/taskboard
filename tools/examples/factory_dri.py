@@ -1,6 +1,7 @@
 """Run one owned Taskboard ticket through a factory's own worker command."""
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -87,7 +88,9 @@ def run_ticket(board, actor, ticket, knowledge, command, directory):
 
     change = {"id": ticket, **report}
     if status == "blocked":
-        change.update(transition="wait", on="Factory coordinator follow-up", automation=True)
+        recheck = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(timespec="seconds")
+        change.update(transition="wait", on="Factory coordinator follow-up", force=True,
+                      force_reason="The factory worker reported an external blocker.", recheck_at=recheck)
     else:
         change["transition"] = "done"
     return board.invoke("advance-task", change, write=True)["receipt"]

@@ -102,8 +102,9 @@ before(async () => {
         }))
         plugin.onLoad({ filter: /.*/, namespace: 'fixture' }, ({ path }) => ({
           contents: path === 'react' ? `
-            import { useEffect as reactEffect, useId as reactId, useRef as reactRef } from ${JSON.stringify(require.resolve('react'))}
-            export { default, createContext, useContext, useLayoutEffect, useMemo } from ${JSON.stringify(require.resolve('react'))}
+            import { useContext as reactContext, useEffect as reactEffect, useId as reactId, useRef as reactRef } from ${JSON.stringify(require.resolve('react'))}
+            export { default, createContext, useLayoutEffect, useMemo } from ${JSON.stringify(require.resolve('react'))}
+            export function useContext(context) { return ${fixtureLookup}.directContext ?? reactContext(context) }
             export function useCallback(callback) { return callback }
             export function useId() { return ${fixtureLookup}.directIds?.shift() ?? reactId() }
             export function useEffect(effect, deps) {
@@ -2334,12 +2335,13 @@ test('text and workflow confirmations each add only their own override in either
   const workflowWarning = Object.assign(new Error('Review the workflow warning.'), {
     status: 409, code: 'TRANSITION_CONFIRMATION_REQUIRED',
   })
+  fixture.directContext = { timeZone: 'America/Los_Angeles' }
   let feedback
   fixture.onSetState = value => {
     if (value?.pendingRequest) feedback = value
   }
   function form(warning = null) {
-    fixture.state = ['', note, 'ticket', '', false, warning, reason]
+    fixture.state = ['', note, 'ticket', '', '', '', false, warning, reason]
     return React.Children.toArray(TaskTransition(props).props.children).find(child => child.type === 'form')
   }
   function confirm(warning) {
@@ -2373,6 +2375,7 @@ test('text and workflow confirmations each add only their own override in either
   } finally {
     delete fixture.request
     delete fixture.onSetState
+    delete fixture.directContext
   }
 })
 
@@ -2381,8 +2384,8 @@ test('ticket status controls submit the chosen transition and require an unblock
   const sent = []
   const event = { preventDefault() {} }
   fixture.request = async (path, options) => { sent.push({ path, ...options }) }
-  function form(action, note, waitKind, target) {
-    fixture.state = [action, note, waitKind, target]
+  function form(action, note, waitKind, target, recheck = '', reason = '') {
+    fixture.state = [action, note, waitKind, target, recheck, reason]
     return React.Children.toArray(TaskTransition(props).props.children).find(child => child.type === 'form')
   }
   try {
@@ -2390,23 +2393,31 @@ test('ticket status controls submit the chosen transition and require an unblock
     const waiting = renderToStaticMarkup(React.createElement(TaskTransition, props))
     assert.match(waiting, /<option value="wait" selected="">Record a wait<\/option>/)
     assert.match(waiting, /Unblock condition/)
-    assert.doesNotMatch(waiting, /Start work|Complete ticket|Return to Ready|Person or DRI/)
+    assert.doesNotMatch(waiting, /Start work|Complete ticket|Return to Ready|Verified agent/)
     fixture.state = ['wait']
-    assert.match(renderToStaticMarkup(React.createElement(TaskTransition, { ...props, ownsTicket: true })), /Person or DRI/)
+    assert.match(renderToStaticMarkup(React.createElement(TaskTransition, { ...props, ownsTicket: true })), /Verified agent/)
+    fixture.directContext = { timeZone: 'America/Los_Angeles' }
     await form('wait', '  ', 'ticket', 'COURSE-2').props.onSubmit(event)
     await form('wait', 'Confirm the export.', 'ticket', '  ').props.onSubmit(event)
+    await form('wait', ' Check the export. ', 'external', 'nightly export').props.onSubmit(event)
     assert.equal(sent.length, 0)
 
     await form('update', ' Check the sample. ', 'ticket', '').props.onSubmit(event)
     await form('wait', ' Confirm the export. ', 'ticket', ' COURSE-2 ').props.onSubmit(event)
-    await form('wait', ' Wait for the nightly check. ', 'automation', ' nightly export ').props.onSubmit(event)
+    await form('wait', ' Wait for the nightly check. ', 'external', ' nightly export ',
+      '2030-04-01T12:00', 'The export runs outside the board.').props.onSubmit(event)
     assert.deepEqual(sent, [
       { path: '/tasks/COURSE-7/transition', method: 'POST', body: { transition: 'update', note: 'Check the sample.' } },
       { path: '/tasks/COURSE-7/transition', method: 'POST', body: { transition: 'wait', note: 'Confirm the export.', blocked_by: 'COURSE-2' } },
-      { path: '/tasks/COURSE-7/transition', method: 'POST', body: { transition: 'wait', note: 'Wait for the nightly check.', on: 'nightly export', automation: true } },
+      { path: '/tasks/COURSE-7/transition', method: 'POST', body: {
+        transition: 'wait', note: 'Wait for the nightly check.', on: 'nightly export',
+        force: true, force_reason: 'The export runs outside the board.',
+        recheck_local: '2030-04-01T12:00', recheck_time_zone: 'America/Los_Angeles',
+      } },
     ])
   } finally {
     delete fixture.request
+    delete fixture.directContext
   }
 })
 

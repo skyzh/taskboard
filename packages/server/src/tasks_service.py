@@ -1904,7 +1904,7 @@ def create_app(
 
     def has_verifiable_blocker(state, context):
         return state == "waiting" and not context.get("peer_ask_ticket") and (
-            "blocked_by" in context or context.get("wait_kind") == "automation"
+            "blocked_by" in context or context.get("wait_kind") in ("automation", "external")
         )
 
     def confirm_blocker(actor, number, wait_event, note, links, force_reason=None):
@@ -3353,6 +3353,7 @@ def create_app(
         actor = current_actor(write=True, required=True)
         data = json_body({
             "transition", "note", "on", "blocked_by", "automation", "attention_request_id", "details", "review_wait",
+            "recheck_at", "recheck_local", "recheck_time_zone",
             "steps", "started", "checked", "eta", "clear_eta", "review_after", "defer_until", "standing_pass",
             "review_on", "review_criteria", "feature_deferred", "label", "url", "force_delivery", *TRANSITION_OVERRIDE_FIELDS,
         }, writing=True)
@@ -5286,13 +5287,28 @@ def create_app(
         review_wait = integer(data["review_wait"], "review_wait") if "review_wait" in data else None
         if review_wait is not None and command != "resume":
             raise RequestError("Use resume to record a concrete preparation step from wait review.")
+        recheck_at = text(data, "recheck_at", optional=True, maximum=32)
+        if "recheck_local" in data or "recheck_time_zone" in data:
+            if recheck_at is not None:
+                raise RequestError("Supply one recheck time.")
+            recheck_at = local_defer_time({"at": data.get("recheck_local"), "time_zone": data.get("recheck_time_zone")})
+        if recheck_at is not None and (command != "wait" or transition_force_reason(data) is None):
+            raise RequestError("Use a forced wait with a reason to set an exceptional recheck time.")
         blocked_by = data.get("blocked_by")
+        missing_blocker = False
         if "blocked_by" in data:
             try:
-                projects.identifier(blocked_by)
+                blocker_project, _ = projects.identifier(blocked_by)
             except ValueError as error:
                 raise RequestError(str(error)) from error
-            if local is not None:
+            if ring1.private(db(), blocker_project):
+                require_visible_project(db(), blocker_project)
+            try:
+                target = projects.resolve(db(), blocked_by)
+                missing_blocker = ledger.find_task(db(), target) is None
+            except LookupError:
+                missing_blocker = True
+            if local is not None and not missing_blocker:
                 task_number(blocked_by)
         if blocked_by is not None and command != "wait":
             raise RequestError("Choose wait to link a blocking ticket.")
@@ -5312,16 +5328,28 @@ def create_app(
         if attention_request is not None and automation == "true":
             raise RequestError("An attention wait cannot be marked as automation.")
         peer, human_wait = None, False
-        if command == "wait" and on and blocked_by is None and automation == "false":
-            person = peer_asks.named_person(db(), on)
-            if person is None or person["kind"] not in ("agent", "human"):
-                raise RequestError("Choose one verified human or agent, or supply a blocking ticket or automation wait.")
-            human_wait = person["kind"] == "human"
-            on = (question_recipient(actor, number, person["ledger_key"]) if human_wait
-                  else require_person(person["ledger_key"], "agent", task_id=number))
-            if on == actor["ledger_key"]:
-                raise RequestError("Choose a different person for this wait.")
-            if not human_wait:
+        if command == "wait":
+            if attention_request is not None:
+                raise RequestError("Use a Question assigned to the human who needs to answer. Attention Requests are separate.")
+            if on and on.removeprefix("@").strip().casefold() == "needs me":
+                raise RequestError("Choose a real wait target. For a human decision, use a Question.")
+            if blocked_by is not None and (on is not None or automation == "true"):
+                raise RequestError("Choose a blocking ticket or a named wait.", 409)
+            person = peer_asks.named_person(db(), on) if on else None
+            if person is not None and person["kind"] == "human":
+                if on != person["ledger_key"] or "force" in data or automation == "true":
+                    raise RequestError("Use a Question assigned to this human to request their answer.")
+                on = question_recipient(actor, number, person["ledger_key"])
+                human_wait = True
+            exceptional = missing_blocker or (on is not None and person is None)
+            if exceptional and recheck_at is None:
+                raise RequestError("Choose a real ticket or verified agent, or force an exceptional wait with a reason and future recheck.")
+            if not exceptional and (recheck_at is not None or automation == "true"):
+                raise RequestError("Use a dated force override only for an exceptional wait without a verified target.")
+            if not exceptional and person is not None and not human_wait:
+                on = require_person(person["ledger_key"], "agent", task_id=number)
+                if on == actor["ledger_key"]:
+                    raise RequestError("Choose a different person for this wait.")
                 peer = on
         if "force_delivery" in data and peer is None:
             raise RequestError("Confirm delivery only when waiting for a named agent.")
@@ -5343,6 +5371,7 @@ def create_app(
         return mutate(
             command, actor, data, id=number, on=on, option=options,
             blocked_by=blocked_by, peer_recipient=peer, human_wait=human_wait, review_wait=review_wait,
+            recheck_at=recheck_at,
             force_delivery=force_delivery(data),
             reason=reason, automation=automation == "true", **parking,
             checklist_step=steps, start_check=started, check=checked, attention_request_id=attention_request,

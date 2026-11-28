@@ -608,7 +608,8 @@ class ReadyCheckpointTest(unittest.TestCase):
         self.assertEqual([(item["worker_run"], item["idle_seconds"]) for item in avery_wakes], [(1, 1800)])
         self.assertEqual([(item["worker_run"], item["idle_seconds"]) for item in blake_wakes], [(3, 60), (2, 1800)])
         self.avery.invoke("advance-task", {
-            "id": "T-1", "transition": "wait", "on": "Build service", "automation": "true", "note": "Wait for the build.",
+            "id": "T-1", "transition": "wait", "on": "Build service", "note": "Wait for the build.",
+            "force": True, "force_reason": "The build runs outside Taskboard.", "recheck_at": "2030-04-01T19:30:00Z",
         }, write=True)
         for board in (self.avery, self.blake):
             for status in ("planned", "running"):

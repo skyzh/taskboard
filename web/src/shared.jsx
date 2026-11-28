@@ -571,7 +571,8 @@ export function ChecklistSteps({ steps, relatedTasks, editStep, showMissingTimes
 
 export function ReminderWhen({ context, className }) {
   if (context?.defer_until && context.defer_at) {
-    return <p className={className}>Deferred until <time dateTime={context.defer_until}>{context.defer_at.replace('T', ' ')}</time></p>
+    return <p className={className}>{context.wait_kind === 'external' ? 'Recheck at' : 'Deferred until'}{' '}
+      <time dateTime={context.defer_until}>{context.defer_at.replace('T', ' ')}</time></p>
   }
   if (context?.review_after) {
     return <p className={className}>Review on or after <time dateTime={context.review_after}>{context.review_after}</time></p>
@@ -602,6 +603,7 @@ export function OutcomeNote({ event, headline, withEvidence = true, choiceShown 
         <p><strong>Reason</strong></p>
         <Markdown text={context.decision_reason} relatedTasks={event.related_tasks} />
       </>}
+      {context.wait_override_reason && <p>Override reason · <MarkdownInline text={context.wait_override_reason} /></p>}
       <ReminderWhen context={context} />
       <Options options={context.choices} />
       {context.request_event_id && (

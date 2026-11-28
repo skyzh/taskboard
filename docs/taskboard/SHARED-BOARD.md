@@ -738,7 +738,7 @@ the Tasks CLI.
 
 ### Park a ticket with a reminder or dependency review
 
-Set a return trigger when you park ordinary work. Use `park --review-after YYYY-MM-DD` for a Pacific date, `park --until <timestamp-with-offset>` for an exact time, or `park --review-on T-2 --review-criteria 'What to check'` for a dependency review. The Park action saves the next step and trigger together. Use [Waiting on or a Decision](USING.md#park-work-with-a-return-trigger) for a blocker that must act first.
+Set a return trigger when you park ordinary work. Use `park --until <timestamp-with-offset>` for an exact time or `park --review-on T-2 --review-criteria 'What to check'` for a dependency review. For shared ordinary work, `park --review-after YYYY-MM-DD` schedules midnight at the start of the Pacific date. The Park action saves the next step and trigger together. Use [Waiting on or a Decision](USING.md#park-work-with-a-return-trigger) for a blocker that must act first.
 
 The dependency review appears in the owner's Inbox and in
 `./tasks --shared readiness` after the source ticket records a completion,
@@ -747,7 +747,7 @@ updates leave the ticket parked without a review prompt. If an operator
 will report the next deploy on a continuing tracking ticket, use
 `wait --on` with the operator's name so they can return the result.
 
-Use `./tasks --shared remind T-1 --until 2026-11-24T16:30-08:00` or choose **Exact time** on the task's reminder form to set a reminder. The task shows the chosen local time and its offset. The board stores the instant in UTC and releases the same task to Ready on the first operator tick at or after that instant. For an ambiguous local time when clocks go back, use the CLI with the offset for the occurrence you want. Use `--on YYYY-MM-DD` for a date-only reminder in Pacific time. Use `remind --clear` on ordinary parked work only when a registered dependency review remains.
+Use `./tasks --shared remind T-1 --until 2026-11-24T16:30-08:00` or choose **Exact time** on the task's reminder form to set a reminder. The task shows the chosen local time and its offset. The board stores the instant in UTC and releases the same task to Ready on the first operator tick at or after that instant. For an ambiguous local time when clocks go back, use the CLI with the offset for the occurrence you want. For shared ordinary work, `--on YYYY-MM-DD` schedules midnight at the start of the Pacific date. Use `remind --clear` on ordinary parked work only when a registered dependency review remains.
 
 Use `./tasks --shared park T-1 "Read the latest entry in the review index."` to refresh the reason on a ticket with a saved reminder or dependency review. The existing trigger stays in place.
 

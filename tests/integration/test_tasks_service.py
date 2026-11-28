@@ -2,6 +2,8 @@
 
 from tools.checkout import ROOT
 
+from argparse import Namespace
+
 from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, redirect_stderr, redirect_stdout
@@ -37,7 +39,10 @@ from taskboard_cli import main as tasks_main
 from taskboard_cli.ready_checkpoint import watch_ready_count
 from taskboard_client import SharedBoard
 from taskboard_client.direct import DirectBoard
-from tasks_core import SCHEMA, import_notification_on, import_release_event, record, release_due_deferrals, timestamp
+from tasks_core import (
+    SCHEMA, find_task, import_notification_on, import_release_event, link_attention_wait,
+    record, release_due_deferrals, timestamp,
+)
 from tasks_projects import register
 from tasks_queries import BoardQueries
 from tasks_ring1 import mark_private
@@ -773,6 +778,13 @@ class TasksServiceTest(unittest.TestCase):
             capture_output=True, text=True, check=True, cwd=self.database.parent,
         ).stdout
 
+    def seed_legacy_request_wait(self, task, owner, request, note, details=None):
+        with closing(open_sqlite(self.database)) as db, db:
+            previous = find_task(db, task)["event_id"]
+            context = {"activity_details": details} if details else {}
+            event = record(db, task, "wait", owner, "waiting", note, "Needs me", [], context)
+            link_attention_wait(db, Namespace(id=task, by=owner), event, request, previous)
+
     def seed_legacy_file_source(self, task_id, key, path):
         with closing(sqlite3.connect(self.database)) as db, db:
             source_id = db.execute(
@@ -782,16 +794,61 @@ class TasksServiceTest(unittest.TestCase):
             db.execute("INSERT INTO task_sources (task_id, source_id) VALUES (?, ?)", (task_id, source_id))
         return source_id
 
+    def test_shared_wait_requires_a_verified_target_or_an_exact_forced_recheck(self):
+        app = self.app(portal_reader=True)
+        owner, owner_key = self.login(app, "Avery")
+        human, human_key = self.login(app, "Sam")
+        self.action(owner, "create-task", {"title": "Verify the external service", "step": "Check the release."})
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Inspect the release."})
+        wait = {"id": "T-1", "transition": "wait", "note": "Check whether the vendor has released the fix."}
+        forced = {"force": True, "force_reason": "The external vendor has no Taskboard ticket.",
+                  "recheck_at": "2030-04-01T19:30:00Z"}
+        for data in (
+            {"on": "Vendor support"}, {"blocked_by": "T-9999"},
+            {"on": "Vendor support", "force": True, "force_reason": forced["force_reason"]},
+            {"on": "Needs me", **forced}, {"on": "Sam", **forced},
+        ):
+            self.action(owner, "advance-task", {**wait, **data}, status=400)
+        self.action(owner, "advance-task", {
+            **wait, "blocked_by": "T-9999", **forced, "recheck_at": "2020-04-01T19:30:00Z",
+        }, status=409)
+        status, output, failure = self.shared_cli(
+            owner, "wait", "T-1", wait["note"], "--on", "Vendor support", "--force",
+            "--force-reason", forced["force_reason"], "--recheck-at", forced["recheck_at"],
+        )
+        self.assertEqual((status, failure), (0, ""))
+        self.assertIn("T-1", output)
+        waiting = self.call(owner, "/api/v1/tasks/T-1").json["task"]
+        self.assertEqual((waiting["state"], waiting["waiting_on"], waiting["wait_kind"]),
+                         ("waiting", "Vendor support", "external"))
+        self.assertEqual(waiting["context"]["wait_override_reason"], forced["force_reason"])
+        self.assertEqual(waiting["reminder"], {"kind": "exact", "at": forced["recheck_at"]})
+        self.assertFalse(self.action(owner, "my-next").get("wait_review"))
+        self.assertNotIn("released_deferrals", json.loads(self.cli("recurring-tick", "--as-of", "2030-04-01T19:29:59Z")))
+        due = json.loads(self.cli("recurring-tick", "--as-of", forced["recheck_at"]))
+        self.assertEqual(due["released_deferrals"], ["T-1"])
+        ready = self.call(owner, "/api/v1/tasks/T-1").json["task"]
+        self.assertEqual((ready["state"], ready["dri"]), ("ready", owner_key))
+        self.assertTrue(ready["context"]["wait_recheck"])
+        self.assertIn("Vendor support", ready["note"])
+
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Ask the decision."})
+        self.action(owner, "advance-task", {
+            "id": "T-1", "transition": "assign-human", "on": human_key, "note": "Is this release approved?",
+        })
+        question, = self.call(human, "/api/v1/notifications/decisions").json["items"]
+        self.assertEqual(question["event_id"], self.call(owner, "/api/v1/tasks/T-1").json["task"]["event_id"])
+        self.assertEqual(question["note"], "Is this release approved?")
+
     def test_wait_review_records_owner_preparation_without_inferring_approval(self):
         app = self.app(portal_reader=True)
-        owner, _ = self.login(app, "Avery")
+        owner, owner_id = self.login(app, "Avery")
         reviewer, _ = self.login(app, "Blake")
         self.action(owner, "create-task", {"title": "Prepare the fixture", "step": "Inspect resources."})
         self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Read the draft."})
-        self.action(owner, "advance-task", {
-            "id": "T-1", "transition": "wait", "on": "Future approved deployment window",
-            "automation": "true", "note": "Wait for the live window.",
-        })
+        with closing(open_sqlite(self.database)) as db, db:
+            record(db, 1, "wait", owner_id, "waiting", "Wait for the live window.",
+                   "Future approved deployment window", [], {"wait_kind": "automation"})
         candidate, = self.action(owner, "my-next")["wait_review"]
         preparation = {
             "id": "T-1", "transition": "resume", "review_wait": candidate["wait_event"],
@@ -830,7 +887,8 @@ class TasksServiceTest(unittest.TestCase):
                              json={"wait_event": event, "note": "The expected result is verified.", **data}).json
 
         advance("T-1", "start")
-        advance("T-1", "wait", on="Portable checks", automation="true")
+        advance("T-1", "wait", on="Portable checks", force=True,
+                force_reason="The external check is not a ticket.", recheck_at="2030-04-01T19:30:00Z")
         event = read(owner, "T-1")["task"]["event_id"]
         self.assertTrue(read(manager, "T-1")["can_confirm_blocker"])
         self.assertTrue(read(other, "T-1")["can_confirm_blocker"])
@@ -1553,7 +1611,7 @@ class TasksServiceTest(unittest.TestCase):
 
         code, output, errors = self.shared_cli(owner, "park", "COURSE-3", "Pause without a dependency.")
         self.assertEqual((code, output), (1, ""))
-        self.assertIn("Choose a reminder or dependency review", errors)
+        self.assertIn("Choose an exact future time or dependency review", errors)
         self.assertEqual(self.action(owner, "task", query_string={"id": "COURSE-3"})["task"]["state"], "ready")
         reason = "Verify the final squash or an explicit deferral with an owner."
         code, output, errors = self.shared_cli(
@@ -3719,7 +3777,7 @@ class TasksServiceTest(unittest.TestCase):
 
         self.action(avery, "advance-task", {
             "id": "T-1", "transition": "wait", "note": "Wait for the fixture.", "blocked_by": "T-2",
-        }, status=409)
+        }, status=400)
         self.assertIn("Committed", command(avery, "wait", "T-1", "Finish the course fixture.", "--blocked-by", "COURSE-1"))
         blocked = self.call(viewer, "/api/v1/tasks/1").json["task"]
         self.assertEqual(blocked["blockers"]["tickets"], [{"id": 2, "key": "COURSE-1", "state": "in_progress"}])
@@ -4931,10 +4989,9 @@ class TasksServiceTest(unittest.TestCase):
             "id": "T-2", "transition": "assign-human", "on": sam_id, "note": "Choose the export format.",
             "options": json.dumps(["CSV", "TSV"]),
         })
-        self.action(avery, "advance-task", {
-            "id": "T-3", "transition": "wait", "on": "External export", "automation": "true",
-            "note": "Continue when the export arrives.",
-        })
+        with closing(open_sqlite(self.database)) as db, db:
+            record(db, 3, "wait", avery_id, "waiting", "Continue when the export arrives.",
+                   "External export", [], {"wait_kind": "automation"})
         for key in ("T-1", "T-2", "T-3"):
             with self.subTest(task=key):
                 before = self.action(avery, "task", query_string={"id": key})["task"]
@@ -5111,7 +5168,9 @@ class TasksServiceTest(unittest.TestCase):
         self.action(fresh, "task-activity", query_string={"id": "T-1"})
         self.assertEqual(self.call(fresh, "/api/v1/revision").json, revision)
         code, output, error = self.shared_cli(
-            author, "wait", "T-1", example["current_handoff"], "--on", "export fixture host", "--automation",
+            author, "wait", "T-1", example["current_handoff"], "--on", "export fixture host",
+            "--force", "--force-reason", "The fixture host is external.",
+            "--recheck-at", "2030-04-01T19:30:00Z",
         )
         self.assertEqual((code, error), (0, ""))
         self.assertIn("T-1 · Wait recorded", output)
@@ -5481,7 +5540,8 @@ class TasksServiceTest(unittest.TestCase):
         run(avery, "assign-human", "T-1", "Choose a format.", "--on", "@sam")
         run(avery, "add", "Wait for a fixture", "--step", "Run the fixture.")
         run(avery, "start", "T-2", "Run the fixture.")
-        run(avery, "wait", "T-2", "Wait for the result.", "--on", "Fixture host", "--automation")
+        run(avery, "wait", "T-2", "Wait for the result.", "--on", "Fixture host", "--force",
+            "--force-reason", "The build runs outside Taskboard.", "--recheck-at", "2030-04-01T19:30:00Z")
         run(blake, "add", "Other person's decision", "--step", "Contact Sam.")
         run(blake, "start", "T-3", "Contact Sam.")
         run(blake, "assign-human", "T-3", "Choose a label.", "--on", "Sam Reviewer")
@@ -5495,7 +5555,7 @@ class TasksServiceTest(unittest.TestCase):
                 self.assertNotIn("T-3", output)
         automation = run(avery, "list", "--waiting-on", "Fixture host")
         self.assertIn("T-2 · Waiting", automation)
-        self.assertIn("Blocked by Fixture host", automation)
+        self.assertIn("Waiting on Fixture host", automation)
         self.assertEqual(run(avery, "list", "--waiting-on", "Fixture").splitlines(), [
             "No matching tasks in your queue (Avery).",
             "Next: Check your Inbox or adjust the filters.",
@@ -5833,12 +5893,13 @@ class TasksServiceTest(unittest.TestCase):
         committed(blake, "log", "1", "The fixture passed.")
         committed(blake, "log", "1", "Inspect /tmp/fixture.txt.")
         committed(blake, "log", "1", "Got it, will read.", "--details", "Routine acknowledgment.")
-        committed(avery, "wait", "1", "The signature is missing.", "--on", "Blake", "--automation",
-                  "--details", "Blake has the fixture manifest.")
+        committed(avery, "wait", "1", "The signature is missing.", "--on", "Signing service", "--force",
+                  "--force-reason", "The external service owns the signing check.",
+                  "--recheck-at", "2030-04-01T19:30:00Z", "--details", "Blake has the fixture manifest.")
         task = self.call(viewer, "/api/v1/tasks/1").get_json()["task"]
         self.assertEqual((task["state"], task["waiting_on"], task["note"]),
-                         ("waiting", "Blake", "The signature is missing."))
-        self.assertEqual(task["context"], {"wait_kind": "automation"})
+                         ("waiting", "Signing service", "The signature is missing."))
+        self.assertEqual(task["context"]["wait_kind"], "external")
         self.action(avery, "advance-task", {"id": "1", "transition": "resume", "note": "Signature received."})
         committed(avery, "done", "1", "The signed result was verified.", "--details")
 
@@ -6291,8 +6352,10 @@ class TasksServiceTest(unittest.TestCase):
 
         advance("start", "2026-11-20T01:00:00Z")
         first_wait = "2026-11-20T02:00:00Z"
-        advance("wait", first_wait, on="Sample export", automation=True)
-        advance("wait", "2026-11-20T03:00:00Z", on="Sample export", automation=True)
+        external = {"on": "Sample export", "force": True, "force_reason": "The export is external.",
+                    "recheck_at": "2030-04-01T19:30:00Z"}
+        advance("wait", first_wait, **external)
+        advance("wait", "2026-11-20T03:00:00Z", **external)
         self.action(owner, "set-priority", {"id": "T-1", "priority": "high"})
         detail = task()
         self.assertEqual((detail["waiting_since"], detail["at"], detail["priority"]),
@@ -6370,7 +6433,8 @@ class TasksServiceTest(unittest.TestCase):
         self.assertNotIn("progress_prompt", read("10:43:59"))
         self.assertIn("progress_prompt", read("10:44:00"))
 
-        advance("wait", "11:00:00", on="CI", automation=True)
+        advance("wait", "11:00:00", on="CI", force=True, force_reason="CI is external.",
+                recheck_at="2030-04-01T19:30:00Z")
         self.assertNotIn("progress_prompt", read("11:15:00"))
         advance("resume", "11:20:00")
         advance("wait", "11:21:00", blocked_by="T-2")
@@ -7719,7 +7783,8 @@ class TasksServiceTest(unittest.TestCase):
         self.action(avery, "create-task", {"title": "Wait for checks", "step": "Collect results."})
         self.action(avery, "advance-task", {"id": "T-2", "transition": "start", "note": "Collect results."})
         self.action(avery, "advance-task", {"id": "T-2", "transition": "wait", "note": "Checks running.",
-                                          "on": "Automation", "automation": "true"})
+                                          "on": "Automation", "force": True, "force_reason": "External check.",
+                                          "recheck_at": "2030-04-01T19:30:00Z"})
         route = "/api/v1/tasks/1/reminder"
         headers = {"Origin": ORIGIN}
         for client, status in ((app.test_client(), 401), (blake, 409)):
@@ -7747,13 +7812,16 @@ class TasksServiceTest(unittest.TestCase):
             activity = self.call(avery, "/api/v1/tasks/1/activity").json["items"]
             self.assertEqual(sum(event["action"] == "park" for event in activity), 2)
             rejected = self.call(avery, route, method="PUT", headers=headers, json={"date": None}, status=409)
-            self.assertIn("Choose a reminder or dependency review", rejected.json["error"])
+            self.assertIn("Choose an exact future time or dependency review", rejected.json["error"])
             self.assertEqual(self.call(avery, due).json["items"], rows)
         parked = self.call(avery, "/api/v1/tasks/1").json["task"]
         waiting = self.call(avery, "/api/v1/tasks/2").json["task"]
-        self.assertEqual((parked["state"], parked["context"]), ("parked", {"review_after": "2026-11-21"}))
+        self.assertEqual((parked["state"], parked["context"]), ("parked", {
+            "review_after": "2026-11-21", "defer_until": "2026-11-21T08:00:00Z",
+            "defer_at": "2026-11-21T00:00:00-08:00",
+        }))
         self.assertEqual((waiting["state"], waiting["waiting_on"], waiting["context"]["wait_kind"]),
-                         ("waiting", "Automation", "automation"))
+                         ("waiting", "Automation", "external"))
 
     def test_task_parking_saves_the_note_and_return_path_together(self):
         app = self.app(portal_reader=True)
@@ -7843,11 +7911,12 @@ class TasksServiceTest(unittest.TestCase):
         advance("start")
         self.assertTrue(can_park(owner))
         code, output, errors = self.shared_cli(
-            owner, "wait", "T-1", "Wait for the sample export.", "--on", "Sample export", "--automation",
+            owner, "wait", "T-1", "Wait for the sample export.", "--on", "Sample export",
+            "--force", "--force-reason", "The export runs outside Taskboard.",
+            "--recheck-at", "2030-04-01T19:30:00Z",
         )
         self.assertEqual(code, 0, errors)
         self.assertIn("Committed · T-1 · Wait recorded", output)
-        self.assertIn("This wait schedules no timed wake.", output)
         self.assertFalse(can_park(owner))
         self.call(owner, route + "/parking", method="POST", json=data, status=409)
         advance("resume")
@@ -7856,8 +7925,8 @@ class TasksServiceTest(unittest.TestCase):
         )
         self.assertEqual(code, 0, errors)
         self.assertIn("Committed · T-1 · Parked", output)
-        date_hint = ("An active date-only reminder on an owned work ticket appears in the owner's Inbox "
-                     "on the saved Pacific date. For a scheduled goal, use its recurring review.")
+        date_hint = ("The scheduler can return ordinary work to Ready at midnight on the saved Pacific date. "
+                     "For a scheduled goal, use its recurring review.")
         self.assertIn(date_hint, output)
         self.action(owner, "set-wake-subscription", {"event_type": OWNED_READY, "enabled": "false"})
         code, output, errors = self.shared_cli(owner, "remind", "T-1", "--until", "2030-04-01T12:30:00-07:00")
@@ -7903,7 +7972,9 @@ class TasksServiceTest(unittest.TestCase):
         })
         current = self.call(avery, route).json["task"]
         self.assertEqual((current["state"], current["note"], current["context"]),
-                         ("parked", "Review on the agreed date.", {"review_after": "2030-04-01"}))
+                         ("parked", "Review on the agreed date.", {"review_after": "2030-04-01",
+                                                "defer_until": "2030-04-01T07:00:00Z",
+                                                "defer_at": "2030-04-01T00:00:00-07:00"}))
         repaired, historic, _ = self.call(avery, route + "/activity").json["items"]
         self.assertGreater(repaired["id"], legacy_event)
         self.assertEqual((historic["id"], historic["note"]), (legacy_event, legacy["note"]))
@@ -7969,7 +8040,9 @@ class TasksServiceTest(unittest.TestCase):
             {**body, "date": "2030-04-01"},
         ):
             self.call(avery, route + "/reminder", method="PUT", json=invalid, status=400)
-        self.assertEqual(self.call(avery, route).json["task"]["context"], {"review_after": "2030-04-01"})
+        self.assertEqual(self.call(avery, route).json["task"]["context"], {"review_after": "2030-04-01",
+                                                "defer_until": "2030-04-01T07:00:00Z",
+                                                "defer_at": "2030-04-01T00:00:00-07:00"})
 
         self.call(avery, route + "/reminder", method="PUT", json=body)
         parked = self.call(avery, route).json["task"]
@@ -8097,7 +8170,7 @@ class TasksServiceTest(unittest.TestCase):
 
     def test_owner_replaces_exact_linked_request_with_one_question(self):
         app = self.app(portal_reader=True)
-        owner, _ = self.login(app, "Avery")
+        owner, owner_id = self.login(app, "Avery")
         peer, _ = self.login(app, "Blake")
         sam, sam_id = self.login(app, "Sam")
         quinn, quinn_id = self.login(app, "Quinn")
@@ -8112,8 +8185,7 @@ class TasksServiceTest(unittest.TestCase):
 
         original = send("Read the draft.")
         other = send("Review dates separately.")
-        self.action(owner, "advance-task", {"id": "T-1", "transition": "wait", "note": "Wait for feedback.",
-                                            "attention_request_id": original})
+        self.seed_legacy_request_wait(1, owner_id, original, "Wait for feedback.")
         result = self.call(owner, detail).json
         waiting = result["task"]["event_id"]
         self.assertEqual(result["attention_replacement"], {
@@ -8170,7 +8242,7 @@ class TasksServiceTest(unittest.TestCase):
 
     def test_request_question_ignores_independent_and_superseded_requests(self):
         app = self.app(portal_reader=True)
-        owner, _ = self.login(app, "Avery")
+        owner, owner_id = self.login(app, "Avery")
         sam, sam_id = self.login(app, "Sam")
         for title in ("Original", "Different ticket"):
             self.action(owner, "create-task", {"title": title, "step": "Ask Sam."})
@@ -8178,8 +8250,7 @@ class TasksServiceTest(unittest.TestCase):
         requests = "/api/v1/notifications/requests"
         cross = self.action(owner, "raise-attention", {"id": "T-1", "recipient": sam_id,
                                                        "reason": "Review this.", "unblocks": "T-2"})["id"]
-        self.action(owner, "advance-task", {"id": "T-2", "transition": "wait", "note": "Await the other request.",
-                                            "attention_request_id": cross})
+        self.seed_legacy_request_wait(2, owner_id, cross, "Await the other request.")
         detail = "/api/v1/tasks/2"
         result = self.call(owner, detail).json
         self.assertNotIn("attention_replacement", result)
@@ -8190,8 +8261,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([row["id"] for row in self.call(sam, requests).json["items"]], [cross])
 
         exact = self.action(owner, "raise-attention", {"id": "T-2", "recipient": sam_id, "reason": "Review the draft."})["id"]
-        self.action(owner, "advance-task", {"id": "T-2", "transition": "wait", "note": "Await the draft review.",
-                                            "attention_request_id": exact})
+        self.seed_legacy_request_wait(2, owner_id, exact, "Await the draft review.")
         waiting = self.call(owner, detail).json["task"]["event_id"]
         self.action(owner, "advance-task", {"id": "T-2", "transition": "resume", "note": "Continue independently."})
         self.action(owner, "escalate-request-to-question", {**payload, "request_id": exact, "wait_event": waiting},
@@ -8218,9 +8288,7 @@ class TasksServiceTest(unittest.TestCase):
                 "id": "T-1", "recipient": sam_id, "reason": "Read the draft.", "unblocks": "T-2",
             })
             number = request["id"]
-            self.assertEqual(self.shared_cli(blake, "wait", "T-2", "Wait for approval.",
-                                            "--attention-request-id", str(number),
-                                            "--details", "Keep the release ready.")[0], 0)
+            self.seed_legacy_request_wait(2, blake_id, number, "Wait for approval.", "Keep the release ready.")
             self.assertEqual(self.call(sam, inbox).json["items"][0]["item"]["id"], number)
             self.assertEqual(self.call(sam, requests).json["items"][0]["id"], number)
             self.call(sam, f"{requests}/{number}/reminder", method="PUT", headers=headers,
@@ -8287,10 +8355,10 @@ class TasksServiceTest(unittest.TestCase):
         link = ("--attention-request-id", str(request["id"]))
         denied, _, error = self.shared_cli(avery, "wait", "T-3", "A separate wait.", *link)
         self.assertEqual(denied, 1)
-        self.assertIn("Choose an open attention request linked to this task.", error)
+        self.assertIn("Use a Question assigned to the human", error)
         linked_at = "2026-11-20T08:00:00Z"
         with patch("tasks_core.timestamp", return_value=linked_at):
-            self.assertEqual(self.shared_cli(blake, "wait", "T-2", "Wait for the signed-in check.", *link)[0], 0)
+            self.seed_legacy_request_wait(2, blake_id, request["id"], "Wait for the signed-in check.")
         with closing(sqlite3.connect(self.database)) as db, db:
             db.execute("UPDATE attention_wait_links SET started_event_id = NULL WHERE request_id = ?", (request["id"],))
         viewer = app.test_client()
@@ -8298,7 +8366,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(blake, "record-activity", {"id": "T-2", "note": "Independent technical check passed."})
         repeated_at = "2026-11-20T09:00:00Z"
         with patch("tasks_core.timestamp", return_value=repeated_at):
-            self.assertEqual(self.shared_cli(blake, "wait", "T-2", "The signed-in check is still open.", *link)[0], 0)
+            self.seed_legacy_request_wait(2, blake_id, request["id"], "The signed-in check is still open.")
         waiting = self.call(viewer, "/api/v1/tasks/2").json["task"]
         self.assertEqual((waiting["state"], waiting["waiting_on"], waiting["context"]), ("waiting", "Needs me", {}))
         self.assertEqual(waiting["wait_kind"], "attention")
@@ -8348,9 +8416,7 @@ class TasksServiceTest(unittest.TestCase):
 
         def wait_on(number, at):
             with patch("tasks_core.timestamp", return_value=at):
-                self.assertEqual(self.shared_cli(
-                    avery, "wait", "T-1", "Wait for the check.", "--attention-request-id", str(number),
-                )[0], 0)
+                self.seed_legacy_request_wait(1, avery_id, number, "Wait for the check.")
             self.assertEqual(self.call(viewer, "/api/v1/tasks/1").json["task"]["waiting_since"], at)
 
         wait_on(first, "2026-11-20T08:00:00Z")
@@ -8966,17 +9032,14 @@ class TasksServiceTest(unittest.TestCase):
         self.cli("register-project", "COURSE", "Fictional course", "--dri", "Avery")
         app = self.app(portal_reader=True, creation_default_subject=self.provider.people["Sam"]["sub"])
         bind_owner(self.database, SERVER, "agent", self.provider.people["Avery"]["sub"], "Avery")
-        avery, _ = self.login(app, "Avery")
+        avery, avery_id = self.login(app, "Avery")
         sam, sam_key = self.login(app, "Sam")
         self.action(avery, "create-task", {"title": "Course task", "step": "Review.", "project": "COURSE"})
         self.action(avery, "advance-task", {"id": "COURSE-1", "transition": "start", "note": "Review."})
         request = self.action(avery, "raise-attention", {
             "id": "T-1", "recipient": sam_key, "reason": "Review this fixture.", "unblocks": "COURSE-1",
         })
-        self.action(avery, "advance-task", {
-            "id": "COURSE-1", "transition": "wait", "note": "Wait for review.",
-            "attention_request_id": str(request["id"]),
-        })
+        self.seed_legacy_request_wait(2, avery_id, request["id"], "Wait for review.")
         legacy = self.call(sam, "/api/v1/notifications/inbox").get_json()["items"]
         modern = self.call(sam, "/api/v1/notifications/inbox?scope=all").get_json()["items"]
         self.assertTrue(all(item["item"].get("task_key", "T-1").startswith("T-") for item in legacy))
@@ -13344,7 +13407,7 @@ class TasksServiceTest(unittest.TestCase):
                 "project": ticket.split("-")[0], "title": "Review the export", "step": "Read the changes.",
             })
             self.action(avery, "advance-task", {"id": ticket, "transition": "start", "note": "Prepare the diff."})
-            if "on" in dependency and not dependency.get("automation"):
+            if "on" in dependency:
                 # Reproduce rows saved by clients before named waits became linked requests.
                 from argparse import Namespace
                 from tasks_core import change_task
@@ -13357,7 +13420,7 @@ class TasksServiceTest(unittest.TestCase):
                     write(db),
                 ):
                     change_task(db, Namespace(command="wait", id=resolve(db, ticket), by=avery_id, on=dependency["on"],
-                                              automation=False, note="Private fixture note."), [])
+                                              automation=dependency.get("automation", False), note="Private fixture note."), [])
                 return
             with patch("tasks_core.timestamp", return_value="2026-11-22T04:00:00Z"):
                 self.action(avery, "advance-task", {

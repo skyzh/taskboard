@@ -67,7 +67,9 @@ class LocalDRIRoutingTest(unittest.TestCase):
                 denied = action(client, "advance-task", {"id": peer, "transition": "start", "note": "Read the sample.",
                                 "checked": "[1]", **forced}, headers=headers, status=409)
                 self.assertNotIn("code", denied)
-                wait = {"on": "fixture automation", "automation": True}
+                blocker = action(manager, "create-task", {"project": "OPS", "title": "Verify the dependency",
+                                 "step": "Collect the result."})["receipt"].split()[0]
+                wait = {"blocked_by": blocker}
                 for transition, fields in (
                     ("start", {}), ("update", {}), ("wait", wait), ("resume", {}),
                     ("park", {"review_after": "2099-06-01"}), ("remind", {"review_after": "2099-06-02"}),
@@ -350,7 +352,9 @@ class LocalDRIRoutingTest(unittest.TestCase):
         self.assertTrue(own.startswith("OPS-"))
         local("advance-task", {"id": own, "transition": "start", "note": "Check the rows."})
         local("advance-task", {"id": own, "transition": "wait", "note": "Wait for the import.",
-                               "on": "Fixture import", "automation": "true"})
+                               "on": "Fixture import", "force": True,
+                               "force_reason": "The import runs outside Taskboard.",
+                               "recheck_at": "2030-04-01T19:30:00Z"})
         task = local("task", query_string={"id": own})["task"]
         proof = {"id": own, "wait_event": task["event_id"], "note": "The import completed.",
                  "url": "https://example.test/import", "label": "Import result"}

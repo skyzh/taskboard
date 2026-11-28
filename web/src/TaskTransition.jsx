@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useTimeZone } from './timeZone.js'
 import TransitionFeedback, { useTransitionRequest } from './TransitionFeedback.jsx'
 
 const transitions = {
@@ -13,8 +14,8 @@ const transitions = {
 
 const waitKinds = {
   ticket: 'Blocking ticket',
-  teammate: 'Person or DRI',
-  automation: 'Automation',
+  teammate: 'Verified agent',
+  external: 'External dependency',
 }
 
 export default function TaskTransition({ task, actions, ownsTicket, onChanged }) {
@@ -22,10 +23,15 @@ export default function TaskTransition({ task, actions, ownsTicket, onChanged })
   const [note, setNote] = useState('')
   const [waitKind, setWaitKind] = useState('ticket')
   const [dependency, setDependency] = useState('')
+  const [recheck, setRecheck] = useState('')
+  const [forceReason, setForceReason] = useState('')
+  const { timeZone } = useTimeZone()
   const mutation = useTransitionRequest(() => {
     setSelection('')
     setNote('')
     setDependency('')
+    setRecheck('')
+    setForceReason('')
     onChanged()
   }, 'Ticket updated.')
 
@@ -35,7 +41,9 @@ export default function TaskTransition({ task, actions, ownsTicket, onChanged })
   const [label, noteLabel] = transitions[action] || []
   const waiting = action === 'wait'
   const allowedWaitKinds = Object.entries(waitKinds).filter(([kind]) => ownsTicket || kind !== 'teammate')
-  const ready = Boolean(action && note.trim() && (!waiting || dependency.trim()))
+  const external = waiting && waitKind === 'external'
+  const ready = Boolean(action && note.trim() && (!waiting || dependency.trim())
+    && (!external || (recheck && forceReason.trim())))
 
   function submit(event) {
     event.preventDefault()
@@ -45,7 +53,9 @@ export default function TaskTransition({ task, actions, ownsTicket, onChanged })
       if (waitKind === 'ticket') body.blocked_by = dependency.trim()
       else {
         body.on = dependency.trim()
-        if (waitKind === 'automation') body.automation = true
+        if (external) Object.assign(body, {
+          force: true, force_reason: forceReason.trim(), recheck_local: recheck, recheck_time_zone: timeZone,
+        })
       }
     }
     return mutation.submit(`/tasks/${encodeURIComponent(task.key || task.id)}/transition`, body)
@@ -55,12 +65,14 @@ export default function TaskTransition({ task, actions, ownsTicket, onChanged })
     <details className="task-ownership">
       <summary>{available.length === 1 ? label : 'Update ticket status'}</summary>
       <form className="ownership-form" onSubmit={submit}
-        data-reload-blocked={Boolean(mutation.blocked || selection || note || dependency)}>
+        data-reload-blocked={Boolean(mutation.blocked || selection || note || dependency || recheck || forceReason)}>
         {available.length > 1 && <label>Action
           <select value={action} onChange={event => {
             setSelection(event.target.value)
             setNote('')
             setDependency('')
+            setRecheck('')
+            setForceReason('')
             mutation.clear()
           }} required disabled={mutation.blocked}>
             <option value="">Choose an action</option>
@@ -80,6 +92,17 @@ export default function TaskTransition({ task, actions, ownsTicket, onChanged })
             <input value={dependency} onChange={event => setDependency(event.target.value)}
               maxLength={waitKind === 'ticket' ? 28 : 160} required disabled={mutation.blocked} />
           </label>
+          <p>Use a Question when a human needs to answer.</p>
+          {external && <>
+            <label>Why is an override needed?
+              <input value={forceReason} onChange={event => setForceReason(event.target.value)}
+                required disabled={mutation.blocked} />
+            </label>
+            <label>Recheck at ({timeZone})
+              <input type="datetime-local" value={recheck} onChange={event => setRecheck(event.target.value)}
+                required disabled={mutation.blocked} />
+            </label>
+          </>}
         </>}
         {action && <label>{noteLabel}
           <textarea value={note} onChange={event => setNote(event.target.value)}

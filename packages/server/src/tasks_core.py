@@ -723,7 +723,7 @@ def ticket_blocker(task):
     if task["state"] != "waiting":
         return None
     context = event_context(task)
-    if context.get("wait_kind") == "automation":
+    if context.get("wait_kind") in ("automation", "external"):
         return None
     linked = context.get("blocked_by")
     if type(linked) is int and 1 <= linked <= 2**63 - 1:
@@ -760,6 +760,16 @@ def blocker_chain(db, source, blocker, lookup):
 
 def wait_details(db, task, args):
     linked = getattr(args, "blocked_by", None)
+    if recheck := getattr(args, "recheck_at", None):
+        reason = getattr(args, "force_reason", None)
+        if not reason:
+            raise ValueError("Provide a reason for the forced wait.")
+        reminder = defer_time(recheck)
+        if reminder["defer_until"] <= timestamp():
+            raise ValueError("Choose a future time to recheck the forced wait.")
+        return linked or args.on, {
+            **reminder, "wait_kind": "external", "wait_override_reason": reason,
+        }
     if linked is not None:
         if args.on is not None or args.automation:
             raise ValueError("Choose a blocking ticket or a named wait. Automation needs a named wait.")
@@ -1130,6 +1140,10 @@ def change_task(db, args, links, *, automation=None):
         return f"{projects.row_reference(task)} · {label}"
     if args.command == "resume":
         peer_asks.withdraw_named_wait(db, task, args.by, "The source owner resumed the work.")
+    scheduled_date = args.command in ("park", "remind") and not goal_kind and getattr(args, "authorize", None)
+    if scheduled_date and (day := getattr(args, "review_after", None)):
+        midnight = datetime.fromisoformat(day).replace(tzinfo=ZoneInfo("America/Los_Angeles"))
+        context.update(defer_time(midnight.isoformat()))
     if args.command == "remind":
         if not context and task["state"] != "parked":
             raise ValueError("Choose a reminder date or defer time to park this task.")
@@ -1146,11 +1160,14 @@ def change_task(db, args, links, *, automation=None):
         note = task["note"]
         links = json.loads(task["current_links"])
     if args.command in ("park", "remind"):
-        if getattr(args, "defer_until", None) is not None and context["defer_until"] <= timestamp():
+        timed = getattr(args, "defer_until", None) is not None or (
+            scheduled_date and getattr(args, "review_after", None) is not None
+        )
+        if timed and context["defer_until"] <= timestamp():
             raise ValueError("Choose a future defer time.")
         if (not goal_kind and not manages_backlog and not context.get("review_after") and not context.get("defer_until")
                 and not readiness.registered(db, task, context.get("readiness"))):
-            raise ValueError("Choose a reminder or dependency review to park this ticket. Use Waiting on for a blocker.")
+            raise ValueError("Choose an exact future time or dependency review to park this ticket. Use Waiting on for a blocker.")
     if args.command == "redirect-decision" and not human_wait:
         note = task["note"]
         request = db.execute("SELECT links FROM events WHERE id = ?", (task["event_id"],)).fetchone()
@@ -2349,13 +2366,17 @@ def release_due_deferrals(db, as_of):
         if tasks_storage.table_columns(db, "task_goals") else ""
     )
     rows = db.execute(current_tasks_sql(db) + f"""
-        WHERE events.state = 'parked' AND json_extract(events.context, '$.defer_until') <= ?
-          {ordinary_only}
+        WHERE (events.state = 'parked'
+              OR (events.state = 'waiting' AND json_extract(events.context, '$.wait_kind') = 'external'))
+          AND json_extract(events.context, '$.defer_until') <= ? {ordinary_only}
         ORDER BY json_extract(events.context, '$.defer_until'), events.id
     """, (as_of,)).fetchall()
     for task in rows:
-        record(db, task["id"], "unpark", "Taskboard", "ready", task["note"], None, json.loads(task["current_links"]),
-               {"deferred_event_id": task["event_id"]}, at=as_of)
+        recheck = task["state"] == "waiting"
+        record(db, task["id"], "unpark", "Taskboard", "ready",
+               f"Recheck {task['waiting_on']}. {task['note']}" if recheck else task["note"],
+               None, json.loads(task["current_links"]),
+               {"deferred_event_id": task["event_id"], **({"wait_recheck": True} if recheck else {})}, at=as_of)
     return [projects.row_reference(task) for task in rows]
 
 

@@ -112,7 +112,7 @@ def arguments(argv=None):
     options.add_argument("--until", dest="defer_until", metavar="DATETIME",
                          help="Return the task to Ready at the given time with a UTC offset.")
     options.add_argument("--on", dest="review_after", type=review_date, metavar="YYYY-MM-DD",
-                         help="Show the parked task on this Pacific date.")
+                         help="For shared ordinary work, schedule the start of this Pacific date.")
     options.add_argument("--clear", action="store_true", help="Clear the reminder from a parked task.")
     reminder.add_argument("--by", type=nonblank)
     add_transition_override(reminder)
@@ -164,6 +164,8 @@ def arguments(argv=None):
             command.add_argument("--review-wait", type=int, help="Exact signed Inbox wait event to resume for preparation.")
         if action == "wait":
             command.add_argument("--force-delivery", action="store_true", help="Confirm the watcher delivery warning.")
+            command.add_argument("--recheck-at", type=nonblank, metavar="DATETIME",
+                                 help="Future datetime with a UTC offset for a forced external wait.")
         if action in STRUCTURED_ACTIVITY:
             add_details_flag(command)
         if action == "update":
@@ -182,14 +184,14 @@ def arguments(argv=None):
                                  help="Why the request was withdrawn. Block Markdown and fenced mermaid diagrams are supported.")
         if action == "wait":
             dependency = command.add_mutually_exclusive_group(required=True)
-            dependency.add_argument("--on", type=nonblank, help="Verified teammate in shared mode, or an automation name with --automation.")
+            dependency.add_argument("--on", type=nonblank, help="Verified agent, or an external dependency label with a dated force override.")
             dependency.add_argument("--blocked-by", type=task_id, help="Another ticket that must move first.")
             dependency.add_argument(
                 "--attention-request-id", type=int, metavar="ID",
-                help="Wait for the recipient to handle this exact Needs me request in shared mode.",
+                help="Legacy linked Request field. Use assign-human when a new Question must block work.",
             )
             command.add_argument(
-                "--automation", action="store_true", help="Keep this named automation wait in Now.",
+                "--automation", action="store_true", help="Mark a named automation wait in an offline ledger. Use the dated force override on shared boards.",
             )
         if action == "assign-human":
             command.add_argument(
@@ -202,7 +204,7 @@ def arguments(argv=None):
         if action == "park":
             revisit = command.add_mutually_exclusive_group()
             revisit.add_argument("--review-after", type=review_date, metavar="YYYY-MM-DD",
-                                 help="Show the parked task on this Pacific date.")
+                                 help="For shared ordinary work, schedule the start of this Pacific date.")
             revisit.add_argument("--until", dest="defer_until", metavar="DATETIME",
                                  help="Return the task to Ready at the given time with a UTC offset.")
             command.add_argument(

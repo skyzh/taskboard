@@ -1,6 +1,7 @@
 """Build the public demo workflow from a disposable, signed Taskboard ledger."""
 
 import argparse
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import json
 from itertools import count
@@ -12,6 +13,8 @@ add_packages("client", "cli", "server")
 add_tests()
 
 import tasks_core as ledger  # noqa: E402
+from tasks_projects import resolve  # noqa: E402
+from tasks_storage import open_sqlite  # noqa: E402
 import test_tasks_service as fixture  # noqa: E402
 
 
@@ -36,10 +39,10 @@ def public_data(value):
 class Workflow:
     def __init__(self, board, app):
         self.board = board
-        self.author, author_id = board.login(app, "Avery")
+        self.author, self.author_id = board.login(app, "Avery")
         self.reviewer, self.reviewer_id = board.login(app, "Blake")
         self.human, self.human_id = board.login(app, "Sam")
-        board.cli("register-project", PREFIX, PROJECT["title"], "--dri", author_id)
+        board.cli("register-project", PREFIX, PROJECT["title"], "--dri", self.author_id)
         # Preserve the published PR #234 replay's first five Activity anchors.
         for number in range(1, 6):
             self.add(f"Reserved demo event {number}", "Reserve the historical walkthrough anchor.", project="T")
@@ -83,7 +86,12 @@ class Workflow:
         automation = self.start(self.add(
             "Verify the release candidate", "Read the protected check results.",
         ), "Check the candidate's protected jobs.")
-        self.advance(automation, "wait", "The visual check is still running.", on="Visual checks", automation="true")
+        # Retain the demo's historical automation row from before shared waits required a recheck.
+        with closing(open_sqlite(self.board.database)) as connection, connection:
+            ledger.change_task(connection, argparse.Namespace(
+                command="wait", id=resolve(connection, automation), by=self.author_id,
+                note="The visual check is still running.", on="Visual checks", automation=True,
+            ), [])
 
         decision = self.start(self.add(
             "Choose the default reporting scope", "Collect the project manager’s decision.",
@@ -93,7 +101,9 @@ class Workflow:
 
         self.add("Cover an empty project", "Open Reports with a project that has no open tickets.", client=self.reviewer)
         parked = self.add("Revisit Reports copy", "Review the labels after the project default is settled.")
-        self.advance(parked, "park", "Revisit after the default scope decision.", review_after="2026-11-27")
+        with closing(open_sqlite(self.board.database)) as connection, connection:
+            ledger.record(connection, resolve(connection, parked), "park", self.author_id, "parked",
+                          "Revisit after the default scope decision.", None, [], {"review_after": "2026-11-27"})
         closed = self.add("Replace both project selectors", "Check whether a second control is needed.")
         self.board.action(self.author, "close-task", {
             "id": closed, "reason": "The existing project selector covers both routes.",

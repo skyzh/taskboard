@@ -394,8 +394,9 @@ function ticketProperties({ task, goal, recurrence, recurring_runs: recurringRun
   const nextReview = reviewSchedule?.next_at
   const nextRun = recurrence ? recurrence.next_at : recurringRuns?.next_at
   const reviewTime = reviewSchedule?.review_time ?? goal?.review_time
+  const deferLabel = state === 'waiting' ? 'Recheck at' : 'Defer until'
   return [
-    deferUntil ? [goal ? 'Explore after' : 'Defer until', <Timestamp at={deferUntil} />] :
+    deferUntil ? [goal ? 'Explore after' : deferLabel, <Timestamp at={deferUntil} />] :
       reviewDate && ['Review date', <time dateTime={reviewDate}>{reviewDate}</time>],
     state === 'parked' && readiness?.source_key && ['Review after',
       <TaskLink id={readiness.source_id} reference={readiness.source_key} />],
