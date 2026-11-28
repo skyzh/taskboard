@@ -292,69 +292,63 @@ h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: 
 .feature .example-row .example-title { color: #f8f7ff; font-size: 1rem; font-weight: 675; }
 
 .squad {
-  padding: clamp(3.5rem, 7vw, 6.5rem) clamp(1.25rem, 5vw, 4rem);
-  background: linear-gradient(180deg, #eeebff 0%, #f8f9ff 52%);
+  padding: clamp(3rem, 6vw, 5.5rem) clamp(1.25rem, 5vw, 4rem);
+  background: #fcfcff;
 }
 
-.squad-content { max-width: 63rem; margin-inline: auto; }
+.squad-content { max-width: 58rem; margin-inline: auto; }
 .squad-intro { text-align: center; }
+.squad-intro h2 {
+  font-size: clamp(1.85rem, 3.6vw, 2.75rem);
+  letter-spacing: -0.035em;
+  font-weight: 700;
+}
+
 .squad-intro p {
-  margin-top: 0.9rem;
+  margin-top: 0.65rem;
   color: var(--light-muted);
-  font-size: clamp(1.1rem, 2vw, 1.35rem);
+  font-size: clamp(1rem, 1.55vw, 1.15rem);
   line-height: 1.45;
 }
 
 .squad-roster {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-  margin: clamp(1.75rem, 4vw, 2.8rem) 0 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(0.9rem, 2vw, 1.25rem);
+  margin: clamp(1.5rem, 3.25vw, 2.4rem) 0 0;
   padding: 0;
   list-style: none;
 }
 
 .squad-roster li {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.85rem;
-  min-height: 6.75rem;
-  padding: 0.9rem;
-  border: 1px solid #46406b;
-  border-radius: 0.55rem;
+  justify-items: center;
+  align-content: start;
+  gap: 1rem;
+  padding: 1.25rem 0.75rem;
+  text-align: center;
+  border: 1px solid #272346;
+  border-top: 4px solid var(--accent);
   background: #fff;
-  box-shadow: 3px 4px 0 var(--portrait-accent, #c3b1fb);
+  box-shadow: 3px 3px 0 #272346;
 }
 
-.squad-roster li:nth-child(3n + 2) { --portrait-accent: #9acbc3; }
-.squad-roster li:nth-child(3n) { --portrait-accent: #efbe91; }
 .squad-roster img {
   display: block;
-  border: 1px solid #46406b;
-  border-radius: 0.3rem;
+  width: 5rem;
+  height: 5rem;
+  outline: 1px solid #272346;
   image-rendering: pixelated;
 }
 
-.squad-roster strong { display: block; font-size: 1.13rem; line-height: 1.25; }
-.squad-roster span { display: block; margin-top: 0.28rem; color: var(--light-muted); font-size: 0.9rem; line-height: 1.35; }
-.squad-support-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem 1rem;
-  margin-top: 2.25rem;
-  padding-top: 1.45rem;
-  border-top: 1px solid #d6d0eb;
-}
-
-.squad-support-heading h3 { font-size: 1.1rem; }
-.squad-support { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 0.9rem; }
-.squad-support li { min-height: 5rem; box-shadow: none; border-color: #c8c1df; }
-.squad-support img { width: 3rem; height: 3rem; }
+.squad-roster strong { display: block; font-size: 1.1rem; line-height: 1.2; }
+.squad-roster span { display: block; margin-top: 0.28rem; color: var(--light-muted); font-size: 0.9rem; line-height: 1.4; }
 .squad a { color: var(--accent); font-weight: 680; }
 .squad a:hover { color: var(--accent-hover); }
+
+@media (max-width: 56rem) {
+  .squad-roster { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 @media (max-width: 42rem) {
   .hero { min-height: auto; }
@@ -366,7 +360,16 @@ h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: 
   .setup li { flex-direction: row; align-items: center; padding-inline: 0.65rem; }
   .setup li + li { border-inline-start: 0; border-top: 1px solid #dfddf0; }
   .walkthrough h2 { max-width: 12ch; }
-  .squad-roster { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
-  .squad-roster li { grid-template-columns: 1fr; align-content: start; gap: 0.65rem; padding: 0.8rem; }
-  .squad-support-heading { margin-top: 1.75rem; }
+  .squad-roster { grid-template-columns: 1fr; gap: 0.7rem; }
+  .squad-roster li {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    justify-items: start;
+    gap: 0.85rem;
+    padding: 0.7rem 0.8rem;
+    text-align: start;
+    border-top: 1px solid #272346;
+    border-inline-start: 4px solid var(--accent);
+  }
+  .squad-roster img { width: 3rem; height: 3rem; }
 }
