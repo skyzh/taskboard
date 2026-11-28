@@ -36,6 +36,7 @@ import tasks_attachments
 from taskboard_server import attachment_routes, public_knowledge
 import tasks_core as ledger
 import tasks_resources as resources
+import tasks_done_verifier as done_verifier
 import tasks_browser_push as browser_push
 import tasks_maintenance as maintenance
 import tasks_cue_pauses as cue_pauses
@@ -2101,6 +2102,12 @@ def create_app(
             return project
 
         args.authorize = authorize
+        if command == "done":
+            args.verify_done = lambda connection, task, args, links: done_verifier.done(
+                connection, task, args, links, check_reviewer=lambda db, reviewer, item: require_done_reviewer(
+                    db, actor, reviewer, item,
+                ),
+            )
         if getattr(args, "reviewed_event", None) is not None:
             args.readiness_scope = lambda connection: query(connection).current_visible_tasks()
         if command in (*ledger.PROJECT_WRITER_TRANSITIONS, "close", "reopen"):
@@ -3466,7 +3473,8 @@ def create_app(
             "transition", "note", "on", "blocked_by", "automation", "attention_request_id", "details", "review_wait",
             "recheck_at", "recheck_local", "recheck_time_zone",
             "steps", "started", "checked", "eta", "clear_eta", "review_after", "defer_until", "standing_pass",
-            "review_on", "review_criteria", "feature_deferred", "label", "url", "force_delivery", *TRANSITION_OVERRIDE_FIELDS,
+            "review_on", "review_criteria", "feature_deferred", "label", "url", "force_delivery",
+            "verification_attempt", "verification_revision", *TRANSITION_OVERRIDE_FIELDS,
         }, writing=True)
         if text(data, "transition", maximum=30) not in ledger.PROJECT_WRITER_TRANSITIONS:
             raise RequestError("Choose an ordinary task transition.")
@@ -5373,6 +5381,112 @@ def create_app(
                       manual_review=manual_review, stamp_repositories=stamp_repositories,
                       force_delivery=force_delivery(data))
 
+    def require_done_reviewer(connection, actor, reviewer, task):
+        project = projects.row_project(task)
+        person = profiles.get(connection, reviewer)
+        if (person is None or person["server_id"] != actor["server_id"] or not project_agent(person, project)
+                or not reviewer.startswith("raft:agent:") or reviewer == task["dri"]):
+            raise RequestError("Choose a different verified agent in this project to verify completion.", 403)
+        require_ring_member(connection, project, reviewer)
+
+    def verification_link(data, field):
+        return one_link({"url": text(data, field, maximum=2000)})[0][1]
+
+    def completion_verification(actor, number, name, data):
+        key = actor["ledger_key"]
+        write = name != "done-verification"
+        transaction = tasks_storage.write if write else tasks_storage.read
+        with transaction(db()) as connection:
+            task = ledger.find_task(connection, number)
+            if task is None:
+                raise NotFound()
+            project = projects.row_project(task)
+            require_visible_project(connection, project)
+            manager = projects.manages(connection, project, key)
+            if name == "set-done-verifier":
+                if not manager:
+                    raise RequestError("Only this project's manager can configure its completion verifier.", 403)
+                reviewer = text(data, "reviewer", maximum=160)
+                if reviewer != "clear":
+                    if (ledger.is_knowledge(task) or not task["dri"] or task["state"] in ("done", "closed")
+                            or ledger.task_goal_kind(connection, number) or peer_asks.find(connection, number)
+                            or ledger.has_live_ticket_recurrence(connection, number)):
+                        raise RequestError("Enroll assigned ordinary work that is still open.", 409)
+                    require_done_reviewer(connection, actor, reviewer, task)
+                return done_verifier.enroll(connection, task, key, None if reviewer == "clear" else reviewer)
+            owner = task["dri"] == key
+            binding = done_verifier.policy(connection, number)
+            if binding is None or binding["project"] != project:
+                if not (owner or manager):
+                    raise NotFound()
+                if write:
+                    raise RequestError("Ask this project's manager to enroll this ticket in completion verification.", 409)
+                return {"ticket": projects.row_reference(task), "reviewer": None}
+            reviewer = key == binding["reviewer"]
+            if name == "done-verification":
+                if not (owner or reviewer or manager):
+                    raise NotFound()
+                if reviewer:
+                    require_done_reviewer(connection, actor, key, task)
+                attempt_id = binding.get("attempt_id")
+                if "attempt_id" in data and integer(data["attempt_id"], "attempt_id") != attempt_id:
+                    raise RequestError("Choose the current completion verification attempt.", 409)
+                saved = done_verifier.attempt(connection, number, attempt_id) if attempt_id else None
+                completed = ledger.event_context(task).get("done_verification") if task["state"] == "done" else None
+                return {
+                    "ticket": projects.row_reference(task), "reviewer": binding["reviewer"], "attempt_id": attempt_id,
+                    "attempt": saved, "verdict": done_verifier.verdict(connection, binding),
+                    "stale": bool(saved and not completed and (
+                        task["state"] != "in_progress" or saved["requirement"] != done_verifier.snapshot(connection, task)
+                    )),
+                    "completed": completed,
+                }
+            if name == "propose-done-verification":
+                if not owner:
+                    raise RequestError("Only the ticket owner can propose a completion verification.", 403)
+                require_done_reviewer(connection, actor, binding["reviewer"], task)
+                if task["state"] != "in_progress":
+                    raise RequestError("Start this ticket before proposing completion verification.", 409)
+                inputs = {field: verification_link(data, field) for field in ("request_url", "criteria_url", "artifact_url")}
+                links = one_link(data)
+                if not links:
+                    raise RequestError("Link the evidence for the proposed outcome.")
+                for url in (*inputs.values(), links[0][1]):
+                    if related := internal_link_project(connection, url):
+                        require_visible_project(connection, related)
+                        require_same_ring(connection, project, related)
+                try:
+                    inputs["revision"] = done_verifier.revision(data.get("revision"))
+                except ValueError as error:
+                    raise RequestError(str(error)) from error
+                checked = [integer(value, "checklist position", maximum=10000) for value in array_arg(data, "checked")]
+                inputs["outcome"] = {"details": None, **activity_text(data, "done"),
+                                     "links": [list(link) for link in links], "checked": checked}
+                identifier = done_verifier.propose(connection, task, key, binding, inputs)
+                return {"attempt_id": identifier, "reviewer": binding["reviewer"],
+                        "receipt": f"{projects.row_reference(task)} · Completion verification requested"}
+            if not reviewer:
+                raise RequestError("Only the configured independent reviewer can record this verdict.", 403)
+            require_done_reviewer(connection, actor, key, task)
+            identifier = integer(data.get("attempt_id"), "attempt_id")
+            value = text(data, "verdict", maximum=18)
+            if value not in ("pass", "changes-requested", "missing-evidence"):
+                raise RequestError("Choose pass, changes-requested, or missing-evidence.")
+            links = one_link(data)
+            if value == "pass" and not links:
+                raise RequestError("Link the evidence for a passing verdict.")
+            for _, url in links:
+                if related := internal_link_project(connection, url):
+                    require_visible_project(connection, related)
+                    require_same_ring(connection, project, related)
+            verdict_input = {"verdict": value, "note": writing_text(data, "note"), "links": [list(link) for link in links]}
+            try:
+                event_id = done_verifier.record_verdict(connection, task, key, binding, identifier, verdict_input)
+            except ValueError as error:
+                raise RequestError(str(error), 409) from error
+            return {"verdict_event_id": event_id, "attempt_id": identifier, "verdict": value,
+                    "receipt": f"{projects.row_reference(task)} · Completion verification verdict recorded"}
+
     def question_options(data):
         options = []
         if "options" in data:
@@ -5392,6 +5506,18 @@ def create_app(
         if command not in ADVANCES:
             raise RequestError("Choose a supported task transition.")
         options = question_options(data)
+        verification = {}
+        if command == "done":
+            verification = {"verification_attempt": None, "verification_revision": None}
+            if "verification_attempt" in data:
+                verification["verification_attempt"] = integer(data["verification_attempt"], "verification_attempt")
+            if "verification_revision" in data:
+                try:
+                    verification["verification_revision"] = done_verifier.revision(data["verification_revision"])
+                except ValueError as error:
+                    raise RequestError(str(error)) from error
+        elif {"verification_attempt", "verification_revision"} & data.keys():
+            raise RequestError("Use completion verification only with Done.")
         on = text(data, "on", optional=True, maximum=160)
         if on and command not in ("wait", "assign-human", "redirect-decision"):
             raise RequestError("This transition does not take a dependency or recipient.")
@@ -5498,7 +5624,7 @@ def create_app(
             reason=reason, automation=automation == "true", **parking,
             checklist_step=steps, start_check=started, check=checked, attention_request_id=attention_request,
             eta=eta, clear_eta=clear_eta == "true", standing_pass=text(data, "standing_pass", optional=True, maximum=14),
-            **activity_text(data, command),
+            **activity_text(data, command), **verification,
         )
 
     def github_task(connection, actor, number):
@@ -6315,6 +6441,8 @@ def create_app(
             return escalate_request_to_question(actor, number, data)
         if name == "set-priority":
             return mutate("priority", actor, data, id=number, priority=text(data, "priority", maximum=10).lower())
+        if name in ("set-done-verifier", "propose-done-verification", "done-verification", "record-done-verdict"):
+            return completion_verification(actor, number, name, data)
         if name == "advance-task":
             return advance(actor, data, number)
         if name == "handoff":

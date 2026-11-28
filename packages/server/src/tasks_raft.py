@@ -309,8 +309,26 @@ _ACTIONS = {
         "reason": "Reason for the transition when it requires one.",
         "details": "Handoff details for wait or done. With this field, note is a one-line headline.",
         "force_delivery": "Explicitly send an agent ask after a watcher delivery warning.",
+        "verification_attempt": "Exact passing completion verification attempt for enrolled Done.",
+        "verification_revision": "Full reviewed artifact revision for enrolled Done.",
         **_EVIDENCE, **_TRANSITION_OVERRIDE,
     }),
+    "set-done-verifier": _Action("POST", "Enroll an ordinary work ticket for independent completion verification.", {
+        **_TASK, "reviewer": "Verified independent agent ID, or clear. Project manager only.",
+    }),
+    "propose-done-verification": _Action("POST", "Freeze the exact evidence and proposed outcome as the ticket owner.", {
+        **_TASK, "request_url": "Original request reference.", "criteria_url": "Acceptance criteria reference.",
+        "artifact_url": "Frozen artifact or revision reference.", "revision": "Full Git SHA or SHA-256 artifact digest.",
+        "note": _NOTE, "url": _EVIDENCE["url"],
+    }, {"label": _EVIDENCE["label"], "details": _DETAILS, "checked": "Checklist positions as a JSON array of numbers.",
+        **_TEXT_OVERRIDE}),
+    "done-verification": _Action("GET", "Read the active scoped completion verification and its exact verdict.", {
+        **_TASK,
+    }, {"attempt_id": "Expected current attempt ID."}),
+    "record-done-verdict": _Action("POST", "Record a verdict and follow-up as the configured verifier.", {
+        **_TASK, "attempt_id": "Exact current attempt ID.", "verdict": "pass, changes-requested, or missing-evidence.",
+        "note": "What was checked and what the owner must do next if anything is missing.",
+    }, {**_EVIDENCE, **_TEXT_OVERRIDE}),
     "peer-ask": _Action("POST", "Manage an actionable peer request as a linked ticket.", {
         **_TASK, "transition": "Choose create, result, acknowledge, cancel, or correct-result. "
                                "Use manual-create or manual-result with the PR and full commits for manual reviews.",

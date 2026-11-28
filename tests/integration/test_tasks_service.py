@@ -1091,6 +1091,134 @@ class TasksServiceTest(unittest.TestCase):
         self.assertNotIn(private_target, json.dumps(edge))
         self.assertNotIn("Private", json.dumps(edge))
 
+    def test_enrolled_done_requires_current_exact_independent_verdict(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        reviewer, reviewer_id = self.login(app, "Blake")
+        self.provider.people["Manager"] = {
+            **self.provider.people["Avery"], "sub": str(UUID(int=44)), "name": "Manager", "preferred_username": "manager",
+        }
+        manager, manager_id = self.login(app, "Manager")
+        self.provider.people["Other"] = {
+            **self.provider.people["Avery"], "sub": str(UUID(int=45)), "name": "Other", "preferred_username": "other",
+        }
+        other, _ = self.login(app, "Other")
+        with closing(open_sqlite(self.database)) as db, db:
+            db.execute("UPDATE projects SET dri = ? WHERE prefix = 'T'", (manager_id,))
+        for title in ("Verified outcome", "Ordinary outcome"):
+            self.action(owner, "create-task", {"title": title, "brief": "Keep every label.", "step": "Review labels."})
+        ticket = "T-1"
+        enrollment = {"id": ticket, "reviewer": reviewer_id}
+        self.action(owner, "set-done-verifier", enrollment, status=403)
+        self.action(manager, "set-done-verifier", {**enrollment, "reviewer": owner_id}, status=403)
+        enabled = self.action(manager, "set-done-verifier", enrollment)
+        self.assertEqual(self.action(manager, "set-done-verifier", enrollment), enabled)
+        advance = "advance-task"
+        self.action(owner, advance, {"id": ticket, "transition": "start", "note": "Inspect the sample."})
+        proposed = {
+            "id": ticket, "request_url": "https://example.test/requests/original",
+            "criteria_url": "https://example.test/criteria",
+            "artifact_url": "https://example.test/revisions/abc", "revision": "a" * 40,
+            "note": "Verified labels.", "details": "Both persisted on reload.", "url": "https://example.test/evidence",
+        }
+        done = {key: proposed[key] for key in ("id", "note", "details", "url")} | {"transition": "done"}
+        self.action(owner, advance, done, status=409)
+        self.call(owner, "/api/v1/tasks/T-1/transition", method="POST", status=409,
+                  json={key: value for key, value in done.items() if key != "id"})
+        self.action(reviewer, "propose-done-verification", proposed, status=403)
+        first = self.action(owner, "propose-done-verification", proposed)
+        self.assertEqual(self.action(owner, "propose-done-verification", proposed), first)
+        first_id = first["attempt_id"]
+        query = {"id": ticket, "attempt_id": first_id}
+        read = self.action(reviewer, "done-verification", query_string=query)
+        self.assertEqual(read["attempt"]["requirement"]["brief"], "Keep every label.")
+        self.assertEqual(read["attempt"]["request_url"], proposed["request_url"])
+        self.assertEqual(read["attempt"]["criteria_url"], proposed["criteria_url"])
+        self.assertEqual(read["attempt"]["revision"], proposed["revision"])
+        self.assertFalse(read["stale"])
+        self.action(other, "done-verification", query_string=query, status=404)
+        self.action(app.test_client(), "done-verification", query_string=query, status=401)
+        event = self.call(app.test_client(), f"/api/v1/activity/{first_id}").json
+        self.assertEqual(event["context"], {"done_verification": "attempt"})
+        self.assertNotIn(proposed["request_url"], json.dumps(event))
+        exact = {**done, "verification_attempt": first_id, "verification_revision": proposed["revision"]}
+        self.action(owner, advance, exact, status=409)
+        verdict = {"id": ticket, "attempt_id": first_id, "verdict": "missing-evidence",
+                   "note": "Attach the second reload trace."}
+        self.action(owner, "record-done-verdict", verdict, status=403)
+        missing = self.action(reviewer, "record-done-verdict", verdict)
+        self.assertEqual(self.action(reviewer, "record-done-verdict", verdict), missing)
+        self.action(reviewer, "record-done-verdict", {**verdict, "note": "Different follow-up."}, status=409)
+        self.assertEqual(self.action(owner, "done-verification", query_string=query)["verdict"]["note"], verdict["note"])
+        self.action(owner, advance, exact, status=409)
+
+        proposed = {**proposed, "revision": "b" * 40, "url": "https://example.test/evidence/reload"}
+        second = self.action(owner, "propose-done-verification", proposed)["attempt_id"]
+        self.assertNotEqual(second, first_id)
+        self.action(reviewer, "record-done-verdict", verdict, status=409)
+        passing = {"id": ticket, "attempt_id": second, "verdict": "pass", "note": "Read both traces."}
+        self.action(reviewer, "record-done-verdict", passing, status=400)
+        passing["url"] = "https://example.test/evidence/independent-review"
+        pass_receipt = self.action(reviewer, "record-done-verdict", passing)
+        self.action(owner, "record-activity", {"id": ticket, "note": "Saved review receipt."})
+        exact = {**exact, "verification_attempt": second, "verification_revision": proposed["revision"],
+                 "url": proposed["url"]}
+        for mismatch in ({"verification_revision": "c" * 40}, {"details": "Changed outcome."},
+                         {"url": "https://example.test/evidence/different"}, {"verification_attempt": first_id}):
+            self.action(owner, advance, {**exact, **mismatch}, status=409)
+        self.assertEqual(self.call(owner, "/api/v1/tasks/T-1").json["task"]["state"], "in_progress")
+        done_receipt = self.action(owner, advance, exact)
+        self.assertEqual(self.action(owner, advance, exact)["receipt"], done_receipt["receipt"])
+        self.assertEqual(self.action(reviewer, "record-done-verdict", passing), pass_receipt)
+        task = self.call(owner, "/api/v1/tasks/T-1").json["task"]
+        self.assertEqual(task["state"], "done")
+        self.assertEqual(task["context"]["done_verification"],
+                         {"attempt_id": second, "verdict_event_id": pass_receipt["verdict_event_id"]})
+        with closing(open_sqlite(self.database)) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM events WHERE task_id = 1 AND action = 'done'").fetchone()[0],
+                             1)
+        self.action(owner, advance, {"id": "T-2", "transition": "start", "note": "Start an ordinary ticket."})
+        self.action(owner, advance, {"id": "T-2", "transition": "done", "note": "Ordinary outcome."})
+
+    def test_done_verification_revokes_prior_pass_on_ticket_or_enrollment_change(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        reviewer, reviewer_id = self.login(app, "Blake")
+        self.provider.people["Manager"] = {
+            **self.provider.people["Avery"], "sub": str(UUID(int=44)), "name": "Manager", "preferred_username": "manager",
+        }
+        manager, manager_id = self.login(app, "Manager")
+        with closing(open_sqlite(self.database)) as db, db:
+            db.execute("UPDATE projects SET dri = ? WHERE prefix = 'T'", (manager_id,))
+        ticket = "T-1"
+        self.action(owner, "create-task", {"title": "Verified outcome", "brief": "Original criteria.", "step": "Start."})
+        self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Inspect the sample."})
+        self.action(manager, "set-done-verifier", {"id": ticket, "reviewer": reviewer_id})
+        proposed = {
+            "id": ticket, "request_url": "https://example.test/requests/one",
+            "criteria_url": "https://example.test/criteria", "artifact_url": "https://example.test/revision",
+            "revision": "a" * 64, "note": "Verified labels.", "url": "https://example.test/evidence",
+        }
+        first = self.action(owner, "propose-done-verification", proposed)["attempt_id"]
+        verdict = {"id": ticket, "attempt_id": first, "verdict": "pass",
+                   "note": "Reviewed.", "url": "https://example.test/verdict"}
+        self.action(reviewer, "record-done-verdict", verdict)
+        self.action(owner, "edit-task-details", {"id": ticket, "brief": "Changed criteria.", "reason": "Expand coverage."})
+        self.assertTrue(self.action(owner, "done-verification", query_string={"id": ticket})["stale"])
+        done = {"id": ticket, "transition": "done", "note": proposed["note"], "url": proposed["url"],
+                "verification_attempt": first, "verification_revision": proposed["revision"]}
+        self.action(owner, "advance-task", done, status=409)
+        second = self.action(owner, "propose-done-verification", proposed)["attempt_id"]
+        self.action(reviewer, "record-done-verdict", {**verdict, "attempt_id": second})
+        self.action(owner, "edit-checklist", {"id": ticket, "action": "add", "label": "Check the remaining label."})
+        self.action(owner, "advance-task", {**done, "verification_attempt": second}, status=409)
+        third = self.action(owner, "propose-done-verification", proposed)["attempt_id"]
+        self.action(reviewer, "record-done-verdict", {**verdict, "attempt_id": third})
+        self.action(manager, "set-done-verifier", {"id": ticket, "reviewer": "clear"})
+        self.action(manager, "set-done-verifier", {"id": ticket, "reviewer": reviewer_id})
+        self.action(owner, "advance-task", {**done, "verification_attempt": third}, status=409)
+        self.assertEqual(self.call(owner, "/api/v1/tasks/T-1").json["task"]["state"], "in_progress")
+
     def test_wait_review_records_owner_preparation_without_inferring_approval(self):
         app = self.app(portal_reader=True)
         owner, owner_id = self.login(app, "Avery")
