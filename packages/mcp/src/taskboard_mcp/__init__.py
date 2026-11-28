@@ -15,6 +15,7 @@ from taskboard_client.direct import DirectBoard
 
 Project = Annotated[str, Field(description="Taskboard project prefix, such as T or COURSE.")]
 Ticket = Annotated[str, Field(description="Taskboard ticket ID, such as T-1 or COURSE-1.")]
+RecurringSchedule = Annotated[str, Field(description="Owned schedule ID, such as R-1.")]
 Limit = Annotated[int, Field(ge=1, le=100, description="Results per page.")]
 Cursor = Annotated[int | str, Field(description="next_cursor from the previous page of the same query.")]
 Note = Annotated[str, Field(description="Current step or result to record on the ticket.")]
@@ -147,9 +148,28 @@ def build_server(board: SharedBoard) -> MCPServer:
         return board.invoke("remove-attachment", {"id": ticket, "attachment_id": attachment_id}, write=True)
 
     @server.tool(annotations=read_only)
-    def taskboard_recurring_schedule(schedule: Annotated[str, Field(description="Owned schedule ID, such as R-1.")]) -> dict[str, Any]:
+    def taskboard_recurring_schedule(schedule: RecurringSchedule) -> dict[str, Any]:
         """Read an owned recurring definition, its saved first step, and its occurrence report."""
         return board.invoke("recurring-show", {"id": schedule})
+
+    @server.tool(annotations=write)
+    def taskboard_set_recurring_schedule_state(
+        schedule: RecurringSchedule,
+        change: Literal["pause", "resume", "cancel", "adopt"],
+        next_at: Annotated[str, Field(description="Required UTC slot for resume only, including seconds.")] | None = None,
+    ) -> dict[str, Any]:
+        """Pause, resume, cancel, or adopt a reusable ticket for recurring work you own."""
+        return ticket_write("recurring-state", id=schedule, change=change, next_at=next_at)
+
+    @server.tool(annotations=write)
+    def taskboard_complete_recurring_review(
+        schedule: RecurringSchedule, note: Note, details: Details | None = None,
+        url: EvidenceUrl | None = None, label: EvidenceLabel | None = None,
+        force_text: ForceText = False,
+    ) -> dict[str, Any]:
+        """Record a completed review and park its reusable ticket as the owner."""
+        return ticket_write("complete-recurring-review", id=schedule, note=note, details=details,
+                            url=url, label=label, force_text=force_text or None)
 
     @server.tool(annotations=read_only)
     def taskboard_maintenance_schedule(project: Project) -> dict[str, Any]:

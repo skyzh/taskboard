@@ -20,6 +20,7 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_record_decision",
             "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel", "taskboard_checkpoint",
             "taskboard_recurring_schedule", "taskboard_maintenance_schedule", "taskboard_goals", "taskboard_wake_subscriptions",
+            "taskboard_set_recurring_schedule_state", "taskboard_complete_recurring_review",
             "taskboard_goal_reminder",
             "taskboard_knowledge_areas", "taskboard_knowledge_sweep", "taskboard_worker_checkpoint",
             "taskboard_project_access", "taskboard_set_project_access", "taskboard_agent_usage", "taskboard_api_usage",
@@ -39,6 +40,10 @@ class InstalledMcpTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(tools["taskboard_checkpoint"].annotations.idempotent_hint)
         self.assertEqual(tools["taskboard_checkpoint"].input_schema["required"], ["ticket", "note"])
         self.assertFalse(tools["taskboard_create_ticket"].annotations.idempotent_hint)
+        self.assertEqual(tools["taskboard_set_recurring_schedule_state"].input_schema["required"], ["schedule", "change"])
+        completion = tools["taskboard_complete_recurring_review"]
+        self.assertEqual(completion.input_schema["required"], ["schedule", "note"])
+        self.assertFalse(completion.annotations.idempotent_hint)
 
     async def test_attachment_upload_and_range_use_signed_actions(self):
         board = SharedBoard("tasks-board")

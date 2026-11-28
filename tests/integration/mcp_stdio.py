@@ -1,7 +1,7 @@
 """Exercise the Taskboard adapter with an official MCP client and a mounted fixture."""
 
 from contextlib import closing
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 import os
@@ -88,6 +88,77 @@ def local_reader(origin, environment, folder, public_cert, sam):
 
 
 class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
+    async def test_recurring_review_uses_signed_schedule_owner(self):
+        python = Path(os.environ["TASKBOARD_MCP_FIXTURE_PYTHON"]).absolute()
+        with TemporaryDirectory(prefix="taskboard-mcp-recurring-") as temporary:
+            folder = Path(temporary)
+            with fixture_server(python, ROOT, folder / "service", *certificate(folder)) as mounted:
+                origin, cookie, database, environment = mounted
+                actor = seed(python, ROOT, origin, cookie, database)
+                with request(origin, MOUNT + "/auth/callback", query={"code": "Blake"}) as response:
+                    blake_cookie = response.headers["Set-Cookie"].split(";", 1)[0]
+                now = datetime.now(timezone.utc)
+                first = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                due = (now + timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                # Seed the legacy definition without its reusable ticket.
+                with closing(sqlite3.connect(database)) as connection, connection:
+                    row = connection.execute(
+                        """INSERT INTO recurring_definitions
+                           (owner, schedule_key, title, step, cadence_hours, first_at, next_at, state, project_prefix)
+                           VALUES (?, 'legacy-sample', 'Check the sample', 'Read the sample.', 4, ?, ?, 'active', 'T')
+                           RETURNING id""", (actor, first, first),
+                    ).fetchone()
+                schedule = f"R-{row[0]}"
+
+                def show():
+                    return io_action(origin, "recurring-show", cookie=cookie, query={"id": schedule})
+
+                blake_env = {**environment, "TASKBOARD_COMPAT_COOKIE": blake_cookie}
+                async with connect(environment) as owner, connect(blake_env) as non_owner:
+                    state_tool = "taskboard_set_recurring_schedule_state"
+                    for change, fields in (("pause", {}), ("adopt", {}), ("resume", {"next_at": due})):
+                        params = {"schedule": schedule, "change": change, **fields}
+                        before = show()
+                        denial = await non_owner.call_tool(state_tool, params)
+                        self.assertTrue(denial.is_error, denial.content)
+                        self.assertIn(f"No recurring definition {schedule} for this owner.", denial.content[0].text)
+                        after = show()
+                        self.assertEqual((after["state"], after["next_at"], after["reusable_ticket"]),
+                                         (before["state"], before["next_at"], before["reusable_ticket"]))
+                        saved = await owner.call_tool(state_tool, params)
+                        self.assertFalse(saved.is_error, saved.content)
+                        if change == "pause":
+                            self.assertTrue(show()["adoption"]["can_adopt"])
+                        elif change == "adopt":
+                            ticket = show()["reusable_ticket"]["key"]
+                        else:
+                            self.assertEqual((show()["state"], show()["next_at"]), ("active", due))
+
+                    subprocess.run([python, "-B", ROOT / "tasks", "--offline", "--db", database,
+                                    "recurring-tick", "--as-of", due], check=True, capture_output=True, timeout=15)
+                    started = await owner.call_tool("taskboard_start", {"ticket": ticket, "note": "Read the sample."})
+                    self.assertFalse(started.is_error, started.content)
+                    self.assertTrue(show()["can_complete_review"])
+
+                    params = {"schedule": schedule, "note": "The sample passed.", "details": "Both readings matched.",
+                              "url": "https://example.test/sample", "label": "Fixture evidence"}
+                    completion_tool = "taskboard_complete_recurring_review"
+                    denial = await non_owner.call_tool(completion_tool, params)
+                    self.assertTrue(denial.is_error, denial.content)
+                    self.assertIn(f"No recurring definition {schedule} for this owner.", denial.content[0].text)
+                    self.assertTrue(show()["can_complete_review"])
+                    completed = await owner.call_tool(completion_tool, params)
+                    self.assertFalse(completed.is_error, completed.content)
+                    after = show()
+                    self.assertIsNotNone(after["last_reviewed_at"])
+                    self.assertFalse(after["can_complete_review"])
+                    task = io_action(origin, "task", cookie=cookie, query={"id": ticket})["task"]
+                    self.assertEqual((task["state"], task["note"]), ("parked", params["note"]))
+                    event, = io_action(origin, "task-activity", cookie=cookie, query={"id": ticket, "limit": 1})["items"]
+                    self.assertEqual((event["actor"], event["details"]), (actor, params["details"]))
+                    self.assertIn((params["label"], params["url"]),
+                                  [(link["label"], link["url"]) for link in event["links"]])
+
     async def test_peer_delivery_warning_and_confirmation(self):
         python = Path(os.environ["TASKBOARD_MCP_FIXTURE_PYTHON"]).absolute()
         with TemporaryDirectory(prefix="taskboard-mcp-peer-ask-") as temporary:
@@ -771,6 +842,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_record_decision",
             "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel", "taskboard_checkpoint",
             "taskboard_recurring_schedule", "taskboard_maintenance_schedule", "taskboard_goals", "taskboard_wake_subscriptions",
+            "taskboard_set_recurring_schedule_state", "taskboard_complete_recurring_review",
             "taskboard_goal_reminder",
             "taskboard_knowledge_areas", "taskboard_knowledge_sweep", "taskboard_worker_checkpoint",
             "taskboard_project_access", "taskboard_set_project_access", "taskboard_agent_usage", "taskboard_api_usage",
