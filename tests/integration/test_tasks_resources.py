@@ -2,6 +2,8 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+import json
+import os
 from threading import Barrier
 import unittest
 from unittest.mock import patch
@@ -40,7 +42,24 @@ def replay_resource_claims(test, board, make_app, open_board):
     board.action(outsider, "resource-history", query_string=lookup, status=404)
     board.action(member, "define-resource", {**lookup, **definition}, status=403)
 
-    defined = board.action(manager, "define-resource", {**lookup, **definition})
+    def signed_write(client, name, action, payload):
+        request_body = board.database.parent / "resource-request.json"
+        request_body.write_text(json.dumps(payload), encoding="utf-8")
+        manifest = board.call(client, "/.well-known/raft-agent-manifest.json").json["actions"]
+        with (
+            patch.dict(os.environ, {"SLOCK_CURRENT_AGENT_ID": board.provider.people[name]["sub"],
+                                    "TASKBOARD_URL": fixture.ORIGIN + fixture.BASE}),
+            patch("taskboard_cli.shared.SharedBoard.action_manifest", return_value=manifest),
+        ):
+            status, output, error = board.shared_cli(
+                client, "api", f"/api/v1/raft/{action}", "--method", "POST", "--data-file", str(request_body),
+            )
+        test.assertEqual((status, error), (0, ""))
+        result = json.loads(output)
+        test.assertTrue(result["receipt"])
+        return result
+
+    defined = signed_write(manager, "Avery", "define-resource", {**lookup, **definition})
     test.assertEqual(board.call(manager, browser + "/bench", method="PUT", json=definition).json, defined)
     test.assertTrue(board.call(manager, browser).json["can_define"])
     listing = board.call(member, browser).json
@@ -65,7 +84,8 @@ def replay_resource_claims(test, board, make_app, open_board):
         ({"ticket": public_ticket}, 409), ({"pr_url": "https://github.com/example/fixture/pull/1"}, 400),
     ):
         board.action(member, "claim-resource", {**lookup, **claim, **mismatch}, status=status)
-    claimed = board.call(member, browser + "/bench/claim", method="POST", json=claim).json
+    claimed = signed_write(member, "Blake", "claim-resource", {**lookup, **claim})
+    test.assertEqual(board.call(member, browser + "/bench/claim", method="POST", json=claim).json, claimed)
     test.assertEqual(board.action(member, "claim-resource", {**lookup, **claim}), claimed)
     test.assertEqual(claimed["claim"]["holder"], {"id": member_id, "name": "Blake"})
     test.assertEqual(claimed["claim"]["url"], f"{fixture.ORIGIN}{fixture.BASE}/tickets/{lab_ticket}")
@@ -79,7 +99,7 @@ def replay_resource_claims(test, board, make_app, open_board):
     now = "2030-04-01T12:01:00Z"
     renew = {**lookup, "request_key": request_key(3), "claim_id": identifier, "revision": 1, "minutes": 5}
     board.action(manager, "renew-resource", renew, status=403)
-    renewed = board.action(member, "renew-resource", renew)
+    renewed = signed_write(member, "Blake", "renew-resource", renew)
     test.assertEqual(renewed["claim"]["claim_id"], identifier)
     test.assertEqual(renewed["claim"]["revision"], 2)
     test.assertEqual(renewed["claim"]["expires_at"], "2030-04-01T12:06:00Z")
@@ -127,7 +147,7 @@ def replay_resource_claims(test, board, make_app, open_board):
     test.assertEqual(board.call(member, browser).json["items"][0]["claim"], fresh["claim"])
     board.action(member, "release-resource", {**release, "revision": 2}, status=409)
     release = {**lookup, "request_key": request_key(7), "claim_id": fresh["claim"]["claim_id"], "revision": 1}
-    released = board.action(manager, "release-resource", release)
+    released = signed_write(manager, "Avery", "release-resource", release)
     test.assertIsNone(released["claim"])
     test.assertEqual(board.action(manager, "release-resource", release), released)
     history = board.call(manager, browser + "/bench/history").json["items"]
