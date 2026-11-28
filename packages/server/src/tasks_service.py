@@ -2886,7 +2886,8 @@ def create_app(
                 conditions = text(data, "conditions")
                 max_minutes = integer(data.get("max_minutes"), "max_minutes", maximum=2**31 - 1)
                 row = resources.define(connection, project, key, title, conditions, max_minutes)
-                return {"project": project, **present_resource(row)}
+                return {"project": project, **present_resource(row),
+                        "receipt": f"{project}/{key} · Resource definition saved"}
             try:
                 row = resources.resource(connection, project, key)
             except LookupError as error:
@@ -2948,8 +2949,11 @@ def create_app(
                 raise RequestError(str(error), 403) from error
             except ValueError as error:
                 raise RequestError(str(error), 409) from error
-            return {**result, "event_id": event["event_id"],
-                    "claim": None if operation == "release" else present_event(event)["claim"]}
+            event_id = event["event_id"]
+            action_label = {"claim": "Claim acquired", "renew": "Claim renewed", "release": "Claim released"}[operation]
+            return {**result, "event_id": event_id,
+                    "claim": None if operation == "release" else present_event(event)["claim"],
+                    "receipt": f"{project}/{key} · {action_label} (event {event_id})"}
 
     @app.get("/api/v1/projects/<project>/resources")
     def project_resources(project):
