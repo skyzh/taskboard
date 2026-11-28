@@ -398,6 +398,7 @@ def wait_starts(db, rows):
 
 def record(db, number, action, actor, state, note, waiting_on, links, context=None, *, at=None):
     at = at or timestamp()
+    context = context or {}
     event = tasks_storage.insert_id(
         db, """
         INSERT INTO events (task_id, action, actor, at, state, note, waiting_on, links, context)
@@ -405,12 +406,13 @@ def record(db, number, action, actor, state, note, waiting_on, links, context=No
         """,
         (
             number, action, actor, at, state, note, waiting_on, json.dumps(links),
-            json.dumps(context or {}),
+            json.dumps(context),
         ),
     )
-    if state == "ready" and (
-        action in ("add", "transfer") or (action == "unpark" and (context or {}).get("deferred_event_id"))
-    ):
+    scheduled_release = action == "unpark" and (
+        context.get("deferred_event_id") or (context.get("recurring") and context.get("due_at"))
+    )
+    if state == "ready" and (action in ("add", "transfer") or scheduled_release):
         import tasks_notification_log as notification_log
 
         notification_log.queue_owned_ready(db, number, event, at)

@@ -251,6 +251,8 @@ class ManagedReadySender:
         first_attempt = saved["first_attempt"] if current_attempt else now
         renewed = saved["renewed"] if current_attempt else 0
         ready_at = datetime.fromisoformat(row["at"]).timestamp()
+        if self.event_id is not None and now < ready_at:
+            return "waiting", None
         if attempts >= _ATTEMPTS or now >= first_attempt + _RETRY_WINDOW or now >= ready_at + _MAX_READY_AGE:
             if attempts or (receipt is not None and receipt["acceptance"] == "pending"):
                 ledger.import_notification_on(self.db, {
@@ -281,7 +283,7 @@ class ManagedReadySender:
                 current = self._candidate(saved, pending_only=True)
                 if current is None or current["event_id"] != event:
                     raise _PilotCueChanged
-                if not idle:
+                if not idle or (self.event_id is not None and self.clock() < ready_at):
                     raise _IdleGateClosed
             status, payload = self.grant.event_transport(request)
             if status == 401:
