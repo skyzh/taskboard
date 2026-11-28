@@ -3267,6 +3267,7 @@ class BoardQueries:
                         work.update(wake_key=f"{kind}:{item['id']}", source_event=None)
                     elif kind == "report":
                         work["wake_key"] = f"report:{item['run_id']}"
+                        work["worker_run"] = item["run_id"]
                         if item["event_id"] is not None:
                             work["wake_key"] += f":{item['event_id']}"
                     elif kind == "readiness":

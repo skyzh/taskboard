@@ -30,12 +30,17 @@ def inbox_wake_items(board: BoardQueries, owner: str, *, project: str | None,
     """Read inside one ledger snapshot with the recipient as board principal."""
     today = pacific_day(wake_at)
     items = []
+    reported_runs = set()
     for work in board.actionable_work(owner, today=today, project=project, wake_at=wake_at,
                                       delivery=True, all_ordinary=True):
         kind = work["kind"]
         source_event = work["source_event"]
         key = work.get("wake_key")
+        if kind == "report":
+            reported_runs.add(work["worker_run"])
         if kind == "worker_checkpoint":
+            if work["check_mode"] == "report" and work["worker_run"] in reported_runs:
+                continue
             key = f"{kind}:{work['worker_run']}:{source_event}"
         items.append(InboxWakeItem(kind, work["key"], key or f"{kind}:{source_event}", source_event))
     if items:
@@ -60,7 +65,7 @@ def _fits(summary):
     return len(summary.encode("utf-16-le")) // 2 <= _MAX_SUMMARY
 
 
-def inbox_event_summary(board_url: str, items: tuple[InboxWakeItem, ...]) -> str:
+def inbox_event_summary(board_url: str, items: tuple[InboxWakeItem, ...], *, project: str | None = None) -> str:
     if not items:
         raise ValueError("A signed Inbox event needs at least one actionable item.")
     try:
@@ -72,6 +77,10 @@ def inbox_event_summary(board_url: str, items: tuple[InboxWakeItem, ...]) -> str
     count = len(items)
     noun = "item" if count == 1 else "items"
     header = f"Taskboard signed Inbox has {count} actionable {noun}."
+    if project is not None:
+        if any(identifier(item.ticket)[0] != project for item in items):
+            raise ValueError("All reported items must belong to the enrolled project.")
+        header = f"Taskboard project {project} has {count} actionable Inbox {noun} in this wake."
     refs = [_reference(item) for item in items]
     guidance = f"{GUIDANCE} {url}"
     full = f"{header} {', '.join(refs)}. {guidance}"

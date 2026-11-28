@@ -102,6 +102,29 @@ class InboxWakeTest(unittest.TestCase):
                          [("ready", first), ("review", review), ("in_progress", high)])
         self.assertNotEqual(changed[-1].source_event, items[0].source_event)
 
+    def test_report_checkpoint_requiring_the_same_collection_counts_once(self):
+        ticket = self.add(self.avery)
+        self.advance(self.avery, ticket, "start")
+        run = self.avery.invoke("delegate", {
+            "id": ticket, "worker": self.avery_id, "role": "build", "brief": "Check the sample.",
+        }, write=True)["receipt"].split()[0]
+        self.avery.invoke("worker-handoff", {
+            "run": run, "transition": "start", "handle": "fixture-worker", "subagent": True,
+        }, write=True)
+        self.avery.invoke("worker-check", {"run": run, "mode": "report"}, write=True)
+        self.avery.invoke("worker-handoff", {
+            "run": run, "transition": "report", "result": "completed", "note": "The sample is ready.",
+        }, write=True)
+
+        self.assertEqual(self.signed_head()["work"]["kind"], "report")
+        items = self.snapshot("T")
+        reports = [item for item in items if item.kind in ("report", "worker_checkpoint")]
+        self.assertEqual([(item.kind, item.ticket) for item in reports], [("report", ticket)])
+        summary = inbox_event_summary(BOARD, items, project="T")
+        self.assertIn(f"project T has {len(items)} actionable Inbox items in this wake", summary)
+        with self.assertRaisesRegex(ValueError, "enrolled project"):
+            inbox_event_summary(BOARD, items, project="OPS")
+
     def test_due_asks_preserve_head_and_goals_follow_the_same_signed_order(self):
         self.avery.invoke("save-goal", {"kind": "dated", "summary": "Private goal", "deadline": "2030-04-10"},
                           write=True)
