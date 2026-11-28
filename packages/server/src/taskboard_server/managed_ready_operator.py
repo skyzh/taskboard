@@ -183,6 +183,8 @@ def main(argv=None, *, transport=http_json):
     commands.add_parser("init-sampled", help="Create private state for recurring observed-Idle delivery.")
     commands.add_parser("delivery-status", help="Read the approved sampled app sender's pause status.")
     commands.add_parser("resume-delivery", help="Resume paused app delivery as the authorized local operator.")
+    history = commands.add_parser("import-wake-history", help="Import one verified acceptance from the original journal.")
+    history.add_argument("--envelope", required=True, help="Exact accepted Taskboard Inbox envelope identifier.")
     run = commands.add_parser("run", help="Run in the foreground as the authorized operator.")
     sampled_run = commands.add_parser("run-sampled", help="Send signed Inbox cues after observed Idle.")
     sampled_run.add_argument("--goal-occurrences", action="store_true",
@@ -198,7 +200,7 @@ def main(argv=None, *, transport=http_json):
     args = parser.parse_args(argv)
     goal_occurrences = getattr(args, "goal_occurrences", False)
     inbox_batches = getattr(args, "inbox_batches", False)
-    if args.project != MANAGED_READY_PROJECT and (args.command not in {"init-sampled", "run-sampled", *_DELIVERY_COMMANDS}
+    if args.project != MANAGED_READY_PROJECT and (args.command not in {"init-sampled", "run-sampled", "import-wake-history", *_DELIVERY_COMMANDS}
                                                   or args.delivery_command is not None):
         parser.error("Tiny LLM requires direct sampled Raft delivery.")
     if args.delivery_command is not None and (args.command not in ("init-sampled", "run-sampled")
@@ -222,6 +224,15 @@ def main(argv=None, *, transport=http_json):
                                                 sampled=args.command == "init-sampled"))
                 return 0
             with locked_state(state_path, ledger) as state:
+                if args.command == "import-wake-history":
+                    from tasks_wake_members import import_confirmed
+
+                    if not re.fullmatch(r"taskboard-inbox-[0-9a-f]{64}", args.envelope):
+                        raise ValueError("Supply the exact accepted Inbox envelope identifier.")
+                    members, imported = import_confirmed(db, state, scope, args.envelope)
+                    print(json.dumps({"status": "imported" if imported else "already_imported", "members": members}),
+                          flush=True)
+                    return 0
                 if args.command in _DELIVERY_COMMANDS:
                     print(json.dumps(_operator_delivery_status(db, state, scope, resume=args.command == "resume-delivery")),
                           flush=True)

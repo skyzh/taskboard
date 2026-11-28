@@ -222,7 +222,7 @@ class InboxBatchDelivery:
                     changed = True
             if visible:
                 changed |= wake_members.record(self.db, recipient=owner, envelope=journal["event_key"],
-                                               members=members, acceptance=acceptance, at=observed)
+                                               members=members, acceptance=acceptance, at=accepted_at or observed)
             if changed:
                 ledger.bump_revision(self.db)
             if acceptance == "accepted":

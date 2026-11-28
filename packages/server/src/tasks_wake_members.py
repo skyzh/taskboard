@@ -1,9 +1,11 @@
 """Durable, recipient-bound history of exact Inbox envelope members."""
 
+from datetime import datetime, timezone
 import json
 
 import tasks_projects as projects
 import tasks_ring1 as ring1
+import tasks_storage
 
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS inbox_wake_members (
@@ -32,6 +34,7 @@ SCHEMA = (
 
 
 def record(db, *, recipient, envelope, members, acceptance, at):
+    at = datetime.fromisoformat(at).astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
     changed = False
     for position, member in enumerate(members):
         project = projects.identifier(member.ticket)[0]
@@ -46,6 +49,40 @@ def record(db, *, recipient, envelope, members, acceptance, at):
         )
         changed |= bool(result.rowcount)
     return changed
+
+
+def import_confirmed(db, state, scope, envelope):
+    """Import one stopped sender journal only when an exact board acceptance exists."""
+    from taskboard_server.inbox_batch import BatchMember
+    import tasks_core as ledger
+
+    journal = state.execute(
+        "SELECT members, acceptance FROM inbox_batch_history WHERE event_key = ?", (envelope,),
+    ).fetchone()
+    saved = state.execute("SELECT * FROM sender WHERE singleton = 1").fetchone()
+    if journal is None or journal["acceptance"] != "accepted" or saved is None:
+        raise ValueError("Choose an existing accepted batch in the original sender journal.")
+    with tasks_storage.write(db):
+        current = scope.binding(db)
+        fields = ("ledger", "board", "server", "recipient", "owner", "app")
+        if current != tuple(saved[field] for field in fields):
+            raise ValueError("The original sender journal has a different board or recipient binding.")
+        owner = saved["owner"]
+        receipt = db.execute(
+            """SELECT at FROM audit_events WHERE actor = ? AND record_type = ?
+               AND operation = 'accept-app-wake' AND record_id = ?""",
+            (owner, f"app-wake:{scope.project}", envelope),
+        ).fetchone()
+        if receipt is None:
+            raise ValueError("This sender journal has no exact board acceptance.")
+        members = [BatchMember(**member) for member in json.loads(journal["members"])]
+        for member in members:
+            if projects.identifier(member.ticket)[0] != scope.project or not ring1.visible(db, scope.project, owner):
+                raise ValueError("A journal member is outside the selected recipient and project.")
+        changed = record(db, recipient=owner, envelope=envelope, members=members, acceptance="accepted", at=receipt["at"])
+        if changed:
+            ledger.bump_revision(db, scope.project)
+        return len(members), changed
 
 
 def acknowledge_stalled(db, recipient, task_id, source_event, at):

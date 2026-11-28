@@ -935,11 +935,23 @@ class InboxBatchTest(unittest.TestCase):
             board.invoke("acknowledge-stalled-cue", {"id": ordinary, "event": str(event)}, write=True)
         after, = fixture.service.call(board.client, endpoint, query_string=query).json["items"]
         self.assertEqual(after["disposition_at"], self.stamp(40))
-        self.assertEqual(after["accepted_at"], self.stamp(30))
+        self.assertEqual(datetime.fromisoformat(after["accepted_at"]).timestamp(), self.origin + 30)
         self.assertEqual(after["id"], first["id"])
         older = fixture.service.call(board.client, endpoint,
                                      query_string={**query, "before": json.dumps(after["sort_key"])}).json
         self.assertEqual(older, {"items": [], "next_cursor": None})
+
+        from tasks_wake_members import import_confirmed
+
+        with closing(open_sqlite(fixture.ledger)) as db, locked_state(fixture.state, fixture.ledger) as state:
+            with db:
+                db.execute("DELETE FROM inbox_wake_members")
+            self.assertEqual(import_confirmed(db, state, fixture.scope, key), (1, True))
+            self.assertEqual(import_confirmed(db, state, fixture.scope, key), (1, False))
+            with self.assertRaisesRegex(ValueError, "original sender journal"):
+                import_confirmed(db, state, fixture.scope, "taskboard-inbox-" + "0" * 64)
+        restored, = fixture.service.call(board.client, endpoint, query_string=query).json["items"]
+        self.assertEqual(restored, after)
 
     def test_two_interval_reviews_get_separate_app_and_signed_outcome_receipts(self):
         self.origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()
