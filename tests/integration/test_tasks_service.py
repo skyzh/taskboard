@@ -43,7 +43,7 @@ from tasks_core import (
     SCHEMA, find_task, import_notification_on, import_release_event, link_attention_wait,
     record, release_due_deferrals, timestamp,
 )
-from tasks_projects import register
+from tasks_projects import register, resolve
 from tasks_queries import BoardQueries
 from tasks_ring1 import mark_private
 from tasks_storage import open_sqlite, write
@@ -839,6 +839,136 @@ class TasksServiceTest(unittest.TestCase):
         question, = self.call(human, "/api/v1/notifications/decisions").json["items"]
         self.assertEqual(question["event_id"], self.call(owner, "/api/v1/tasks/T-1").json["task"]["event_id"])
         self.assertEqual(question["note"], "Is this release approved?")
+
+    def test_dependency_edges_use_current_exact_ticket_agent_and_question_waits(self):
+        app = self.app(portal_reader=True)
+        owner, owner_id = self.login(app, "Avery")
+        agent, agent_id = self.login(app, "Blake")
+        sam, sam_id = self.login(app, "Sam")
+        quinn, quinn_id = self.login(app, "Quinn")
+        route = "/api/v1/projects/T/dependency-edges"
+
+        def advance(ticket, transition, **fields):
+            return self.action(owner, "advance-task", {
+                "id": ticket, "transition": transition, "note": "Check the fixture.", **fields,
+            })
+
+        def source(title):
+            ticket = self.action(owner, "create-task", {"title": title, "step": "Open the fixture."})["receipt"].split()[0]
+            advance(ticket, "start")
+            return ticket
+
+        blocker = source("Check design")
+        direct = source("Build exporter")
+        advance(direct, "wait", blocked_by=blocker)
+        direct_wait = self.task_event(owner, direct)["event"]
+        named = source("Validate the output")
+        advance(named, "wait", on=agent_id, force_delivery=True)
+        agent_wait = self.task_event(owner, named)["event"]
+        question = source("Select export columns")
+        advance(question, "assign-human", on=sam_id)
+        old_request = self.task_event(owner, question)["event"]
+        advance(question, "redirect-decision", on=quinn_id)
+        current_request = self.task_event(owner, question)["event"]
+        automation = source("Check generated docs")
+        with closing(open_sqlite(self.database)) as db, db:
+            record(db, resolve(db, automation), "wait", owner_id, "waiting",
+                   "Historical fixture wait.", "Internal automation label", [], {"wait_kind": "automation"})
+        request = source("Ask for feedback")
+        request_id = self.action(owner, "raise-attention", {
+            "id": request, "recipient": sam_id, "reason": "Internal attention reason.",
+        })["id"]
+        with closing(open_sqlite(self.database)) as db:
+            request_task = resolve(db, request)
+        self.seed_legacy_request_wait(request_task, owner_id, request_id, "Historical request wait.")
+
+        self.call(app.test_client(), route, status=401)
+        self.action(app.test_client(), "dependency-edges", query_string={"project": "T"}, status=401)
+        self.action(agent, "dependency-edges", query_string={}, status=400)
+        browser = self.call(sam, route).json
+        self.assertEqual(browser, self.action(agent, "dependency-edges", query_string={"project": "T"}))
+        self.assertEqual(browser["project"], "T")
+        edges = {item["source"]["key"]: item for item in browser["items"]}
+        self.assertEqual(set(edges), {direct, named, question, automation, request})
+        board = ORIGIN + BASE
+        self.assertEqual(edges[direct], {
+            "source": {"key": direct, "title": "Build exporter", "state": "waiting",
+                       "owner": {"id": owner_id, "name": "Avery"}, "url": f"{board}/tickets/{direct}"},
+            "wait": {"event_id": direct_wait, "url": f"{board}/activity/events/{direct_wait}"},
+            "kind": "ticket",
+            "target": {"key": blocker, "title": "Check design", "state": "in_progress",
+                       "owner": {"id": owner_id, "name": "Avery"}, "url": f"{board}/tickets/{blocker}"},
+        })
+        self.assertEqual(edges[named]["kind"], "agent")
+        self.assertEqual(edges[named]["wait"]["event_id"], agent_wait)
+        self.assertEqual(edges[named]["target"]["id"], agent_id)
+        self.assertEqual(edges[named]["target"]["name"], "Blake")
+        self.assertTrue(edges[named]["target"]["url"].endswith("?project=T"))
+        self.assertEqual(edges[question]["kind"], "question")
+        self.assertEqual(edges[question]["source"]["state"], "human_review")
+        self.assertEqual(edges[question]["wait"]["event_id"], current_request)
+        self.assertEqual(edges[question]["target"]["event_id"], current_request)
+        self.assertEqual(edges[question]["target"]["owner"], {"id": quinn_id, "name": "Quinn"})
+        self.assertTrue(edges[question]["target"]["url"].endswith(f"?decision-request={current_request}"))
+        self.assertNotEqual(current_request, old_request)
+        self.assertEqual({(edges[key]["kind"], edges[key]["target"]) for key in (automation, request)}, {("legacy", None)})
+        self.assertNotIn("Internal", json.dumps(browser))
+        advance(blocker, "park", review_after="2030-01-01")
+        after = {item["source"]["key"]: item for item in self.call(sam, route).json["items"]}
+        self.assertEqual(after[direct]["target"]["state"], "parked")
+        advance(blocker, "unpark")
+        advance(blocker, "start")
+        advance(blocker, "done")
+        self.call(quinn, f"/api/v1/tasks/{question}/decision", method="POST",
+                  json={"request_id": current_request, "note": "Choose the documented columns."})
+        remaining = {item["source"]["key"] for item in self.call(sam, route).json["items"]}
+        self.assertEqual(remaining, {named, automation, request})
+
+    def test_dependency_edges_filter_ring1_sources_and_hide_inaccessible_targets(self):
+        from tasks_projects import register
+        from tasks_ring1 import mark_private
+
+        app = self.app(portal_reader=True)
+        member, member_id = self.login(app, "Avery")
+        outsider, _ = self.login(app, "Blake")
+        _, human_id = self.login(app, "Sam")
+        with closing(open_sqlite(self.database)) as db, db:
+            register(db, "LAB", "Confidential project", member_id)
+
+        def add(title, project):
+            return self.action(member, "create-task", {
+                "project": project, "title": title, "step": "Check fixture.",
+            })["receipt"].split()[0]
+
+        private_target = add("Private target title", "LAB")
+        private_source = add("Private source title", "LAB")
+        question = add("Restricted question", "LAB")
+        self.action(member, "advance-task", {"id": question, "transition": "start", "note": "Check fixture."})
+        self.action(member, "advance-task", {"id": question, "transition": "assign-human",
+                                             "note": "Choose an export.", "on": human_id})
+        public = add("Public source title", "T")
+        for source in (private_source, public):
+            self.action(member, "advance-task", {"id": source, "transition": "start", "note": "Check fixture."})
+            self.action(member, "advance-task", {"id": source, "transition": "wait", "note": "Private reason.",
+                                                 "blocked_by": private_target})
+        with closing(open_sqlite(self.database)) as db, db:
+            mark_private(db, "LAB", [member_id])
+
+        self.call(outsider, "/api/v1/projects/LAB/dependency-edges", status=404)
+        self.action(outsider, "dependency-edges", query_string={"project": "LAB"}, status=404)
+        member_payload = self.action(member, "dependency-edges", query_string={"project": "LAB"})
+        inside = {edge["source"]["key"]: edge for edge in member_payload["items"]}
+        self.assertEqual(set(inside), {private_source, question})
+        self.assertEqual(inside[private_source]["target"]["key"], private_target)
+        hidden = inside[question]
+        self.assertEqual((hidden["kind"], hidden["target"]), ("unavailable", None))
+        self.assertNotIn(human_id, json.dumps(hidden))
+        self.assertNotIn("Sam", json.dumps(hidden))
+        edge, = self.call(outsider, "/api/v1/projects/T/dependency-edges").json["items"]
+        self.assertEqual(edge["source"]["key"], public)
+        self.assertEqual((edge["kind"], edge["target"]), ("unavailable", None))
+        self.assertNotIn(private_target, json.dumps(edge))
+        self.assertNotIn("Private", json.dumps(edge))
 
     def test_wait_review_records_owner_preparation_without_inferring_approval(self):
         app = self.app(portal_reader=True)

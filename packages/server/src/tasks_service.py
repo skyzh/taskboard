@@ -2969,6 +2969,17 @@ def create_app(
             raise NotFound()
         return resource_access(actor, project, operation, json_body(RESOURCE_FIELDS[operation]), key)
 
+    def dependency_edges(project):
+        project = project_filter({"project": project})
+        with tasks_storage.read(db()) as connection:
+            require_visible_project(connection, project)
+            return query(connection).dependency_edges(project)
+
+    @app.get("/api/v1/projects/<project>/dependency-edges")
+    def project_dependency_edges(project):
+        current_actor(required=True)
+        return dependency_edges(project)
+
     @app.route("/api/v1/projects/<project>/owners", methods=("GET", "PUT"))
     def project_owners(project):
         write = request.method == "PUT"
@@ -5577,6 +5588,8 @@ def create_app(
             return {"receipt": f"{project} · Project access saved", **result} if edit else result
         if name in RESOURCE_ACTIONS:
             return resource_access(actor, text(data, "project", maximum=8), RESOURCE_ACTIONS[name], data, data.get("key"))
+        if name == "dependency-edges":
+            return dependency_edges(text(data, "project", maximum=8))
         if name != "list-projects" and actor["kind"] != "agent" and not g.get("personal_agent_api"):
             raise RequestError("This action requires a signed-in agent or Personal Agents connection.", 403)
         if g.get("personal_agent_api") and name in STANDING_RAFT_ACTIONS:
@@ -6425,7 +6438,7 @@ def create_app(
             if name == CODEX_SNAPSHOT_ACTION:
                 return upload_codex_snapshot(data)
             result = dispatch_action(name, data)
-            if name not in RESOURCE_ACTIONS and "next_step" not in result:
+            if name not in RESOURCE_ACTIONS and name != "dependency-edges" and "next_step" not in result:
                 result["next_step"] = agent_guidance.next_step(name, data, result)
             receipt_transitions = {"advance-task": ("done",), peer_asks.COMMAND: ("result", "manual-result")}.get(name)
             if name == "handoff" or (receipt_transitions and data["transition"].strip() in receipt_transitions):

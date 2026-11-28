@@ -57,6 +57,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "renew-resource": ("POST", "project key request_key claim_id revision minutes", ""),
             "release-resource": ("POST", "project key request_key claim_id revision", ""),
             "list-projects": ("GET", "", ""),
+            "dependency-edges": ("GET", "project", ""),
             "project-owners": ("GET", "project", ""),
             "set-project-owner": ("POST", "project principal allowed", ""),
             "ring1-members": ("GET", "project", ""),
