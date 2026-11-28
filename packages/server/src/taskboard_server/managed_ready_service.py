@@ -124,8 +124,8 @@ def _run_scope(ledger, server, slug, enrolled, stop, report, transport, slot_sec
             del secret
             try:
                 sender = ManagedReadySender(db, state, scope, grant, idle_gate=gate, sampled=True,
-                                            stop_requested=stop.is_set, goal_occurrences=enrolled.goals,
-                                            inbox_batches=enrolled.batches)
+                                            stop_requested=stop.is_set, goal_occurrences=True,
+                                            inbox_batches=True)
                 report("running", **_progress(state))
                 while not stop.is_set():
                     try:

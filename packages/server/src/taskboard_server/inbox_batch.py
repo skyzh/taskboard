@@ -106,12 +106,13 @@ class InboxBatchDelivery:
             self.sender._check_history(saved, ledger_tip)
             tip = _latest(self.db)
             if ring1.private(self.db, self.project):
-                return [], (), tip
+                return [], (), tip, False
             goal_enabled = self.sender.goal_occurrences and has_subscription(
                 self.db, self.project, owner, GOAL_OCCURRENCES,
             )
             board = BoardQueries(self.db, saved["board"], principal=owner)
             selected, members = [], []
+            pending_goal = False
             for item in inbox_wake_items(board, owner, project=None, wake_at=wake_at):
                 if projects.identifier(item.ticket)[0] != self.project:
                     break
@@ -151,6 +152,7 @@ class InboxBatchDelivery:
                         break
                     existing = goals.receipt(self.db, owner, item.key)
                     if existing is not None and existing["acceptance"] == "pending":
+                        pending_goal = True
                         break
                     if existing is not None:
                         continue
@@ -159,7 +161,7 @@ class InboxBatchDelivery:
                     item.kind, item.ticket, item.key, task["id"], item.source_event, source_at,
                     item.wait_event, item.blocker_event, item.blocker_ticket,
                 ))
-            return members, tuple(selected), tip
+            return members, tuple(selected), tip, pending_goal
 
     def _clear(self):
         with self.state:
@@ -229,8 +231,6 @@ class InboxBatchDelivery:
             self.state.execute("DELETE FROM inbox_batch WHERE singleton = 1")
 
     def tick(self, saved, *, eligible):
-        if saved["attempt_event"] is not None:
-            raise ValueError("Settle the pending single Ready event before enabling Inbox batches.")
         now = self.sender.clock()
         journal = self.state.execute("SELECT * FROM inbox_batch WHERE singleton = 1").fetchone()
         if journal is not None:
@@ -239,7 +239,7 @@ class InboxBatchDelivery:
             if journal["accepted_at"] is not None:
                 self._settle(saved, journal, members, "accepted")
                 return "accepted", key
-        selected, items, tip = self._selected(saved, journal["ledger_tip"] if journal else 0)
+        selected, items, tip, pending_goal = self._selected(saved, journal["ledger_tip"] if journal else 0)
         if journal is not None:
             expired = journal["attempts"] >= _ATTEMPTS or now >= journal["first_attempt"] + _RETRY_WINDOW
             if selected != members or expired:
@@ -250,6 +250,9 @@ class InboxBatchDelivery:
                 return ("attempt_window_ended" if expired else "batch_superseded"), key
             if now < journal["retry_at"]:
                 return "waiting", None
+        elif pending_goal and not selected:
+            # A prior singleton attempt must finish under its original external event key.
+            return self.sender._tick_goal(saved, eligible=eligible, now=now, pending_only=True)
         if not selected or now < saved["retry_at"]:
             return "idle", None
         if not eligible:
@@ -280,7 +283,7 @@ class InboxBatchDelivery:
 
         def preflight():
             check_stop()
-            current, _, _ = self._selected(saved, journal["ledger_tip"])
+            current, _, _, _ = self._selected(saved, journal["ledger_tip"])
             if current != members:
                 raise _SampledChoiceChanged
 

@@ -1359,7 +1359,7 @@ def create_app(
             task = ledger.find_task(connection, number)
             if task is None or task["dri"] != owner:
                 raise RequestError("Choose a ticket you own.", 403)
-            if task["state"] != "in_progress" or task["event_id"] != int(event) or ledger.task_goal_kind(connection, number):
+            if task["state"] != "in_progress" or task["event_id"] != int(event):
                 raise RequestError("This stalled cue is no longer current. Recheck the ticket.", 409)
             cue_pauses.acknowledge(connection, number, owner, int(event), ledger.timestamp())
             return {"receipt": f"{projects.row_reference(task)} · Stalled cue for event {event} acknowledged"}

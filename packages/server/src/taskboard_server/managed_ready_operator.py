@@ -184,11 +184,11 @@ def main(argv=None, *, transport=http_json):
     commands.add_parser("delivery-status", help="Read the approved sampled app sender's pause status.")
     commands.add_parser("resume-delivery", help="Resume paused app delivery as the authorized local operator.")
     run = commands.add_parser("run", help="Run in the foreground as the authorized operator.")
-    sampled_run = commands.add_parser("run-sampled", help="Send pending Ready cues after observed Idle.")
+    sampled_run = commands.add_parser("run-sampled", help="Send signed Inbox cues after observed Idle.")
     sampled_run.add_argument("--goal-occurrences", action="store_true",
-                             help="Also send signed, opted-in Explore and scheduled Review cues through Raft.")
+                             help="Compatibility flag. Sampled direct app delivery checks the signed goal subscription.")
     sampled_run.add_argument("--inbox-batches", action="store_true",
-                             help="Send one direct Raft app event for an enrolled Inbox batch.")
+                             help="Compatibility flag. Sampled direct app delivery always uses signed Inbox.")
     pilot = commands.add_parser("run-pilot", help="Try one enrolled Ready event in a bounded foreground window.")
     pilot.add_argument("--event-id", required=True, type=_positive_id, help="Exact enrolled Ready event number.")
     for command in (run, pilot, sampled_run):
@@ -237,14 +237,15 @@ def main(argv=None, *, transport=http_json):
                 if args.delivery_command is None:
                     grant = ManagedReadyGrant(args.client_id, _read_token(args.secret_fd),
                                               server_slug=args.server_slug, identity=identity, transport=transport)
+                direct_sampled = sampled and grant is not None
                 stop = Event()
                 old_term = signal.signal(signal.SIGTERM, lambda *_: stop.set())
                 old_int = signal.signal(signal.SIGINT, lambda *_: stop.set())
                 try:
                     sender = ManagedReadySender(db, state, scope, grant, idle_gate=idle_gate, event_id=event_id,
                                                 sampled=sampled, stop_requested=stop.is_set,
-                                                command_delivery=args.delivery_command, goal_occurrences=goal_occurrences,
-                                                inbox_batches=inbox_batches)
+                                                command_delivery=args.delivery_command, goal_occurrences=direct_sampled,
+                                                inbox_batches=direct_sampled)
                     if event_id is not None:
                         return _run_pilot(sender, stop, event_id)
                     return _run(sender, stop)

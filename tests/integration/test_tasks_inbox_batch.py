@@ -369,25 +369,90 @@ class InboxBatchTest(unittest.TestCase):
         observed = complete("T-1", repeated_standing)
         self.assertEqual(keys(), [repeated_dated, f"{standing}:{observed}"])
 
-    def test_operator_enables_batches_only_with_the_explicit_direct_flag(self):
+    def test_operator_uses_full_inbox_for_direct_delivery_with_or_without_old_flag(self):
         fixture = self.fixture
         common = ["--db", str(fixture.ledger), "--state", str(fixture.state),
                   "--server-id", fixture.identity.server_id, "--recipient-id", fixture.identity.subject]
         command = ["run-sampled", "--server-slug", "fixture"]
         with (patch.object(operator, "_pilot_status", return_value=lambda: "idle"),
-              patch.object(operator, "_run", side_effect=lambda sender, _: int(sender.inbox_batch is None)),
+              patch.object(operator, "_run", side_effect=lambda sender, _: int(
+                  sender.inbox_batch is None or not sender.goal_occurrences)),
               TemporaryFile(dir=fixture.ledger.parent) as secret):
             secret.write(b"fixture-secret\n")
-            for extra, expected in (([], 1), (["--inbox-batches"], 0)):
+            for extra in ([], ["--inbox-batches", "--goal-occurrences"]):
                 secret.seek(0)
                 args = [*common, "--client-id", "fixture-client", *command,
                         "--secret-fd", str(os.dup(secret.fileno())), *extra]
-                self.assertEqual(operator.main(args, transport=fixture.provider), expected)
+                self.assertEqual(operator.main(args, transport=fixture.provider), 0)
         with self.assertRaises(SystemExit) as error:
             operator.main([*common, "--delivery-command", '["/fictional/only"]',
                            *command, "--inbox-batches"], transport=fixture.provider)
         self.assertEqual(error.exception.code, 2)
         self.assertEqual(fixture.calls(), [])
+
+    def test_direct_upgrade_reconciles_pending_single_ready_then_uses_inbox(self):
+        fixture = self.fixture
+        ready = fixture.create()
+        original = fixture.provider.accept
+
+        def lose_reply(document):
+            original(document)
+            raise TimeoutError("Fixture lost the singleton acceptance reply.")
+
+        fixture.provider.on_event = lose_reply
+        for offset in (0, 10, 20):
+            self.assertEqual(self.poll(offset, batches=False), ("awaiting_idle", ready["event"]))
+        self.assertEqual(self.poll(30, batches=False), ("retry", ready["event"]))
+        self.restart()
+        fixture.provider.on_event = original
+        for offset in (40, 50, 60):
+            self.assertEqual(self.poll(offset), ("awaiting_idle", ready["event"]))
+        self.assertEqual(self.poll(70), ("accepted", ready["event"]))
+        self.assertEqual(self.wire, [self.wire[0]] * 2)
+        self.assertEqual(fixture.outcomes(), [(ready["event"], "accepted")])
+
+        fixture.board.invoke("advance-task", {
+            "id": ready["task"], "transition": "start", "note": "Begin the fixture.",
+        }, write=True)
+        event = fixture.service.task_event(fixture.board.client, ready["task"])["event"]
+        self.established_idle(80)
+        status, key = self.poll(110)
+        self.assertEqual(status, "accepted")
+        member, = json.loads(self.history(key)["members"])
+        self.assertEqual(member["key"], f"in_progress:{event}")
+        self.assertEqual(len(fixture.provider.accepted), 2)
+
+    def test_direct_upgrade_reconciles_pending_single_goal_under_its_original_key(self):
+        self.origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()
+        self.restart()
+        fixture = self.fixture
+        with patch("tasks_core.timestamp", return_value=self.stamp(0)):
+            fixture.board.invoke("set-wake-subscription", {
+                "project": managed.PROJECT, "event_type": GOAL_OCCURRENCES, "enabled": "true",
+            }, write=True)
+            fixture.board.invoke("save-goal", {"kind": "standing", "summary": "Check the signed result."}, write=True)
+        cue = "explore:T-1:2030-04-01"
+        original = fixture.provider.accept
+
+        def lose_reply(document):
+            original(document)
+            raise TimeoutError("Fixture lost the goal acceptance reply.")
+
+        fixture.provider.on_event = lose_reply
+        for offset in (0, 10, 20):
+            self.assertEqual(self.poll(offset, goals=True, batches=False), ("awaiting_idle", cue))
+        self.assertEqual(self.poll(30, goals=True, batches=False), ("retry", cue))
+        self.restart()
+        fixture.provider.on_event = original
+        for offset in (40, 50, 60):
+            self.assertEqual(self.poll(offset, goals=True), ("awaiting_idle", cue))
+        self.assertEqual(self.poll(70, goals=True), ("accepted", cue))
+        self.assertEqual(self.wire, [self.wire[0]] * 2)
+        self.assertEqual(len(fixture.provider.accepted), 1)
+        self.assertIsNone(self.journal())
+        with closing(open_sqlite(fixture.ledger)) as db:
+            receipt = goal_receipt(db, fixture.owner, cue)
+            self.assertEqual((receipt["acceptance"], receipt["attempts"]), ("accepted", 2))
 
     def test_two_ready_events_retry_the_immutable_envelope_after_restart(self):
         first, second = self.fixture.create(), self.fixture.create()
@@ -769,6 +834,7 @@ class InboxBatchTest(unittest.TestCase):
             }, write=True)
             fixture.board.invoke("save-goal", {"kind": "standing", "summary": "Verify fictional goal progress"}, write=True)
             fixture.board.invoke("set-goal-review-time", {"id": "T-1", "time": "09:00"}, write=True)
+            self.assertEqual(fixture.board.invoke("task", {"id": "T-1"})["task"]["state"], "parked")
         self.established_idle(goals=True)
         status, key = self.poll(30, goals=True)
         self.assertEqual(status, "accepted")
@@ -784,6 +850,71 @@ class InboxBatchTest(unittest.TestCase):
         with patch("tasks_core.timestamp", return_value=self.stamp(40)):
             self.assertEqual({item["key"] for item in fixture.board.invoke("my-goal-occurrences", {})["items"]},
                              {review, explore})
+
+    def test_stalled_standing_goal_dispatches_work_then_its_scheduled_cues(self):
+        self.origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()
+        self.restart()
+        fixture = self.fixture
+        board = fixture.board
+        with patch("tasks_core.timestamp", return_value=self.stamp(0)):
+            board.invoke("set-wake-subscription", {
+                "project": managed.PROJECT, "event_type": GOAL_OCCURRENCES, "enabled": "true",
+            }, write=True)
+            board.invoke("save-goal", {
+                "kind": "standing", "summary": "Verify fictional goal progress", "keep_exploring": True,
+            }, write=True)
+            board.invoke("set-goal-review-time", {"id": "T-1", "time": "09:00"}, write=True)
+            board.invoke("advance-task", {
+                "id": "T-1", "transition": "start", "note": "Continue the fixture.",
+            }, write=True)
+            event = fixture.service.task_event(board.client, "T-1")["event"]
+
+        self.established_idle(goals=True)
+        status, key = self.poll(30, goals=True)
+        self.assertEqual(status, "accepted")
+        member, = json.loads(self.history(key)["members"])
+        self.assertEqual((member["kind"], member["ticket"], member["key"]),
+                         ("in_progress", "T-1", f"in_progress:{event}"))
+        with closing(open_sqlite(fixture.ledger)) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM goal_wake_receipts").fetchone()[0], 0)
+
+        review, explore = "review:T-1:2030-04-01", "explore:T-1:2030-04-01"
+        with patch("tasks_core.timestamp", return_value=self.stamp(40)):
+            board.invoke("acknowledge-stalled-cue", {"id": "T-1", "event": str(event)}, write=True)
+            signed = board.invoke("my-inbox-wake", {"scope": "all", "include_occurrences": "true"})
+            self.assertEqual([cue["key"] for cue in signed["goal_candidates"]], [review, explore])
+        self.restart()
+        self.established_idle(40, goals=True)
+        status, key = self.poll(70, goals=True)
+        self.assertEqual(status, "accepted")
+        members = json.loads(self.history(key)["members"])
+        self.assertEqual([(item["kind"], item["key"]) for item in members],
+                         [("goal_review", review), ("goal_explore", explore)])
+        self.assertEqual(len(self.wire), 2)
+
+    def test_stalled_ordinary_work_leads_keep_exploring_goal_in_pickup_and_app(self):
+        fixture = self.fixture
+        board = fixture.board
+        ordinary = fixture.create()["task"]
+        board.invoke("advance-task", {"id": ordinary, "transition": "start", "note": "Read the sample."}, write=True)
+        board.invoke("save-goal", {"kind": "standing", "summary": "Explore next topics", "keep_exploring": True},
+                     write=True)
+        goal = "T-2"
+        board.invoke("advance-task", {"id": goal, "transition": "start", "note": "Check the next topic."}, write=True)
+
+        self.established_idle()
+        status, key = self.poll(30)
+        self.assertEqual(status, "accepted")
+        signed_work = [board.invoke("my-next", query)["work"]["key"] for query in (
+            {"scope": "all"}, {"scope": "all", "for_wake": "true"},
+        )]
+        self.assertEqual(signed_work, [ordinary, ordinary])
+        signed = board.invoke("my-inbox-wake", {"scope": "all", "include_occurrences": "true"})
+        self.assertEqual(signed["work"]["key"], ordinary)
+        self.assertEqual([(item["kind"], item["ticket"]) for item in json.loads(self.history(key)["members"])],
+                         [("in_progress", ordinary), ("in_progress", goal)])
+        summary = fixture.provider.accepted[key]["summary"]
+        self.assertLess(summary.index(ordinary), summary.index(goal))
 
     def test_two_interval_reviews_get_separate_app_and_signed_outcome_receipts(self):
         self.origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()

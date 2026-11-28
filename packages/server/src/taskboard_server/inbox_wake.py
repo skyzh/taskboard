@@ -32,8 +32,11 @@ def inbox_wake_items(board: BoardQueries, owner: str, *, project: str | None,
     today = pacific_day(wake_at)
     items = []
     reported_runs = set()
+    exploration_leads = False
     for work in board.actionable_work(owner, today=today, project=project, wake_at=wake_at,
                                       delivery=True, all_ordinary=True):
+        if not items:
+            exploration_leads = board.is_exploration_work(work)
         kind = work["kind"]
         source_event = work["source_event"]
         key = work.get("wake_key")
@@ -49,12 +52,12 @@ def inbox_wake_items(board: BoardQueries, owner: str, *, project: str | None,
         else:
             resolution = {}
         items.append(InboxWakeItem(kind, work["key"], key or f"{kind}:{source_event}", source_event, **resolution))
+    if not items or exploration_leads:
+        asks = board.requested_asks(owner, project=project, today=today, due_only=True, all_due=True)
+        if asks:
+            return tuple(InboxWakeItem("ask_recheck", ask["ticket"], ask["cue_key"]) for ask in asks)
     if items:
         return tuple(items)
-
-    asks = board.requested_asks(owner, project=project, today=today, due_only=True, all_due=True)
-    if asks:
-        return tuple(InboxWakeItem("ask_recheck", ask["ticket"], ask["cue_key"]) for ask in asks)
 
     return tuple(InboxWakeItem("goal_" + goal["key"].split(":", 1)[0], goal["ticket"], goal["key"])
                  for goal in board.goal_wake_candidates(owner, project=project, wake_at=wake_at))
