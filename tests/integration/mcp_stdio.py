@@ -229,7 +229,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                 local_args = ("--local-dri", local_env["TASKBOARD_LOCAL_DRI"])
                 io_action(origin, "watch-task", cookie=blake, data={"id": ticket})
 
-                async def verify(expected):
+                async def verify(expected, *, review_day=None):
                     for env, credentials, browser_cookie, prefix, watching in (
                         (team_env, {"cookie": blake}, blake, (), True),
                         (local_env, {"headers": signed_local}, sam, local_args, False),
@@ -257,11 +257,12 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                                                  query={"id": ticket, "limit": 1}, **credentials)
                             self.assertEqual(history.structured_content, activity)
                             context = activity["items"][0]["context"]
-                            self.assertEqual(context.get("review_after"), expected and expected.get("date"))
+                            self.assertEqual(context.get("review_after"), review_day)
                             self.assertEqual(context.get("defer_until"), expected and expected.get("at"))
 
-                await verify({"kind": "date", "date": day})
-                self.assertIn(f"Review on or after {day}", cli_success(python, ROOT, team_env, "show", ticket))
+                date_reminder = {"kind": "exact", "at": f"{day}T08:00:00Z"}
+                await verify(date_reminder, review_day=day)
+                self.assertIn(f"Deferred until {day}", cli_success(python, ROOT, team_env, "show", ticket))
                 read_json(origin, path + "/reminder", cookie=cookie, method="PUT",
                           data={"at": "2099-01-06T10:30", "time_zone": "America/Los_Angeles"})
                 await verify({"kind": "exact", "at": "2099-01-06T18:30:00Z"})
@@ -291,7 +292,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                     "id": private, "transition": "park", "note": "Wait for the private sample.", "review_after": day,
                 })
                 self.assertEqual(io_action(origin, "task", cookie=cookie, query={"id": private})["task"]["reminder"],
-                                 {"kind": "date", "date": day})
+                                 date_reminder)
                 with self.assertRaises(HTTPError) as hidden:
                     io_action(origin, "task", cookie=blake, query={"id": private})
                 self.assertEqual(hidden.exception.code, 404)

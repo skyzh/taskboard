@@ -418,7 +418,8 @@ def shared_write(board, args, *, context):
                     else:
                         data["on"] = board.person(args.on, "human")
             elif command == "wait":
-                data.update(on=args.on, automation=args.automation, attention_request_id=args.attention_request_id)
+                data.update(on=args.on, automation=args.automation, attention_request_id=args.attention_request_id,
+                            recheck_at=getattr(args, "recheck_at", None))
                 if args.blocked_by is not None:
                     data["blocked_by"] = task_ref(args.blocked_by)
             if command == "assign-human" and args.option:

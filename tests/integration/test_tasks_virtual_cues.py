@@ -61,7 +61,7 @@ class VirtualTicketCueTest(unittest.TestCase):
             board.cli("wait", manual, "Review the sample.", "--on", "Blake", "--by", avery_id)
             automation = create(avery, "Automation dependency")
             advance(avery, automation, "start")
-            advance(avery, automation, "wait", on="Build", automation=True)
+            board.cli("wait", automation, "Review the fixture.", "--on", "Build", "--automation", "--by", avery_id)
 
             source = create(avery, "Peer work")
             advance(avery, source, "start")

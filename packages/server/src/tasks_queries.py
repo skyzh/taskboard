@@ -739,8 +739,8 @@ class BoardQueries:
             elif row["state"] == "waiting":
                 if blockers:
                     wait_kind = "ticket"
-                elif context.get("wait_kind") == "automation":
-                    wait_kind = "automation"
+                elif context.get("wait_kind") in ("automation", "external"):
+                    wait_kind = context["wait_kind"]
                 elif row["event_id"] in attention_waits:
                     wait_kind = "attention"
                 elif context.get("peer_ask_ticket") and row["waiting_on"] in recipients:
@@ -3041,6 +3041,7 @@ class BoardQueries:
                 ) AND peer.kind IN ('agent', 'human') AND peer.ledger_key <> current.dri
                   AND COALESCE(json_extract(current.context, '$.wait_kind'), '') <> 'automation'
                 WHERE current.dri = ? AND current.state = 'waiting' AND current.event_id > ?
+                  AND COALESCE(json_extract(current.context, '$.wait_kind'), '') <> 'external'
                   AND json_extract(current.context, '$.peer_ask_ticket') IS NULL
                   AND json_extract(current.context, '$.blocked_by') IS NULL
                   AND NOT EXISTS (
