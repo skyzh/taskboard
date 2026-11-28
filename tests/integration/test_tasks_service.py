@@ -6644,6 +6644,10 @@ class TasksServiceTest(unittest.TestCase):
             continued, scheduled = occurrences()
             self.assertNotEqual(continued["key"], explore["key"])
             self.assertEqual(scheduled, review)
+            self.assertIn("after every result and before ending any turn", continued["goal_explore_prompt"]["prompt"])
+            prompts = self.action(owner, "field-guidance")["prompts"]
+            self.assertIn("including after an unrelated", prompts["end-task"]["prompt"])
+            self.assertIn("Record the stop reason and what lets you resume.", prompts["end-task"]["prompt"])
             self.action(owner, "advance-task", {
                 "id": ticket, "transition": "start", "note": "Take the second sample.",
             })

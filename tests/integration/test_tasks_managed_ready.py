@@ -40,6 +40,7 @@ def expected_ready_summary(ticket, event):
         f"Taskboard ticket {ticket} is Ready in your owned queue. Ready event {event}. Check signed Inbox first. "
         "Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. "
         "For a timed revisit, Park with the exact time. Recheck signed Inbox. "
+        "While Keep exploring is active, check signed Inbox after every result and before ending any turn. "
         f"{BOARD}/tickets/{ticket}"
     )
 

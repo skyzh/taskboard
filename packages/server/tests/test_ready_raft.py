@@ -34,6 +34,7 @@ class ReadyRaftTest(unittest.TestCase):
                 "Taskboard ticket T-12 is Ready in your owned queue. Ready event 42. Check signed Inbox first. "
                 "Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. "
                 "For a timed revisit, Park with the exact time. Recheck signed Inbox. "
+                "While Keep exploring is active, check signed Inbox after every result and before ending any turn. "
                 f"{BOARD}/tickets/T-12"
             ),
             "externalEventId": key,
@@ -52,7 +53,11 @@ class ReadyRaftTest(unittest.TestCase):
         transport = Mock(return_value=(202, {"status": "queued"}))
         identity = "Taskboard ticket T-12 is Ready in your owned queue. Ready event 42."
         prefix = BOARD + "/"
-        for spare, guidance in [(38, "Recheck signed Inbox. "), (0, "")]:
+        full = (
+            "Check signed Inbox first. Drive the offered ticket to Done. If blocked, set Waiting with the owner "
+            "and unblock condition. For a timed revisit, Park with the exact time. Recheck signed Inbox. "
+        )
+        for spare, guidance in [(len(full), full), (38, "Recheck signed Inbox. "), (0, "")]:
             with self.subTest(spare=spare):
                 path_length = 2000 - spare - len(f"{identity} {prefix}/tickets/T-12")
                 board = prefix + "x" * path_length

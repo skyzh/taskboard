@@ -4,7 +4,7 @@ import tomllib
 from pathlib import Path
 from textwrap import dedent
 
-from taskboard_client.wake_text import GOAL_OUTCOME, REVIEW_OUTCOME, TICKET_OUTCOME, outcome_prompt
+from taskboard_client.wake_text import KEEP_EXPLORING_CUE, GOAL_OUTCOME, REVIEW_OUTCOME, TICKET_OUTCOME, outcome_prompt
 
 import tasks_goals as goals
 import tasks_peer_asks as peer_asks
@@ -79,7 +79,7 @@ _DEFAULTS = {
         "Delegate independent work to a subagent when possible. Share the ticket objective, relevant findings, "
         "constraints, and expected result. Verify and integrate its work. "
         "Arrange independent review when the user asks for it or your project requires it. "
-        "Recheck signed Inbox and follow the saved mode if it offers a goal."
+        f"Recheck signed Inbox and follow the saved mode if it offers a goal. {KEEP_EXPLORING_CUE}"
     ),
     "standing-exploration": goals.STANDING_EXPLORATION,
     "standing-start": goals.STANDING_EXPLORATION_START,
@@ -189,7 +189,7 @@ _PROMPTS = {
     GOAL_EXPLORE: {
         "prompt": (
             "Finish higher-priority work in signed Inbox first. Complete the offered Explore occurrence. "
-            f"{outcome_prompt(GOAL_OUTCOME)}"
+            f"{outcome_prompt(GOAL_OUTCOME)} {KEEP_EXPLORING_CUE}"
         ),
     },
     GOAL_REVIEW: {
@@ -264,10 +264,14 @@ _PROMPTS = {
             ticket, recheck signed Inbox if this mode uses it. Handle actionable work
             and reviews first. If Inbox offers a standing goal, read its exploration
             setting. By default, record one focused pass, park the goal, and recheck
-            Inbox. With Keep exploring enabled, record
-            each distinct pass and recheck Inbox and reviews before continuing. If
-            actionable work arrives, switch to it. Park when the written criterion is
-            met and resume at the next configured review. When Inbox offers Explore and
+            Inbox. With Keep exploring enabled, check signed Inbox and reviews after
+            each result and before ending any turn, including after an unrelated
+            interruption. Finish the highest-priority item or record its blocker and
+            next owner. While Inbox is clear, record another distinct, useful Explore
+            pass with evidence and a next action. End at the saved cutoff or stopping
+            criterion, on a concrete blocker, or once no distinct useful check remains.
+            Record the stop reason and what lets you resume. Park when the written
+            criterion is met and resume at the next configured review. When Inbox offers Explore and
             Review separately, record each occurrence. Choose a daily Pacific review time for each
             active goal. Automatic cues for idle agents require an enabled direct app delivery path.
         """).strip(),

@@ -50,17 +50,21 @@ After finishing work, returning a review, recording a wait, or parking a
 ticket, recheck signed Inbox if this mode uses it. Handle actionable work
 and reviews first. If Inbox offers a standing goal, read its exploration
 setting. By default, record one focused pass, park the goal, and recheck
-Inbox. With Keep exploring enabled, record
-each distinct pass and recheck Inbox and reviews before continuing. If
-actionable work arrives, switch to it. Park when the written criterion is
-met and resume at the next configured review. When Inbox offers Explore and
+Inbox. With Keep exploring enabled, check signed Inbox and reviews after
+each result and before ending any turn, including after an unrelated
+interruption. Finish the highest-priority item or record its blocker and
+next owner. While Inbox is clear, record another distinct, useful Explore
+pass with evidence and a next action. End at the saved cutoff or stopping
+criterion, on a concrete blocker, or once no distinct useful check remains.
+Record the stop reason and what lets you resume. Park when the written
+criterion is met and resume at the next configured review. When Inbox offers Explore and
 Review separately, record each occurrence. Choose a daily Pacific review time for each
 active goal. Automatic cues for idle agents require an enabled direct app delivery path.
 
 When signed work supplies a workflow prompt, follow it at pickup. The project’s
 effective wording takes precedence over these public defaults.
 
-**Ready pickup.** Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. For a timed revisit, Park with the exact time. Verify the result and record the checked revision and evidence. You can review ordinary work yourself. Delegate independent work to a subagent when possible. Share the ticket objective, relevant findings, constraints, and expected result. Verify and integrate its work. Arrange independent review when the user asks for it or your project requires it. Recheck signed Inbox and follow the saved mode if it offers a goal.
+**Ready pickup.** Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. For a timed revisit, Park with the exact time. Verify the result and record the checked revision and evidence. You can review ordinary work yourself. Delegate independent work to a subagent when possible. Share the ticket objective, relevant findings, constraints, and expected result. Verify and integrate its work. Arrange independent review when the user asks for it or your project requires it. Recheck signed Inbox and follow the saved mode if it offers a goal. While Keep exploring is active, check signed Inbox after every result and before ending any turn.
 
 **Stalled follow-up.** Read the current handoff. Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. For a timed revisit, Park with the exact time. If work is still active, name the worker or record a checkpoint and next step. Use signed controls to acknowledge the exact cue or pause future reminders. Recheck signed Inbox.
 
@@ -70,7 +74,7 @@ effective wording takes precedence over these public defaults.
 
 **Suggested next action.** Check the current handoff and evidence. Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. For a timed revisit, Park with the exact time. If work is still active, name the worker or record a checkpoint and a concrete next step. Recheck signed Inbox after the disposition.
 
-**Goal exploration.** Finish higher-priority work in signed Inbox first. Complete the offered Explore occurrence. Record the goal outcome and evidence. Follow its saved exploration mode and stop condition. If the goal specifies a next Explore time, use its signed scheduling control when available. Otherwise record the intended time in the handoff. Preserve the Review schedule and deadline. Recheck signed Inbox.
+**Goal exploration.** Finish higher-priority work in signed Inbox first. Complete the offered Explore occurrence. Record the goal outcome and evidence. Follow its saved exploration mode and stop condition. If the goal specifies a next Explore time, use its signed scheduling control when available. Otherwise record the intended time in the handoff. Preserve the Review schedule and deadline. Recheck signed Inbox. While Keep exploring is active, check signed Inbox after every result and before ending any turn.
 
 When Taskboard offers a goal review, read its effective Goal review prompt.
 The public default follows.

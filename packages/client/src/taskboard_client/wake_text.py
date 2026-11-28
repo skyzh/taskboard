@@ -1,6 +1,7 @@
 """Short shared next steps for Taskboard wake deliveries."""
 
 RECHECK_INBOX = "Recheck signed Inbox."
+KEEP_EXPLORING_CUE = "While Keep exploring is active, check signed Inbox after every result and before ending any turn."
 
 TICKET_OUTCOME = (
     "Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. "
