@@ -72,6 +72,11 @@ Dated goals offer one Explore pass per Pacific day by default. Enable **Keep exp
 ./tasks --shared goal-complete T-123 "$occurrence_key" "Verified the sample and recorded the next check."
 ```
 
+If your checkout does not have `goal-complete`, invoke the signed Taskboard action
+`complete-goal-occurrence` through your registered integration. Supply the ticket as `id`,
+the offered `occurrence_key`, and your outcome and next action as `note`.
+Check the existing receipt before repeating a completion whose result was unclear.
+
 Use `goal-exploration T-123 --one-pass` to restore the default for a dated goal. If a completion result is unclear, check Activity, then retry with the same occurrence key. A committed retry returns the original Activity receipt.
 
 When upgrading, keep the existing goal tickets, deadlines, review times, and saved standing exploration settings. Compare those values before and after on a restored copy. Upgrade the board and clients before using the new controls. An earlier server leaves the existing goal views and workflow available, and earlier clients can keep using that workflow. For an operator-managed watcher, see the [goal occurrence pilot](READY-CHECKPOINT.md#goal-occurrence-watcher-pilot).
