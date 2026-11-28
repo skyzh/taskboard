@@ -2827,10 +2827,25 @@ class TasksServiceTest(unittest.TestCase):
             keys = ["explore:T-1:2030-04-01", "review:T-1:2030-04-01"]
             self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
             self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Explore the sample."})
+            work = inbox()["work"]
+            self.assertEqual((work["kind"], work["key"]), ("in_progress", "T-1"))
+            self.assertEqual(inbox(occurrences=False)["work"]["source_event"], work["source_event"])
+            self.assertEqual(offered()["occurrences"], [])
+            cue, = self.action(owner, "my-ticket-cues")["items"]
+            self.assertEqual((cue["kind"], cue["ticket"], cue["event_id"]),
+                             ("recovery", "T-1", work["source_event"]))
+            self.action(owner, "set-cue-pause", {
+                "id": "T-1", "kind": "stalled", "minutes": "30", "reason": "Wait for the sample.",
+            })
+            self.assertNotIn("work", inbox())
+            self.assertEqual(self.action(owner, "my-ticket-cues")["items"], [])
+            self.action(owner, "set-cue-pause", {"id": "T-1", "kind": "stalled"})
+            self.assertEqual(inbox()["work"], work)
+            self.action(owner, "acknowledge-stalled-cue", {"id": "T-1", "event": str(work["source_event"])})
+            self.assertEqual(self.action(owner, "my-ticket-cues")["items"], [])
             self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
 
             self.assertEqual([item["key"] for item in inbox()["goal_candidates"]], keys[::-1])
-            self.assertEqual(inbox(occurrences=False)["work"]["key"], "T-1")
 
             pause = {"id": "T-1", "kind": "goal", "reason": "The sample is under review.",
                      "until": "2030-04-01T20:00:00Z"}

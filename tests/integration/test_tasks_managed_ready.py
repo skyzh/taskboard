@@ -392,9 +392,12 @@ class ManagedSenderTest(unittest.TestCase):
         self.assertEqual(seen, {self.identity.subject: 1, second.subject: 1})
         self.assertEqual(self.outcomes(), [(first_task, "pending"), (second_task, "accepted")])
         with locked_state(self.state, self.ledger) as state:
-            pending = state.execute("SELECT attempt_event, retry_at FROM sender").fetchone()
-            self.assertEqual(pending["attempt_event"], first_task)
+            pending = state.execute("SELECT members, retry_at FROM inbox_batch").fetchone()
+            self.assertEqual([member["source_event"] for member in json.loads(pending["members"])], [first_task])
             self.assertGreater(pending["retry_at"], self.now + 60)
+        with locked_state(second_state, self.ledger) as state:
+            accepted = state.execute("SELECT members FROM inbox_batch_history WHERE acceptance = 'accepted'").fetchone()
+            self.assertEqual([member["source_event"] for member in json.loads(accepted["members"])], [second_task])
         self.assertFalse(status.exists())
 
         stop = Event()
@@ -985,7 +988,7 @@ class ManagedSenderTest(unittest.TestCase):
             return result, [json.loads(line) for line in output.getvalue().splitlines()]
 
         def accept(document):
-            sends.append((int(self.now - origin), int(document["externalEventId"].rsplit("-", 1)[1])))
+            sends.append((int(self.now - origin), document["externalEventId"]))
             return self.provider.accept(document)
 
         self.provider.on_event = accept
@@ -1006,23 +1009,27 @@ class ManagedSenderTest(unittest.TestCase):
         def accept_and_start(document):
             result = accept(document)
             offer = offer_work(self.board, self.owner)
-            self.assertEqual(offer["ready_event"], sends[-1][1])
+            self.assertEqual(offer["ready_event"], priority["event"])
             self.board.invoke("advance-task", {
                 "id": offer["task"], "transition": "start", "note": "Take the exact signed choice.",
             }, write=True)
-            if len(sends) == 2:
-                self.subscribe(False)
+            self.subscribe(False)
             return result
 
         self.provider.on_event = accept_and_start
         code, output = run("run-sampled")
         self.assertEqual(code, 0)
-        self.assertEqual(sends, [(90, priority["event"]), (130, earlier["event"])])
-        self.assertEqual(output[-1], {"status": "stopped"})
+        (offset, key), = sends
+        self.assertEqual(offset, 90)
+        with locked_state(self.state, self.ledger) as state:
+            row = state.execute("SELECT members FROM inbox_batch_history WHERE event_key = ?", (key,)).fetchone()
+            self.assertEqual([member["source_event"] for member in json.loads(row["members"])],
+                             [priority["event"], earlier["event"]])
+        self.assertEqual(output[-1], {"status": "subscription_stopped"})
         self.assertEqual(self.outcomes(), [(earlier["event"], "accepted"), (priority["event"], "accepted")])
         stop_at = 150
         self.assertEqual(run("run-sampled"), (0, [{"status": "running"}, {"status": "subscription_stopped"}]))
-        self.assertEqual(len(sends), 2)
+        self.assertEqual(len(sends), 1)
 
     def test_sampled_stream_waits_for_higher_priority_work_in_another_project(self):
         self.service.cli("register-project", "COURSE", "Fixture course", "--dri", self.owner)
@@ -1435,6 +1442,8 @@ class ManagedSenderTest(unittest.TestCase):
             self.board.invoke("advance-task", {
                 "id": "T-1", "transition": "start", "note": "Start the sample.",
             }, write=True)
+            event = self.service.task_event(self.board.client, "T-1")["event"]
+            self.board.invoke("acknowledge-stalled-cue", {"id": "T-1", "event": str(event)}, write=True)
             self.board.invoke("delegate", {
                 "id": "T-1", "worker": self.owner, "role": "build", "brief": "Check the second fixture.",
             }, write=True)

@@ -357,6 +357,9 @@ class ManagedReadySender:
         try:
             eligible = self.idle_gate is None or self.idle_gate.eligible()
             if self.inbox_batch is not None:
+                if saved["attempt_event"] is not None:
+                    # Settle the existing Ready key before sending a new Inbox envelope.
+                    return self._tick(saved, eligible=eligible)
                 return self.inbox_batch.tick(saved, eligible=eligible)
             if tasks_storage.has_table(self.state, "inbox_batch") and self.state.execute("SELECT 1 FROM inbox_batch").fetchone():
                 raise ValueError("Settle the pending Inbox batch before changing delivery mode.")
@@ -395,7 +398,7 @@ class ManagedReadySender:
                     return key, ticket
             return None
 
-    def _tick_goal(self, saved, *, eligible, now):
+    def _tick_goal(self, saved, *, eligible, now, pending_only=False):
         if now < saved["retry_at"]:
             return "waiting", None
         cue = self._goal_candidate(saved)
@@ -405,6 +408,8 @@ class ManagedReadySender:
         owner = saved["owner"]
         task_id = projects.resolve(self.db, ticket)
         previous = goal_receipts.receipt(self.db, owner, key)
+        if pending_only and (previous is None or previous["acceptance"] != "pending"):
+            return "idle", None
         attempts = previous["attempts"] if previous else 0
         first = previous["first_attempt"] if previous else now
         renewed = previous["renewed"] if previous else False

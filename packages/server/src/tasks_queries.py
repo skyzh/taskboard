@@ -3179,9 +3179,9 @@ class BoardQueries:
                     SELECT task.* FROM current AS task
                     WHERE task.dri = ? AND (? IS NULL OR task.project_prefix = ?)
                       AND (NOT ? OR task.state = 'waiting')
-                      AND NOT EXISTS (
+                      AND (task.state = 'in_progress' OR NOT EXISTS (
                           SELECT 1 FROM task_goals AS goal WHERE goal.task_id = task.id AND goal.retired = 0
-                      )
+                      ))
                       AND NOT EXISTS (
                           SELECT 1 FROM worker_runs WHERE worker_runs.task_id = task.id AND ({RUNNING})
                       )
@@ -3198,7 +3198,7 @@ class BoardQueries:
                          AND NOT EXISTS (
                              SELECT 1 FROM cue_pauses AS pause
                              WHERE pause.task_id = owned.id AND pause.owner = owned.dri
-                               AND pause.kind = 'stalled' AND pause.until_at > ?
+                               AND pause.kind IN ('stalled', 'goal') AND pause.until_at > ?
                          )
                          AND NOT EXISTS (
                              SELECT 1 FROM stalled_cue_acknowledgments AS ack
@@ -3275,7 +3275,7 @@ class BoardQueries:
     def inbox_selection(self, owner, *, project, today, wake_at=None, delivery=False, ordinary_only=False):
         work = next(self.actionable_work(owner, today=today, project=project, wake_at=wake_at,
                                          delivery=delivery, ordinary_only=ordinary_only), None)
-        exploration = (work is not None and work["kind"] == "in_progress"
+        exploration = (not delivery and work is not None and work["kind"] == "in_progress"
                        and ledger.task_goal_kind(self.db, work["id"]) is not None
                        and goals.exploration_criterion(self.db, work["id"]) is not None)
         if work is None or exploration:
@@ -3358,7 +3358,7 @@ class BoardQueries:
                 filters["wake_at"] = wake_at
             if delivery and kind == "review":
                 filters["for_wake"] = True
-            if ordinary_only and kind in ("reminder", "in_progress"):
+            if ordinary_only and (kind == "reminder" or (kind == "in_progress" and not delivery)):
                 filters["exclude_goals"] = True
             for item in lane(query, filters, paginate=all_ordinary or (all_owned_ready and kind == "ready")):
                 work = {

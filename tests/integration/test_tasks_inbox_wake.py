@@ -209,6 +209,12 @@ class InboxWakeTest(unittest.TestCase):
             self.fixture.call(self.sam, f"/api/v1/notifications/requests/{ask}/reminder", method="PUT",
                               json={"date": "2030-04-01"})
             ask_keys.append(f"attention:{ask}:2030-04-01")
+        work = self.signed_head()["work"]
+        self.assertEqual((work["kind"], work["key"]), ("in_progress", "T-1"))
+        self.assertEqual([(item.kind, item.key) for item in self.snapshot()],
+                         [("in_progress", f"in_progress:{work['source_event']}")])
+        self.avery.invoke("acknowledge-stalled-cue", {"id": "T-1", "event": str(work["source_event"])},
+                          write=True)
         self.assertEqual(self.signed_head()["ask_recheck"]["cue_key"], ask_keys[0])
         self.assertEqual([(item.kind, item.key) for item in self.snapshot()],
                          [("ask_recheck", key) for key in ask_keys])
