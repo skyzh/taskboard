@@ -259,7 +259,7 @@ def verify_cli(python, client, env, origin, cookie, actor, *, legacy=False):
     expect(LEGACY_TASK in run("show", "T-2"), "The pinned client cannot read the expected task.")
     for command, line, extra in (
         ("start", "Compatibility fixture started.", ()),
-        ("wait", "Compatibility fixture wait.", ("--on", "Fixture automation", "--automation")),
+        ("wait", "Compatibility fixture wait.", ("--blocked-by", "T-1")),
         ("resume", "Compatibility fixture resumed.", ()),
     ):
         expect("Committed" in run(command, "T-2", line, *extra), f"The pinned client lost the {command} receipt.")
