@@ -39,6 +39,7 @@ from taskboard_client import SharedBoard
 from taskboard_client.direct import DirectBoard
 from tasks_core import SCHEMA, import_notification_on, import_release_event, record, release_due_deferrals, timestamp
 from tasks_projects import register
+from tasks_queries import BoardQueries
 from tasks_ring1 import mark_private
 from tasks_storage import open_sqlite, write
 from tasks_wake_subscriptions import OWNED_READY, has_subscription
@@ -2251,9 +2252,10 @@ class TasksServiceTest(unittest.TestCase):
 
     def test_goal_occurrence_wakes_respect_signed_priority_and_pauses(self):
         app = self.app(portal_reader=True)
-        owner, _ = self.login(app, "Avery")
+        owner, owner_id = self.login(app, "Avery")
         recipient, recipient_id = self.login(app, "Sam")
-        with patch("tasks_core.timestamp", return_value="2030-04-01T19:00:00Z"):
+        wake_at = "2030-04-01T19:00:00Z"
+        with patch("tasks_core.timestamp", return_value=wake_at):
             self.action(owner, "save-goal", {
                 "kind": "dated", "summary": "Verify the sample", "deadline": "2030-04-10",
             })
@@ -2267,7 +2269,13 @@ class TasksServiceTest(unittest.TestCase):
                 filters = {"scope": "all"}
                 if occurrences:
                     filters["include_occurrences"] = "true"
-                return self.action(owner, "my-inbox-wake", query_string=filters)
+                signed = self.action(owner, "my-inbox-wake", query_string=filters)
+                if occurrences:
+                    with closing(open_sqlite(self.database, write_existing=False)) as db:
+                        local = BoardQueries(db, ORIGIN + BASE, principal=owner_id)
+                        expected = {field: value for field, value in signed.items() if field != "next_step"}
+                        self.assertEqual(local.inbox_wake_occurrences(owner_id, project=None, wake_at=wake_at), expected)
+                return signed
 
             self.assertNotIn("occurrences", self.action(owner, "my-goal-cues"))
             keys = ["explore:T-1:2030-04-01", "review:T-1:2030-04-01"]
@@ -6640,6 +6648,10 @@ class TasksServiceTest(unittest.TestCase):
         def occurrences():
             return self.action(owner, "my-goal-occurrences")["items"]
 
+        def wake_keys():
+            result = self.action(owner, "my-inbox-wake", query_string={"scope": "all", "include_occurrences": "true"})
+            return [item["key"] for item in result["goal_candidates"]]
+
         def complete(item, note):
             return self.action(owner, "complete-goal-occurrence", {
                 "id": ticket, "occurrence_key": item["key"], "note": note,
@@ -6652,9 +6664,11 @@ class TasksServiceTest(unittest.TestCase):
             self.action(owner, "set-goal-review-time", {"id": ticket, "time": "09:00"})
             explore, review = occurrences()
             self.assertEqual((explore["kind"], review["kind"]), ("explore", "review"))
+            self.assertEqual(wake_keys(), [review["key"], explore["key"]])
             first = complete(explore, "Check one release sample.")
             self.assertEqual(complete(explore, "Check one release sample."), first)
             self.assertEqual(occurrences(), [review])
+            self.assertEqual(wake_keys(), [review["key"]])
             self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "parked")
 
             self.action(owner, "save-goal", {
@@ -6687,6 +6701,7 @@ class TasksServiceTest(unittest.TestCase):
             self.assertIn(continued["key"], compatible)
             self.assertIn("with `goal-complete`", compatible)
             self.assertNotIn("update --standing-pass", compatible)
+            self.assertEqual(wake_keys(), [review["key"], continued["key"]])
             self.action(owner, "advance-task", {
                 "id": ticket, "transition": "start", "note": "Take the second sample.",
             })
@@ -6695,10 +6710,12 @@ class TasksServiceTest(unittest.TestCase):
                 "id": ticket, "transition": "park", "note": "Two samples checked.", "standing_pass": "criterion-met",
             })
             self.assertEqual(occurrences(), [review])
+            self.assertEqual(wake_keys(), [review["key"]])
             schedules = self.action(owner, "my-goals")["review_schedules"]
             self.assertEqual(schedules[ticket]["next_at"], "2030-04-01T16:00:00Z")
             self.assertNotEqual(complete(review, "Record the scheduled synthesis.")["event_id"], first["event_id"])
             self.assertEqual(occurrences(), [])
+            self.assertEqual(wake_keys(), [])
             self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "parked")
 
         with patch("tasks_core.timestamp", return_value="2030-04-02T16:00:00Z"):

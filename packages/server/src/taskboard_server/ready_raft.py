@@ -28,6 +28,10 @@ class ReadyEventSendError(RuntimeError):
     """Raft acceptance could not be confirmed."""
 
 
+class GoalEventTooLong(ValueError):
+    """The exact goal occurrence and ticket link cannot fit the Raft event."""
+
+
 def _summary_fits(summary):
     return len(summary.encode("utf-16-le")) // 2 <= _MAX_SUMMARY
 
@@ -83,7 +87,28 @@ def send_ready_event(
     The transport returns an HTTP status and decoded JSON. Network and parsing
     failures may raise OSError or ValueError.
     """
-    document = _event_document(signal)
+    return _send_document(_event_document(signal), access_token, transport)
+
+
+def goal_event_document(board, recipient, ticket, occurrence_key):
+    """Format a prompt for one exact occurrence without goal content."""
+    event_key = "taskboard-goal-" + sha256(f"{board}\n{recipient}\n{occurrence_key}".encode()).hexdigest()
+    action = "Scheduled Review" if occurrence_key.startswith("review:") else "Explore"
+    document_url = ticket_document(board, ticket)
+    summary = (f"Taskboard {action} for {ticket}. Check signed Inbox first. "
+               f"Record the exact occurrence {occurrence_key} in Taskboard. {document_url}")
+    if not _summary_fits(summary):
+        summary = f"{action} {occurrence_key}. {document_url}"
+    if not _summary_fits(summary):
+        raise GoalEventTooLong("The goal occurrence link exceeds Raft's summary limit.")
+    return {"kind": "event", "summary": summary, "externalEventId": event_key}
+
+
+def send_goal_event(document, *, access_token, transport):
+    return _send_document(document, access_token, transport)
+
+
+def _send_document(document, access_token, transport):
     if not isinstance(access_token, str) or _BEARER.fullmatch(access_token) is None:
         raise ValueError("Supply a resource-bound Raft bearer token.")
     upstream = Request(

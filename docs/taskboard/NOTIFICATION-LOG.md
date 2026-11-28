@@ -237,6 +237,29 @@ Restart with the same sampled state. Signed opt-out or a stopped grant ends
 the sender. The sender delivers accepted cues through Raft Agent Events.
 Eligible tickets remain available in signed Inbox for normal pickup.
 
+### Add Explore and scheduled Review to the direct pilot
+
+For an approved Project T recipient, use their signed session to run
+`./tasks --shared wake-subscribe goal-occurrences --project T` in addition
+to the existing owned Ready subscription. Stop the owner's existing process,
+reuse its sampled state and app grant, and add `--goal-occurrences` to
+`run-sampled`. Run one sender for the owner. The local command delivery
+option only supports Ready work.
+
+The sender checks signed Inbox priority and goal pauses at selection and
+again just before sending. Ordinary work and due asks retain priority. An
+unsupported timed or deadline cue leaves selection to signed Inbox. The same
+30-second observed Idle window applies to each exact Explore or scheduled
+Review. The event carries the occurrence key and a canonical ticket link.
+Record the outcome from signed Taskboard.
+
+The board stores native delivery attempts and acceptance separately from the
+outcome of the goal occurrence. Acceptance cannot complete Explore or Review,
+and no Ready or Start receipt is written for either. Retries use the same
+occurrence key across restarts. If the exact key and canonical ticket link
+cannot fit in a Raft event, a terminal unsendable receipt records the failure
+without an HTTP attempt. To stop goal delivery while continuing Ready delivery, run `./tasks --shared wake-unsubscribe goal-occurrences --project T`.
+
 ### Use a trusted local delivery command
 
 Direct Raft remains the default. For an approved sampled sender, use

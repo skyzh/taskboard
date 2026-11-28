@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest.mock import Mock
 
-from taskboard_server.ready_raft import ReadyEventAcceptance, ReadyEventSendError, send_ready_event
+from taskboard_server.ready_raft import ReadyEventAcceptance, ReadyEventSendError, goal_event_document, send_ready_event
 from taskboard_server.ready_signal import signal
 
 
@@ -66,6 +66,17 @@ class ReadyRaftTest(unittest.TestCase):
                 body = json.loads(transport.call_args.args[0].data)
                 self.assertEqual(body["summary"], f"{identity} {guidance}{board}/tickets/T-12")
                 self.assertEqual(accepted.external_event_id, f"taskboard-ready-{sha256(board.encode()).hexdigest()}-42")
+
+    def test_goal_payload_trims_guidance_and_keeps_exact_identity_and_link(self):
+        ticket = "T-12"
+        occurrence = "review:T-12:2030-04-01"
+        prefix = BOARD + "/"
+        path_length = 2000 - len(f"Scheduled Review {occurrence}. {prefix}/tickets/{ticket}")
+        board = prefix + "x" * path_length
+        payload = goal_event_document(board, "fixture-agent", ticket, occurrence)
+        self.assertEqual(payload["summary"], f"Scheduled Review {occurrence}. {board}/tickets/{ticket}")
+        self.assertEqual(len(payload["summary"]), 2000)
+        self.assertEqual(payload, goal_event_document(board, "fixture-agent", ticket, occurrence))
 
     def test_retry_preserves_the_whole_request_and_accepts_dedup(self):
         transport = Mock(side_effect=[TimeoutError(TOKEN), (200, {"deduped": True})])

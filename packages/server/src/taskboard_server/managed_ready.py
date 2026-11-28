@@ -11,6 +11,7 @@ from time import monotonic, time
 from raft_auth import Identity
 import tasks_core as ledger
 from taskboard_server.managed_ready_grant import GrantStopped, RaftRetry
+from taskboard_server.ready_raft import GoalEventTooLong, ReadyEventSendError, goal_event_document, send_goal_event
 from taskboard_server.ready_signal import connect, parse_board_url
 from taskboard_server.ready_wake import (
     ReadyWakeEventChanged,
@@ -19,12 +20,14 @@ from taskboard_server.ready_wake import (
     launch_ready_wake,
     ready_wake_owner,
 )
+import tasks_goal_wake_receipts as goal_receipts
 from tasks_goals import PACIFIC
 import tasks_projects as projects
 from tasks_queries import BoardQueries
+import tasks_ring1 as ring1
 import tasks_storage
 from tasks_notification_log import WAKE_SCHEMA
-from tasks_wake_subscriptions import MANAGED_READY_PROJECT, OWNED_READY, has_subscription
+from tasks_wake_subscriptions import GOAL_OCCURRENCES, MANAGED_READY_PROJECT, OWNED_READY, has_subscription
 
 
 _PROJECT = MANAGED_READY_PROJECT
@@ -170,7 +173,9 @@ def initialize(state_path, db, scope, *, pilot=False, sampled=False):
 
 class ManagedReadySender:
     def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None, event_id=None, sampled=False,
-                 stop_requested=None, command_delivery=None):
+                 stop_requested=None, command_delivery=None, goal_occurrences=False):
+        if goal_occurrences and (not sampled or grant is None):
+            raise ValueError("Goal occurrences require direct sampled Raft delivery.")
         if (grant is None) != (command_delivery is not None) or (command_delivery is not None and not sampled):
             raise ValueError("Choose direct Raft or the sampled command transport.")
         if sampled and (idle_gate is None or event_id is not None):
@@ -185,6 +190,7 @@ class ManagedReadySender:
         self.sampled = sampled
         self.stop_requested = stop_requested
         self.command_delivery = command_delivery
+        self.goal_occurrences = goal_occurrences
 
     def _check_subscription(self, saved):
         current = self.scope.subscription(self.db)
@@ -314,6 +320,110 @@ class ManagedReadySender:
                     return self._stop("subscription_stopped")
             return self._stop("grant_stopped")
 
+    def _goal_candidate(self, saved):
+        with tasks_storage.read(self.db):
+            self._check_subscription(saved)
+            owner = saved["owner"]
+            if ring1.private(self.db, _PROJECT) or not has_subscription(self.db, _PROJECT, owner, GOAL_OCCURRENCES):
+                return None
+            instant = datetime.fromtimestamp(self.clock(), timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+            board = BoardQueries(self.db, saved["board"], principal=owner)
+            selection = board.inbox_wake_occurrences(owner, project=None, wake_at=instant)
+            if selection.get("work") or selection.get("ask_recheck"):
+                return None
+            for item in selection.get("goal_candidates", ()):
+                key, ticket = item["key"], item["ticket"]
+                if not key.startswith(("review:", "explore:")) or projects.identifier(ticket)[0] != _PROJECT:
+                    return None
+                receipt = goal_receipts.receipt(self.db, owner, key)
+                if receipt is None or receipt["acceptance"] == "pending":
+                    return key, ticket
+            return None
+
+    def _tick_goal(self, saved, *, eligible, now):
+        if now < saved["retry_at"]:
+            return "waiting", None
+        cue = self._goal_candidate(saved)
+        if cue is None:
+            return "idle", None
+        key, ticket = cue
+        owner = saved["owner"]
+        task_id = projects.resolve(self.db, ticket)
+        previous = goal_receipts.receipt(self.db, owner, key)
+        attempts = previous["attempts"] if previous else 0
+        first = previous["first_attempt"] if previous else now
+        renewed = previous["renewed"] if previous else False
+
+        def record(acceptance, *, retry_at=0):
+            goal_receipts.record(
+                self.db, owner, key, task_id, acceptance=acceptance, attempts=attempts,
+                first_attempt=first, retry_at=retry_at, renewed=renewed, observed_at=ledger.timestamp(),
+            )
+
+        if previous and now < previous["retry_at"]:
+            return "waiting", None
+        if attempts >= _ATTEMPTS or now >= first + _RETRY_WINDOW:
+            record("unknown")
+            return "attempt_window_ended", key
+        if not eligible:
+            return "awaiting_idle", key
+
+        try:
+            document = goal_event_document(saved["board"], self.scope.identity.subject, ticket, key)
+        except GoalEventTooLong:
+            record("unsendable")
+            return "goal_payload_too_long", key
+
+        def preflight():
+            if self.stop_requested is not None and self.stop_requested():
+                raise _SampledStopRequested
+            if self._goal_candidate(saved) != cue:
+                raise _SampledChoiceChanged
+
+        def submit(request):
+            if not self.idle_gate.eligible(final=True):
+                raise _IdleGateClosed
+            preflight()
+            if self.stop_requested is not None and self.stop_requested():
+                raise _SampledStopRequested
+            status, payload = self.grant.event_transport(request)
+            if status == 401:
+                raise _Unauthorized
+            return status, payload
+
+        attempts += 1
+        record("pending", retry_at=now + _DELAY)
+        delay = 0
+        outcome = "retry"
+        try:
+            token = self.grant.token(preflight=preflight)
+            preflight()
+            send_goal_event(document, access_token=token, transport=submit)
+        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested) as error:
+            goal_receipts.restore(self.db, owner, key, previous)
+            return ("awaiting_idle", key) if isinstance(error, _IdleGateClosed) else ("waiting", None)
+        except _Unauthorized:
+            if renewed:
+                return self._stop("grant_stopped")
+            self.grant.invalidate()
+            renewed = True
+            outcome = "renewal_needed"
+        except RaftRetry as error:
+            delay = error.delay
+        except ReadyEventSendError:
+            pass
+        else:
+            record("accepted")
+            if delay := self._retry_delay():
+                self._retry("accepted", key, delay=delay)
+            self.idle_gate.reset()
+            return "accepted", key
+
+        self.idle_gate.reset()
+        delay = max(_DELAY, delay, self._retry_delay())
+        record("pending", retry_at=self.clock() + delay)
+        return self._retry(outcome, key, delay=delay)
+
     def _tick(self, saved, *, eligible):
         row = self._candidate(saved)
         now = self.clock()
@@ -326,6 +436,8 @@ class ManagedReadySender:
                 self._finish(saved["attempt_event"])
             if self.event_id is not None:
                 return "pilot_event_unavailable", self.event_id
+            if self.goal_occurrences:
+                return self._tick_goal(saved, eligible=eligible, now=now)
             return "idle", None
         if now < saved["retry_at"]:
             return "waiting", None

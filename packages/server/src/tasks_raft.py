@@ -144,7 +144,7 @@ _ACTIONS = {
         "reason": "Required when setting a pause."}),
     "my-wake-subscriptions": _Action("GET", "Read your wake subscriptions for one project.", optional=_PROJECT),
     "set-wake-subscription": _Action("POST", "Update your subscription to a project wake event.", {
-        "event_type": "Wake event type. Choose owned-ready.",
+        "event_type": "Wake event type. Choose owned-ready or goal-occurrences.",
         "enabled": "Send true to subscribe or false to unsubscribe.",
     }, _PROJECT),
     "save-goal": _Action("POST", "Save or clear one of your project goals.", {

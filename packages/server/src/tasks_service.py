@@ -46,6 +46,7 @@ import tasks_history as history
 import tasks_integration_stats as integration_stats
 import tasks_knowledge as knowledge_records
 import tasks_merges as merges
+import tasks_goal_wake_receipts
 import tasks_notification_log as notification_log
 import tasks_watcher_health as watcher_health
 import tasks_runtime_observations as runtime_observations
@@ -442,6 +443,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     db.execute(ASK_RECHECK_ACKNOWLEDGMENTS)
     db.execute(NOTIFICATION_PREFERENCES)
     db.execute(wake_subscriptions.SCHEMA)
+    db.execute(tasks_goal_wake_receipts.SCHEMA)
     for statement in notification_log.SCHEMA:
         db.execute(statement)
     db.execute(ATTENTION_WAIT_SCHEMA)
@@ -527,6 +529,7 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
         knowledge_records.ensure_schema(db)
         knowledge_records.migrate_records(db)
         db.execute(wake_subscriptions.SCHEMA)
+        db.execute(tasks_goal_wake_receipts.SCHEMA)
         db.execute(watches.ASSIGNEE_SCHEMA)
         peer_asks.refresh_generated_titles(db)
 
@@ -1261,8 +1264,10 @@ def create_app(
         if not write:
             return {"project": project, "subscriptions": wake_subscriptions.subscriptions(db(), project, owner)}
         event_type = data["event_type"]
-        if event_type != wake_subscriptions.OWNED_READY:
-            raise RequestError("Choose owned-ready as the wake event type.")
+        if event_type not in (wake_subscriptions.OWNED_READY, wake_subscriptions.GOAL_OCCURRENCES):
+            raise RequestError("Choose owned-ready or goal-occurrences.")
+        if event_type == wake_subscriptions.GOAL_OCCURRENCES and project != wake_subscriptions.MANAGED_READY_PROJECT:
+            raise RequestError("Goal occurrence delivery is in the Project T pilot.", 403)
         enabled = data["enabled"]
         if enabled not in ("true", "false"):
             raise RequestError("enabled must be true or false.")
@@ -5152,18 +5157,10 @@ def create_app(
         return {key: work[key] for key in ("kind", "id", "key", "title")} if work else None
 
     def inbox_selection(connection, owner, project, *, wake_at=None, delivery=False, ordinary_only=False):
-        board = query()
-        today = pacific_day(wake_at or ledger.timestamp())
-        work = next(board.actionable_work(owner, today=today, project=project, wake_at=wake_at,
-                                          delivery=delivery, ordinary_only=ordinary_only), None)
-        exploration = (work is not None and work["kind"] == "in_progress"
-                       and ledger.task_goal_kind(connection, work["id"]) is not None
-                       and goals.exploration_criterion(connection, work["id"]) is not None)
-        if work is None or exploration:
-            asks = board.requested_asks(owner, project=project, today=today, due_only=True)
-            if asks:
-                return None, asks[0]
-        return work, None
+        return query(connection).inbox_selection(
+            owner, project=project, today=pacific_day(wake_at or ledger.timestamp()),
+            wake_at=wake_at, delivery=delivery, ordinary_only=ordinary_only,
+        )
 
     def next_action_after_write(owner, project):
         try:
@@ -5413,9 +5410,9 @@ def create_app(
             wake_at = ledger.timestamp()
             include_occurrences = data.get("include_occurrences") == "true"
             with tasks_storage.read(db()) as connection:
-                work, ask = inbox_selection(
-                    connection, key, project, wake_at=wake_at, delivery=True, ordinary_only=include_occurrences,
-                )
+                if include_occurrences:
+                    return query(connection).inbox_wake_occurrences(key, project=project, wake_at=wake_at)
+                work, ask = inbox_selection(connection, key, project, wake_at=wake_at, delivery=True)
                 if ask:
                     return {"ask_recheck": ask}
                 if work:
@@ -5427,21 +5424,6 @@ def create_app(
                     if goal_kind:
                         work["goal"] = True
                     return {"work": work}
-                if include_occurrences:
-                    now = datetime.fromisoformat(wake_at).astimezone(PACIFIC)
-                    paused = {projects.row_reference(row) for row in cue_pauses.active(connection, key, wake_at, "goal")}
-                    occurrences = [item for item in goal_cadence.occurrences(connection, key, project, now)
-                                   if item["ticket"] not in paused]
-                    reviews = [item for item in occurrences if item["kind"] == "review"]
-                    scheduled = {item["ticket"] for item in reviews}
-                    _, due = goal_cadence.due_reviews(connection, key, project, now, principal=actor_key())
-                    fallback = [cue for cue in due if cue["ticket"] not in paused and (
-                        cue["kind"] == "timed" or (cue["kind"] == "deadline" and cue["ticket"] not in scheduled)
-                    )]
-                    explore = [item for item in occurrences if item["kind"] == "explore"]
-                    return {"goal_candidates": [
-                        {"ticket": item["ticket"], "key": item["key"]} for item in (*reviews, *fallback, *explore)
-                    ]}
                 standing = goals.queue_context(connection, key, project, principal=actor_key())["standing_goals"]
                 if standing:
                     return {"goal_project": standing[0]["project"], "goal_ticket": standing[0]["ticket"]}
