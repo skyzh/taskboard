@@ -4,6 +4,7 @@ from copy import deepcopy
 from hashlib import sha256
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -15,6 +16,7 @@ from compatibility_fixture import (
     MANIFEST, CompatibilityFailure, actions, fixture_server, read_json, seed, verify_cli,
     verify_contract, verify_queue,
 )
+from hosted_compatibility import QUALIFICATION, STEP, WORKFLOW
 from release_compatibility import (
     PUBLIC_SCHEMA, SCHEMA, certificate, run_matrix, supported_clients,
     verify_missing_action, verify_policy_receipt, verify_receipt,
@@ -37,6 +39,35 @@ def fixture_receipt(base=BASE):
 
 
 class ReleaseCompatibilityTest(unittest.TestCase):
+    def test_hosted_qualification_workflow_is_optional_and_uses_pinned_public_inputs(self):
+        workflow = (SOURCE / WORKFLOW).read_text(encoding="utf-8")
+        match = re.search(r"(?ms)^  public-release-qualification:\n(.*?)(?=^  \S|\Z)", workflow)
+        self.assertIsNotNone(match)
+        job = match.group(1)
+        header, steps = job.split("\n    steps:\n", 1)
+        guard = header.split("\n    if: >-\n", 1)[1].split("\n    continue-on-error:", 1)[0]
+        self.assertEqual(" ".join(guard.split()),
+                         "github.event_name == 'push' && github.ref == 'refs/heads/main' && github.ref_protected && "
+                         "github.event.created == false && github.event.deleted == false && github.event.forced == false")
+        self.assertIn(f"name: {QUALIFICATION}\n", header)
+        self.assertIn("\n    continue-on-error: true\n    permissions:\n      contents: read\n", header)
+        self.assertNotIn("continue-on-error:", steps)
+        self.assertNotIn("public-release-qualification", workflow[:match.start()] + workflow[match.end():])
+        self.assertEqual(steps.count("persist-credentials: false"), 2)
+        self.assertNotIn("GITHUB_TOKEN", steps)
+        self.assertNotIn("secrets.", steps)
+        for pin in (
+            "ref: c343a1494b0fc8162495638799a72158af5a701a",
+            "debian@sha256:65d15c0ac2dd6639a130a05ffaf36b9d60697ef8d07125d79aecaaa9871bc97b",
+            "--volume \"$GITHUB_EVENT_PATH:/push.json:ro\"",
+            "--env GITHUB_EVENT_PATH=/push.json",
+            "sre38/stage.py stage",
+            f"name: {STEP}\n",
+            "replay_public_ci.sh /candidate /state /fixture/tools/release/sre38 --notice",
+        ):
+            with self.subTest(pin=pin):
+                self.assertIn(pin, steps)
+
     def test_mounted_shared_cli_keeps_its_default_routes_and_receipts(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

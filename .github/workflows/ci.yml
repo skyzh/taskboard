@@ -128,3 +128,46 @@ jobs:
         run: >-
           env PYTHONPATH=. uv run --no-sync python -B -W error::ResourceWarning -m unittest
           discover -s tools/ci -p test_notification_preferences.py
+
+  public-release-qualification:
+    name: Public release qualification
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' && github.ref_protected &&
+      github.event.created == false && github.event.deleted == false && github.event.forced == false
+    continue-on-error: true
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - name: Check out the protected push
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: candidate
+          persist-credentials: false
+
+      - name: Check out the pinned SRE-38 inputs
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: c343a1494b0fc8162495638799a72158af5a701a
+          path: sre38-fixture
+          persist-credentials: false
+
+      - name: Verify and stage public inputs
+        run: |
+          mkdir "$RUNNER_TEMP/public-qualification"
+          python3 -B sre38-fixture/tools/release/sre38/stage.py stage "$RUNNER_TEMP/public-qualification"
+
+      - name: Qualify public release pairings
+        run: |
+          docker run --rm --platform linux/arm64 \
+            --volume "$GITHUB_WORKSPACE/candidate:/candidate:ro" \
+            --volume "$GITHUB_WORKSPACE/sre38-fixture:/fixture:ro" \
+            --volume "$RUNNER_TEMP/public-qualification:/state" \
+            --volume "$GITHUB_EVENT_PATH:/push.json:ro" \
+            --env GITHUB_EVENT_NAME --env GITHUB_REF --env GITHUB_REF_PROTECTED \
+            --env GITHUB_SHA --env GITHUB_REPOSITORY --env GITHUB_EVENT_PATH=/push.json \
+            debian@sha256:65d15c0ac2dd6639a130a05ffaf36b9d60697ef8d07125d79aecaaa9871bc97b \
+            /bin/bash /candidate/tools/release/replay_public_ci.sh /candidate /state /fixture/tools/release/sre38 --notice
