@@ -5383,14 +5383,18 @@ def create_app(
                 if include_occurrences:
                     now = datetime.fromisoformat(wake_at).astimezone(PACIFIC)
                     paused = {projects.row_reference(row) for row in cue_pauses.active(connection, key, wake_at, "goal")}
-                    for occurrence in goal_cadence.occurrences(connection, key, project, now):
-                        if occurrence["ticket"] not in paused:
-                            return {"goal_project": projects.identifier(occurrence["ticket"])[0]}
+                    occurrences = [item for item in goal_cadence.occurrences(connection, key, project, now)
+                                   if item["ticket"] not in paused]
+                    reviews = [item for item in occurrences if item["kind"] == "review"]
+                    scheduled = {item["ticket"] for item in reviews}
                     _, due = goal_cadence.due_reviews(connection, key, project, now, principal=actor_key())
-                    for cue in due:
-                        if cue["kind"] in ("timed", "deadline") and cue["ticket"] not in paused:
-                            return {"goal_project": projects.identifier(cue["ticket"])[0]}
-                    return {}
+                    fallback = [cue for cue in due if cue["ticket"] not in paused and (
+                        cue["kind"] == "timed" or (cue["kind"] == "deadline" and cue["ticket"] not in scheduled)
+                    )]
+                    explore = [item for item in occurrences if item["kind"] == "explore"]
+                    return {"goal_candidates": [
+                        {"ticket": item["ticket"], "key": item["key"]} for item in (*reviews, *fallback, *explore)
+                    ]}
                 standing = goals.queue_context(connection, key, project, principal=actor_key())["standing_goals"]
                 if standing:
                     return {"goal_project": standing[0]["project"], "goal_ticket": standing[0]["ticket"]}

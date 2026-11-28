@@ -2274,14 +2274,14 @@ class TasksServiceTest(unittest.TestCase):
             self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Explore the sample."})
             self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
 
-            self.assertEqual(inbox()["goal_project"], "T")
+            self.assertEqual([item["key"] for item in inbox()["goal_candidates"]], keys[::-1])
             self.assertEqual(inbox(occurrences=False)["work"]["key"], "T-1")
 
             pause = {"id": "T-1", "kind": "goal", "reason": "The sample is under review.",
                      "until": "2030-04-01T20:00:00Z"}
             self.action(owner, "set-cue-pause", pause)
             self.assertEqual(offered()["occurrences"], [])
-            self.assertNotIn("goal_project", inbox())
+            self.assertEqual(inbox()["goal_candidates"], [])
             self.action(owner, "set-cue-pause", {"id": "T-1", "kind": "goal"})
             self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
 
@@ -2303,8 +2303,95 @@ class TasksServiceTest(unittest.TestCase):
             self.assertTrue(offered()["ordinary_busy"])
             self.assertEqual(offered()["occurrences"], [])
             self.action(owner, "acknowledge-ask-recheck", {"cue_key": ask["cue_key"]})
-            self.assertEqual(inbox()["goal_project"], "T")
+            self.assertEqual([item["key"] for item in inbox()["goal_candidates"]], keys[::-1])
             self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
+
+    def test_shared_goal_watcher_prioritizes_cross_project_review_and_skips_delivered_cues(self):
+        app = self.app(portal_reader=True)
+        owner, owner_key = self.login(app, "Avery")
+        self.cli("register-project", "LAB", "Sample lab", "--dri", owner_key)
+        now = "2030-04-01T17:00:00Z"
+
+        class SignedBoard:
+            def invoke(_, action, data=None, *, write=False):
+                self.assertFalse(write)
+                return self.action(owner, action, query_string=data or {})
+
+            def pages(_, action, filters):
+                yield from self.action(owner, action, query_string=filters)["items"]
+
+        with patch("tasks_core.timestamp", side_effect=lambda: now), TemporaryDirectory() as state_folder:
+            tickets = {}
+            for project in ("LAB", "T"):
+                self.action(owner, "save-goal", {
+                    "project": project, "kind": "dated", "summary": f"Check {project}", "deadline": "2030-04-10",
+                })
+                items = self.action(owner, "my-goal-occurrences", query_string={"project": project})["items"]
+                tickets[project] = items[0]["ticket"]
+            keys = {"lab": f"explore:{tickets['LAB']}:2030-04-01",
+                    "review": f"review:{tickets['T']}:2030-04-01",
+                    "explore": f"explore:{tickets['T']}:2030-04-01"}
+            self.action(owner, "set-goal-review-time", {"id": tickets["T"], "time": "12:00"})
+            self.action(owner, "save-goal", {
+                "project": "LAB", "kind": "dated", "summary": "Check timed sample", "deadline": "2030-04-11",
+            })
+            lab_goals = self.action(owner, "my-goal-occurrences", query_string={"project": "LAB"})["items"]
+            timed_ticket, = {item["ticket"] for item in lab_goals} - {tickets["LAB"]}
+            timed = f"timed:{timed_ticket}:2030-04-01T18:30:00Z"
+            self.action(owner, "advance-task", {
+                "id": timed_ticket, "transition": "park", "note": "Wait for the sample.",
+                "defer_until": "2030-04-01T18:30:00Z",
+            })
+
+            def wake(expected):
+                clock = 0
+                delivered = []
+
+                def advance(seconds):
+                    nonlocal clock
+                    clock += seconds
+                    self.assertLess(clock, 60)
+
+                def notify(offer, claim, record):
+                    self.assertTrue(claim())
+                    delivered.append(offer["goal_key"])
+                    record("#00aa00bb")
+                    return "wake-requested"
+
+                def emit(result):
+                    self.assertEqual(result["outcome"], "goal-wake-requested")
+                    self.assertEqual(clock, 30)
+                    raise KeyboardInterrupt
+
+                with (
+                    patch.dict(os.environ, {"XDG_STATE_HOME": state_folder}),
+                    patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+                    patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance),
+                    self.assertRaises(KeyboardInterrupt),
+                ):
+                    watch_ready_count(SignedBoard(), "Avery", lambda _: True, self.fail, emit,
+                                      notify_goal=notify, notify_inbox=self.fail, goal_occurrences=True)
+
+                self.assertEqual(delivered, [expected])
+
+            def offered():
+                result = self.action(owner, "my-inbox-wake", query_string={
+                    "scope": "all", "include_occurrences": "true",
+                })
+                return [item["key"] for item in result["goal_candidates"]]
+
+            self.assertEqual(offered()[:2], [keys["lab"], keys["explore"]])
+            wake(keys["lab"])
+
+            now = "2030-04-01T18:45:00Z"
+            self.assertEqual(offered()[:2], [timed, keys["lab"]])
+            wake(timed)
+
+            now = "2030-04-01T19:00:00Z"
+            self.assertEqual(offered()[:3], [keys["review"], timed, keys["lab"]])
+            wake(keys["review"])
+            wake(f"explore:{timed_ticket}:2030-04-01")
+            wake(keys["explore"])
 
     def test_wake_subscriptions_use_the_configured_project_roster(self):
         roster = {self.provider.people["Avery"]["sub"]: "Avery"}

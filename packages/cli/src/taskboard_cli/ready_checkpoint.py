@@ -511,6 +511,28 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
         except SharedActionUnavailable as error:
             raise SharedReadError(str(error), reason="action-unavailable") from error
 
+    def occurrence_inbox_goal(snapshot):
+        nonlocal stage
+        if snapshot.get("work") or snapshot.get("ask_recheck"):
+            return None, None
+        candidates = snapshot.get("goal_candidates")
+        if not isinstance(candidates, list):
+            raise SharedReadError("The signed Inbox wake returned invalid goal candidates.", reason="queue-scope")
+        stage = GOAL_READ
+        offers = {}
+        for item in candidates:
+            ticket = item.get("ticket") if isinstance(item, dict) else None
+            if (not isinstance(ticket, str) or not re.fullmatch(r"[A-Z][A-Z0-9]*-[1-9][0-9]*", ticket)
+                    or not isinstance(item.get("key"), str)):
+                raise SharedReadError("The signed Inbox wake returned an invalid goal candidate.", reason="queue-scope")
+            project = ticket.rsplit("-", 1)[0]
+            if project not in offers:
+                offers[project] = project_goals(project).lookup()
+            offer = offers[project]
+            if offer and offer["task"] == ticket and offer["goal_key"] == item["key"]:
+                return project_goals(project), offer
+        return None, None
+
     def next_inbox():
         nonlocal stage, selected_goal
         snapshot = signed_inbox_wake()
@@ -534,6 +556,9 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
             if offer is not None and goal_wake.state.ask_available(offer["cue_key"]):
                 return offer
             return None
+        if goal_wake is not None and include_occurrences:
+            selected_goal, offer = occurrence_inbox_goal(snapshot)
+            return offer
         if goal_wake is not None and (project := snapshot.get("goal_project")):
             if not isinstance(project, str) or not re.fullmatch(r"[A-Z][A-Z0-9]*", project):
                 raise SharedReadError("The signed Inbox wake returned an invalid project.", reason="queue-scope")
@@ -624,8 +649,14 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
             def goal_still_selected():
                 if shared_idle:
                     selected = signed_inbox_wake()
-                    if (selected.get("goal_project") != selected_goal.state.project
-                            or selected.get("goal_ticket") not in (None, notice["task"])):
+                    if include_occurrences:
+                        watcher, offer = occurrence_inbox_goal(selected)
+                        if watcher is not selected_goal or offer != {
+                            key: value for key, value in notice.items() if key != "board"
+                        }:
+                            return False
+                    elif (selected.get("goal_project") != selected_goal.state.project
+                          or selected.get("goal_ticket") not in (None, notice["task"])):
                         return False
                 return can_wake()
 

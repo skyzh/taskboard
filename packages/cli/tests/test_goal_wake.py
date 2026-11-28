@@ -478,7 +478,7 @@ class GoalWakeTest(unittest.TestCase):
                         calls.append((action, dict(data), write, clock))
                         if action == "my-inbox-wake":
                             if enabled:
-                                return {"goal_project": "T"}
+                                return {"goal_candidates": [{"ticket": exact["ticket"], "key": exact["key"]}]}
                             return {"goal_project": "T", "goal_ticket": STANDING["ticket"]}
                         if action == "my-goal-cues":
                             if enabled:
