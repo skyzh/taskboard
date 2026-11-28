@@ -7,6 +7,7 @@ import json
 
 from taskboard_server.inbox_wake import inbox_event_summary, inbox_wake_items
 from taskboard_server.managed_ready import (
+    SAMPLED_STATE_BY_PROJECT,
     _ATTEMPTS,
     _DELAY,
     _IdleGateClosed,
@@ -15,6 +16,7 @@ from taskboard_server.managed_ready import (
     _SampledChoiceChanged,
     _SampledStopRequested,
     _Unauthorized,
+    _latest,
 )
 from taskboard_server.managed_ready_grant import RaftRetry
 from taskboard_server.ready_raft import ReadyEventSendError, send_inbox_event
@@ -35,6 +37,7 @@ _SCHEMA = """
         event_key TEXT NOT NULL,
         document BLOB NOT NULL,
         members TEXT NOT NULL,
+        ledger_tip INTEGER NOT NULL,
         first_attempt REAL NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0,
         retry_at REAL NOT NULL DEFAULT 0,
@@ -43,7 +46,19 @@ _SCHEMA = """
         accepted_at TEXT
     )
 """
+# These are carrier observations for every exact member. Signed pickup and
+# dispositions are independent and remain unknown to this sender.
+_HISTORY = """
+    CREATE TABLE IF NOT EXISTS inbox_batch_history (
+        event_key TEXT PRIMARY KEY,
+        document BLOB NOT NULL,
+        members TEXT NOT NULL,
+        acceptance TEXT NOT NULL CHECK (acceptance IN ('accepted', 'unknown')),
+        observed_at TEXT NOT NULL
+    )
+"""
 _GOAL_KINDS = {"goal_review", "goal_explore"}
+_GOAL_PREFIX = "goal_"
 
 
 @dataclass(frozen=True)
@@ -62,33 +77,45 @@ class InboxBatchDelivery:
         self.db = sender.db
         self.state = sender.state
         self.project = sender.scope.project
+        marker, = self.state.execute("SELECT event FROM pilot").fetchone()
+        if marker != SAMPLED_STATE_BY_PROJECT[self.project]:
+            raise ValueError("Use state initialized for this sampled sender project.")
         with self.state:
             self.state.execute(_SCHEMA)
+            self.state.execute(_HISTORY)
 
     def _selected(self, saved):
         now = self.sender.clock()
         owner = saved["owner"]
         wake_at = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        observed = {(row[0], row[1]) for row in self.state.execute("""
+            SELECT json_extract(member.value, '$.kind'), json_extract(member.value, '$.key')
+            FROM inbox_batch_history, json_each(inbox_batch_history.members) AS member
+        """)}
         with tasks_storage.read(self.db):
             self.sender._check_subscription(saved)
+            self.sender._check_history(saved)
+            tip = _latest(self.db)
             if ring1.private(self.db, self.project):
-                return [], ""
+                return [], (), tip
             goal_enabled = self.sender.goal_occurrences and has_subscription(
                 self.db, self.project, owner, GOAL_OCCURRENCES,
             )
             board = BoardQueries(self.db, saved["board"], principal=owner)
             selected, members = [], []
             for item in inbox_wake_items(board, owner, project=None, wake_at=wake_at):
-                if item.kind != "ready" and (item.kind not in _GOAL_KINDS or not goal_enabled):
-                    break
                 if projects.identifier(item.ticket)[0] != self.project:
                     break
+                if item.kind.startswith(_GOAL_PREFIX) and not goal_enabled:
+                    break
+                if (item.kind, item.key) in observed:
+                    continue
                 task = ledger.find_task(self.db, projects.resolve(self.db, item.ticket))
-                if task is None or task["dri"] != owner:
+                if task is None:
                     break
                 source_at = None
                 if item.kind == "ready":
-                    if (item.source_event != task["event_id"] or task["state"] != "ready"
+                    if (task["dri"] != owner or item.source_event != task["event_id"] or task["state"] != "ready"
                             or item.source_event <= saved["through_event"]):
                         break
                     ready_at = datetime.fromisoformat(task["at"]).timestamp()
@@ -97,7 +124,9 @@ class InboxBatchDelivery:
                     if not self.sender._receipt_allows_attempt(item.source_event, owner):
                         continue
                     source_at = task["at"]
-                else:
+                elif item.kind in _GOAL_KINDS:
+                    if task["dri"] != owner:
+                        break
                     existing = goals.receipt(self.db, owner, item.key)
                     if existing is not None and existing["acceptance"] == "pending":
                         break
@@ -105,22 +134,22 @@ class InboxBatchDelivery:
                         continue
                 selected.append(item)
                 members.append(BatchMember(item.kind, item.ticket, item.key, task["id"], item.source_event, source_at))
-            return members, inbox_event_summary(saved["board"], tuple(selected)) if selected else ""
+            return members, tuple(selected), tip
 
     def _clear(self):
         with self.state:
             self.state.execute("DELETE FROM inbox_batch WHERE singleton = 1")
 
-    def _prepare(self, saved, members, summary, now):
+    def _prepare(self, saved, members, summary, now, tip):
         exact = json.dumps([asdict(member) for member in members], separators=(",", ":"))
         identity = json.dumps([saved["board"], saved["server"], saved["recipient"], self.project, exact])
         key = "taskboard-inbox-" + sha256(identity.encode()).hexdigest()
         document = json.dumps({"kind": "event", "externalEventId": key, "summary": summary}).encode()
         with self.state:
             self.state.execute("""
-                INSERT INTO inbox_batch (singleton, event_key, document, members, first_attempt)
-                VALUES (1, ?, ?, ?, ?)
-            """, (key, document, exact, now))
+                INSERT INTO inbox_batch (singleton, event_key, document, members, ledger_tip, first_attempt)
+                VALUES (1, ?, ?, ?, ?, ?)
+            """, (key, document, exact, tip, now))
         return self.state.execute("SELECT * FROM inbox_batch WHERE singleton = 1").fetchone()
 
     def _settle(self, saved, journal, members, acceptance):
@@ -129,6 +158,8 @@ class InboxBatchDelivery:
         observed = journal["accepted_at"] or ledger.timestamp()
         changed = False
         with tasks_storage.write(self.db):
+            self.sender._check_binding(saved, self.sender.scope.binding(self.db))
+            self.sender._check_history(saved, journal["ledger_tip"])
             visible = not ring1.private(self.db, self.project)
             for member in members if visible else ():
                 row = ledger.find_task(self.db, member.task_id)
@@ -146,7 +177,7 @@ class InboxBatchDelivery:
                         audit.record(self.db, scope="operator", actor=None, operation="record-notification",
                                      record_type="wake_log", record_id=event, at=observed)
                         changed = True
-                elif goals.receipt(self.db, owner, member.key) is None:
+                elif member.kind in _GOAL_KINDS and goals.receipt(self.db, owner, member.key) is None:
                     goals.record_in_transaction(
                         self.db, owner, member.key, member.task_id, acceptance=acceptance,
                         attempts=journal["attempts"], first_attempt=journal["first_attempt"], retry_at=0,
@@ -155,7 +186,12 @@ class InboxBatchDelivery:
                     changed = True
             if changed:
                 ledger.bump_revision(self.db)
-        self._clear()
+        with self.state:
+            self.state.execute(
+                "INSERT INTO inbox_batch_history VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                (journal["event_key"], journal["document"], journal["members"], acceptance, observed),
+            )
+            self.state.execute("DELETE FROM inbox_batch WHERE singleton = 1")
 
     def tick(self, saved, *, eligible):
         if saved["attempt_event"] is not None:
@@ -168,7 +204,7 @@ class InboxBatchDelivery:
             if journal["accepted_at"] is not None:
                 self._settle(saved, journal, members, "accepted")
                 return "accepted", key
-        selected, summary = self._selected(saved)
+        selected, items, tip = self._selected(saved)
         if journal is not None:
             expired = journal["attempts"] >= _ATTEMPTS or now >= journal["first_attempt"] + _RETRY_WINDOW
             if selected != members or expired:
@@ -184,7 +220,11 @@ class InboxBatchDelivery:
         if not eligible:
             return "awaiting_idle", None
         if journal is None:
-            journal = self._prepare(saved, selected, summary, now)
+            try:
+                summary = inbox_event_summary(saved["board"], items, project=self.project)
+            except ValueError:
+                return "batch_payload_unavailable", None
+            journal = self._prepare(saved, selected, summary, now, tip)
         return self._attempt(saved, journal, selected, now)
 
     def _attempt(self, saved, journal, members, now):
@@ -197,7 +237,7 @@ class InboxBatchDelivery:
 
         def preflight():
             check_stop()
-            current, _ = self._selected(saved)
+            current, _, _ = self._selected(saved)
             if current != members:
                 raise _SampledChoiceChanged
 

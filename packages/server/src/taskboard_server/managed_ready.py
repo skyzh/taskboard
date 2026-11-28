@@ -127,6 +127,15 @@ class SenderScope:
         if self.project != MANAGED_READY_PROJECT and not (sampled and direct):
             raise ValueError("Tiny LLM requires direct sampled Raft delivery.")
 
+    def binding(self, db, *, owner=None):
+        if owner is None:
+            owner = ready_wake_owner(db, self.identity)
+        board = ledger.live_board_url(db)
+        if not board:
+            raise ValueError("Configure the board URL before starting the managed sender.")
+        return (str(self.ledger_path), parse_board_url(board), self.identity.server_id,
+                self.identity.subject, owner, self.app)
+
     def subscription(self, db):
         owner = ready_wake_owner(db, self.identity)
         if ((self.project != MANAGED_READY_PROJECT and ring1.private(db, self.project))
@@ -142,11 +151,7 @@ class SenderScope:
         ).fetchone()[0]
         if revision is None:
             raise GrantStopped("subscription_stopped")
-        board = ledger.live_board_url(db)
-        if not board:
-            raise ValueError("Configure the board URL before starting the managed sender.")
-        return (str(self.ledger_path), parse_board_url(board), self.identity.server_id,
-                self.identity.subject, owner, self.app, revision)
+        return (*self.binding(db, owner=owner), revision)
 
 
 def _latest(db):
@@ -213,16 +218,22 @@ class ManagedReadySender:
 
     def _check_subscription(self, saved):
         current = self.scope.subscription(self.db)
-        if current[:6] != tuple(saved[key] for key in ("ledger", "board", "server", "recipient", "owner", "app")):
-            raise ValueError("Managed Ready sender scope changed.")
+        self._check_binding(saved, current[:6])
         if current[6] != saved["subscription"]:
             raise GrantStopped("subscription_stopped")
+
+    def _check_binding(self, saved, current):
+        if current != tuple(saved[key] for key in ("ledger", "board", "server", "recipient", "owner", "app")):
+            raise ValueError("Managed Ready sender scope changed.")
+
+    def _check_history(self, saved, ledger_tip=0):
+        if _latest(self.db) < max(ledger_tip, saved["attempt_event"] or saved["through_event"]):
+            raise ValueError("Ledger history is behind the managed Ready sender.")
 
     def _candidate(self, saved, *, pending_only=False):
         with tasks_storage.read(self.db):
             self._check_subscription(saved)
-            if _latest(self.db) < (saved["attempt_event"] or saved["through_event"]):
-                raise ValueError("Ledger history is behind the managed Ready sender.")
+            self._check_history(saved)
             if self.sampled:
                 return self._sampled_candidate(saved)
             return self.db.execute(
