@@ -35,8 +35,9 @@ class GrantStopped(RuntimeError):
 class RaftRetry(RuntimeError):
     """A later attempt may use the same event ID after this many seconds."""
 
-    def __init__(self, delay: float):
+    def __init__(self, delay: float, *, rejected: bool = False):
         self.delay = delay
+        self.rejected = rejected
         super().__init__("Raft will need another attempt after a delay.")
 
 
@@ -202,7 +203,7 @@ class ManagedReadyGrant:
     def _post(self, request: Request, preflight: Callable[[], None] | None = None) -> tuple[int, object]:
         remaining = self._blocked_until - self._clock()
         if remaining > 0:
-            raise RaftRetry(remaining)
+            raise RaftRetry(remaining, rejected=True)
         if preflight is not None:
             preflight()
         try:
@@ -215,7 +216,7 @@ class ManagedReadyGrant:
             if status == 429 or headers.get("x-ratelimit-remaining") == "0":
                 delay = (max(retry_after, self._rate_reset(headers)) or 60) + self._jitter()
                 if status == 429:
-                    self._defer(delay)
+                    self._defer(delay, rejected=True)
                 self._blocked_until = self._clock() + delay
             elif retry_after:
                 self._blocked_until = self._clock() + retry_after
@@ -224,9 +225,9 @@ class ManagedReadyGrant:
             return status, document
         self._defer(5)
 
-    def _defer(self, delay: float) -> None:
+    def _defer(self, delay: float, *, rejected: bool = False) -> None:
         self._blocked_until = max(self._blocked_until, self._clock() + delay)
-        raise RaftRetry(self._blocked_until - self._clock())
+        raise RaftRetry(self._blocked_until - self._clock(), rejected=rejected)
 
     def _retry_after(self, value: str | None) -> float:
         if value is None:

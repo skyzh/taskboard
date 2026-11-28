@@ -230,6 +230,12 @@ class InboxBatchDelivery:
             journal = self._prepare(saved, selected, summary, now, tip)
         return self._attempt(saved, journal, selected, now)
 
+    def _restore_submission(self, journal, *, delay=0):
+        with self.state:
+            self.state.execute("UPDATE inbox_batch SET submitted = ? WHERE singleton = 1", (journal["submitted"],))
+            if delay:
+                self._remember_deadline(self.sender.clock() + delay)
+
     def _attempt(self, saved, journal, members, now):
         sender = self.sender
         key = journal["event_key"]
@@ -251,8 +257,14 @@ class InboxBatchDelivery:
             with self.state:
                 self.state.execute("UPDATE inbox_batch SET submitted = 1 WHERE singleton = 1")
             check_stop()
-            status, payload = sender.grant.event_transport(request)
+            try:
+                status, payload = sender.grant.event_transport(request)
+            except RaftRetry as error:
+                if error.rejected:
+                    self._restore_submission(journal, delay=error.delay)
+                raise
             if status == 401:
+                self._restore_submission(journal)
                 raise _Unauthorized
             return status, payload
 
@@ -287,18 +299,23 @@ class InboxBatchDelivery:
         else:
             with self.state:
                 self.state.execute("UPDATE inbox_batch SET accepted_at = ? WHERE singleton = 1", (ledger.timestamp(),))
+                if delay := sender._retry_delay():
+                    self._remember_deadline(sender.clock() + delay)
             confirmed = self.state.execute("SELECT * FROM inbox_batch WHERE singleton = 1").fetchone()
             self._settle(saved, confirmed, members, "accepted")
-            if delay := sender._retry_delay():
-                sender._retry("accepted", key, delay=delay)
             sender.idle_gate.reset()
             return "accepted", key
 
         sender.idle_gate.reset()
         delay = max(_DELAY, delay, sender._retry_delay())
+        retry_at = sender.clock() + delay
         with self.state:
             self.state.execute(
                 "UPDATE inbox_batch SET retry_at = ?, renewed = ? WHERE singleton = 1",
-                (sender.clock() + delay, int(renewed)),
+                (retry_at, int(renewed)),
             )
+            self._remember_deadline(retry_at)
         return outcome, key
+
+    def _remember_deadline(self, retry_at):
+        self.state.execute("UPDATE sender SET retry_at = MAX(retry_at, ?) WHERE singleton = 1", (retry_at,))

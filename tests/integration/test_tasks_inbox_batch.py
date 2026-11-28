@@ -189,6 +189,50 @@ class InboxBatchTest(unittest.TestCase):
         self.assertIn(f"{third['task']} — Check the sample", provider.accepted[replacement]["summary"])
         self.assertNotIn(f"{first['task']} —", provider.accepted[replacement]["summary"])
 
+    def test_rate_limit_rejection_does_not_suppress_the_remaining_item(self):
+        first, second = self.fixture.create(), self.fixture.create()
+        provider = self.fixture.provider
+        provider.on_event = lambda _: (429, {}, {"Retry-After": "120"})
+        self.established_idle()
+        status, key = self.poll(30)
+        self.assertEqual(status, "retry")
+        self.assertEqual(self.journal()["submitted"], 0)
+        self.fixture.board.invoke("advance-task", {
+            "id": first["task"], "transition": "start", "note": "Start the first ticket manually.",
+        }, write=True)
+        self.assertEqual(self.poll(40), ("batch_superseded", key))
+        self.assertIsNone(self.history(key))
+        self.assertEqual(self.fixture.outcomes(), [(first["event"], "pending"), (second["event"], "pending")])
+        provider.on_event = provider.accept
+        self.restart()
+        for offset in range(50, 150, 10):
+            self.assertEqual(self.poll(offset), ("idle", None))
+        self.assertEqual(self.fixture.calls().count("agent-events"), 1)
+        status, retry = self.poll(150)
+        self.assertEqual(status, "accepted")
+        members = json.loads(self.history(retry)["members"])
+        self.assertEqual([item["source_event"] for item in members if item["kind"] == "ready"], [second["event"]])
+
+    def test_replacement_after_rate_limit_keeps_deadline_across_restart(self):
+        first = self.fixture.create()
+        provider = self.fixture.provider
+        provider.on_event = lambda _: (429, {}, {"Retry-After": "120"})
+        self.established_idle()
+        self.assertEqual(self.poll(30)[0], "retry")
+        second = self.fixture.create()
+        self.assertEqual(self.poll(40)[0], "batch_superseded")
+
+        provider.on_event = provider.accept
+        self.restart()
+        for offset in range(50, 150, 10):
+            self.assertEqual(self.poll(offset), ("idle", None))
+        self.assertEqual(self.fixture.calls().count("agent-events"), 1)
+        status, key = self.poll(150)
+        self.assertEqual(status, "accepted")
+        self.assertEqual(self.fixture.calls().count("agent-events"), 2)
+        self.assertEqual([item["source_event"] for item in json.loads(self.history(key)["members"])],
+                         [first["event"], second["event"]])
+
     def test_visible_preview_is_capped_without_dropping_envelope_members(self):
         ready = [self.fixture.create() for _ in range(4)]
         for index, row in enumerate(ready, start=1):
