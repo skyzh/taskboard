@@ -1,6 +1,11 @@
 """Replay postboard reads and revisions under signed project identities."""
 
+import json
+from subprocess import CompletedProcess
 import unittest
+from unittest.mock import patch
+
+from taskboard_client import SharedBoard
 
 import test_tasks_service as fixtures
 
@@ -44,7 +49,17 @@ def replay_postboards(test, board, app):
     call(owner, history, method="POST", json={**data, "source_ticket_ids": [source_keys["Shared sample"]]}, status=404)
 
     initial = {"project": "LAB", "content": data["content"], "source_ticket_ids": '["LAB-1", "LAB-1"]'}
-    first = action(owner, "save-dri-postboard", initial)["current"]
+
+    def invoke_raft(command, *, input, **_options):
+        response = action(owner, command[command.index("--action") + 1], json.loads(input))
+        envelope = {"ok": True, "data": {"status": 200, "result": response}}
+        return CompletedProcess(command, 0, json.dumps(envelope), "")
+
+    shared = SharedBoard("fixture")
+    with patch("taskboard_client.connection.subprocess.run", side_effect=invoke_raft):
+        result = shared.invoke("save-dri-postboard", initial, write=True)
+    first = result["current"]
+    test.assertEqual(result["receipt"], "Saved LAB postboard revision 1.")
     test.assertEqual((first["revision_id"], first["updated_by"], first["content"]), (1, owner_id, data["content"]))
     test.assertEqual([(source["key"], source["title"]) for source in first["sources"]], [("LAB-1", "First sample")])
     call(owner, history, method="POST", json=data, status=409)
@@ -56,10 +71,13 @@ def replay_postboards(test, board, app):
         "expected_revision_id": "",
     })["current"]
     test.assertEqual((legacy_first["revision_id"], legacy_first["updated_by"]), (1, other_id))
-    second = action(owner, "save-dri-postboard", {
-        "project": "LAB", "content": "Reviewed the sample.",
-        "source_ticket_ids": '["LAB-2"]', "expected_revision_id": "1",
-    })["current"]
+    with patch("taskboard_client.connection.subprocess.run", side_effect=invoke_raft):
+        result = shared.invoke("save-dri-postboard", {
+            "project": "LAB", "content": "Reviewed the sample.",
+            "source_ticket_ids": '["LAB-2"]', "expected_revision_id": "1",
+        }, write=True)
+    second = result["current"]
+    test.assertEqual(result["receipt"], "Saved LAB postboard revision 2.")
     test.assertEqual(second["revision_id"], 2)
     action(owner, "save-dri-postboard", {**initial, "expected_revision_id": "1"}, status=409)
     options = {"project": "LAB", "dri": owner_id}
@@ -70,11 +88,12 @@ def replay_postboards(test, board, app):
     test.assertEqual(call(outsider, path).json["current"], second)
 
     test.assertEqual(call(owner, history).json["items"], [second, first])
-    shared = call(owner, separate + "/revisions", method="POST", json={
+    public_save = call(owner, separate + "/revisions", method="POST", json={
         **data, "content": "Public sample", "source_ticket_ids": [source_keys["Shared sample"]],
-    }).json["current"]
-    test.assertEqual(call(anonymous, separate).json["current"], shared)
-    test.assertEqual(call(anonymous, separate + "/revisions").json["items"], [shared])
+    }).json
+    test.assertNotIn("receipt", public_save)
+    test.assertEqual(call(anonymous, separate).json["current"], public_save["current"])
+    test.assertEqual(call(anonymous, separate + "/revisions").json["items"], [public_save["current"]])
     public_profile = call(anonymous, "/api/v1/assignee", query_string={"owner": owner_id, "project": "T"}).json
     test.assertTrue(public_profile["postboard_available"])
     test.assertEqual(public_profile["projects"], ["T"])
