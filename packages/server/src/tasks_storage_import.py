@@ -30,6 +30,7 @@ TABLES = (
     "ask_recheck_acknowledgments", "notification_preferences", "notification_log",
     "watched_fyi_preferences", "watched_fyi_receipts",
     "wake_subscriptions", "wake_log", "goal_idle_offers", "goal_wake_receipts", "external_wake_reports",
+    "inbox_wake_members", "inbox_wake_stalled_dispositions",
     "knowledge_areas", "knowledge_entries", "knowledge_stages", "knowledge_maintenance_assignments",
     "agent_api_usage", "ticket_attachments", "ticket_attachment_bytes",
     "dri_postboards", "dri_postboard_revisions", "knowledge_publications", "knowledge_publication_files",
@@ -150,6 +151,7 @@ def copy_table(source, destination, table):
     ordering = {
         "tasks": "id", "events": "id", "ticket_attachments": "id", "ticket_attachment_bytes": "attachment_id",
         "dri_postboards": "project, dri", "dri_postboard_revisions": "project, dri, revision_id",
+        "inbox_wake_members": "id", "inbox_wake_stalled_dispositions": "recipient, task_id, source_event_id",
     }
     if order := ordering.get(table):
         expected = source.execute(f"SELECT {fields_sql} FROM {table_sql} ORDER BY {order}")

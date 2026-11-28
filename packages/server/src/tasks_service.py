@@ -1360,15 +1360,24 @@ def create_app(
         if not re.fullmatch(r"[1-9][0-9]*", event):
             raise RequestError("Provide the event number shown in the stalled cue.")
         with tasks_storage.write(db()) as connection:
-            require_visible_task(connection, number)
+            project = require_visible_task(connection, number)
             task = ledger.find_task(connection, number)
             if task is None or task["dri"] != owner:
                 raise RequestError("Choose a ticket you own.", 403)
             if task["state"] != "in_progress" or task["event_id"] != int(event):
                 raise RequestError("This stalled cue is no longer current. Recheck the ticket.", 409)
             now = ledger.timestamp()
+            prior = connection.execute(
+                """SELECT source_event_id, acknowledged_at FROM stalled_cue_acknowledgments
+                   WHERE task_id = ? AND owner = ?""", (number, owner),
+            ).fetchone()
+            changed = bool(prior and wake_members.acknowledge_stalled(
+                connection, owner, number, prior["source_event_id"], prior["acknowledged_at"],
+            ))
             cue_pauses.acknowledge(connection, number, owner, int(event), now)
-            wake_members.acknowledge_stalled(connection, owner, number, int(event), now)
+            changed |= wake_members.acknowledge_stalled(connection, owner, number, int(event), now)
+            if changed:
+                ledger.bump_revision(connection, project)
             return {"receipt": f"{projects.row_reference(task)} · Stalled cue for event {event} acknowledged"}
 
     def project_channel(actor, project, data=None):

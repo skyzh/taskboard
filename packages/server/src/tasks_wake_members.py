@@ -86,10 +86,11 @@ def import_confirmed(db, state, scope, envelope):
 
 
 def acknowledge_stalled(db, recipient, task_id, source_event, at):
-    db.execute(
+    result = db.execute(
         """INSERT INTO inbox_wake_stalled_dispositions VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING""",
         (recipient, task_id, source_event, at),
     )
+    return bool(result.rowcount)
 
 
 def listing(db, project, recipient, *, before, limit, principal, cue_kinds=()):

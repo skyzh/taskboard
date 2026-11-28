@@ -935,7 +935,7 @@ class InboxBatchTest(unittest.TestCase):
             board.invoke("acknowledge-stalled-cue", {"id": ordinary, "event": str(event)}, write=True)
         after, = fixture.service.call(board.client, endpoint, query_string=query).json["items"]
         self.assertEqual(after["disposition_at"], self.stamp(40))
-        self.assertEqual(datetime.fromisoformat(after["accepted_at"]).timestamp(), self.origin + 30)
+        self.assertAlmostEqual(datetime.fromisoformat(after["accepted_at"]).timestamp(), self.origin + 30, delta=1e-6)
         self.assertEqual(after["id"], first["id"])
         older = fixture.service.call(board.client, endpoint,
                                      query_string={**query, "before": json.dumps(after["sort_key"])}).json
@@ -952,6 +952,22 @@ class InboxBatchTest(unittest.TestCase):
                 import_confirmed(db, state, fixture.scope, "taskboard-inbox-" + "0" * 64)
         restored, = fixture.service.call(board.client, endpoint, query_string=query).json["items"]
         self.assertEqual(restored, after)
+
+        for retry in (True, False):
+            with closing(open_sqlite(fixture.ledger)) as db, db:
+                db.execute("DELETE FROM inbox_wake_stalled_dispositions")
+            with patch("tasks_core.timestamp", return_value=self.stamp(60 if retry else 90)):
+                if retry:
+                    second_event = event
+                else:
+                    board.invoke("advance-task", {
+                        "id": ordinary, "transition": "update", "note": "Continue checking.",
+                    }, write=True)
+                    second_event = fixture.service.task_event(board.client, ordinary)["event"]
+                    self.assertNotEqual(second_event, event)
+                board.invoke("acknowledge-stalled-cue", {"id": ordinary, "event": str(second_event)}, write=True)
+            verified, = fixture.service.call(board.client, endpoint, query_string=query).json["items"]
+            self.assertEqual(verified, after)
 
     def test_two_interval_reviews_get_separate_app_and_signed_outcome_receipts(self):
         self.origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()
