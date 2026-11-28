@@ -257,34 +257,53 @@ fire receipt, and signed Start. Confirm that any replay leaves a single Ready
 transition. The CI fixture covers the repository's behavior, and this
 deployment check confirms the configured scheduler and carrier.
 
-## Runtime timeline pilot
+## Runtime timeline enrollment
 
-Runtime collection is off by default. This pilot requires a fixed-server
-Raft board on SQLite with the operator deferral timer. PostgreSQL boards
-reject pilot configuration at startup. After the operator and the agent
-owner agree on the pilot, set both `TASKS_RUNTIME_PILOT_PROJECT` and
-`TASKS_RUNTIME_PILOT_AGENT_SUBJECT` on the board. They authorize one
-project and one verified Raft agent subject. Keep the existing managed
-watcher and its wake settings. Add `--report-runtime PROJECT` to the
-approved repeat watcher command to report its own observations.
+Runtime collection is off by default and requires a fixed-server Raft board
+on SQLite with the operator deferral timer. PostgreSQL boards reject runtime
+configuration at startup. After the operator and each agent owner agree,
+set `TASKS_RUNTIME_ENROLLMENTS` in the board environment to a JSON array of
+explicit project and verified Raft agent subject pairs. For example, using
+fictional UUIDs:
+
+```json
+[
+  {"project": "T", "agent_subject": "00000000-0000-0000-0000-000000000040"},
+  {"project": "COURSE", "agent_subject": "00000000-0000-0000-0000-000000000041"}
+]
+```
+
+The existing `TASKS_RUNTIME_PILOT_PROJECT` and
+`TASKS_RUNTIME_PILOT_AGENT_SUBJECT` still enroll one pair when both are
+set. Specifying the same pair in both settings enrolls it once. Keep each
+existing managed watcher's wake settings and add `--report-runtime PROJECT`
+to the approved repeat command for its reporting project. The watcher
+reports its own state through its signed agent session.
 
 The board records the observation time, a normalized runtime state, and a
-random continuity ID for that watcher run. It accepts one sample per UTC
-minute. Failed or ambiguous polls are Unknown, while an explicitly stopped
-runtime is Unavailable. The chart joins adjacent agreeing observations
-from one run. It leaves gaps for transitions, missing slots, restarts, and
-time outside sampled coverage. Project membership controls who appears in a
-project's view. Runtime state describes the agent across its work.
+random continuity ID for that watcher run. It accepts one sample per agent
+and project per UTC minute. Failed or ambiguous polls are Unknown, while an
+explicitly stopped runtime is Unavailable. The chart joins adjacent
+agreeing observations from one run. Gaps from transitions, missing slots,
+restarts, and time outside sampled coverage stay Unknown. Existing project
+membership and visibility govern which agents appear in the project's
+view. Runtime state describes the agent across its work. Samples apply to
+the reporting project alone, and agents without enrolled samples appear as
+Unknown.
 
 Signed readers can request a single visible project's intervals at
 `/api/v1/stats/runtime` with `project`, `from`, and `to`
 (UTC timestamps, up to seven days). Stats uses the same projection.
 Reads exclude samples outside the rolling seven-day window. The shared
 board's operator tick (including the deferral-only timer) removes expired
-observations using the current server time, even when the pilot is disabled
+observations using the current server time, even when enrollment is removed
 or the watcher stops. Before activation, confirm the
 [SQLite deferral timer](SHARED-BOARD.md#run-the-sqlite-deferral-timer)
-runs the current CLI against the active ledger. To opt out, remove
-`--report-runtime` and stop reporting, then unset both board settings.
-Keep the checked operator tick running until retained samples expire.
-Historical backfill is unsupported.
+runs the current CLI against the active ledger.
+
+To opt out, remove `--report-runtime` from the watcher's command and remove
+the pair from the board settings. When the pair also uses the legacy
+settings, unset both legacy variables. Removed pairs stop accepting new
+samples and their retained observations stop appearing in Stats. Keep the
+operator tick running until retained samples expire. Historical backfill is
+unsupported.

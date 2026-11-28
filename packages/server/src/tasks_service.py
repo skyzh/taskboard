@@ -679,6 +679,7 @@ def create_app(
     demo_review_config=None,
     attachment_storage=None,
     runtime_pilot=None,
+    runtime_enrollments=None,
     external_agent_pilot=False,
     external_agent_manager=None,
 ):
@@ -717,7 +718,11 @@ def create_app(
     personal_api_enabled = bool(
         not marketplace and not local_readonly and member_mode is None and (raft_config or {}).get("server_id")
     )
-    if runtime_pilot is not None and (postgres_dsn or not personal_api_enabled):
+    runtime_enrollments = dict(runtime_enrollments or {})
+    if runtime_pilot is not None:
+        project, subject = runtime_pilot
+        runtime_enrollments[project] = runtime_enrollments.get(project, frozenset()) | {subject}
+    if runtime_enrollments and (postgres_dsn or not personal_api_enabled):
         raise ValueError("The runtime pilot requires a fixed-server Raft board on SQLite with the operator deferral timer.")
     if project_admin_subject is not None:
         if not personal_api_enabled:
@@ -3245,11 +3250,11 @@ def create_app(
 
     def read_runtime_timeline(connection, project, start, end, now):
         require_visible_project(connection, project)
-        if actor_key() is None or g.get("personal_agent_api") or runtime_pilot is None or project != runtime_pilot[0]:
+        if actor_key() is None or g.get("personal_agent_api") or project not in runtime_enrollments:
             raise NotFound()
         roster = (project_roster or {}) if project == projects.DEFAULT else {}
         return runtime_observations.listing(connection, project, roster, principal=actor_key(),
-                                            subject=runtime_pilot[1], start=start, end=end, now=now)
+                                            subjects=runtime_enrollments[project], start=start, end=end, now=now)
 
     @app.get("/api/v1/stats/runtime")
     def stats_runtime():
@@ -3281,7 +3286,7 @@ def create_app(
                 principal=actor_key(),
             )
             if (actor_key() is not None and not g.get("personal_agent_api")
-                    and runtime_pilot is not None and project == runtime_pilot[0]):
+                    and project in runtime_enrollments):
                 result["runtime_timeline"] = read_runtime_timeline(
                     connection, project, runtime_observations.utc(result["from"]),
                     runtime_observations.utc(result["to"]), runtime_observations.utc(ledger.timestamp()),
@@ -5669,7 +5674,7 @@ def create_app(
         if name == "report-runtime-observation":
             project = project_filter(data)
             if (actor["kind"] != "agent" or g.get("personal_agent_api")
-                    or runtime_pilot is None or (project, actor["subject"]) != runtime_pilot):
+                    or actor["subject"] not in runtime_enrollments.get(project, ())):
                 raise RequestError("Runtime reporting is not enabled for this signed agent and project.", 403)
             state = text(data, "state", maximum=11)
             now = runtime_observations.utc(ledger.timestamp())
@@ -6570,7 +6575,7 @@ def serve(database, host, port, *, local_readonly, portal_reader=False, websocke
             project_extensions=project_extensions,
             github_webhook_secrets=os.environ.get("TASKS_GITHUB_WEBHOOK_SECRETS"),
             demo_review_config=os.environ.get("TASKS_DEMO_REVIEW") or None,
-            runtime_pilot=runtime_observations.configuration(os.environ),
+            runtime_enrollments=runtime_observations.configuration(os.environ),
             external_agent_pilot=os.environ.get("TASKS_EXTERNAL_AGENT_PILOT") == "1",
             external_agent_manager=os.environ.get("TASKS_EXTERNAL_AGENT_MANAGER") or None,
             attachment_storage=tasks_attachments.configured_storage(

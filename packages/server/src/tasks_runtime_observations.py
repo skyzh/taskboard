@@ -1,6 +1,8 @@
-"""Prospective runtime evidence for one opt-in project and agent."""
+"""Prospective runtime evidence for explicitly enrolled agents in a project."""
 
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+import json
 from uuid import UUID
 
 import tasks_notification_log as notices
@@ -27,11 +29,27 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS runtime_observations (
 def configuration(environ):
     project = environ.get("TASKS_RUNTIME_PILOT_PROJECT")
     subject = environ.get("TASKS_RUNTIME_PILOT_AGENT_SUBJECT")
-    if not project and not subject:
-        return None
-    if not project or not subject:
-        raise ValueError("Configure both a runtime pilot project and a consenting agent subject.")
-    return projects.prefix(project), str(UUID(subject))
+    configured = defaultdict(set)
+    if project or subject:
+        if not project or not subject:
+            raise ValueError("Configure both a runtime pilot project and a consenting agent subject.")
+        configured[projects.prefix(project)].add(str(UUID(subject)))
+
+    if raw := environ.get("TASKS_RUNTIME_ENROLLMENTS"):
+        try:
+            rows = json.loads(raw)
+            if not isinstance(rows, list):
+                raise ValueError
+            for row in rows:
+                if (not isinstance(row, dict) or row.keys() != {"project", "agent_subject"}
+                        or not all(isinstance(value, str) for value in row.values())):
+                    raise ValueError
+                configured[projects.prefix(row["project"])].add(str(UUID(row["agent_subject"])))
+        except ValueError:
+            raise ValueError(
+                "Set TASKS_RUNTIME_ENROLLMENTS to a JSON array of project and agent_subject UUID pairs."
+            ) from None
+    return {project: frozenset(subjects) for project, subjects in configured.items()}
 
 
 def utc(value):
@@ -105,21 +123,28 @@ def project_agents(db, project, roster, *, principal):
     return agents
 
 
-def listing(db, project, roster, *, principal, subject, start, end, now):
+def listing(db, project, roster, *, principal, subjects, start, end, now):
     agents = project_agents(db, project, roster, principal=principal)
-    owner = next((agent["ledger_key"] for agent in agents if agent["subject"] == subject), None)
+    owners = [agent["ledger_key"] for agent in agents if agent["subject"] in subjects]
     cutoff = now - RETENTION
-    rows = db.execute("""SELECT observed_at, run_id, state FROM runtime_observations
-                         WHERE project = ? AND owner = ? AND observed_at >= ? AND observed_at <= ?
-                         ORDER BY observed_at""",
-                      (project, owner, timestamp(max(cutoff, start - MAX_GAP)),
-                       timestamp(min(now, end + MAX_GAP)))).fetchall()
+    samples = defaultdict(list)
+    observed_through = None
+    if owners:
+        placeholders = ", ".join("?" for _ in owners)
+        rows = db.execute(f"""SELECT owner, observed_at, run_id, state FROM runtime_observations
+                              WHERE project = ? AND owner IN ({placeholders}) AND observed_at >= ? AND observed_at <= ?
+                              ORDER BY observed_at""",
+                          (project, *owners, timestamp(max(cutoff, start - MAX_GAP)),
+                           timestamp(min(now, end + MAX_GAP))))
+        for row in rows:
+            samples[row["owner"]].append(row)
+            observed_through = row["observed_at"]
     return {
         "project": project, "from": timestamp(start), "to": timestamp(end),
-        "observed_through": rows[-1]["observed_at"] if rows else None,
+        "observed_through": observed_through,
         "agents": [
             {"id": agent["ledger_key"], "name": agent["name"],
-             "intervals": intervals(rows if agent["ledger_key"] == owner else (), start, end, cutoff)}
+             "intervals": intervals(samples[agent["ledger_key"]], start, end, cutoff)}
             for agent in agents
         ],
     }
