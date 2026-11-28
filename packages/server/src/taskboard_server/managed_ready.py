@@ -11,7 +11,7 @@ from time import monotonic, time
 from raft_auth import Identity
 import tasks_core as ledger
 from taskboard_server.managed_ready_grant import GrantStopped, RaftRetry
-from taskboard_server.ready_raft import ReadyEventSendError, send_goal_event
+from taskboard_server.ready_raft import GoalEventTooLong, ReadyEventSendError, goal_event_document, send_goal_event
 from taskboard_server.ready_signal import connect, parse_board_url
 from taskboard_server.ready_wake import (
     ReadyWakeEventChanged,
@@ -368,6 +368,12 @@ class ManagedReadySender:
         if not eligible:
             return "awaiting_idle", key
 
+        try:
+            document = goal_event_document(saved["board"], self.scope.identity.subject, ticket, key)
+        except GoalEventTooLong:
+            record("unsendable")
+            return "goal_payload_too_long", key
+
         def preflight():
             if self.stop_requested is not None and self.stop_requested():
                 raise _SampledStopRequested
@@ -392,8 +398,7 @@ class ManagedReadySender:
         try:
             token = self.grant.token(preflight=preflight)
             preflight()
-            send_goal_event(saved["board"], self.scope.identity.subject, ticket, key,
-                            access_token=token, transport=submit)
+            send_goal_event(document, access_token=token, transport=submit)
         except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested) as error:
             goal_receipts.restore(self.db, owner, key, previous)
             return ("awaiting_idle", key) if isinstance(error, _IdleGateClosed) else ("waiting", None)

@@ -256,8 +256,9 @@ Record the outcome from signed Taskboard.
 The board stores native delivery attempts and acceptance separately from the
 outcome of the goal occurrence. Acceptance cannot complete Explore or Review,
 and no Ready or Start receipt is written for either. Retries use the same
-occurrence key across restarts. To stop goal delivery while continuing Ready
-delivery, run `./tasks --shared wake-unsubscribe goal-occurrences --project T`.
+occurrence key across restarts. If the exact key and canonical ticket link
+cannot fit in a Raft event, a terminal unsendable receipt records the failure
+without an HTTP attempt. To stop goal delivery while continuing Ready delivery, run `./tasks --shared wake-unsubscribe goal-occurrences --project T`.
 
 ### Use a trusted local delivery command
 

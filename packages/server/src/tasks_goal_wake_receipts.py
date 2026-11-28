@@ -8,7 +8,7 @@ SCHEMA = """
         recipient TEXT NOT NULL REFERENCES board_principals (ledger_key),
         occurrence_key TEXT NOT NULL,
         task_id BIGINT NOT NULL REFERENCES tasks (id),
-        acceptance TEXT NOT NULL CHECK (acceptance IN ('pending', 'accepted', 'unknown')),
+        acceptance TEXT NOT NULL CHECK (acceptance IN ('pending', 'accepted', 'unknown', 'unsendable')),
         attempts INTEGER NOT NULL,
         first_attempt DOUBLE PRECISION NOT NULL,
         retry_at DOUBLE PRECISION NOT NULL,

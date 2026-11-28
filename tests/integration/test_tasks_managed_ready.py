@@ -23,7 +23,7 @@ from taskboard_server.ready_wake_operator import main as send_wake
 from tasks_core import import_notification_on, timestamp
 from tasks_goal_wake_receipts import receipt as goal_receipt
 from tasks_notification_log import WAKE_SCHEMA
-from tasks_storage import open_sqlite
+from tasks_storage import open_sqlite, write
 from tasks_wake_subscriptions import GOAL_OCCURRENCES, OWNED_READY
 from test_ready_wake_operator import ENDPOINT, ProviderResponse
 from test_tasks_idle_offer import SignedBoard
@@ -1269,6 +1269,36 @@ class ManagedSenderTest(unittest.TestCase):
                 self.now = origin + offset
                 self.assertEqual(self.tick(grant, idle_gate=gate, sampled=True, goal_occurrences=True), ("idle", None))
         self.assertEqual(self.calls(), [])
+
+    def test_native_goal_oversize_records_terminal_failure_without_oauth(self):
+        with closing(open_sqlite(self.ledger)) as db, write(db):
+            db.execute("UPDATE board_settings SET value = ? WHERE key = 'live_url'", (BOARD + "/" + "x" * 2000,))
+        self.baseline(sampled=True)
+        instant = "2030-04-01T16:00:00Z"
+        origin = datetime.fromisoformat(instant).timestamp()
+        with patch("tasks_core.timestamp", return_value=instant):
+            self.board.invoke("save-goal", {"kind": "standing", "summary": "Check the sample."}, write=True)
+            self.board.invoke("set-wake-subscription", {
+                "project": PROJECT, "event_type": GOAL_OCCURRENCES, "enabled": "true",
+            }, write=True)
+            gate = SampledIdleGate(lambda: "idle", clock=lambda: self.now-origin, include_boundary=True)
+            self.now = origin
+            grant = self.grant()
+            key = "explore:T-1:2030-04-01"
+
+            def poll(offset):
+                self.now = origin + offset
+                return self.tick(grant, idle_gate=gate, sampled=True, goal_occurrences=True)
+
+            for offset in (0, 10, 20):
+                self.assertEqual(poll(offset), ("awaiting_idle", key))
+            self.assertEqual(poll(30), ("goal_payload_too_long", key))
+            self.assertEqual(poll(40), ("idle", None))
+        with closing(open_sqlite(self.ledger)) as db:
+            receipt = goal_receipt(db, self.owner, key)
+            self.assertEqual((receipt["acceptance"], receipt["attempts"]), ("unsendable", 0))
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.outcomes(), [])
 
     def test_native_goal_opt_out_during_final_idle_does_not_stop_ready_sender(self):
         self.baseline(sampled=True)
