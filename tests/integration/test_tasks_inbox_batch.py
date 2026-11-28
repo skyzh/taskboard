@@ -119,6 +119,9 @@ class InboxBatchTest(unittest.TestCase):
         self.assertEqual(self.fixture.outcomes(), [(first["event"], "pending"), (second["event"], "pending")])
         with self.assertRaisesRegex(ValueError, "Settle the pending Inbox batch"):
             self.poll(35, batches=False)
+        self.fixture.board.invoke("edit-task-details", {
+            "id": first["task"], "title": "Renamed after the first POST", "reason": "Verify immutable retries.",
+        }, write=True)
 
         self.restart()
         self.established_idle(40)
@@ -126,9 +129,12 @@ class InboxBatchTest(unittest.TestCase):
         self.assertEqual(sent, [json.loads(journal["document"])] * 2)
         self.assertEqual(self.wire, [journal["document"]] * 2)
         self.assertEqual(len(self.fixture.provider.accepted), 1)
-        self.assertIn(f"{first['task']} [ready:{first['event']}]", sent[0]["summary"])
-        self.assertIn(f"{second['task']} [ready:{second['event']}]", sent[0]["summary"])
-        self.assertIn(f"{managed.BOARD}/notifications?scope=all", sent[0]["summary"])
+        self.assertIn(f"{first['task']} — Check the sample", sent[0]["summary"])
+        self.assertIn(f"{second['task']} — Check the sample", sent[0]["summary"])
+        self.assertNotIn("Renamed after the first POST", sent[0]["summary"])
+        self.assertIn("Open signed Taskboard Inbox from your enrolled context.", sent[0]["summary"])
+        self.assertNotIn("://", sent[0]["summary"])
+        self.assertTrue(all("title" not in item for item in json.loads(journal["members"])))
         self.assertEqual(self.fixture.outcomes(), [(first["event"], "accepted"), (second["event"], "accepted")])
         self.assertTrue(all(row["start_event_id"] is None for row in self.fixture.receipts()))
         self.assertEqual((self.history(key)["document"], self.history(key)["members"]),
@@ -180,20 +186,26 @@ class InboxBatchTest(unittest.TestCase):
         status, replacement = self.poll(70)
         self.assertEqual(status, "accepted")
         self.assertNotEqual(replacement, previous)
-        self.assertIn(f"{third['task']} [ready:{third['event']}]", provider.accepted[replacement]["summary"])
-        self.assertNotIn(f"{first['task']} [", provider.accepted[replacement]["summary"])
+        self.assertIn(f"{third['task']} — Check the sample", provider.accepted[replacement]["summary"])
+        self.assertNotIn(f"{first['task']} —", provider.accepted[replacement]["summary"])
 
     def test_visible_preview_is_capped_without_dropping_envelope_members(self):
         ready = [self.fixture.create() for _ in range(4)]
+        for index, row in enumerate(ready, start=1):
+            self.fixture.board.invoke("edit-task-details", {
+                "id": row["task"], "title": f"Fixture   title {index} https://example.test/evidence",
+                "reason": "Set signed fixture title.",
+            }, write=True)
         self.established_idle()
         status, key = self.poll(30)
         self.assertEqual(status, "accepted")
         summary = self.fixture.provider.accepted[key]["summary"]
         self.assertLessEqual(len(summary.encode("utf-16-le")) // 2, 2000)
-        for row in ready[:3]:
-            self.assertIn(f"{row['task']} [ready:{row['event']}]", summary)
+        for index, row in enumerate(ready[:3], start=1):
+            self.assertIn(f"{row['task']} — Fixture title {index}", summary)
         self.assertIn("and others in your inbox", summary.lower())
-        self.assertNotIn(f"{ready[-1]['task']} [", summary)
+        self.assertNotIn("example.test", summary)
+        self.assertNotIn(f"{ready[-1]['task']} —", summary)
         self.assertEqual([item["source_event"] for item in json.loads(self.history(key)["members"])],
                          [row["event"] for row in ready])
         self.assertEqual(self.fixture.outcomes(), [(row["event"], "accepted") for row in ready])
@@ -240,7 +252,7 @@ class InboxBatchTest(unittest.TestCase):
         blake, _ = fixture.service.login(fixture.service.app(portal_reader=True), "Blake")
         blake = SignedBoard(fixture.service, blake)
         review = blake.invoke("create-task", {
-            "title": "Private review subject", "step": "Read the sample.",
+            "title": "Review fixture result", "step": "Read restricted fixture notes.",
         }, write=True)["receipt"].split()[0]
         run = blake.invoke("delegate", {
             "id": review, "worker": fixture.owner, "role": "review", "brief": "Review the sample.",
@@ -258,7 +270,8 @@ class InboxBatchTest(unittest.TestCase):
         ])
         summary = fixture.provider.accepted[key]["summary"]
         self.assertIn("project T has 3 actionable Inbox items in this wake.", summary)
-        self.assertNotIn("Private review subject", summary)
+        self.assertIn(f"{review} — Review fixture result", summary)
+        self.assertNotIn("Read restricted fixture notes.", summary)
         self.assertEqual([row["source_event_id"] for row in fixture.receipts() if row["acceptance"] == "accepted"],
                          [ready["event"]])
         self.assertEqual(fixture.board.invoke("my-cue-pauses", {})["acknowledged_stalled"], {})
@@ -354,7 +367,7 @@ class InboxBatchTest(unittest.TestCase):
         with closing(open_sqlite(fixture.ledger)) as db:
             self.assertIsNone(goal_receipt(db, fixture.owner, timed))
 
-    def test_oversize_inbox_link_reports_no_send_without_stopping(self):
+    def test_long_board_url_is_omitted_from_the_sent_preview(self):
         fixture = self.fixture
         with closing(open_sqlite(fixture.ledger)) as db, write(db):
             db.execute("UPDATE board_settings SET value = ? WHERE key = 'live_url'",
@@ -363,10 +376,12 @@ class InboxBatchTest(unittest.TestCase):
         fixture.baseline(sampled=True)
         fixture.create()
         self.established_idle()
-        self.assertEqual(self.poll(30), ("batch_payload_unavailable", None))
-        self.assertEqual(self.poll(40), ("batch_payload_unavailable", None))
+        status, key = self.poll(30)
+        self.assertEqual(status, "accepted")
+        summary = fixture.provider.accepted[key]["summary"]
+        self.assertNotIn(managed.BOARD, summary)
+        self.assertNotIn("://", summary)
         self.assertIsNone(self.journal())
-        self.assertEqual(fixture.calls(), [])
 
     def test_goal_batch_records_review_and_explore_acceptance_without_completing_either(self):
         self.origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()
@@ -376,16 +391,16 @@ class InboxBatchTest(unittest.TestCase):
             fixture.board.invoke("set-wake-subscription", {
                 "project": managed.PROJECT, "event_type": GOAL_OCCURRENCES, "enabled": "true",
             }, write=True)
-            fixture.board.invoke("save-goal", {"kind": "standing", "summary": "Private fictional goal contents"}, write=True)
+            fixture.board.invoke("save-goal", {"kind": "standing", "summary": "Verify fictional goal progress"}, write=True)
             fixture.board.invoke("set-goal-review-time", {"id": "T-1", "time": "09:00"}, write=True)
         self.established_idle(goals=True)
         status, key = self.poll(30, goals=True)
         self.assertEqual(status, "accepted")
         review, explore = "review:T-1:2030-04-01", "explore:T-1:2030-04-01"
         summary = fixture.provider.accepted[key]["summary"]
-        self.assertNotIn("Private fictional goal contents", summary)
-        self.assertIn(review, summary)
-        self.assertIn(explore, summary)
+        self.assertIn("T-1 — Verify fictional goal progress", summary)
+        self.assertNotIn(review, summary)
+        self.assertNotIn(explore, summary)
         with closing(open_sqlite(fixture.ledger)) as db:
             self.assertEqual([goal_receipt(db, fixture.owner, cue)["acceptance"] for cue in (review, explore)],
                              ["accepted", "accepted"])

@@ -1,20 +1,21 @@
-"""Read the signed wake order and render the public identifiers. No dispatch."""
+"""Read the signed wake order and render a bounded Inbox preview."""
 
-from argparse import ArgumentTypeError
 from dataclasses import dataclass
 import re
 
 from taskboard_client.references import identifier
-from taskboard_server.ready_signal import parse_board_url
 from tasks_queries import BoardQueries, pacific_day
 
 
 GUIDANCE = (
-    "Open signed Inbox. Keep the lead task. Delegate independent work with its objective, context and constraints. "
-    "Verify results and recheck Inbox before ending."
+    "Open signed Taskboard Inbox from your enrolled context. Keep the lead task. "
+    "Delegate independent work with its objective, context and constraints. Verify results and recheck Inbox before ending."
 )
 _MAX_SUMMARY = 2000
+_MAX_TITLE = 72
+PREVIEW_LIMIT = 3
 _CUE_KEY = re.compile(r"[a-z][a-z0-9_-]*:[A-Za-z0-9:._+-]+")
+_URL_TOKEN = re.compile(r"[a-z][a-z0-9+.-]*://|mailto:|www\.|(?<![\w.-])(?:[a-z0-9-]+\.)+[a-z]{2,63}(?![\w-])", re.I)
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class InboxWakeItem:
     ticket: str
     key: str
     source_event: int | None = None
+    title: str = ""
 
 
 def inbox_wake_items(board: BoardQueries, owner: str, *, project: str | None,
@@ -58,22 +60,19 @@ def _reference(item):
     project, number = identifier(item.ticket)
     if item.ticket != f"{project}-{number}" or not _CUE_KEY.fullmatch(item.key):
         raise ValueError("Use exact signed Inbox ticket and cue references.")
-    return f"{item.ticket} [{item.key}]"
+    title = " ".join(word for word in item.title.split() if word.isprintable() and not _URL_TOKEN.search(word))
+    if len(title) > _MAX_TITLE:
+        title = title[:_MAX_TITLE - 1].rstrip() + "…"
+    return f"{item.ticket} — {title}" if title else item.ticket
 
 
 def _fits(summary):
     return len(summary.encode("utf-16-le")) // 2 <= _MAX_SUMMARY
 
 
-def inbox_event_summary(board_url: str, items: tuple[InboxWakeItem, ...], *, project: str | None = None) -> str:
+def inbox_event_summary(items: tuple[InboxWakeItem, ...], *, project: str | None = None) -> str:
     if not items:
         raise ValueError("A signed Inbox event needs at least one actionable item.")
-    try:
-        url = parse_board_url(board_url) + "/notifications?scope=all"
-    except ArgumentTypeError as error:
-        raise ValueError(str(error)) from None
-    if not url.isprintable():
-        raise ValueError("Use the exact credential-free HTTPS Tasks Board URL.")
     count = len(items)
     noun = "item" if count == 1 else "items"
     header = f"Taskboard signed Inbox has {count} actionable {noun}."
@@ -81,12 +80,9 @@ def inbox_event_summary(board_url: str, items: tuple[InboxWakeItem, ...], *, pro
         if any(identifier(item.ticket)[0] != project for item in items):
             raise ValueError("All reported items must belong to the enrolled project.")
         header = f"Taskboard project {project} has {count} actionable Inbox {noun} in this wake."
-    refs = [_reference(item) for item in items[:3]]
-    guidance = f"{GUIDANCE} {url}"
-    for shown in range(len(refs), 0, -1):
-        listing = ", ".join(refs[:shown])
-        remainder = ", and others in your inbox" if shown < count else ""
-        summary = f"{header} {listing}{remainder}. {guidance}"
-        if _fits(summary):
-            return summary
-    raise ValueError("The signed Inbox count, first item and link exceed Raft's summary limit.")
+    listing = ", ".join(_reference(item) for item in items[:PREVIEW_LIMIT])
+    remainder = ", and others in your inbox" if count > PREVIEW_LIMIT else ""
+    summary = f"{header} {listing}{remainder}. {GUIDANCE}"
+    if not _fits(summary):
+        raise ValueError("The signed Inbox preview exceeds Raft's summary limit.")
+    return summary

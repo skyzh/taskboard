@@ -1,11 +1,11 @@
 """Journal direct sampled Inbox envelopes and record their exact member receipts."""
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
 
-from taskboard_server.inbox_wake import inbox_event_summary, inbox_wake_items
+from taskboard_server.inbox_wake import PREVIEW_LIMIT, inbox_event_summary, inbox_wake_items
 from taskboard_server.managed_ready import (
     SAMPLED_STATE_BY_PROJECT,
     _ATTEMPTS,
@@ -132,7 +132,7 @@ class InboxBatchDelivery:
                         break
                     if existing is not None:
                         continue
-                selected.append(item)
+                selected.append(replace(item, title=task["title"]) if len(selected) < PREVIEW_LIMIT else item)
                 members.append(BatchMember(item.kind, item.ticket, item.key, task["id"], item.source_event, source_at))
             return members, tuple(selected), tip
 
@@ -224,7 +224,7 @@ class InboxBatchDelivery:
             return "awaiting_idle", None
         if journal is None:
             try:
-                summary = inbox_event_summary(saved["board"], items, project=self.project)
+                summary = inbox_event_summary(items, project=self.project)
             except ValueError:
                 return "batch_payload_unavailable", None
             journal = self._prepare(saved, selected, summary, now, tip)

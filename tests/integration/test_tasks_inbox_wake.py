@@ -90,12 +90,12 @@ class InboxWakeTest(unittest.TestCase):
         self.assertEqual(items[-1].key, "review:" + review_run.removeprefix("W-"))
         self.assertIsNone(items[-1].source_event)
         self.assertEqual([item.ticket for item in self.snapshot("T")], [first, review])
-        summary = inbox_event_summary(BOARD, items)
+        summary = inbox_event_summary(items)
         self.assertIn("3 actionable items", summary)
         self.assertLess(summary.index(high), summary.index(first))
         self.assertNotIn("Private fictional handoff", summary)
         self.assertIn(GUIDANCE, summary)
-        self.assertTrue(summary.endswith(f"{BOARD}/notifications?scope=all"))
+        self.assertTrue(summary.endswith(GUIDANCE))
         self.advance(self.avery, high, "start")
         changed = self.snapshot()
         self.assertEqual([(item.kind, item.ticket) for item in changed],
@@ -120,10 +120,10 @@ class InboxWakeTest(unittest.TestCase):
         items = self.snapshot("T")
         reports = [item for item in items if item.kind in ("report", "worker_checkpoint")]
         self.assertEqual([(item.kind, item.ticket) for item in reports], [("report", ticket)])
-        summary = inbox_event_summary(BOARD, items, project="T")
+        summary = inbox_event_summary(items, project="T")
         self.assertIn(f"project T has {len(items)} actionable Inbox items in this wake", summary)
         with self.assertRaisesRegex(ValueError, "enrolled project"):
-            inbox_event_summary(BOARD, items, project="OPS")
+            inbox_event_summary(items, project="OPS")
 
     def test_due_asks_preserve_head_and_goals_follow_the_same_signed_order(self):
         self.avery.invoke("save-goal", {"kind": "dated", "summary": "Private goal", "deadline": "2030-04-10"},
@@ -153,24 +153,27 @@ class InboxWakeTest(unittest.TestCase):
         items = self.snapshot()
         self.assertEqual([item.ticket for item in items], tickets)
         self.assertTrue(all(item.key == f"ready:{item.source_event}" for item in items))
-        board = BOARD + "/" + "🚀" * 65
-        summary = inbox_event_summary(board, items)
+        summary = inbox_event_summary(items)
         self.assertLessEqual(len(summary.encode("utf-16-le")) // 2, 2000)
         self.assertIn("105 actionable items", summary)
-        shown = re.findall(r"(T-\d+) \[ready:\d+\]", summary)
+        shown = re.findall(r"\bT-\d+\b", summary)
         self.assertEqual(len(shown), 3)
         self.assertEqual(shown, tickets[:len(shown)])
         self.assertIn("and others in your inbox", summary)
-        self.assertNotIn("and others in your inbox", inbox_event_summary(BOARD, items[:3]))
-        self.assertTrue(summary.endswith(f"{board}/notifications?scope=all"))
+        self.assertNotIn("and others in your inbox", inbox_event_summary(items[:3]))
+        self.assertNotIn("://", summary)
 
-    def test_summary_refuses_invalid_links_private_text_and_unrepresentable_lead(self):
-        item = InboxWakeItem("ready", "T-1", "ready:1", 1)
-        for board in ("http://example.test", "https://secret@example.test", "https://example.test/#bad",
-                      BOARD + "/" + "🚀" * 1000):
-            with self.subTest(board=board[:35]), self.assertRaises(ValueError):
-                inbox_event_summary(board, (item,))
+    def test_summary_normalizes_and_shortens_titles_without_url_tokens(self):
+        item = InboxWakeItem(
+            "ready", "T-1", "ready:1", 1,
+            "  Verify\tresults\n https://example.test/a [link](ftp://example.test/b) www.example.test c.example.test " + "🚀" * 100,
+        )
+        summary = inbox_event_summary((item,))
+        self.assertIn("T-1 — Verify results " + "🚀" * 56 + "…", summary)
+        self.assertNotIn("example.test", summary)
+        self.assertNotIn("://", summary)
+        self.assertNotIn("ready:1", summary)
         with self.assertRaises(ValueError):
-            inbox_event_summary(BOARD, (InboxWakeItem("ready", "T-1", "ready: private text"),))
+            inbox_event_summary((InboxWakeItem("ready", "T-1", "ready: private text"),))
         with self.assertRaises(ValueError):
-            inbox_event_summary(BOARD, ())
+            inbox_event_summary(())
