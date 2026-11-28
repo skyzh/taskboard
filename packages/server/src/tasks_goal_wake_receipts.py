@@ -32,14 +32,19 @@ def receipt(db, owner, occurrence_key):
 
 def record(db, owner, key, task_id, *, acceptance, attempts, first_attempt, retry_at, renewed, observed_at):
     with tasks_storage.write(db):
-        db.execute("""
-            INSERT INTO goal_wake_receipts (recipient, occurrence_key, task_id, acceptance,
-                attempts, first_attempt, retry_at, renewed, observed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (recipient, occurrence_key) DO UPDATE SET
-                acceptance = excluded.acceptance, attempts = excluded.attempts, first_attempt = excluded.first_attempt,
-                retry_at = excluded.retry_at, renewed = excluded.renewed, observed_at = excluded.observed_at
-            """, (owner, key, task_id, acceptance, attempts, first_attempt, retry_at, int(renewed), observed_at))
+        record_in_transaction(db, owner, key, task_id, acceptance=acceptance, attempts=attempts,
+                              first_attempt=first_attempt, retry_at=retry_at, renewed=renewed, observed_at=observed_at)
+
+
+def record_in_transaction(db, owner, key, task_id, *, acceptance, attempts, first_attempt, retry_at, renewed, observed_at):
+    db.execute("""
+        INSERT INTO goal_wake_receipts (recipient, occurrence_key, task_id, acceptance,
+            attempts, first_attempt, retry_at, renewed, observed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (recipient, occurrence_key) DO UPDATE SET
+            acceptance = excluded.acceptance, attempts = excluded.attempts, first_attempt = excluded.first_attempt,
+            retry_at = excluded.retry_at, renewed = excluded.renewed, observed_at = excluded.observed_at
+        """, (owner, key, task_id, acceptance, attempts, first_attempt, retry_at, int(renewed), observed_at))
 
 
 def restore(db, owner, key, previous):

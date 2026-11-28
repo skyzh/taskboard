@@ -184,7 +184,7 @@ def initialize(state_path, db, scope, *, pilot=False, sampled=False):
 
 class ManagedReadySender:
     def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None, event_id=None, sampled=False,
-                 stop_requested=None, command_delivery=None, goal_occurrences=False):
+                 stop_requested=None, command_delivery=None, goal_occurrences=False, inbox_batches=False):
         scope.validate_mode(sampled=sampled, direct=command_delivery is None)
         if goal_occurrences and (not sampled or grant is None):
             raise ValueError("Goal occurrences require direct sampled Raft delivery.")
@@ -192,6 +192,8 @@ class ManagedReadySender:
             raise ValueError("Choose direct Raft or the sampled command transport.")
         if sampled and (idle_gate is None or event_id is not None):
             raise ValueError("Sampled delivery requires the Idle gate and has no pinned event.")
+        if inbox_batches and (not sampled or grant is None):
+            raise ValueError("Inbox batches require direct sampled Raft delivery.")
         self.db = db
         self.state = state
         self.scope = scope
@@ -203,6 +205,11 @@ class ManagedReadySender:
         self.stop_requested = stop_requested
         self.command_delivery = command_delivery
         self.goal_occurrences = goal_occurrences
+        self.inbox_batch = None
+        if inbox_batches:
+            from taskboard_server.inbox_batch import InboxBatchDelivery
+
+            self.inbox_batch = InboxBatchDelivery(self)
 
     def _check_subscription(self, saved):
         current = self.scope.subscription(self.db)
@@ -323,6 +330,10 @@ class ManagedReadySender:
             return saved["stopped"], None
         try:
             eligible = self.idle_gate is None or self.idle_gate.eligible()
+            if self.inbox_batch is not None:
+                return self.inbox_batch.tick(saved, eligible=eligible)
+            if tasks_storage.has_table(self.state, "inbox_batch") and self.state.execute("SELECT 1 FROM inbox_batch").fetchone():
+                raise ValueError("Settle the pending Inbox batch before changing delivery mode.")
             return self._tick(saved, eligible=eligible)
         except GrantStopped:
             with tasks_storage.read(self.db):
