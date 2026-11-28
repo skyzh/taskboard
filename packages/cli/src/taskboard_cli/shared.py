@@ -561,6 +561,8 @@ def goal_occurrence_lines(items):
         yield f"{item['ticket']} · {label} · {item['key']}"
         if item.get("due_at"):
             yield f"  Due at {item['due_at']}"
+        if prompt := item.get("goal_explore_prompt"):
+            yield f"  Goal exploration · {prompt['prompt']}"
         if prompt := item.get("goal_review_prompt"):
             yield f"  Goal review · {prompt['prompt']}"
 

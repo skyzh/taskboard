@@ -6405,6 +6405,8 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(ready["work"]["key"], "T-1")
         self.assertIn(cue, ready["next_step"])
         self.assertIn("You can review ordinary work yourself.", ready["next_step"])
+        self.assertIn("Delegate independent work to a subagent when possible.", ready["next_step"])
+        self.assertIn("Verify and integrate its work.", ready["next_step"])
         self.assertIn("when the user asks for it or your project requires it", ready["next_step"])
         code, output, errors = self.shared_cli(owner, "next", "--project", "T")
         self.assertEqual((code, errors), (0, ""))
@@ -6522,12 +6524,20 @@ class TasksServiceTest(unittest.TestCase):
         self.call(agent, path, method="PUT", json=body, status=403)
         self.call(manager, path, method="PUT", json=body)
         expected = {"project": "T", "source": "project", "prompt": guidance}
+        explore_guidance = "Compare one checked sample and save the next exploration handoff."
+        self.call(manager, path, method="PUT", json={"prompt": "goal-explore", "guidance": explore_guidance})
         with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
             self.action(agent, "save-goal", {"kind": "standing", "summary": "Review the setup.",
                                              "keep_exploring": True})
             self.action(agent, "save-goal", {"project": "LAB", "kind": "standing", "summary": "Review Lab."})
             goal = self.action(agent, "my-goals")["standing_goal"]["ticket"]
             self.action(agent, "set-goal-review-time", {"id": goal, "time": "09:00"})
+            explore, review = self.action(agent, "my-goal-occurrences")["items"]
+            self.assertEqual(explore["goal_explore_prompt"],
+                             {"project": "T", "source": "project", "prompt": explore_guidance})
+            self.assertEqual(review["goal_review_prompt"], expected)
+            self.assertNotIn("goal_review_prompt", explore)
+            self.assertNotIn("goal_explore_prompt", review)
             def next_work(project="T"):
                 return self.action(agent, "my-next", query_string={"project": project})
             self.assertEqual(next_work()["goal_review_prompt"], expected)
@@ -6544,6 +6554,7 @@ class TasksServiceTest(unittest.TestCase):
             code, output, error = self.shared_cli(agent, "next", "--project", "T")
             self.assertEqual((code, error), (0, ""))
             self.assertIn(guidance, output)
+            self.assertIn(explore_guidance, output)
             self.action(agent, "advance-task", {"id": goal, "transition": "start", "note": "Read the latest handoff."})
             self.assertEqual(next_work()["goal_review_prompt"], expected)
             self.assertIn("Read the latest handoff.", str(self.action(agent, "task", query_string={"id": goal})))
@@ -6570,6 +6581,10 @@ class TasksServiceTest(unittest.TestCase):
             offers = self.action(owner, "my-goal-occurrences")["items"]
             self.assertEqual([(item["kind"], item["ticket"]) for item in offers],
                              [("explore", ticket), ("review", ticket)])
+            self.assertIn("Otherwise record the intended time in the handoff.",
+                          offers[0]["goal_explore_prompt"]["prompt"])
+            self.assertIn("Preserve the Review schedule and deadline.",
+                          offers[0]["goal_explore_prompt"]["prompt"])
             self.assertEqual(self.action(other, "my-goal-occurrences")["items"], [])
             explore, review = (item["key"] for item in offers)
             data = {"id": ticket, "occurrence_key": explore, "note": "Verified the sample."}
@@ -7082,7 +7097,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((code, errors), (0, ""))
         self.assertIn("Independent review", output)
         self.assertIn("Next: Read the review brief and check the specified revision or evidence.", output)
-        self.assertIn("Finish the review and return the verdict.", output)
+        self.assertIn("Return the signed review verdict", output)
         self.assertTrue(output.rstrip().endswith("Recheck signed Inbox."))
 
     def test_shared_cli_missing_merge_sha_fails_before_dispatch_and_valid_timeout_needs_readback(self):

@@ -13,6 +13,7 @@ function GoalOccurrenceForm({ occurrence, onCompleted }) {
   const [note, setNote] = useState('')
   const [url, setUrl] = useState('')
   const label = occurrenceLabel(occurrence.kind)
+  const prompt = occurrence.goal_explore_prompt ?? occurrence.goal_review_prompt
   const mutation = useTransitionRequest(receipt => onCompleted(receipt, occurrence))
 
   function submit(event) {
@@ -27,7 +28,7 @@ function GoalOccurrenceForm({ occurrence, onCompleted }) {
     <details>
       <summary>{label}</summary>
       {occurrence.due_at && <p className="event-meta">Due <ReportTime at={occurrence.due_at} /></p>}
-      {occurrence.goal_review_prompt?.prompt && <Markdown text={occurrence.goal_review_prompt.prompt} />}
+      {prompt?.prompt && <Markdown text={prompt.prompt} />}
       <form className="profile-form" onSubmit={submit} data-reload-blocked={Boolean(note || url || mutation.saving)}>
         <label>Outcome and next action
           <textarea rows={3} value={note} onChange={event => setNote(event.target.value)}

@@ -4,14 +4,16 @@ import tomllib
 from pathlib import Path
 from textwrap import dedent
 
+from taskboard_client.wake_text import GOAL_OUTCOME, REVIEW_OUTCOME, TICKET_OUTCOME, outcome_prompt
+
 import tasks_goals as goals
 import tasks_peer_asks as peer_asks
 import tasks_projects as projects
 
 
 _CONTINUE_WORK = (
-    "Finish the ticket or record what blocks completion and who can act or when to recheck. "
-    "Recheck signed Inbox after Done, Wait or Park."
+    f"{TICKET_OUTCOME} If work is still active, name the worker or record a checkpoint and a concrete next step. "
+    "Recheck signed Inbox after the disposition."
 )
 _ADVANCE_STEPS = {
     "update": _CONTINUE_WORK,
@@ -29,8 +31,7 @@ _WORK_STEPS = {
     "goal_review": "Start the linked goal and record one concrete review outcome on it.",
     "in_progress": _CONTINUE_WORK,
     "review": (
-        "Read the review brief and check the specified revision or evidence. Finish the review and return the verdict. "
-        "If blocked, record what you still need and who can provide it or when to recheck. Recheck signed Inbox."
+        f"Read the review brief and check the specified revision or evidence. {outcome_prompt(REVIEW_OUTCOME)}"
     ),
     "report": "Read the worker's result and evidence before collecting the report.",
     "shared_ready": "Check the ticket's current step and whether you can take it.",
@@ -73,8 +74,10 @@ _DEFAULTS = {
     "next-selected": "Open the selected ticket and check its current step.",
     "next-empty": "Check any other project queues and assigned reviews before ending the turn.",
     "ready-review": (
-        "Finish the offered ticket or record the blocker and who can act or when to recheck. "
+        f"{TICKET_OUTCOME} "
         "Verify the result and record the checked revision and evidence. You can review ordinary work yourself. "
+        "Delegate independent work to a subagent when possible. Share the ticket objective, relevant findings, "
+        "constraints, and expected result. Verify and integrate its work. "
         "Arrange independent review when the user asks for it or your project requires it. "
         "Recheck signed Inbox and follow the saved mode if it offers a goal."
     ),
@@ -147,6 +150,7 @@ _FIELDS = {
 
 INBOX_FOLLOW_UP = "inbox-follow-up"
 GOAL_REVIEW = "goal-review"
+GOAL_EXPLORE = "goal-explore"
 READY_PICKUP = "ready-pickup"
 STALLED_FOLLOW_UP = "stalled-follow-up"
 REVIEW_HANDOFF = "review-handoff"
@@ -164,8 +168,8 @@ _PROMPTS = {
     READY_PICKUP: {"prompt": _DEFAULTS["ready-review"]},
     STALLED_FOLLOW_UP: {
         "prompt": (
-            "Read the current handoff and finish the ticket if you can. "
-            "Record the blocker and who can act or when to recheck if work must wait. "
+            f"Read the current handoff. {TICKET_OUTCOME} "
+            "If work is still active, name the worker or record a checkpoint and next step. "
             "Use signed controls to acknowledge the exact cue or pause future reminders. Recheck signed Inbox."
         ),
     },
@@ -179,16 +183,21 @@ _PROMPTS = {
     },
     NEXT_ACTION: {
         "prompt": (
-            "Check the current handoff and evidence. Take the next concrete action toward finishing the ticket. "
-            "Record the next owner and what will unblock the work or when to recheck if it must wait."
+            f"Check the current handoff and evidence. {_CONTINUE_WORK}"
+        ),
+    },
+    GOAL_EXPLORE: {
+        "prompt": (
+            "Finish higher-priority work in signed Inbox first. Complete the offered Explore occurrence. "
+            f"{outcome_prompt(GOAL_OUTCOME)}"
         ),
     },
     GOAL_REVIEW: {
         "prompt": (
             "Check signed Taskboard Inbox and finish higher-priority tickets or record their blockers first. "
-            "Open the offered goal and record one concrete outcome from a bounded check. "
+            f"Open the offered goal and run a bounded check. {GOAL_OUTCOME} "
             "Suggest one concrete next action based on evidence and name its owner or what will unblock it. "
-            "Recheck Inbox and follow the goal’s saved exploration mode, stop condition and review schedule."
+            "Recheck signed Inbox."
         ),
     },
     INBOX_FOLLOW_UP: {
@@ -258,9 +267,9 @@ _PROMPTS = {
             Inbox. With Keep exploring enabled, record
             each distinct pass and recheck Inbox and reviews before continuing. If
             actionable work arrives, switch to it. Park when the written criterion is
-            met and resume at the next configured review. A completed pass counts as
-            that Pacific day's review. Choose a daily Pacific review time for each
-            active goal. An idle agent needs an opted-in watcher for an automatic cue.
+            met and resume at the next configured review. When Inbox offers Explore and
+            Review separately, record each occurrence. Choose a daily Pacific review time for each
+            active goal. Automatic cues for idle agents require an enabled direct app delivery path.
         """).strip(),
     },
     "knowledge": {

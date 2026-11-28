@@ -329,6 +329,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             inbox_follow_up = "Reply in the original thread when the Inbox update needs a response."
             goal_review = "Read the linked goal and identify its next owner."
             workflow = {
+                "goal-explore": "Check one sample and record the next exploration handoff.",
                 "ready-pickup": "Check the ready sample.",
                 "stalled-follow-up": "Read the saved sample checkpoint.",
                 "review-handoff": "Verify the pinned sample revision.",
