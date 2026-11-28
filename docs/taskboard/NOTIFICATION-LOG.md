@@ -205,6 +205,35 @@ restart using private state. A signed opt-out or a pending or denied Raft grant
 clears the bearer and stops the sender. A deliberate re-enable starts from
 fresh approval, a fresh signed opt-in, and a new baseline.
 
+### Run automatic delivery after observed Idle
+
+For an authorized Project T rollout, use `init-sampled` and `run-sampled`
+with the same global arguments, app grant and private secret file descriptor
+shown above. Create one private state file and run one process for each
+approved recipient. Stop any overlapping sender or reminder carrier for that
+recipient before starting sampled delivery. Both the legacy `run` and the
+single-event `run-pilot` reject sampled state.
+
+After initialization, the sender considers new, pending Project T Ready events
+for the enrolled owner, including exact one-off deferrals and recurring releases.
+The Ready event must match the first all-project signed Inbox choice and the
+same delivery-eligible choice after worker and pause checks. The sender waits
+if a different ticket has priority or if the first choice is already accepted.
+The baseline stays fixed, so a newer high-priority acceptance does not hide
+older pending work after the first ticket is taken.
+
+The operator samples explicit Idle about every ten seconds and requires fresh
+observations spanning at least 30 seconds, followed by a final Idle read and
+Ready recheck before sending. Busy, offline, failed or ambiguous reads and gaps
+of 20 seconds or more reset the observed window. An acceptance starts a fresh
+window for the next cue. An unresolved attempt keeps its retry limits and
+backoff while another ticket has priority. This observes sampled availability,
+so the agent may change state between reads or before delivery.
+
+Restart with the same sampled state. Signed opt-out or a stopped grant ends
+the sender. The sender delivers accepted cues through Raft Agent Events.
+Eligible tickets remain available in signed Inbox for normal pickup.
+
 ### Try one enrolled Ready event while the recipient appears Idle
 
 Use this foreground experiment after the exact revision is reviewed and the
