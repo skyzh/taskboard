@@ -84,7 +84,7 @@ class InboxBatchDelivery:
             self.state.execute(_SCHEMA)
             self.state.execute(_HISTORY)
 
-    def _selected(self, saved):
+    def _selected(self, saved, ledger_tip=0):
         now = self.sender.clock()
         owner = saved["owner"]
         wake_at = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -94,7 +94,7 @@ class InboxBatchDelivery:
         """)}
         with tasks_storage.read(self.db):
             self.sender._check_subscription(saved)
-            self.sender._check_history(saved)
+            self.sender._check_history(saved, ledger_tip)
             tip = _latest(self.db)
             if ring1.private(self.db, self.project):
                 return [], (), tip
@@ -168,10 +168,13 @@ class InboxBatchDelivery:
                 if member.kind == "ready":
                     if not self.sender._receipt_allows_attempt(member.source_event, owner):
                         continue
+                    observations = {"acceptance": {"status": acceptance, "at": observed}, "carrier": "raft_app"}
+                    if acceptance == "accepted":
+                        observations["receipt_ref"] = journal["event_key"].removeprefix("taskboard-inbox-")
                     event, recorded = record_wake(self.db, {
                         "schema": WAKE_SCHEMA, "recipient": owner,
                         "source": {"task": member.ticket, "event": member.source_event, "at": member.source_at},
-                        "observations": {"acceptance": {"status": acceptance, "at": observed}},
+                        "observations": observations,
                     })
                     if recorded:
                         audit.record(self.db, scope="operator", actor=None, operation="record-notification",
@@ -204,7 +207,7 @@ class InboxBatchDelivery:
             if journal["accepted_at"] is not None:
                 self._settle(saved, journal, members, "accepted")
                 return "accepted", key
-        selected, items, tip = self._selected(saved)
+        selected, items, tip = self._selected(saved, journal["ledger_tip"] if journal else 0)
         if journal is not None:
             expired = journal["attempts"] >= _ATTEMPTS or now >= journal["first_attempt"] + _RETRY_WINDOW
             if selected != members or expired:
@@ -237,7 +240,7 @@ class InboxBatchDelivery:
 
         def preflight():
             check_stop()
-            current, _, _ = self._selected(saved)
+            current, _, _ = self._selected(saved, journal["ledger_tip"])
             if current != members:
                 raise _SampledChoiceChanged
 

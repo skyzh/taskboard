@@ -276,6 +276,28 @@ occurrence key across restarts. If the exact key and canonical ticket link
 cannot fit in a Raft event, a terminal unsendable receipt records the failure
 without an HTTP attempt. To stop goal delivery while continuing Ready delivery, run `./tasks --shared wake-unsubscribe goal-occurrences --project PROJECT`.
 
+### Send one Inbox batch per observed Idle window
+
+For an approved direct Raft recipient, use `run-sampled --inbox-batches` on the
+existing sender and private state. Keep one sender per recipient. Let an
+in-flight single Ready or goal send resolve before switching. The existing
+`--goal-occurrences` flag and signed goal opt-in still govern goal delivery.
+
+A batch uses the currently eligible signed order for the enrolled project.
+The app text shows up to three ticket keys and short titles. Additional work
+stays available in signed Taskboard Inbox. After the final observed Idle
+read, the sender rechecks the exact ordered membership before posting one
+app event. Retries use the same event ID and body. The private sender state
+keeps the exact accepted or unresolved membership even when the app text
+only previews part of it.
+
+Ready, Explore and scheduled Review retain their existing individual
+receipts. Other members have an exact batch acceptance observation in the
+private journal. Verify each signed Start, acknowledgment or completed
+outcome separately. Never treat a carrier receipt as pickup. To return to
+single-cue delivery, settle any unfinished batch with the same reviewed
+launcher and state, then restart without `--inbox-batches`.
+
 ### Use a trusted local delivery command
 
 Direct Raft remains the default. For an approved sampled sender, use

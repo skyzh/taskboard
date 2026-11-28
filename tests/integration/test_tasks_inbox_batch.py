@@ -3,7 +3,9 @@
 from contextlib import closing
 from dataclasses import replace
 from datetime import datetime, timezone
+from tempfile import TemporaryFile
 import json
+import os
 import sqlite3
 import unittest
 from unittest.mock import patch
@@ -11,6 +13,7 @@ from unittest.mock import patch
 from taskboard_server import inbox_batch
 from taskboard_server.managed_ready import ManagedReadySender, SampledIdleGate
 from taskboard_server.managed_ready_grant import ManagedReadyGrant
+from taskboard_server import managed_ready_operator as operator
 from taskboard_server.managed_ready_operator import locked_state
 from tasks_goal_wake_receipts import receipt as goal_receipt
 from tasks_storage import open_sqlite, write
@@ -71,6 +74,26 @@ class InboxBatchTest(unittest.TestCase):
         for offset in (first, first + 10, first + 20):
             self.assertEqual(self.poll(offset, goals=goals), ("awaiting_idle", None))
 
+    def test_operator_enables_batches_only_with_the_explicit_direct_flag(self):
+        fixture = self.fixture
+        common = ["--db", str(fixture.ledger), "--state", str(fixture.state),
+                  "--server-id", fixture.identity.server_id, "--recipient-id", fixture.identity.subject]
+        command = ["run-sampled", "--server-slug", "fixture"]
+        with (patch.object(operator, "_pilot_status", return_value=lambda: "idle"),
+              patch.object(operator, "_run", side_effect=lambda sender, _: int(sender.inbox_batch is None)),
+              TemporaryFile(dir=fixture.ledger.parent) as secret):
+            secret.write(b"fixture-secret\n")
+            for extra, expected in (([], 1), (["--inbox-batches"], 0)):
+                secret.seek(0)
+                args = [*common, "--client-id", "fixture-client", *command,
+                        "--secret-fd", str(os.dup(secret.fileno())), *extra]
+                self.assertEqual(operator.main(args, transport=fixture.provider), expected)
+        with self.assertRaises(SystemExit) as error:
+            operator.main([*common, "--delivery-command", '["/fictional/only"]',
+                           *command, "--inbox-batches"], transport=fixture.provider)
+        self.assertEqual(error.exception.code, 2)
+        self.assertEqual(fixture.calls(), [])
+
     def test_two_ready_events_retry_the_immutable_envelope_after_restart(self):
         first, second = self.fixture.create(), self.fixture.create()
         sent = []
@@ -111,6 +134,27 @@ class InboxBatchTest(unittest.TestCase):
         self.assertEqual((self.history(key)["document"], self.history(key)["members"]),
                          (journal["document"], journal["members"]))
         self.assertIsNone(self.journal())
+
+    def test_restored_ledger_behind_unconfirmed_journal_prevents_retry(self):
+        self.fixture.create()
+        self.fixture.create()
+        self.established_idle()
+
+        def lose_reply(document):
+            self.fixture.provider.accept(document)
+            raise TimeoutError("Fixture lost an accepted batch reply.")
+
+        self.fixture.provider.on_event = lose_reply
+        self.assertEqual(self.poll(30)[0], "retry")
+        journal = self.journal()
+        calls = self.fixture.calls()
+        self.assertGreater(journal["ledger_tip"], 0)
+        self.restart()
+        with patch("taskboard_server.managed_ready._latest", return_value=journal["ledger_tip"] - 1):
+            with self.assertRaisesRegex(ValueError, "Ledger history is behind"):
+                self.poll(40)
+        self.assertEqual(self.fixture.calls(), calls)
+        self.assertEqual(self.journal(), journal)
 
     def test_changed_queue_suppresses_uncertain_members_without_touching_inbox(self):
         first, second = self.fixture.create(), self.fixture.create()

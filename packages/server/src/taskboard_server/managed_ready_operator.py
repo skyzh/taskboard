@@ -51,7 +51,11 @@ def locked_state(path, ledger_path):
 def _emit(status, event=None):
     record = {"status": status}
     if event is not None:
-        record["goal_occurrence" if isinstance(event, str) else "ready_event"] = event
+        if isinstance(event, str):
+            key = "inbox_batch" if event.startswith("taskboard-inbox-") else "goal_occurrence"
+        else:
+            key = "ready_event"
+        record[key] = event
     print(json.dumps(record), flush=True)
 
 
@@ -156,6 +160,8 @@ def main(argv=None, *, transport=http_json):
     sampled_run = commands.add_parser("run-sampled", help="Send pending Ready cues after observed Idle.")
     sampled_run.add_argument("--goal-occurrences", action="store_true",
                              help="Also send signed, opted-in Explore and scheduled Review cues through Raft.")
+    sampled_run.add_argument("--inbox-batches", action="store_true",
+                             help="Send one direct Raft app event for an enrolled Inbox batch.")
     pilot = commands.add_parser("run-pilot", help="Try one enrolled Ready event in a bounded foreground window.")
     pilot.add_argument("--event-id", required=True, type=_positive_id, help="Exact enrolled Ready event number.")
     for command in (run, pilot, sampled_run):
@@ -164,11 +170,13 @@ def main(argv=None, *, transport=http_json):
                              help="Private descriptor for the OAuth app secret in direct Raft delivery.")
     args = parser.parse_args(argv)
     goal_occurrences = getattr(args, "goal_occurrences", False)
+    inbox_batches = getattr(args, "inbox_batches", False)
     if args.project != MANAGED_READY_PROJECT and (args.command not in ("init-sampled", "run-sampled")
                                                   or args.delivery_command is not None):
         parser.error("Tiny LLM requires direct sampled Raft delivery.")
     if args.delivery_command is not None and (args.command not in ("init-sampled", "run-sampled")
-                                              or getattr(args, "secret_fd", None) is not None or goal_occurrences):
+                                              or getattr(args, "secret_fd", None) is not None
+                                              or goal_occurrences or inbox_batches):
         parser.error("Use command delivery with sampled mode and no OAuth secret.")
     if args.delivery_command is None and args.command.startswith("run") and args.secret_fd is None:
         parser.error("Supply the private OAuth secret descriptor for direct Raft delivery.")
@@ -204,7 +212,8 @@ def main(argv=None, *, transport=http_json):
                 try:
                     sender = ManagedReadySender(db, state, scope, grant, idle_gate=idle_gate, event_id=event_id,
                                                 sampled=sampled, stop_requested=stop.is_set,
-                                                command_delivery=args.delivery_command, goal_occurrences=goal_occurrences)
+                                                command_delivery=args.delivery_command, goal_occurrences=goal_occurrences,
+                                                inbox_batches=inbox_batches)
                     if event_id is not None:
                         return _run_pilot(sender, stop, event_id)
                     return _run(sender, stop)
