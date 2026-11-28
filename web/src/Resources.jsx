@@ -1,6 +1,7 @@
 import React, { useEffect, useEffectEvent, useId, useRef, useState } from 'react'
 import { BoardLink } from './BoardNavigation.jsx'
 import { queryPath, request, useLoadedPages, useResource } from './data.js'
+import ResourceTimeline from './ResourceTimeline.jsx'
 import { LoadMore, ResourceStatus, TaskLink, Timestamp, useSignInHref } from './shared.jsx'
 
 const actions = { claim: 'Claimed', renew: 'Renewed', release: 'Released', expire: 'Expired' }
@@ -137,17 +138,24 @@ export function ResourceHistoryRows({ items }) {
   )
 }
 
+function ResourceHistoryContent({ path, revision }) {
+  const page = useLoadedPages(`${path}/history`, {}, revision, { limit: 10 })
+  return <>
+    <ResourceStatus resource={page} label="claim history" />
+    {page.data && <>
+      <ResourceTimeline items={page.data.items} current={page.data.claim} asOf={page.data.as_of} />
+      <ResourceHistoryRows items={page.data.items} />
+    </>}
+    <LoadMore page={page} label="claim history" />
+  </>
+}
+
 function ResourceHistory({ path, revision }) {
   const [open, setOpen] = useState(false)
-  const page = useLoadedPages(`${path}/history`, {}, revision, { limit: 10, enabled: open })
   return (
     <details onToggle={event => setOpen(event.currentTarget.open)}>
       <summary>Claim history</summary>
-      {open && <>
-        <ResourceStatus resource={page} label="claim history" />
-        {page.data && <ResourceHistoryRows items={page.data.items} />}
-        <LoadMore page={page} label="claim history" />
-      </>}
+      {open && <ResourceHistoryContent path={path} revision={revision} />}
     </details>
   )
 }

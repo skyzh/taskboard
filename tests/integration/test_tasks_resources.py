@@ -104,6 +104,8 @@ def replay_resource_claims(test, board, make_app, open_board):
     test.assertEqual(renewed["claim"]["revision"], 2)
     test.assertEqual(renewed["claim"]["expires_at"], "2030-04-01T12:06:00Z")
     test.assertEqual(board.action(member, "renew-resource", renew), renewed)
+    active_history = board.call(manager, browser + "/bench/history").json
+    test.assertEqual((active_history["as_of"], active_history["claim"]), (now, renewed["claim"]))
     release = {**lookup, "request_key": request_key(4), "claim_id": identifier, "revision": 1}
     board.action(member, "release-resource", release, status=409)
 
@@ -131,6 +133,8 @@ def replay_resource_claims(test, board, make_app, open_board):
     test.assertEqual(first_page["next_cursor"], expiry["event_id"])
     older = board.action(member, "resource-history", query_string={**lookup, "before": expiry["event_id"]})
     test.assertEqual([row["action"] for row in older["items"]], ["renew", "claim"])
+    test.assertNotIn("as_of", older)
+    test.assertNotIn("claim", older)
 
     # Rebuild the app and its signed sessions against the same database without altering the claim records.
     app = make_app()
@@ -147,11 +151,15 @@ def replay_resource_claims(test, board, make_app, open_board):
     test.assertEqual(board.call(member, browser).json["items"][0]["claim"], fresh["claim"])
     board.action(member, "release-resource", {**release, "revision": 2}, status=409)
     release = {**lookup, "request_key": request_key(7), "claim_id": fresh["claim"]["claim_id"], "revision": 1}
+    now = "2030-04-01T12:06:30Z"
     released = signed_write(manager, "Avery", "release-resource", release)
     test.assertIsNone(released["claim"])
     test.assertEqual(board.action(manager, "release-resource", release), released)
-    history = board.call(manager, browser + "/bench/history").json["items"]
+    released_history = board.call(manager, browser + "/bench/history").json
+    test.assertEqual((released_history["as_of"], released_history["claim"]), (now, None))
+    history = released_history["items"]
     test.assertEqual([row["action"] for row in history], ["release", "claim", "expire", "renew", "claim"])
+    test.assertEqual(history[0]["at"], now)
     test.assertEqual(history[2], expiry)
 
     race_lookup = {"project": "LAB", "key": "race"}

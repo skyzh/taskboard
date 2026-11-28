@@ -1402,6 +1402,15 @@ button:disabled { opacity: .57; }
 .resource-form .resource-checkbox { display: flex; align-items: center; gap: .4rem; }
 .resource-history-list { display: grid; gap: .55rem; padding-inline-start: 1.35rem; }
 .resource-history-list .schedule-summary { margin-top: .25rem; }
+.resource-timeline { margin-block: .65rem 1rem; }
+.resource-timeline-legend { display: flex; flex-wrap: wrap; gap: .3rem .9rem; padding: 0; list-style: none; }
+.resource-timeline-legend li { display: flex; align-items: center; gap: .35rem; overflow-wrap: anywhere; }
+.resource-timeline-legend span { inline-size: .7rem; block-size: .7rem; flex: none; }
+.resource-timeline-track { position: relative; height: 1.25rem; overflow: hidden; border: 1px solid var(--line); border-radius: .3rem; }
+.resource-timeline-track span { position: absolute; inset-block: 0; }
+.resource-timeline-track span[data-active] { min-width: 2px; outline: 1px solid currentColor; outline-offset: -2px; }
+.resource-timeline-axis { display: flex; justify-content: space-between; gap: .4rem; color: var(--muted); font-size: .82rem; }
+.resource-timeline-axis time:last-child { text-align: end; }
 @media (pointer: coarse), (max-width: 40rem) {
   .resource-panel :is(input, select, button, summary) { min-height: 2.75rem; }
 }
