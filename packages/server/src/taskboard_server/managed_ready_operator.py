@@ -13,7 +13,7 @@ from threading import Event
 from time import monotonic
 
 from raft_auth import Identity
-from taskboard_server.managed_ready import ManagedReadySender, SampledIdleGate, SenderScope, initialize
+from taskboard_server.managed_ready import SAMPLED_STATE, ManagedReadySender, SampledIdleGate, SenderScope, initialize
 from taskboard_server.managed_ready_grant import GrantStopped, ManagedReadyGrant, http_json
 from taskboard_server.ready_signal import connect
 from taskboard_server.ready_wake_operator import _Parser, _positive_id, _read_token, _token_fd, _uuid
@@ -100,16 +100,20 @@ def _pilot_status(db, identity, server_slug):
     return read_status
 
 
-def _pin_pilot(state, event_id):
-    pilot = state.execute(
+def _check_run_mode(state, event_id, *, sampled=False):
+    gated_state = state.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pilot'",
     ).fetchone()
-    if (pilot is not None) != (event_id is not None):
-        raise ValueError("Use matching pilot or managed sender state.")
-    if event_id is None:
+    if (gated_state is not None) != (sampled or event_id is not None):
+        raise ValueError("Use state initialized for this managed sender mode.")
+    if gated_state is None:
         return
     with state:
         (pinned,) = state.execute("SELECT event FROM pilot").fetchone()
+        if sampled != (pinned == SAMPLED_STATE):
+            raise ValueError("Use state initialized for this managed sender mode.")
+        if sampled:
+            return
         if pinned is None:
             state.execute("UPDATE pilot SET event = ?", (event_id,))
         elif pinned != event_id:
@@ -140,10 +144,12 @@ def main(argv=None, *, transport=http_json):
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Create a fresh baseline after the recipient opts in.")
     commands.add_parser("init-pilot", help="Create a private baseline for the one-event pilot.")
+    commands.add_parser("init-sampled", help="Create private state for recurring observed-Idle delivery.")
     run = commands.add_parser("run", help="Run in the foreground as the authorized operator.")
+    sampled_run = commands.add_parser("run-sampled", help="Send pending Ready cues after observed Idle.")
     pilot = commands.add_parser("run-pilot", help="Try one enrolled Ready event in a bounded foreground window.")
     pilot.add_argument("--event-id", required=True, type=_positive_id, help="Exact enrolled Ready event number.")
-    for command in (run, pilot):
+    for command in (run, pilot, sampled_run):
         command.add_argument("--server-slug", required=True, help="Approved Raft Server slug.")
         command.add_argument("--secret-fd", required=True, type=_token_fd,
                              help="Private file descriptor containing the OAuth app secret.")
@@ -157,22 +163,26 @@ def main(argv=None, *, transport=http_json):
         identity = Identity(args.server_id, args.recipient_id, "agent", None, None, None)
         scope = SenderScope(ledger, identity, args.client_id)
         with closing(open_sqlite(ledger)) as db:
-            if args.command in ("init", "init-pilot"):
-                _emit("initialized", initialize(state_path, db, scope, pilot=args.command == "init-pilot"))
+            if args.command in ("init", "init-pilot", "init-sampled"):
+                _emit("initialized", initialize(state_path, db, scope, pilot=args.command == "init-pilot",
+                                                sampled=args.command == "init-sampled"))
                 return 0
             with locked_state(state_path, ledger) as state:
                 event_id = getattr(args, "event_id", None)
-                _pin_pilot(state, event_id)
+                sampled = args.command == "run-sampled"
+                _check_run_mode(state, event_id, sampled=sampled)
                 idle_gate = None
-                if event_id is not None:
-                    idle_gate = SampledIdleGate(_pilot_status(db, identity, args.server_slug), clock=monotonic)
+                if sampled or event_id is not None:
+                    idle_gate = SampledIdleGate(_pilot_status(db, identity, args.server_slug), clock=monotonic,
+                                                include_boundary=sampled)
                 grant = ManagedReadyGrant(args.client_id, _read_token(args.secret_fd),
                                           server_slug=args.server_slug, identity=identity, transport=transport)
                 stop = Event()
                 old_term = signal.signal(signal.SIGTERM, lambda *_: stop.set())
                 old_int = signal.signal(signal.SIGINT, lambda *_: stop.set())
                 try:
-                    sender = ManagedReadySender(db, state, scope, grant, idle_gate=idle_gate, event_id=event_id)
+                    sender = ManagedReadySender(db, state, scope, grant, idle_gate=idle_gate, event_id=event_id,
+                                                sampled=sampled, stop_requested=stop.is_set)
                     if event_id is not None:
                         return _run_pilot(sender, stop, event_id)
                     return _run(sender, stop)

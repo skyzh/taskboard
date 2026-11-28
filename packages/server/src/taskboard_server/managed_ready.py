@@ -2,7 +2,7 @@
 
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -19,7 +19,9 @@ from taskboard_server.ready_wake import (
     launch_ready_wake,
     ready_wake_owner,
 )
+from tasks_goals import PACIFIC
 import tasks_projects as projects
+from tasks_queries import BoardQueries
 import tasks_storage
 from tasks_notification_log import WAKE_SCHEMA
 from tasks_wake_subscriptions import MANAGED_READY_PROJECT, OWNED_READY, has_subscription
@@ -31,6 +33,8 @@ _RETRY_WINDOW = 5 * 60
 _DELAY = 10
 _MAX_SAMPLE_GAP = 2 * _DELAY
 _MAX_READY_AGE = 24 * 60 * 60
+_MINIMUM_IDLE = 30
+SAMPLED_STATE = 0
 
 _SCHEMA = """
     CREATE TABLE sender (
@@ -54,11 +58,15 @@ _SCHEMA = """
 
 
 class SampledIdleGate:
-    """Process-local eligibility for the one-shot managed Ready pilot."""
+    """Process-local eligibility from observed recipient activity."""
 
-    def __init__(self, read_status, *, clock=monotonic):
+    def __init__(self, read_status, *, clock=monotonic, include_boundary=False):
         self.read_status = read_status
         self.clock = clock
+        self.include_boundary = include_boundary
+        self.reset()
+
+    def reset(self):
         self.first_idle = None
         self.last_sample = None
 
@@ -76,7 +84,10 @@ class SampledIdleGate:
                 self.first_idle = None
             elif self.first_idle is None or missed_poll:
                 self.first_idle = sampled_at
-        return self.first_idle is not None and self.last_sample - self.first_idle > 30
+        if self.first_idle is None:
+            return False
+        observed = self.last_sample - self.first_idle
+        return observed > _MINIMUM_IDLE or (self.include_boundary and observed == _MINIMUM_IDLE)
 
 
 class _IdleGateClosed(RuntimeError):
@@ -84,6 +95,14 @@ class _IdleGateClosed(RuntimeError):
 
 
 class _PilotCueChanged(RuntimeError):
+    pass
+
+
+class _SampledChoiceChanged(RuntimeError):
+    pass
+
+
+class _SampledStopRequested(RuntimeError):
     pass
 
 
@@ -122,8 +141,10 @@ def _latest(db):
     return db.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]
 
 
-def initialize(state_path, db, scope, *, pilot=False):
-    """Create a private, empty baseline, leaving already-Ready work to the fallback."""
+def initialize(state_path, db, scope, *, pilot=False, sampled=False):
+    """Create private sender state with a baseline at the current ledger tip."""
+    if pilot and sampled:
+        raise ValueError("Choose one managed sender mode.")
     with tasks_storage.read(db):
         binding = scope.subscription(db)
         through = _latest(db)
@@ -132,9 +153,11 @@ def initialize(state_path, db, scope, *, pilot=False):
         with closing(connect(staged, "rwc")) as state, state:
             staged.chmod(0o600)
             state.execute(_SCHEMA)
-            if pilot:
+            if pilot or sampled:
                 state.execute("CREATE TABLE pilot (event INTEGER)")
-                state.execute("INSERT INTO pilot VALUES (NULL)")
+                # The sampled marker also prevents older operators from
+                # opening this state as legacy or as a positive-event pilot.
+                state.execute("INSERT INTO pilot VALUES (?)", (SAMPLED_STATE if sampled else None,))
             state.execute(
                 """INSERT INTO sender (singleton, ledger, board, server, recipient, owner, app,
                                       subscription, through_event)
@@ -146,7 +169,10 @@ def initialize(state_path, db, scope, *, pilot=False):
 
 
 class ManagedReadySender:
-    def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None, event_id=None):
+    def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None, event_id=None, sampled=False,
+                 stop_requested=None):
+        if sampled and (idle_gate is None or event_id is not None):
+            raise ValueError("Sampled delivery requires the Idle gate and has no pinned event.")
         self.db = db
         self.state = state
         self.scope = scope
@@ -154,6 +180,8 @@ class ManagedReadySender:
         self.clock = clock
         self.idle_gate = idle_gate
         self.event_id = event_id
+        self.sampled = sampled
+        self.stop_requested = stop_requested
 
     def _check_subscription(self, saved):
         current = self.scope.subscription(self.db)
@@ -167,6 +195,8 @@ class ManagedReadySender:
             self._check_subscription(saved)
             if _latest(self.db) < (saved["attempt_event"] or saved["through_event"]):
                 raise ValueError("Ledger history is behind the managed Ready sender.")
+            if self.sampled:
+                return self._sampled_candidate(saved)
             return self.db.execute(
                 ledger.current_tasks_sql(self.db) + """
                 WHERE tasks.dri = ? AND tasks.project_prefix = ? AND events.state = 'ready'
@@ -180,12 +210,65 @@ class ManagedReadySender:
                 (saved["owner"], _PROJECT, saved["through_event"], self.event_id, self.event_id, pending_only),
             ).fetchone()
 
+    def _sampled_candidate(self, saved):
+        now = datetime.fromtimestamp(self.clock(), timezone.utc)
+        today = now.astimezone(PACIFIC).date().isoformat()
+        instant = now.isoformat(timespec="seconds").replace("+00:00", "Z")
+        owner = saved["owner"]
+        board = BoardQueries(self.db, saved["board"], principal=owner)
+        pickup = next(board.actionable_work(owner, project=None, today=today, wake_at=instant, delivery=True), None)
+        if not pickup or pickup["kind"] != "ready":
+            return None
+        event = pickup["source_event"]
+        ready = ledger.find_task(self.db, pickup["id"])
+        if (event <= saved["through_event"] or ready is None or ready["event_id"] != event
+                or projects.row_project(ready) != _PROJECT):
+            return None
+        return ready if self._receipt_allows_attempt(event, owner) else None
+
+    def _receipt_allows_attempt(self, event, owner):
+        receipt = self.db.execute(
+            "SELECT recipient, acceptance FROM wake_log WHERE source_event_id = ?", (event,),
+        ).fetchone()
+        return receipt is None or (receipt["recipient"] == owner and receipt["acceptance"] == "pending")
+
+    def _expire_sampled_attempt(self, saved, now):
+        event, owner = saved["attempt_event"], saved["owner"]
+        if now < saved["retry_at"]:
+            return "waiting", None
+        with tasks_storage.read(self.db):
+            source = self.db.execute("SELECT task_id FROM events WHERE id = ?", (event,)).fetchone()
+            row = ledger.find_task(self.db, source["task_id"]) if source else None
+            current = (row is not None and row["event_id"] == event and row["state"] == "ready"
+                       and row["dri"] == owner and projects.row_project(row) == _PROJECT
+                       and self._receipt_allows_attempt(event, owner))
+        if current:
+            if not self._expired(row, now, saved["first_attempt"], saved["attempts"]):
+                return "waiting", None
+            self._record_unknown(row, owner)
+        self._finish(event)
+        return ("attempt_window_ended", event) if current else ("idle", None)
+
+    @staticmethod
+    def _expired(row, now, first_attempt, attempts):
+        ready_at = datetime.fromisoformat(row["at"]).timestamp()
+        return attempts >= _ATTEMPTS or now >= first_attempt + _RETRY_WINDOW or now >= ready_at + _MAX_READY_AGE
+
+    def _record_unknown(self, row, owner):
+        ledger.import_notification_on(self.db, {
+            "schema": WAKE_SCHEMA,
+            "source": {"task": projects.row_reference(row), "event": row["event_id"], "at": row["at"]},
+            "recipient": owner,
+            "observations": {"acceptance": {"status": "unknown", "at": ledger.timestamp()}},
+        })
+
     def _finish(self, event, *, retry_at=0):
         with self.state:
             self.state.execute(
-                """UPDATE sender SET through_event = ?, attempt_event = NULL, attempts = 0,
+                """UPDATE sender SET through_event = CASE WHEN ? THEN through_event ELSE ? END,
+                                     attempt_event = NULL, attempts = 0,
                                      first_attempt = NULL, retry_at = ?, renewed = 0 WHERE singleton = 1""",
-                (event, retry_at),
+                (self.sampled, event, retry_at),
             )
 
     def _stop(self, reason):
@@ -224,6 +307,10 @@ class ManagedReadySender:
     def _tick(self, saved, *, eligible):
         row = self._candidate(saved)
         now = self.clock()
+        if self.sampled and saved["attempt_event"] is not None and (
+            row is None or row["event_id"] != saved["attempt_event"]
+        ):
+            return self._expire_sampled_attempt(saved, now)
         if row is None:
             if saved["attempt_event"] is not None and now >= saved["retry_at"]:
                 self._finish(saved["attempt_event"])
@@ -251,16 +338,13 @@ class ManagedReadySender:
         first_attempt = saved["first_attempt"] if current_attempt else now
         renewed = saved["renewed"] if current_attempt else 0
         ready_at = datetime.fromisoformat(row["at"]).timestamp()
-        if self.event_id is not None and now < ready_at:
+        if (self.sampled or self.event_id is not None) and now < ready_at:
             return "waiting", None
-        if attempts >= _ATTEMPTS or now >= first_attempt + _RETRY_WINDOW or now >= ready_at + _MAX_READY_AGE:
+        if self._expired(row, now, first_attempt, attempts):
+            if self.sampled and not attempts and receipt is None:
+                return "idle", None
             if attempts or (receipt is not None and receipt["acceptance"] == "pending"):
-                ledger.import_notification_on(self.db, {
-                    "schema": WAKE_SCHEMA,
-                    "source": {"task": projects.row_reference(row), "event": event, "at": row["at"]},
-                    "recipient": saved["owner"],
-                    "observations": {"acceptance": {"status": "unknown", "at": ledger.timestamp()}},
-                })
+                self._record_unknown(row, saved["owner"])
             self._finish(event)
             return "attempt_window_ended", event
         if not eligible:
@@ -272,7 +356,12 @@ class ManagedReadySender:
                 (event, attempts + 1, first_attempt, now + _DELAY, renewed),
             )
 
+        def check_stop():
+            if self.sampled and self.stop_requested is not None and self.stop_requested():
+                raise _SampledStopRequested
+
         def preflight():
+            check_stop()
             with tasks_storage.read(self.db):
                 self._check_subscription(saved)
 
@@ -282,10 +371,18 @@ class ManagedReadySender:
                 idle = self.idle_gate.eligible(final=True)
                 current = self._candidate(saved, pending_only=True)
                 if current is None or current["event_id"] != event:
+                    if self.sampled:
+                        raise _SampledChoiceChanged
                     raise _PilotCueChanged
-                if not idle or (self.event_id is not None and self.clock() < ready_at):
+                if not idle or ((self.sampled or self.event_id is not None) and self.clock() < ready_at):
                     raise _IdleGateClosed
-            status, payload = self.grant.event_transport(request)
+            check_stop()
+            try:
+                status, payload = self.grant.event_transport(request)
+            except RaftRetry:
+                if self.sampled:
+                    self.idle_gate.reset()
+                raise
             if status == 401:
                 raise _Unauthorized
             return status, payload
@@ -297,14 +394,14 @@ class ManagedReadySender:
                 self.db, project=_PROJECT, task=projects.row_reference(row), event_id=event,
                 recipient=WakeRecipient(self.scope.identity, token), transport=submit,
             )
-        except _IdleGateClosed:
+        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested) as error:
             with self.state:
                 self.state.execute(
                     """UPDATE sender SET attempt_event = ?, attempts = ?, first_attempt = ?,
                                          retry_at = ?, renewed = ? WHERE singleton = 1""",
                     tuple(saved[key] for key in ("attempt_event", "attempts", "first_attempt", "retry_at", "renewed")),
                 )
-            return "awaiting_idle", event
+            return ("awaiting_idle", event) if isinstance(error, _IdleGateClosed) else ("waiting", None)
         except (ReadyWakeEventChanged, ReadyWakeOwnerChanged, _PilotCueChanged):
             outcome = "superseded"
         except _Unauthorized:
@@ -319,7 +416,11 @@ class ManagedReadySender:
             preflight()
             raise
         if outcome == "unknown":
+            if self.sampled:
+                self.idle_gate.reset()
             return self._retry("retry", event)
         delay = self.grant.retry_delay()
         self._finish(event, retry_at=self.clock() + delay if delay else 0)
+        if self.sampled and outcome in ("accepted", "already_accepted"):
+            self.idle_gate.reset()
         return outcome, event
