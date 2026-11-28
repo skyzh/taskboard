@@ -739,8 +739,10 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               <h2 id={`task-description-${id}`}>Description</h2>
               <Markdown text={record.brief} className="prose" relatedTasks={record.related_tasks} />
             </section>}
-            {signedIn && !preview && <TicketAttachments key={`${session.data.actor.id}:${task.key || id}`}
-              ticket={task.key || id} revision={revision} onChanged={onChanged} />}
+            {signedIn && !preview && session.data.attachments_enabled !== false && (
+              <TicketAttachments key={`${session.data.actor.id}:${task.key || id}`}
+                ticket={task.key || id} revision={revision} onChanged={onChanged} />
+            )}
             {signedIn && <TicketKnowledgeLinks ticket={task.key || id} revision={revision} />}
             {(record.checklist.length > 0 || canEditChecklistText) && (
               <details className="detail-checklist" open={checklistOpen}

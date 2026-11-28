@@ -55,10 +55,12 @@ class AttachmentTest(unittest.TestCase):
         self.app = self.board.app(**self.options)
         self.avery, _ = self.board.login(self.app, "Avery")
         path = self.create()
+        self.assertIs(self.board.call(self.avery, "/api/v1/session").json["attachments_enabled"], False)
         unavailable = self.board.call(self.avery, path, status=503).json
         self.assertEqual(unavailable["code"], "attachment_storage_unavailable")
         self.board.provider = fixtures.FixtureRaft()
         self.configure()
+        self.assertIs(self.board.call(self.avery, "/api/v1/session").json["attachments_enabled"], True)
         self.assertEqual(self.board.call(self.avery, path).json, {
             "attachments": [], "max_upload_bytes": MAX_UPLOAD_BYTES, "can_edit": True,
         })

@@ -2436,10 +2436,12 @@ def create_app(
 
     @app.get("/api/v1/session")
     def session():
+        attachments = {"attachments_enabled": attachment_storage is not None}
         if member_login is not None:
             actor = member_login.actor()
             return {"actor": actor_profile(actor) if actor else None,
-                    "sign_in_available": True, "sign_in_provider": member_mode, **registration_capability(actor)}
+                    "sign_in_available": True, "sign_in_provider": member_mode,
+                    **registration_capability(actor), **(attachments if actor else {})}
         if marketplace and raft.identity() is None:
             return {"actor": None, "sign_in_available": True}
         actor = current_actor()
@@ -2453,7 +2455,7 @@ def create_app(
                 }
             return {"actor": {"id": None, "name": "Local reader", "kind": "local", "role": None, "avatar_url": None},
                     **transport}
-        return {"actor": actor_profile(actor), **registration_capability(actor), **transport}
+        return {"actor": actor_profile(actor), **registration_capability(actor), **transport, **attachments}
 
     @app.get("/api/v1/account/codex-usage")
     def account_codex_usage():
