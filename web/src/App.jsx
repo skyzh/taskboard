@@ -549,7 +549,8 @@ export default function App({ previewNotice, tourSteps } = {}) {
               <ResourceStatus resource={sessionResource.pending ? sessionResource : projectList} label="Reports" />
             </section>
             : showAgentManagement
-              ? <AgentManagement key={project} project={project} revision={revision} />
+              ? <AgentManagement key={project} project={project} revision={revision}
+                canViewInbox={sessionResource.data?.actor?.kind === 'human'} />
               : showGoalActivity
               ? <GoalActivity key={allGoalActivity ? 'all' : project} project={allGoalActivity ? null : project}
                 revision={revision} agent={goalAgent} goal={goalKey} from={goalSummaryView}

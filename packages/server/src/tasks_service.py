@@ -3806,6 +3806,67 @@ def create_app(
             now = datetime.fromisoformat(ledger.timestamp())
             return watcher_health.listing(connection, project, roster, principal=actor_key(), now=now)
 
+    @app.get("/api/v1/reports/agent-inbox")
+    def project_agent_inbox():
+        viewer = current_actor("human", required=True, sync_profile=False)
+        project = project_filter(request.args, use_default=True)
+        owner = text(request.args, "agent", optional=True, maximum=160)
+        before = ordered_feed_cursor(request.args, ("event", "decision", "request", "readiness"), "the inbox")
+        limit = integer(request.args.get("limit", 20), "limit", maximum=100)
+        with tasks_storage.read(db()) as connection:
+            # Each listed agent must also be able to see the selected project.
+            agents = [
+                dict(row) for row in connection.execute(
+                    """SELECT ledger_key AS id,
+                              COALESCE(NULLIF(name, ''), NULLIF(username, ''), ledger_key) AS name
+                       FROM board_principals WHERE kind = 'agent' ORDER BY LOWER(name), ledger_key"""
+                )
+            ]
+            if ring1.private(connection, project):
+                members = ring1.members(connection, project)
+                agents = [agent for agent in agents if agent["id"] in members]
+            if owner is None:
+                return {"project": project, "agents": agents}
+            selected = next((agent for agent in agents if agent["id"] == owner), None)
+            if selected is None:
+                raise NotFound()
+
+            board = query(connection)
+            now = ledger.timestamp()
+            today = pacific_day(now)
+            wake_at = None if owner.startswith(("local-dri:", "external-agent:")) else now
+            work, ask = inbox_selection(connection, owner, project, wake_at=wake_at)
+            queue = [inbox_work_result(item) for item in
+                     board.actionable_work(owner, today=today, project=project, wake_at=wake_at)]
+            if ask:
+                queue.insert(0, {"kind": "ask_recheck", "key": ask["ticket"], "title": "Due request recheck"})
+            updates = board.inbox(owner, creations=False, today=today, before=before, limit=limit, project=project)
+            page = []
+            labels = {"readiness": "Readiness check", "decision": "Decision requested", "request": "Request"}
+            for row in updates["items"]:
+                item = row["item"]
+                kind = row["kind"]
+                page.append({
+                    "kind": kind, "id": row["id"], "at": row["at"],
+                    "ticket": item.get("task_key") or item["key"],
+                    "title": item.get("task_title") or item["title"],
+                    "label": item.get("label") if kind == "watched" else labels[kind],
+                })
+            wait_reviews = [] if ask else [
+                {field: candidate[field] for field in ("key", "title", "wait_event")}
+                for candidate in board.wait_review_candidates(owner, project)
+            ]
+            occurrences = [
+                {field: occurrence[field] for field in ("kind", "key", "ticket", "due_at") if field in occurrence}
+                for occurrence in inbox_goal_occurrences(connection, owner, project, work)
+            ]
+            return {
+                "agent": selected, "project": project, "work": queue,
+                "goal_occurrences": occurrences, "wait_review": wait_reviews,
+                **goals.queue_context(connection, owner, project, principal=viewer["ledger_key"]),
+                "items": page, "next_cursor": updates["next_cursor"],
+            }
+
     @app.get("/api/v1/notifications/watched")
     def watched_notifications():
         actor = current_actor(required=True)
