@@ -257,17 +257,27 @@ def verify_cli(python, client, env, origin, cookie, actor, *, legacy=False):
            "The pinned client lost its T-scoped queue.")
     expect(scoped.index(LEGACY_TASK) < scoped.index("Fixture low priority"), "The pinned CLI priority order changed.")
     expect(LEGACY_TASK in run("show", "T-2"), "The pinned client cannot read the expected task.")
+    wait_target = ("--blocked-by", "T-1")
+    if legacy:
+        with request(origin, MOUNT + "/auth/callback", query={"code": "Blake"}) as response:
+            blake_cookie = response.headers["Set-Cookie"].split(";", 1)[0]
+        subscription = io_action(origin, "set-wake-subscription", cookie=blake_cookie,
+                                 data={"project": "T", "event_type": "owned-ready", "enabled": "true"})
+        expect("receipt" in subscription, "The named fixture agent did not record its Ready subscription.")
+        wait_target = ("--on", "Blake")
     for command, line, extra in (
         ("start", "Compatibility fixture started.", ()),
-        ("wait", "Compatibility fixture wait.", ("--blocked-by", "T-1")),
+        ("wait", "Compatibility fixture wait.", wait_target),
         ("resume", "Compatibility fixture resumed.", ()),
     ):
         expect("Committed" in run(command, "T-2", line, *extra), f"The pinned client lost the {command} receipt.")
     detail = io_action(origin, "task", cookie=cookie, query={"id": "T-2"})["task"]
-    events = io_action(origin, "task-activity", cookie=cookie, query={"id": "T-2", "limit": 3})["items"]
+    events = io_action(origin, "task-activity", cookie=cookie, query={"id": "T-2", "limit": 8})["items"]
     expect(detail["state"] == "in_progress" and detail["dri"] == actor, "The ledger did not retain the resumed task.")
-    expect([(event["action"], event["actor"]) for event in events] == [(verb, actor) for verb in ("resume", "wait", "start")],
-           "The ledger did not retain the exact attributed workflow.")
+    transitions = ("resume", "wait", "start")
+    # Resuming a named wait can record an update for its linked peer request.
+    workflow = [(event["action"], event["actor"]) for event in events if event["action"] in transitions]
+    expect(workflow == [(verb, actor) for verb in transitions], "The ledger did not retain the exact attributed workflow.")
     expect("Committed" in run("done", "T-2", "Compatibility fixture completed."),
            "The pinned client lost the completion receipt.")
     detail = io_action(origin, "task", cookie=cookie, query={"id": "T-2"})["task"]
