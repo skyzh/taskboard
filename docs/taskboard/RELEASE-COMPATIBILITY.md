@@ -90,3 +90,47 @@ compare the hosted and Pi manifests and browser version, and replay both
 reuse and fallback through the installed launcher in disposable slots. The
 normal Pi backup, mounted health check, and rollback remain part of release
 activation.
+
+### Opt-in ARM64 hosted replay
+
+Use the [Ubuntu 24.04 ARM64 GitHub runner](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job)
+as the host for a disposable Debian 13 ARM64 container. The Raspberry Pi
+Chromium archive requires HarfBuzz 10.0.1 or newer and libFLAC 14. Its common
+package requires zenoty. The Noble ARM64 package indexes provide HarfBuzz 8.3.0
+and libFLAC 12, and the Raspberry Pi Trixie index provides zenoty.
+[Ubuntu ARM64 indexes](https://ports.ubuntu.com/ubuntu-ports/dists/noble/main/binary-arm64/)
+· [Raspberry Pi ARM64 index](https://archive.raspberrypi.com/debian/dists/trixie/main/binary-arm64/)
+
+Use reviewed pins for the ARM64 container image, Debian and Raspberry Pi
+package sources, Python 3.13.5, Node 24.22.3 with npm 11.19.1, and
+Playwright Core 1.65.1. Stage these exact browser packages from the
+[Raspberry Pi Chromium archive](https://archive.raspberrypi.com/debian/pool/main/c/chromium/)
+with a separately approved SHA-256 for each file:
+
+- `chromium_151.0.7922.108-1~deb13u1+rpt1_arm64.deb`
+- `chromium-common_151.0.7922.108-1~deb13u1+rpt1_arm64.deb`
+- `chromium-sandbox_151.0.7922.108-1~deb13u1+rpt1_arm64.deb`
+
+Run the prerequisite check in that container before installing or extracting
+the staged packages. It verifies all three digests before inspecting package
+metadata. A missing pin, a digest mismatch or a different package identity
+produces no successful receipt.
+
+```sh
+test "$(dpkg --print-architecture)" = arm64 &&
+python -B tools/release/verify_pi_browser_archives.py \
+  --chromium "$chromium_deb" "$chromium_sha256" \
+  --chromium-common "$chromium_common_deb" "$chromium_common_sha256" \
+  --chromium-sandbox "$chromium_sandbox_deb" "$chromium_sandbox_sha256" &&
+apt-get --simulate --no-install-recommends install \
+  "$chromium_deb" "$chromium_common_deb" "$chromium_sandbox_deb"
+```
+
+After installing the packages in the disposable container, verify the staged
+Chromium binary against its approved SHA-256 before launching it. Run the
+public qualification producer with the
+staged Playwright module and Chromium executable. Compare both resulting
+manifest digests with the equivalent Pi builds before trialing the hosted
+check-run notice. This replay requires approved digests and a dependency
+solver result from the chosen container. A local package-control read does
+not establish either hosted execution or manifest parity.
