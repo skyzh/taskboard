@@ -1718,7 +1718,7 @@ class BoardQueries:
         ).fetchall()
         return page(rows, limit, "id", lambda visible: [dict(row) for row in visible])
 
-    def wake_workers(self, person, status, *, before, limit, project=None):
+    def wake_workers(self, person, status, *, before, limit, project=None, wake_at=None):
         """Return minimal wake routing for the signed worker, using current task state."""
         mode = "json_extract(wake.context, '$.audit.mode')"
         check_at = "json_extract(wake.context, '$.audit.at')"
@@ -1735,7 +1735,7 @@ class BoardQueries:
                 ({assigned} AND ({RUNNING}) AND {mode} = 'at' AND {check_at} <= ?)
                 OR (current.dri = ? AND worker_runs.status = 'reported' AND {mode} = 'report')
             """
-            params = (person, ledger.timestamp(), person)
+            params = (person, wake_at or ledger.timestamp(), person)
         unlinked = ""
         if watches.has_table(self.db, "peer_asks"):
             unlinked = "AND NOT EXISTS (SELECT 1 FROM peer_asks WHERE review_run_id = worker_runs.id)"
@@ -2830,7 +2830,7 @@ class BoardQueries:
             "id": row["id"], "key": projects.row_reference(row), "decision_request_id": row["event_id"],
         }}
 
-    def requested_asks(self, requester, *, project, today, exact=None, due_only=False):
+    def requested_asks(self, requester, *, project, today, exact=None, due_only=False, all_due=False):
         current, current_bindings = self.current_visible_tasks()
         visible, visible_bindings = self.project_visibility()
         if exact:
@@ -2844,6 +2844,9 @@ class BoardQueries:
             parameters = today, requester
         else:
             predicate, parameters = "asks.pending", ()
+        limit = 1 if exact or due_only else 100
+        if due_only and all_due and not exact:
+            limit = projects.MAX_ID
         rows = self.db.execute(
             f"""
             WITH current_tasks AS ({current}),
@@ -2874,7 +2877,7 @@ class BoardQueries:
             ORDER BY CASE WHEN remind_on IS NULL THEN 1 ELSE 0 END, remind_on, kind, request_id
             LIMIT ?
             """, (*current_bindings, project, project, *visible_bindings, requester, requester, *parameters,
-                  1 if exact or due_only else 100),
+                  limit),
         ).fetchall()
         result = []
         for row in rows:
@@ -3125,7 +3128,7 @@ class BoardQueries:
                 SELECT * FROM eligible WHERE cue_rank IS NOT NULL
                 ORDER BY cue_rank, CASE WHEN cue_rank = 5 THEN priority_rank ELSE 0 END, event_id
                 LIMIT ?""",
-            (*bindings, owner, project, project, waiting_only, now, limit),
+            (*bindings, owner, project, project, waiting_only, now, projects.MAX_ID if limit is None else limit),
         ).fetchall()
         kinds = {
             1: ("recovery", "resume-work"),
@@ -3141,9 +3144,9 @@ class BoardQueries:
                 "id": f"{kind}:{row['event_id']}", "kind": kind, "action": action,
                 "ticket": projects.row_reference(row), "title": row["title"], "event_id": row["event_id"],
             })
-        remaining = min(5, limit - len(items))
+        remaining = None if limit is None else min(5, limit - len(items))
         after = 0
-        while remaining:
+        while remaining is None or remaining:
             waits = self.wait_review_candidates(owner, project, for_delivery=True, after=after,
                                                 verified_only=waiting_only)
             if not waits:
@@ -3156,9 +3159,10 @@ class BoardQueries:
                     "id": f"wait-review:{row['wait_event']}", "kind": "wait-review", "action": "review-wait",
                     "ticket": row["key"], "title": row["title"], "event_id": row["wait_event"],
                 })
-                remaining -= 1
-                if not remaining:
-                    break
+                if remaining is not None:
+                    remaining -= 1
+                    if not remaining:
+                        break
         return items
 
     def inbox_selection(self, owner, *, project, today, wake_at=None, delivery=False, ordinary_only=False):
@@ -3184,7 +3188,11 @@ class BoardQueries:
             return {"ask_recheck": ask}
         if work:
             return {"work": work}
+        return {"goal_candidates": self.goal_wake_candidates(owner, project=project, wake_at=wake_at)}
 
+    def goal_wake_candidates(self, owner, *, project, wake_at):
+        """Return exact goal cues after ordinary Inbox work and asks have cleared."""
+        now = datetime.fromisoformat(wake_at).astimezone(PACIFIC)
         excluded = {projects.row_reference(row) for row in cue_pauses.active(self.db, owner, wake_at, "goal")}
         active_workers = self.db.execute(
             f"""SELECT DISTINCT tasks.id, tasks.project_prefix, tasks.project_number
@@ -3201,13 +3209,14 @@ class BoardQueries:
             cue["kind"] == "timed" or (cue["kind"] == "deadline" and cue["ticket"] not in scheduled)
         )]
         explore = [item for item in occurrences if item["kind"] == "explore"]
-        return {"goal_candidates": [
+        return [
             {"ticket": item["ticket"], "key": item["key"]} for item in (*reviews, *fallback, *explore)
-        ]}
+        ]
 
     def actionable_work(self, owner, *, today, project, ordinary_only=False, include_goal_reviews=True,
-                        wake_at=None, delivery=False):
-        """Yield the first actionable item in each queue in pickup order."""
+                        wake_at=None, delivery=False, all_ordinary=False):
+        """Yield actionable lanes in pickup order, defaulting to one item per lane."""
+        ordinary_only = ordinary_only or all_ordinary
         scope = {"project": project, "limit": 1}
         queues = (
             ("ready", self.tasks, {"dri": owner, "state": "ready", "priority_order": True}),
@@ -3220,6 +3229,22 @@ class BoardQueries:
             ("in_progress", self.tasks, {"dri": owner, "state": "in_progress"}),
             ("shared_ready", self.tasks, {"dri": "", "state": "ready", "priority_order": True, "managed_by": owner}),
         )
+
+        def lane(query, filters, **kwargs):
+            if not all_ordinary:
+                yield from query(**scope, **filters, **kwargs)["items"]
+                return
+            before = filters.get("before")
+            while True:
+                page = query(project=project, limit=50, **{**filters, "before": before}, **kwargs)
+                yield from page["items"]
+                before = page["next_cursor"]
+                if before is None:
+                    return
+                if filters.get("priority_order"):
+                    priority, event = before.split(":", 1)
+                    before = priority, int(event)
+
         exploration = None
         for kind, query, filters in queues:
             if delivery and kind in ("ready", "in_progress", "shared_ready", "reminder"):
@@ -3228,7 +3253,7 @@ class BoardQueries:
                 filters["for_wake"] = True
             if ordinary_only and kind in ("reminder", "in_progress"):
                 filters["exclude_goals"] = True
-            for item in query(**scope, **filters)["items"]:
+            for item in lane(query, filters):
                 work = {
                     "kind": kind,
                     "id": item.get("task_id", item.get("id")),
@@ -3237,6 +3262,15 @@ class BoardQueries:
                 }
                 if wake_at is not None:
                     work["source_event"] = item.get("event_id") or item.get("id")
+                if all_ordinary:
+                    if kind in ("review", "request"):
+                        work.update(wake_key=f"{kind}:{item['id']}", source_event=None)
+                    elif kind == "report":
+                        work["wake_key"] = f"report:{item['run_id']}"
+                        if item["event_id"] is not None:
+                            work["wake_key"] += f":{item['event_id']}"
+                    elif kind == "readiness":
+                        work["wake_key"] = f"readiness:{item['id']}:{item['event_id']}"
                 if kind == "in_progress" and not ordinary_only and goals.exploration_criterion(self.db, work["id"]) is not None:
                     exploration = work
                     for current in self.tasks(**scope, **filters, exclude_exploration=True)["items"]:
@@ -3248,7 +3282,9 @@ class BoardQueries:
                 else:
                     yield work
         if wake_at is not None:
-            for item in self.wake_workers(owner, "checkpoint", project=project, before=None, limit=1)["items"]:
+            workers = lane(self.wake_workers, {"person": owner, "status": "checkpoint", "before": None},
+                           wake_at=wake_at)
+            for item in workers:
                 task = ledger.find_task(self.db, item["task_id"])
                 yield {"kind": "worker_checkpoint", "id": item["task_id"], "key": item["task_key"],
                        "title": task["title"], "source_event": item["check_event"], "worker_run": item["id"],
@@ -3264,7 +3300,8 @@ class BoardQueries:
                 number = projects.resolve(self.db, cue["ticket"])
                 yield {"kind": "goal_review", "id": number, "key": cue["ticket"], "title": cue["summary"]}
         if wake_at is not None:
-            for item in self.virtual_ticket_cues(owner, project=project, now=wake_at, limit=1, waiting_only=True):
+            for item in self.virtual_ticket_cues(owner, project=project, now=wake_at,
+                                                 limit=None if all_ordinary else 1, waiting_only=True):
                 yield {"kind": item["kind"], "id": projects.resolve(self.db, item["ticket"]), "key": item["ticket"],
                        "title": item["title"], "source_event": item["event_id"]}
         if exploration:
