@@ -861,7 +861,7 @@ def raft_inbox_wake(notice, channel, message_id, can_wake, *, record_wake=None):
     marker = (f"Taskboard Ready through event {event}" if ready_event
               else f"Taskboard Inbox {work['kind']} {event}")
     url = task_url(notice["board"], {"key": work["key"], "id": work["id"]})
-    title = (f"{action} on {work['key']}. Open {url}. Check signed Inbox first. "
+    title = (f"{action} on {work['key']}. Open {url}. Check signed Inbox with ./tasks --shared next --wake. "
              f"Finish it or record the blocker and who can act or when to recheck. {_RECHECK_INBOX} [{marker}]")
     return wake_with_title(title, channel, message_id, can_wake, cue=work["kind"], ready_event=ready_event,
                            record_wake=record_wake)

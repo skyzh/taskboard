@@ -3151,7 +3151,8 @@ class BoardQueries:
                     break
         return items
 
-    def actionable_work(self, owner, *, today, project, ordinary_only=False, include_goal_reviews=True, wake_at=None):
+    def actionable_work(self, owner, *, today, project, ordinary_only=False, include_goal_reviews=True,
+                        wake_at=None, delivery=False):
         """Yield the first actionable item in each queue in pickup order."""
         scope = {"project": project, "limit": 1}
         queues = (
@@ -3167,11 +3168,10 @@ class BoardQueries:
         )
         exploration = None
         for kind, query, filters in queues:
-            if wake_at is not None:
-                if kind in ("ready", "in_progress", "shared_ready", "reminder"):
-                    filters["wake_at"] = wake_at
-                if kind == "review":
-                    filters["for_wake"] = True
+            if delivery and kind in ("ready", "in_progress", "shared_ready", "reminder"):
+                filters["wake_at"] = wake_at
+            if delivery and kind == "review":
+                filters["for_wake"] = True
             if ordinary_only and kind in ("reminder", "in_progress"):
                 filters["exclude_goals"] = True
             for item in query(**scope, **filters)["items"]:
@@ -3202,7 +3202,7 @@ class BoardQueries:
         if include_goal_reviews and not ordinary_only:
             now = datetime.fromisoformat(ledger.timestamp()).astimezone(PACIFIC)
             _, due = goal_cadence.due_reviews(self.db, owner, project, now, principal=self.principal)
-            if wake_at is not None:
+            if delivery:
                 paused = {projects.row_reference(row) for row in cue_pauses.active(self.db, owner, wake_at, "goal")}
                 due = [cue for cue in due if cue["ticket"] not in paused]
             if due:

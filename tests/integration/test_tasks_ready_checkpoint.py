@@ -1091,6 +1091,30 @@ class ReadyCheckpointTest(unittest.TestCase):
             self.assertEqual((signed["kind"], signed["key"]), ("wait-review", "T-1"))
             self.assertEqual((wake["kind"], wake["key"]), (signed["kind"], signed["key"]))
 
+    def test_manual_inbox_keeps_paused_and_acknowledged_recovery_visible(self):
+        self.avery.invoke("create-task", {"title": "Recover my ticket", "step": "Read the fixture."}, write=True)
+        self.avery.invoke("advance-task", {"id": "T-1", "transition": "start",
+                                          "note": "Record the test disposition."}, write=True)
+        filters = {"scope": "all"}
+        wake_filters = {**filters, "for_wake": "true"}
+        initial = self.avery.invoke("my-inbox-wake", filters)["work"]
+        self.assertEqual(initial["key"], "T-1")
+        self.avery.invoke("set-cue-pause", {"id": "T-1", "kind": "stalled", "minutes": "30",
+                                           "reason": "Wait for the measured sample."}, write=True)
+        for check in ("paused", "acknowledged"):
+            with self.subTest(check=check):
+                self.assertEqual(self.avery.invoke("my-next", filters)["work"]["key"], "T-1")
+                self.assertIsNone(self.avery.invoke("my-next", wake_filters)["work"])
+                self.assertNotIn("work", self.avery.invoke("my-inbox-wake", filters))
+                status, output, error = self.avery.service.shared_cli(self.avery.client, "next", "--wake")
+                self.assertEqual((status, error), (0, ""))
+                self.assertNotIn("Recover my ticket", output)
+            if check == "paused":
+                self.avery.invoke("set-cue-pause", {"id": "T-1", "kind": "stalled"}, write=True)
+                self.assertEqual(self.avery.invoke("my-next", wake_filters)["work"]["key"], "T-1")
+                self.avery.invoke("acknowledge-stalled-cue", {"id": "T-1", "event": str(initial["source_event"])},
+                                  write=True)
+
     def test_signed_review_wake_reuses_scheduled_and_fired_legacy_run_receipts(self):
         board = "https://fixture.example/tasks/"
         channel = "#fixture:12345678"

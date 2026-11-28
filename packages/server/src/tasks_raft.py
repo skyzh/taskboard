@@ -79,6 +79,7 @@ _ACTIONS = {
     "my-inbox-wake": _Action("GET", "Read the next signed Inbox candidate eligible for an Idle wake.",
                              optional=_PROJECT | _SCOPE),
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE | {
+        "for_wake": "Show the same signed selection as a wake, with delivery eligibility applied.",
         "refresh_guidance": "Use true when the client displays the daily Inbox guidance cue.",
     }),
     "my-requested-asks": _Action("GET", "Read your pending attention and decision requests.", optional=_PROJECT | _SCOPE | {

@@ -4960,7 +4960,8 @@ def create_app(
 
     def goal_queue_state(connection, owner, project, today, *, wake_at=None):
         board = query()
-        scope = {"today": today, "project": project, "include_goal_reviews": wake_at is not None, "wake_at": wake_at}
+        scope = {"today": today, "project": project, "include_goal_reviews": wake_at is not None, "wake_at": wake_at,
+                 "delivery": wake_at is not None}
         work = next(board.actionable_work(owner, **scope), None)
         if work and work["kind"] == "goal_review":
             return False, False
@@ -5011,10 +5012,10 @@ def create_app(
     def inbox_work_result(work):
         return {key: work[key] for key in ("kind", "id", "key", "title")} if work else None
 
-    def inbox_selection(connection, owner, project, *, wake_at=None):
+    def inbox_selection(connection, owner, project, *, wake_at=None, delivery=False):
         board = query()
         today = pacific_day(wake_at or ledger.timestamp())
-        work = next(board.actionable_work(owner, today=today, project=project, wake_at=wake_at), None)
+        work = next(board.actionable_work(owner, today=today, project=project, wake_at=wake_at, delivery=delivery), None)
         exploration = (work is not None and work["kind"] == "in_progress"
                        and ledger.task_goal_kind(connection, work["id"]) == "standing"
                        and goals.exploration_criterion(connection, work["id"]) is not None)
@@ -5120,7 +5121,7 @@ def create_app(
                 "timed_goal_cues": True,
                 "goal_continuation_cues": True,
                 "ask_recheck_cues": True,
-                "inbox_wake_cues": profile is None and actor["kind"] == "agent",
+                "inbox_wake_cues": profile is None and actor["kind"] == "agent" and not g.get("personal_agent_api"),
                 "watcher_health_reports": True,
                 "watcher_cue_pauses": True,
                 "can_create_project": project_admin_access(db(), actor),
@@ -5264,7 +5265,7 @@ def create_app(
             project = project_scope(data)
             wake_at = ledger.timestamp()
             with tasks_storage.read(db()) as connection:
-                work, ask = inbox_selection(connection, key, project, wake_at=wake_at)
+                work, ask = inbox_selection(connection, key, project, wake_at=wake_at, delivery=True)
                 if ask:
                     return {"ask_recheck": ask}
                 if work:
@@ -5283,7 +5284,9 @@ def create_app(
         if name == "my-next":
             project = project_scope(data)
             with tasks_storage.read(db()) as connection:
-                work, ask = inbox_selection(connection, key, project, wake_at=inbox_wake_instant())
+                wake_at = inbox_wake_instant()
+                delivery = wake_at is not None and data.get("for_wake") == "true"
+                work, ask = inbox_selection(connection, key, project, wake_at=wake_at, delivery=delivery)
                 result = {"work": inbox_work_result(work), **goals.queue_context(connection, key, project, principal=actor_key())}
                 if ask:
                     return {

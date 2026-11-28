@@ -1079,6 +1079,8 @@ def shared_command(args):
         else:
             filters["scope"] = "all"
     if command == "next":
+        if args.wake and context.get("inbox_wake_cues") is True:
+            filters["for_wake"] = "true"
         return shared_next(board, url, filters, actor, refresh_guidance=context.get("daily_inbox_refresh") is True)
     if args.status:
         filters["state"] = args.status

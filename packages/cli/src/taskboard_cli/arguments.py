@@ -441,6 +441,7 @@ def arguments(argv=None):
         ),
     )
     next_item.add_argument("--dri", type=nonblank)
+    next_item.add_argument("--wake", action="store_true", help="Use the signed wake selection after a watcher cue.")
     for listing in (overview, next_item):
         listing.add_argument("--project", type=nonblank, help="Limit to one project prefix.")
     goal = commands.add_parser("goals", help="Read your standing and dated goals in shared mode.")

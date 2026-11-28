@@ -60,7 +60,7 @@ class RaftActionRoutesTest(unittest.TestCase):
             "raft-channel-set": ("POST", "project channel_id", ""),
             "field-guidance": ("GET", "", "project"),
             "configure-ticket-fields": ("POST", "project fields", ""),
-            "my-next": ("GET", "", "project scope refresh_guidance"),
+            "my-next": ("GET", "", "project scope refresh_guidance for_wake"),
             "my-inbox-wake": ("GET", "", "project scope"),
             "my-requested-asks": ("GET", "", "project scope cue_key"),
             "acknowledge-ask-recheck": ("POST", "cue_key", ""),
