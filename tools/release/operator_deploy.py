@@ -14,6 +14,7 @@ import tarfile
 import time
 
 from local_queue import checked_results, drain_queue, elapsed_ms, fixture_verifier, queue_lock, write_json
+from notification_worker import checked_worker
 from publish_receipt import publish_outcome, release_event, signed_in_service
 from queue_provenance import GIT_COMMIT, ticket_number
 from release_plan import (
@@ -229,6 +230,11 @@ def run_config(config, record, run=subprocess.run, *, checked_main=None, candida
     verify = fixture_verifier(package, pin, python, config["suites"])
     restart = service_restart(config["unit"], run)
     healthy = mounted_verifier(layout, package, pin, python, config["mount"], config.get("avatars", ()), run)
+    if "notification_worker" in config:
+        worker = config["notification_worker"]
+        if not isinstance(worker, dict) or worker.keys() != {"unit", "status"} or worker["unit"] == config["unit"]:
+            raise ValueError("Configure the separate checked notification unit and its private status file.")
+        healthy = checked_worker(healthy, worker["unit"], worker["status"], service_restart(worker["unit"], run), run=run)
     slots = ReleaseSlots(config["slots"], layout.database, run=run) if "slots" in config else None
     if checked_main is not None:
         return receive_checked_main(config, layout, checked_main, candidate, base, source, verify, restart, healthy,

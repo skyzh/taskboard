@@ -9,6 +9,7 @@ from pathlib import Path
 import signal
 import stat
 import subprocess
+import sys
 from threading import Event
 from time import monotonic
 
@@ -160,6 +161,11 @@ def _run_pilot(sender, stop, event_id):
 
 
 def main(argv=None, *, transport=http_json):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "run-service":
+        from taskboard_server.managed_ready_service import command
+
+        return command(argv[1:])
     parser = _Parser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--db", required=True, type=Path, help="Existing writable SQLite board ledger.")
     parser.add_argument("--state", required=True, type=Path, help="Separate private managed sender state.")

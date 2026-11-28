@@ -1,0 +1,16 @@
+[Unit]
+Description=Deliver signed Taskboard Inbox cues
+After=taskboard-slot-restore.service
+
+[Service]
+Type=simple
+UMask=0077
+RuntimeDirectory=taskboard-notifications
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/python3 -B %h/.local/share/taskboard/current/tasks_managed_ready.py run-service --config %h/.config/taskboard/notifications.json --status %t/taskboard-notifications/status.json
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=60s
+
+[Install]
+WantedBy=default.target

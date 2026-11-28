@@ -496,3 +496,47 @@ as the authorized owner of that private directory. They share the existing
 deadline and serialize each REST request while updating it. A preview checks the
 deadline without writing it. This coordination leaves deploy’s exact-main and
 required-check verification in place.
+
+### Run the checked notification service
+
+Use the reviewed `taskboard-notifications.service` under the existing Taskboard
+operator account. Its launch path must point to the same `current` release
+pointer configured for the web operator. Install a systemd drop-in if the local
+layout or authorized Raft availability command path differs. The unit runs one
+process. It opens one existing private sender state file and one signed scope
+per enrollment. Each scope uses the existing Idle gate, retry and pause logic.
+
+Keep `%h/.config/taskboard/notifications.json` private and owned by the operator.
+Set `ledger` to the current SQLite ledger, `server` to the approved Raft server
+UUID, and `slug` to that server’s slug. `scopes` is the exact list of scopes that
+have transferred to this unit. Each entry contains the recipient UUID in
+`recipient`, the project prefix in `project`, the absolute `state` and `secret`
+file paths, the OAuth `client` identifier, and the existing boolean `goals` and
+`batches` flags. The secret file uses the same owner and mode required by the
+individual sender. The configuration contains paths and identifiers only.
+
+For the initial cutover, mount the reviewed release and keep the normal release
+lock held while transferring ownership. Stop the old owner for each selected
+scope and confirm its Pi child is gone. Start the notification unit with only
+those transferred scopes and their original state files. A scope that still has
+an owner reports `state_locked` and sends nothing. Leave the other scopes with
+their existing processes until their transfer. Stop the new unit and verify it
+has exited before restarting a previous launcher against the same state.
+
+The private `%t/taskboard-notifications/status.json` gives the running PID,
+artifact manifest, commit when release metadata is available, enrolled and active
+scope counts, and each scope’s latest outcome and Ready or batch retry state.
+Compare the PID to the unit’s `MainPID` and the manifest to the checked mounted
+release. Verify each transferred scope’s existing subscription and state paths
+and match a naturally delivered cue with the recipient’s signed outcome.
+
+After the initial checked handover passes, add `notification_worker` to the
+existing deploy configuration with `unit` set to the notification unit name and
+`status` set to its absolute private status-file path. The normal checked release
+waits for the candidate web mount before restarting the notification unit. The
+release also requires the worker PID, manifest and scope startup to match. If the
+worker check fails, the slot transaction restores the previous web release and
+verifies that its worker is running. Normal upgrades reuse existing sender state
+throughout. A deliberately stopped scope remains stopped. Keep the rollout
+setting off during the first migration until the prior and next release can both
+start the unit.

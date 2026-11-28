@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 
+from notification_worker import checked_worker
 from operator_deploy import checked_main_receipt, read_main_state, receive_checked_main
 from publish_receipt import publish_outcome, release_event
 from release_plan import (
@@ -132,6 +133,38 @@ class ReleaseSlotsTest(unittest.TestCase):
         return run_release(
             self.layout, self.artifact, self.entry, restart, smoke or self.smoke, self.journal, slots=self.slots,
         )
+
+    def test_checked_worker_restart_runs_after_mount_and_restores_prior_on_failure(self):
+        status = self.layout.current.parent / "notification-status.json"
+        unit = "fixture-notifications.service"
+        restarts = []
+        shared = status.with_name("scope.sqlite")
+        shared.write_text("durable sender cursor", encoding="ascii")
+
+        def write_status(digest, state):
+            write_json(status, {"manifest": digest, "pid": 321, "enrolled": 1,
+                                "scopes": [{"project": "T", "recipient": "fixture", "status": state}]})
+            status.chmod(0o600)
+
+        write_status(self.base, "running")
+
+        def restart():
+            current = self.layout.current.resolve()
+            restarts.append(current)
+            self.assertEqual(self.events[-1][0], "mounted")
+            self.assertEqual(self.events[-1][-1], current)
+            write_status(current.name, "failed" if current == self.candidate else "running")
+
+        def run(command, **kwargs):
+            self.assertEqual(command, ["systemctl", "--user", "show", "--value", "--property=MainPID", unit])
+            return CompletedProcess(command, 0, stdout="321\n")
+
+        result = self.release(smoke=checked_worker(self.smoke, unit, status, restart, run=run, pause=lambda _: None))
+        self.assertEqual(result["status"], "rolled_back")
+        self.assertEqual((self.layout.current.resolve(), self.slots.selected()), (self.previous, PRIOR_PORT))
+        self.assertEqual(restarts, [self.candidate, self.previous])
+        self.assertEqual(shared.read_text(), "durable sender cursor")
+        self.assertEqual(json.loads(status.read_text())["manifest"], self.base)
 
     def test_candidate_is_pinned_and_healthy_before_routing_changes(self):
         result = self.release()
