@@ -101,15 +101,34 @@ and libFLAC 12, and the Raspberry Pi Trixie index provides zenoty.
 [Ubuntu ARM64 indexes](https://ports.ubuntu.com/ubuntu-ports/dists/noble/main/binary-arm64/)
 · [Raspberry Pi ARM64 index](https://archive.raspberrypi.com/debian/dists/trixie/main/binary-arm64/)
 
-Use reviewed pins for the ARM64 container image, Debian and Raspberry Pi
-package sources, Python 3.13.5, Node 24.22.3 with npm 11.19.1, and
-Playwright Core 1.65.1. Stage these exact browser packages from the
+The regular files in all three browser archives matched the installed Pi
+files. The archive hashes are from the official HTTPS download. Historical
+signed APT metadata for this Chromium release remains unverified.
 [Raspberry Pi Chromium archive](https://archive.raspberrypi.com/debian/pool/main/c/chromium/)
-with a separately approved SHA-256 for each file:
 
-- `chromium_151.0.7922.108-1~deb13u1+rpt1_arm64.deb`
-- `chromium-common_151.0.7922.108-1~deb13u1+rpt1_arm64.deb`
-- `chromium-sandbox_151.0.7922.108-1~deb13u1+rpt1_arm64.deb`
+| ARM64 archive | SHA-256 |
+| --- | --- |
+| `chromium_151.0.7922.108-1~deb13u1+rpt1_arm64.deb` | `bbe868b179378fd0f2ba6776420c05fe7dbe377a95eaf2953d3dde27f0f21fe6` |
+| `chromium-common_151.0.7922.108-1~deb13u1+rpt1_arm64.deb` | `43bd277aceb2c24b0982e82f0fa9baccbda9fca374228d15a9c3dbfc4635aece` |
+| `chromium-sandbox_151.0.7922.108-1~deb13u1+rpt1_arm64.deb` | `08ed97c8a0ca391c165e0ae9b1d057b853a629c0087ec504cc23de36ba016b6f` |
+
+Before running the one-off job, review the Debian 13 `linux/arm64` image
+manifest digest and the exact Debian and Raspberry Pi Trixie dependency
+indexes and signing keys. Resolve the three staged archives together in that
+base image. Use the solver output to lock every added or upgraded dependency,
+including the selected zenoty package, by name, architecture, version and
+package SHA-256 from its signed index. Use the same immutable indexes to stage
+those files. Check their digests and repeat the simulation against the staged
+set before installation. A missing immutable index or a different solver
+result blocks the replay.
+
+Review these upstream runtime pins for the one-off job.
+
+| Runtime artifact | Upstream digest or integrity |
+| --- | --- |
+| CPython 3.13.5 `20250612` Linux ARM64 install-only archive | `685971ded0af96d1685941243ae1853c70c482b6f858dd86818760776d9c3cb9` [Python asset](https://github.com/astral-sh/python-build-standalone/releases/tag/20250612) |
+| `node-v24.22.3-linux-arm64.tar.xz` with npm 11.19.1 | `6e51a2ada00f0011cc266f65d98922b403d7ad88f809ca2aa615a5fe1ce6e86c` [Node checksums](https://nodejs.org/dist/v24.22.3/SHASUMS256.txt) |
+| `playwright-core-1.65.1.tgz` | `sha512-hqPpz7blSMPxWVdoeE1yiBSzXsKiVOd2k+kjCvmUywD2GPO2Dd9HfcWnq9NN0GHbNZDFgZ9JfBFr+X5/BLo0qw==` [npm integrity](https://registry.npmjs.org/playwright-core/1.65.1) |
 
 Run the prerequisite check in that container before installing or extracting
 the staged packages. It verifies all three digests before inspecting package
@@ -126,11 +145,24 @@ apt-get --simulate --no-install-recommends install \
   "$chromium_deb" "$chromium_common_deb" "$chromium_sandbox_deb"
 ```
 
-After installing the packages in the disposable container, verify the staged
-Chromium binary against its approved SHA-256 before launching it. Run the
-public qualification producer with the
-staged Playwright module and Chromium executable. Compare both resulting
-manifest digests with the equivalent Pi builds before trialing the hosted
-check-run notice. This replay requires approved digests and a dependency
-solver result from the chosen container. A local package-control read does
-not establish either hosted execution or manifest parity.
+After installation, point the disposable policy at the staged Playwright Core
+`index.mjs` and `/usr/lib/chromium/chromium`. Set the fixture event's `ref` to
+`refs/heads/main`, `after` and `before` to the full reviewed candidate and
+predecessor commits, and `created`, `deleted` and `forced` to `false`. Run from
+the prototype checkout with the separate public checkout pinned to `after`.
+The fixture result is test evidence only.
+
+```sh
+printf '%s  /usr/lib/chromium/chromium\n' \
+  473d2f8c0a4c029e0f96f2c39542737d2217f38a35da87136b0f2d45cbd5e52a | sha256sum -c - &&
+GITHUB_EVENT_NAME=push GITHUB_REF=refs/heads/main GITHUB_REF_PROTECTED=true \
+GITHUB_SHA="$candidate_commit" GITHUB_EVENT_PATH="$fixture_event" \
+python -B tools/release/qualify_public_ci.py --repo "$candidate_checkout" \
+  --state "$RUNNER_TEMP/public-qualification" --policy "$fixture_browser_policy" \
+  --chromium 151.0.7922.108 --python-version 3.13.5 --npm-version 11.19.1
+```
+
+Compare the candidate and predecessor manifest digests with the corresponding
+fresh Pi builds. The hosted Chromium launch and both digest comparisons are
+still pending. A later protected-main run must provide its own check-run
+notice before testing reuse through the Pi reader.
