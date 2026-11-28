@@ -8784,6 +8784,7 @@ class TasksServiceTest(unittest.TestCase):
             action(active, "task", query={"id": lab_ticket}, status=403)
             action(private, "task", query={"id": t_ticket}, status=403)
             action(active, "task", query={"id": "1"}, status=403)
+            action(active, "task", query={"id": "T-3"}, status=404)
             action(active, "advance-task", payload={"id": "T-3", "transition": "start", "note": "Start."}, status=403)
             action(active, "advance-task", payload={"id": lab_ticket, "transition": "start", "note": "Start."}, status=403)
             action(active, "advance-task", payload={"id": t_ticket, "transition": "wait", "note": "Wait."}, status=403)

@@ -5594,7 +5594,12 @@ def create_app(
         if name == "task":
             number = task_number(data.get("id"))
             prompt_enabled = progress_prompt_interval and actor["kind"] == "agent"
-            with tasks_storage.read(db()) if prompt_enabled else nullcontext():
+            external = g.get("external_agent")
+            with tasks_storage.read(db()) if prompt_enabled or external else nullcontext():
+                if external:
+                    owned = ledger.find_task(db(), number)
+                    if owned is None or owned["dri"] != key or ledger.is_knowledge(owned):
+                        raise NotFound()
                 result = detail(number, actor)
                 task = result["task"]
                 if api_usage and task["record_kind"] == "knowledge":
