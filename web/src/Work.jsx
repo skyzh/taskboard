@@ -378,17 +378,24 @@ function TicketIdentity({ task, state, children }) {
 }
 
 function ticketProperties({ task, goal, recurrence, recurring_runs: recurringRuns }, state, editingTags) {
-  const { defer_until: deferUntil, review_after: reviewDate, readiness } = task.context || {}
-  const nextRun = goal?.review_schedule?.next_at ?? (recurrence ? recurrence.next_at : recurringRuns?.next_at)
-  const reviewTime = goal?.review_schedule?.review_time ?? goal?.review_time
+  const { defer_until, review_after, readiness } = task.context || {}
+  const deferUntil = task.reminder?.at ?? defer_until
+  const reviewDate = task.reminder?.date ?? review_after
+  const reviewSchedule = goal?.review_schedule
+  const nextReview = reviewSchedule?.next_at
+  const nextRun = recurrence ? recurrence.next_at : recurringRuns?.next_at
+  const reviewTime = reviewSchedule?.review_time ?? goal?.review_time
   return [
-    deferUntil ? ['Defer until', <Timestamp at={deferUntil} />] :
+    deferUntil ? [goal ? 'Explore after' : 'Defer until', <Timestamp at={deferUntil} />] :
       reviewDate && ['Review date', <time dateTime={reviewDate}>{reviewDate}</time>],
     state === 'parked' && readiness?.source_key && ['Review after',
       <TaskLink id={readiness.source_id} reference={readiness.source_key} />],
     nextRun && ['Next run', <Timestamp at={nextRun} />],
+    nextReview && ['Next Review', <Timestamp at={nextReview} />],
     reviewTime && ['Daily review', <><time dateTime={reviewTime}>{reviewTime}</time> Pacific
-      {goal?.review_schedule?.state === 'paused' && ' · Paused'}</>],
+      {reviewSchedule?.state === 'paused' && ' · Paused'}</>],
+    goal && ['Explore mode', goal.keep_exploring ? 'Keep exploring' : 'One Explore pass per day'],
+    goal?.stopping_criterion && ['Stop condition', goal.stopping_criterion],
     task.eta && state !== 'closed' && ['Estimated completion', <Timestamp at={task.eta} />],
     goal?.deadline && ['Due', <GoalDeadline deadline={goal.deadline} finished={state === 'done' || state === 'closed'} />],
     !editingTags && task.tags?.length && ['Tags', task.tags.join(', ')],
@@ -668,11 +675,6 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               {(task.waiting_on || task.blockers) && <p><Dependency task={task} /></p>}
               {task.peer_request && <PeerRequestContext task={task} />}
               <Markdown text={task.note} relatedTasks={record.related_tasks} />
-              {record.goal && record.goal.kind !== 'standing' && <p className="section-message">
-                {record.goal.keep_exploring
-                  ? <>Keep exploring · Stop when {record.goal.stopping_criterion}</>
-                  : 'One Explore pass per day'}
-              </p>}
               {record.goal?.parked_note && <>
                 <h3>Owner’s note</h3>
                 <Markdown text={record.goal.parked_note} relatedTasks={record.related_tasks} />
