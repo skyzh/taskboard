@@ -266,15 +266,19 @@ class ManagedReadySender:
         instant = now.isoformat(timespec="seconds").replace("+00:00", "Z")
         owner = saved["owner"]
         board = BoardQueries(self.db, saved["board"], principal=owner)
-        pickup = next(board.actionable_work(owner, project=None, today=today, wake_at=instant, delivery=True), None)
-        if not pickup or pickup["kind"] != "ready":
-            return None
-        event = pickup["source_event"]
-        ready = ledger.find_task(self.db, pickup["id"])
-        if (event <= saved["through_event"] or ready is None or ready["event_id"] != event
-                or projects.row_project(ready) != self.scope.project):
-            return None
-        return ready if self._receipt_allows_attempt(event, owner) else None
+        for pickup in board.actionable_work(owner, project=None, today=today, wake_at=instant,
+                                            delivery=True, all_owned_ready=True):
+            if pickup["kind"] != "ready":
+                break
+            event = pickup["source_event"]
+            ready = ledger.find_task(self.db, pickup["id"])
+            if ready is None or ready["event_id"] != event or projects.row_project(ready) != self.scope.project:
+                break
+            # An older Ready item still belongs in signed Inbox.
+            if event <= saved["through_event"]:
+                continue
+            return ready if self._receipt_allows_attempt(event, owner) else None
+        return None
 
     def _receipt_allows_attempt(self, event, owner):
         receipt = self.db.execute(
