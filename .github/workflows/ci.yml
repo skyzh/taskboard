@@ -81,6 +81,7 @@ jobs:
           test -f tools/release/test_direct_main.py
           uv run --no-sync python -B -m unittest discover -s tools/release -p test_direct_main.py
           uv run --no-sync python -B -W error::ResourceWarning -m unittest discover -s tools/release -p test_release_slots.py
+          uv run --no-sync python -B -W error::ResourceWarning -m unittest discover -s tools/release -p test_publish_release_wait.py
 
       - name: Run the OpenID Connect fixture tests
         run: |
