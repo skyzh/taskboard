@@ -1075,6 +1075,8 @@ button:disabled { opacity: .57; }
 .event-row + .event-row { border-top: 1px solid var(--line); }
 .event-row:target { padding-inline: .45rem; }
 .event-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .7rem; }
+.request-kind { display: inline-flex; align-items: center; gap: .3rem; }
+.request-kind svg { flex: none; }
 .activity-source-meta {
   display: flex;
   flex-wrap: wrap;

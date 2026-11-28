@@ -5,6 +5,8 @@ import { EvidenceLinks, LoadMore, ResourceStatus, TaskLink, Timestamp, eventHref
 import { Markdown } from './Markdown.jsx'
 import ReminderDate from './ReminderDate.jsx'
 import { WaitAge } from './WaitAge.jsx'
+import { ReportTime } from './ReportTime.jsx'
+import RequestKind from './RequestKind.jsx'
 import { BoardOutageContext } from './BoardOutage.jsx'
 import { isBackendError } from './boardAvailability.js'
 import { projectFilters } from './projectScope.js'
@@ -29,7 +31,7 @@ export function AttentionReceipt({ receipt }) {
 
 export function AttentionImpact({ item }) {
   const task = item.unblocks
-  if (!task) return <p className="event-meta">For your information</p>
+  if (!task) return null
   if (item.handled_at && !task.ready_event_id) return null
   const link = <TaskLink reference={task.key} id={task.id} title={task.title} />
   return (
@@ -122,34 +124,38 @@ export default function AttentionRequests({ revision, onChanged, onRequestLoaded
         ? <p className="visually-hidden" role="status">Request handled.</p>
         : <AttentionReceipt receipt={notice.receipt} />)}
       {items.length > 0 && <ol className="event-list" role="list">
-        {items.map(item => (
-          <li className="event-row attention-row" key={item.id}>
-            <div>
-              {!onTicket && <p className="event-ticket"><TaskLink reference={item.task_key} id={item.task_id} title={item.task_title}
-                publicHref={attentionTicketHref(item.task_id, item.task_key, item.id)} /></p>}
-              <p className="event-meta">
-                <span>{item.rollout_check ? 'Rollout check' : profileName(item.sender, item.sender_profile)}</span>
-                {requestId ? <span>Received <Timestamp at={item.raised_at} /></span>
-                  : item.handled_at ? <Timestamp at={item.raised_at} /> : <WaitAge since={item.raised_at} label="Unanswered" />}
-              </p>
-              <Markdown text={item.reason} />
-              <AttentionImpact item={item} />
-              {item.remind_on && <p className="event-meta">Reminder <time dateTime={item.remind_on}>{item.remind_on}</time>{askState && ' (Pacific time)'}</p>}
-              <EvidenceLinks links={item.links} />
-            </div>
-            {item.handled_at
-              ? <span className="event-meta">Handled <Timestamp at={item.handled_at} /></span>
-              : !item.rollout_check && (
-                <div>
-                  {notice?.id === item.id && <p role="alert" className="section-message">{notice.error}</p>}
-                  <button type="button" aria-busy={pending === item.id || undefined}
-                    disabled={pending !== null} onClick={() => handle(item.id)}>Mark handled</button>
-                  <ReminderDate key={item.remind_on || ''} path={`/notifications/requests/${item.id}/reminder`}
-                    saved={item.remind_on} deferAsk={Boolean(askState)} onChanged={requestsChanged} />
-                </div>
-              )}
-          </li>
-        ))}
+        {items.map(item => {
+          const kind = item.intent || (item.unblocks || item.rollout_check ? 'ask' : 'fyi')
+          return (
+            <li className="event-row attention-row" key={item.id}>
+              <div>
+                {!onTicket && <p className="event-ticket"><TaskLink reference={item.task_key} id={item.task_id} title={item.task_title}
+                  publicHref={attentionTicketHref(item.task_id, item.task_key, item.id)} /></p>}
+                <p className="event-meta">
+                  <RequestKind kind={kind} />
+                  {item.handled_at ? <Timestamp at={item.raised_at} /> : kind === 'fyi' || requestId
+                    ? <ReportTime at={item.raised_at} linked /> : <WaitAge since={item.raised_at} label="Unanswered" />}
+                  <span>{item.rollout_check ? 'Rollout check' : profileName(item.sender, item.sender_profile)}</span>
+                </p>
+                <Markdown text={item.reason} />
+                <AttentionImpact item={item} />
+                {item.remind_on && <p className="event-meta">Reminder <time dateTime={item.remind_on}>{item.remind_on}</time>{askState && ' (Pacific time)'}</p>}
+                <EvidenceLinks links={item.links} />
+              </div>
+              {item.handled_at
+                ? <span className="event-meta">Handled <Timestamp at={item.handled_at} /></span>
+                : !item.rollout_check && (
+                  <div>
+                    {notice?.id === item.id && <p role="alert" className="section-message">{notice.error}</p>}
+                    <button type="button" aria-busy={pending === item.id || undefined}
+                      disabled={pending !== null} onClick={() => handle(item.id)}>Mark handled</button>
+                    <ReminderDate key={item.remind_on || ''} path={`/notifications/requests/${item.id}/reminder`}
+                      saved={item.remind_on} deferAsk={Boolean(askState)} onChanged={requestsChanged} />
+                  </div>
+                )}
+            </li>
+          )
+        })}
       </ol>}
       {!hideTicketRows && (
         <LoadMore page={page} label={onTicket ? `attention requests for ${taskLabel(taskId)}` : `${state} attention requests`} />

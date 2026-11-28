@@ -13,6 +13,7 @@ import { projectHref } from './projectScope.js'
 import { TaskRows } from './WorkRow.jsx'
 import { groupOutcomes } from './Overview.jsx'
 import { ReportTime } from './ReportTime.jsx'
+import RequestKind from './RequestKind.jsx'
 import ReportPresence from './ReportPresence.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
 import { goalActivityFragment } from './GoalActivity.jsx'
@@ -373,8 +374,6 @@ function ProjectLinks({ project, revision }) {
   )
 }
 
-const attentionLabels = { decision: 'Decision', request: 'Request', review: 'Review' }
-
 function needsYouHref(item, project) {
   const [kind, id] = /^(decision|request):([1-9]\d*)$/.exec(item.id)?.slice(1) ?? []
   if (!id || kind !== item.kind) return taskHref(item.ticket)
@@ -424,8 +423,9 @@ export function NeedsYou({ project, revision, showAllAsks = false }) {
                     <span className="ticket-id">{item.ticket}</span> <MarkdownInline text={item.title} links={false} />
                   </span>
                   <span className="needs-you-action">
-                    <span>{attentionLabels[item.kind]}{requester && <> from {requester}</>}</span>
-                    {item.asked_at && <span className="needs-you-age">Asked <ReportTime at={item.asked_at} linked /></span>}
+                    <RequestKind kind={item.intent || item.kind} />
+                    {item.asked_at && <span className="needs-you-age"><ReportTime at={item.asked_at} linked /></span>}
+                    {requester && <span>from {requester}</span>}
                   </span>
                 </BoardLink>
               </li>

@@ -283,7 +283,7 @@ function ActivityChanges({ event }) {
   return null
 }
 
-export function EventRow({ event, permalink = false, showTask = permalink, ticketActivity = false, progression = false, children }) {
+export function EventRow({ event, permalink = false, showTask = permalink, ticketActivity = false, progression = false, timeLabel, children }) {
   const { formatTimestamp } = useTimeZone()
   const id = permalink ? eventHref(event.id).slice(1) : undefined
   const actor = profileName(event.actor, event.actor_profile)
@@ -335,6 +335,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
         {activityType && <span>{activityType}</span>}
         <span>{actor}</span>
         <ActivityWait event={event} headline={result} />
+        {timeLabel}
         {timeLink}
       </p>
       {showTask && <p className="event-ticket"><TaskLink reference={event.task_key} id={event.task_id} title={event.task_title} /></p>}

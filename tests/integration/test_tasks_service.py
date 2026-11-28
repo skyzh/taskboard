@@ -1546,6 +1546,8 @@ class TasksServiceTest(unittest.TestCase):
             "id": worker_source, "transition": "create", "force_delivery": True, "recipient": blake_key, "note": "Provide the sample.",
         })
         self.assertEqual(view(sam, project="T"), [("decision", decision, "Avery"), ("request", request, "Avery")])
+        signed_rows = self.call(sam, path, query_string={"project": "T"}).json["items"]
+        self.assertEqual([item.get("intent") for item in signed_rows], [None, "fyi"])
         self.assertEqual(view(sam, project="COURSE"), [("request", course, "Avery")])
         self.assertCountEqual(view(sam, scope="all"), [
             ("decision", decision, "Avery"), ("request", course, "Avery"), ("request", request, "Avery"),
@@ -8198,7 +8200,9 @@ class TasksServiceTest(unittest.TestCase):
         one = self.action(avery, "raise-attention", item)
         self.action(blake, "raise-attention", item, status=403)
         self.action(sam, "raise-attention", item, status=403)
-        two = self.action(avery, "raise-attention", {**item, "reason": "Review the sample totals."})
+        two = self.action(avery, "raise-attention", {
+            **item, "reason": "Review the sample totals.", "unblocks": "T-2",
+        })
         other = self.action(blake, "raise-attention", {
             "id": "T-2", "recipient": quinn_id, "reason": "Review the JSON fixture.",
         })
@@ -8211,8 +8215,10 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIn("no-store", page.headers["Cache-Control"])
         self.assertEqual(page.json["items"][0]["id"], two["id"])
         self.assertEqual(page.json["items"][0]["sender"], avery_id)
+        self.assertEqual(page.json["items"][0]["intent"], "ask")
         older = self.call(sam, requests + f"?before={page.json['next_cursor']}&limit=1").json["items"][0]
         self.assertEqual((older["id"], older["links"][0]["url"]), (one["id"], item["url"]))
+        self.assertEqual(older["intent"], "fyi")
         self.assertEqual(self.call(sam, requests + "?task_id=2").get_json()["items"], [])
         self.assertEqual([row["id"] for row in self.call(quinn, requests).get_json()["items"]], [other["id"]])
         self.assertEqual(self.call(avery, requests).get_json()["items"], [])

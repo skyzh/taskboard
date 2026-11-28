@@ -3467,6 +3467,7 @@ class BoardQueries:
                 "id": f"request:{item['id']}", "kind": "request",
                 "ticket": item["task_key"], "title": item["task_title"], "asked_at": item["raised_at"],
                 "requester": item["sender"], "requester_profile": item["sender_profile"],
+                "intent": item["intent"],
             }
             for item in requests["items"]
         )
@@ -3489,19 +3490,23 @@ class BoardQueries:
 
     def attention_rows(self, rows):
         senders = profiles.visible_by_keys(self.db, [row["sender"] for row in rows], self.base)
-        return [{
-            **{key: row[key] for key in (
-                "id", "task_id", "task_key", "task_title", "sender", "reason", "raised_at", "handled_at", "remind_on",
-            )},
-            "sender_profile": senders.get(row["sender"]),
-            **({"rollout_check": True} if row["sender"] == "Taskboard"
-               and (row["request_key"] or "").startswith("rollout-") else {}),
-            "links": self.links(json.loads(row["links"])),
-            "unblocks": {
-                "id": row["blocked_id"], "key": row["blocked_key"], "title": row["blocked_title"],
-                "ready_event_id": row["ready_event_id"],
-            } if row["blocked_id"] is not None else None,
-        } for row in rows]
+        items = []
+        for row in rows:
+            rollout_check = row["sender"] == "Taskboard" and (row["request_key"] or "").startswith("rollout-")
+            items.append({
+                **{key: row[key] for key in (
+                    "id", "task_id", "task_key", "task_title", "sender", "reason", "raised_at", "handled_at", "remind_on",
+                )},
+                "sender_profile": senders.get(row["sender"]),
+                "intent": "ask" if row["blocked_id"] is not None or rollout_check else "fyi",
+                **({"rollout_check": True} if rollout_check else {}),
+                "links": self.links(json.loads(row["links"])),
+                "unblocks": {
+                    "id": row["blocked_id"], "key": row["blocked_key"], "title": row["blocked_title"],
+                    "ready_event_id": row["ready_event_id"],
+                } if row["blocked_id"] is not None else None,
+            })
+        return items
 
     def attention(self, recipient, *, state, today, before, limit, task_id=None, project=None,
                   request_id=None):
