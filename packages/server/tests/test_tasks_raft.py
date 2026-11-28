@@ -134,6 +134,10 @@ class RaftActionRoutesTest(unittest.TestCase):
             "change-ownership": ("POST", "id action reason", "owner url label force force_reason force_text"),
             "close-task": ("POST", "id reason", "related url label force force_reason force_text"),
             "set-ticket-field": ("POST", "id field method basis", "value currency coverage url label"),
+            "set-rollout-status": (
+                "POST", "id status owner current_audience intended_audience expansion_criteria rollback_criteria",
+                "next_check_at blocker outcome expected_event url label force_text",
+            ),
             "edit-task-details": ("POST", "id reason", "title brief url label force_text"),
             "move-task": ("POST", "id project", ""),
             "edit-checklist": ("POST", "id action", "position label"),

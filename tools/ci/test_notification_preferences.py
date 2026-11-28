@@ -715,6 +715,36 @@ class StorageReplayTest(unittest.TestCase):
         final, = self.board.call(agent, ticket_path).json["ticket_fields"]["fields"]
         self.assertEqual(final["value"], "1400")
 
+    def test_rollout_check_and_owner_survive_sqlite_import(self):
+        source = self.board.app(portal_reader=True)
+        agent, owner = self.board.login(source, "Avery")
+        self.board.cli("register-project", "T", "Tasks Board", "--dri", owner)
+        self.board.action(agent, "create-task", {"title": "Fixture release", "step": "Verify coverage."})
+        self.board.action(agent, "advance-task", {"id": "T-1", "transition": "start", "note": "Begin rollout."})
+        rollout = {
+            "id": "T-1", "status": "active", "owner": owner, "current_audience": "Pilot",
+            "intended_audience": "Entire team", "expansion_criteria": "Verify coverage.",
+            "rollback_criteria": "Restore on failed checks.", "next_check_at": "2030-04-01T20:00:00Z",
+        }
+        with patch("tasks_core.timestamp", return_value="2030-04-01T19:00:00Z"):
+            self.board.action(agent, "set-rollout-status", rollout)
+        self.board.cli("recurring-tick", "--deferrals-only", "--as-of", rollout["next_check_at"])
+        ticket = "/api/v1/tasks/T-1"
+        saved = self.board.call(agent, ticket).json["rollout"]["current"]
+        dsn = self.postgres_fixture()
+        self.assertEqual(import_snapshot(self.board.database, dsn)["ticket_rollouts"], 1)
+        agent, _ = self.board.login(self.postgres_app(dsn), "Avery")
+        self.assertEqual(self.board.call(agent, ticket).json["rollout"]["current"], saved)
+        self.assertEqual(self.board.action(agent, "my-next")["work"]["kind"], "request")
+        with patch("tasks_core.timestamp", return_value="2030-04-01T21:00:00Z"):
+            self.board.action(agent, "set-rollout-status", {**rollout, "next_check_at": "2030-04-01T22:00:00Z"})
+            early = self.board.action(agent, "recurring-tick", {"project": "T"})
+            self.assertNotIn("rollout_checks", early)
+        with patch("tasks_core.timestamp", return_value="2030-04-01T22:00:00Z"):
+            self.assertEqual(self.board.action(agent, "recurring-tick", {"project": "T"})["rollout_checks"], ["T-1"])
+            self.assertNotIn("rollout_checks", self.board.action(agent, "recurring-tick", {"project": "T"}))
+        self.assertEqual(self.board.action(agent, "my-next")["work"]["kind"], "request")
+
     def test_postgres_reopens_a_populated_version_one_board(self):
         dsn = self.postgres_fixture()
         client, owner = self.board.login(self.postgres_app(dsn), "Avery")
