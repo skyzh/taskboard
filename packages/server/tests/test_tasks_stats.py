@@ -120,7 +120,9 @@ class StatsTest(unittest.TestCase):
         self.db.executemany("UPDATE peer_asks SET result_event_id = ? WHERE task_id = ?",
                             ((adopted_result, 2), (result, 3), (result, 5)))
 
-        peer = tasks_stats.snapshot(self.db, "hour", NOW)["peer_requests"]
+        stats = tasks_stats.snapshot(self.db, "hour", NOW)
+        self.assertEqual(stats["ticket_flow"]["new"], 4)
+        peer = stats["peer_requests"]
         self.assertEqual({key: value for key, value in peer.items() if key != "timings"}, {
             "opened": 4, "pending": 1, "awaiting_ack": 1, "acknowledged": 1, "canceled": 1, "closed": 0,
             "already_started": 1,

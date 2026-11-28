@@ -219,12 +219,17 @@ class Timing:
         }
 
 
+# Find the first add for each ticket in one pass. A correlated lookup can use
+# the action index and rescan the board's adds for every matching ticket.
+FIRST_ADDS = "SELECT task_id, MIN(id) AS id FROM events WHERE action = 'add' GROUP BY task_id"
+
+
 def ticket_flow(db, scope, context, bounds, first, width, count):
     selection, params = scope
     closed = closure_sql(context)
     rows = db.execute(
         f"""
-        WITH selected AS ({selection}), completions AS (
+        WITH selected AS ({selection}), first_adds AS ({FIRST_ADDS}), completions AS (
             SELECT task_id, MAX(events.id) AS last_done
             FROM events JOIN selected ON selected.id = events.task_id
             WHERE action = 'done' AND at >= ? AND at < ? GROUP BY task_id
@@ -235,10 +240,7 @@ def ticket_flow(db, scope, context, bounds, first, width, count):
         FROM events JOIN selected ON selected.id = events.task_id
         LEFT JOIN completions ON completions.task_id = events.task_id
         WHERE (at >= ? AND at < ? AND (action = 'done' OR {closed} OR
-               (action = 'add' AND events.id = (
-                   SELECT MIN(added.id) FROM events AS added
-                   WHERE added.task_id = events.task_id AND added.action = 'add'
-               ))))
+               (action = 'add' AND events.id IN (SELECT id FROM first_adds))))
            OR (events.id <= completions.last_done AND (action IN ('start', 'done') OR {closed}
                OR (action = 'transfer' AND json_extract({context}, '$.ownership_action') = 'reopen')))
         ORDER BY selected.id, events.id
@@ -272,15 +274,14 @@ def peer_timings(db, scope, context, bounds, first, end):
         selection, params = scope
         rows = db.execute(
             f"""
-            WITH selected AS ({selection}), cohort AS (
+            WITH selected AS ({selection}), first_adds AS ({FIRST_ADDS}), cohort AS (
                 SELECT selected.id, selected.project_prefix, selected.project_number,
                        peer_asks.requester, peer_asks.result_event_id, worker_runs.started_at AS linked_start,
                        opened.id AS added_id
                 FROM peer_asks JOIN selected ON selected.id = peer_asks.task_id
                 LEFT JOIN worker_runs ON worker_runs.id = peer_asks.review_run_id
-                JOIN events AS opened ON opened.id = (
-                    SELECT MIN(id) FROM events WHERE task_id = peer_asks.task_id AND action = 'add'
-                )
+                JOIN first_adds ON first_adds.task_id = peer_asks.task_id
+                JOIN events AS opened ON opened.id = first_adds.id
                 WHERE opened.at >= ? AND opened.at < ?
             )
             SELECT cohort.*, events.id AS event_id, at,
