@@ -972,6 +972,10 @@ Choose future UTC times for a new definition or resume. Offline, add
 `--dri NAME` when defining work and `--by NAME` when viewing or changing it.
 Use `--project PREFIX` to bind a new offline definition to a project.
 
+In MCP, use `taskboard_recurring_schedule` to inspect the R-number,
+`taskboard_set_recurring_schedule_state` to pause, adopt, resume, or cancel
+it, and `taskboard_complete_recurring_review` to record its outcome.
+
 A project manager can run `./tasks --shared recurring-tick --project T`
 or call the signed POST `recurring-tick` action with `{"project":"T"}`.
 It uses server time and issues work for active definitions bound to that
