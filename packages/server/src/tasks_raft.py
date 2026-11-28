@@ -141,7 +141,7 @@ _ACTIONS = {
         **_TASK, "keep_exploring": "Send true to enable or false to return to one pass per day.",
     }, {"stopping_criterion": "Written condition for stopping exploration."}),
     "report-runtime-observation": _Action("POST", "Report an opted-in agent’s own runtime observation.", {
-        "project": "Explicit pilot project prefix.",
+        "project": "Explicit enrolled project prefix.",
         "state": "Working, idle, unavailable or unknown, lowercase.",
         "observed_at": "Actual UTC observation time, in whole seconds. One observation per minute.",
         "run_id": "Stable collector-run UUID used only for continuity.",

@@ -222,6 +222,96 @@ class TasksServiceTest(unittest.TestCase):
         self.call(disabled_owner, endpoint, query_string=bounds, status=404)
         self.action(disabled_owner, report, sample, status=403)
 
+    def test_runtime_enrollments_isolate_projects_and_hide_removed_subject_samples(self):
+        from tasks_runtime_observations import configuration
+
+        avery_subject = self.provider.people["Avery"]["sub"]
+        blake_subject = self.provider.people["Blake"]["sub"]
+        sam_subject = self.provider.people["Sam"]["sub"]
+        roster = {avery_subject: "Avery", blake_subject: "Blake"}
+        legacy = {"TASKS_RUNTIME_PILOT_PROJECT": "T", "TASKS_RUNTIME_PILOT_AGENT_SUBJECT": avery_subject}
+        rows = [
+            {"project": "T", "agent_subject": avery_subject},
+            {"project": "T", "agent_subject": blake_subject},
+            {"project": "T", "agent_subject": sam_subject},
+            {"project": "COURSE", "agent_subject": blake_subject},
+            {"project": "LAB", "agent_subject": avery_subject},
+        ]
+
+        def configured(rows):
+            return configuration({**legacy, "TASKS_RUNTIME_ENROLLMENTS": json.dumps(rows)})
+
+        plan = configured(rows)
+        self.assertEqual(plan["T"], {avery_subject, blake_subject, sam_subject})
+        app = self.app(runtime_enrollments=plan, project_roster=roster)
+        avery, avery_id = self.login(app, "Avery")
+        blake, blake_id = self.login(app, "Blake")
+        human, _ = self.login(app, "Sam")
+        self.cli("register-project", "COURSE", "Disposable course", "--dri", blake_id)
+        self.cli("register-project", "LAB", "Disposable lab", "--dri", blake_id)
+        self.cli("register-project", "OPS", "Disposable operations", "--dri", blake_id)
+
+        first, second, third, end = [f"2026-11-27T18:0{minute}:00Z" for minute in range(4)]
+        report, endpoint = "report-runtime-observation", "/api/v1/stats/runtime"
+        sample = {"observed_at": first, "state": "working", "run_id": str(UUID(int=50))}
+        bounds = {"from": first, "to": end}
+
+        def intervals(person, project):
+            result = self.call(person, endpoint, query_string={"project": project, **bounds}).get_json()
+            return result["observed_through"], {agent["id"]: agent["intervals"] for agent in result["agents"]}
+
+        def span(left, right, state):
+            return {"start_at": left, "end_at": right, "state": state}
+
+        with patch("tasks_core.timestamp", return_value=third):
+            self.action(avery, report, {**sample, "project": "COURSE"}, status=403)
+            self.action(avery, report, {**sample, "project": "LAB"}, status=403)
+            self.action(blake, report, {**sample, "project": "OPS"}, status=403)
+            self.action(human, report, {**sample, "project": "T"}, status=403)
+            for person, state in ((avery, "working"), (blake, "idle")):
+                for observed in (first, second):
+                    self.action(person, report, {**sample, "project": "T", "state": state, "observed_at": observed})
+            for observed in (second, third):
+                self.action(blake, report, {**sample, "project": "COURSE", "state": "unavailable",
+                                            "observed_at": observed})
+
+            self.assertEqual(intervals(human, "T"), (second, {
+                avery_id: [span(first, second, "working"), span(second, end, "unknown")],
+                blake_id: [span(first, second, "idle"), span(second, end, "unknown")],
+            }))
+            self.assertEqual(intervals(human, "COURSE"), (third, {blake_id: [
+                span(first, second, "unknown"), span(second, third, "unavailable"), span(third, end, "unknown"),
+            ]}))
+            self.assertEqual(intervals(human, "LAB"), (None, {blake_id: [span(first, end, "unknown")]}))
+            self.call(human, endpoint, query_string={"project": "OPS", **bounds}, status=404)
+            self.assertEqual(self.call(human, "/api/v1/stats", query_string={"project": "COURSE"}).get_json()
+                             ["runtime_timeline"]["project"], "COURSE")
+            self.assertNotIn("runtime_timeline", self.call(human, "/api/v1/stats").get_json())
+            self.assertNotIn("runtime_timeline", self.call(human, "/api/v1/stats",
+                                                          query_string={"project": "OPS"}).get_json())
+
+        self.provider = FixtureRaft()
+        reduced = self.app(runtime_enrollments=configured([rows[3]]), project_roster=roster)
+        blake, _ = self.login(reduced, "Blake")
+        with patch("tasks_core.timestamp", return_value=third):
+            self.action(blake, report, {**sample, "project": "T"}, status=403)
+            self.assertEqual(intervals(blake, "T"), (second, {
+                avery_id: [span(first, second, "working"), span(second, end, "unknown")],
+                blake_id: [span(first, end, "unknown")],
+            }))
+            self.assertEqual(intervals(blake, "COURSE")[0], third)
+
+    def test_runtime_enrollment_configuration_requires_exact_pairs(self):
+        from tasks_runtime_observations import configuration
+
+        self.assertEqual(configuration({}), {})
+        key = "TASKS_RUNTIME_ENROLLMENTS"
+        for raw in ("T", "{}", '[{"project":"T"}]', '[{"project":"T","agent_subject":"Avery"}]'):
+            with self.subTest(raw=raw), self.assertRaisesRegex(ValueError, key):
+                configuration({key: raw})
+        with self.assertRaisesRegex(ValueError, "both a runtime pilot project"):
+            configuration({"TASKS_RUNTIME_PILOT_PROJECT": "T", key: "[]"})
+
     def test_runtime_pilot_rejects_postgres_before_opening_the_ledger(self):
         with patch("tasks_storage.Postgres") as connect:
             with self.assertRaisesRegex(ValueError, "runtime pilot requires.*SQLite"):
