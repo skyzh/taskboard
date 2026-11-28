@@ -291,6 +291,46 @@ h2 { font-size: clamp(2.1rem, 5vw, 3.75rem); line-height: 1.05; letter-spacing: 
 .feature .example-row p { margin: 0.2rem 0 0 1.45rem; font-size: 0.93rem; line-height: 1.45; }
 .feature .example-row .example-title { color: #f8f7ff; font-size: 1rem; font-weight: 675; }
 
+.squad {
+  padding: clamp(3rem, 6vw, 6rem) clamp(1.25rem, 5vw, 4rem);
+  background: var(--light-surface);
+}
+
+.squad-content { max-width: 67rem; margin-inline: auto; }
+.squad-attribution {
+  margin-top: 0.85rem;
+  color: var(--light-muted);
+  font-size: clamp(1.1rem, 2vw, 1.35rem);
+  line-height: 1.45;
+}
+
+.squad-roster {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.squad-attribution + .squad-roster { margin-top: 1.6rem; }
+.squad-roster li {
+  display: grid;
+  align-content: start;
+  gap: 0.28rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #dfddf0;
+  border-radius: 0.7rem;
+  background: white;
+  line-height: 1.45;
+}
+
+.squad-roster span { color: var(--light-muted); }
+.squad h3 { margin-top: 1.8rem; font-size: 1.1rem; }
+.squad-link { display: inline-block; margin-top: 1.5rem; }
+.squad a { color: var(--accent); font-weight: 680; }
+.squad a:hover { color: var(--accent-hover); }
+
 @media (max-width: 42rem) {
   .hero { min-height: auto; }
   .task-card { opacity: 0.55; --width: 6rem; }
