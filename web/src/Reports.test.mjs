@@ -179,7 +179,7 @@ test('All projects links to scoped unfinished queues and one cross-project curre
   assert.match(watched, /unfinished=true&amp;watching=true/)
 })
 
-test('Summary ranks three goals and groups both overflow links before the next section', () => {
+test('Summary ranks three goals and places both overflow links after Goals and Recent outcomes', () => {
   const milestone = (summary, deadline) => ({ kind: 'milestone', summary, deadline })
   const goals = [
     milestone('Later goal', '2099-09-01'), milestone('First deadline tie', '2099-01-01'),
@@ -191,14 +191,18 @@ test('Summary ranks three goals and groups both overflow links before the next s
     projectNames: new Map([['T', 'Taskboard']]), ...options,
   }))
   const html = render({ goals }, { reportFilters: { view: 'watching' } })
-  assert.match(html, /class="owner-links">.*?\+4 more tasks<\/a>.*?scope=all&amp;agent=Avery&amp;from=watching"[^>]*>\+2 more goals<\/a>.*?Taskboard<\/a>.*?<\/div><div class="report-owner-section report-goals-panel">/s)
+  assert.match(html, /report-goals-panel.*?class="owner-links">.*?\+4 more tasks<\/a>.*?scope=all&amp;agent=Avery&amp;from=watching"[^>]*>\+2 more goals<\/a>.*?Taskboard<\/a>/s)
   assert.match(html, /Standing goal example.*First deadline tie.*Second deadline tie/s)
   assert.match(html, /Standing goal example<\/a><span>Standing goal<\/span>/)
   assert.doesNotMatch(html, /Later goal|Farthest goal/)
   assert.doesNotMatch(render({ goals: goals.slice(0, 3), task_count: 0 }), /more (goals?|tasks?)/)
 
   const outcome = { id: 10, action: 'done', task_id: 11, task_key: 'T-11', task_title: 'Result', at: '2026-11-25T23:00:00Z' }
-  assert.match(render({ recent_outcomes: [outcome] }), /class="owner-links">.*?<\/div><div class="report-owner-section"><h3>Recent outcomes/s)
+  const pending = { run_id: 3, task_id: 11, task_title: 'Result', reported_at: outcome.at, worker: 'Blake', result: 'blocked' }
+  assert.match(render({ goals, recent_outcomes: [outcome], pending_reports: [pending] }),
+    /report-goals-panel.*?<h3>Recent outcomes<\/h3>.*?class="owner-links".*?class="pending-reports"/s)
+  assert.match(render({ recent_outcomes: [outcome] }), /<h3>Recent outcomes<\/h3>.*?class="owner-links"/s)
+  assert.match(render({ pending_reports: [pending] }), /class="owner-links".*?class="pending-reports"/s)
   assert.match(render({}), /class="owner-links">.*?<\/div><\/li>$/s)
   assert.match(render({ goals }, { projectNames: undefined, project: 'T' }), /project=T&amp;agent=Avery&amp;from=active/)
 })
