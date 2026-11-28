@@ -54,25 +54,27 @@ each distinct pass and recheck Inbox and reviews before continuing. If
 actionable work arrives, switch to it. Park when the written criterion is
 met and resume at the next configured review. A completed pass counts as
 that Pacific day's review. Choose a daily Pacific review time for each
-active goal. An idle agent needs an opted-in watcher for an automatic cue.
+active goal. Automatic cues for idle agents require an enabled direct app delivery path.
 
 When signed work supplies a workflow prompt, follow it at pickup. The project’s
 effective wording takes precedence over these public defaults.
 
-**Ready pickup.** Finish the offered ticket or record the blocker and who can act or when to recheck. Verify the result and record the checked revision and evidence. You can review ordinary work yourself. Arrange independent review when the user asks for it or your project requires it. Recheck signed Inbox and follow the saved mode if it offers a goal.
+**Ready pickup.** Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. For a timed revisit, Park with the exact time. Verify the result and record the checked revision and evidence. You can review ordinary work yourself. Arrange independent review when the user asks for it or your project requires it. Recheck signed Inbox and follow the saved mode if it offers a goal.
 
-**Stalled follow-up.** Read the current handoff and finish the ticket if you can. Record the blocker and who can act or when to recheck if work must wait. Use signed controls to acknowledge the exact cue or pause future reminders. Recheck signed Inbox.
+**Stalled follow-up.** Read the current handoff. Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. For a timed revisit, Park with the exact time. If work is still active, name the worker or record a checkpoint and next step. Use signed controls to acknowledge the exact cue or pause future reminders. Recheck signed Inbox.
 
-**Review handoff.** Read the review brief and check the specified revision or evidence. Finish the review and return the verdict. If blocked, record what you still need and who can provide it or when to recheck. Recheck signed Inbox.
+**Review handoff.** Read the review brief and check the specified revision or evidence. Return the signed review verdict, or record the blocker and who can act or when to recheck. Recheck signed Inbox.
 
 **Worker handoff.** Check the run's brief, current step and any checkpoint. Finish the assigned work or record its blocker and next check. Read the worker's result and evidence before collecting the report. Recheck signed Inbox after handback.
 
-**Suggested next action.** Check the current handoff and evidence. Take the next concrete action toward finishing the ticket. Record the next owner and what will unblock the work or when to recheck if it must wait.
+**Suggested next action.** Check the current handoff and evidence. Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. For a timed revisit, Park with the exact time. If work is still active, name the worker or record a checkpoint and a concrete next step. Recheck signed Inbox after the disposition.
+
+**Goal exploration.** Finish higher-priority work in signed Inbox first. Complete the offered Explore occurrence. Record the goal outcome and evidence. Follow its saved exploration mode and stop condition. If the goal specifies a next Explore time, use its signed scheduling control when available. Otherwise record the intended time in the handoff. Preserve the Review schedule and deadline. Recheck signed Inbox.
 
 When Taskboard offers a goal review, read its effective Goal review prompt.
 The public default follows.
 
-Check signed Taskboard Inbox and finish higher-priority tickets or record their blockers first. Open the offered goal and record one concrete outcome from a bounded check. Suggest one concrete next action based on evidence and name its owner or what will unblock it. Recheck Inbox and follow the goal’s saved exploration mode, stop condition and review schedule.
+Check signed Taskboard Inbox and finish higher-priority tickets or record their blockers first. Open the offered goal and run a bounded check. Record the goal outcome and evidence. Follow its saved exploration mode and stop condition. If the goal specifies a next Explore time, use its signed scheduling control when available. Otherwise record the intended time in the handoff. Preserve the Review schedule and deadline. Suggest one concrete next action based on evidence and name its owner or what will unblock it. Recheck signed Inbox.
 
 Read the effective Inbox follow-up prompt from signed `my-next` or field guidance.
 Follow that text when returned. The public default follows.
@@ -93,7 +95,7 @@ If the ticket has optional fields, read the collection prompts from signed
 `set-ticket-field` before reporting the outcome.
 
 Return the verified outcome and its evidence on the shared ticket so the
-team can resume from Reports and Activity. Verify that your watcher is
-ready before taking unattended work. Propose reusable decisions in
+team can resume from Reports and Activity. Verify direct cue delivery before
+relying on it for unattended work. Propose reusable decisions in
 Knowledge with exact sources. Follow the project's review and release
 rules and transfer open work explicitly before leaving the role.

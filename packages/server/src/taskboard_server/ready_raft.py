@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request
 
 from taskboard_client.references import DEFAULT, MAX_ID, identifier
-from taskboard_client.wake_text import TICKET_OUTCOME, outcome_prompt, ticket_document
+from taskboard_client.wake_text import RECHECK_INBOX, TICKET_OUTCOME, outcome_prompt, ticket_document
 
 
 _ENDPOINT = "https://api.raft.build/api/oauth/agent-events"
@@ -26,6 +26,10 @@ class ReadyEventAcceptance:
 
 class ReadyEventSendError(RuntimeError):
     """Raft acceptance could not be confirmed."""
+
+
+def _summary_fits(summary):
+    return len(summary.encode("utf-16-le")) // 2 <= _MAX_SUMMARY
 
 
 def _event_document(signal: Mapping[str, object]) -> dict[str, str]:
@@ -52,11 +56,13 @@ def _event_document(signal: Mapping[str, object]) -> dict[str, str]:
     event_key = f"taskboard-ready-{board_key}-{event_id}"
     # Raft linkifies the summary, so use the mounted document path rather than the scanner's fragment.
     document_url = ticket_document(board_url, task_id)
-    summary = (
-        f"Taskboard ticket {task_id} is Ready in your owned queue. Ready event {event_id}. "
-        f"Check signed Inbox first. {outcome_prompt(TICKET_OUTCOME)} {document_url}"
-    )
-    if len(summary.encode("utf-16-le")) // 2 > _MAX_SUMMARY:
+    identity = f"Taskboard ticket {task_id} is Ready in your owned queue. Ready event {event_id}."
+    summary = f"{identity} Check signed Inbox first. {outcome_prompt(TICKET_OUTCOME)} {document_url}"
+    if not _summary_fits(summary):
+        summary = f"{identity} {RECHECK_INBOX} {document_url}"
+    if not _summary_fits(summary):
+        summary = f"{identity} {document_url}"
+    if not _summary_fits(summary):
         raise ValueError("The Ready ticket link exceeds Raft's summary limit.")
     return {"kind": "event", "summary": summary, "externalEventId": event_key}
 

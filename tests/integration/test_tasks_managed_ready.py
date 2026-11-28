@@ -156,7 +156,12 @@ class ManagedReadyTest(unittest.TestCase):
             self.assertEqual(first.get_header("Authorization"), f"Bearer {self.recipient.access_token}")
             self.assertEqual(json.loads(second.data), {
                 "kind": "event", "externalEventId": key,
-                "summary": f"Taskboard ticket {ticket} is Ready in your owned queue. Ready event {event}. {BOARD}/tickets/{ticket}",
+            "summary": (
+                f"Taskboard ticket {ticket} is Ready in your owned queue. Ready event {event}. Check signed Inbox first. "
+                "Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. "
+                "For a timed revisit, Park with the exact time. Recheck signed Inbox. "
+                f"{BOARD}/tickets/{ticket}"
+            ),
             })
             self.assertEqual(self.receipts(), [accepted])
             self.assertEqual(carrier.inbox, [])

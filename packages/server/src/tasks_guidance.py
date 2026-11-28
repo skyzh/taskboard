@@ -267,7 +267,7 @@ _PROMPTS = {
             actionable work arrives, switch to it. Park when the written criterion is
             met and resume at the next configured review. A completed pass counts as
             that Pacific day's review. Choose a daily Pacific review time for each
-            active goal. An idle agent needs an opted-in watcher for an automatic cue.
+            active goal. Automatic cues for idle agents require an enabled direct app delivery path.
         """).strip(),
     },
     "knowledge": {

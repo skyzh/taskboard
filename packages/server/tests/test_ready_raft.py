@@ -48,6 +48,20 @@ class ReadyRaftTest(unittest.TestCase):
         self.assertTrue(summary.endswith(f"{BOARD}/tickets/COURSE-12"))
         self.assertLessEqual(len(summary), 500)
 
+    def test_long_ready_links_keep_the_exact_identity_and_use_available_summary_space(self):
+        transport = Mock(return_value=(202, {"status": "queued"}))
+        identity = "Taskboard ticket T-12 is Ready in your owned queue. Ready event 42."
+        prefix = BOARD + "/"
+        for spare, guidance in [(38, "Recheck signed Inbox. "), (0, "")]:
+            with self.subTest(spare=spare):
+                path_length = 2000 - spare - len(f"{identity} {prefix}/tickets/T-12")
+                board = prefix + "x" * path_length
+                source = signal("fixture-agent", board, 42, 12, STAMP)
+                accepted = send_ready_event(source, access_token=TOKEN, transport=transport)
+                body = json.loads(transport.call_args.args[0].data)
+                self.assertEqual(body["summary"], f"{identity} {guidance}{board}/tickets/T-12")
+                self.assertEqual(accepted.external_event_id, f"taskboard-ready-{sha256(board.encode()).hexdigest()}-42")
+
     def test_retry_preserves_the_whole_request_and_accepts_dedup(self):
         transport = Mock(side_effect=[TimeoutError(TOKEN), (200, {"deduped": True})])
         with self.assertRaises(ReadyEventSendError) as raised:
