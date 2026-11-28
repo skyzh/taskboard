@@ -428,7 +428,7 @@ test('Stats keeps the agent name in the row header beside a photo or initials', 
   assert.ok(markup.includes(photo))
   assert.match(markup, /<span class="assignee-avatar initials" aria-hidden="true">MP<\/span><span>Missing Photo<\/span>/)
 
-  fixture.state = [photo]
+  fixture.state = ['agent', photo]
   const failed = renderToStaticMarkup(React.createElement(Stats))
   assert.match(failed, /<span class="assignee-avatar initials" aria-hidden="true">PA<\/span><span>Portrait Agent<\/span>/)
   assert.ok(!failed.includes(photo))

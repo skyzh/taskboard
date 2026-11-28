@@ -65,6 +65,30 @@ class StatsTest(unittest.TestCase):
             """, (task, who, status, at(assigned), at(started), at(reported), at(finalized)),
         ).lastrowid
 
+    def test_activity_series_counts_each_visible_event_in_one_bucket_per_group(self):
+        self.event(1, "start", "Avery", "11:00", "in_progress")
+        self.event(1, "log", "Avery", "11:05", "in_progress", {"checkpoint": True})
+        legacy = self.event(1, "done", "Blake", "11:05", "done")
+        self.db.execute("UPDATE events SET at = ? WHERE id = ?", (DAY + "11:05:00+00:00", legacy))
+        self.event(1, "source-event", "TaskNote", "11:05", "done")
+        self.event(1, "log", "Avery", "12:00", "done")
+        self.event(1, "log", "Avery", "10:59", "done")
+        self.db.execute("UPDATE tasks SET record_kind = 'knowledge' WHERE id = 2")
+        self.event(2, "log", "Avery", "11:05", "done")
+
+        activity = tasks_stats.snapshot(self.db, "hour", NOW)["activity"]
+        self.assertEqual((activity["events"], activity["completions"], activity["tasknote_events"]), (4, 1, 1))
+        actors = {row["label"]: row["counts"] for row in activity["series"]["agent"]}
+        self.assertEqual(actors, {
+            "Avery Agent": [1, 1] + [0] * 10,
+            "People": [0, 1] + [0] * 10,
+            "System or unattributed": [0, 1] + [0] * 10,
+        })
+        types = {row["label"]: row["counts"][:2] for row in activity["series"]["type"]}
+        self.assertEqual(types, {"Started": [1, 0], "Checkpoint": [0, 1], "Completed": [0, 1], "Source update": [0, 1]})
+        for groups in activity["series"].values():
+            self.assertEqual(sum(sum(row["counts"]) for row in groups), activity["events"])
+
     def test_ticket_turnaround_pairs_episodes_and_reports_unknowns(self):
         start = self.event(1, "start", "Avery", "10:40", "in_progress")
         self.event(1, "transfer", "Avery", "10:45", "ready")

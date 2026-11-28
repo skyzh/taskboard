@@ -1,5 +1,6 @@
 """Aggregate board-visible ledger records over one rolling UTC window."""
 
+from bisect import bisect_right
 from collections import Counter
 from datetime import datetime, timezone
 from itertools import groupby
@@ -11,7 +12,7 @@ import tasks_profiles as profiles
 import tasks_projects as projects
 import tasks_ring1 as ring1
 import tasks_storage
-from tasks_core import current_tasks_sql, has_event_context, task_columns
+from tasks_core import current_tasks_sql, event_context, event_label, has_event_context, task_columns
 
 
 PERIODS = {"hour": (12, 300), "day": (24, 3600), "week": (28, 21600)}
@@ -50,16 +51,54 @@ def task_scope(db, project, principal=None):
     return query + where, (*bindings, project) if project is not None else bindings
 
 
-def activity_counts(db, bounds, base, scope):
+def activity_series(db, scope, bounds, context, bucket_starts):
     selection, params = scope
-    totals = db.execute(
+    rows = db.execute(
         f"""
         WITH selected AS ({selection})
-        SELECT COUNT(*) AS events, COUNT(CASE WHEN action = 'done' THEN 1 END) AS completions,
-               COUNT(CASE WHEN action = 'source-event' AND actor = 'TaskNote' THEN 1 END) AS tasknote_events
-        FROM events JOIN selected ON selected.id = events.task_id WHERE at >= ? AND at < ?
+        SELECT events.at, events.action, events.actor, {context} AS context, p.kind,
+               COALESCE(NULLIF(p.name, ''), NULLIF(p.username, ''), p.ledger_key) AS name
+        FROM events JOIN selected ON selected.id = events.task_id
+        LEFT JOIN board_principals p ON p.ledger_key = events.actor
+        WHERE events.at >= ? AND events.at < ?
         """, (*params, *bounds),
-    ).fetchone()
+    )
+    totals = {"events": 0, "completions": 0, "tasknote_events": 0}
+    actors, types = {}, {}
+    for row in rows:
+        index = bisect_right(bucket_starts, row["at"]) - 1
+        action = row["action"]
+        totals["events"] += 1
+        totals["completions"] += action == "done"
+        totals["tasknote_events"] += action == "source-event" and row["actor"] == "TaskNote"
+        kind = row["kind"]
+        if kind == "agent":
+            key = (kind, row["actor"])
+            label = row["name"]
+        elif kind == "human":
+            key, label = (kind, None), "People"
+        else:
+            key, label = (None, None), "System or unattributed"
+        if key not in actors:
+            actors[key] = {"label": label, "counts": [0] * len(bucket_starts)}
+        actors[key]["counts"][index] += 1
+        try:
+            label = event_label(action, event_context(row))
+        except KeyError:
+            label = "Other activity"
+        if label not in types:
+            types[label] = {"label": label, "counts": [0] * len(bucket_starts)}
+        types[label]["counts"][index] += 1
+
+    def ranked(groups):
+        return sorted(groups.values(), key=lambda group: (-sum(group["counts"]), group["label"].casefold()))
+
+    return totals, {"agent": ranked(actors), "type": ranked(types)}
+
+
+def activity_counts(db, bounds, base, scope, context, bucket_starts):
+    selection, params = scope
+    totals, series = activity_series(db, scope, bounds, context, bucket_starts)
     tasks = db.execute(
         f"""
         WITH selected AS ({selection}), current AS ({current_tasks_sql(db)}), counts AS (
@@ -99,7 +138,8 @@ def activity_counts(db, bounds, base, scope):
     ).fetchall()
     agent_profiles = profiles.visible_by_keys(db, (row["actor"] for row in agents), base)
     return {
-        **dict(totals),
+        **totals,
+        "series": series,
         "tasks": [
             {
                 **{key: row[key] for key in ("id", "title", "state", "events", "completions", "tasknote_events", "has_tasknote")},
@@ -386,6 +426,7 @@ def snapshot(db, period, now=None, *, base="", watcher_task=None, project=None, 
     scope = task_scope(db, project, principal)
     selection, params = scope
     context = "events.context" if has_event_context(db) else "'{}'"
+    bucket_starts = [utc_text(first + index * width)[:-1] for index in range(count)]
     active = bucket_peaks(dri_intervals(db, bounds, end, scope, context), first, width, count)
     worker_runs, workers = worker_intervals(db, bounds, first, end, scope)
     worker_counts = bucket_peaks(worker_runs, first, width, count)
@@ -402,7 +443,7 @@ def snapshot(db, period, now=None, *, base="", watcher_task=None, project=None, 
     return {
         "period": period, "project": project, "from": start_at, "to": end_at, "bucket_seconds": width,
         "ticket_flow": flow, "peer_requests": peer_timings(db, scope, context, bounds, first, end),
-        "activity": activity_counts(db, bounds, base, scope), "worker_hours": workers,
+        "activity": activity_counts(db, bounds, base, scope, context, bucket_starts), "worker_hours": workers,
         **({"watcher_measurements": json.loads(measurements[0])} if measurements else {}),
         "buckets": [
             {"from": utc_text(first + index * width), "to": utc_text(first + (index + 1) * width),

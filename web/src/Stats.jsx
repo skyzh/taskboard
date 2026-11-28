@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { BoardLink, useBoardNavigation } from './BoardNavigation.jsx'
 import { queryPath, useResource } from './data.js'
 import { AssigneeAvatar, ResourceStatus, Status, TaskLink, Timestamp, eventHref, taskState } from './shared.jsx'
@@ -140,9 +140,8 @@ function TimingExamples({ examples }) {
   )
 }
 
-function FlowTrend({ buckets, bucketSeconds, period }) {
+function FlowAxis({ buckets, period }) {
   const { formatTimestamp, formatDay, timeZone } = useTimeZone()
-  const maximum = Math.max(1, ...buckets.flatMap(row => FLOW_METRICS.map(([key]) => row[key])))
   const first = buckets[0].from
   const last = buckets.at(-1).to
   const date = { month: 'short', day: 'numeric' }
@@ -151,6 +150,16 @@ function FlowTrend({ buckets, bucketSeconds, period }) {
     timeZone,
     ...(period === 'week' ? date : formatDay(first) === formatDay(last) ? clock : { ...date, ...clock }),
   })
+  return (
+    <div className="stats-axis stats-flow-axis">
+      {[first, last].map(at => <time key={at} dateTime={at} title={formatTimestamp(at)}>{tick.format(new Date(at))}</time>)}
+    </div>
+  )
+}
+
+function FlowTrend({ buckets, bucketSeconds, period }) {
+  const { formatTimestamp } = useTimeZone()
+  const maximum = Math.max(1, ...buckets.flatMap(row => FLOW_METRICS.map(([key]) => row[key])))
   const bucketLabel = bucketSeconds < 3600 ? `${bucketSeconds / 60}-minute` : `${bucketSeconds / 3600}-hour`
   return (
     <>
@@ -170,9 +179,7 @@ function FlowTrend({ buckets, bucketSeconds, period }) {
             </div>
           ))}
         </div>
-        <div className="stats-axis stats-flow-axis">
-          {[first, last].map(at => <time key={at} dateTime={at} title={formatTimestamp(at)}>{tick.format(new Date(at))}</time>)}
-        </div>
+        <FlowAxis buckets={buckets} period={period} />
       </div>
       <details className="stats-bucket-list">
         <summary>View recorded trend counts</summary>
@@ -192,6 +199,75 @@ function FlowTrend({ buckets, bucketSeconds, period }) {
         </table>
       </details>
     </>
+  )
+}
+
+const ACTIVITY_COLORS = ['#398167', '#4175a6', '#a36931', '#885ca4', '#af4d63', '#767c84']
+
+function ActivityTrend({ data, group, onGroupChange }) {
+  const { formatTimestamp } = useTimeZone()
+  const { activity, buckets, period } = data
+  const series = activity.series?.[group]
+  const totals = buckets.map((_, index) => series?.reduce((total, row) => total + row.counts[index], 0) ?? 0)
+  const maximum = Math.max(1, ...totals)
+  const visible = series?.slice(0, series.length > ACTIVITY_COLORS.length ? ACTIVITY_COLORS.length - 1 : ACTIVITY_COLORS.length) ?? []
+  const rest = series?.slice(visible.length) ?? []
+  if (rest.length) {
+    visible.push({ label: 'Other groups', counts: totals.map((total, index) => (
+      total - visible.reduce((shown, row) => shown + row.counts[index], 0)
+    )) })
+  }
+  return (
+    <section className="panel" aria-labelledby="stats-activity-trend">
+      <div className="stats-flow-heading">
+        <h2 id="stats-activity-trend">Activity over time</h2>
+        <label className="stats-activity-group">Group by <select value={group} onChange={event => onGroupChange(event.target.value)}>
+          <option value="agent">Agent</option><option value="type">Activity type</option>
+        </select></label>
+      </div>
+      {!series && <p className="stats-note">Activity breakdown unavailable.</p>}
+      {series?.length === 0 && <p className="stats-note">No activity in this period.</p>}
+      {series?.length > 0 && (
+        <>
+          <div className="stats-legend stats-activity-legend">
+            {visible.map(({ label }, index) => <span key={index} style={{ '--activity-color': ACTIVITY_COLORS[index] }}>{label}</span>)}
+          </div>
+          {rest.length > 0 && <p className="stats-note">The five most active groups have their own colors. All groups appear in the interval counts.</p>}
+          <div className="stats-flow-plot" aria-hidden="true">
+            <div className="stats-flow-scale"><span>{number.format(maximum)}</span><span>0</span></div>
+            <div className="stats-chart stats-flow-chart stats-activity-chart">
+              {buckets.map(({ from }, index) => (
+                <div key={from} title={`${formatTimestamp(from)} · ${number.format(totals[index])} events`}>
+                  {visible.map(({ label, counts }, color) => counts[index] > 0 && (
+                    <span key={color} title={`${label} · ${number.format(counts[index])}`}
+                      style={{ background: ACTIVITY_COLORS[color], height: `${100 * counts[index] / maximum}%` }} />
+                  ))}
+                </div>
+              ))}
+            </div>
+            <FlowAxis buckets={buckets} period={period} />
+          </div>
+          <details className="stats-bucket-list">
+            <summary>View activity interval counts</summary>
+            <table className="stats-table stats-activity-table">
+              <thead><tr><th scope="col">From</th><th scope="col">Total</th><th scope="col">{group === 'agent' ? 'Agent' : 'Activity type'}</th></tr></thead>
+              <tbody>
+                {buckets.map(({ from }, index) => (
+                  <tr key={from}>
+                    <th scope="row"><Timestamp at={from} /></th><td>{number.format(totals[index])}</td>
+                    <td>{totals[index] > 0 && <ul>
+                      {series.map(({ label, counts }, key) => counts[index] > 0 && (
+                        <li key={key}>{label} · {number.format(counts[index])}</li>
+                      ))}
+                    </ul>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        </>
+      )}
+    </section>
   )
 }
 
@@ -334,6 +410,7 @@ function IntegrationActivity({ integrations }) {
 }
 
 export default function Stats({ revision, period = 'day', project, projects }) {
+  const [group, setGroup] = useState('agent')
   const navigate = useBoardNavigation()
   const resource = useResource(queryPath('/stats', { period, project }), revision)
   const data = resource.data
@@ -364,6 +441,7 @@ export default function Stats({ revision, period = 'day', project, projects }) {
       {data && (
         <>
           {data.ticket_flow && <TicketFlow data={data} />}
+          <ActivityTrend data={data} group={group} onGroupChange={setGroup} />
           {data.peer_requests && <PeerRequests requests={data.peer_requests} />}
           {data.integrations && <IntegrationActivity integrations={data.integrations} />}
           {project && data.runtime_timeline?.project === project && <RuntimeTimeline timeline={data.runtime_timeline} />}
