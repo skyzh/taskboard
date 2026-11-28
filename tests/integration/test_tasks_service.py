@@ -7987,6 +7987,111 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual([row["id"] for row in self.call(sam, route).json["items"]], [newer])
         self.assertEqual([row["id"] for row in self.call(quinn, route).json["items"]], [other])
 
+    def test_owner_replaces_exact_linked_request_with_one_question(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        peer, _ = self.login(app, "Blake")
+        sam, sam_id = self.login(app, "Sam")
+        quinn, quinn_id = self.login(app, "Quinn")
+        detail = "/api/v1/tasks/1"
+        requests = "/api/v1/notifications/requests"
+        headers = {"Origin": ORIGIN}
+        self.action(owner, "create-task", {"title": "Review draft", "step": "Ask Sam."})
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Prepare the draft."})
+
+        def send(reason):
+            return self.action(owner, "raise-attention", {"id": "T-1", "recipient": sam_id, "reason": reason})["id"]
+
+        original = send("Read the draft.")
+        other = send("Review dates separately.")
+        self.action(owner, "advance-task", {"id": "T-1", "transition": "wait", "note": "Wait for feedback.",
+                                            "attention_request_id": original})
+        result = self.call(owner, detail).json
+        waiting = result["task"]["event_id"]
+        self.assertEqual(result["attention_replacement"], {
+            "request_id": original, "wait_event": waiting, "recipient": sam_id,
+            "recipient_name": "Sam", "reason": "Read the draft.",
+        })
+        for client in (app.test_client(), peer, sam, quinn):
+            self.assertNotIn("attention_replacement", self.call(client, detail).json)
+
+        action = "escalate-request-to-question"
+        payload = {"id": "T-1", "request_id": original, "wait_event": waiting, "recipient": sam_id,
+                   "note": "Which draft should we publish?", "details": "Both drafts passed.",
+                   "options": '["First", "Second"]', "url": "https://example.test/drafts"}
+        self.action(peer, action, payload, status=403)
+        for mismatch in ({"recipient": quinn_id}, {"request_id": other}, {"wait_event": waiting - 1},
+                         {"options": '["First", "First"]'}):
+            self.action(owner, action, {**payload, **mismatch}, status=409)
+        self.assertEqual([row["id"] for row in self.call(sam, requests).json["items"]], [other, original])
+        self.assertEqual(self.call(owner, detail).json["task"]["event_id"], waiting)
+
+        self.call(sam, "/api/v1/notifications/preferences/ask-destination", method="POST", headers=headers,
+                  json={"destination": "raft"})
+        browser = {key: value for key, value in payload.items() if key != "id"}
+        browser["options"] = ["First", "Second"]
+        next_step = "Check your Taskboard Inbox for the next actionable item."
+        receipt = self.call(owner, detail + "/request-question", method="POST", json=browser, headers=headers).json
+        self.assertEqual(self.action(owner, action, payload), {**receipt, "next_step": next_step})
+        self.action(owner, action, {**payload, "note": "Different wording."}, status=409)
+
+        result = self.call(owner, detail).json
+        self.assertNotIn("attention_replacement", result)
+        self.assertEqual(result["task"]["state"], "human_review")
+        self.assertEqual(result["task"]["event_id"], receipt["question_event_id"])
+        self.assertEqual(result["task"]["context"]["attention_escalation"], {
+            "request_id": original, "wait_event": waiting,
+        })
+        event = self.call(owner, f"/api/v1/activity/{receipt['question_event_id']}").json
+        self.assertEqual(event["details"], "Both drafts passed.")
+        self.assertEqual(event["context"]["attention_escalation"], result["task"]["context"]["attention_escalation"])
+        self.assertEqual([row["id"] for row in self.call(sam, requests).json["items"]], [other])
+        handled = self.call(sam, f"{requests}/{original}/handled", method="POST", headers=headers).json
+        self.assertEqual(handled, {"id": original, "handled_at": receipt["retired_at"]})
+        route = {"id": "T-1", "request_id": receipt["question_event_id"]}
+        delivery = self.action(owner, "decision-delivery", query_string=route)
+        self.assertEqual((delivery["destination"], delivery["target"]), ("raft", "dm:@sam~human"))
+        self.assertTrue(delivery["url"].endswith(f"/tickets/T-1?decision-request={receipt['question_event_id']}"))
+        self.action(peer, "decision-delivery", query_string=route, status=404)
+        self.call(sam, detail + "/decision", method="POST", headers=headers,
+                  json={"request_id": receipt["question_event_id"], "choice": "First"})
+        self.assertEqual(self.action(owner, action, payload), {**receipt, "next_step": next_step})
+        with closing(open_sqlite(self.database)) as db:
+            events = db.execute("SELECT action FROM events WHERE task_id = 1 AND id > ? ORDER BY id", (waiting,))
+            self.assertEqual([row["action"] for row in events], ["assign-human", "decide"])
+
+    def test_request_question_ignores_independent_and_superseded_requests(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        sam, sam_id = self.login(app, "Sam")
+        for title in ("Original", "Different ticket"):
+            self.action(owner, "create-task", {"title": title, "step": "Ask Sam."})
+        self.action(owner, "advance-task", {"id": "T-2", "transition": "start", "note": "Prepare the draft."})
+        requests = "/api/v1/notifications/requests"
+        cross = self.action(owner, "raise-attention", {"id": "T-1", "recipient": sam_id,
+                                                       "reason": "Review this.", "unblocks": "T-2"})["id"]
+        self.action(owner, "advance-task", {"id": "T-2", "transition": "wait", "note": "Await the other request.",
+                                            "attention_request_id": cross})
+        detail = "/api/v1/tasks/2"
+        result = self.call(owner, detail).json
+        self.assertNotIn("attention_replacement", result)
+        payload = {"id": "T-2", "request_id": cross, "wait_event": result["task"]["event_id"],
+                   "recipient": sam_id, "note": "Which draft?"}
+        self.action(owner, "escalate-request-to-question", payload, status=409)
+        self.action(owner, "advance-task", {"id": "T-2", "transition": "resume", "note": "Continue anyway."})
+        self.assertEqual([row["id"] for row in self.call(sam, requests).json["items"]], [cross])
+
+        exact = self.action(owner, "raise-attention", {"id": "T-2", "recipient": sam_id, "reason": "Review the draft."})["id"]
+        self.action(owner, "advance-task", {"id": "T-2", "transition": "wait", "note": "Await the draft review.",
+                                            "attention_request_id": exact})
+        waiting = self.call(owner, detail).json["task"]["event_id"]
+        self.action(owner, "advance-task", {"id": "T-2", "transition": "resume", "note": "Continue independently."})
+        self.action(owner, "escalate-request-to-question", {**payload, "request_id": exact, "wait_event": waiting},
+                    status=409)
+        self.action(owner, "advance-task", {"id": "T-2", "transition": "assign-human", "on": sam_id,
+                                            "note": "Independent Question."})
+        self.assertEqual([row["id"] for row in self.call(sam, requests).json["items"]], [exact, cross])
+
     def test_linked_request_defers_in_both_feeds_and_handled_clears_one_wait(self):
         app = self.app(portal_reader=True)
         avery, _ = self.login(app, "Avery")

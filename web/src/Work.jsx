@@ -227,6 +227,15 @@ function ActivityWait({ event, headline }) {
 
 function ActivityChanges({ event }) {
   const context = event.context || {}
+  if (event.action === 'assign-human' && context.attention_escalation) {
+    const { request_id, wait_event } = context.attention_escalation
+    return (
+      <p className="event-meta">
+        <span>Replaced attention request {request_id}</span>
+        <BoardLink href={eventHref(wait_event)}>Previous wait</BoardLink>
+      </p>
+    )
+  }
   if (context.transition_override?.reason) {
     return (
       <details className="event-disclosure">
@@ -711,6 +720,10 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
           {task && <>
             {signedIn && <NeedsYouSend key={`${id}:${session.data.actor.id}`} ticket={task.key || id}
               actions={record.needs_you_actions} project={taskProject} revision={revision} onChanged={onChanged} />}
+            {signedIn && record.attention_replacement && <NeedsYouSend
+              key={`replacement:${id}:${session.data.actor.id}:${record.attention_replacement.request_id}:${record.attention_replacement.wait_event}`}
+              ticket={task.key || id} replacement={record.attention_replacement}
+              project={taskProject} revision={revision} onChanged={onChanged} />}
             {signedIn && <PeerAskSend key={`peer:${id}:${session.data.actor.id}`} ticket={task.key || id}
               allowed={record.can_ask_agent === true} actor={session.data.actor.id}
               project={taskProject} revision={revision} onChanged={onChanged} />}

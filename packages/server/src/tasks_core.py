@@ -954,6 +954,9 @@ def change_task(db, args, links, *, automation=None):
     previous, state, label = TRANSITIONS[args.command]
     if human_wait and args.command == "assign-human":
         previous = (*previous, "waiting", *(("human_review",) if replacing_human_wait else ()))
+    attention_escalation = getattr(args, "attention_escalation", None)
+    if attention_escalation is not None and args.command == "assign-human":
+        previous = (*previous, "waiting")
     if args.command == "wait" and replacing_human_wait:
         previous = (*previous, "human_review")
     review_source = getattr(args, "review_on", None)
@@ -1083,6 +1086,8 @@ def change_task(db, args, links, *, automation=None):
         if (until := saved_reminder.get("defer_until")) and (args.command != "start" or until > timestamp()):
             context.update((field, saved_reminder[field]) for field in PARKED_REMINDER_FIELDS if field in saved_reminder)
     context.update(goal_pass_context)
+    if attention_escalation is not None:
+        context["attention_escalation"] = attention_escalation
     if human_wait:
         context["human_wait"] = True
         if (replacing_human_wait and waiting_on == task["waiting_on"] and args.note == task["note"]

@@ -66,6 +66,8 @@ class RaftActionRoutesTest(unittest.TestCase):
             "acknowledge-ask-recheck": ("POST", "cue_key", ""),
             "my-ticket-cues": ("GET", "", "project scope limit"),
             "decision-delivery": ("GET", "id request_id", ""),
+            "escalate-request-to-question": ("POST", "id request_id wait_event recipient note",
+                                             "details options url label force_text"),
             "dri-postboard": ("GET", "project dri", ""),
             "dri-postboard-history": ("GET", "project dri", "before limit"),
             "save-dri-postboard": ("POST", "project content source_ticket_ids expected_revision_id", ""),
