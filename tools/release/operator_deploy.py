@@ -241,9 +241,11 @@ def run_config(config, record, run=subprocess.run, *, checked_main=None, candida
     healthy = mounted_verifier(layout, package, pin, python, config["mount"], config.get("avatars", ()), run)
     if "notification_worker" in config:
         worker = config["notification_worker"]
-        if not isinstance(worker, dict) or worker.keys() != {"unit", "status"} or worker["unit"] == config["unit"]:
+        if (not isinstance(worker, dict) or worker.keys() != {"unit", "status", "scope_config"}
+                or worker["unit"] == config["unit"]):
             raise ValueError("Configure the separate checked notification unit and its private status file.")
-        healthy = checked_worker(healthy, worker["unit"], worker["status"], service_restart(worker["unit"], run), run=run)
+        worker_restart = service_restart(worker["unit"], run)
+        healthy = checked_worker(healthy, worker["unit"], worker["status"], worker["scope_config"], worker_restart, run=run)
     slots = ReleaseSlots(config["slots"], layout.database, run=run) if "slots" in config else None
     if checked_main is not None:
         return receive_checked_main(config, layout, checked_main, candidate, base, source, verify, restart, healthy,

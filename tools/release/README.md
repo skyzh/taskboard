@@ -543,9 +543,12 @@ and match a naturally delivered cue with the recipient’s signed outcome.
 
 After the initial checked handover passes, add `notification_worker` to the
 existing deploy configuration with `unit` set to the notification unit name and
-`status` set to its absolute private status-file path. The normal checked release
-waits for the candidate web mount before restarting the notification unit. The
-release also requires the worker PID, manifest and scope startup to match. If the
+`status` set to its absolute private status-file path. Set `scope_config` to the
+same absolute scope configuration path used by the service unit. The checked
+release waits for the candidate web mount before restarting the notification
+unit. It verifies the worker PID, manifest, and exact configured scope set.
+A configured scope with a stopped subscription or grant remains in the report
+as inactive. If the
 worker check fails, the slot transaction restores the previous web release and
 verifies that its worker is running. Normal upgrades reuse existing sender state
 throughout. A deliberately stopped scope remains stopped. Keep the rollout

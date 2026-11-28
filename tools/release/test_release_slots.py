@@ -157,25 +157,35 @@ class ReleaseSlotsTest(unittest.TestCase):
         shared = status.with_name("scope.sqlite")
         shared.write_text("durable sender cursor", encoding="ascii")
 
-        def write_status(digest, state):
-            write_json(status, {"manifest": digest, "pid": 321, "enrolled": 1,
-                                "scopes": [{"project": "T", "recipient": "fixture", "status": state}]})
+        scope_config = status.with_name("worker-config.json")
+        active = {"project": "T", "recipient": "fixture"}
+        opted_out = {"project": "TINYLLM", "recipient": "other"}
+        write_json(scope_config, {"scopes": [active, opted_out]})
+        scope_config.chmod(0o600)
+
+        def write_status(digest, missing_scope=False):
+            scopes = [{**opted_out, "status": "subscription_stopped"}]
+            if not missing_scope:
+                scopes.append({**active, "status": "running"})
+            write_json(status, {"manifest": digest, "pid": 321, "enrolled": len(scopes),
+                                "active": int(not missing_scope), "scopes": scopes})
             status.chmod(0o600)
 
-        write_status(self.base, "running")
+        write_status(self.base)
 
         def restart():
             current = self.layout.current.resolve()
             restarts.append(current)
             self.assertEqual(self.events[-1][0], "mounted")
             self.assertEqual(self.events[-1][-1], current)
-            write_status(current.name, "failed" if current == self.candidate else "running")
+            write_status(current.name, missing_scope=current == self.candidate)
 
         def run(command, **kwargs):
             self.assertEqual(command, ["systemctl", "--user", "show", "--value", "--property=MainPID", unit])
             return CompletedProcess(command, 0, stdout="321\n")
 
-        result = self.release(smoke=checked_worker(self.smoke, unit, status, restart, run=run, pause=lambda _: None))
+        smoke = checked_worker(self.smoke, unit, status, scope_config, restart, run=run, pause=lambda _: None)
+        result = self.release(smoke=smoke)
         self.assertEqual(result["status"], "rolled_back")
         self.assertEqual((self.layout.current.resolve(), self.slots.selected()), (self.previous, PRIOR_PORT))
         self.assertEqual(restarts, [self.candidate, self.previous])
