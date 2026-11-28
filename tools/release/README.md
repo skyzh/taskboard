@@ -277,6 +277,17 @@ place. Restore the prior launcher pointer under the same lock if the
 staged launcher fails admission. Keep the checkout used for builds separate.
 It can start as an empty local Git repository with `git init "$build_repo"`.
 
+Before switching the launcher pointer, check the hosted entrypoint from the
+freshly unpacked source archive with the operator interpreter.
+
+```sh
+"$operator_python" -E -B "$operator_stage/tools/release/deploy_hosted.py" --help
+```
+
+Expect `--reuse-public-proof` in the reviewed launcher. Keep the whole
+tracked archive together so the entrypoint can import its verifier, runtime
+checks and server release record contract.
+
 Use the architecture-specific Node distribution at the version pinned by
 [hosted CI](../../.github/workflows/ci.yml). Verify its checksum against the
 [official Node release](https://nodejs.org/dist/) before extracting it under
@@ -330,6 +341,41 @@ available for inspection. The stage distinguishes compatibility, transfer,
 the final protected-tip check, the checked receipt, and the operator handoff.
 If the failure reached the operator handoff, check the existing operator
 result or activation journal to determine the active release.
+
+### Opt in to hosted public compatibility proof
+
+The service ships with the full local compatibility matrix. After approval
+for the reviewed launcher, an operator can add `--reuse-public-proof` to a
+manual fresh-release invocation with the same interpreter, Node `PATH` and
+private `~/.config/taskboard/deploy.json` used by the service.
+
+```sh
+"$operator_python" -E -B "$HOME/.local/share/taskboard/operator/tools/release/deploy_hosted.py" \
+  --config "$HOME/.config/taskboard/deploy.json" --reuse-public-proof
+```
+
+For the timer, add the option in a user service drop-in after checking the
+installed unit's `ExecStart`. For the packaged command, the drop-in is
+`~/.config/systemd/user/taskboard-deploy.service.d/20-public-qualification.conf`.
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/usr/bin/python3 -B %h/.local/share/taskboard/operator/tools/release/deploy_hosted.py --config %h/.config/taskboard/deploy.json --reuse-public-proof
+```
+
+Reload the user service manager after changing the drop-in. To return the
+timer to the full local matrix, remove this drop-in and reload again. Keep
+the existing private configuration. Manual runs and the timer share that
+configuration's locks and GitHub request backoff.
+
+Reuse requires a successful notice for the exact protected-main run and
+commit pair, matching fresh candidate and mounted predecessor manifests, and
+matching policy and browser runtime. A missing notice, skipped predecessor
+or mismatch runs the full matrix. Retained clients, final protected-tip
+verification, backup, mounted smoke and rollback still use their usual local
+checks. A checked retry of a saved rejection always runs the full matrix,
+including when the option is present.
 
 ### Retry a saved rejection on the same protected tip
 
