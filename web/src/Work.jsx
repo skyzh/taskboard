@@ -712,7 +712,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
             {signedIn && <NeedsYouSend key={`${id}:${session.data.actor.id}`} ticket={task.key || id}
               actions={record.needs_you_actions} project={taskProject} revision={revision} onChanged={onChanged} />}
             {signedIn && record.attention_replacement && <NeedsYouSend
-              key={`replacement:${id}:${session.data.actor.id}:${record.attention_replacement.id}`}
+              key={`replacement:${id}:${session.data.actor.id}:${record.attention_replacement.request_id}:${record.attention_replacement.wait_event}`}
               ticket={task.key || id} replacement={record.attention_replacement}
               project={taskProject} revision={revision} onChanged={onChanged} />}
             {signedIn && <PeerAskSend key={`peer:${id}:${session.data.actor.id}`} ticket={task.key || id}

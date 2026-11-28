@@ -36,14 +36,16 @@ export default function NeedsYouSend({ ticket, actions, replacement, project, re
   function submit(event) {
     event.preventDefault()
     if (!ready) return
-    const path = `/tasks/${encodeURIComponent(ticket)}/needs-you`
+    const taskPath = `/tasks/${encodeURIComponent(ticket)}`
+    const path = `${taskPath}/needs-you`
     if (decision) {
       const options = choices.split('\n').map(choice => choice.trim()).filter(Boolean)
-      return mutation.submit(path, {
-        kind, note: text,
-        ...(replacing ? { attention_request_id: replacement.id } : { on: recipient }),
-        ...(options.length && { options }),
-      })
+      const question = { note: text, ...(options.length && { options }) }
+      if (replacing) {
+        const { request_id, wait_event, recipient } = replacement
+        return mutation.submit(`${taskPath}/request-question`, { ...question, request_id, wait_event, recipient })
+      }
+      return mutation.submit(path, { ...question, kind, on: recipient })
     }
     const payload = JSON.stringify([recipient, text])
     if (pendingAttention.current?.payload !== payload) {
