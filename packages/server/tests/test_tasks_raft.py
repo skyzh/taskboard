@@ -51,6 +51,7 @@ class RaftActionRoutesTest(unittest.TestCase):
         expected = {
             "context": ("GET", "", ""),
             "list-projects": ("GET", "", ""),
+            "dependency-edges": ("GET", "project", ""),
             "project-owners": ("GET", "project", ""),
             "set-project-owner": ("POST", "project principal allowed", ""),
             "ring1-members": ("GET", "project", ""),

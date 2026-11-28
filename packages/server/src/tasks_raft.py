@@ -58,6 +58,9 @@ class _Action:
 
 _ACTIONS = {
     "context": _Action("GET", "Identify your signed-in Raft principal and board profile."),
+    "dependency-edges": _Action("GET", "Read current waiting dependencies in one visible project.", {
+        "project": "Exact project prefix.",
+    }),
     "list-projects": _Action("GET", "List accessible projects on the signed-in board. A Local DRI keeps its registered project as the default."),
     "project-owners": _Action("GET", "Read the project's owners and eligible candidates.", _PROJECT),
     "set-project-owner": _Action("POST", "Change a project owner grant as a project owner.", _PROJECT_ACCESS),
