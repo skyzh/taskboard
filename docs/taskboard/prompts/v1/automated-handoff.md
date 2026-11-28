@@ -111,3 +111,7 @@ Run the read-only worker after the board confirms Start. Put the result or
 blocker on the same ask and leave acknowledgment to the requester. Read
 Activity and check the existing worker before any retry. Show one Start,
 one result, and the stop command and readiness check.
+
+### App delivery
+
+Open signed Taskboard Inbox from your enrolled context. Keep the lead task. Delegate independent work with its objective, context and constraints where supported. Verify each result and recheck Inbox after it and before ending.

@@ -400,6 +400,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             knowledge = "Link the checked source before editing the handbook."
             inbox_follow_up = "Reply in the original thread when the Inbox update needs a response."
             goal_review = "Read the linked goal and identify its next owner."
+            app_delivery = "Open the signed Inbox before starting the sample."
             workflow = {
                 "goal-explore": "Check one sample and record the next exploration handoff.",
                 "ready-pickup": "Check the ready sample.",
@@ -411,6 +412,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             guidance.write_text(
                 f'[agent_guidance.prompts]\ncheckpoint = "{checkpoint}"\nend-task = "{end_task}"\n'
                 f'knowledge = "{knowledge}"\ninbox-follow-up = "{inbox_follow_up}"\ngoal-review = "{goal_review}"\n'
+                f'app-delivery = "{app_delivery}"\n'
                 + "".join(f'{key} = "{prompt}"\n' for key, prompt in workflow.items()),
                 encoding="utf-8",
             )
@@ -428,6 +430,9 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
                     signed["prompts"]["inbox-follow-up"], {"prompt": inbox_follow_up, "source": "board"},
                 )
                 self.assertEqual(signed["prompts"]["goal-review"], {"prompt": goal_review, "source": "board"})
+                self.assertEqual(signed["prompts"]["app-delivery"], {
+                    "prompt": app_delivery, "source": "board", "max_length": 1200,
+                })
                 for key, prompt in workflow.items():
                     self.assertEqual(signed["prompts"][key], {"prompt": prompt, "source": "board"})
                 self.assertEqual({entry["source"] for entry in signed["prompts"].values()}, {"board"})

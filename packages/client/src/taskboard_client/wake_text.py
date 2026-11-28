@@ -1,5 +1,28 @@
 """Short shared next steps for Taskboard wake deliveries."""
 
+import re
+
+APP_DELIVERY_GUIDANCE = (
+    "Open signed Taskboard Inbox from your enrolled context. Keep the lead task. "
+    "Delegate independent work with its objective, context and constraints where supported. "
+    "Verify each result and recheck Inbox after it and before ending."
+)
+APP_DELIVERY_PROMPT_LIMIT = 1200
+URL_TOKEN = re.compile(
+    r"[a-z][a-z0-9+.-]*://|mailto:|www\.|(?<![\w.-])(?:[a-z0-9-]+\.)+[a-z]{2,63}(?![\w-])", re.I,
+)
+
+
+def app_delivery_text(value):
+    """Validate and compact the editable portion of a Raft app summary."""
+    compact = " ".join(value.split())
+    if not compact or not compact.isprintable() or URL_TOKEN.search(compact) or "](" in compact:
+        raise ValueError("Enter plain text without links for the App delivery prompt.")
+    if len(value.encode("utf-16-le")) // 2 > APP_DELIVERY_PROMPT_LIMIT:
+        raise ValueError(f"Keep the App delivery prompt within {APP_DELIVERY_PROMPT_LIMIT} characters.")
+    return compact
+
+
 RECHECK_INBOX = "Recheck signed Inbox."
 KEEP_EXPLORING_CUE = "While Keep exploring is active, check signed Inbox after every result and before ending any turn."
 GOAL_OCCURRENCE_COMPLETION = (

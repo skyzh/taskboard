@@ -10,6 +10,7 @@ import sqlite3
 import unittest
 from unittest.mock import patch
 
+from taskboard_client.wake_text import APP_DELIVERY_GUIDANCE
 from taskboard_server import inbox_batch
 from taskboard_server.managed_ready import ManagedReadySender, SampledIdleGate
 from taskboard_server.managed_ready_grant import ManagedReadyGrant
@@ -140,6 +141,43 @@ class InboxBatchTest(unittest.TestCase):
         self.assertEqual((self.history(key)["document"], self.history(key)["members"]),
                          (journal["document"], journal["members"]))
         self.assertIsNone(self.journal())
+
+    def test_saved_project_prompt_is_used_for_new_batches_only(self):
+        from tasks_guidance import APP_DELIVERY, set_agent_prompt
+
+        first = self.fixture.create()
+        self.fixture.create()
+        custom = "Review the signed sample.\nRecord the verified result."
+        original = self.fixture.provider.on_event
+        with closing(open_sqlite(self.fixture.ledger)) as db, write(db):
+            set_agent_prompt(db, "T", APP_DELIVERY, custom)
+        sent = []
+
+        def preserve_first(document):
+            sent.append(document)
+            result = original(document)
+            if len(sent) == 1:
+                raise TimeoutError("The fixture lost the response.")
+            return result
+
+        self.fixture.provider.on_event = preserve_first
+        self.established_idle()
+        status, key = self.poll(30)
+        self.assertEqual(status, "retry")
+        self.assertTrue(sent[0]["summary"].endswith("Review the signed sample. Record the verified result."))
+        self.assertIn(first["task"], sent[0]["summary"])
+        self.assertNotIn(APP_DELIVERY_GUIDANCE, sent[0]["summary"])
+        with closing(open_sqlite(self.fixture.ledger)) as db, write(db):
+            set_agent_prompt(db, "T", APP_DELIVERY, None)
+        self.restart()
+        self.established_idle(40)
+        self.assertEqual(self.poll(70), ("accepted", key))
+        self.assertEqual(sent[0], sent[1])
+
+        self.fixture.create()
+        self.established_idle(80)
+        self.assertEqual(self.poll(110)[0], "accepted")
+        self.assertTrue(sent[2]["summary"].endswith(APP_DELIVERY_GUIDANCE))
 
     def test_restored_ledger_behind_unconfirmed_journal_prevents_retry(self):
         self.fixture.create()

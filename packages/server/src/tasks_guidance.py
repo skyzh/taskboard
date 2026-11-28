@@ -4,7 +4,10 @@ import tomllib
 from pathlib import Path
 from textwrap import dedent
 
-from taskboard_client.wake_text import KEEP_EXPLORING_CUE, GOAL_OUTCOME, REVIEW_OUTCOME, TICKET_OUTCOME, outcome_prompt
+from taskboard_client.wake_text import (
+    APP_DELIVERY_GUIDANCE, APP_DELIVERY_PROMPT_LIMIT, KEEP_EXPLORING_CUE, GOAL_OUTCOME, REVIEW_OUTCOME,
+    TICKET_OUTCOME, app_delivery_text, outcome_prompt,
+)
 
 import tasks_goals as goals
 import tasks_peer_asks as peer_asks
@@ -151,6 +154,7 @@ _FIELDS = {
 INBOX_FOLLOW_UP = "inbox-follow-up"
 GOAL_REVIEW = "goal-review"
 GOAL_EXPLORE = "goal-explore"
+APP_DELIVERY = "app-delivery"
 READY_PICKUP = "ready-pickup"
 STALLED_FOLLOW_UP = "stalled-follow-up"
 REVIEW_HANDOFF = "review-handoff"
@@ -165,6 +169,7 @@ _LEGACY_PROMPT_KEYS = {
 }
 
 _PROMPTS = {
+    APP_DELIVERY: {"prompt": APP_DELIVERY_GUIDANCE, "max_length": APP_DELIVERY_PROMPT_LIMIT},
     READY_PICKUP: {"prompt": _DEFAULTS["ready-review"]},
     STALLED_FOLLOW_UP: {
         "prompt": (
@@ -466,6 +471,8 @@ def set_writing_field(db, project, field, value):
 def set_agent_prompt(db, project, prompt, value):
     if prompt not in _PROMPTS:
         raise ValueError(f"Choose a supported agent prompt: {', '.join(sorted(_PROMPTS))}.")
+    if prompt == APP_DELIVERY and value is not None:
+        app_delivery_text(value)
     return set_project_value(db, f"agent-prompt:{project}:{prompt}", value)
 
 
@@ -506,5 +513,7 @@ def load(path):
     cli = _validate(messages.pop("cli", {}), _CLI_KEYS, "agent_guidance.cli")
     fields = _validate(messages.pop("fields", {}), _FIELDS, "agent_guidance.fields")
     prompts = _validate(messages.pop("prompts", {}), _PROMPTS, "agent_guidance.prompts")
+    if APP_DELIVERY in prompts:
+        app_delivery_text(prompts[APP_DELIVERY])
     return AgentGuidance(_validate(messages, _DEFAULTS, "agent_guidance", optional_empty={"ready-review"}),
                          cli, fields, prompts=prompts)

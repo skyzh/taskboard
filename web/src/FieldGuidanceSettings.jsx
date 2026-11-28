@@ -15,6 +15,8 @@ function GuidanceEditor({ project, field, entry, reload, prompt = false, agent }
   const [result, setResult] = useState(null)
   const text = draft ?? entry.guidance
   const canSave = !saving && text.trim() && text.trim() !== entry.guidance
+  const maxLength = prompt ? entry.max_length ?? 8000 : undefined
+  const plainTextPrompt = prompt && field === 'app-delivery'
 
   async function save(guidance) {
     setSaving(true)
@@ -40,11 +42,12 @@ function GuidanceEditor({ project, field, entry, reload, prompt = false, agent }
     }}>
       <label>
         {prompt ? `${promptLabels[field]} prompt` : 'Guidance'}
-        <textarea rows={prompt ? 9 : 3} maxLength={prompt ? 8000 : undefined} value={text} disabled={saving}
-          aria-describedby={prompt ? undefined : helpId}
+        <textarea rows={prompt ? 9 : 3} maxLength={maxLength} value={text} disabled={saving}
+          aria-describedby={!prompt || plainTextPrompt ? helpId : undefined}
           onChange={event => { setDraft(event.target.value); setResult(null) }} />
       </label>
       {!prompt && <FieldHelp field={{ ...entry, guidance: null }} id={helpId} />}
+      {plainTextPrompt && <p id={helpId}>Use plain text without links, up to {maxLength} characters.</p>}
       <div className="field-guidance-actions">
         <button type="submit" disabled={!canSave}>{prompt ? 'Save prompt' : 'Save guidance'}</button>
         {entry.source === (agent ? 'agent' : 'project') && <button type="button" disabled={saving} onClick={() => save(null)}>

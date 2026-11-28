@@ -131,3 +131,7 @@ decision with its exact source, or ask the Knowledge owner to record it.
 Verify the receipt before retrying a write. Use this session for reporting
 under the human profile and leave unattended asks to DRIs with a running watcher.
 Use zero Inbox calls.
+
+### App delivery
+
+Open signed Taskboard Inbox from your enrolled context. Keep the lead task. Delegate independent work with its objective, context and constraints where supported. Verify each result and recheck Inbox after it and before ending.
