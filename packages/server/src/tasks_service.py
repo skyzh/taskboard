@@ -5963,7 +5963,8 @@ def create_app(
             grant = external_agents.authorize(db(), base, bearer, external_now()) if scheme.lower() == "bearer" else None
             if grant is None:
                 raise RequestError("A valid external agent credential is required.", 401)
-            if name not in grant["actions"].split(","):
+            granted = grant["actions"].split(",")
+            if name not in granted:
                 raise RequestError("This action is outside the external agent grant.", 403)
             g.actor = profiles.get(db(), grant["principal"])
             if g.actor is None or g.actor["kind"] != "agent":
@@ -5988,12 +5989,28 @@ def create_app(
                     require_visible_task(db(), task_number(requested))
                 if action == "advance-task" and data.get("transition") not in ("start", "done"):
                     raise RequestError("The external agent pilot supports Start and Done.", 403)
-                if action in ("my-next", "my-queue"):
+                if action == "my-next":
+                    work = None
+                    if "advance-task" in granted:
+                        with tasks_storage.read(db()) as connection:
+                            require_visible_project(connection, project)
+                            board = query(connection)
+                            for state in ("ready", "in_progress"):
+                                items = board.tasks(
+                                    state=state, dri=grant["principal"], project=project, limit=1,
+                                    priority_order=state == "ready", hide_requests=True,
+                                    exclude_goals=True, exclude_recurring=True,
+                                )["items"]
+                                if items:
+                                    work = inbox_work_result({"kind": state, **items[0]})
+                                    break
+                    return {"work": work}
+                if action == "my-queue":
                     data["project"] = project
                 if action == "context":
                     return {
                         "actor": actor_profile(g.actor), "board": base + "/", "project": project,
-                        "default_project": project, "actions": grant["actions"].split(","),
+                        "default_project": project, "actions": granted,
                         "authentication": "external-agent",
                     }
                 return external_agents.action_result(action, dispatch_action(action, data))

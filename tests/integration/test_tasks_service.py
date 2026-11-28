@@ -8837,6 +8837,50 @@ class TasksServiceTest(unittest.TestCase):
                 self.assertEqual([events[0]["operation"], events[-1]["operation"]], ["enroll", "revoke"])
                 self.assertTrue(all(event["actor"] == manager_id for event in events))
 
+    def test_external_agent_inbox_only_offers_runnable_owned_work(self):
+        from tasks_queries import BoardQueries
+
+        app = self.app(portal_reader=True, external_agent_pilot=True,
+                       project_admin_subject=self.provider.people["Sam"]["sub"])
+        manager, _ = self.login(app, "Sam")
+        requester, requester_key = self.login(app, "Avery")
+        runner = app.test_client()
+        path = "/api/v1/external-agents"
+
+        def enrolled(name, actions):
+            registration = self.call(manager, path, method="POST", status=201,
+                                     json={"project": "T", "name": name, "actions": actions}).json
+            session = self.call(runner, path + "/claim", method="POST",
+                                json={"claim": registration["claim"]}).json
+            return registration["principal"], {"Authorization": "Bearer " + session["token"]}
+
+        owner, credentials = enrolled("Review recipient", ["my-next", "advance-task"])
+        observer, read_only = enrolled("Read-only runner", ["my-next"])
+        self.cli("add", "Owned assignment", "--dri", owner, "--step", "Check the sample.")
+        self.cli("add", "Delegated review target", "--dri", requester_key, "--step", "Prepare the sample.")
+        self.cli("add", "Read-only assignment", "--dri", observer, "--step", "Check another sample.")
+
+        def inbox(headers=credentials):
+            return self.call(runner, path + "/actions/my-next", headers=headers).json["work"]
+
+        self.assertEqual((inbox()["key"], inbox()["kind"]), ("T-1", "ready"))
+        self.call(runner, path + "/actions/advance-task", headers=credentials, method="POST", json={
+            "id": "T-1", "transition": "start", "note": "Check the sample.",
+        })
+        self.action(requester, "advance-task", {"id": "T-2", "transition": "start", "note": "Prepare the sample."})
+        self.action(requester, "delegate", {
+            "id": "T-2", "worker": owner, "role": "review", "brief": "Review the sample.",
+        })
+        with closing(open_sqlite(self.database)) as db:
+            team = BoardQueries(db, ORIGIN + BASE, principal=owner)
+            offered = next(team.actionable_work(owner, today="2030-04-01", project="T"))
+            self.assertEqual((offered["key"], offered["kind"]), ("T-2", "review"))
+        self.assertEqual((inbox()["key"], inbox()["kind"]), ("T-1", "in_progress"))
+        self.assertIsNone(inbox(read_only))
+
+        self.cli("add", "Next owned assignment", "--dri", owner, "--step", "Check a fresh sample.")
+        self.assertEqual((inbox()["key"], inbox()["kind"]), ("T-4", "ready"))
+
     def test_watched_fyi_history_and_write_follow_current_project_access(self):
         app = self.app(portal_reader=True, project_admin_subject=self.provider.people["Sam"]["sub"])
         sam, _ = self.login(app, "Sam")

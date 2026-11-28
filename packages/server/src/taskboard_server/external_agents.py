@@ -118,8 +118,6 @@ def ticket_summary(task):
 
 
 def action_result(name, result):
-    if name == "my-next":
-        return {"work": result["work"]}
     if name == "my-queue":
         return {**result, "items": [ticket_summary(task) for task in result["items"]]}
     if name == "task":

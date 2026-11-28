@@ -817,7 +817,8 @@ class BoardQueries:
               decided_by=None, search=None, priority_order=False, review_due=None, project=None, tag=None,
               managed_by=None, hide_requests=False, exclude_goals=False, github_url=None, include_knowledge=False,
               current_work=False, unfinished=False, summary_personal_owner=None, watching_viewer=None,
-              exclude_exploration=False, decision_reminder_day=None, decision_deferred=False, wake_at=None):
+              exclude_exploration=False, decision_reminder_day=None, decision_deferred=False, wake_at=None,
+              exclude_recurring=False):
         scope, bindings = self.project_visibility()
         terms, args = [scope], list(bindings)
         filter_search = None
@@ -869,6 +870,12 @@ class BoardQueries:
                 args.append(wake_at)
         if exclude_goals:
             terms.append("NOT EXISTS (SELECT 1 FROM task_goals WHERE task_goals.task_id = tasks.id AND retired = 0)")
+        if exclude_recurring:
+            terms.append("""NOT EXISTS (
+                SELECT 1 FROM recurring_review_tickets AS series
+                JOIN recurring_definitions AS definition ON definition.id = series.definition_id
+                WHERE series.task_id = tasks.id AND definition.state <> 'canceled'
+            )""")
         if exclude_exploration:
             terms.append("NOT EXISTS (SELECT 1 FROM board_settings WHERE key = ? || CAST(tasks.id AS TEXT))")
             args.append(goals.EXPLORATION_SETTING)
