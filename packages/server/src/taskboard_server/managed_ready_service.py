@@ -1,7 +1,7 @@
 """Run the existing sampled Raft sender for several enrolled scopes in one process."""
 
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
+from contextlib import ExitStack, closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fcntl import LOCK_EX, LOCK_NB, flock
@@ -25,6 +25,7 @@ from taskboard_server.ready_wake_operator import _Parser, _read_token, _token_fd
 import tasks_agent_delivery as agent_delivery
 from tasks_release_info import release_info
 from tasks_storage import has_table, open_sqlite, read, write
+from tasks_wake_subscriptions import OWNED_READY
 
 
 _MAX_SCOPES = 64
@@ -52,6 +53,7 @@ class Enrollment:
     goals: bool
     batches: bool
     board_wide: bool = False
+    retiring: tuple[tuple[str, Path], ...] = ()
 
     @property
     def key(self):
@@ -59,13 +61,21 @@ class Enrollment:
 
     @classmethod
     def from_config(cls, row, *, board_wide):
-        if not isinstance(row, dict) or row.keys() != {
+        optional = {"retiring"} if board_wide else set()
+        if not isinstance(row, dict) or row.keys() - optional != {
             "recipient", "project", "state", "client", "secret", "goals", "batches",
         }:
             raise ValueError("Supply the exact enrolled-scope configuration.")
         secret = Path(row["secret"]) if row["secret"] is not None else None
+        retiring = row.get("retiring", {})
+        if (not isinstance(retiring, dict) or row["project"] in retiring
+                or any(project not in SAMPLED_STATE_BY_PROJECT for project in retiring)):
+            raise ValueError("Choose distinct original projects for the retiring journals.")
+        journals = tuple((project, Path(path)) for project, path in retiring.items())
+        if any(not path.is_absolute() for _, path in journals):
+            raise ValueError("Use absolute paths to the original retiring journals.")
         scope = cls(_uuid(row["recipient"]), row["project"], Path(row["state"]), row["client"],
-                    secret, row["goals"], row["batches"], board_wide)
+                    secret, row["goals"], row["batches"], board_wide, journals)
         if (scope.project not in SAMPLED_STATE_BY_PROJECT or not scope.state.is_absolute()
                 or (secret is not None and not secret.is_absolute()) or not isinstance(scope.client, str)
                 or not scope.client or type(scope.goals) is not bool or type(scope.batches) is not bool):
@@ -91,7 +101,8 @@ def _config(path):
     owners = {scope.recipient if board_wide else scope.key for scope in scopes}
     if len(owners) != len(scopes):
         raise ValueError("Configure one journal per recipient in board-wide mode.")
-    if len({scope.state.resolve() for scope in scopes}) != len(scopes):
+    journals = [path.resolve() for scope in scopes for path in (scope.state, *(file for _, file in scope.retiring))]
+    if len(set(journals)) != len(journals):
         raise ValueError("Configure a distinct saved state for each scope.")
     return ledger, _uuid(data["server"]), slug, scopes
 
@@ -108,15 +119,46 @@ def _progress(state):
             "retry_at": max(saved["retry_at"], batch["retry_at"] if batch else 0)}
 
 
-def _join_board_wide(state):
-    """Keep the original journal and require a quiet boundary on first transfer."""
+def _join_board_wide(db, state, enrolled, saved, ledger):
+    """Transfer every original journal at a quiet boundary, preserving each project cursor."""
     if has_table(state, "board_wide_handover"):
         return
-    if _progress(state)["pending"]:
+    owner = saved["owner"]
+    with read(db):
+        projects = {row["project"] for row in db.execute(
+            "SELECT project FROM wake_subscriptions WHERE owner = ? AND event_type = ?", (owner, OWNED_READY),
+        )}
+        projects.update(row["project"] for row in db.execute(
+            """SELECT SUBSTR(record_type, 10) AS project FROM audit_events
+               WHERE actor = ? AND operation = 'accept-app-wake' AND record_type LIKE 'app-wake:%'""", (owner,),
+        ))
+        pending_goal = db.execute(
+            "SELECT 1 FROM goal_wake_receipts WHERE recipient = ? AND acceptance = 'pending' LIMIT 1", (owner,),
+        ).fetchone()
+    required = (projects & SAMPLED_STATE_BY_PROJECT.keys()) - {enrolled.project}
+    if required - {project for project, _ in enrolled.retiring}:
+        raise ValueError("Provide every retiring project journal for this recipient.")
+    if _progress(state)["pending"] or pending_goal:
         raise ValueError("Settle the pending legacy send before transferring delivery.")
-    with state:
-        state.execute("CREATE TABLE board_wide_handover (singleton INTEGER PRIMARY KEY CHECK (singleton = 1))")
-        state.execute("INSERT INTO board_wide_handover VALUES (1)")
+    binding = ("ledger", "board", "server", "recipient", "owner")
+    with ExitStack() as stack, state:
+        state.execute("BEGIN IMMEDIATE")
+        state.execute("CREATE TABLE board_wide_handover (project TEXT PRIMARY KEY, through_event BIGINT NOT NULL)")
+        state.execute("INSERT INTO board_wide_handover VALUES (?, ?)", (enrolled.project, saved["through_event"]))
+        for project, path in enrolled.retiring:
+            original = stack.enter_context(locked_state(path, ledger))
+            row = original.execute("SELECT * FROM sender WHERE singleton = 1").fetchone()
+            marker = original.execute("SELECT event FROM pilot").fetchone()
+            if (row is None or marker is None or marker[0] != SAMPLED_STATE_BY_PROJECT[project]
+                    or any(row[key] != saved[key] for key in binding) or _progress(original)["pending"]):
+                raise ValueError("Verify the exact retiring enrollment and settle its pending send.")
+            state.execute("INSERT INTO board_wide_handover VALUES (?, ?)", (project, row["through_event"]))
+            if has_table(original, "inbox_batch_history"):
+                history = original.execute("SELECT * FROM inbox_batch_history")
+                state.executemany(
+                    "INSERT INTO inbox_batch_history VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                    (tuple(receipt) for receipt in history),
+                )
 
 
 def _worker_observation(db, owner, enrollment, build, observed_state):
@@ -140,9 +182,7 @@ def _run_scope(ledger, server, slug, enrolled, stop, report, transport, slot_sec
             if saved["stopped"] in _INACTIVE:
                 report(saved["stopped"])
                 return
-            if enrolled.board_wide:
-                _join_board_wide(state)
-            else:
+            if not enrolled.board_wide:
                 _operator_delivery_status(db, state, scope, resume=False)
             gate = SampledIdleGate(_pilot_status(db, identity, slug), clock=monotonic, include_boundary=True)
             secret = slot_secret if enrolled.secret is None else _read_token(_private_file(enrolled.secret))
@@ -152,6 +192,8 @@ def _run_scope(ledger, server, slug, enrolled, stop, report, transport, slot_sec
                 sender = ManagedReadySender(db, state, scope, grant, idle_gate=gate, sampled=True,
                                             stop_requested=stop.is_set, goal_occurrences=True,
                                             inbox_batches=True)
+                if enrolled.board_wide:
+                    _join_board_wide(db, state, enrolled, saved, ledger)
                 report("starting" if enrolled.board_wide else "running", **_progress(state))
                 last_enrollment = None
                 next_readback = 0

@@ -79,6 +79,9 @@ class BatchMember:
     blocker_ticket: str | None = None
 
 
+_PRIVATE_SUMMARY = "Open your signed Taskboard Inbox for the next actionable item."
+
+
 class InboxBatchDelivery:
     def __init__(self, sender):
         self.sender = sender
@@ -97,6 +100,9 @@ class InboxBatchDelivery:
     def _selected(self, saved, ledger_tip=0):
         now = self.sender.clock()
         owner = saved["owner"]
+        cursors = {self.anchor_project: saved["through_event"]}
+        if self.project is None and tasks_storage.has_table(self.state, "board_wide_handover"):
+            cursors.update(self.state.execute("SELECT project, through_event FROM board_wide_handover"))
         wake_at = datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         observed = {(row[0], row[1]) for row in self.state.execute("""
             SELECT json_extract(member.value, '$.kind'), json_extract(member.value, '$.key')
@@ -108,7 +114,7 @@ class InboxBatchDelivery:
             self.sender._check_history(saved, ledger_tip)
             tip = _latest(self.db)
             if self.project is not None and ring1.private(self.db, self.project):
-                return [], (), tip, False
+                return [], (), tip, False, False
             goal_enabled = self.project is None or (self.sender.goal_occurrences and has_subscription(
                 self.db, self.project, owner, GOAL_OCCURRENCES,
             ))
@@ -141,7 +147,7 @@ class InboxBatchDelivery:
                 if item.kind == "ready":
                     if task["dri"] != owner or item.source_event != task["event_id"] or task["state"] != "ready":
                         break
-                    if project == self.anchor_project and item.source_event <= saved["through_event"]:
+                    if item.source_event <= cursors.get(project, 0):
                         continue
                     ready_at = datetime.fromisoformat(task["at"]).timestamp()
                     if now < ready_at or now >= ready_at + _MAX_READY_AGE:
@@ -164,7 +170,11 @@ class InboxBatchDelivery:
                     item.kind, item.ticket, item.key, task["id"], item.source_event, source_at,
                     item.wait_event, item.blocker_event, item.blocker_ticket,
                 ))
-            return members, tuple(selected), tip, pending_goal
+            requires_generic = self.project is None and any(
+                ring1.private(self.db, projects.identifier(ticket)[0])
+                for item in selected for ticket in (item.ticket, item.blocker_ticket) if ticket is not None
+            )
+            return members, tuple(selected), tip, pending_goal, requires_generic
 
     def _clear(self):
         with self.state:
@@ -245,10 +255,11 @@ class InboxBatchDelivery:
             if journal["accepted_at"] is not None:
                 self._settle(saved, journal, members, "accepted")
                 return "accepted", key
-        selected, items, tip, pending_goal = self._selected(saved, journal["ledger_tip"] if journal else 0)
+        selected, items, tip, pending_goal, requires_generic = self._selected(saved, journal["ledger_tip"] if journal else 0)
         if journal is not None:
             expired = journal["attempts"] >= _ATTEMPTS or now >= journal["first_attempt"] + _RETRY_WINDOW
-            if selected != members or expired:
+            privacy_changed = requires_generic and json.loads(journal["document"])["summary"] != _PRIVATE_SUMMARY
+            if selected != members or expired or privacy_changed:
                 if journal["submitted"]:
                     self._settle(saved, journal, members, "unknown")
                 else:
@@ -267,12 +278,8 @@ class InboxBatchDelivery:
             try:
                 with tasks_storage.read(self.db):
                     prompt = self.guidance.project_prompt(self.db, self.project, tasks_guidance.APP_DELIVERY)["prompt"]
-                    restricted = self.project is None and any(
-                        ring1.private(self.db, projects.identifier(ticket)[0])
-                        for item in items for ticket in (item.ticket, item.blocker_ticket) if ticket is not None
-                    )
-                if restricted:
-                    summary = "Open your signed Taskboard Inbox for the next actionable item."
+                if requires_generic:
+                    summary = _PRIVATE_SUMMARY
                 else:
                     summary = inbox_event_summary(items, project=self.project, guidance=prompt)
             except ValueError:
@@ -296,8 +303,8 @@ class InboxBatchDelivery:
 
         def preflight():
             check_stop()
-            current, _, _, _ = self._selected(saved, journal["ledger_tip"])
-            if current != members:
+            current, _, _, _, requires_generic = self._selected(saved, journal["ledger_tip"])
+            if current != members or (requires_generic and json.loads(journal["document"])["summary"] != _PRIVATE_SUMMARY):
                 raise _SampledChoiceChanged
 
         def submit(request):

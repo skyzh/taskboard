@@ -542,7 +542,10 @@ and running state. Ring 1 work triggers a generic Inbox instruction.
 
 Before the first transfer, confirm each original journal has no pending send
 and each previous sender has stopped. Reuse the exact journal and credential
-binding for that agent. Both the selected and rollback releases must support
+binding for that agent. If an agent used multiple project senders, list the
+other original files in `retiring` as a map from project prefix to absolute
+journal path. The first transfer preserves their delivered-member history and
+Ready cursors in the active journal. Both the selected and rollback releases must support
 the board-wide configuration before the checked deploy hook is enabled.
 Verify one process for the configured roster, exact runtime state, and a
 representative natural delivery matched to signed pickup.
