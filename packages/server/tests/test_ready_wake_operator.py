@@ -117,7 +117,7 @@ class ReadyWakeOperatorTest(unittest.TestCase):
             self.assertEqual(request.full_url, ENDPOINT)
             self.assertEqual(request.get_method(), "POST")
             self.assertEqual(request.get_header("Authorization"), f"Bearer {TOKEN}")
-            self.assertIn("https://tasks.example.test/board/#task-1", json.loads(request.data)["summary"])
+            self.assertIn("https://tasks.example.test/board/tickets/T-1", json.loads(request.data)["summary"])
             self.assertEqual(timeout, 5)
             with closing(open_sqlite(self.ledger, write_existing=False)) as db:
                 self.assertIsNone(db.execute("SELECT 1 FROM wake_log").fetchone())

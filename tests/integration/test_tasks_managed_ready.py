@@ -61,10 +61,14 @@ class ManagedReadyTest(unittest.TestCase):
         self.ledger = self.service.database
         self.outbox = self.ledger.with_name("ready-outbox.sqlite")
         self.recipient = self.service.provider.wake_recipient(RECIPIENT)
+        dist = self.ledger.parent / "web"
+        dist.mkdir()
+        (dist / "index.html").write_text('<html><head><base href="./"></head><body>Board</body></html>', encoding="utf-8")
+        self.app = self.service.app(portal_reader=True, dist=dist)
 
     def sign_in(self):
         self.service.provider.issued.discard(RECIPIENT)
-        client, owner = self.service.login(self.service.app(portal_reader=True), RECIPIENT)
+        client, owner = self.service.login(self.app, RECIPIENT)
         return SignedBoard(self.service, client), owner
 
     def signal(self, owner, *args):
@@ -151,7 +155,7 @@ class ManagedReadyTest(unittest.TestCase):
             self.assertEqual(first.get_header("Authorization"), f"Bearer {self.recipient.access_token}")
             self.assertEqual(json.loads(second.data), {
                 "kind": "event", "externalEventId": key,
-                "summary": f"Taskboard ticket {ticket} is Ready in your owned queue. Ready event {event}. {task_url}",
+                "summary": f"Taskboard ticket {ticket} is Ready in your owned queue. Ready event {event}. {BOARD}/tickets/{ticket}",
             })
             self.assertEqual(self.receipts(), [accepted])
             self.assertEqual(carrier.inbox, [])
@@ -159,6 +163,19 @@ class ManagedReadyTest(unittest.TestCase):
             # Only the carrier's Start and inbox are simulated. The pickup below is a signed board action.
             carrier.start_fixture_recipient()
             self.assertEqual(carrier.inbox, [json.loads(first.data)])
+            delivered_url = urlsplit(carrier.inbox[0]["summary"].rsplit(" ", 1)[1])
+            self.assertFalse(delivered_url.fragment)
+            route = delivered_url.path.removeprefix(test_tasks_service.BASE)
+            self.assertEqual(route, f"/tickets/{ticket}")
+            public = self.app.test_client()
+            for client in (board.client, public):
+                with closing(self.service.call(client, route)) as response:
+                    self.assertEqual(response.mimetype, "text/html")
+                task = self.service.call(client, f"/api/v1/tasks/{ticket}").json["task"]
+                self.assertEqual((task["key"], task["event_id"], task["state"]), (ticket, event, "ready"))
+            self.service.call(public, "/channel:task-" + ticket.removeprefix("T-"), status=404)
+            self.assertEqual(public.get(delivered_url.path, base_url=test_tasks_service.ORIGIN).status_code, 403)
+
             self.observe(ready, owner, delivery={"status": "delivered", "at": timestamp()})
             offer = offer_work(board, owner)
             self.assertEqual(offer, {"kind": "task", "task": ticket, "ready_event": event})
