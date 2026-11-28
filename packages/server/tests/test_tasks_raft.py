@@ -50,6 +50,12 @@ class RaftActionRoutesTest(unittest.TestCase):
         self.assertNotIn("docs_url", manifest)
         expected = {
             "context": ("GET", "", ""),
+            "project-resources": ("GET", "project", ""),
+            "resource-history": ("GET", "project key", "before limit"),
+            "define-resource": ("POST", "project key title conditions max_minutes", ""),
+            "claim-resource": ("POST", "project key request_key minutes checked_conditions", "ticket pr_url"),
+            "renew-resource": ("POST", "project key request_key claim_id revision minutes", ""),
+            "release-resource": ("POST", "project key request_key claim_id revision", ""),
             "list-projects": ("GET", "", ""),
             "project-owners": ("GET", "project", ""),
             "set-project-owner": ("POST", "project principal allowed", ""),

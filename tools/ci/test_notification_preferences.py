@@ -22,6 +22,7 @@ from test_tasks_knowledge_sweeps import replay_knowledge_sweeps
 from test_tasks_migrations import reject_incompatible_profile_definition, replay_additive_rollback, replay_versioned_profiles
 from test_tasks_project_move import replay_move
 from test_tasks_postboards import replay_postboards
+from test_tasks_resources import replay_resource_claims
 from test_tasks_recurring import replay_project_tick, replay_reusable_upgrade, replay_team_schedules, replay_ticket_recurrence
 import test_tasks_ring1 as ring1_fixture
 import test_tasks_reports_presence as presence_fixture
@@ -95,6 +96,28 @@ class StorageReplayTest(unittest.TestCase):
 
     def test_postgres(self):
         self.replay(self.postgres_app(self.postgres_fixture()))
+
+    def test_postgres_signed_resource_claims(self):
+        dsn = self.postgres_fixture()
+        replay_resource_claims(self, self.board, lambda: self.postgres_app(dsn), lambda: Postgres(dsn))
+
+    def test_sqlite_import_preserves_resource_claims_and_history(self):
+        dsn = self.postgres_fixture()
+
+        def make_app():
+            self.board.provider = fixture.FixtureRaft()
+            return self.board.app(portal_reader=True)
+
+        replay_resource_claims(self, self.board, make_app, lambda: open_sqlite(self.board.database))
+        imported = import_snapshot(self.board.database, dsn)
+        self.assertEqual((imported["project_resources"], imported["project_resource_events"]), (3, 6))
+        app = self.postgres_app(dsn)
+        manager, _ = self.board.login(app, "Avery")
+        project = {"project": "LAB"}
+        resources = self.board.action(manager, "project-resources", query_string=project)
+        self.assertIsNotNone(next(item for item in resources["items"] if item["key"] == "race")["claim"])
+        history = self.board.action(manager, "resource-history", query_string={**project, "key": "bench"})["items"]
+        self.assertEqual([row["action"] for row in history], ["release", "claim", "expire", "renew", "claim"])
 
     def test_postgres_owned_ready_outbox(self):
         dsn = self.postgres_fixture()

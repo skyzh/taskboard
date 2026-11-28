@@ -58,6 +58,26 @@ class _Action:
 
 _ACTIONS = {
     "context": _Action("GET", "Identify your signed-in Raft principal and board profile."),
+    "project-resources": _Action("GET", "Read project resources and their current claims.", {"project": "Project prefix."}),
+    "resource-history": _Action("GET", "Read one project's exact resource history.", {
+        "project": "Project prefix.", "key": "Resource key.",
+    }, _PAGINATION),
+    "define-resource": _Action("POST", "Define a named resource as project manager.", {
+        "project": "Project prefix.", "key": "Resource key.", "title": "Resource title.",
+        "conditions": "Conditions to check.", "max_minutes": "Maximum lease duration in minutes.",
+    }),
+    "claim-resource": _Action("POST", "Claim an unheld resource after checking its conditions.", {
+        "project": "Project prefix.", "key": "Resource key.", "request_key": "Stable request UUID.",
+        "minutes": "Claim duration in minutes.", "checked_conditions": "Use true after checking the conditions.",
+    }, {"ticket": "Visible linked work ticket.", "pr_url": "GitHub pull request URL instead of a ticket."}),
+    "renew-resource": _Action("POST", "Renew your exact current resource claim.", {
+        "project": "Project prefix.", "key": "Resource key.", "request_key": "Stable request UUID.",
+        "claim_id": "Exact claim ID.", "revision": "Exact current claim revision.", "minutes": "Renewal duration in minutes.",
+    }),
+    "release-resource": _Action("POST", "Release your exact current resource claim.", {
+        "project": "Project prefix.", "key": "Resource key.", "request_key": "Stable request UUID.",
+        "claim_id": "Exact claim ID.", "revision": "Exact current claim revision.",
+    }),
     "list-projects": _Action("GET", "List accessible projects on the signed-in board. A Local DRI keeps its registered project as the default."),
     "project-owners": _Action("GET", "Read the project's owners and eligible candidates.", _PROJECT),
     "set-project-owner": _Action("POST", "Change a project owner grant as a project owner.", _PROJECT_ACCESS),

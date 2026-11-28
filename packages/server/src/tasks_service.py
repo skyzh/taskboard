@@ -34,6 +34,7 @@ import tasks_codex_usage
 import tasks_attachments
 from taskboard_server import attachment_routes, public_knowledge
 import tasks_core as ledger
+import tasks_resources as resources
 import tasks_browser_push as browser_push
 import tasks_maintenance as maintenance
 import tasks_cue_pauses as cue_pauses
@@ -101,6 +102,18 @@ INTAKE_ERRORS = """
         PRIMARY KEY (source_id, stage)
     )
 """
+
+
+RESOURCE_ACTIONS = {
+    "project-resources": "list", "resource-history": "history", "define-resource": "define",
+    "claim-resource": "claim", "renew-resource": "renew", "release-resource": "release",
+}
+RESOURCE_FIELDS = {
+    "define": {"title", "conditions", "max_minutes"},
+    "claim": {"request_key", "minutes", "checked_conditions", "ticket", "pr_url"},
+    "renew": {"request_key", "claim_id", "revision", "minutes"},
+    "release": {"request_key", "claim_id", "revision"},
+}
 
 
 ATTENTION_SCHEMA = """
@@ -415,7 +428,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     if marketplace:
         db.execute("INSERT INTO board_settings VALUES ('marketplace_server_id', ?) ON CONFLICT (key) DO NOTHING", (server_id,))
     profiles.ensure_principals(db, versioned=True)
-    for statement in (*reports_presence.SCHEMA, *postboards.SCHEMA):
+    for statement in (*reports_presence.SCHEMA, *postboards.SCHEMA, *resources.SCHEMA):
         db.execute(statement)
     db.execute(project_admin.SCHEMA)
     db.execute(personal_agents.INSTRUCTIONS_SCHEMA)
@@ -490,7 +503,7 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
         ledger.ensure_record_kind(db)
         ledger.ensure_checklist_schema(db)
         profiles.ensure_principals(db, versioned=True)
-        for statement in (*reports_presence.SCHEMA, *postboards.SCHEMA):
+        for statement in (*reports_presence.SCHEMA, *postboards.SCHEMA, *resources.SCHEMA):
             db.execute(statement)
         ensure_attention_requests(db)
         db.execute(DECISION_REMINDER_SCHEMA)
@@ -2823,6 +2836,138 @@ def create_app(
                              record_type="project-owner", record_id=f"{project}:{principal}", at=ledger.timestamp())
                 ledger.bump_revision(connection, project)
             return project_owner_state(connection, actor, project)
+
+    def resource_access(actor, project, operation, data, key=None):
+        project = project_filter({"project": project})
+        principal = actor_key()
+        transaction = tasks_storage.read if operation in ("list", "history") else tasks_storage.write
+        with transaction(db()) as connection:
+            require_visible_project(connection, project)
+            manager = can_manage_project_owners(connection, actor, project)
+            member = principal is not None and (manager or project_writer(actor, project))
+            if not member or (operation == "define" and not manager):
+                raise RequestError("Use a signed project member, or a project manager to define resources.", 403)
+            now = ledger.timestamp()
+
+            def present_claim(claim):
+                if claim is None:
+                    return None
+                ticket = claim["ticket"]
+                url = claim["pr_url"]
+                if ticket:
+                    related = project_for_task(connection, claim["ticket_id"])
+                    if (related is None or not ring1.visible(connection, related, principal)
+                            or (related != project and (ring1.private(connection, related) or ring1.private(connection, project)))):
+                        ticket = None
+                    else:
+                        url = f"{base}/tickets/{ticket}"
+                return {field: claim[field] for field in ("claim_id", "holder", "claimed_at", "expires_at", "revision")} | {
+                    "ticket": ticket, "url": url,
+                }
+
+            def present_resource(row):
+                claim = resources.current_claim(row, now)
+                owns = claim is not None and claim["holder"]["id"] == principal
+                return {field: row[field] for field in ("title", "conditions", "max_minutes")} | {
+                    "key": row["resource_key"], "claim": present_claim(claim),
+                    "can_claim": claim is None, "can_renew": owns, "can_release": owns,
+                }
+
+            if operation == "list":
+                return {"project": project, "can_define": manager, "as_of": now, "items": [
+                    present_resource(row) for row in resources.listing(connection, project)
+                ]}
+            if not isinstance(key, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", key):
+                raise RequestError("Use a lowercase resource key of up to 64 letters, digits, hyphens or underscores.")
+            if operation == "define":
+                title = text(data, "title", maximum=160)
+                conditions = text(data, "conditions")
+                max_minutes = integer(data.get("max_minutes"), "max_minutes", maximum=2**31 - 1)
+                row = resources.define(connection, project, key, title, conditions, max_minutes)
+                return {"project": project, **present_resource(row)}
+            try:
+                row = resources.resource(connection, project, key)
+            except LookupError as error:
+                raise RequestError(str(error), 404) from error
+
+            def present_event(event):
+                claim = present_claim(json.loads(event["holder"]))
+                return {field: event[field] for field in ("event_id", "action", "at")} | {
+                    "actor": claim["holder"] if event["actor"] else None, "claim": claim,
+                }
+
+            result = {"project": project, "key": key}
+            if operation == "history":
+                events, cursor = resources.history(connection, row, now, **page_args(data))
+                return {**result, "items": [present_event(event) for event in events], "next_cursor": cursor}
+
+            try:
+                request_key = str(UUID(text(data, "request_key", maximum=36)))
+            except ValueError as error:
+                raise RequestError("Provide a stable request_key UUID and reuse it on retry.") from error
+            inputs = {}
+            if operation in ("claim", "renew"):
+                inputs["minutes"] = integer(data.get("minutes"), "minutes", maximum=2**31 - 1)
+            if operation == "claim":
+                checked = data.get("checked_conditions")
+                if checked is not True and checked != "true":
+                    raise RequestError("Confirm that you checked this resource's conditions.")
+                ticket = text(data, "ticket", optional=True, maximum=32)
+                pr_url = text(data, "pr_url", optional=True, maximum=2000)
+                if bool(ticket) == bool(pr_url):
+                    raise RequestError("Link exactly one work ticket or GitHub pull request.")
+                ticket_id = None
+                if ticket:
+                    ticket_id = task_number(ticket)
+                    target = ledger.find_task(connection, ticket_id)
+                    if target is None or ledger.is_knowledge(target):
+                        raise RequestError("Choose an existing work ticket.", 404)
+                    target_project = projects.row_project(target)
+                    require_visible_project(connection, target_project)
+                    require_same_ring(connection, project, target_project)
+                    ticket = projects.row_reference(target)
+                else:
+                    from tasks_github import linked_source
+
+                    try:
+                        _, pr_url = linked_source(pr_url)
+                    except ValueError as error:
+                        raise RequestError(str(error)) from error
+                    if urlsplit(pr_url).path.split("/")[-2] != "pull":
+                        raise RequestError("Link a GitHub pull request.")
+                inputs.update(ticket=ticket, ticket_id=ticket_id, pr_url=pr_url)
+            else:
+                inputs["claim_id"] = text(data, "claim_id", maximum=36)
+                inputs["revision"] = integer(data.get("revision"), "revision")
+            holder = {"id": principal, "name": actor["name"] or actor["username"] or principal}
+            try:
+                event = resources.change(connection, row, holder, operation, request_key, inputs, now)
+            except PermissionError as error:
+                raise RequestError(str(error), 403) from error
+            except ValueError as error:
+                raise RequestError(str(error), 409) from error
+            return {**result, "event_id": event["event_id"],
+                    "claim": None if operation == "release" else present_event(event)["claim"]}
+
+    @app.get("/api/v1/projects/<project>/resources")
+    def project_resources(project):
+        return resource_access(current_actor(required=True), project, "list", {})
+
+    @app.get("/api/v1/projects/<project>/resources/<key>/history")
+    def project_resource_history(project, key):
+        return resource_access(current_actor(required=True), project, "history", request.args, key)
+
+    @app.put("/api/v1/projects/<project>/resources/<key>")
+    def project_resource_define(project, key):
+        actor = current_actor(write=True, required=True)
+        return resource_access(actor, project, "define", json_body(RESOURCE_FIELDS["define"]), key)
+
+    @app.post("/api/v1/projects/<project>/resources/<key>/<operation>")
+    def project_resource_change(project, key, operation):
+        actor = current_actor(write=True, required=True)
+        if operation not in ("claim", "renew", "release"):
+            raise NotFound()
+        return resource_access(actor, project, operation, json_body(RESOURCE_FIELDS[operation]), key)
 
     @app.route("/api/v1/projects/<project>/owners", methods=("GET", "PUT"))
     def project_owners(project):
@@ -5401,6 +5546,8 @@ def create_app(
             handler = change_project_owners if name in ("project-owners", "set-project-owner") else change_project_ring1
             result = handler(actor, project, data if edit else None)
             return {"receipt": f"{project} · Project access saved", **result} if edit else result
+        if name in RESOURCE_ACTIONS:
+            return resource_access(actor, text(data, "project", maximum=8), RESOURCE_ACTIONS[name], data, data.get("key"))
         if name != "list-projects" and actor["kind"] != "agent" and not g.get("personal_agent_api"):
             raise RequestError("This action requires a signed-in agent or Personal Agents connection.", 403)
         if g.get("personal_agent_api") and name in STANDING_RAFT_ACTIONS:
@@ -6249,7 +6396,7 @@ def create_app(
             if name == CODEX_SNAPSHOT_ACTION:
                 return upload_codex_snapshot(data)
             result = dispatch_action(name, data)
-            if "next_step" not in result:
+            if name not in RESOURCE_ACTIONS and "next_step" not in result:
                 result["next_step"] = agent_guidance.next_step(name, data, result)
             receipt_transitions = {"advance-task": ("done",), peer_asks.COMMAND: ("result", "manual-result")}.get(name)
             if name == "handoff" or (receipt_transitions and data["transition"].strip() in receipt_transitions):

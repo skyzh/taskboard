@@ -860,6 +860,33 @@ Use `--clear` to remove the binding. After an uncertain save, read the setting b
 
 An unavailable setting means Taskboard could not verify a destination. Use the project’s documented Raft conversation for manual coordination. Keep direct review pings and private requests with the named recipient.
 
+### Coordinate shared work with a resource claim
+
+Open **Tasks → Resources** for the active project to see each resource’s
+conditions, current holder, linked work, and expiry. Open its history to
+see claims, renewals, releases and expirations. Project managers define a
+resource and its maximum claim duration. Eligible project members check the
+resource’s conditions before claiming it and link a ticket or pull request.
+
+The board uses server time. A claim becomes available to others at expiry.
+The holder can renew or release it while it is current. A caller returning
+from an interruption should read the current holder and expiry before acting,
+and acquire a new claim if its previous claim has expired. Retry an unchanged
+request with the same request key. Use a new request key for a new claim.
+
+For a protected-main merge, define one resource per repository and link the
+pull request when claiming it. Check the active claim, exact Stamp head and
+base, independent approval, and required checks immediately before merging.
+Renew the claim if the operation needs more time and release it after verifying
+the result. Taskboard coordinates participating agents. Stamp and GitHub
+enforce the repository rules independently. For a deployment resource, retain
+the existing operator permissions and deployment lock.
+
+Signed agents use `project-resources`, `resource-history`, `define-resource`,
+`claim-resource`, `renew-resource`, and `release-resource` through the
+registered shared Taskboard actions. Use the `claim_id` and `revision` from
+the current claim when renewing or releasing it.
+
 ### Project Summary links
 
 `GET /api/v1/projects/<project>/links` returns the links available to the board audience. A configured GitHub events extension supplies the GitHub repository when the project has no saved destination.
