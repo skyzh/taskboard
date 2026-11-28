@@ -149,6 +149,15 @@ def occurrence_receipt(db, number, occurrence_key):
 
 def occurrences(db, owner, project, now):
     """Offer daily Explore and scheduled Review independently on the same goal."""
+    slots = list(_occurrence_slots(db, owner, project, now))
+    # Fill the existing Explore slots with first passes, then least recently
+    # completed repeats. A delivery receipt does not count as a completed pass.
+    explores = iter(sorted((slot for slot in slots if slot[1]["kind"] == "explore"), key=lambda slot: slot[0]))
+    for _, offer in slots:
+        yield next(explores)[1] if offer["kind"] == "explore" else offer
+
+
+def _occurrence_slots(db, owner, project, now):
     daily = {row["id"]: row["review_time"] for row in schedule_rows(db, owner, project)}
     day = now.date().isoformat()
     for row in goals.goal_rows(db, [owner], project):
@@ -164,7 +173,7 @@ def occurrences(db, owner, project, now):
             key = f"explore:{ticket}:{day}"
             completed = occurrence_receipt(db, number, key)
             if completed is None:
-                yield {"kind": "explore", "ticket": ticket, "key": key, "day": day}
+                yield 0, {"kind": "explore", "ticket": ticket, "key": key, "day": day}
             elif row["stopping_criterion"] is not None:
                 last = db.execute(
                     """SELECT id FROM events WHERE task_id = ? AND action = 'log'
@@ -172,8 +181,9 @@ def occurrences(db, owner, project, now):
                        ORDER BY id DESC LIMIT 1""",
                     (number, key + ":%"),
                 ).fetchone()
-                yield {"kind": "explore", "ticket": ticket, "key": f"{key}:{(last or completed)['id']}",
-                       "day": day}
+                last_completed = (last or completed)["id"]
+                yield last_completed, {"kind": "explore", "ticket": ticket, "key": f"{key}:{last_completed}",
+                                       "day": day}
         if not review_time:
             continue
         due_at = goals.review_slot(now.date(), review_time)
@@ -181,8 +191,8 @@ def occurrences(db, owner, project, now):
             continue
         key = f"review:{ticket}:{day}"
         if occurrence_receipt(db, number, key) is None:
-            yield {"kind": "review", "ticket": ticket, "key": key, "day": day,
-                   "due_at": due_at.isoformat().replace("+00:00", "Z")}
+            yield 0, {"kind": "review", "ticket": ticket, "key": key, "day": day,
+                      "due_at": due_at.isoformat().replace("+00:00", "Z")}
 
 
 def drain_event(db, owner):
