@@ -158,10 +158,10 @@ class InboxWakeTest(unittest.TestCase):
         self.assertLessEqual(len(summary.encode("utf-16-le")) // 2, 2000)
         self.assertIn("105 actionable items", summary)
         shown = re.findall(r"(T-\d+) \[ready:\d+\]", summary)
-        self.assertGreater(len(shown), 1)
-        self.assertLess(len(shown), len(items))
+        self.assertEqual(len(shown), 3)
         self.assertEqual(shown, tickets[:len(shown)])
-        self.assertIn(f"{len(items) - len(shown)} more in Inbox.", summary)
+        self.assertIn("and others in your inbox", summary)
+        self.assertNotIn("and others in your inbox", inbox_event_summary(BOARD, items[:3]))
         self.assertTrue(summary.endswith(f"{board}/notifications?scope=all"))
 
     def test_summary_refuses_invalid_links_private_text_and_unrepresentable_lead(self):

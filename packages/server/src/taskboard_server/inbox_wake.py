@@ -81,19 +81,12 @@ def inbox_event_summary(board_url: str, items: tuple[InboxWakeItem, ...], *, pro
         if any(identifier(item.ticket)[0] != project for item in items):
             raise ValueError("All reported items must belong to the enrolled project.")
         header = f"Taskboard project {project} has {count} actionable Inbox {noun} in this wake."
-    refs = [_reference(item) for item in items]
+    refs = [_reference(item) for item in items[:3]]
     guidance = f"{GUIDANCE} {url}"
-    full = f"{header} {', '.join(refs)}. {guidance}"
-    if _fits(full):
-        return full
-    lead = ""
-    summary = None
-    for shown, ref in enumerate(refs, start=1):
-        prefix = f"{lead}, {ref}" if lead else ref
-        text = f"{header} {prefix}. {count - shown} more in Inbox. {guidance}"
-        if not _fits(text):
-            break
-        lead, summary = prefix, text
-    if summary is None:
-        raise ValueError("The signed Inbox count, first item and link exceed Raft's summary limit.")
-    return summary
+    for shown in range(len(refs), 0, -1):
+        listing = ", ".join(refs[:shown])
+        remainder = ", and others in your inbox" if shown < count else ""
+        summary = f"{header} {listing}{remainder}. {guidance}"
+        if _fits(summary):
+            return summary
+    raise ValueError("The signed Inbox count, first item and link exceed Raft's summary limit.")
