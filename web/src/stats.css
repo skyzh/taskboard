@@ -73,6 +73,13 @@
 .stats-flow-chart { margin-top: 0; border-top: 1px solid var(--line); gap: .1rem; }
 .stats-axis.stats-flow-axis { grid-column: 2; gap: .45rem; }
 .stats-flow-axis time:last-child { text-align: right; }
+.stats-activity-group { color: var(--muted); font-size: .83rem; }
+.stats-activity-group select { min-height: 2.75rem; margin-inline-start: .3rem; font-size: 1rem; }
+.stats-activity-legend { margin-block: .35rem .6rem; overflow-wrap: anywhere; }
+.stats-activity-legend span::before { background: var(--activity-color); }
+.stats-activity-chart > div { flex-direction: column-reverse; align-items: stretch; gap: 0; }
+.stats-activity-chart span { flex: none; }
+.stats-activity-table ul { list-style: none; margin: 0; padding: 0; overflow-wrap: anywhere; }
 .stats-coverage {
   display: block;
   color: var(--muted);
