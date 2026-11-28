@@ -52,12 +52,27 @@ python -B tools/release/release_compatibility.py --public-proof \
   --policy "$fixture_browser_policy"
 ```
 
-To trial the CI handoff, the reviewed `Qualify public release pairings` step
-would emit the successful command's one-line JSON as a GitHub check-run notice
-titled `Taskboard public compatibility`. The receipt carries public manifest
-digests, pairing results, browser version, and observed browser asset hashes.
-A dedicated hosted step still needs to be configured and tested with exact
-public commits and the operator's browser version.
+The producer stages both clean builds from `after` and `before` in the
+protected main push event. It accepts the checkout only at `after` and
+requires `before` to be an ancestor. Provision the exact Node 24.22.3 pin,
+the selected Python and npm versions, and a disposable Playwright module
+and browser on the runner first. The command emits one JSON document after
+both builds, both CLI pairings, and the browser check succeed:
+
+```sh
+python -B tools/release/qualify_public_ci.py --repo . \
+  --state "$RUNNER_TEMP/public-qualification" --policy "$fixture_browser_policy" \
+  --chromium "$qualified_chromium_version" --python-version "$qualified_python_version" \
+  --npm-version "$qualified_npm_version"
+```
+
+A future reviewed `Qualify public release pairings` step can emit that JSON
+as a GitHub check-run notice titled `Taskboard public compatibility`. The
+receipt carries public manifest digests, pairing results, browser version,
+and observed browser asset hashes. A version mismatch exits before creating
+a receipt. The hosted step still needs a reviewed public browser pin that
+matches the Pi's approved runtime and a hosted replay of the exact public
+commit pair.
 
 The prototype reader starts from the existing verified required-check receipt.
 It checks the matching `Portable checks` job, its qualification step, and the
