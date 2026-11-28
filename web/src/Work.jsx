@@ -38,7 +38,7 @@ import {
   states, TaskLink, TaskPriority, Timestamp, WorkerAssignment, WorkerRunState, WorkerRunTiming, eventHref, isCheckpointActivity, isDecisionActivity, profileName,
   taskHref, taskLabel, taskState, useSignInHref,
 } from './shared.jsx'
-import { activityHeadline, ticketActivityCopy, waitLabel } from './workCopy.js'
+import { activityHeadline, isScheduledReturn, ticketActivityCopy, waitLabel } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { TaskWaitAge } from './WaitAge.jsx'
 import { useTimeZone } from './timeZone.js'
@@ -287,6 +287,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
   const id = permalink ? eventHref(event.id).slice(1) : undefined
   const actor = profileName(event.actor, event.actor_profile)
   const result = activityHeadline(event)
+  const scheduledReturn = isScheduledReturn(event)
   const activityType = isDecisionActivity(event) ? actions.decision : isCheckpointActivity(event) ? actions.checkpoint
     : event.goal_review_completed ? 'Goal review' : null
   const timeLink = (
@@ -296,7 +297,7 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
   )
   if (ticketActivity) {
     const { choice, result: visibleResult, details } = ticketActivityCopy(event, result)
-    const [firstEvidence, ...additionalEvidence] = event.links || []
+    const [firstEvidence, ...additionalEvidence] = scheduledReturn ? [] : event.links || []
     return (
       <li className="event-row ticket-event-row" id={id} tabIndex={permalink ? -1 : undefined}>
         <ActivityMark event={event} />
@@ -316,8 +317,10 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
           <ClosureReference context={event.context} />
           <div className="ticket-event-actions">
             {firstEvidence && <EvidenceLinks links={[firstEvidence]} />}
-            <OutcomeNote event={{ ...event, details, links: additionalEvidence }} disclosure={progression ? undefined : "event-disclosure"}
-              disclosureLabel="Activity details" choiceShown={Boolean(choice)} waitShown={event.action === 'wait'} />
+            <OutcomeNote event={{ ...event, details, links: scheduledReturn ? event.links : additionalEvidence }}
+              disclosure={progression ? undefined : 'event-disclosure'}
+              disclosureLabel={scheduledReturn ? 'Previous handoff' : 'Activity details'}
+              choiceShown={Boolean(choice)} waitShown={event.action === 'wait'} />
           </div>
           {children}
         </div>
@@ -338,8 +341,9 @@ export function EventRow({ event, permalink = false, showTask = permalink, ticke
       <ClosureReference context={event.context} />
       {children}
       <OutcomeNote event={event} headline={result} disclosure="event-disclosure"
-        withEvidence={false} waitShown={event.action === 'wait'} />
-      <EvidenceLinks links={event.links} />
+        disclosureLabel={scheduledReturn ? 'Previous handoff' : 'Details'}
+        withEvidence={scheduledReturn} waitShown={event.action === 'wait'} />
+      {!scheduledReturn && <EvidenceLinks links={event.links} />}
     </li>
   )
 }
@@ -830,6 +834,7 @@ export function ActivityEntry({ event, full, selected = false }) {
   const { formatTimestamp } = useTimeZone()
   const actor = profileName(event.actor, event.actor_profile)
   const result = activityHeadline(event)
+  const scheduledReturn = isScheduledReturn(event)
   const label = isDecisionActivity(event) ? actions.decision : isCheckpointActivity(event) ? actions.checkpoint : full && event.label
   return (
     <li className="event-row activity-entry with-mark" id={eventHref(event.id).slice(1)}
@@ -854,9 +859,10 @@ export function ActivityEntry({ event, full, selected = false }) {
         </div>
       </div>
       <ActivityChanges event={event} />
-      <EvidenceLinks links={event.links} />
+      {!scheduledReturn && <EvidenceLinks links={event.links} />}
       <OutcomeNote event={event} headline={result} disclosure="event-disclosure"
-        withEvidence={false} choiceShown waitShown={event.action === 'wait'} />
+        disclosureLabel={scheduledReturn ? 'Previous handoff' : 'Details'}
+        withEvidence={scheduledReturn} choiceShown waitShown={event.action === 'wait'} />
     </li>
   )
 }

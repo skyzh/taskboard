@@ -80,7 +80,12 @@ export function hasExpandedDecisionText(event) {
   return event.action === 'decide' && (event.note.length > 180 || /[\r\n]/.test(event.note))
 }
 
+export function isScheduledReturn(event) {
+  return event.action === 'unpark' && Boolean(event.context?.deferred_event_id)
+}
+
 export function activityHeadline(event) {
+  if (isScheduledReturn(event)) return 'Returned to Ready on schedule'
   const context = event.context
   if (context?.ownership_action === 'reassign' || (
     event.action === 'transfer' && !context?.ownership_action && context?.previous_dri !== undefined

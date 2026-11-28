@@ -1169,6 +1169,28 @@ test('an event already in the activity list stays in the linked section with one
   assert.doesNotMatch(renderLog([selected], { pending: true }), /id="event-18-log"/)
 })
 
+test('a scheduled return gives the transition its own headline and keeps the saved handoff in details', () => {
+  const event = {
+    ...selected, action: 'unpark', label: 'Returned to Ready', actor: 'Taskboard', headline: null,
+    note: 'The sample merged. Check the mounted version.', context: { deferred_event_id: 17 },
+    links: [{ label: 'Merge evidence', url: 'https://example.test/merge' }],
+  }
+  const ticket = renderToStaticMarkup(React.createElement(EventRow, { event, ticketActivity: true }))
+  for (const markup of [ticket, renderLog([event], { data: event })]) {
+    const [headline, handoff] = markup.split('<summary>Previous handoff</summary>')
+    assert.match(headline, /Returned to Ready on schedule/)
+    assert.doesNotMatch(headline, /The sample merged|Merge evidence/)
+    assert.match(handoff, /The sample merged\. Check the mounted version\./)
+    assert.match(handoff, /href="https:\/\/example\.test\/merge"/)
+    assert.match(markup, /href="#event-18-log"/)
+  }
+
+  const manual = { ...event, actor: 'Morgan', context: {}, headline: 'Review the sample manually.' }
+  const markup = renderToStaticMarkup(React.createElement(EventRow, { event: manual, ticketActivity: true }))
+  assert.match(markup, /Review the sample manually\./)
+  assert.doesNotMatch(markup, /on schedule|Previous handoff/)
+})
+
 test('the empty activity message waits for the linked event request', () => {
   assert.doesNotMatch(renderLog([], { pending: true }), /No activity to show|No matching activity/)
   assert.match(renderLog([], null), /No activity to show/)
