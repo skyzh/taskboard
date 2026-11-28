@@ -823,7 +823,7 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
   )
 }
 
-export function ActivityEntry({ event, full, selected = false, exact = selected }) {
+export function ActivityEntry({ event, full, selected = false }) {
   const { formatTimestamp } = useTimeZone()
   const actor = profileName(event.actor, event.actor_profile)
   const result = activityHeadline(event)
@@ -845,7 +845,7 @@ export function ActivityEntry({ event, full, selected = false, exact = selected 
             <ActivityWait event={event} headline={result} />
             {label && <span>{label}</span>}
             <BoardLink href={eventHref(event.id)} aria-label={`Open activity by ${actor} at ${formatTimestamp(event.at)}`}>
-              {exact ? <Timestamp at={event.at} /> : <ReportTime at={event.at} linked />}
+              {selected ? <Timestamp at={event.at} /> : <ReportTime at={event.at} linked />}
             </BoardLink>
           </div>
         </div>
@@ -881,14 +881,13 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
   const page = useLoadedPages('/activity', { ...projectFilters(project), actor, action, detail: full ? 'all' : 'outcomes',
     ...(hideRequests && { hide_requests: true }), ...(wakeMode && { wake_status: wakeMode }) }, revision)
   const items = page.data?.items || []
-  const onPage = !wakes && items.some(event => event.id === requested)
-  const linked = useResource(requested && !onPage ? `/activity/${requested}` : null, revision)
+  const linked = useResource(requested ? `/activity/${requested}` : null, revision)
   const linkedEvent = linked.data?.event || linked.data
-  const openEvent = requested && ((!wakes && items.find(event => event.id === requested)) || linkedEvent)
-  useContentTitle(openEvent ? activityHeadline(openEvent) || openEvent.label : null)
+  useContentTitle(linkedEvent ? activityHeadline(linkedEvent) || linkedEvent.label : null)
   const showLinkedErrorAnchor = linked.error && !linkedEvent && !isBackendError(linked.error)
   const days = new Map()
   for (const event of items) {
+    if (!wakes && event.id === requested) continue
     const day = formatDay(wakes ? event.source_at : event.at)
     if (!days.has(day)) days.set(day, [])
     days.get(day).push(event)
@@ -977,22 +976,22 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
           : goalWakes ? 'App acceptance and signed goal completion are recorded separately. App delivery is unconfirmed here.'
             : 'Ready events can trigger a wake. The log shows the delivery method and steps when Taskboard has evidence.'}</p>
       </>}
-      {goalWakes && page.error?.status === 401
-        ? <p className="section-message"><a href={login}>Sign in with Raft to view goal wake receipts</a></p>
-        : <ResourceStatus resource={page} label="activity" />}
       {showLinkedErrorAnchor
         ? <div id={eventHref(requested).slice(1)} tabIndex={-1}>
           <ResourceStatus resource={linked} label="linked activity" />
         </div>
         : <ResourceStatus resource={linked} label="linked activity" />}
       {linkedEvent && (
-        <section className="outcome-day" aria-labelledby="linked-activity-heading">
+        <section className="outcome-day" aria-labelledby="linked-activity-heading" key={linkedEvent.id}>
           <h2 id="linked-activity-heading">Linked event</h2>
           <ol className="event-list" role="list">
-            <ActivityEntry event={linkedEvent} full={full} exact />
+            <ActivityEntry event={linkedEvent} full={full} selected />
           </ol>
         </section>
       )}
+      {goalWakes && page.error?.status === 401
+        ? <p className="section-message"><a href={login}>Sign in with Raft to view goal wake receipts</a></p>
+        : <ResourceStatus resource={page} label="activity" />}
       {page.data?.items.length === 0 && !linked.pending && !linkedEvent && (
         <p className="section-message" role="status">{pendingWakes ? 'No pending notifications for these filters.'
           : goalWakes ? 'No goal wake receipts for these filters.'
@@ -1003,7 +1002,7 @@ export function WorkLog({ requested, revision, ownerProfiles, fragment = 'activi
           <h2><ActivityDate day={day} /></h2>
           <ol className="event-list" role="list">
             {events.map(event => wakes ? <NotificationLogEntry key={event.id} item={event} />
-              : <ActivityEntry key={event.id} event={event} full={full} selected={event.id === requested} />)}
+              : <ActivityEntry key={event.id} event={event} full={full} />)}
           </ol>
         </section>
       ))}
