@@ -9,7 +9,8 @@ from tasks_queries import BoardQueries, pacific_day
 
 GUIDANCE = (
     "Open signed Taskboard Inbox from your enrolled context. Keep the lead task. "
-    "Delegate independent work with its objective, context and constraints. Verify results and recheck Inbox before ending."
+    "Delegate independent work with its objective, context and constraints where supported. "
+    "Verify each result and recheck Inbox after it and before ending."
 )
 _MAX_SUMMARY = 2000
 _MAX_TITLE = 72
