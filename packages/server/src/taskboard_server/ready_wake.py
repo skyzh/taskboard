@@ -91,6 +91,7 @@ def launch_ready_wake(
         except ReadyEventSendError:
             return "unknown"
         status = "accepted"
+        carrier = "raft_app"
     else:
         external_event_id, document_url = ready_event_target(signal)
         identity = recipient.identity
@@ -99,11 +100,12 @@ def launch_ready_wake(
             "source": source, "ticket_url": document_url,
             "recipient": {"server_id": identity.server_id, "subject": identity.subject, "principal": owner},
         })
+        carrier = "local_command"
         if status not in ("accepted", "rejected"):
             return "unknown"
 
     ledger.import_notification_on(db, {
         "schema": WAKE_SCHEMA, "source": source, "recipient": owner,
-        "observations": {"acceptance": {"status": status, "at": ledger.timestamp()}},
+        "observations": {"acceptance": {"status": status, "at": ledger.timestamp()}, "carrier": carrier},
     })
     return status

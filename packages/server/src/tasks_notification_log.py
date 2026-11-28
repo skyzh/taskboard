@@ -24,8 +24,10 @@ WAKE_PHASES = {
     "delivery": ("delivered", "suppressed"),
     "next_result": ("offered", "different_work", "no_work"),
 }
+WAKE_CARRIERS = ("raft_app", "raft_reminder", "local_command")
+WAKE_CARRIER_COLUMN = "carrier TEXT CHECK (carrier IN ('raft_app', 'raft_reminder', 'local_command'))"
 WAKE_COLUMNS = ("acceptance", "acceptance_at", "delivery", "delivery_at", "next_result", "next_at",
-                "receipt_ref", "start_event_id")
+                "receipt_ref", "start_event_id", "carrier")
 SCHEMA = (
     """
     CREATE TABLE IF NOT EXISTS notification_log (
@@ -43,7 +45,7 @@ SCHEMA = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS notification_log_recipient ON notification_log (recipient, source_event_id DESC)",
-    """
+    f"""
     CREATE TABLE IF NOT EXISTS wake_log (
         source_event_id INTEGER PRIMARY KEY REFERENCES events (id),
         recipient TEXT NOT NULL REFERENCES board_principals (ledger_key),
@@ -54,7 +56,8 @@ SCHEMA = (
         next_result TEXT CHECK (next_result IN ('offered', 'different_work', 'no_work')),
         next_at TEXT,
         receipt_ref TEXT,
-        start_event_id INTEGER REFERENCES events (id)
+        start_event_id INTEGER REFERENCES events (id),
+        {WAKE_CARRIER_COLUMN}
     )
     """,
     "CREATE INDEX IF NOT EXISTS wake_log_recipient ON wake_log (recipient, source_event_id DESC)",
@@ -79,6 +82,13 @@ RECEIPT_REF = re.compile(r"[0-9a-f]{64}")
 
 class ReceiptConflict(ValueError):
     """An observation contradicts evidence already recorded for this event."""
+
+
+def ensure_schema(db):
+    for statement in SCHEMA:
+        db.execute(statement)
+    if "carrier" not in tasks_storage.table_columns(db, "wake_log"):
+        db.execute(f"ALTER TABLE wake_log ADD COLUMN {WAKE_CARRIER_COLUMN}")
 
 
 def queue_owned_ready(db, task, event, at):
@@ -232,7 +242,7 @@ def record_wake(db, payload):
     observations = payload.get("observations")
     recipient = payload.get("recipient")
     if (payload.keys() != fields or payload["schema"] != WAKE_SCHEMA or not isinstance(observations, dict)
-            or observations.keys() - {*WAKE_PHASES, "receipt_ref", "start_event_id"}
+            or observations.keys() - {*WAKE_PHASES, "receipt_ref", "start_event_id", "carrier"}
             or not isinstance(recipient, str) or not 0 < len(recipient) <= 160):
         raise ValueError("Use the documented Taskboard wake receipt fields.")
     event = source_for_receipt(db, "ready", payload["source"])
@@ -267,6 +277,14 @@ def record_wake(db, payload):
                 continue
             raise ReceiptConflict("This wake phase already has different evidence.")
         values.update({field: status, time_field: at})
+
+    if "carrier" in observations:
+        carrier = observations["carrier"]
+        if carrier not in WAKE_CARRIERS or values["acceptance"] == "pending":
+            raise ValueError("Use a supported carrier with a recorded dispatch observation.")
+        if values["carrier"] is not None and values["carrier"] != carrier:
+            raise ReceiptConflict("This wake already has a different carrier.")
+        values["carrier"] = carrier
 
     receipt_ref = observations.get("receipt_ref", values["receipt_ref"])
     if receipt_ref is not None and (

@@ -1140,6 +1140,9 @@ class ManagedSenderTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn({"status": "rejected", "ready_event": second["event"]}, outcomes)
         self.assertEqual(self.outcomes(), [(first["event"], "accepted"), (second["event"], "rejected")])
+        with closing(open_sqlite(self.ledger)) as db:
+            self.assertEqual([row[0] for row in db.execute("SELECT carrier FROM wake_log ORDER BY source_event_id")],
+                             ["local_command", "local_command"])
         self.assertEqual(len(calls.read_text().splitlines()), 3)
         stop_at = 180
         self.assertEqual(run(*options), (0, [{"status": "running"}, {"status": "stopped"}]))

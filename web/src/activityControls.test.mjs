@@ -1037,9 +1037,8 @@ test('Activity Wake rows keep a Ready trigger distinct from a recorded wake', ()
   assert.match(markup, /Wake for Avery/)
   assert.match(markup, /T-23 became Ready/)
   assert.match(markup, /href="#event-91-log">Source activity/)
-  assert.match(markup, /Raft acceptance<\/dt><dd><span>Unknown/)
-  assert.match(markup, /First signed queue check<\/dt><dd><span>Not observed/)
-  assert.match(markup, /Start<\/dt><dd><span>Not observed/)
+  assert.match(markup, /No wake attempt recorded/)
+  assert.doesNotMatch(markup, /<dt>|Unknown|Not observed/)
 })
 
 test('Project log shows empty only after the current read succeeds', () => {

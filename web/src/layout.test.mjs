@@ -239,25 +239,36 @@ test('wake evidence keeps request acknowledgment separate from delivery and Star
   const accepted = renderWake({})
   assert.match(accepted, /A Ready ticket was assigned to you\./)
   assert.match(accepted, /href="#event-42-log">Source activity<\/a>/)
-  assert.match(accepted, /Raft acceptance<\/dt><dd><span>Accepted<\/span><time [^>]*>[^<]*:00:17/)
-  assert.match(accepted, /Raft delivery<\/dt><dd><span>Unknown<\/span><\/dd>/)
+  assert.match(accepted, /Dispatch<\/dt><dd><span>Accepted<\/span><time [^>]*>[^<]*:00:17/)
+  assert.match(accepted, /Delivery method not recorded/)
   assert.match(accepted, /First signed queue check<\/dt><dd><span>No eligible work<\/span><time /)
-  assert.match(accepted, /<dt>Start<\/dt><dd><span>Not observed<\/span><\/dd>/)
-  assert.doesNotMatch(accepted, /Start activity|Delivered|Acknowledgment activity/)
+  assert.doesNotMatch(accepted, /<dt>(Start|Delivery)<|Start activity|Delivered|Acknowledgment activity/)
 
   const acknowledged = renderWake({ request_acknowledgment: { id: 53, at } })
   assert.match(acknowledged, /Request acknowledgment<\/dt><dd><span>Acknowledged<\/span><time /)
   assert.match(acknowledged, /href="#event-53-log">Acknowledgment activity<\/a>/)
-  assert.match(acknowledged, /<dt>Start<\/dt><dd><span>Not observed<\/span><\/dd>/)
-  assert.match(acknowledged, /Raft delivery<\/dt><dd><span>Unknown<\/span><\/dd>/)
+  assert.doesNotMatch(acknowledged, /<dt>(Start|Delivery)<|Not observed/)
 
   const started = renderWake({
-    delivery: 'delivered', delivery_at: at, next_result: 'offered', started_at: at, start_event_id: 55,
+    carrier: 'raft_app', delivery: 'delivered', delivery_at: at, next_result: 'offered', started_at: at, start_event_id: 55,
   })
-  assert.match(started, /Raft delivery<\/dt><dd><span>Delivered<\/span><time /)
+  assert.match(started, /Raft app event/)
+  assert.match(started, /Delivery<\/dt><dd><span>Delivered<\/span><time /)
   assert.match(started, /First signed queue check<\/dt><dd><span>This ticket offered<\/span><time /)
   assert.match(started, /<dt>Start<\/dt><dd><span>Started<\/span><time /)
   assert.match(started, /href="#event-55-log">Start activity<\/a>/)
+  assert.match(renderWake({ carrier: 'local_command', next_result: 'different_work', started_at: at }), /Other work started/)
+  assert.match(renderWake({ carrier: 'raft_reminder' }), /Raft reminder/)
+  assert.match(renderWake({ acceptance: 'unknown', next_result: null }), /Dispatch unconfirmed/)
+
+  const goal = renderWake({
+    reason: 'goal_review', carrier: 'raft_app', cue: null, next_result: null, goal_outcome: { id: 57, at },
+  })
+  assert.match(goal, /Scheduled goal review/)
+  assert.match(goal, /Signed outcome recorded/)
+  assert.match(goal, /<dt>Dispatch<\/dt><dd><span>Accepted<\/span>/)
+  assert.match(goal, /href="#event-57-log">Outcome activity<\/a>/)
+  assert.doesNotMatch(goal, /Source activity|<dt>(Start|Delivery)<|Picked up/)
 })
 
 test('a restored queue renders the selected filters and the friendly waiting label', () => {
