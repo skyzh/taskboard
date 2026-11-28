@@ -35,6 +35,15 @@ RECIPIENT = "Avery"
 BOARD = test_tasks_service.ORIGIN + test_tasks_service.BASE
 
 
+def expected_ready_summary(ticket, event):
+    return (
+        f"Taskboard ticket {ticket} is Ready in your owned queue. Ready event {event}. Check signed Inbox first. "
+        "Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. "
+        "For a timed revisit, Park with the exact time. Recheck signed Inbox. "
+        f"{BOARD}/tickets/{ticket}"
+    )
+
+
 class SimulatedHeldCarrier:
     """Accept cues while the fixture recipient is stopped and lose the first reply."""
 
@@ -156,12 +165,7 @@ class ManagedReadyTest(unittest.TestCase):
             self.assertEqual(first.get_header("Authorization"), f"Bearer {self.recipient.access_token}")
             self.assertEqual(json.loads(second.data), {
                 "kind": "event", "externalEventId": key,
-            "summary": (
-                f"Taskboard ticket {ticket} is Ready in your owned queue. Ready event {event}. Check signed Inbox first. "
-                "Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. "
-                "For a timed revisit, Park with the exact time. Recheck signed Inbox. "
-                f"{BOARD}/tickets/{ticket}"
-            ),
+                "summary": expected_ready_summary(ticket, event),
             })
             self.assertEqual(self.receipts(), [accepted])
             self.assertEqual(carrier.inbox, [])
@@ -398,7 +402,7 @@ class ManagedSenderTest(unittest.TestCase):
         self.assertEqual(self.outcomes(), [*before, (event, "accepted")])
         expected = {
             "kind": "event", "externalEventId": f"taskboard-ready-{sha256(BOARD.encode()).hexdigest()}-{event}",
-            "summary": f"Taskboard ticket {ticket} is Ready in your owned queue. Ready event {event}. {BOARD}/tickets/{ticket}",
+            "summary": expected_ready_summary(ticket, event),
         }
         self.assertEqual([document for route, document in self.provider.calls if route == "agent-events"],
                          [expected, expected])
