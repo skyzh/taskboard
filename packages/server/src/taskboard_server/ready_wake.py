@@ -6,7 +6,7 @@ from typing import Literal
 from urllib.request import Request
 
 from raft_auth import Identity
-from taskboard_server.ready_raft import ReadyEventSendError, send_ready_event
+from taskboard_server.ready_raft import ReadyEventSendError, ready_event_target, send_ready_event
 import tasks_core as ledger
 from tasks_notification_log import ReceiptConflict, WAKE_SCHEMA
 import tasks_profiles as profiles
@@ -18,10 +18,10 @@ from tasks_wake_subscriptions import OWNED_READY, has_subscription
 
 @dataclass(frozen=True)
 class WakeRecipient:
-    """Identity and opaque agent-events token bound by the approved exchange."""
+    """Board recipient and, for direct Raft delivery, its resource-bound bearer."""
 
     identity: Identity
-    access_token: str = field(repr=False)
+    access_token: str | None = field(default=None, repr=False)
 
 
 class ReadyWakeOwnerChanged(PermissionError):
@@ -44,15 +44,18 @@ def ready_wake_owner(db, identity):
 
 def launch_ready_wake(
     db, *, project: str, task: str, event_id: int, recipient: WakeRecipient,
-    transport: Callable[[Request], tuple[int, object]],
+    transport: Callable[[Request], tuple[int, object]] | None = None,
+    command_delivery: Callable[[dict], str] | None = None,
 ) -> Literal["accepted", "already_accepted", "rejected", "unknown"]:
     """Attempt one send or report a prior acceptance or rejection.
 
     Use a named transition such as add or transfer. The ledger's current
     Ready event can also be an update that keeps a ticket Ready.
-    The caller supplies an attested token binding and transport. An
-    unconfirmed response returns unknown without adding an observation.
+    The caller supplies an attested transport. An unconfirmed response
+    returns unknown without adding an observation.
     """
+    if (transport is None) == (command_delivery is None):
+        raise ValueError("Choose one Ready delivery transport.")
     with tasks_storage.read(db):
         owner = ready_wake_owner(db, recipient.identity)
         project = projects.require(db, project)
@@ -81,16 +84,26 @@ def launch_ready_wake(
         task_url = f"{board_url.rstrip('/')}/#task-{projects.anchor(current)}"
         source = {"task": task, "event": event_id, "at": current["at"]}
 
-    try:
-        send_ready_event(
-            {"event_id": event_id, "task_id": task, "task_url": task_url},
-            access_token=recipient.access_token, transport=transport,
-        )
-    except ReadyEventSendError:
-        return "unknown"
+    signal = {"event_id": event_id, "task_id": task, "task_url": task_url}
+    if command_delivery is None:
+        try:
+            send_ready_event(signal, access_token=recipient.access_token, transport=transport)
+        except ReadyEventSendError:
+            return "unknown"
+        status = "accepted"
+    else:
+        external_event_id, document_url = ready_event_target(signal)
+        identity = recipient.identity
+        status = command_delivery({
+            "external_event_id": external_event_id, "board": board_url.rstrip("/"), "project": project,
+            "source": source, "ticket_url": document_url,
+            "recipient": {"server_id": identity.server_id, "subject": identity.subject, "principal": owner},
+        })
+        if status not in ("accepted", "rejected"):
+            return "unknown"
 
     ledger.import_notification_on(db, {
         "schema": WAKE_SCHEMA, "source": source, "recipient": owner,
-        "observations": {"acceptance": {"status": "accepted", "at": ledger.timestamp()}},
+        "observations": {"acceptance": {"status": status, "at": ledger.timestamp()}},
     })
-    return "accepted"
+    return status

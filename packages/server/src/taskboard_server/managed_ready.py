@@ -170,7 +170,9 @@ def initialize(state_path, db, scope, *, pilot=False, sampled=False):
 
 class ManagedReadySender:
     def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None, event_id=None, sampled=False,
-                 stop_requested=None):
+                 stop_requested=None, command_delivery=None):
+        if (grant is None) != (command_delivery is not None) or (command_delivery is not None and not sampled):
+            raise ValueError("Choose direct Raft or the sampled command transport.")
         if sampled and (idle_gate is None or event_id is not None):
             raise ValueError("Sampled delivery requires the Idle gate and has no pinned event.")
         self.db = db
@@ -182,6 +184,7 @@ class ManagedReadySender:
         self.event_id = event_id
         self.sampled = sampled
         self.stop_requested = stop_requested
+        self.command_delivery = command_delivery
 
     def _check_subscription(self, saved):
         current = self.scope.subscription(self.db)
@@ -271,14 +274,21 @@ class ManagedReadySender:
                 (self.sampled, event, retry_at),
             )
 
+    def _clear_grant(self):
+        if self.grant is not None:
+            self.grant.clear()
+
+    def _retry_delay(self):
+        return self.grant.retry_delay() if self.grant is not None else 0
+
     def _stop(self, reason):
-        self.grant.clear()
+        self._clear_grant()
         with self.state:
             self.state.execute("UPDATE sender SET stopped = ? WHERE singleton = 1", (reason,))
         return reason, None
 
     def _retry(self, outcome, event, *, delay=0, renewed=False):
-        delay = max(_DELAY, delay, self.grant.retry_delay())
+        delay = max(_DELAY, delay, self._retry_delay())
         with self.state:
             self.state.execute(
                 """UPDATE sender SET retry_at = MAX(retry_at, ?), renewed = MAX(renewed, ?)
@@ -288,10 +298,10 @@ class ManagedReadySender:
         return outcome, event
 
     def tick(self):
-        """Handle one eligible event. Persist the attempt before any HTTP request."""
+        """Handle one eligible event, persisting the attempt before transport."""
         saved = self.state.execute("SELECT * FROM sender WHERE singleton = 1").fetchone()
         if saved["stopped"]:
-            self.grant.clear()
+            self._clear_grant()
             return saved["stopped"], None
         try:
             eligible = self.idle_gate is None or self.idle_gate.eligible()
@@ -365,7 +375,7 @@ class ManagedReadySender:
             with tasks_storage.read(self.db):
                 self._check_subscription(saved)
 
-        def submit(request):
+        def require_current_delivery():
             preflight()
             if self.idle_gate is not None:
                 idle = self.idle_gate.eligible(final=True)
@@ -377,6 +387,9 @@ class ManagedReadySender:
                 if not idle or ((self.sampled or self.event_id is not None) and self.clock() < ready_at):
                     raise _IdleGateClosed
             check_stop()
+
+        def submit(request):
+            require_current_delivery()
             try:
                 status, payload = self.grant.event_transport(request)
             except RaftRetry:
@@ -387,12 +400,18 @@ class ManagedReadySender:
                 raise _Unauthorized
             return status, payload
 
+        def submit_command(cue):
+            require_current_delivery()
+            return self.command_delivery(cue)
+
         try:
-            token = self.grant.token(preflight=preflight)
+            token = self.grant.token(preflight=preflight) if self.grant is not None else None
             preflight()
             outcome = launch_ready_wake(
                 self.db, project=_PROJECT, task=projects.row_reference(row), event_id=event,
-                recipient=WakeRecipient(self.scope.identity, token), transport=submit,
+                recipient=WakeRecipient(self.scope.identity, token),
+                transport=submit if self.grant is not None else None,
+                command_delivery=submit_command if self.command_delivery is not None else None,
             )
         except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested) as error:
             with self.state:
@@ -419,7 +438,7 @@ class ManagedReadySender:
             if self.sampled:
                 self.idle_gate.reset()
             return self._retry("retry", event)
-        delay = self.grant.retry_delay()
+        delay = self._retry_delay()
         self._finish(event, retry_at=self.clock() + delay if delay else 0)
         if self.sampled and outcome in ("accepted", "already_accepted"):
             self.idle_gate.reset()

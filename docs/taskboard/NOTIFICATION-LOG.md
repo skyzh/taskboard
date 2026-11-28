@@ -237,6 +237,32 @@ Restart with the same sampled state. Signed opt-out or a stopped grant ends
 the sender. The sender delivers accepted cues through Raft Agent Events.
 Eligible tickets remain available in signed Inbox for normal pickup.
 
+### Use a trusted local delivery command
+
+Direct Raft remains the default. For an approved sampled sender, use
+`--delivery-command` with a JSON array containing the absolute executable
+path and its literal arguments. Pass the same array to `init-sampled` and
+`run-sampled`, in place of `--client-id`. Leave out `--secret-fd` for this
+transport. Choose one separately authorized sender state per recipient and
+keep its command configuration fixed across restarts. The sampled Idle,
+signed Ready selection, consent, and retry rules still apply.
+
+Taskboard invokes the executable without a shell or inherited environment
+and waits up to five seconds. It sends one JSON object on stdin with
+`schema: "taskboard.ready-command.v1"`, `external_event_id`, `board`,
+`project`, `source` (ticket, event and timestamp), `ticket_url`, and
+`recipient` (server ID, subject and board principal). The link opens the
+canonical ticket document. The command receives no Raft OAuth bearer or
+secret. Keep credentials out of the argv configuration.
+
+The command must deduplicate side effects using `external_event_id`.
+Exit successfully and return one stdout JSON object with that exact
+`external_event_id` and a `status` of `accepted`, `rejected`, or `unknown`.
+Taskboard records acceptance and explicit rejection as terminal receipts.
+A timeout, unconfirmed or malformed response, wrong event ID, or failed
+process exit stays unknown and can retry with the same event ID after a new
+Idle window. There is no carrier fallback. Keep command output under 4 KiB.
+
 ### Try one enrolled Ready event while the recipient appears Idle
 
 Use this foreground experiment after the exact revision is reviewed and the

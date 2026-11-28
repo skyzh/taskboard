@@ -1052,6 +1052,96 @@ class ManagedSenderTest(unittest.TestCase):
                     saved = state.execute("SELECT attempt_event, attempts FROM sender").fetchone()
                     self.assertEqual(tuple(saved), (None, 0))
 
+    def test_sampled_local_command_reuses_signed_cue_and_persists_outcomes(self):
+        command = "taskboard_server.managed_ready_operator"
+        script = self.ledger.with_name("fictional_command.py")
+        calls = script.with_suffix(".jsonl")
+        effects = script.with_suffix(".effect")
+        script.write_text(
+            'import json, os, sys\n'
+            'from pathlib import Path\n'
+            'assert sys.argv[2] == "literal; exit 42"\n'
+            'assert "TASKBOARD_FIXTURE_OAUTH_SECRET" not in os.environ\n'
+            'cue = json.load(sys.stdin)\n'
+            'ledger = Path(sys.argv[1])\n'
+            'count = len(ledger.read_text().splitlines()) if ledger.exists() else 0\n'
+            'with ledger.open("a") as handle:\n'
+            '    handle.write(json.dumps(cue) + "\\n")\n'
+            'status = ["unknown", "accepted", "rejected"][count]\n'
+            'effect = ledger.with_suffix(".effect")\n'
+            'if not count:\n'
+            '    effect.write_text(cue["external_event_id"])\n'
+            'elif status == "accepted":\n'
+            '    assert effect.read_text() == cue["external_event_id"]\n'
+            'print(json.dumps({"external_event_id": cue["external_event_id"], "status": status}))\n',
+            encoding="utf-8",
+        )
+        args = [
+            "--db", str(self.ledger), "--state", str(self.state),
+            "--server-id", self.identity.server_id, "--recipient-id", self.identity.subject,
+        ]
+        argv = [sys.executable, str(script), str(calls), "literal; exit 42"]
+        options = ["--delivery-command", json.dumps(argv)]
+        with redirect_stdout(StringIO()):
+            self.assertEqual(managed_ready([*args, *options, "init-sampled"], transport=self.provider), 0)
+        first, second = self.create(), self.create()
+        origin = self.now
+        stop_at = 80
+
+        def wait(seconds):
+            self.now += seconds
+
+        def run(*command_options):
+            output = StringIO()
+            with (redirect_stdout(output), patch(f"{command}.Event") as stop,
+                  patch(f"{command}._pilot_status", return_value=lambda: "idle"),
+                  patch(f"{command}.monotonic", side_effect=lambda: self.now - origin),
+                  patch(f"{command}.ManagedReadySender", partial(ManagedReadySender, clock=lambda: self.now)),
+                  patch(f"{command}.ManagedReadyGrant", side_effect=AssertionError("Unexpected OAuth")) as oauth,
+                  patch.dict(os.environ, {"TASKBOARD_FIXTURE_OAUTH_SECRET": "fictional-secret"})):
+                stop.return_value.is_set.side_effect = lambda: self.now - origin >= stop_at
+                stop.return_value.wait.side_effect = wait
+                result = managed_ready([
+                    *args, *command_options, "run-sampled", "--server-slug", "fixture",
+                ], transport=self.provider)
+                oauth.assert_not_called()
+            return result, [json.loads(line) for line in output.getvalue().splitlines()]
+
+        other = ["--delivery-command", json.dumps([*argv, "different configuration"])]
+        self.assertEqual(run(*other), (1, [{"status": "running"}, {"status": "managed_sender_failed"}]))
+        self.assertFalse(calls.exists())
+        code, outcomes = run(*options)
+        self.assertEqual(code, 0)
+        self.assertIn({"status": "retry", "ready_event": first["event"]}, outcomes)
+        self.assertIn({"status": "accepted", "ready_event": first["event"]}, outcomes)
+        raw = [json.loads(row) for row in calls.read_text().splitlines()]
+        signal = {
+            "schema": "taskboard.ready-command.v1", "board": BOARD, "project": "T",
+            "external_event_id": f"taskboard-ready-{sha256(BOARD.encode()).hexdigest()}-{first['event']}",
+            "ticket_url": f"{BOARD}/tickets/{first['task']}",
+            "source": first,
+            "recipient": {"server_id": self.identity.server_id, "subject": self.identity.subject,
+                          "principal": self.owner},
+        }
+        self.assertEqual(raw, [signal, signal])
+        self.assertEqual(effects.read_text(), signal["external_event_id"])
+        self.assertEqual(self.outcomes(), [(first["event"], "accepted"), (second["event"], "pending")])
+        self.assertEqual(offer_work(self.board, self.owner)["ready_event"], first["event"])
+
+        self.board.invoke("advance-task", {
+            "id": first["task"], "transition": "start", "note": "Take the exact signed cue.",
+        }, write=True)
+        stop_at = 130
+        code, outcomes = run(*options)
+        self.assertEqual(code, 0)
+        self.assertIn({"status": "rejected", "ready_event": second["event"]}, outcomes)
+        self.assertEqual(self.outcomes(), [(first["event"], "accepted"), (second["event"], "rejected")])
+        self.assertEqual(len(calls.read_text().splitlines()), 3)
+        stop_at = 180
+        self.assertEqual(run(*options), (0, [{"status": "running"}, {"status": "stopped"}]))
+        self.assertEqual(len(calls.read_text().splitlines()), 3)
+        self.assertEqual(self.calls(), [])
+
     def test_subscription_removed_during_oauth_stops_before_exchange(self):
         self.baseline()
         event = self.create()["event"]

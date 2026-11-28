@@ -32,7 +32,7 @@ def _summary_fits(summary):
     return len(summary.encode("utf-16-le")) // 2 <= _MAX_SUMMARY
 
 
-def _event_document(signal: Mapping[str, object]) -> dict[str, str]:
+def ready_event_target(signal: Mapping[str, object]) -> tuple[str, str]:
     event_id = signal.get("event_id")
     task_id = signal.get("task_id")
     task_url = signal.get("task_url")
@@ -55,7 +55,12 @@ def _event_document(signal: Mapping[str, object]) -> dict[str, str]:
     board_key = sha256(board_url.encode()).hexdigest()
     event_key = f"taskboard-ready-{board_key}-{event_id}"
     # Raft linkifies the summary, so use the mounted document path rather than the scanner's fragment.
-    document_url = ticket_document(board_url, task_id)
+    return event_key, ticket_document(board_url, task_id)
+
+
+def _event_document(signal: Mapping[str, object]) -> dict[str, str]:
+    event_key, document_url = ready_event_target(signal)
+    event_id, task_id = signal["event_id"], signal["task_id"]
     identity = f"Taskboard ticket {task_id} is Ready in your owned queue. Ready event {event_id}."
     summary = f"{identity} Check signed Inbox first. {outcome_prompt(TICKET_OUTCOME)} {document_url}"
     if not _summary_fits(summary):
