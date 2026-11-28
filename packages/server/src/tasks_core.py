@@ -1171,11 +1171,13 @@ def change_task(db, args, links, *, automation=None):
         attribution, evidence = automation
         context.update(evidence)
     context.update(override)
-    event_id = record(db, args.id, action, attribution, state, note, waiting_on, links, context)
+    signed_recovery = getattr(args, "signed_wake_recovery", False) and automation is None
+    at = timestamp() if signed_recovery else None
+    event_id = record(db, args.id, action, attribution, state, note, waiting_on, links, context, at=at)
     if request_id is not None:
         link_attention_wait(db, args, event_id, request_id, task["event_id"])
-    if getattr(args, "signed_wake_recovery", False) and automation is None:
-        app_wake_activity.signed_recovery(db, args.by, projects.row_project(task), event_id, timestamp())
+    if signed_recovery:
+        app_wake_activity.signed_recovery(db, args.by, projects.row_project(task), event_id, at)
     return f"{projects.row_reference(task)} · {label}"
 
 

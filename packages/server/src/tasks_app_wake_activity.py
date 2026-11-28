@@ -1,6 +1,9 @@
 """Count confirmed app wakes until the signed recipient records new work."""
 
+from datetime import datetime
+
 import tasks_audit as audit
+from tasks_wake_subscriptions import MANAGED_READY_PROJECTS
 
 
 LIMIT = 3
@@ -17,17 +20,25 @@ def status(db, owner, project):
            WHERE actor = ? AND record_type = ? AND operation IN (?, ?)
            ORDER BY id DESC LIMIT 1""", (owner, record_type, _SIGNED, _OPERATOR),
     ).fetchone()
-    accepted = db.execute(
-        """SELECT at FROM audit_events
-           WHERE actor = ? AND record_type = ? AND operation = ? AND id > ?
-           ORDER BY id""", (owner, record_type, _ACCEPTED, recovery["id"] if recovery else 0),
-    ).fetchall()
+    observations = db.execute(
+        """SELECT id, at FROM audit_events
+           WHERE actor = ? AND record_type = ? AND operation = ?""", (owner, record_type, _ACCEPTED),
+    )
+    # A confirmed carrier can settle its ledger audit after a later signed work event.
+    # Use its saved observation time, retaining audit order when timestamps are equal.
+    boundary = (datetime.fromisoformat(recovery["at"]), recovery["id"]) if recovery else None
+    accepted = []
+    for row in observations:
+        observed = (datetime.fromisoformat(row["at"]), row["id"])
+        if boundary is None or observed > boundary:
+            accepted.append((*observed, row["at"]))
+    accepted.sort()
     paused = len(accepted) >= LIMIT
     return {
         "paused": paused,
         "reason": PAUSED_REASON if paused else None,
         "accepted_count": len(accepted),
-        "paused_at": accepted[LIMIT - 1]["at"] if paused else None,
+        "paused_at": accepted[LIMIT - 1][2] if paused else None,
         "latest_recovery_at": recovery["at"] if recovery else None,
         "recovery_kind": ({_SIGNED: "signed_work", _OPERATOR: "operator_resume"}[recovery["operation"]]
                           if recovery else None),
@@ -48,7 +59,7 @@ def record_acceptance(db, owner, project, event_key, at):
 
 
 def signed_recovery(db, owner, project, event_id, at):
-    if status(db, owner, project)["accepted_count"]:
+    if project in MANAGED_READY_PROJECTS:
         audit.record(db, scope="private", actor=owner, operation=_SIGNED,
                      record_type=f"app-wake:{project}", record_id=str(event_id), at=at)
 

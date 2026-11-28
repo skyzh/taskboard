@@ -184,3 +184,52 @@ class AppWakeActivityTest(unittest.TestCase):
         self.assertEqual(self.status()["accepted_count"], 3)
         self.assertTrue(self.status()["paused"])
         grant.event_transport.assert_called_once()
+
+    def test_signed_start_before_first_acceptance_audit_excludes_late_batch_settlement(self):
+        members = [self.add(self.avery) for _ in range(2)]
+        grant, idle = Mock(), Mock()
+        grant.token.return_value = self.recipient.access_token
+        grant.event_transport.return_value = (202, {"status": "queued"})
+        grant.retry_delay.return_value = 0
+        idle.eligible.return_value = True
+
+        def make_sender(db, state):
+            return ManagedReadySender(db, state, self.scope, grant, idle_gate=idle, sampled=True, inbox_batches=True,
+                                      clock=lambda: datetime.fromisoformat(self.now).timestamp())
+
+        with closing(open_sqlite(self.ledger)) as db, locked_state(self.state, self.ledger) as state:
+            sender = make_sender(db, state)
+            with (patch.object(sender.inbox_batch, "_settle", side_effect=OSError("Fixture restart before recording.")),
+                  self.assertRaises(OSError)):
+                sender.tick()
+
+        self.now = "2030-04-01T19:01:00Z"
+        self.start(self.avery, members[0]["task"])
+        boundary = self.fixture.task_event(self.avery.client, members[0]["task"])["at"]
+        self.assertEqual(boundary, self.now)
+        self.now = "2030-04-01T19:02:00Z"
+        with closing(open_sqlite(self.ledger)) as db, locked_state(self.state, self.ledger) as state:
+            self.assertEqual(make_sender(db, state).tick()[0], "accepted")
+            accepted = db.execute(
+                "SELECT at FROM audit_events WHERE operation = 'accept-app-wake' AND actor = ?", (self.owner,),
+            ).fetchone()
+            self.assertEqual(accepted["at"], "2030-04-01T19:00:00Z")
+        self.assertEqual(self.status()["accepted_count"], 0)
+        self.assertEqual(self.status()["latest_recovery_at"], boundary)
+        self.assertEqual(self.status()["recovery_kind"], "signed_work")
+        grant.event_transport.assert_called_once()
+
+        accepted = Mock(return_value=(202, {"status": "queued"}))
+        for _ in range(2):
+            self.assertEqual(self.send(self.add(self.avery), accepted), "accepted")
+        self.assertFalse(self.status()["paused"])
+        self.assertEqual(self.status()["accepted_count"], 2)
+
+    def test_acceptance_and_recovery_with_equal_timestamps_follow_audit_order(self):
+        first, second = [self.add(self.avery) for _ in range(2)]
+        accepted = Mock(return_value=(202, {"status": "queued"}))
+        self.assertEqual(self.send(first, accepted), "accepted")
+        self.start(self.avery, first["task"])
+        self.assertEqual(self.status()["accepted_count"], 0)
+        self.assertEqual(self.send(second, accepted), "accepted")
+        self.assertEqual(self.status()["accepted_count"], 1)
