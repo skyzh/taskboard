@@ -67,9 +67,9 @@ jobs:
         run: uv run --no-sync python -B -m unittest discover -s tools/release/checks -p test_release_smoke.py
 
       - name: Check synthetic server and client compatibility
-        run: |
-          test -f tools/release/test_release_compatibility.py
-          uv run --no-sync python -B -m unittest discover -s tools/release -p test_release_compatibility.py
+        run: >-
+          env PYTHONPATH=tools/release uv run --no-sync python -B -W error::ResourceWarning -m unittest
+          test_release_compatibility test_hosted_compatibility test_qualify_public_ci test_verify_pi_browser_archives
 
       - name: Check the staged app with the launcher and pinned fixtures
         run: |
