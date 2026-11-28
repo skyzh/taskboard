@@ -4073,11 +4073,12 @@ def create_app(
         for occurrence in goal_cadence.occurrences(connection, owner, project, now):
             if ticket is not None and occurrence["ticket"] != ticket:
                 continue
+            scope, _ = projects.identifier(occurrence["ticket"])
             if occurrence["kind"] == "review":
-                scope, _ = projects.identifier(occurrence["ticket"])
-                occurrence["goal_review_prompt"] = agent_guidance.project_prompt(
-                    connection, scope, tasks_guidance.GOAL_REVIEW,
-                )
+                field, name = "goal_review_prompt", tasks_guidance.GOAL_REVIEW
+            else:
+                field, name = "goal_explore_prompt", tasks_guidance.GOAL_EXPLORE
+            occurrence[field] = agent_guidance.project_prompt(connection, scope, name)
             items.append(occurrence)
         return items
 

@@ -8,6 +8,7 @@ export const agentPromptLabels = {
   knowledge: 'Knowledge',
   'inbox-follow-up': 'Inbox follow-up',
   'goal-review': 'Goal review',
+  'goal-explore': 'Goal exploration',
   'ready-pickup': 'Ready pickup',
   'stalled-follow-up': 'Stalled follow-up',
   'review-handoff': 'Review handoff',
