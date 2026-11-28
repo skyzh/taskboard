@@ -892,6 +892,30 @@ class InboxBatchTest(unittest.TestCase):
                          [("goal_review", review), ("goal_explore", explore)])
         self.assertEqual(len(self.wire), 2)
 
+    def test_stalled_ordinary_work_leads_keep_exploring_goal_in_pickup_and_app(self):
+        fixture = self.fixture
+        board = fixture.board
+        ordinary = fixture.create()["task"]
+        board.invoke("advance-task", {"id": ordinary, "transition": "start", "note": "Read the sample."}, write=True)
+        board.invoke("save-goal", {"kind": "standing", "summary": "Explore next topics", "keep_exploring": True},
+                     write=True)
+        goal = "T-2"
+        board.invoke("advance-task", {"id": goal, "transition": "start", "note": "Check the next topic."}, write=True)
+
+        self.established_idle()
+        status, key = self.poll(30)
+        self.assertEqual(status, "accepted")
+        signed_work = [board.invoke("my-next", query)["work"]["key"] for query in (
+            {"scope": "all"}, {"scope": "all", "for_wake": "true"},
+        )]
+        self.assertEqual(signed_work, [ordinary, ordinary])
+        signed = board.invoke("my-inbox-wake", {"scope": "all", "include_occurrences": "true"})
+        self.assertEqual(signed["work"]["key"], ordinary)
+        self.assertEqual([(item["kind"], item["ticket"]) for item in json.loads(self.history(key)["members"])],
+                         [("in_progress", ordinary), ("in_progress", goal)])
+        summary = fixture.provider.accepted[key]["summary"]
+        self.assertLess(summary.index(ordinary), summary.index(goal))
+
     def test_two_interval_reviews_get_separate_app_and_signed_outcome_receipts(self):
         self.origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()
         self.restart()

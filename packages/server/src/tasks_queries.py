@@ -3275,14 +3275,16 @@ class BoardQueries:
     def inbox_selection(self, owner, *, project, today, wake_at=None, delivery=False, ordinary_only=False):
         work = next(self.actionable_work(owner, today=today, project=project, wake_at=wake_at,
                                          delivery=delivery, ordinary_only=ordinary_only), None)
-        exploration = (not delivery and work is not None and work["kind"] == "in_progress"
-                       and ledger.task_goal_kind(self.db, work["id"]) is not None
-                       and goals.exploration_criterion(self.db, work["id"]) is not None)
+        exploration = work is not None and self.is_exploration_work(work)
         if work is None or exploration:
             asks = self.requested_asks(owner, project=project, today=today, due_only=True)
             if asks:
                 return None, asks[0]
         return work, None
+
+    def is_exploration_work(self, work):
+        return (work["kind"] == "in_progress"
+                and goals.exploration_criterion(self.db, work["id"]) is not None)
 
     def inbox_wake_occurrences(self, owner, *, project, wake_at):
         """Return the signed delivery choice or the ordered exact goal cues."""
@@ -3352,7 +3354,7 @@ class BoardQueries:
                     priority, event = before.split(":", 1)
                     before = priority, int(event)
 
-        exploration = None
+        exploration = []
         for kind, query, filters in queues:
             if delivery and kind in ("ready", "in_progress", "shared_ready", "reminder"):
                 filters["wake_at"] = wake_at
@@ -3379,14 +3381,15 @@ class BoardQueries:
                             work["wake_key"] += f":{item['event_id']}"
                     elif kind == "readiness":
                         work["wake_key"] = f"readiness:{item['id']}:{item['event_id']}"
-                if kind == "in_progress" and not ordinary_only and goals.exploration_criterion(self.db, work["id"]) is not None:
-                    exploration = work
-                    for current in self.tasks(**scope, **filters, exclude_exploration=True)["items"]:
-                        replacement = {"kind": kind, "id": current["id"], "key": current["key"],
-                                       "title": current["title"]}
-                        if wake_at is not None:
-                            replacement["source_event"] = current["event_id"]
-                        yield replacement
+                if self.is_exploration_work(work):
+                    exploration.append(work)
+                    if not all_ordinary:
+                        for current in self.tasks(**scope, **filters, exclude_exploration=True)["items"]:
+                            replacement = {"kind": kind, "id": current["id"], "key": current["key"],
+                                           "title": current["title"]}
+                            if wake_at is not None:
+                                replacement["source_event"] = current["event_id"]
+                            yield replacement
                 else:
                     yield work
         if wake_at is not None:
@@ -3415,8 +3418,7 @@ class BoardQueries:
                 if item["kind"] == "resolved-wait":
                     work.update({field: item[field] for field in ("wait_event", "blocker_event", "blocker_ticket")})
                 yield work
-        if exploration:
-            yield exploration
+        yield from exploration
 
     def needs_you(self, actor, *, today, project, before, limit, reviews_only=False):
         owner = actor["ledger_key"]
