@@ -230,7 +230,7 @@ class ReleaseSlotsTest(unittest.TestCase):
         self.pair_check.assert_called_once_with(Path(sys.executable), self.previous, self.candidate)
         self.assertEqual(self.selector.read_text(encoding="ascii"), f"{CANDIDATE_PORT}\n")
 
-    def test_candidate_ready_after_fourteen_seconds_can_activate(self):
+    def test_candidate_ready_after_twenty_six_seconds_can_activate(self):
         probes = 0
 
         def delayed_check(port, credential):
@@ -238,7 +238,7 @@ class ReleaseSlotsTest(unittest.TestCase):
             self.direct_check(port, credential)
             if port == CANDIDATE_PORT:
                 probes += 1
-                if probes <= 14:
+                if probes <= 26:
                     raise ConnectionRefusedError()
 
         self.slots.pause = Mock()
@@ -246,7 +246,7 @@ class ReleaseSlotsTest(unittest.TestCase):
         result = self.release()
 
         self.assertEqual((result["status"], result["active"]), ("released", self.digest))
-        self.assertEqual((probes, self.slots.pause.call_count), (15, 14))
+        self.assertEqual((probes, self.slots.pause.call_count), (27, 26))
         self.assertEqual([event[1] for event in self.events if event[0] == "start"], [CANDIDATE_PORT])
         self.assertTrue(all(event[2] == PRIOR_PORT for event in self.events if event[0] == "direct"))
         self.assertEqual((self.slots.selected(), self.layout.current.resolve()), (CANDIDATE_PORT, self.candidate))
@@ -263,8 +263,8 @@ class ReleaseSlotsTest(unittest.TestCase):
 
         self.assertEqual((result["status"], result["reason_code"]), ("rejected", "candidate_slot_unavailable"))
         self.assertEqual(result["failed_checks"], [{"name": "slot", "reason": "loopback_unavailable"}])
-        self.assertEqual(self.slots.pause.call_count, 15)
-        self.assertEqual(len([event for event in self.events if event[:2] == ("direct", CANDIDATE_PORT)]), 16)
+        self.assertEqual(self.slots.pause.call_count, 31)
+        self.assertEqual(len([event for event in self.events if event[:2] == ("direct", CANDIDATE_PORT)]), 32)
         self.assertEqual((self.slots.selected(), self.layout.current.resolve()), (PRIOR_PORT, self.previous))
 
     def test_existing_slot_still_uses_original_probe_window(self):
