@@ -4,6 +4,8 @@ from io import StringIO
 import json
 import subprocess
 import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 
@@ -93,16 +95,6 @@ class ReminderScheduleRecoveryTest(unittest.TestCase):
         with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", KeyboardInterrupt]) as cli:
             with self.assertRaises(KeyboardInterrupt):
                 self.dispatch(lambda: True)
-        self.assertEqual(cli.call_count, 2)
-
-    def test_reserved_cue_does_not_call_claim_again(self):
-        can_wake = Mock(return_value=True)
-        failure = RaftCommandError("reminder schedule", "carrier-not-started")
-        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", failure]) as cli:
-            with self.assertRaises(WakeScheduleStopped):
-                wake_with_title(self.title, self.channel, "12345678", can_wake,
-                                cue="goal", reserved_cue=True)
-        can_wake.assert_called_once_with()
         self.assertEqual(cli.call_count, 2)
 
 
@@ -1254,6 +1246,50 @@ class ReadyCheckpointTest(unittest.TestCase):
                 patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=replies),
             ):
                 self.assertEqual(main(managed_child=managed), expected)
+
+    @patch("taskboard_cli.ready_checkpoint.MINIMUM_CONFIRMED_IDLE_SECONDS", -1)
+    def test_confirmed_unstarted_ask_cue_is_available_after_watcher_restart(self):
+        service, client = self.avery.service, self.avery.client
+        sam, sam_id = service.login(client.application, "Sam")
+        self.avery.invoke("create-task", {"title": "File format", "step": "Ask Sam."}, write=True)
+        self.avery.invoke("advance-task", {"id": "T-1", "transition": "start", "note": "Ask Sam."}, write=True)
+        self.avery.invoke("advance-task", {"id": "T-1", "transition": "assign-human", "note": "Which format?",
+                                          "on": sam_id, "options": json.dumps(["CSV", "JSON"])}, write=True)
+        route = "/api/v1/notifications/decisions"
+        request_id = service.call(sam, route).json["items"][0]["decision_request_id"]
+        service.call(sam, f"{route}/T-1/{request_id}/reminder", method="PUT", json={"date": "2000-01-01"})
+        cue = self.avery.invoke("my-next", {"scope": "all"})["ask_recheck"]
+
+        def send(offer, before_send, record):
+            return wake_with_title(offer["cue_key"], "#fixture", "fixture", before_send,
+                                   record_wake=record, cue="ask recheck")
+
+        events = []
+
+        def emit(event):
+            events.append(event)
+            if event.get("kind") == "ask-recheck-wake-requested":
+                raise KeyboardInterrupt
+
+        def run(path):
+            return watch_ready_count(self.avery, "Avery", lambda _: True, self.fail, emit, idle_delay=0,
+                                     goal_state=path, notify_goal=self.fail, notify_ask=send)
+
+        failure = RaftCommandError("reminder schedule", "carrier-not-started")
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "state.sqlite3"
+            with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", failure, failure]) as cli:
+                with self.assertRaisesRegex(WakeScheduleStopped, "ask recheck reminder"):
+                    run(path)
+            self.assertEqual(cli.call_args_list[1], cli.call_args_list[2])
+            self.assertEqual(self.avery.invoke("my-next", {"scope": "all"})["ask_recheck"], cue)
+            with patch("taskboard_cli.ready_checkpoint.raft_cli",
+                       side_effect=["", failure, "Reminder scheduled: #12345678 "]) as cli:
+                with self.assertRaises(KeyboardInterrupt):
+                    run(path)
+            self.assertEqual(cli.call_args_list[1], cli.call_args_list[2])
+            self.assertEqual(len(events), 1)
+            self.assertEqual((events[0]["cue_key"], events[0]["reminder"]), (cue["cue_key"], "#12345678"))
 
     def test_schedule_failure_sends_one_recovery_alert_and_preserves_signed_work(self):
         argv = ["ready-checkpoint", "--watch-idle", "--repeat", "--by", "Avery",

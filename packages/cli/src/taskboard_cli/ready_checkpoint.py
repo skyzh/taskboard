@@ -507,16 +507,28 @@ def watch_ready_count(board, owner, is_idle, notify, emit, interval=10,
         if "cue_key" in notice:
             candidate = {key: value for key, value in notice.items() if key != "board"}
 
+            reserved = False
+
             def reserve_current_ask():
-                return (can_wake() and ask_offer() == candidate and can_wake()
-                        and goal_wake.state.reserve_ask(candidate))
+                nonlocal reserved
+                # A second call follows a confirmed failed spawn.
+                if reserved:
+                    goal_wake.state.release_unstarted_ask(candidate["cue_key"])
+                reserved = (can_wake() and ask_offer() == candidate and can_wake()
+                            and goal_wake.state.reserve_ask(candidate))
+                return reserved
 
             def record_ask(reference):
                 goal_wake.state.record_ask_wake(candidate["cue_key"], reference)
                 emit({"kind": "ask-recheck-wake-requested", "owner": actor, "at": observation_time(),
                       "ticket": candidate["ticket"], "cue_key": candidate["cue_key"], "reminder": reference})
 
-            outcome = notify_ask(notice, reserve_current_ask, record_ask)
+            try:
+                outcome = notify_ask(notice, reserve_current_ask, record_ask)
+            except WakeScheduleStopped as error:
+                if reserved and error.reason == "carrier-not-started":
+                    goal_wake.state.release_unstarted_ask(candidate["cue_key"])
+                raise
             if outcome == "already-queued":
                 reserve_current_ask()
             return outcome
@@ -792,7 +804,7 @@ def recover_schedule_receipt(title, channel, previous):
 
 
 def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fired", *, record_wake=None, ready_event=None,
-                    title_prefix=None, retry_outstanding=False, previous_title=None, cue=None, reserved_cue=False):
+                    title_prefix=None, retry_outstanding=False, previous_title=None, cue=None):
     reminders = raft_cli("reminder", "list", "--status", status)
     fired = None
     for line in reminders.splitlines():
@@ -831,7 +843,7 @@ def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fire
             receipt = raft_cli(*args)
         except RaftCommandError as error:
             # Only a failed spawn proves the command never reached Raft and is safe to retry.
-            if not cue or reserved_cue or error.reason != "carrier-not-started":
+            if not cue or error.reason != "carrier-not-started":
                 raise
             if not can_wake():
                 return None
@@ -954,14 +966,14 @@ def main(*, managed_child=False):
                 def notify_goal(offer, can_wake, record_wake):
                     return wake_with_title(reminder_title(offer), args.channel, args.message_id, can_wake,
                                            record_wake=record_wake, previous_title=reminder_title(offer, legacy=True),
-                                           cue="goal", reserved_cue=True)
+                                           cue="goal")
 
                 def notify_ask(offer, can_wake, record_wake):
                     title = (f"Finish the due Taskboard ask recheck for {offer['ticket']}. "
                              "Read signed Inbox, record the outcome or real blocker, then recheck Inbox. "
                              f"[Taskboard ask {offer['cue_key']}]")
                     return wake_with_title(title, args.channel, args.message_id, can_wake, record_wake=record_wake,
-                                           cue="ask recheck", reserved_cue=True)
+                                           cue="ask recheck")
 
                 health = watcher_reporter(board, args.report_status, stalled=True, goals=True,
                                           emit=emit) if args.report_status else None

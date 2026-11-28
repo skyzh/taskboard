@@ -131,6 +131,10 @@ class GoalWakeState:
             return db.execute("INSERT OR IGNORE INTO cue VALUES (?, ?, ?, 0, 'unknown', NULL)",
                               (key, "ask:" + offer["ticket"], offer["remind_on"])).rowcount == 1
 
+    def release_unstarted_ask(self, cue_key):
+        with self.transaction() as db:
+            db.execute("DELETE FROM cue WHERE key = ? AND outcome = 'unknown'", ("ask:" + cue_key,))
+
     def record_ask_wake(self, cue_key, reminder):
         with self.transaction() as db:
             db.execute("UPDATE cue SET outcome = 'requested', reminder = ? WHERE key = ?",
@@ -199,6 +203,15 @@ class GoalWakeState:
                     drain, offer["task"], offer["goal_day"], offer["completed_checks"],
                 ))
         return True
+
+    def release_unstarted(self, offer):
+        with self.transaction() as db:
+            removed = db.execute("DELETE FROM cue WHERE key = ? AND outcome = 'unknown'",
+                                 (offer["goal_key"],)).rowcount
+            if removed and offer["goal_kind"] in ("standing-daily", "standing-continuation"):
+                drain = f"drain:{offer['task']}:{offer['goal_episode']}"
+                db.execute("DELETE FROM cue WHERE key = ? AND day = ? AND outcome = 'coalesced'",
+                           (drain, offer["goal_day"]))
 
     def requested(self, offer, reminder):
         with self.transaction() as db:
@@ -278,6 +291,10 @@ class GoalWake:
 
         def claim():
             nonlocal reserved
+            # Scheduling calls this again only after proving the previous command never launched.
+            if reserved:
+                self.state.release_unstarted(candidate)
+                reserved = False
             if not can_wake() or self.lookup() != candidate:
                 return False
             if candidate["goal_kind"].startswith("standing-"):
@@ -299,8 +316,9 @@ class GoalWake:
 
         try:
             outcome = send(offer, claim, record)
-        except WakeScheduleStopped:
-            # Keep the reservation and let the watcher report the classified failure.
+        except WakeScheduleStopped as error:
+            if reserved and error.reason == "carrier-not-started":
+                self.state.release_unstarted(candidate)
             raise
         except RuntimeError:
             if reserved:
