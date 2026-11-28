@@ -94,6 +94,19 @@ class ReminderScheduleRecoveryTest(unittest.TestCase):
                 self.assertNotIn(private, str(outcome.exception))
                 self.assertEqual([call.args[0][2] for call in run.call_args_list], commands)
 
+    def test_title_limit_and_malformed_titles_are_checked_before_dispatch(self):
+        for title in ("", " ", "abc\nxyz", "abc\rxyz", "abc\0xyz", "x" * 501):
+            with self.subTest(title_length=len(title)):
+                with patch("taskboard_cli.ready_checkpoint.raft_cli") as carrier:
+                    with self.assertRaises(WakeScheduleStopped) as rejected:
+                        wake_with_title(title, self.channel, "12345678", self.fail, cue="stalled")
+                    self.assertEqual(rejected.exception.reason, "carrier-rejected")
+                carrier.assert_not_called()
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", "Scheduled"]) as carrier:
+            self.assertEqual(wake_with_title("x" * 500, self.channel, "12345678", lambda: True, cue="stalled"),
+                             "wake-requested")
+        self.assertEqual(carrier.call_args.args[3], "x" * 500)
+
     def test_intentional_interrupt_does_not_retry_or_reconcile(self):
         with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", KeyboardInterrupt]) as cli:
             with self.assertRaises(KeyboardInterrupt):
@@ -643,11 +656,9 @@ class ReadyCheckpointTest(unittest.TestCase):
         old_title = ("Taskboard idle follow-up for COURSE-3 (event 19). "
                      "Open https://example.test/tasks/#task-COURSE-3 to continue or record the blocker.")
         title = ("Taskboard idle follow-up for COURSE-3 (event 19). "
-                 "Open https://example.test/tasks/#task-COURSE-3 after checking signed Inbox. "
-                 "Finish COURSE-3 or record the blocker and who can act or when to recheck. "
-                 "Recheck signed Inbox for the next eligible item. Continue an offered Keep exploring goal. "
-                 "To postpone: ./tasks --shared cue-pause COURSE-3 stalled --minutes N --reason REASON. "
-                 "List with ./tasks --shared cue-pauses or clear with ./tasks --shared cue-pause COURSE-3 stalled --clear.")
+                 "Check signed Inbox with ./tasks --shared next --wake. Finish or record the blocker and next check. "
+                 "Pause: ./tasks --shared cue-pause COURSE-3 stalled --minutes N --reason REASON. "
+                 "Open https://example.test/tasks/#task-COURSE-3.")
         with patch("taskboard_cli.ready_checkpoint.raft_cli", return_value=f'#12345678 [fired] "{old_title}" ref=#fixture\n') as cli:
             self.assertEqual(raft_stalled_work(offer, "#fixture", "anchor", self.fail), "already-queued")
             cli.assert_called_once_with("reminder", "list", "--status", "scheduled,fired")
@@ -674,6 +685,27 @@ class ReadyCheckpointTest(unittest.TestCase):
                    side_effect=[prior, "Nothing unread on reminder:12345678.", "Scheduled"]) as cli:
             self.assertEqual(raft_stalled_work(modern, "#fixture", "anchor", lambda: True), "wake-requested")
             self.assertIn("cue-ack COURSE-3 19", cli.call_args.args[3])
+
+    def test_stalled_wake_keeps_exact_controls_with_a_long_ticket_and_board_url(self):
+        maximum = 9223372036854775807
+        ticket = f"PROJECT8-{maximum}"
+        offer = {"kind": "in_progress", "task": ticket, "task_id": maximum, "event_id": maximum,
+                 "board": "https://example.test/" + "prefix/" * 70, "requires_disposition": True}
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", "Scheduled"]) as carrier:
+            self.assertEqual(raft_stalled_work(offer, "#fixture", "anchor", lambda: True), "wake-requested")
+        title = carrier.call_args.args[3]
+        self.assertLessEqual(len(title), 500)
+        self.assertIn(f"{ticket} (event {maximum})", title)
+        self.assertIn("./tasks --shared next --wake", title)
+        self.assertIn(f"cue-ack {ticket} {maximum}", title)
+        self.assertIn(f"cue-pause {ticket} stalled --minutes N --reason REASON", title)
+
+        scheduled = f'#12345678 [scheduled] "{title}" ref=#fixture'
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", return_value=scheduled):
+            self.assertEqual(raft_stalled_work(offer, "#fixture", "anchor", self.fail), "pending-stalled-wake")
+        other = {**offer, "board": offer["board"].replace("example.test", "other.test")}
+        with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=[scheduled, "Scheduled"]):
+            self.assertEqual(raft_stalled_work(other, "#fixture", "anchor", lambda: True), "wake-requested")
 
     def test_worker_checkpoint_can_wait_for_a_time_or_signed_report(self):
         self.avery.invoke("create-task", {"title": "Check a local run", "step": "Wait for a sample."}, write=True)

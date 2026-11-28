@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from time import monotonic, sleep
 from uuid import UUID, uuid4
@@ -848,6 +849,7 @@ def raft_idle(handle):
     return raft_status(handle) == "idle"
 
 
+RAFT_REMINDER_TITLE_LIMIT = 500
 _RECHECK_INBOX = "Recheck signed Inbox for the next eligible item. Continue an offered Keep exploring goal."
 
 
@@ -938,15 +940,19 @@ def raft_stalled_work(offer, channel, message_id, can_wake, *, record_wake=None)
         ticket = offer["task"]
         event = offer["event_id"]
         identity = f"Taskboard idle follow-up for {ticket} (event {event}). "
-        outcome = (
-            "Record one concrete outcome on the goal and follow its saved mode." if offer.get("goal")
-            else f"Finish {ticket} or record the blocker and who can act or when to recheck."
-        )
-        title = f"{identity}Open {url} after checking signed Inbox. {outcome} {_RECHECK_INBOX}"
+        outcome = ("Record an outcome and follow the goal’s saved mode." if offer.get("goal")
+                   else "Finish or record the blocker and next check.")
+        inbox = "signed Inbox with ./tasks --shared next --wake."
+        controls = ""
         if offer.get("requires_disposition"):
-            title += f" Acknowledge in Taskboard with ./tasks --shared cue-ack {ticket} {event}, or park the ticket."
-        title += (f" To postpone: ./tasks --shared cue-pause {ticket} stalled --minutes N --reason REASON. "
-                  f"List with ./tasks --shared cue-pauses or clear with ./tasks --shared cue-pause {ticket} stalled --clear.")
+            controls = f" Acknowledge: ./tasks --shared cue-ack {ticket} {event}, or park."
+        controls += f" Pause: ./tasks --shared cue-pause {ticket} stalled --minutes N --reason REASON."
+        action = f"{identity}Check {inbox} {outcome}{controls}"
+        title = f"{action} Open {url}."
+        if len(title) > RAFT_REMINDER_TITLE_LIMIT:
+            # Keep equal ticket and event numbers on distinct boards separate when omitting the URL.
+            board = sha256(offer["board"].encode()).hexdigest()[:12]
+            title = f"{action} Board {board}."
         return wake_with_title(title, channel, message_id, can_wake, record_wake=record_wake,
                                title_prefix=f"{identity}Open {url} ",
                                retry_outstanding=offer.get("requires_disposition", False), cue="stalled")
@@ -970,6 +976,8 @@ def recover_schedule_receipt(title, channel, previous):
 
 def wake_with_title(title, channel, message_id, can_wake, status="scheduled,fired", *, record_wake=None, ready_event=None,
                     title_prefix=None, retry_outstanding=False, previous_title=None, cue=None):
+    if not title.strip() or len(title) > RAFT_REMINDER_TITLE_LIMIT or any(ch in title for ch in "\r\n\0"):
+        raise WakeScheduleStopped(cue or "recovery", "carrier-rejected")
     reminders = raft_cli("reminder", "list", "--status", status)
     fired = None
     for line in reminders.splitlines():
