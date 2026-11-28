@@ -1732,6 +1732,11 @@
             "url": "#task-FLOW-13"
           }
         ],
+        "rollout": {
+          "current": null,
+          "editable": true,
+          "owner_name": null
+        },
         "sources": [
           {
             "label": "Public example of this workflow",
@@ -2791,6 +2796,11 @@
             "url": "#task-FLOW-15"
           }
         ],
+        "rollout": {
+          "current": null,
+          "editable": true,
+          "owner_name": null
+        },
         "sources": [],
         "tag_editable": true,
         "task": {
@@ -3093,6 +3103,11 @@
         },
         "ownership_actions": [],
         "related_tasks": [],
+        "rollout": {
+          "current": null,
+          "editable": true,
+          "owner_name": null
+        },
         "sources": [],
         "tag_editable": true,
         "task": {
@@ -3363,6 +3378,11 @@
         },
         "ownership_actions": [],
         "related_tasks": [],
+        "rollout": {
+          "current": null,
+          "editable": true,
+          "owner_name": null
+        },
         "sources": [],
         "tag_editable": true,
         "task": {
@@ -3537,6 +3557,11 @@
         },
         "ownership_actions": [],
         "related_tasks": [],
+        "rollout": {
+          "current": null,
+          "editable": true,
+          "owner_name": null
+        },
         "sources": [],
         "tag_editable": true,
         "task": {
@@ -3701,6 +3726,11 @@
         },
         "ownership_actions": [],
         "related_tasks": [],
+        "rollout": {
+          "current": null,
+          "editable": true,
+          "owner_name": null
+        },
         "sources": [],
         "tag_editable": true,
         "task": {
@@ -3873,6 +3903,11 @@
         },
         "ownership_actions": [],
         "related_tasks": [],
+        "rollout": {
+          "current": null,
+          "editable": true,
+          "owner_name": null
+        },
         "sources": [],
         "tag_editable": true,
         "task": {
@@ -3966,6 +4001,11 @@
         },
         "ownership_actions": [],
         "related_tasks": [],
+        "rollout": {
+          "current": null,
+          "editable": true,
+          "owner_name": null
+        },
         "sources": [],
         "tag_editable": true,
         "task": {
