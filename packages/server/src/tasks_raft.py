@@ -254,6 +254,11 @@ _ACTIONS = {
         "state": "Use active or paused.",
         "members": "Optional roster of exact ledger keys as a JSON array. Use an empty array to clear it.",
     }),
+    "escalate-request-to-question": _Action("POST", "Replace your current linked Request with a Question.", {
+        **_TASK, "request_id": "Exact linked Request ID.", "wait_event": "Exact current wait event ID.",
+        "recipient": "Exact recipient of the linked Request.", "note": _NOTE,
+    }, {"details": _DETAILS, "options": "Decision choices encoded as a JSON array of strings.",
+        **_EVIDENCE, **_TEXT_OVERRIDE}),
     "advance-task": _Action("POST", "Advance ordinary work in a project where you can write.", {
         **_TASK, "transition": "Task transition, such as start, update, wait, resume, or done.", "note": _NOTE,
     }, {

@@ -1787,6 +1787,17 @@ def create_app(
         is_note = ledger.is_knowledge(task)
         editable = allowed or (not is_note and key is not None and task["dri"] == key)
         owns = key is not None and key == task["dri"]
+        if owns and task["state"] == "waiting":
+            linked = linked_request_for_question(db(), number, task["event_id"], key)
+            if linked and linked["handled_at"] is None and linked["ready_event_id"] is None:
+                recipient = linked["recipient"]
+                person = profiles.get(db(), recipient)
+                if (person and person["kind"] == "human" and person["server_id"] == actor["server_id"]
+                        and ring1.visible(db(), project, recipient)):
+                    result["attention_replacement"] = {
+                        "request_id": linked["id"], "wait_event": task["event_id"], "recipient": recipient,
+                        "recipient_name": person["name"] or person["username"] or recipient, "reason": linked["reason"],
+                    }
         if owns and result["goal"] and task["state"] not in ("done", "closed"):
             result["goal_review_prompt"] = agent_guidance.project_prompt(db(), project, tasks_guidance.GOAL_REVIEW)
             with tasks_storage.read(db()) as connection:
@@ -2076,12 +2087,16 @@ def create_app(
             current = ledger.find_task(db(), args.id)
             if (current and current["state"] == "human_review" and current["event_id"] != previous["event_id"]
                     and current["waiting_on"] == args.on and decision_sender(db(), current) == actor["ledger_key"]):
-                if actor["kind"] == "agent":
-                    result["decision_delivery"] = decision_delivery(actor, current, args.on)
-                if (push_delivery and not ring1.private(db(), projects.row_project(current))
-                        and result.get("decision_delivery", {}).get("destination", "taskboard") == "taskboard"):
-                    push_delivery.submit("decision", args.id, current["event_id"])
+                if delivery := publish_assigned_question(actor, current):
+                    result["decision_delivery"] = delivery
         return result
+
+    def publish_assigned_question(actor, task):
+        delivery = decision_delivery(actor, task, task["waiting_on"]) if actor["kind"] == "agent" else None
+        if (push_delivery and not ring1.private(db(), projects.row_project(task))
+                and (delivery or {}).get("destination", "taskboard") == "taskboard"):
+            push_delivery.submit("decision", task["id"], task["event_id"])
+        return delivery
 
     def change_maintenance(actor, data, project, *, encoded_members=False):
         owner = text(data, "owner", optional=True, maximum=160)
@@ -3209,6 +3224,15 @@ def create_app(
         if kind == "attention" and data.keys() <= {"reason", "recipient", "request_key", "force_text"}:
             return raise_attention(actor, task_number(number), data)
         raise RequestError("Choose a Decision or attention request and send its documented fields.")
+
+    @app.post("/api/v1/tasks/<number>/request-question")
+    def task_request_question(number):
+        actor = current_actor(write=True, required=True)
+        data = json_body({"request_id", "wait_event", "recipient", "note", "details", "options", "url", "label"},
+                         writing=True)
+        if "options" in data:
+            data["options"] = json.dumps(data["options"])
+        return escalate_request_to_question(actor, task_number(number), data)
 
     @app.post("/api/v1/tasks/<number>/closure")
     def task_closure(number):
@@ -4428,6 +4452,80 @@ def create_app(
                 raise RequestError("Choose a human who has access to this board.", 403)
         return key
 
+    def linked_request_for_question(connection, number, wait_event, owner):
+        return connection.execute(
+            """
+            SELECT requests.id, requests.recipient, requests.reason, requests.handled_at, links.ready_event_id
+            FROM attention_wait_links AS links
+            JOIN attention_requests AS requests ON requests.id = links.request_id
+            JOIN events ON events.id = links.event_id
+            WHERE links.event_id = ? AND requests.task_id = ? AND events.task_id = ? AND requests.sender = ?
+            """, (wait_event, number, number, owner),
+        ).fetchone()
+
+    def escalate_request_to_question(actor, number, data):
+        request_id = integer(data.get("request_id"), "request_id")
+        wait_event = integer(data.get("wait_event"), "wait_event")
+        recipient = question_recipient(actor, number, text(data, "recipient", maximum=160))
+        note = writing_text(data, "note")
+        options = question_options(data)
+        details = None
+        if "details" in data:
+            try:
+                details = ledger.activity_details(note, data["details"])
+            except ValueError as error:
+                raise RequestError(str(error)) from error
+        links = one_link(data)
+        owner = actor["ledger_key"]
+        escalation = {"request_id": request_id, "wait_event": wait_event}
+        with tasks_storage.write(db()) as connection:
+            task = ledger.find_task(connection, number)
+            if task is None:
+                raise NotFound()
+            project = projects.row_project(task)
+            require_visible_project(connection, project)
+            if task["dri"] != owner:
+                raise RequestError("Only the ticket owner can replace their linked Request.", 403)
+            require_ring_member(connection, project, recipient)
+            linked = linked_request_for_question(connection, number, wait_event, owner)
+            if not linked or linked["id"] != request_id or linked["recipient"] != recipient:
+                raise RequestError("Choose the exact linked Request, wait and recipient on this ticket.", 409)
+            for _, url in links:
+                if related := internal_link_project(connection, url):
+                    require_visible_project(connection, related)
+                    require_same_ring(connection, project, related)
+            reference = projects.row_reference(task)
+            receipt = {"receipt": f"{reference} · Decision requested", "ticket": reference,
+                       "request_id": request_id, "wait_event": wait_event, "recipient": recipient}
+            if linked["handled_at"] is not None:
+                for event in connection.execute(
+                    "SELECT id, note, links, context FROM events "
+                    "WHERE task_id = ? AND action = 'assign-human' AND actor = ? AND waiting_on = ? AND at = ? AND id > ?",
+                    (number, owner, recipient, linked["handled_at"], wait_event),
+                ):
+                    context = ledger.event_context(event)
+                    if context.get("attention_escalation") != escalation:
+                        continue
+                    if (event["note"], json.loads(event["links"]), context.get("choices"), context.get("activity_details")) != (
+                        note, [list(link) for link in links], options, details,
+                    ):
+                        raise RequestError("This linked Request was already replaced with a different Question.", 409)
+                    return {**receipt, "question_event_id": event["id"], "retired_at": linked["handled_at"]}
+                raise RequestError("This linked Request was already handled.", 409)
+            if task["state"] != "waiting" or task["event_id"] != wait_event or linked["ready_event_id"] is not None:
+                raise RequestError("This is no longer the current linked wait. Refresh the ticket.", 409)
+            args = Namespace(command="assign-human", id=number, by=owner, on=recipient, option=options, note=note,
+                             details=details, attention_escalation=escalation)
+            try:
+                ledger.change_task(connection, args, links)
+            except ValueError as error:
+                raise RequestError(str(error), 409) from error
+            current = ledger.get_task(connection, number)
+            connection.execute("UPDATE attention_requests SET handled_at = ? WHERE id = ?", (current["at"], request_id))
+            ledger.bump_revision(connection, project)
+        publish_assigned_question(actor, current)
+        return {**receipt, "question_event_id": current["event_id"], "retired_at": current["at"]}
+
     def raise_attention(actor, number, data):
         local = g.get("local_dri")
         sender = actor["ledger_key"]
@@ -4933,10 +5031,7 @@ def create_app(
                       manual_review=manual_review, stamp_repositories=stamp_repositories,
                       force_delivery=force_delivery(data))
 
-    def advance(actor, data, number):
-        command = text(data, "transition", maximum=30)
-        if command not in ADVANCES:
-            raise RequestError("Choose a supported task transition.")
+    def question_options(data):
         options = []
         if "options" in data:
             try:
@@ -4948,6 +5043,13 @@ def create_app(
             ):
                 raise RequestError("Provide up to 10 nonempty decision labels of 120 characters.")
             options = [item.strip() for item in options]
+        return options
+
+    def advance(actor, data, number):
+        command = text(data, "transition", maximum=30)
+        if command not in ADVANCES:
+            raise RequestError("Choose a supported task transition.")
+        options = question_options(data)
         on = text(data, "on", optional=True, maximum=160)
         if on and command not in ("wait", "assign-human", "redirect-decision"):
             raise RequestError("This transition does not take a dependency or recipient.")
@@ -5828,6 +5930,8 @@ def create_app(
             return edit_ticket_checklist(actor, number, data)
         if name == "raise-attention":
             return raise_attention(actor, number, data)
+        if name == "escalate-request-to-question":
+            return escalate_request_to_question(actor, number, data)
         if name == "set-priority":
             return mutate("priority", actor, data, id=number, priority=text(data, "priority", maximum=10).lower())
         if name == "advance-task":
