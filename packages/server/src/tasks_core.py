@@ -429,6 +429,22 @@ def record_confirmed_blocker(db, task, actor, note, links, override=None):
     )
 
 
+def blocker_completion_event(db, blocker):
+    """Find the transition that finished the blocker's current Done episode."""
+    if blocker["display_state"] != "done":
+        return None
+    row = db.execute("""
+        SELECT id FROM events
+        WHERE task_id = ? AND id <= ? AND state = 'done' AND action NOT IN ('log', 'source-event')
+          AND id > COALESCE((
+            SELECT MAX(id) FROM events
+            WHERE task_id = ? AND id < ? AND state <> 'done' AND action NOT IN ('log', 'source-event')
+          ), 0)
+        ORDER BY id LIMIT 1
+    """, (blocker["id"], blocker["event_id"], blocker["id"], blocker["event_id"])).fetchone()
+    return row["id"] if row is not None else None
+
+
 def release_linked_waits(db, blocker_id, completion_event, board_url):
     blocker = get_task(db, blocker_id)
     if blocker["display_state"] != "done" or blocker["event_id"] != completion_event:

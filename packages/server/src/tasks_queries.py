@@ -397,6 +397,29 @@ class BoardQueries:
             })
         return {"project": project, "items": items}
 
+    def linked_wait_resolution(self, task_id, project, wait_event):
+        wait = self.db.execute(f"""
+            SELECT context FROM events WHERE id = ? AND task_id = ? AND state = 'waiting'
+              AND NOT EXISTS (SELECT 1 FROM worker_runs WHERE worker_runs.task_id = ? AND ({RUNNING}))
+        """, (wait_event, task_id, task_id)).fetchone()
+        if wait is None:
+            return None
+        context = ledger.event_context(wait)
+        blocker_id = context.get("blocked_by")
+        if type(blocker_id) is not int or context.get("peer_ask_ticket") or context.get("wait_kind") == "automation":
+            return None
+        visible, args = self.current_visible_tasks()
+        blocker = self.db.execute(f"SELECT * FROM ({visible}) AS visible WHERE id = ?", (*args, blocker_id)).fetchone()
+        if blocker is None:
+            return None
+        blocker_project = projects.row_project(blocker)
+        if blocker_project != project and (ring1.private(self.db, project) or ring1.private(self.db, blocker_project)):
+            return None
+        completion = ledger.blocker_completion_event(self.db, blocker)
+        if completion is None:
+            return None
+        return {"wait_event": wait_event, "blocker_event": completion, "blocker_ticket": projects.row_reference(blocker)}
+
     def schedule_report(self, number, owner, as_of, project):
         report = recurring.report(self.db, number, owner, as_of, viewer=self.principal, project=project,
                                   task_scope=self.project_visibility("ticket.project_prefix"))
@@ -3217,9 +3240,15 @@ class BoardQueries:
         items = []
         for row in rows:
             kind, action = kinds[row["cue_rank"]]
+            resolution = {}
+            if kind == "resolved-wait":
+                resolution = self.linked_wait_resolution(row["id"], row["project_prefix"], row["event_id"])
+                if resolution is None:
+                    continue
             items.append({
                 "id": f"{kind}:{row['event_id']}", "kind": kind, "action": action,
                 "ticket": projects.row_reference(row), "title": row["title"], "event_id": row["event_id"],
+                **resolution,
             })
         remaining = None if limit is None else min(5, limit - len(items))
         after = 0
@@ -3380,8 +3409,11 @@ class BoardQueries:
         if wake_at is not None:
             for item in self.virtual_ticket_cues(owner, project=project, now=wake_at,
                                                  limit=None if all_ordinary else 1, waiting_only=True):
-                yield {"kind": item["kind"], "id": projects.resolve(self.db, item["ticket"]), "key": item["ticket"],
-                       "title": item["title"], "source_event": item["event_id"]}
+                work = {"kind": item["kind"], "id": projects.resolve(self.db, item["ticket"]), "key": item["ticket"],
+                        "title": item["title"], "source_event": item["event_id"]}
+                if item["kind"] == "resolved-wait":
+                    work.update({field: item[field] for field in ("wait_event", "blocker_event", "blocker_ticket")})
+                yield work
         if exploration:
             yield exploration
 

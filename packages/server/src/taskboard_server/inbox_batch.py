@@ -73,6 +73,9 @@ class BatchMember:
     task_id: int
     source_event: int | None
     source_at: str | None
+    wait_event: int | None = None
+    blocker_event: int | None = None
+    blocker_ticket: str | None = None
 
 
 class InboxBatchDelivery:
@@ -114,11 +117,22 @@ class InboxBatchDelivery:
                     break
                 if item.kind.startswith(_GOAL_PREFIX) and not goal_enabled:
                     break
-                if (item.kind, item.key) in observed:
-                    continue
                 task = ledger.find_task(self.db, projects.resolve(self.db, item.ticket))
                 if task is None:
                     break
+                if item.kind == "ready" and task["current_action"] == "resume":
+                    wait_event = ledger.event_context(task).get("confirmed_blocker_event")
+                    if wait_event is not None and self.db.execute(
+                        "SELECT 1 FROM events WHERE id = ? AND actor = 'Taskboard'", (item.source_event,),
+                    ).fetchone():
+                        resolution = board.linked_wait_resolution(task["id"], self.project, wait_event)
+                        if resolution:
+                            item = replace(
+                                item, key=f"ready:{item.source_event}:{wait_event}:{resolution['blocker_event']}",
+                                **resolution,
+                            )
+                if (item.kind, item.key) in observed:
+                    continue
                 source_at = None
                 if item.kind == "ready":
                     if (task["dri"] != owner or item.source_event != task["event_id"] or task["state"] != "ready"
@@ -127,7 +141,8 @@ class InboxBatchDelivery:
                     ready_at = datetime.fromisoformat(task["at"]).timestamp()
                     if now < ready_at or now >= ready_at + _MAX_READY_AGE:
                         break
-                    if not self.sender._receipt_allows_attempt(item.source_event, owner):
+                    blocker_completed_again = item.blocker_event is not None and item.blocker_event > item.source_event
+                    if not blocker_completed_again and not self.sender._receipt_allows_attempt(item.source_event, owner):
                         continue
                     source_at = task["at"]
                 elif item.kind in _GOAL_KINDS:
@@ -139,7 +154,10 @@ class InboxBatchDelivery:
                     if existing is not None:
                         continue
                 selected.append(replace(item, title=task["title"]) if len(selected) < PREVIEW_LIMIT else item)
-                members.append(BatchMember(item.kind, item.ticket, item.key, task["id"], item.source_event, source_at))
+                members.append(BatchMember(
+                    item.kind, item.ticket, item.key, task["id"], item.source_event, source_at,
+                    item.wait_event, item.blocker_event, item.blocker_ticket,
+                ))
             return members, tuple(selected), tip
 
     def _clear(self):
@@ -147,7 +165,11 @@ class InboxBatchDelivery:
             self.state.execute("DELETE FROM inbox_batch WHERE singleton = 1")
 
     def _prepare(self, saved, members, summary, now, tip):
-        exact = json.dumps([asdict(member) for member in members], separators=(",", ":"))
+        resolution_fields = {"wait_event", "blocker_event", "blocker_ticket"}
+        exact = json.dumps([
+            {field: value for field, value in asdict(member).items() if value is not None or field not in resolution_fields}
+            for member in members
+        ], separators=(",", ":"))
         identity = json.dumps([saved["board"], saved["server"], saved["recipient"], self.project, exact])
         key = "taskboard-inbox-" + sha256(identity.encode()).hexdigest()
         document = json.dumps({"kind": "event", "externalEventId": key, "summary": summary}).encode()

@@ -75,6 +75,170 @@ class InboxBatchTest(unittest.TestCase):
         for offset in (first, first + 10, first + 20):
             self.assertEqual(self.poll(offset, goals=goals), ("awaiting_idle", None))
 
+    def test_completed_public_blocker_in_another_project_wakes_the_enrolled_ticket(self):
+        from tasks_ring1 import mark_private
+
+        fixture = self.fixture
+        blake, blake_id = fixture.service.login(fixture.service.app(portal_reader=True), "Blake")
+        blake = SignedBoard(fixture.service, blake)
+        fixture.service.cli("register-project", "OPS", "Fixture operations", "--dri", blake_id)
+        blocker = blake.invoke("create-task", {
+            "project": "OPS", "title": "Check the upstream dependency", "step": "Read the fixture.",
+        }, write=True)["receipt"].split()[0]
+        for transition in ("start", "done"):
+            blake.invoke("advance-task", {"id": blocker, "transition": transition, "note": "Check the fixture."},
+                         write=True)
+        completion = fixture.service.task_event(blake.client, blocker)["event"]
+        waiting = fixture.create()["task"]
+        fixture.board.invoke("advance-task", {"id": waiting, "transition": "start", "note": "Check the fixture."},
+                             write=True)
+        fixture.board.invoke("advance-task", {
+            "id": waiting, "transition": "wait", "note": "Check the dependency.", "blocked_by": blocker,
+        }, write=True)
+        wait = fixture.service.task_event(fixture.board.client, waiting)["event"]
+        proof = {"id": waiting, "wait_event": wait, "blocker_event": completion, "note": "Verified completion."}
+        signed = fixture.board.invoke("my-inbox-wake", {"scope": "all", "include_occurrences": "true"})["work"]
+        self.assertEqual((signed["kind"], signed["key"], signed["wait_event"], signed["blocker_event"]),
+                         ("resolved-wait", waiting, wait, completion))
+
+        self.established_idle()
+        status, key = self.poll(30)
+        self.assertEqual(status, "accepted")
+        member, = json.loads(self.history(key)["members"])
+        self.assertEqual((member["ticket"], member["blocker_ticket"], member["wait_event"], member["blocker_event"]),
+                         (waiting, blocker, wait, completion))
+        summary = fixture.provider.accepted[key]["summary"]
+        self.assertIn(f"{waiting} — Check the sample", summary)
+        self.assertIn("A linked blocker finished. Confirm the blocker and resume in signed Inbox.", summary)
+        self.assertNotIn(blocker, summary)
+        self.assertNotIn("Check the upstream dependency", summary)
+        self.restart()
+        self.assertEqual(self.poll(40), ("idle", None))
+        self.assertEqual(len(self.wire), 1)
+        confirmed = fixture.board.invoke("confirm-blocker", proof, write=True)
+        self.assertEqual(fixture.board.invoke("task", {"id": waiting})["task"]["state"], "ready")
+        self.assertIsInstance(confirmed["event_id"], int)
+
+        fixture.board.invoke("advance-task", {"id": waiting, "transition": "start", "note": "Recheck the fixture."},
+                             write=True)
+        fixture.board.invoke("advance-task", {
+            "id": waiting, "transition": "wait", "note": "Recheck the dependency.", "blocked_by": blocker,
+        }, write=True)
+        proof["wait_event"] = fixture.service.task_event(fixture.board.client, waiting)["event"]
+        with closing(open_sqlite(fixture.ledger)) as db, write(db):
+            mark_private(db, "OPS", [blake_id])
+        restricted = fixture.board.invoke("my-inbox-wake", {"scope": "all", "include_occurrences": "true"})
+        self.assertNotIn(blocker, json.dumps(restricted))
+        self.assertEqual(self.poll(50), ("idle", None))
+        fixture.service.action(fixture.board.client, "confirm-blocker", proof, status=404)
+
+    def test_reopened_old_blocker_does_not_hide_current_ready_work(self):
+        fixture = self.fixture
+        waiting = fixture.create()["task"]
+        fixture.board.invoke("set-priority", {"id": waiting, "priority": "high"}, write=True)
+        blake, _ = fixture.service.login(fixture.service.app(portal_reader=True), "Blake")
+        blake = SignedBoard(fixture.service, blake)
+        blocker = blake.invoke("create-task", {"title": "Finish the dependency", "step": "Read the fixture."},
+                               write=True)["receipt"].split()[0]
+
+        def advance(board, ticket, transition, **fields):
+            board.invoke("advance-task", {
+                "id": ticket, "transition": transition, "note": "Check the fixture.", **fields,
+            }, write=True)
+
+        advance(blake, blocker, "start")
+        advance(fixture.board, waiting, "start")
+        advance(fixture.board, waiting, "wait", blocked_by=blocker)
+        advance(blake, blocker, "done")
+        ready = fixture.service.task_event(fixture.board.client, waiting)
+        other = fixture.create()
+        blake.invoke("change-ownership", {"id": blocker, "action": "reopen", "reason": "Check a second sample."},
+                     write=True)
+
+        signed = fixture.board.invoke("my-inbox-wake", {"scope": "all", "include_occurrences": "true"})["work"]
+        self.assertEqual((signed["kind"], signed["source_event"]), ("ready", ready["event"]))
+        self.established_idle()
+        status, key = self.poll(30)
+        self.assertEqual(status, "accepted")
+        members = json.loads(self.history(key)["members"])
+        self.assertEqual([member["source_event"] for member in members], [ready["event"], other["event"]])
+        self.assertTrue(all("blocker_event" not in member for member in members))
+        self.assertNotIn(f"{blocker} finished", fixture.provider.accepted[key]["summary"])
+        advance(fixture.board, waiting, "start")
+        self.assertEqual(fixture.board.invoke("task", {"id": waiting})["task"]["state"], "in_progress")
+
+    def test_auto_released_blocker_keeps_ready_pickup_and_rebinds_the_batch_after_reopen(self):
+        fixture = self.fixture
+        waiting = fixture.create()["task"]
+        blake, _ = fixture.service.login(fixture.service.app(portal_reader=True), "Blake")
+        blake = SignedBoard(fixture.service, blake)
+        blocker = blake.invoke("create-task", {"title": "Finish the dependency", "step": "Read the fixture."},
+                               write=True)["receipt"].split()[0]
+
+        def advance(board, ticket, transition, **fields):
+            board.invoke("advance-task", {
+                "id": ticket, "transition": transition, "note": "Check the fixture.", **fields,
+            }, write=True)
+
+        advance(blake, blocker, "start")
+        advance(fixture.board, waiting, "start")
+        advance(fixture.board, waiting, "wait", blocked_by=blocker)
+        wait = fixture.service.task_event(fixture.board.client, waiting)["event"]
+        advance(blake, blocker, "done")
+        first_done = fixture.service.task_event(blake.client, blocker)["event"]
+        ready = fixture.service.task_event(fixture.board.client, waiting)
+        self.assertEqual(fixture.board.invoke("task", {"id": waiting})["task"]["state"], "ready")
+        signed = fixture.board.invoke("my-inbox-wake", {"scope": "all", "include_occurrences": "true"})["work"]
+        self.assertEqual((signed["kind"], signed["source_event"]), ("ready", ready["event"]))
+
+        def check_batch(key, completion):
+            member, = json.loads(self.history(key)["members"])
+            self.assertEqual(
+                (member["kind"], member["ticket"], member["source_event"], member["wait_event"],
+                 member["blocker_event"], member["blocker_ticket"]),
+                ("ready", waiting, ready["event"], wait, completion, blocker),
+            )
+            summary = fixture.provider.accepted[key]["summary"]
+            self.assertIn(f"{waiting} — Check the sample", summary)
+            self.assertIn(f"{blocker} finished. Start or continue in signed Inbox.", summary)
+            self.assertNotIn("://", summary)
+
+        run = fixture.board.invoke("delegate", {
+            "id": waiting, "worker": fixture.owner, "role": "build", "brief": "Check the resumed work.",
+        }, write=True)["receipt"].split()[0]
+        fixture.board.invoke("worker-handoff", {
+            "run": run, "transition": "start", "handle": "fixture-run", "subagent": True,
+        }, write=True)
+        for offset in (0, 10, 20, 30):
+            self.assertEqual(self.poll(offset), ("idle", None))
+        self.assertEqual(self.wire, [])
+        fixture.board.invoke("worker-handoff", {
+            "run": run, "transition": "stop", "note": "Fixture work stopped.",
+        }, write=True)
+        self.restart()
+        self.established_idle(40)
+        status, first = self.poll(70)
+        self.assertEqual(status, "accepted")
+        check_batch(first, first_done)
+        blake.invoke("change-ownership", {"id": blocker, "action": "reopen", "reason": "Verify a second sample."},
+                     write=True)
+        for offset in (80, 90, 100, 110):
+            self.assertEqual(self.poll(offset), ("idle", None))
+        self.assertEqual(len(self.wire), 1)
+        advance(blake, blocker, "start")
+        advance(blake, blocker, "done")
+        second_done = fixture.service.task_event(blake.client, blocker)["event"]
+        status, second = self.poll(120)
+        self.assertEqual(status, "accepted")
+        self.assertNotEqual(first, second)
+        check_batch(second, second_done)
+        self.assertEqual([row for row in fixture.outcomes() if row[0] == ready["event"]], [(ready["event"], "accepted")])
+        fixture.service.action(fixture.board.client, "confirm-blocker", {
+            "id": waiting, "wait_event": wait, "blocker_event": second_done, "note": "Already released.",
+        }, status=409)
+        advance(fixture.board, waiting, "start")
+        self.assertEqual(fixture.board.invoke("task", {"id": waiting})["task"]["state"], "in_progress")
+
     def test_operator_enables_batches_only_with_the_explicit_direct_flag(self):
         fixture = self.fixture
         common = ["--db", str(fixture.ledger), "--state", str(fixture.state),

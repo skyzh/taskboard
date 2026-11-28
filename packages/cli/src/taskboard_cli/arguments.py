@@ -275,6 +275,7 @@ def arguments(argv=None):
     confirm.add_argument("id", type=task_id)
     confirm.add_argument("wait_event", type=int, help="Activity event ID for the current wait.")
     confirm.add_argument("note", type=nonblank, help="The verified outcome.")
+    confirm.add_argument("--blocker-event", type=int, help="Exact completion event shown for a linked blocker.")
     add_transition_override(confirm)
     add_link_flag(confirm)
 
