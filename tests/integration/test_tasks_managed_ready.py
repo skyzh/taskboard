@@ -554,10 +554,11 @@ class ManagedSenderTest(unittest.TestCase):
 
     def test_sampled_idle_yields_to_signed_start_during_final_read(self):
         self.baseline()
-        ready = self.create()["event"]
+        created = self.create()
+        ready = created["event"]
         offer = offer_work(self.board, self.owner)
         self.assertEqual(offer["ready_event"], ready)
-        origin = self.now
+        origin = datetime.fromisoformat(created["at"]).timestamp()
         grant = self.grant()
         reads = []
 

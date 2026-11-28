@@ -2,6 +2,7 @@
 
 import argparse
 from datetime import datetime, timezone
+from hashlib import file_digest
 import json
 import os
 from pathlib import Path
@@ -17,13 +18,16 @@ from deploy_main import predecessor_for
 from github_main import (
     GitHubRateLimited, read_github, repository_path, require_protected_tip, respect_rate_limit, verify_required_checks,
 )
+from hosted_compatibility import public_compatibility_proof
 from local_queue import queue_lock, write_json
 from operator_deploy import RETRY_ATTEMPT, deployment_layout, read_operator_config, run_config
+from qualify_public_ci import NODE_VERSION
 from queue_provenance import GIT_COMMIT, SHA256
 from release_compatibility import run_matrix, verify_policy_receipt
 from release_plan import ReleaseRejected, file_hash
 from stage_transfer import stage_transfer
 from tasks_release_info import METADATA_NAME, release_info
+from verify_pi_browser_archives import CHROMIUM_BINARY_SHA256, CHROMIUM_VERSION
 
 
 MAIN_REF = "refs/heads/main"
@@ -69,7 +73,7 @@ def save_running_release(layout, evidence, outcome):
 
 
 def deploy_once(config, *, tip=git_main_tip, read=read_github, fetch=fetch_commit, operate=run_config,
-                retry_commit=None, attempt=None):
+                retry_commit=None, attempt=None, reuse_public_proof=False):
     if type(config.get("operator_uid")) is not int or config["operator_uid"] != os.getuid():
         raise ValueError("Run under the existing authorized Taskboard service account.")
     if (retry_commit is None) != (attempt is None) or (attempt is not None and (
@@ -91,7 +95,7 @@ def deploy_once(config, *, tip=git_main_tip, read=read_github, fetch=fetch_commi
         try:
             return deploy_changed(config, layout, records, commit,
                                   read=respect_rate_limit(read, rate_limit), fetch=fetch, operate=operate,
-                                  attempt=attempt)
+                                  attempt=attempt, reuse_public_proof=reuse_public_proof)
         except GitHubRateLimited as error:
             return {"commit": commit, "status": "rate-limited", "retry_at": error.retry_at}
 
@@ -127,7 +131,43 @@ def record_staged_failure(records, commit, candidate, stage, error):
         print("Could not save the private staged deployment failure receipt.", file=sys.stderr)
 
 
-def deploy_changed(config, layout, records, commit, *, read, fetch, operate, attempt=None):
+def matching_public_runtime(policy, python):
+    try:
+        module = Path(policy["playwright_module"]).resolve(strict=True)
+        package = json.loads(module.with_name("package.json").read_text(encoding="utf-8"))
+        if (not module.is_file() or module.name != "index.mjs"
+                or (package["name"], package["version"]) != ("playwright-core", "1.65.1")):
+            return False
+        binary = Path(policy["browser_executable"]).resolve(strict=True)
+        if not binary.is_file():
+            return False
+        with binary.open("rb") as source:
+            if file_digest(source, "sha256").hexdigest() != CHROMIUM_BINARY_SHA256:
+                return False
+        for command, expected in ((python, "Python 3.13.5"), (policy.get("node", "node"), f"v{NODE_VERSION}")):
+            if subprocess.check_output([command, "--version"], text=True, timeout=5).strip() != expected:
+                return False
+    except (KeyError, OSError, TypeError, ValueError, subprocess.SubprocessError):
+        return False
+    return True
+
+
+def proof_for_active_release(settings, gate, read, current, base, policy, python):
+    if policy.get("unavailable_action") is not None:
+        return None
+    try:
+        active = current.resolve(strict=True)
+        if file_hash(active / "SHA256SUMS") != base:
+            return None
+    except OSError:
+        return None
+    predecessor = release_info(active)["commit"]
+    if predecessor is None or not matching_public_runtime(policy, python):
+        return None
+    return public_compatibility_proof(settings, gate, read, predecessor_commit=predecessor)
+
+
+def deploy_changed(config, layout, records, commit, *, read, fetch, operate, attempt=None, reuse_public_proof=False):
     settings = config["github"]
     state = records.parent
     python = config.get("python", sys.executable)
@@ -170,7 +210,12 @@ def deploy_changed(config, layout, records, commit, *, read, fetch, operate, att
             base = target["active"]
             predecessor = predecessor_for(config, state, base)
             policy = json.loads(Path(config["compatibility_policy"]).read_text(encoding="utf-8"))
-            matrix = run_matrix(artifact, candidate, predecessor, base, policy, python)
+            matrix_inputs = {}
+            if reuse_public_proof and attempt is None:
+                proof = proof_for_active_release(settings, gate, read, layout.current, base, policy, python)
+                if proof is not None:
+                    matrix_inputs = {"public_proof": proof, "browser_version": CHROMIUM_VERSION}
+            matrix = run_matrix(artifact, candidate, predecessor, base, policy, python, **matrix_inputs)
             verify_policy_receipt(matrix, candidate, base, policy, predecessor)
             finish_stage("compatibility")
             evidence = {"github": gate, "build": build, "compatibility": matrix,

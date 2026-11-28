@@ -2,6 +2,7 @@
 
 from contextlib import closing, redirect_stdout
 from email.message import Message
+from hashlib import sha256
 from io import BytesIO, StringIO
 import json
 import os
@@ -15,14 +16,15 @@ from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
 import test_ci_watch
-from deploy_hosted import deploy_once, git_main_tip
+from deploy_hosted import deploy_once, git_main_tip, matching_public_runtime
 from deploy_main import run_main
 from github_main import GitHubRateLimited, read_github, respect_rate_limit
 from operator_deploy import (
     checked_main_receipt, project_checked_main, read_main_state, receive_checked_main,
 )
 from release_plan import ReleaseLayout, ReleaseRejected, copy_release, file_hash, release_lock, verify_manifest
-from tasks_release_info import release_info
+from tasks_release_info import METADATA_NAME, release_info
+from verify_pi_browser_archives import CHROMIUM_VERSION
 from watch_main_ci import ACTIONS, API, REPO, WORKFLOW, main as main_ci, poll, public_github_read
 
 
@@ -161,6 +163,70 @@ class MainReleaseTest(unittest.TestCase):
                 "total_count": len(checks), "check_runs": checks,
             },
         }
+
+    def test_hosted_proof_is_optional_and_does_not_skip_the_final_tip_check(self):
+        base_commit = self.ci.check()["commit"]
+        layout, base = self.prepare_target()
+        metadata = {"manifest": base, "commit": base_commit,
+                    "built_at": "2026-11-27T21:00:00Z", "deployed_at": "2026-11-27T21:01:00Z"}
+        (layout.releases / METADATA_NAME).write_text(json.dumps(metadata))
+        self.ci.write("web/src/title.txt", "Public qualification candidate")
+        commit = self.ci.commit("Build a disposable candidate")
+        responses = self.github_responses(commit)
+        branch, rules, checks = responses
+        moved = {**responses[branch], "commit": {"sha": "f" * 40}}
+        proof = {"fictional": "verified by the separately tested anonymous reader"}
+
+        for enabled, policy, reported_base, expected_proof in (
+            (False, {}, base, None),
+            (True, {}, base, proof),
+            (True, {"unavailable_action": {}}, base, None),
+            (True, {}, "0" * 64, None),
+        ):
+            with self.subTest(enabled=enabled, policy=policy, reported_base=reported_base):
+                Path(self.config["compatibility_policy"]).write_text(json.dumps(policy))
+                read = Mock(side_effect=[responses[checks], responses[branch], responses[rules], moved])
+                operate = Mock(return_value={"outcome": None, "active": reported_base})
+                with (patch("deploy_hosted.predecessor_for", return_value=layout.current),
+                      patch("deploy_hosted.matching_public_runtime", return_value=True),
+                      patch("deploy_hosted.public_compatibility_proof", return_value=proof) as lookup,
+                      patch("deploy_hosted.run_matrix", return_value={"status": "pass"}) as matrix,
+                      patch("deploy_hosted.verify_policy_receipt") as verify,
+                      self.assertRaisesRegex(ReleaseRejected, "exact protected GitHub main tip")):
+                    deploy_once(self.config, tip=lambda _: commit, read=read, fetch=Mock(),
+                                operate=operate, reuse_public_proof=enabled)
+                self.assertEqual(matrix.call_args.kwargs, {} if expected_proof is None else {
+                    "public_proof": expected_proof, "browser_version": CHROMIUM_VERSION,
+                })
+                if expected_proof is None:
+                    lookup.assert_not_called()
+                else:
+                    self.assertEqual(lookup.call_args.kwargs, {"predecessor_commit": base_commit})
+                verify.assert_called_once()
+                operate.assert_called_once()
+                self.assertEqual([call.args[0] for call in read.call_args_list], [checks, branch, rules, branch])
+
+    def test_public_runtime_checks_the_selected_module_binary_and_interpreters(self):
+        module = self.root / "index.mjs"
+        module.touch()
+        module.with_name("package.json").write_text('{"name":"playwright-core","version":"1.65.1"}')
+        browser = self.root / "chromium"
+        browser.write_bytes(b"fictional browser binary")
+        policy = {"playwright_module": str(module), "browser_executable": str(browser), "node": "fixture-node"}
+        pin = sha256(browser.read_bytes()).hexdigest()
+        with (patch("deploy_hosted.CHROMIUM_BINARY_SHA256", pin),
+              patch("deploy_hosted.subprocess.check_output", side_effect=["Python 3.13.5\n", "v24.22.3\n"]) as probe):
+            self.assertTrue(matching_public_runtime(policy, "fixture-python"))
+            self.assertEqual([call.args[0] for call in probe.call_args_list],
+                             [["fixture-python", "--version"], ["fixture-node", "--version"]])
+        with patch("deploy_hosted.CHROMIUM_BINARY_SHA256", pin), (
+            patch("deploy_hosted.subprocess.check_output", side_effect=["Python 3.13.5\n", "v25.8.0\n"])
+        ):
+            self.assertFalse(matching_public_runtime(policy, "fixture-python"))
+        with patch("deploy_hosted.subprocess.check_output") as probe:
+            self.assertFalse(matching_public_runtime(policy, "fixture-python"))
+            self.assertFalse(matching_public_runtime({"browser_executable": str(browser)}, "fixture-python"))
+            probe.assert_not_called()
 
     def test_public_git_lookup_requires_the_exact_main_ref(self):
         sha = "1" * 40
