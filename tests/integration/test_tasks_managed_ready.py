@@ -356,7 +356,15 @@ class ManagedSenderTest(unittest.TestCase):
         secret = root / "fixture-secret"
         secret.write_text("fixture-secret", encoding="ascii")
         secret.chmod(0o600)
-        (root / "SHA256SUMS").write_text("fixture artifact", encoding="ascii")
+        artifact = root / "release"
+        artifact.mkdir()
+        manifest = b"fixture artifact"
+        (artifact / "SHA256SUMS").write_bytes(manifest)
+        build = "a" * 40
+        (root / "active-release.json").write_text(json.dumps({
+            "manifest": sha256(manifest).hexdigest(), "commit": build,
+            "built_at": self.fixture_timestamp(), "deployed_at": self.fixture_timestamp(),
+        }), encoding="ascii")
         status = root / "status.json"
         scopes = [Enrollment(self.identity.subject, PROJECT, self.state, "fixture-client", secret, False, False, board_wide),
                   Enrollment(second.subject, TINYLLM, second_state, "fixture-client", secret, False, False, board_wide)]
@@ -384,11 +392,13 @@ class ManagedSenderTest(unittest.TestCase):
             with patch("taskboard_server.managed_ready_service._pilot_status", return_value=lambda: "idle"), patch(
                 "taskboard_server.managed_ready_service.SampledIdleGate",
                 side_effect=lambda *args, **kwargs: Mock(eligible=Mock(return_value=True)),
-            ), patch("taskboard_server.managed_ready_service._POLL_SECONDS", .02):
+            ), patch("taskboard_server.managed_ready_service._POLL_SECONDS", .02), patch(
+                "taskboard_server.managed_ready_service._observed_at", side_effect=self.fixture_timestamp,
+            ):
                 fd = os.open(secret, os.O_RDONLY)
                 inherited = [replace(scope, secret=None) for scope in scopes]
                 credential = _read_slot_credential(inherited, ("fixture-client", str(fd)))
-                serve(status, root, self.ledger, self.identity.server_id, "fixture", inherited, stop,
+                serve(status, artifact, self.ledger, self.identity.server_id, "fixture", inherited, stop,
                       credential, transport=transport)
 
         stop = Event()
@@ -411,6 +421,12 @@ class ManagedSenderTest(unittest.TestCase):
             accepted = state.execute("SELECT members FROM inbox_batch_history WHERE acceptance = 'accepted'").fetchone()
             self.assertEqual([member["source_event"] for member in json.loads(accepted["members"])], [second_task])
         self.assertFalse(status.exists())
+        if board_wide:
+            for client, owner in ((self.board.client, self.owner), (other_client, other_owner)):
+                enrolled = self.service.call(client, f"/api/v1/agent-delivery/{owner}").json
+                self.assertEqual(enrolled["runtime"]["state"], "running")
+                self.assertEqual(enrolled["runtime"]["revision"], build)
+                self.assertEqual({cue["state"] for cue in enrolled["cues"]}, {"enabled"})
 
         stop = Event()
         timer = Timer(.4, stop.set)

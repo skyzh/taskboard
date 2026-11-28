@@ -120,7 +120,7 @@ def _join_board_wide(state):
 
 
 def _worker_observation(db, owner, enrollment, build, observed_state):
-    if enrollment["revision"]:
+    if build and enrollment["revision"]:
         with write(db):
             agent_delivery.report(db, owner, enrollment["revision"], revision=build,
                                   state=observed_state, observed_at=_observed_at())
