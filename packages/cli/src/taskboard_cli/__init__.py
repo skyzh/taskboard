@@ -18,7 +18,8 @@ def main(argv=None):
         if args.command in STRUCTURED_ACTIVITY:
             if args.details is not None or getattr(args, "checkpoint", False):
                 args.details = activity_details(args.note, args.details or "")
-            elif is_activity_headline(args.note) and not ACTIVITY_TECHNICAL.search(args.note):
+            elif (not getattr(args, "verification_attempt", None)
+                  and is_activity_headline(args.note) and not ACTIVITY_TECHNICAL.search(args.note)):
                 # Keep long or technical note-only input compatible with existing commands.
                 args.details = ""
         if args.mode == "shared":

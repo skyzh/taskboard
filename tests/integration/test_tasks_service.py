@@ -1155,6 +1155,7 @@ class TasksServiceTest(unittest.TestCase):
         original_proposal = proposed
         proposed = {**proposed, "attempt_key": str(UUID(int=2)), "revision": "b" * 40,
                     "url": "https://example.test/evidence/reload"}
+        del proposed["details"]
         second = self.action(owner, "propose-done-verification", proposed)["attempt_id"]
         self.assertNotEqual(second, first_id)
         self.assertEqual(self.action(owner, "propose-done-verification", original_proposal), first)
@@ -1168,12 +1169,17 @@ class TasksServiceTest(unittest.TestCase):
         self.action(owner, "record-activity", {"id": ticket, "note": "Saved review receipt."})
         exact = {**exact, "verification_attempt": second, "verification_revision": proposed["revision"],
                  "url": proposed["url"]}
+        del exact["details"]
         for mismatch in ({"verification_revision": "c" * 40}, {"details": "Changed outcome."},
                          {"url": "https://example.test/evidence/different"}, {"verification_attempt": first_id}):
             self.action(owner, advance, {**exact, **mismatch}, status=409)
         self.assertEqual(self.call(owner, "/api/v1/tasks/T-1").json["task"]["state"], "in_progress")
-        done_receipt = self.action(owner, advance, exact)
-        self.assertEqual(self.action(owner, advance, exact)["receipt"], done_receipt["receipt"])
+        args = ("done", ticket, proposed["note"], "--link", "Evidence", proposed["url"],
+                "--verification-attempt", str(second), "--verification-revision", proposed["revision"])
+        code, output, errors = self.shared_cli(owner, *args)
+        self.assertEqual((code, errors), (0, ""))
+        self.assertIn("Committed · T-1 · Completed", output)
+        self.assertEqual(self.action(owner, advance, exact)["receipt"], "T-1 · Completed")
         self.assertEqual(self.action(reviewer, "record-done-verdict", passing), pass_receipt)
         self.assertEqual(self.action(owner, "propose-done-verification", original_proposal), first)
         task = self.call(owner, "/api/v1/tasks/T-1").json["task"]
