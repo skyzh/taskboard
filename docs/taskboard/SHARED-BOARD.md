@@ -755,7 +755,7 @@ updates leave the ticket parked without a review prompt. If an operator
 will report the next deploy on a continuing tracking ticket, use
 `wait --on` with the operator's name so they can return the result.
 
-Use `./tasks --shared remind T-1 --until 2026-11-24T16:30-08:00` or choose **Exact time** on the task's reminder form to set a reminder. The task shows the chosen local time and its offset. The board stores the instant in UTC and releases the same task to Ready on the first operator tick at or after that instant. For an ambiguous local time when clocks go back, use the CLI with the offset for the occurrence you want. For shared ordinary work, `--on YYYY-MM-DD` schedules midnight at the start of the Pacific date. Use `remind --clear` on ordinary parked work only when a registered dependency review remains.
+Use `./tasks --shared remind T-1 --until 2026-11-24T16:30-08:00` or choose **Exact time** on the task's reminder form to set a reminder. Work and Activity show the saved instant in the viewer’s browser time zone. The board stores the instant in UTC and releases the same task to Ready on the first operator tick at or after that instant. For an ambiguous local time when clocks go back, use the CLI with the offset for the occurrence you want. For shared ordinary work, `--on YYYY-MM-DD` schedules midnight at the start of the Pacific date. Use `remind --clear` on ordinary parked work only when a registered dependency review remains.
 
 Use `./tasks --shared park T-1 "Read the latest entry in the review index."` to refresh the reason on a ticket with a saved reminder or dependency review. The existing trigger stays in place.
 
