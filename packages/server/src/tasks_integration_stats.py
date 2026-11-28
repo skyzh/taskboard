@@ -1,5 +1,7 @@
 """Project-scoped counts from existing GitHub and Raft receipt records."""
 
+from collections import defaultdict
+
 import tasks_extensions as extensions
 import tasks_github as github
 import tasks_projects as projects
@@ -24,13 +26,13 @@ def _github_identity(row):
 
 def _github_counts(db, bounds, project, actor):
     if not has_event_context(db):
-        return 0, False
+        return 0, False, {}
     visibility, bindings = ring1.visibility(db, "tasks.project_prefix", actor)
     scope = "AND tasks.project_prefix = ?" if project else ""
     rows = db.execute(
         f"""
         WITH activity AS (
-            SELECT json_extract(context, '$.provider_at') AS provider_at,
+            SELECT tasks.project_prefix AS project, json_extract(context, '$.provider_at') AS provider_at,
                    json_extract(context, '$.github_repository') AS repository,
                    json_extract(context, '$.github_activity_id') AS activity_id,
                    COALESCE(json_extract(context, '$.github_event'), json_extract(context, '$.event_kind')) AS kind,
@@ -41,14 +43,50 @@ def _github_counts(db, bounds, project, actor):
                 OR (action = 'source-event' AND actor = 'GitHub' AND json_extract(context, '$.source_kind') = 'github')
             ) AND {visibility} {scope}
         )
-        SELECT DISTINCT repository, activity_id, kind, target FROM activity
+        SELECT DISTINCT project, repository, activity_id, kind, target FROM activity
         WHERE kind <> 'deployed' AND SUBSTR(provider_at, 1, 19) >= ? AND SUBSTR(provider_at, 1, 19) < ?
         """, (extensions.ACTOR, extensions.EVENTS, *bindings, *((project,) if project else ()), *bounds),
     )
-    identities = {_github_identity(row) for row in rows}
+    identities = set()
+    pull_requests = defaultdict(lambda: {"opened": set(), "merged": set()})
+    for row in rows:
+        identity = _github_identity(row)
+        identities.add(identity)
+        if identity is None:
+            continue
+        kind = identity[1].rsplit(":", 1)[0]
+        if kind == "github:pull-opened":
+            pull_requests[row["project"]]["opened"].add(identity)
+        elif kind == "github:pull-merged":
+            pull_requests[row["project"]]["merged"].add(identity)
     older_records = None in identities
     identities.discard(None)
-    return len(identities), older_records
+    return len(identities), older_records, pull_requests
+
+
+def _pull_request_projects(db, project, actor, github_enabled, project_extensions, pull_requests):
+    visibility, bindings = ring1.visibility(db, "projects.prefix", actor)
+    scope = "AND prefix = ?" if project else ""
+    rows = db.execute(
+        f"SELECT prefix, title FROM projects WHERE {visibility} {scope} ORDER BY title COLLATE NOCASE, prefix",
+        (*bindings, *((project,) if project else ())),
+    )
+
+    def metric(count, automatic):
+        return {"count": count if count or automatic else None,
+                "status": "recorded" if automatic else ("manual" if github_enabled else "unavailable")}
+
+    result = []
+    for row in rows:
+        prefix = row["prefix"]
+        configuration = project_extensions.get(prefix, {}).get(extensions.EVENTS)
+        counts = pull_requests.get(prefix, {})
+        result.append({
+            "project": prefix, "title": row["title"],
+            "opened": metric(len(counts.get("opened", ())), configuration is not None and "opened" in configuration.activity),
+            "merged": metric(len(counts.get("merged", ())), configuration is not None and configuration.merge is not None),
+        })
+    return result
 
 
 def _raft_notices(db, bounds, project, actor):
@@ -84,7 +122,7 @@ def snapshot(db, bounds, *, project, actor, github_enabled, project_extensions):
     # Provider times are UTC. Compare whole-second prefixes so each instant on
     # a boundary, including a receipt with fractional seconds, has one window.
     bounds = tuple(at[:19] for at in bounds)
-    count, older_records = _github_counts(db, bounds, project, actor)
+    count, older_records, pull_requests = _github_counts(db, bounds, project, actor)
     configured = (
         [project_extensions.get(project, {})] if project else project_extensions.values()
     )
@@ -95,6 +133,7 @@ def snapshot(db, bounds, *, project, actor, github_enabled, project_extensions):
             "status": github_status, "count": count if count or (automatic and not older_records) else None,
             "older_records": older_records,
         },
+        "github_pull_requests": _pull_request_projects(db, project, actor, github_enabled, project_extensions, pull_requests),
         "raft_messages": {"status": "unavailable", "count": None},
         "raft_notices": _raft_notices(db, bounds, project, actor),
     }

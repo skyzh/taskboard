@@ -7,6 +7,7 @@ import tasks_github as github
 import tasks_integration_stats as stats
 import tasks_notification_log as notices
 import tasks_profiles as profiles
+import tasks_ring1 as ring1
 import watches
 
 
@@ -98,6 +99,52 @@ class IntegrationStatsTest(unittest.TestCase):
         })
         self.assertEqual(self.report("T")["github"], {"status": "recorded", "count": None, "older_records": True})
         self.assertFalse(self.report("COURSE")["github"]["older_records"])
+
+    def test_pull_request_metrics_use_project_visibility_coverage_and_provider_boundaries(self):
+        ring1.ensure_schema(self.db)
+        ring1.mark_private(self.db, "COURSE", ["other"])
+        self.db.execute("INSERT INTO projects VALUES ('MANUAL', 'Manual examples', 'operator')")
+        self.db.execute("INSERT INTO tasks (id, title, dri, brief, project_prefix) VALUES (5, 'Manual', 'operator', '', 'MANUAL')")
+        config = extensions.configuration(
+            '{"T":{"github-events":{"repository":"example/board","activity":{"opened":{}}}},'
+            '"COURSE":{"github-events":{"repository":"example/board","merge":false,"activity":{"opened":{}}}}}'
+        )
+
+        def activity(task, name, identity, at=START):
+            ledger.record(self.db, task, "source-event", "GitHub", "ready", "Fictional provider event", None, [], {
+                "source_kind": "github", "event_kind": name, "github_repository": "example/board",
+                "github_activity_id": identity, "provider_at": at,
+            })
+
+        for task in (1, 1, 2, 3):
+            activity(task, "opened", "github:pull-opened:7")
+        activity(4, "opened", "github:pull-opened:8")
+        activity(1, "opened", "github:opened:9")
+        activity(1, "merged", "github:pull-merged:7", "2026-11-21T12:59:59.999999Z")
+        activity(2, "merged", "github:pull-merged:8", END)
+        activity(5, "opened", "github:pull-opened:9", END)
+        ledger.record(self.db, 2, "log", extensions.ACTOR, "ready", "Historical merge", None, [], {
+            "extension": extensions.EVENTS, "github_event": "pull-merged", "github_source": PR, "provider_at": START,
+        })
+
+        def pull_requests(actor="operator", project=None, manual=False, bounds=(START, END)):
+            snapshot = stats.snapshot(self.db, bounds, project=project, actor=actor,
+                                      github_enabled=manual, project_extensions=config)
+            return {row["project"]: row for row in snapshot["github_pull_requests"]}
+
+        public = pull_requests()
+        self.assertEqual(set(public), {"T", "MANUAL"})
+        self.assertEqual(public["T"]["opened"], {"count": 1, "status": "recorded"})
+        self.assertEqual(public["T"]["merged"], {"count": 1, "status": "recorded"})
+        self.assertEqual(public["MANUAL"]["opened"], {"count": None, "status": "unavailable"})
+        course = pull_requests("other", project="COURSE", manual=True)["COURSE"]
+        self.assertEqual(course["opened"], {"count": 2, "status": "recorded"})
+        self.assertEqual(course["merged"], {"count": None, "status": "manual"})
+        self.assertEqual(pull_requests(project="COURSE"), {})
+        later = pull_requests(manual=True, bounds=(END, "2026-11-21T14:00:00Z"))
+        self.assertEqual(later["T"]["opened"], {"count": 0, "status": "recorded"})
+        self.assertEqual(later["T"]["merged"], {"count": 1, "status": "recorded"})
+        self.assertEqual(later["MANUAL"]["opened"], {"count": 1, "status": "manual"})
 
     def test_raft_uses_confirmed_send_time_and_project_log_audience(self):
         def receipt(task_id, confirmed_at):
