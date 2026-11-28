@@ -9,7 +9,7 @@ import {
 import { activityExtraText, hasExpandedDecisionText, waitLabel } from './workCopy.js'
 import { Markdown, MarkdownInline } from './Markdown.jsx'
 import { evidenceLinkLabel, markdownHref } from './sourceLinks.js'
-import { useTimeZone } from './timeZone.js'
+import { browserTimeZoneFormatters, useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
 import { DemoUnavailable } from './DemoControl.jsx'
 import { BoardOutageContext, ReadPlaceholder } from './BoardOutage.jsx'
@@ -570,12 +570,14 @@ export function ChecklistSteps({ steps, relatedTasks, editStep, showMissingTimes
 }
 
 export function ReminderWhen({ context, className }) {
-  if (context?.defer_until && context.defer_at) {
-    return <p className={className}>{context.wait_kind === 'external' ? 'Recheck at' : 'Deferred until'}{' '}
-      <time dateTime={context.defer_until}>{context.defer_at.replace('T', ' ')}</time></p>
-  }
   if (context?.review_after) {
     return <p className={className}>Review on or after <time dateTime={context.review_after}>{context.review_after}</time></p>
+  }
+  if (context?.defer_until) {
+    const at = context.defer_until
+    const { formatDay, formatClock } = browserTimeZoneFormatters
+    return <p className={className}>{context.wait_kind === 'external' ? 'Recheck at' : 'Deferred until'}{' '}
+      <time dateTime={at}>{formatDay(at)} {formatClock(at)}</time></p>
   }
   return null
 }

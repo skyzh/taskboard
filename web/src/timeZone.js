@@ -70,7 +70,8 @@ export function createTimeZoneFormatters(timeZone) {
   }
 }
 
-export const TimeZoneContext = createContext(createTimeZoneFormatters(browserTimeZone))
+export const browserTimeZoneFormatters = createTimeZoneFormatters(browserTimeZone)
+export const TimeZoneContext = createContext(browserTimeZoneFormatters)
 
 export function useTimeZone() {
   return useContext(TimeZoneContext)
