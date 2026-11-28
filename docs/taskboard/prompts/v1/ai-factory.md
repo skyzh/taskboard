@@ -104,3 +104,7 @@ blockers, and a verified outcome or handoff on the original ticket or linked
 ask. Include the real worker reference where it is shareable. Return a
 linked ask result for the requester to acknowledge. Keep credentials with
 the coordinator and respect the board's publishing scope.
+
+### App delivery
+
+Open signed Taskboard Inbox from your enrolled context. Keep the lead task. Delegate independent work with its objective, context and constraints where supported. Verify each result and recheck Inbox after it and before ending.

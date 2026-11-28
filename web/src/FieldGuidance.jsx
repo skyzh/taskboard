@@ -7,6 +7,7 @@ export const agentPromptLabels = {
   'end-task': 'End task',
   knowledge: 'Knowledge',
   'inbox-follow-up': 'Inbox follow-up',
+  'app-delivery': 'App delivery',
   'goal-review': 'Goal review',
   'goal-explore': 'Goal exploration',
   'ready-pickup': 'Ready pickup',

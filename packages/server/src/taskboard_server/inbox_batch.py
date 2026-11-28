@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import os
 
 from taskboard_server.inbox_wake import PREVIEW_LIMIT, inbox_event_summary, inbox_wake_items
 from taskboard_server.managed_ready import (
@@ -25,6 +26,7 @@ import tasks_app_wake_activity as app_wake_activity
 import tasks_audit as audit
 import tasks_core as ledger
 import tasks_goal_wake_receipts as goals
+import tasks_guidance
 from tasks_notification_log import WAKE_SCHEMA, record_wake
 import tasks_projects as projects
 from tasks_queries import BoardQueries
@@ -79,6 +81,7 @@ class InboxBatchDelivery:
         self.db = sender.db
         self.state = sender.state
         self.project = sender.scope.project
+        self.guidance = tasks_guidance.load(os.environ.get("TASKS_AGENT_GUIDANCE_FILE"))
         marker, = self.state.execute("SELECT event FROM pilot").fetchone()
         if marker != SAMPLED_STATE_BY_PROJECT[self.project]:
             raise ValueError("Use state initialized for this sampled sender project.")
@@ -230,7 +233,9 @@ class InboxBatchDelivery:
             return "awaiting_idle", None
         if journal is None:
             try:
-                summary = inbox_event_summary(items, project=self.project)
+                with tasks_storage.read(self.db):
+                    prompt = self.guidance.project_prompt(self.db, self.project, tasks_guidance.APP_DELIVERY)["prompt"]
+                summary = inbox_event_summary(items, project=self.project, guidance=prompt)
             except ValueError:
                 return "batch_payload_unavailable", None
             journal = self._prepare(saved, selected, summary, now, tip)

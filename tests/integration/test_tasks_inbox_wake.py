@@ -48,6 +48,24 @@ class InboxWakeTest(unittest.TestCase):
     def signed_head(self):
         return self.avery.invoke("my-inbox-wake", {"scope": "all", "include_occurrences": "true"})
 
+    def test_app_delivery_prompt_validation_and_project_inheritance(self):
+        self.fixture.cli("register-project", "T", "Tasks Board", "--dri", self.sam_id)
+        self.fixture.cli("register-project", "OPS", "Fixture operations", "--dri", self.sam_id)
+        path = "/api/v1/projects/T/field-guidance"
+        payload = {"prompt": "app-delivery", "guidance": "Verify the signed sample.\nCheck Inbox."}
+        self.fixture.call(self.avery.client, path, method="PUT", json=payload, status=403)
+        for bad in ("See https://example.test", "Open [the fixture](/fixtures).", "😀" * 601):
+            self.fixture.call(self.sam, path, method="PUT", json={**payload, "guidance": bad}, status=400)
+        saved = self.fixture.call(self.sam, path, method="PUT", json=payload).json["prompts"]["app-delivery"]
+        self.assertEqual(saved, {"source": "project", "prompt": payload["guidance"], "max_length": 1200})
+        for project, expected in (("T", payload["guidance"]), ("OPS", GUIDANCE)):
+            signed = self.avery.invoke("field-guidance", {"project": project})["prompts"]["app-delivery"]
+            self.assertEqual(signed["prompt"], expected)
+        reset = self.fixture.call(self.sam, path, method="PUT", json={**payload, "guidance": None}).json
+        self.assertEqual(reset["prompts"]["app-delivery"]["prompt"], GUIDANCE)
+        samples = (InboxWakeItem("ready", "T-1", "ready:1"),)
+        self.assertEqual(inbox_event_summary(samples, guidance="😀" * 601), inbox_event_summary(samples))
+
     def test_mixed_order_preserves_signed_head_visibility_and_worker_pauses(self):
         first = self.add(self.avery)
         self.fixture.cli("register-project", "OPS", "Fixture operations", "--dri", self.avery_id)

@@ -230,7 +230,7 @@ Each value is a string. Use an empty string for `ready-review` to omit the extra
 | `agent_guidance` | Other signed action responses | Prefix the action with `action-`. Supported actions include `context`, `create-task`, `delegate`, `save-goal`, and `worker-handoff`. See the [full list](../../packages/server/src/tasks_guidance.py). |
 | `agent_guidance.cli` | Guidance printed by the shared CLI for selected commands | `context`, `raft-channel`, `goals-existing`, `goals-missing`, `workers`, `completion`, `list`, `list-empty`, `list-unassigned-empty`, `readiness`, `readiness-empty`, `reviews`, `reviews-empty`, `search`, `search-empty`, `tagged`, `tagged-empty`, `watched`, `watched-empty` |
 | `agent_guidance.fields` | Signed writing guidance for the CLI and web editor | `title`, `brief`, `next_step`, `activity` |
-| `agent_guidance.prompts` | Prompts that can also be edited per project | `checkpoint`, `end-task`, `knowledge`, `inbox-follow-up`, `goal-review`, `ready-pickup`, `stalled-follow-up`, `review-handoff`, `worker-handoff`, `next-action` |
+| `agent_guidance.prompts` | Prompts that can also be edited per project | `checkpoint`, `end-task`, `knowledge`, `inbox-follow-up`, `app-delivery`, `goal-review`, `ready-pickup`, `stalled-follow-up`, `review-handoff`, `worker-handoff`, `next-action` |
 
 Signed HTTP `field-guidance` and MCP `taskboard_field_guidance` return the
 effective text and source under `prompts`, including an example for Checkpoint.
@@ -254,6 +254,14 @@ For **Inbox follow-up**, choose **Project default** or a specific agent under
 **Applies to**. An agent inherits the project prompt unless it has its own
 override. The signed `my-next` response and `tasks --shared next` show the
 signed agent's effective prompt for the selected or offered project.
+
+**App delivery** controls the text after the preview in a direct Raft app
+Inbox batch. Use plain text without links, up to 1,200 characters. The sender
+adds the ordered ticket preview and retains the exact saved envelope on retry.
+If a custom prompt cannot fit, the sender uses the built-in wording. External
+adapters can read the effective project text at `prompts.app-delivery` in signed
+`field-guidance`. Run the sender and web service with the same
+`TASKS_AGENT_GUIDANCE_FILE` if using a TOML override.
 
 Use a nonempty string in TOML to change the inherited wording for the board.
 

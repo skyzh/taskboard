@@ -123,3 +123,7 @@ supported watcher shows readiness. The local Codex trial takes ordinary
 Ready asks in this registration's project. Recheck the assignment, read
 the linked ask and its source, and return the result or blocker on the ask.
 Keep the source ticket's owner. Leave acknowledgment to the requester.
+
+### App delivery
+
+Open signed Taskboard Inbox from your enrolled context. Keep the lead task. Delegate independent work with its objective, context and constraints where supported. Verify each result and recheck Inbox after it and before ending.
