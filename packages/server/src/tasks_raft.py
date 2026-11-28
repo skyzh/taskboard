@@ -102,7 +102,8 @@ _ACTIONS = {
     "save-dri-postboard": _Action("POST", "Append a revision to your own project postboard.", {
         "project": "Explicit project prefix.", "content": "Markdown including optional Mermaid.",
         "source_ticket_ids": "JSON array of source ticket keys.",
-        "expected_revision_id": "Current revision ID. Send an empty string for the first save.",
+    }, {
+        "expected_revision_id": "Current revision ID. Omit this field for the first save.",
     }),
     "idle-goal-offer": _Action("POST", "Return a standing goal at a verified idle runner handoff.", {
         "handoff_id": "Stable runner handoff UUID. Use only after observing Idle and reuse the same ID on retry.",

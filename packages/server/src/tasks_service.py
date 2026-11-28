@@ -5403,7 +5403,7 @@ def create_app(
                 sources = json.loads(data["source_ticket_ids"])
             except (TypeError, ValueError) as error:
                 raise RequestError("Encode source_ticket_ids as a JSON array.") from error
-            expected = data["expected_revision_id"]
+            expected = data.get("expected_revision_id")
             fields = {**data, "source_ticket_ids": sources, "expected_revision_id": None if expected == "" else expected}
             return dri_postboard(actor, project, actor["ledger_key"], "append", fields)
         if name in attachment_routes.ACTIONS:

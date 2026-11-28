@@ -70,7 +70,7 @@ class RaftActionRoutesTest(unittest.TestCase):
                                              "details options url label force_text"),
             "dri-postboard": ("GET", "project dri", ""),
             "dri-postboard-history": ("GET", "project dri", "before limit"),
-            "save-dri-postboard": ("POST", "project content source_ticket_ids expected_revision_id", ""),
+            "save-dri-postboard": ("POST", "project content source_ticket_ids", "expected_revision_id"),
             "idle-goal-offer": ("POST", "handoff_id", "project for_wake"),
             "my-goals": ("GET", "", "project"),
             "my-goal-occurrences": ("GET", "", "project scope"),
