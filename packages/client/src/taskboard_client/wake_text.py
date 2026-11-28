@@ -1,6 +1,11 @@
 """Short shared next steps for Taskboard wake deliveries."""
 
 RECHECK_INBOX = "Recheck signed Inbox."
+KEEP_EXPLORING_CUE = "While Keep exploring is active, check signed Inbox after every result and before ending any turn."
+GOAL_OCCURRENCE_COMPLETION = (
+    "Record the offered Explore or Review with `goal-complete` and its exact occurrence key. "
+    "Record each occurrence separately."
+)
 
 TICKET_OUTCOME = (
     "Drive the offered ticket to Done. If blocked, set Waiting with the owner and unblock condition. "

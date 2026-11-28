@@ -9,6 +9,7 @@ import tasks_core as ledger
 import tasks_projects as projects
 import tasks_ring1 as ring1
 import tasks_storage
+from taskboard_client.wake_text import GOAL_OCCURRENCE_COMPLETION
 from taskboard_client.work import task_title
 
 
@@ -78,16 +79,29 @@ STANDING_EXPLORATION = (
     "Record the result and park this goal ticket. The completed pass counts as today's Pacific daily review. "
     "Recheck Inbox for actionable work and end exploration for the turn."
 )
-KEEP_EXPLORING = (
-    "Check actionable Inbox work and assigned reviews before each pass. "
+KEEP_EXPLORING_FLOW = (
+    "Check signed Inbox and assigned reviews after each result and before ending any turn, including after an unrelated interruption. "
+    "Finish the highest-priority actionable item or record its blocker and next owner. "
     "Choose a distinct check grounded in recent feedback, a finished ticket, or current product evidence. "
     "Verify a concrete finding and reuse an existing ticket before opening a new one. "
     "Make focused fixes within your ordinary permissions. Record a no-finding result only after an actual check. "
-    "Record each result on this goal and update the handoff, then recheck Inbox and reviews. "
-    "If the queue stays clear, continue with a distinct check. If actionable work arrives, record your checkpoint "
-    "and switch to it. Use `update --standing-pass` to record a completed check. "
-    "If the written criterion is met, record the evidence with `park --criterion-met` until the next daily review."
+    "While Inbox is clear, continue with another useful bounded pass. Record its evidence and next action on the goal. "
+    "End at the saved cutoff or stopping criterion, when a concrete blocker prevents more work, "
+    "or when there is no distinct useful check left. Record the stop reason and what lets you resume. "
+    "When the criterion is met, use `park --criterion-met` until the next daily review."
 )
+KEEP_EXPLORING = f"{KEEP_EXPLORING_FLOW} Use `update --standing-pass` to record a completed check."
+
+
+def occurrence_guidance(context, occurrences):
+    prompt = GOAL_OCCURRENCE_COMPLETION
+    tickets = {occurrence["ticket"] for occurrence in occurrences}
+    if any(goal["ticket"] in tickets for goal in context.get("standing_goals", ())):
+        prompt += " If you open a ticket from this standing goal, add the spontaneous tag."
+    if any(goal.get("keep_exploring") and goal["ticket"] in tickets
+           for key in ("standing_goals", "dated_goals") for goal in context.get(key, ())):
+        return f"{prompt} {KEEP_EXPLORING_FLOW}"
+    return f"{prompt} Recheck signed Inbox after the result."
 
 
 def ensure_extended_schema(db):

@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request
 
 from taskboard_client.references import DEFAULT, MAX_ID, identifier
-from taskboard_client.wake_text import RECHECK_INBOX, TICKET_OUTCOME, outcome_prompt, ticket_document
+from taskboard_client.wake_text import KEEP_EXPLORING_CUE, RECHECK_INBOX, TICKET_OUTCOME, outcome_prompt, ticket_document
 
 
 _ENDPOINT = "https://api.raft.build/api/oauth/agent-events"
@@ -62,7 +62,10 @@ def _event_document(signal: Mapping[str, object]) -> dict[str, str]:
     event_key, document_url = ready_event_target(signal)
     event_id, task_id = signal["event_id"], signal["task_id"]
     identity = f"Taskboard ticket {task_id} is Ready in your owned queue. Ready event {event_id}."
-    summary = f"{identity} Check signed Inbox first. {outcome_prompt(TICKET_OUTCOME)} {document_url}"
+    guidance = f"{identity} Check signed Inbox first. {outcome_prompt(TICKET_OUTCOME)}"
+    summary = f"{guidance} {KEEP_EXPLORING_CUE} {document_url}"
+    if not _summary_fits(summary):
+        summary = f"{guidance} {document_url}"
     if not _summary_fits(summary):
         summary = f"{identity} {RECHECK_INBOX} {document_url}"
     if not _summary_fits(summary):

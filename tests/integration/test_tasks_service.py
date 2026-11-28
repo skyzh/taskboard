@@ -2069,11 +2069,12 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.action(avery, "my-queue", query_string={"state": "ready"})["items"], [])
         empty = self.action(avery, "my-next")
         self.assertIsNone(empty["work"])
-        self.assertEqual(empty["next_step"], STANDING_EXPLORATION)
+        self.assertIn("with `goal-complete`", empty["next_step"])
         for project, reference in (("T", "T-1"), ("COURSE", "COURSE-1")):
             next_item = self.shared_cli(avery, "next", "--project", project)[1]
             self.assertIn(f"{reference} · Standing goal", next_item)
-            self.assertIn(STANDING_EXPLORATION, next_item)
+            self.assertIn(f"{reference} · Explore · explore:{reference}:", next_item)
+            self.assertNotIn(STANDING_EXPLORATION, next_item)
         self.action(avery, "advance-task", {
             "id": "T-1", "transition": "start", "note": "Inspect the current queue.",
         })
@@ -2951,7 +2952,7 @@ class TasksServiceTest(unittest.TestCase):
         self.assertIsNone(fallback["work"])
         self.assertEqual(fallback["standing_goals"], [{**standing, "ticket": standing_ticket}])
         self.assertEqual(fallback["dated_goals"], dates)
-        self.assertIn("start this goal ticket for one focused pass", fallback["next_step"])
+        self.assertIn("with `goal-complete`", fallback["next_step"])
         fallback_output = self.shared_cli(avery, "next", "--project", "T")[1]
         self.assertIn("Improve the work queue", fallback_output)
         self.assertIn("Check the import", fallback_output)
@@ -6244,8 +6245,9 @@ class TasksServiceTest(unittest.TestCase):
                 self.assertIn("The next item could not be loaded.", output)
                 self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "done")
             else:
-                self.assertIn(f"Standing goal {goal} · Improve handoffs.\n", output)
-                self.assertIn(f"./tasks --shared start {goal}", output)
+                self.assertIn(f"{goal} · Explore · explore:{goal}:", output)
+                self.assertIn("with `goal-complete`", output)
+                self.assertNotIn(f"./tasks --shared start {goal}", output)
                 self.assertIn("add the spontaneous tag.", output)
 
         self.assertEqual(self.shared_cli(owner, "start", goal, "Check one real handoff.")[0], 0)
@@ -6449,7 +6451,9 @@ class TasksServiceTest(unittest.TestCase):
                          "Check any other project queues and assigned reviews before ending the turn.")
 
         self.action(avery, "save-goal", {"kind": "standing", "summary": "Explore sample work."})
-        self.assertIn("Next: Explore a sample and tag each new finding.", self.shared_cli(avery, "next")[1])
+        next_output = self.shared_cli(avery, "next")[1]
+        self.assertIn("Goal exploration · Explore a sample and tag each new finding.", next_output)
+        self.assertIn("Next: Record the offered Explore or Review with `goal-complete`", next_output)
         output = self.shared_cli(avery, "show", "T-1")[1]
         self.assertIn("Explore a sample and tag each new finding.", output)
         self.assertIn("Next: Use the goal ticket to record your plan.", output)
@@ -6486,6 +6490,22 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual((started[0], started[2]), (0, ""))
         self.assertIn("with `--checkpoint` and `--details`", started[1])
         self.assertIn("what remains uncertain", started[1])
+
+    def test_legacy_standing_guidance_does_not_replace_dated_explore_guidance(self):
+        from tasks_guidance import AgentGuidance
+
+        override = "Compare the standing goal's queue samples."
+        app = self.app(portal_reader=True, agent_guidance=AgentGuidance(
+            overrides={"standing-exploration": override},
+        ))
+        owner, _ = self.login(app, "Avery")
+        self.action(owner, "save-goal", {"kind": "standing", "summary": "Improve queue handling."})
+        self.action(owner, "save-goal", {"kind": "dated", "summary": "Publish the sample.", "deadline": "2030-04-10"})
+        occurrences = {item["ticket"]: item for item in self.action(owner, "my-goal-occurrences")["items"]}
+        self.assertEqual(occurrences["T-1"]["goal_explore_prompt"]["prompt"], override)
+        self.assertIn("Preserve the Review schedule and deadline.",
+                      occurrences["T-2"]["goal_explore_prompt"]["prompt"])
+        self.assertNotEqual(occurrences["T-2"]["goal_explore_prompt"]["prompt"], override)
 
     def test_agent_guidance_rejects_invalid_files_and_accepts_published_example(self):
         from tasks_guidance import load
@@ -6644,6 +6664,29 @@ class TasksServiceTest(unittest.TestCase):
             continued, scheduled = occurrences()
             self.assertNotEqual(continued["key"], explore["key"])
             self.assertEqual(scheduled, review)
+            self.assertIn("after every result and before ending any turn", continued["goal_explore_prompt"]["prompt"])
+            prompts = self.action(owner, "field-guidance")["prompts"]
+            self.assertIn("including after an unrelated", prompts["end-task"]["prompt"])
+            self.assertIn("Record the stop reason and what lets you resume.", prompts["end-task"]["prompt"])
+            _, inbox, _ = self.shared_cli(owner, "next", "--project", "T")
+            self.assertIn(continued["key"], inbox)
+            self.assertIn(scheduled["key"], inbox)
+            self.assertIn("with `goal-complete`", inbox)
+            self.assertIn("before ending any turn, including after an unrelated interruption", inbox)
+            self.assertNotIn("update --standing-pass", inbox)
+            self.assertNotIn("counts as today's Pacific daily review", inbox)
+            browser_inbox = self.call(owner, "/api/v1/notifications/work", query_string={"project": "T"}).json
+            self.assertIn("with `goal-complete`", browser_inbox["standing_goal_guidance"])
+            self.assertNotIn("update --standing-pass", browser_inbox["standing_goal_guidance"])
+            old_reply = self.action(owner, "my-next", query_string={"project": "T"})
+            del old_reply["goal_occurrence_guidance"]
+            old_reply["next_step"] = "Use `update --standing-pass` to record a completed check."
+            _, compatible, _ = self.shared_cli(
+                owner, "next", "--project", "T", carrier_results={"my-next": old_reply},
+            )
+            self.assertIn(continued["key"], compatible)
+            self.assertIn("with `goal-complete`", compatible)
+            self.assertNotIn("update --standing-pass", compatible)
             self.action(owner, "advance-task", {
                 "id": ticket, "transition": "start", "note": "Take the second sample.",
             })

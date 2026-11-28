@@ -4075,10 +4075,18 @@ def create_app(
                 continue
             scope, _ = projects.identifier(occurrence["ticket"])
             if occurrence["kind"] == "review":
-                field, name = "goal_review_prompt", tasks_guidance.GOAL_REVIEW
+                occurrence["goal_review_prompt"] = agent_guidance.project_prompt(
+                    connection, scope, tasks_guidance.GOAL_REVIEW,
+                )
             else:
-                field, name = "goal_explore_prompt", tasks_guidance.GOAL_EXPLORE
-            occurrence[field] = agent_guidance.project_prompt(connection, scope, name)
+                legacy_key = "standing-exploration"
+                standing_override = (
+                    legacy_key in agent_guidance.overrides
+                    and ledger.task_goal_kind(connection, projects.resolve(connection, occurrence["ticket"])) == "standing"
+                )
+                occurrence["goal_explore_prompt"] = agent_guidance.project_prompt(
+                    connection, scope, tasks_guidance.GOAL_EXPLORE, legacy_key=legacy_key if standing_override else None,
+                )
             items.append(occurrence)
         return items
 
@@ -4149,6 +4157,7 @@ def create_app(
             }
             if occurrences := inbox_goal_occurrences(connection, owner, project, items[0] if items else None):
                 result["goal_occurrences"] = occurrences
+                result["standing_goal_guidance"] = goals.occurrence_guidance(goal_context, occurrences)
             if actor["kind"] == "agent":
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, items[0] if items else None, standing, owner)
                 result.update(offered_work_prompt(connection, items[0] if items else None))
@@ -5162,6 +5171,12 @@ def create_app(
                 work, ask = inbox_selection(connection, owner, project, wake_at=inbox_wake_instant())
                 if ask:
                     return {"project": project, "kind": "ask_recheck", "ask_recheck": ask}
+                if occurrences := inbox_goal_occurrences(connection, owner, project, work):
+                    goal_context = goals.queue_context(connection, owner, project, principal=actor_key())
+                    return {
+                        "project": project, "kind": "goal_occurrences", "goal_occurrences": occurrences,
+                        "instruction": goals.occurrence_guidance(goal_context, occurrences),
+                    }
                 if work:
                     return {"project": project, "kind": "work", "work": inbox_work_result(work),
                             **offered_goal_prompt(connection, work, [])}
@@ -5449,6 +5464,7 @@ def create_app(
                     }
                 if items := inbox_goal_occurrences(connection, key, project, work):
                     result["goal_occurrences"] = items
+                    result["goal_occurrence_guidance"] = goals.occurrence_guidance(result, items)
                 result["inbox_follow_up"] = inbox_follow_up(connection, project, work, result["standing_goals"], key)
                 result.update(offered_goal_prompt(connection, work, result["standing_goals"]))
                 if candidates := query().wait_review_candidates(key, project):
