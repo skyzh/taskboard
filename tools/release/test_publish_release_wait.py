@@ -9,8 +9,9 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from tools.checkout import add_tests
+from tools.checkout import add_packages, add_tests
 
+add_packages("client", "cli", "server")
 add_tests()
 
 from publish_release_wait import PLAN, main, private_json, record_ready
