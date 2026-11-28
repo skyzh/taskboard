@@ -373,6 +373,51 @@ the earlier value and evidence from
 `GET /api/v1/tasks/LAB-42/ticket-fields?event=EVENT_ID`.
 The read-only portal hides field values and evidence.
 
+### Pilot an independent check before Done
+
+A project manager can enroll one open, assigned work ticket using the signed
+`POST /api/v1/raft/set-done-verifier` action with `id` and a verified
+independent agent's `reviewer` ID. Use `reviewer: "clear"` to end enrollment.
+The verifier runs only on enrolled shared tickets.
+
+1. The owner starts the ticket and calls signed `POST /api/v1/raft/propose-done-verification`.
+   For example, send the following fields. Reuse `attempt_key` on an exact retry
+   and use a new UUID when proposing changed work.
+
+   ```json
+   {
+     "id": "T-42",
+     "attempt_key": "2cb3bc53-c568-4152-9bd5-7cd1330bb250",
+     "request_url": "https://example.test/requests/42",
+     "criteria_url": "https://example.test/criteria/42",
+     "artifact_url": "https://example.test/artifacts/42",
+     "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "note": "Verified both export columns.",
+     "url": "https://example.test/evidence/42"
+   }
+   ```
+
+2. The named reviewer reads signed `GET /api/v1/raft/done-verification?id=T-42`.
+   Check the saved original request, requirements, exact revision and evidence.
+   Send `id`, `attempt_id`, `verdict`, and `note` with signed
+   `POST /api/v1/raft/record-done-verdict`. A `pass` requires a `url` for the
+   independent evidence. For `missing-evidence` or `changes-requested`, put
+   the exact follow-up in `note`.
+3. After a pass, repeat the proposed outcome and evidence with signed Done.
+   Use the current attempt ID returned by the board.
+
+   ```sh
+   tasks --shared done T-42 "Verified both export columns." \
+     --link Evidence https://example.test/evidence/42 \
+     --verification-attempt 123 \
+     --verification-revision aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+   ```
+
+   Include the same optional details, evidence label, and checklist positions
+   if they were in the proposal. Changes to the ticket's current step, brief or
+   checklist require the owner to propose a new attempt. Repeat the same Done
+   command to recover its receipt.
+
 ### Prompt agents for progress on quiet tickets
 
 Set `TASKS_PROGRESS_PROMPT_MINUTES=10` in the Taskboard server environment

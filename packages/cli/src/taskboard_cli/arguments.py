@@ -162,6 +162,11 @@ def arguments(argv=None):
             add_transition_override(command)
         if action == "resume":
             command.add_argument("--review-wait", type=int, help="Exact signed Inbox wait event to resume for preparation.")
+        if action == "done":
+            command.add_argument("--verification-attempt", type=int, metavar="ID",
+                                 help="Shared: exact passing completion verification attempt.")
+            command.add_argument("--verification-revision", type=nonblank, metavar="DIGEST",
+                                 help="Shared: full artifact revision from the verified attempt.")
         if action == "wait":
             command.add_argument("--force-delivery", action="store_true", help="Confirm the watcher delivery warning.")
             command.add_argument("--recheck-at", type=nonblank, metavar="DATETIME",
@@ -719,6 +724,13 @@ def arguments(argv=None):
     if args.command == "postgres-import":
         parser.error("postgres-import requires --postgres and a closed SQLite snapshot.")
     args.mode = args.mode or ("offline" if args.db is not None else os.environ.get("TASKS_MODE", "offline"))
+    if args.command == "done" and (args.verification_attempt is not None or args.verification_revision is not None):
+        if args.mode != "shared":
+            parser.error("Completion verification requires --shared.")
+        if args.verification_attempt is None or args.verification_revision is None:
+            parser.error("Use --verification-attempt and --verification-revision together.")
+        if args.verification_attempt < 1:
+            parser.error("--verification-attempt must be a positive event ID.")
     if args.command in ("projects", "create-project") and args.mode != "shared":
         parser.error(f"{args.command} requires the signed shared board.")
     if args.mode not in ("offline", "shared"):

@@ -413,6 +413,9 @@ def shared_write(board, args, *, context):
             data["transition"] = command
             if command == "resume" and args.review_wait is not None:
                 data["review_wait"] = args.review_wait
+            if command == "done" and args.verification_attempt is not None:
+                data.update(verification_attempt=args.verification_attempt,
+                            verification_revision=args.verification_revision)
             if getattr(args, "standing_pass", False):
                 data["standing_pass"] = "complete"
             if getattr(args, "criterion_met", False):

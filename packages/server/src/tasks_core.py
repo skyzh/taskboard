@@ -968,6 +968,11 @@ def link_attention_wait(db, args, event_id, request_id, previous_event_id):
 
 def change_task(db, args, links, *, automation=None):
     task = get_work_task(db, args.id)
+    verification_context = {}
+    if args.command == "done" and (verify_done := getattr(args, "verify_done", None)):
+        verification_context, retry = verify_done(db, task, args, links)
+        if retry:
+            return retry
     human_wait = getattr(args, "human_wait", False)
     replacing_human_wait = task["state"] == "human_review" and event_context(task).get("human_wait")
     if human_wait:
@@ -1123,6 +1128,7 @@ def change_task(db, args, links, *, automation=None):
     context.update(goal_pass_context)
     if attention_escalation is not None:
         context["attention_escalation"] = attention_escalation
+    context.update(verification_context)
     if human_wait:
         context["human_wait"] = True
         if (replacing_human_wait and waiting_on == task["waiting_on"] and args.note == task["note"]
@@ -2518,6 +2524,7 @@ def save_task(db, path, args, links):
             args.command in tasks_recurring.EDITS
             or args.command in ("recurring-tick", maintenance.WRITE, peer_asks.COMMAND, "tag", "remind", "edit", "checklist")
             or (args.command == "wait" and getattr(args, "peer_recipient", None) is not None)
+            or (args.command == "done" and getattr(args, "verification_attempt", None) is not None)
         )
         if live and (not unchanged_allowed or db.total_changes != before_change):
             if args.command == "recurring-tick" and revision_project is None:
