@@ -265,8 +265,8 @@ _PROMPTS = {
             Inbox. With Keep exploring enabled, record
             each distinct pass and recheck Inbox and reviews before continuing. If
             actionable work arrives, switch to it. Park when the written criterion is
-            met and resume at the next configured review. A completed pass counts as
-            that Pacific day's review. Choose a daily Pacific review time for each
+            met and resume at the next configured review. When Inbox offers Explore and
+            Review separately, record each occurrence. Choose a daily Pacific review time for each
             active goal. Automatic cues for idle agents require an enabled direct app delivery path.
         """).strip(),
     },
