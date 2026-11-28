@@ -127,6 +127,15 @@ class SenderScope:
         if self.project != MANAGED_READY_PROJECT and not (sampled and direct):
             raise ValueError("Tiny LLM requires direct sampled Raft delivery.")
 
+    def binding(self, db, *, owner=None):
+        if owner is None:
+            owner = ready_wake_owner(db, self.identity)
+        board = ledger.live_board_url(db)
+        if not board:
+            raise ValueError("Configure the board URL before starting the managed sender.")
+        return (str(self.ledger_path), parse_board_url(board), self.identity.server_id,
+                self.identity.subject, owner, self.app)
+
     def subscription(self, db):
         owner = ready_wake_owner(db, self.identity)
         if ((self.project != MANAGED_READY_PROJECT and ring1.private(db, self.project))
@@ -142,11 +151,7 @@ class SenderScope:
         ).fetchone()[0]
         if revision is None:
             raise GrantStopped("subscription_stopped")
-        board = ledger.live_board_url(db)
-        if not board:
-            raise ValueError("Configure the board URL before starting the managed sender.")
-        return (str(self.ledger_path), parse_board_url(board), self.identity.server_id,
-                self.identity.subject, owner, self.app, revision)
+        return (*self.binding(db, owner=owner), revision)
 
 
 def _latest(db):
@@ -184,7 +189,7 @@ def initialize(state_path, db, scope, *, pilot=False, sampled=False):
 
 class ManagedReadySender:
     def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None, event_id=None, sampled=False,
-                 stop_requested=None, command_delivery=None, goal_occurrences=False):
+                 stop_requested=None, command_delivery=None, goal_occurrences=False, inbox_batches=False):
         scope.validate_mode(sampled=sampled, direct=command_delivery is None)
         if goal_occurrences and (not sampled or grant is None):
             raise ValueError("Goal occurrences require direct sampled Raft delivery.")
@@ -192,6 +197,8 @@ class ManagedReadySender:
             raise ValueError("Choose direct Raft or the sampled command transport.")
         if sampled and (idle_gate is None or event_id is not None):
             raise ValueError("Sampled delivery requires the Idle gate and has no pinned event.")
+        if inbox_batches and (not sampled or grant is None):
+            raise ValueError("Inbox batches require direct sampled Raft delivery.")
         self.db = db
         self.state = state
         self.scope = scope
@@ -203,19 +210,30 @@ class ManagedReadySender:
         self.stop_requested = stop_requested
         self.command_delivery = command_delivery
         self.goal_occurrences = goal_occurrences
+        self.inbox_batch = None
+        if inbox_batches:
+            from taskboard_server.inbox_batch import InboxBatchDelivery
+
+            self.inbox_batch = InboxBatchDelivery(self)
 
     def _check_subscription(self, saved):
         current = self.scope.subscription(self.db)
-        if current[:6] != tuple(saved[key] for key in ("ledger", "board", "server", "recipient", "owner", "app")):
-            raise ValueError("Managed Ready sender scope changed.")
+        self._check_binding(saved, current[:6])
         if current[6] != saved["subscription"]:
             raise GrantStopped("subscription_stopped")
+
+    def _check_binding(self, saved, current):
+        if current != tuple(saved[key] for key in ("ledger", "board", "server", "recipient", "owner", "app")):
+            raise ValueError("Managed Ready sender scope changed.")
+
+    def _check_history(self, saved, ledger_tip=0):
+        if _latest(self.db) < max(ledger_tip, saved["attempt_event"] or saved["through_event"]):
+            raise ValueError("Ledger history is behind the managed Ready sender.")
 
     def _candidate(self, saved, *, pending_only=False):
         with tasks_storage.read(self.db):
             self._check_subscription(saved)
-            if _latest(self.db) < (saved["attempt_event"] or saved["through_event"]):
-                raise ValueError("Ledger history is behind the managed Ready sender.")
+            self._check_history(saved)
             if self.sampled:
                 return self._sampled_candidate(saved)
             return self.db.execute(
@@ -323,6 +341,10 @@ class ManagedReadySender:
             return saved["stopped"], None
         try:
             eligible = self.idle_gate is None or self.idle_gate.eligible()
+            if self.inbox_batch is not None:
+                return self.inbox_batch.tick(saved, eligible=eligible)
+            if tasks_storage.has_table(self.state, "inbox_batch") and self.state.execute("SELECT 1 FROM inbox_batch").fetchone():
+                raise ValueError("Settle the pending Inbox batch before changing delivery mode.")
             return self._tick(saved, eligible=eligible)
         except GrantStopped:
             with tasks_storage.read(self.db):

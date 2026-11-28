@@ -273,7 +273,11 @@ class ManagedSenderTest(unittest.TestCase):
         self.provider = FakeManagedRaft(self.identity)
         self.scope = SenderScope(self.ledger, self.identity, "fixture-client")
         self.now = time()
+        self.enterContext(patch("tasks_core.timestamp", side_effect=self.fixture_timestamp))
         self.subscribe(True)
+
+    def fixture_timestamp(self):
+        return datetime.fromtimestamp(self.now, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
     def subscribe(self, enabled):
         self.board.invoke("set-wake-subscription", {"project": self.scope.project, "event_type": OWNED_READY,

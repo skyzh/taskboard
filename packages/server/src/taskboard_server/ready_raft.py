@@ -108,11 +108,16 @@ def send_goal_event(document, *, access_token, transport):
     return _send_document(document, access_token, transport)
 
 
-def _send_document(document, access_token, transport):
+def send_inbox_event(encoded_document, *, access_token, transport):
+    """Retry the exact wire body saved for an Inbox envelope."""
+    return _send_document(json.loads(encoded_document), access_token, transport, encoded=encoded_document)
+
+
+def _send_document(document, access_token, transport, *, encoded=None):
     if not isinstance(access_token, str) or _BEARER.fullmatch(access_token) is None:
         raise ValueError("Supply a resource-bound Raft bearer token.")
     upstream = Request(
-        _ENDPOINT, method="POST", data=json.dumps(document).encode(),
+        _ENDPOINT, method="POST", data=json.dumps(document).encode() if encoded is None else encoded,
         headers={"Accept": "application/json", "Content-Type": "application/json"},
     )
     upstream.add_unredirected_header("Authorization", f"Bearer {access_token}")
