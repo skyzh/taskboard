@@ -317,7 +317,8 @@ _ACTIONS = {
         **_TASK, "reviewer": "Verified independent agent ID, or clear. Project manager only.",
     }),
     "propose-done-verification": _Action("POST", "Freeze the exact evidence and proposed outcome as the ticket owner.", {
-        **_TASK, "request_url": "Original request reference.", "criteria_url": "Acceptance criteria reference.",
+        **_TASK, "attempt_key": "Stable UUID for this proposal. Reuse it on retry.",
+        "request_url": "Original request reference.", "criteria_url": "Acceptance criteria reference.",
         "artifact_url": "Frozen artifact or revision reference.", "revision": "Full Git SHA or SHA-256 artifact digest.",
         "note": _NOTE, "url": _EVIDENCE["url"],
     }, {"label": _EVIDENCE["label"], "details": _DETAILS, "checked": "Checklist positions as a JSON array of numbers.",

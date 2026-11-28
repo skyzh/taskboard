@@ -5435,7 +5435,7 @@ def create_app(
                 completed = ledger.event_context(task).get("done_verification") if task["state"] == "done" else None
                 return {
                     "ticket": projects.row_reference(task), "reviewer": binding["reviewer"], "attempt_id": attempt_id,
-                    "attempt": saved, "verdict": done_verifier.verdict(connection, binding),
+                    "attempt": saved, "verdict": done_verifier.verdict(connection, attempt_id),
                     "stale": bool(saved and not completed and (
                         task["state"] != "in_progress" or saved["requirement"] != done_verifier.snapshot(connection, task)
                     )),
@@ -5445,8 +5445,10 @@ def create_app(
                 if not owner:
                     raise RequestError("Only the ticket owner can propose a completion verification.", 403)
                 require_done_reviewer(connection, actor, binding["reviewer"], task)
-                if task["state"] != "in_progress":
-                    raise RequestError("Start this ticket before proposing completion verification.", 409)
+                try:
+                    attempt_key = str(UUID(text(data, "attempt_key", maximum=36)))
+                except ValueError as error:
+                    raise RequestError("Provide a stable UUID as attempt_key and reuse it on retry.") from error
                 inputs = {field: verification_link(data, field) for field in ("request_url", "criteria_url", "artifact_url")}
                 links = one_link(data)
                 if not links:
@@ -5462,7 +5464,10 @@ def create_app(
                 checked = [integer(value, "checklist position", maximum=10000) for value in array_arg(data, "checked")]
                 inputs["outcome"] = {"details": None, **activity_text(data, "done"),
                                      "links": [list(link) for link in links], "checked": checked}
-                identifier = done_verifier.propose(connection, task, key, binding, inputs)
+                try:
+                    identifier = done_verifier.propose(connection, task, key, binding, attempt_key, inputs)
+                except ValueError as error:
+                    raise RequestError(str(error), 409) from error
                 return {"attempt_id": identifier, "reviewer": binding["reviewer"],
                         "receipt": f"{projects.row_reference(task)} · Completion verification requested"}
             if not reviewer:

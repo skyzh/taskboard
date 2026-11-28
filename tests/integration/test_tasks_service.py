@@ -1116,7 +1116,7 @@ class TasksServiceTest(unittest.TestCase):
         advance = "advance-task"
         self.action(owner, advance, {"id": ticket, "transition": "start", "note": "Inspect the sample."})
         proposed = {
-            "id": ticket, "request_url": "https://example.test/requests/original",
+            "id": ticket, "attempt_key": str(UUID(int=1)), "request_url": "https://example.test/requests/original",
             "criteria_url": "https://example.test/criteria",
             "artifact_url": "https://example.test/revisions/abc", "revision": "a" * 40,
             "note": "Verified labels.", "details": "Both persisted on reload.", "url": "https://example.test/evidence",
@@ -1152,10 +1152,15 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(self.action(owner, "done-verification", query_string=query)["verdict"]["note"], verdict["note"])
         self.action(owner, advance, exact, status=409)
 
-        proposed = {**proposed, "revision": "b" * 40, "url": "https://example.test/evidence/reload"}
+        original_proposal = proposed
+        proposed = {**proposed, "attempt_key": str(UUID(int=2)), "revision": "b" * 40,
+                    "url": "https://example.test/evidence/reload"}
         second = self.action(owner, "propose-done-verification", proposed)["attempt_id"]
         self.assertNotEqual(second, first_id)
-        self.action(reviewer, "record-done-verdict", verdict, status=409)
+        self.assertEqual(self.action(owner, "propose-done-verification", original_proposal), first)
+        self.action(owner, "propose-done-verification", {**original_proposal, "revision": "c" * 40}, status=409)
+        self.assertEqual(self.action(owner, "done-verification", query_string={"id": ticket})["attempt_id"], second)
+        self.assertEqual(self.action(reviewer, "record-done-verdict", verdict), missing)
         passing = {"id": ticket, "attempt_id": second, "verdict": "pass", "note": "Read both traces."}
         self.action(reviewer, "record-done-verdict", passing, status=400)
         passing["url"] = "https://example.test/evidence/independent-review"
@@ -1170,6 +1175,7 @@ class TasksServiceTest(unittest.TestCase):
         done_receipt = self.action(owner, advance, exact)
         self.assertEqual(self.action(owner, advance, exact)["receipt"], done_receipt["receipt"])
         self.assertEqual(self.action(reviewer, "record-done-verdict", passing), pass_receipt)
+        self.assertEqual(self.action(owner, "propose-done-verification", original_proposal), first)
         task = self.call(owner, "/api/v1/tasks/T-1").json["task"]
         self.assertEqual(task["state"], "done")
         self.assertEqual(task["context"]["done_verification"],
@@ -1195,7 +1201,7 @@ class TasksServiceTest(unittest.TestCase):
         self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Inspect the sample."})
         self.action(manager, "set-done-verifier", {"id": ticket, "reviewer": reviewer_id})
         proposed = {
-            "id": ticket, "request_url": "https://example.test/requests/one",
+            "id": ticket, "attempt_key": str(UUID(int=1)), "request_url": "https://example.test/requests/one",
             "criteria_url": "https://example.test/criteria", "artifact_url": "https://example.test/revision",
             "revision": "a" * 64, "note": "Verified labels.", "url": "https://example.test/evidence",
         }
@@ -1208,11 +1214,15 @@ class TasksServiceTest(unittest.TestCase):
         done = {"id": ticket, "transition": "done", "note": proposed["note"], "url": proposed["url"],
                 "verification_attempt": first, "verification_revision": proposed["revision"]}
         self.action(owner, "advance-task", done, status=409)
-        second = self.action(owner, "propose-done-verification", proposed)["attempt_id"]
+        second = self.action(owner, "propose-done-verification", {
+            **proposed, "attempt_key": str(UUID(int=2)),
+        })["attempt_id"]
         self.action(reviewer, "record-done-verdict", {**verdict, "attempt_id": second})
         self.action(owner, "edit-checklist", {"id": ticket, "action": "add", "label": "Check the remaining label."})
         self.action(owner, "advance-task", {**done, "verification_attempt": second}, status=409)
-        third = self.action(owner, "propose-done-verification", proposed)["attempt_id"]
+        third = self.action(owner, "propose-done-verification", {
+            **proposed, "attempt_key": str(UUID(int=3)),
+        })["attempt_id"]
         self.action(reviewer, "record-done-verdict", {**verdict, "attempt_id": third})
         self.action(manager, "set-done-verifier", {"id": ticket, "reviewer": "clear"})
         self.action(manager, "set-done-verifier", {"id": ticket, "reviewer": reviewer_id})

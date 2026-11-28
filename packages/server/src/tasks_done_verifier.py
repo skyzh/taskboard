@@ -38,14 +38,14 @@ def attempt(db, task_id, attempt_id):
     return None
 
 
-def save_event(db, task, actor, kind, headline, contents):
-    event_id = ledger.record(
+def save_event(db, task, actor, kind, headline):
+    return ledger.record(
         db, task["id"], "log", actor, task["state"], headline, None, [], {"done_verification": kind},
     )
-    if contents is not None:
-        db.execute("INSERT INTO board_settings (key, value) VALUES (?, ?)",
-                   (event_key(event_id), json.dumps(contents)))
-    return event_id
+
+
+def insert_setting(db, key, value):
+    db.execute("INSERT INTO board_settings (key, value) VALUES (?, ?)", (key, json.dumps(value)))
 
 
 def enroll(db, task, actor, reviewer):
@@ -57,7 +57,7 @@ def enroll(db, task, actor, reviewer):
     if before and before["reviewer"] == reviewer and before["project"] == project:
         return {"reviewer": reviewer}
     headline = "Completion verifier configured." if reviewer else "Completion verifier cleared."
-    enrollment = save_event(db, task, actor, "enrollment", headline, None)
+    enrollment = save_event(db, task, actor, "enrollment", headline)
     value = {"reviewer": reviewer, "project": project, "enrollment": enrollment} if reviewer else None
     guidance.set_project_value(db, key, json.dumps(value) if value else None)
     ledger.bump_revision(db, project)
@@ -73,27 +73,28 @@ def snapshot(db, task):
     }
 
 
-def propose(db, task, actor, binding, inputs):
+def propose(db, task, actor, binding, attempt_key, inputs):
+    task_id = task["id"]
+    request = f"done-verification-request:{task_id}:{attempt_key}"
+    if previous := setting(db, request):
+        saved = attempt(db, task_id, previous)
+        if saved["enrollment"] != binding["enrollment"] or saved["requirement"]["owner"] != actor:
+            raise ValueError("Use a new attempt key for the current enrollment or owner.")
+        if any(saved[field] != value for field, value in inputs.items()):
+            raise ValueError("This attempt key already identifies a different proposal. Use a new key.")
+        return previous
+    if task["state"] != "in_progress":
+        raise ValueError("Start this ticket before proposing completion verification.")
     submitted = {
-        "kind": "attempt", "task_id": task["id"], "enrollment": binding["enrollment"],
+        "kind": "attempt", "task_id": task_id, "enrollment": binding["enrollment"],
         "reviewer": binding["reviewer"], "requirement": snapshot(db, task), **inputs,
     }
-    prior_id = binding.get("attempt_id")
-    if prior_id and attempt(db, task["id"], prior_id) == submitted:
-        return prior_id
-    identifier = save_event(db, task, actor, "attempt", "Completion verification requested.", submitted)
-    guidance.set_project_value(db, policy_key(task["id"]), json.dumps({
-        **binding, "attempt_id": identifier, "verdict_event_id": None,
-    }))
+    identifier = save_event(db, task, actor, "attempt", "Completion verification requested.")
+    insert_setting(db, event_key(identifier), submitted)
+    insert_setting(db, request, identifier)
+    guidance.set_project_value(db, policy_key(task_id), json.dumps({**binding, "attempt_id": identifier}))
     ledger.bump_revision(db, projects.row_project(task))
     return identifier
-
-
-def active_attempt(db, task, binding, selected=None):
-    current = binding.get("attempt_id")
-    if current is None or (selected is not None and selected != current):
-        raise ValueError("Read the current completion verification attempt and use its exact ID.")
-    return attempt(db, task["id"], current)
 
 
 def require_current(db, task, saved):
@@ -101,21 +102,28 @@ def require_current(db, task, saved):
         raise ValueError("The ticket changed after this verification request. Propose a new attempt from current work.")
 
 
-def verdict(db, binding):
-    identifier = binding.get("verdict_event_id")
-    return {"event_id": identifier, **setting(db, event_key(identifier))} if identifier else None
+def verdict_key(attempt_id):
+    return f"done-verification-verdict:{attempt_id}"
+
+
+def verdict(db, attempt_id):
+    return setting(db, verdict_key(attempt_id)) if attempt_id else None
 
 
 def record_verdict(db, task, actor, binding, attempt_id, inputs):
-    saved = active_attempt(db, task, binding, attempt_id)
+    saved = attempt(db, task["id"], attempt_id)
+    if saved is None or saved["enrollment"] != binding["enrollment"]:
+        raise ValueError("Read the current enrollment and choose its exact completion verification attempt.")
     result = {"kind": "verdict", "attempt_id": attempt_id, "reviewer": actor, **inputs}
-    if prior := verdict(db, binding):
+    if prior := verdict(db, attempt_id):
         if {key: value for key, value in prior.items() if key != "event_id"} != result:
             raise ValueError("This attempt already has a verdict. Propose a new attempt for changed evidence.")
         return prior["event_id"]
+    if binding.get("attempt_id") != attempt_id:
+        raise ValueError("This attempt has been superseded. Review the current completion verification.")
     require_current(db, task, saved)
-    identifier = save_event(db, task, actor, "verdict", "Completion verification verdict recorded.", result)
-    guidance.set_project_value(db, policy_key(task["id"]), json.dumps({**binding, "verdict_event_id": identifier}))
+    identifier = save_event(db, task, actor, "verdict", "Completion verification verdict recorded.")
+    insert_setting(db, verdict_key(attempt_id), {"event_id": identifier, **result})
     ledger.bump_revision(db, projects.row_project(task))
     return identifier
 
@@ -144,7 +152,7 @@ def done(db, task, args, links, *, check_reviewer):
         raise ValueError("The completion verification changed. Read the current attempt.")
     require_current(db, task, saved)
     check_reviewer(db, binding["reviewer"], task)
-    attestation = verdict(db, binding)
+    attestation = verdict(db, identifier)
     if attestation is None:
         raise ValueError("The configured reviewer must record a passing verdict on this attempt before Done.")
     if attestation["verdict"] != "pass":

@@ -130,7 +130,7 @@ class RaftActionRoutesTest(unittest.TestCase):
                 "clear_eta reason details url label force force_reason force_text standing_pass force_delivery review_wait recheck_at verification_attempt verification_revision",
             ),
             "set-done-verifier": ("POST", "id reviewer", ""),
-            "propose-done-verification": ("POST", "id request_url criteria_url artifact_url revision note url",
+            "propose-done-verification": ("POST", "id attempt_key request_url criteria_url artifact_url revision note url",
                                           "label details checked force_text"),
             "done-verification": ("GET", "id", "attempt_id"),
             "record-done-verdict": ("POST", "id attempt_id verdict note", "url label force_text"),
