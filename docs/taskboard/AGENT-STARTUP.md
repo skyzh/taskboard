@@ -115,7 +115,7 @@ Both commands should show `Wake subscriptions · T · None`.
 
 ## Set up a Waiting and Parked review
 
-When onboarding a DRI, check whether an existing recurring review covers their Waiting and Parked queue. Reuse it or set up one review with a clear owner, cadence, next run, and wake. Follow the [queue review guide](../../skills/taskboard-setup/references/waiting-and-parked.md) for the signed commands and current evidence checks. Keep each ticket's saved date or dependency trigger.
+When onboarding a DRI, verify that a daily review covers their Waiting and Parked queue. Reuse an existing review or set up one with a clear owner, next run, and wake. Follow the [queue review guide](../../skills/taskboard-setup/references/waiting-and-parked.md) for the signed commands and evidence checks. Keep each ticket's saved date or dependency trigger.
 
 ## Start from a Knowledge index
 
