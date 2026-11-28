@@ -21,12 +21,12 @@
 .stats-legend span::before {
   display: inline-block;
   content: "";
-  background: var(--green);
+  background: var(--activity-color, var(--green));
   width: .65rem;
   height: .65rem;
   margin-inline-end: .35rem;
 }
-.stats-legend span + span::before { background: #96602b; }
+.stats-legend span + span::before { background: var(--activity-color, #96602b); }
 .stats-chart {
   display: grid;
   grid-auto-flow: column;
@@ -76,7 +76,6 @@
 .stats-activity-group { color: var(--muted); font-size: .83rem; }
 .stats-activity-group select { min-height: 2.75rem; margin-inline-start: .3rem; font-size: 1rem; }
 .stats-activity-legend { margin-block: .35rem .6rem; overflow-wrap: anywhere; }
-.stats-activity-legend span::before { background: var(--activity-color); }
 .stats-activity-chart > div { flex-direction: column-reverse; align-items: stretch; gap: 0; }
 .stats-activity-chart span { flex: none; }
 .stats-activity-table ul { list-style: none; margin: 0; padding: 0; overflow-wrap: anywhere; }
