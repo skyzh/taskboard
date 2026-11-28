@@ -22,13 +22,14 @@ from taskboard_server.managed_ready import ManagedReadySender, SAMPLED_STATE_BY_
 from taskboard_server.managed_ready_grant import GrantStopped, ManagedReadyGrant, http_json
 from taskboard_server.managed_ready_operator import _POLL_SECONDS, _operator_delivery_status, _pilot_status, locked_state
 from taskboard_server.ready_wake_operator import _Parser, _read_token, _token_fd, _uuid
+import tasks_agent_delivery as agent_delivery
 from tasks_release_info import release_info
-from tasks_storage import has_table, open_sqlite, read
+from tasks_storage import has_table, open_sqlite, read, write
 
 
 _MAX_SCOPES = 64
 _INACTIVE = {"subscription_stopped", "grant_stopped"}
-_NON_RUNNING = _INACTIVE | {"starting", "state_locked", "failed"}
+_NON_RUNNING = _INACTIVE | {"starting", "state_locked", "failed", "enrollment_off", "enrollment_changed"}
 _TRANSIENT = (sqlite3.OperationalError, OSError)
 
 
@@ -50,20 +51,21 @@ class Enrollment:
     secret: Path | None
     goals: bool
     batches: bool
+    board_wide: bool = False
 
     @property
     def key(self):
         return self.project, self.recipient
 
     @classmethod
-    def from_config(cls, row):
+    def from_config(cls, row, *, board_wide):
         if not isinstance(row, dict) or row.keys() != {
             "recipient", "project", "state", "client", "secret", "goals", "batches",
         }:
             raise ValueError("Supply the exact enrolled-scope configuration.")
         secret = Path(row["secret"]) if row["secret"] is not None else None
         scope = cls(_uuid(row["recipient"]), row["project"], Path(row["state"]), row["client"],
-                    secret, row["goals"], row["batches"])
+                    secret, row["goals"], row["batches"], board_wide)
         if (scope.project not in SAMPLED_STATE_BY_PROJECT or not scope.state.is_absolute()
                 or (secret is not None and not secret.is_absolute()) or not isinstance(scope.client, str)
                 or not scope.client or type(scope.goals) is not bool or type(scope.batches) is not bool):
@@ -74,7 +76,8 @@ class Enrollment:
 def _config(path):
     with os.fdopen(_private_file(path), encoding="utf-8") as source:
         data = json.load(source)
-    if not isinstance(data, dict) or data.keys() != {"ledger", "server", "slug", "scopes"}:
+    if (not isinstance(data, dict) or data.keys() - {"board_wide"} != {"ledger", "server", "slug", "scopes"}
+            or type(data.get("board_wide", False)) is not bool):
         raise ValueError("Supply one board, one Raft server, and the approved scopes.")
     slug, rows = data["slug"], data["scopes"]
     if (not isinstance(slug, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", slug)
@@ -83,9 +86,11 @@ def _config(path):
     ledger = Path(data["ledger"]).resolve(strict=True)
     if not ledger.is_file():
         raise ValueError("Use the existing SQLite board ledger.")
-    scopes = [Enrollment.from_config(row) for row in rows]
-    if len({scope.key for scope in scopes}) != len(scopes):
-        raise ValueError("Configure each recipient and project only once.")
+    board_wide = data.get("board_wide", False)
+    scopes = [Enrollment.from_config(row, board_wide=board_wide) for row in rows]
+    owners = {scope.recipient if board_wide else scope.key for scope in scopes}
+    if len(owners) != len(scopes):
+        raise ValueError("Configure one journal per recipient in board-wide mode.")
     if len({scope.state.resolve() for scope in scopes}) != len(scopes):
         raise ValueError("Configure a distinct saved state for each scope.")
     return ledger, _uuid(data["server"]), slug, scopes
@@ -103,9 +108,27 @@ def _progress(state):
             "retry_at": max(saved["retry_at"], batch["retry_at"] if batch else 0)}
 
 
-def _run_scope(ledger, server, slug, enrolled, stop, report, transport, slot_secret):
+def _join_board_wide(state):
+    """Keep the original journal and require a quiet boundary on first transfer."""
+    if has_table(state, "board_wide_handover"):
+        return
+    if _progress(state)["pending"]:
+        raise ValueError("Settle the pending legacy send before transferring delivery.")
+    with state:
+        state.execute("CREATE TABLE board_wide_handover (singleton INTEGER PRIMARY KEY CHECK (singleton = 1))")
+        state.execute("INSERT INTO board_wide_handover VALUES (1)")
+
+
+def _worker_observation(db, owner, enrollment, build, observed_state):
+    if enrollment["revision"]:
+        with write(db):
+            agent_delivery.report(db, owner, enrollment["revision"], revision=build,
+                                  state=observed_state, observed_at=_observed_at())
+
+
+def _run_scope(ledger, server, slug, enrolled, stop, report, transport, slot_secret, build):
     identity = Identity(server, enrolled.recipient, "agent", None, None, None)
-    scope = SenderScope(ledger, identity, enrolled.client, enrolled.project)
+    scope = SenderScope(ledger, identity, enrolled.client, enrolled.project, enrolled.board_wide)
     try:
         with closing(open_sqlite(ledger)) as db, locked_state(enrolled.state, ledger) as state:
             saved = state.execute("SELECT * FROM sender WHERE singleton = 1").fetchone()
@@ -117,7 +140,10 @@ def _run_scope(ledger, server, slug, enrolled, stop, report, transport, slot_sec
             if saved["stopped"] in _INACTIVE:
                 report(saved["stopped"])
                 return
-            _operator_delivery_status(db, state, scope, resume=False)
+            if enrolled.board_wide:
+                _join_board_wide(state)
+            else:
+                _operator_delivery_status(db, state, scope, resume=False)
             gate = SampledIdleGate(_pilot_status(db, identity, slug), clock=monotonic, include_boundary=True)
             secret = slot_secret if enrolled.secret is None else _read_token(_private_file(enrolled.secret))
             grant = ManagedReadyGrant(enrolled.client, secret, server_slug=slug, identity=identity, transport=transport)
@@ -126,10 +152,30 @@ def _run_scope(ledger, server, slug, enrolled, stop, report, transport, slot_sec
                 sender = ManagedReadySender(db, state, scope, grant, idle_gate=gate, sampled=True,
                                             stop_requested=stop.is_set, goal_occurrences=True,
                                             inbox_batches=True)
-                report("running", **_progress(state))
+                report("starting" if enrolled.board_wide else "running", **_progress(state))
+                last_enrollment = None
+                next_readback = 0
                 while not stop.is_set():
                     try:
-                        outcome, _ = sender.tick()
+                        enrollment = None
+                        if enrolled.board_wide:
+                            with read(db):
+                                enrollment = agent_delivery.get(db, saved["owner"])
+                            if enrollment != last_enrollment:
+                                gate.reset()
+                                grant.invalidate()
+                                next_readback = 0
+                                sender.enrollment_revision = enrollment["revision"]
+                                last_enrollment = enrollment
+                        if enrollment is not None and enrollment["mechanism"] == "off":
+                            outcome = "enrollment_off"
+                        else:
+                            outcome, _ = sender.tick()
+                        readback_due = monotonic() >= next_readback or outcome in _INACTIVE
+                        if enrollment is not None and readback_due and outcome != "enrollment_changed":
+                            observed_state = "stopped" if outcome in _NON_RUNNING else "running"
+                            _worker_observation(db, saved["owner"], enrollment, build, observed_state)
+                            next_readback = monotonic() + 30
                         report(outcome, **_progress(state))
                     except _TRANSIENT:
                         gate.reset()
@@ -175,6 +221,7 @@ def _read_slot_credential(scopes, credential):
 
 def serve(path, release, ledger, server, slug, scopes, stop, slot_secret, *, transport=http_json):
     manifest = sha256((release / "SHA256SUMS").read_bytes()).hexdigest()
+    build = release_info(release)["commit"]
     progress = {scope.key: {"status": "starting"} for scope in scopes}
     lock = Lock()
 
@@ -186,8 +233,11 @@ def serve(path, release, ledger, server, slug, scopes, stop, slot_secret, *, tra
         with lock:
             rows = [{"project": project, "recipient": recipient, **value}
                     for (project, recipient), value in progress.items()]
+        if scopes[0].board_wide:
+            for row in rows:
+                row["scope"] = "board"
         _write_status(path, {
-            "pid": os.getpid(), "manifest": manifest, "commit": release_info(release)["commit"],
+            "pid": os.getpid(), "manifest": manifest, "commit": build,
             "enrolled": len(rows), "active": sum(row["status"] not in _NON_RUNNING for row in rows),
             "scopes": rows,
         })
@@ -197,7 +247,7 @@ def serve(path, release, ledger, server, slug, scopes, stop, slot_secret, *, tra
         for scope in scopes:
             pool.submit(_run_scope, ledger, server, slug, scope, stop,
                         lambda status, scope=scope, **details: report(scope, status, **details),
-                        transport, slot_secret)
+                        transport, slot_secret, build)
         try:
             while not stop.wait(1):
                 snapshot()

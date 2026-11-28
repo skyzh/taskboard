@@ -20,6 +20,7 @@ from taskboard_server.ready_wake import (
     launch_ready_wake,
     ready_wake_owner,
 )
+import tasks_agent_delivery as agent_delivery
 import tasks_app_wake_activity as app_wake_activity
 import tasks_goal_wake_receipts as goal_receipts
 from tasks_goals import PACIFIC
@@ -115,6 +116,10 @@ class _AppDeliveryPaused(RuntimeError):
     pass
 
 
+class _DeliveryEnrollmentChanged(RuntimeError):
+    pass
+
+
 class _Unauthorized(RuntimeError):
     pass
 
@@ -125,8 +130,11 @@ class SenderScope:
     identity: Identity
     app: str
     project: str = MANAGED_READY_PROJECT
+    board_wide: bool = False
 
     def validate_mode(self, *, sampled, direct=True):
+        if self.board_wide and not (sampled and direct):
+            raise ValueError("Board-wide delivery requires sampled direct Raft delivery.")
         if self.project not in SAMPLED_STATE_BY_PROJECT:
             raise ValueError("Choose an enrolled managed sender project.")
         if self.project != MANAGED_READY_PROJECT and not (sampled and direct):
@@ -194,7 +202,8 @@ def initialize(state_path, db, scope, *, pilot=False, sampled=False):
 
 class ManagedReadySender:
     def __init__(self, db, state, scope, grant, *, clock=time, idle_gate=None, event_id=None, sampled=False,
-                 stop_requested=None, command_delivery=None, goal_occurrences=False, inbox_batches=False):
+                 stop_requested=None, command_delivery=None, goal_occurrences=False, inbox_batches=False,
+                 enrollment_revision=None):
         scope.validate_mode(sampled=sampled, direct=command_delivery is None)
         if goal_occurrences and (not sampled or grant is None):
             raise ValueError("Goal occurrences require direct sampled Raft delivery.")
@@ -215,6 +224,7 @@ class ManagedReadySender:
         self.stop_requested = stop_requested
         self.command_delivery = command_delivery
         self.goal_occurrences = goal_occurrences
+        self.enrollment_revision = enrollment_revision
         self.inbox_batch = None
         if inbox_batches:
             from taskboard_server.inbox_batch import InboxBatchDelivery
@@ -222,14 +232,22 @@ class ManagedReadySender:
             self.inbox_batch = InboxBatchDelivery(self)
 
     def _check_subscription(self, saved):
+        if self.scope.board_wide:
+            self._check_binding(saved, self.scope.binding(self.db))
+            if agent_delivery.get(self.db, saved["owner"]) != {
+                "mechanism": "raft_app", "revision": self.enrollment_revision,
+            }:
+                raise _DeliveryEnrollmentChanged
+            return
         current = self.scope.subscription(self.db)
         self._check_binding(saved, current[:6])
         if current[6] != saved["subscription"]:
             raise GrantStopped("subscription_stopped")
 
     def _check_app_delivery_pause(self, saved):
+        project = None if self.scope.board_wide else self.scope.project
         if (self.sampled and self.grant is not None
-                and app_wake_activity.status(self.db, saved["owner"], self.scope.project)["paused"]):
+                and app_wake_activity.status(self.db, saved["owner"], project)["paused"]):
             raise _AppDeliveryPaused
 
     def _check_binding(self, saved, current):
@@ -364,10 +382,10 @@ class ManagedReadySender:
             if tasks_storage.has_table(self.state, "inbox_batch") and self.state.execute("SELECT 1 FROM inbox_batch").fetchone():
                 raise ValueError("Settle the pending Inbox batch before changing delivery mode.")
             return self._tick(saved, eligible=eligible)
-        except _AppDeliveryPaused:
+        except (_AppDeliveryPaused, _DeliveryEnrollmentChanged) as error:
             if self.idle_gate is not None:
                 self.idle_gate.reset()
-            return "delivery_paused", None
+            return ("delivery_paused" if isinstance(error, _AppDeliveryPaused) else "enrollment_changed"), None
         except GrantStopped:
             with tasks_storage.read(self.db):
                 try:

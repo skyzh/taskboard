@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 
+import tasks_app_wake_activity as app_wake_activity
 import tasks_ring1 as ring1
 import tasks_runtime_observations as runtime_observations
 
@@ -74,6 +75,20 @@ def save(db, owner, mechanism, revision):
     return True if updated.rowcount else None
 
 
+def report(db, owner, enrollment_revision, *, revision, state, observed_at):
+    """Record only a readback for the enrollment the running worker checked."""
+    db.execute(
+        """INSERT INTO agent_delivery_runtime (owner, enrollment_revision, revision, mode, state, observed_at)
+           SELECT owner, revision, ?, 'raft_app', ?, ? FROM agent_delivery_enrollments
+           WHERE owner = ? AND revision = ?
+           ON CONFLICT (owner) DO UPDATE SET enrollment_revision = excluded.enrollment_revision,
+               revision = excluded.revision, mode = excluded.mode, state = excluded.state,
+               observed_at = excluded.observed_at
+           WHERE excluded.observed_at >= agent_delivery_runtime.observed_at""",
+        (revision, state, observed_at, owner, enrollment_revision),
+    )
+
+
 def status(db, entry, *, can_edit, now):
     owner = entry["agent_id"]
     enrollment = get(db, owner)
@@ -89,7 +104,10 @@ def status(db, entry, *, can_edit, now):
         else:
             runtime["observed_at"] = observed["observed_at"]
     if enrollment["mechanism"] == runtime["mode"] == "raft_app" and runtime["state"] == "running":
-        cue = {"state": "enabled"}
+        if app_wake_activity.status(db, owner, None)["paused"]:
+            cue = {"state": "disabled", "reason": "Delivery paused after three wakes without signed activity."}
+        else:
+            cue = {"state": "enabled"}
     elif runtime["state"] == "stopped":
         cue = {"state": "disabled", "reason": "The worker verified that delivery is stopped."}
     else:

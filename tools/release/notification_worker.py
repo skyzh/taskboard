@@ -14,8 +14,8 @@ from release_plan import SlotCommandFailed
 from release_slots import ReleaseSlots
 
 
-_NOT_READY = {"starting", "failed", "state_locked"}
-_STOPPED = {"grant_stopped", "subscription_stopped"}
+_NOT_READY = {"starting", "failed", "state_locked", "enrollment_changed"}
+_STOPPED = {"grant_stopped", "subscription_stopped", "enrollment_off"}
 
 
 def _process_environment(pid):
@@ -76,19 +76,20 @@ def _private_json(path):
         return json.load(source)
 
 
-def _roster(scopes):
-    identities = {(scope["project"], scope["recipient"]) for scope in scopes}
+def _roster(scopes, *, board_wide=False):
+    identities = {(None if board_wide else scope["project"], scope["recipient"]) for scope in scopes}
     if not identities or len(identities) != len(scopes):
         raise ValueError("Configure each notification scope only once.")
     return identities
 
 
-def _matches(path, expected, pid, enrollment):
+def _matches(path, expected, pid, enrollment, *, board_wide=False):
     try:
         data = _private_json(path)
         scopes = data["scopes"]
         if (data["manifest"] != expected or data["pid"] != pid
-                or data["enrolled"] != len(enrollment) or _roster(scopes) != enrollment):
+                or data["enrolled"] != len(enrollment) or _roster(scopes, board_wide=board_wide) != enrollment
+                or any((scope.get("scope") == "board") != board_wide for scope in scopes)):
             return False
         states = [scope["status"] for scope in scopes]
         return not _NOT_READY.intersection(states) and data["active"] == sum(state not in _STOPPED for state in states)
@@ -101,13 +102,17 @@ def checked_worker(healthy, unit, status, scope_config, restart, *, run=subproce
     scope_config = Path(scope_config)
     if not path.is_absolute() or not scope_config.is_absolute():
         raise ValueError("Set absolute notification scope and private status file paths.")
-    enrollment = _roster(_private_json(scope_config)["scopes"])
+    configured = _private_json(scope_config)
+    board_wide = configured.get("board_wide", False)
+    if type(board_wide) is not bool:
+        raise ValueError("Choose an exact worker delivery scope.")
+    enrollment = _roster(configured["scopes"], board_wide=board_wide)
 
     def running(expected):
         result = run(["systemctl", "--user", "show", "--value", "--property=MainPID", unit],
                      capture_output=True, text=True, check=True, timeout=5)
         pid = int(result.stdout.strip())
-        return pid > 0 and _matches(path, expected, pid, enrollment)
+        return pid > 0 and _matches(path, expected, pid, enrollment, board_wide=board_wide)
 
     def checked(expected):
         if not healthy(expected):

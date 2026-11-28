@@ -12,6 +12,7 @@ from taskboard_server.managed_ready import (
     _ATTEMPTS,
     _DELAY,
     _AppDeliveryPaused,
+    _DeliveryEnrollmentChanged,
     _IdleGateClosed,
     _MAX_READY_AGE,
     _RETRY_WINDOW,
@@ -83,10 +84,11 @@ class InboxBatchDelivery:
         self.sender = sender
         self.db = sender.db
         self.state = sender.state
-        self.project = sender.scope.project
+        self.project = None if sender.scope.board_wide else sender.scope.project
+        self.anchor_project = sender.scope.project
         self.guidance = tasks_guidance.load(os.environ.get("TASKS_AGENT_GUIDANCE_FILE"))
         marker, = self.state.execute("SELECT event FROM pilot").fetchone()
-        if marker != SAMPLED_STATE_BY_PROJECT[self.project]:
+        if marker != SAMPLED_STATE_BY_PROJECT[self.anchor_project]:
             raise ValueError("Use state initialized for this sampled sender project.")
         with self.state:
             self.state.execute(_SCHEMA)
@@ -105,16 +107,17 @@ class InboxBatchDelivery:
             self.sender._check_app_delivery_pause(saved)
             self.sender._check_history(saved, ledger_tip)
             tip = _latest(self.db)
-            if ring1.private(self.db, self.project):
+            if self.project is not None and ring1.private(self.db, self.project):
                 return [], (), tip, False
-            goal_enabled = self.sender.goal_occurrences and has_subscription(
+            goal_enabled = self.project is None or (self.sender.goal_occurrences and has_subscription(
                 self.db, self.project, owner, GOAL_OCCURRENCES,
-            )
+            ))
             board = BoardQueries(self.db, saved["board"], principal=owner)
             selected, members = [], []
             pending_goal = False
             for item in inbox_wake_items(board, owner, project=None, wake_at=wake_at):
-                if projects.identifier(item.ticket)[0] != self.project:
+                project = projects.identifier(item.ticket)[0]
+                if self.project is not None and project != self.project:
                     break
                 if item.kind.startswith(_GOAL_PREFIX) and not goal_enabled:
                     break
@@ -126,7 +129,7 @@ class InboxBatchDelivery:
                     if wait_event is not None and self.db.execute(
                         "SELECT 1 FROM events WHERE id = ? AND actor = 'Taskboard'", (item.source_event,),
                     ).fetchone():
-                        resolution = board.linked_wait_resolution(task["id"], self.project, wait_event)
+                        resolution = board.linked_wait_resolution(task["id"], project, wait_event)
                         if resolution:
                             item = replace(
                                 item, key=f"ready:{item.source_event}:{wait_event}:{resolution['blocker_event']}",
@@ -138,7 +141,7 @@ class InboxBatchDelivery:
                 if item.kind == "ready":
                     if task["dri"] != owner or item.source_event != task["event_id"] or task["state"] != "ready":
                         break
-                    if item.source_event <= saved["through_event"]:
+                    if project == self.anchor_project and item.source_event <= saved["through_event"]:
                         continue
                     ready_at = datetime.fromisoformat(task["at"]).timestamp()
                     if now < ready_at or now >= ready_at + _MAX_READY_AGE:
@@ -192,8 +195,11 @@ class InboxBatchDelivery:
         with tasks_storage.write(self.db):
             self.sender._check_binding(saved, self.sender.scope.binding(self.db))
             self.sender._check_history(saved, journal["ledger_tip"])
-            visible = not ring1.private(self.db, self.project)
-            for member in members if visible else ():
+            for member in members:
+                project = projects.identifier(member.ticket)[0]
+                if (self.project is not None and ring1.private(self.db, project)
+                        or not ring1.visible(self.db, project, owner)):
+                    continue
                 row = ledger.find_task(self.db, member.task_id)
                 if row is None or row["dri"] != owner or projects.row_reference(row) != member.ticket:
                     continue
@@ -261,7 +267,14 @@ class InboxBatchDelivery:
             try:
                 with tasks_storage.read(self.db):
                     prompt = self.guidance.project_prompt(self.db, self.project, tasks_guidance.APP_DELIVERY)["prompt"]
-                summary = inbox_event_summary(items, project=self.project, guidance=prompt)
+                    restricted = self.project is None and any(
+                        ring1.private(self.db, projects.identifier(ticket)[0])
+                        for item in items for ticket in (item.ticket, item.blocker_ticket) if ticket is not None
+                    )
+                if restricted:
+                    summary = "Open your signed Taskboard Inbox for the next actionable item."
+                else:
+                    summary = inbox_event_summary(items, project=self.project, guidance=prompt)
             except ValueError:
                 return "batch_payload_unavailable", None
             journal = self._prepare(saved, selected, summary, now, tip)
@@ -316,13 +329,14 @@ class InboxBatchDelivery:
             token = sender.grant.token(preflight=preflight)
             preflight()
             send_inbox_event(journal["document"], access_token=token, transport=submit)
-        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested, _AppDeliveryPaused) as error:
+        except (_IdleGateClosed, _SampledChoiceChanged, _SampledStopRequested,
+                _AppDeliveryPaused, _DeliveryEnrollmentChanged) as error:
             with self.state:
                 self.state.execute(
                     "UPDATE inbox_batch SET attempts = ?, retry_at = ?, submitted = ? WHERE singleton = 1",
                     (journal["attempts"], journal["retry_at"], journal["submitted"]),
                 )
-            if isinstance(error, _AppDeliveryPaused):
+            if isinstance(error, (_AppDeliveryPaused, _DeliveryEnrollmentChanged)):
                 raise
             return ("awaiting_idle", key) if isinstance(error, _IdleGateClosed) else ("waiting", None)
         except _Unauthorized:
