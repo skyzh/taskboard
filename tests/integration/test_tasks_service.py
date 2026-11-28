@@ -2248,6 +2248,151 @@ class TasksServiceTest(unittest.TestCase):
             self.assertEqual(self.action(avery, "my-cue-pauses")["items"], [])
             self.assertEqual(self.action(avery, "my-goal-cues")["cues"], baseline["cues"])
 
+    def test_goal_occurrence_wakes_respect_signed_priority_and_pauses(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        recipient, recipient_id = self.login(app, "Sam")
+        with patch("tasks_core.timestamp", return_value="2030-04-01T19:00:00Z"):
+            self.action(owner, "save-goal", {
+                "kind": "dated", "summary": "Verify the sample", "deadline": "2030-04-10",
+            })
+            self.action(owner, "set-goal-review-time", {"id": "T-1", "time": "09:00"})
+            self.assertTrue(self.action(owner, "context")["goal_occurrence_cues"])
+
+            def offered():
+                return self.action(owner, "my-goal-cues", query_string={"include_occurrences": "true", "for_wake": "true"})
+
+            def inbox(*, occurrences=True):
+                filters = {"scope": "all"}
+                if occurrences:
+                    filters["include_occurrences"] = "true"
+                return self.action(owner, "my-inbox-wake", query_string=filters)
+
+            self.assertNotIn("occurrences", self.action(owner, "my-goal-cues"))
+            keys = ["explore:T-1:2030-04-01", "review:T-1:2030-04-01"]
+            self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
+            self.action(owner, "advance-task", {"id": "T-1", "transition": "start", "note": "Explore the sample."})
+            self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
+
+            self.assertEqual([item["key"] for item in inbox()["goal_candidates"]], keys[::-1])
+            self.assertEqual(inbox(occurrences=False)["work"]["key"], "T-1")
+
+            pause = {"id": "T-1", "kind": "goal", "reason": "The sample is under review.",
+                     "until": "2030-04-01T20:00:00Z"}
+            self.action(owner, "set-cue-pause", pause)
+            self.assertEqual(offered()["occurrences"], [])
+            self.assertEqual(inbox()["goal_candidates"], [])
+            self.action(owner, "set-cue-pause", {"id": "T-1", "kind": "goal"})
+            self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
+
+            ordinary = self.action(owner, "create-task", {"title": "Check the queue", "step": "Read it."})
+            ticket = ordinary["receipt"].split()[0]
+            self.assertEqual(inbox()["work"]["key"], ticket)
+            self.assertTrue(offered()["ordinary_busy"])
+            self.assertEqual(offered()["occurrences"], [])
+            self.action(owner, "advance-task", {
+                "id": ticket, "transition": "park", "review_after": "2030-04-02", "note": "Wait for the sample.",
+            })
+            raised = self.action(owner, "raise-attention", {
+                "id": ticket, "recipient": recipient_id, "reason": "Check the sample.",
+            })
+            self.call(recipient, f"/api/v1/notifications/requests/{raised['id']}/reminder",
+                      method="PUT", json={"date": "2030-04-01"})
+            ask, = self.action(owner, "my-requested-asks")["items"]
+            self.assertEqual(inbox()["ask_recheck"]["cue_key"], ask["cue_key"])
+            self.assertTrue(offered()["ordinary_busy"])
+            self.assertEqual(offered()["occurrences"], [])
+            self.action(owner, "acknowledge-ask-recheck", {"cue_key": ask["cue_key"]})
+            self.assertEqual([item["key"] for item in inbox()["goal_candidates"]], keys[::-1])
+            self.assertEqual([item["key"] for item in offered()["occurrences"]], keys)
+
+    def test_shared_goal_watcher_prioritizes_cross_project_review_and_skips_delivered_cues(self):
+        app = self.app(portal_reader=True)
+        owner, owner_key = self.login(app, "Avery")
+        self.cli("register-project", "LAB", "Sample lab", "--dri", owner_key)
+        now = "2030-04-01T17:00:00Z"
+
+        class SignedBoard:
+            def invoke(_, action, data=None, *, write=False):
+                self.assertFalse(write)
+                return self.action(owner, action, query_string=data or {})
+
+            def pages(_, action, filters):
+                yield from self.action(owner, action, query_string=filters)["items"]
+
+        with patch("tasks_core.timestamp", side_effect=lambda: now), TemporaryDirectory() as state_folder:
+            tickets = {}
+            for project in ("LAB", "T"):
+                self.action(owner, "save-goal", {
+                    "project": project, "kind": "dated", "summary": f"Check {project}", "deadline": "2030-04-10",
+                })
+                items = self.action(owner, "my-goal-occurrences", query_string={"project": project})["items"]
+                tickets[project] = items[0]["ticket"]
+            keys = {"lab": f"explore:{tickets['LAB']}:2030-04-01",
+                    "review": f"review:{tickets['T']}:2030-04-01",
+                    "explore": f"explore:{tickets['T']}:2030-04-01"}
+            self.action(owner, "set-goal-review-time", {"id": tickets["T"], "time": "12:00"})
+            self.action(owner, "save-goal", {
+                "project": "LAB", "kind": "dated", "summary": "Check timed sample", "deadline": "2030-04-11",
+            })
+            lab_goals = self.action(owner, "my-goal-occurrences", query_string={"project": "LAB"})["items"]
+            timed_ticket, = {item["ticket"] for item in lab_goals} - {tickets["LAB"]}
+            timed = f"timed:{timed_ticket}:2030-04-01T18:30:00Z"
+            self.action(owner, "advance-task", {
+                "id": timed_ticket, "transition": "park", "note": "Wait for the sample.",
+                "defer_until": "2030-04-01T18:30:00Z",
+            })
+
+            def wake(expected):
+                clock = 0
+                delivered = []
+
+                def advance(seconds):
+                    nonlocal clock
+                    clock += seconds
+                    self.assertLess(clock, 60)
+
+                def notify(offer, claim, record):
+                    self.assertTrue(claim())
+                    delivered.append(offer["goal_key"])
+                    record("#00aa00bb")
+                    return "wake-requested"
+
+                def emit(result):
+                    self.assertEqual(result["outcome"], "goal-wake-requested")
+                    self.assertEqual(clock, 30)
+                    raise KeyboardInterrupt
+
+                with (
+                    patch.dict(os.environ, {"XDG_STATE_HOME": state_folder}),
+                    patch("taskboard_cli.ready_checkpoint.monotonic", side_effect=lambda: clock),
+                    patch("taskboard_cli.ready_checkpoint.sleep", side_effect=advance),
+                    self.assertRaises(KeyboardInterrupt),
+                ):
+                    watch_ready_count(SignedBoard(), "Avery", lambda _: True, self.fail, emit,
+                                      notify_goal=notify, notify_inbox=self.fail, goal_occurrences=True)
+
+                self.assertEqual(delivered, [expected])
+
+            def offered():
+                result = self.action(owner, "my-inbox-wake", query_string={
+                    "scope": "all", "include_occurrences": "true",
+                })
+                return [item["key"] for item in result["goal_candidates"]]
+
+            self.assertEqual(offered()[:2], [keys["lab"], keys["explore"]])
+            wake(keys["lab"])
+
+            now = "2030-04-01T18:45:00Z"
+            self.assertEqual(offered()[:2], [timed, keys["lab"]])
+            wake(timed)
+
+            now = "2030-04-01T19:00:00Z"
+            self.assertEqual(offered()[:3], [keys["review"], timed, keys["lab"]])
+            wake(keys["review"])
+            wake(f"explore:{timed_ticket}:2030-04-01")
+            wake(keys["explore"])
+
     def test_wake_subscriptions_use_the_configured_project_roster(self):
         roster = {self.provider.people["Avery"]["sub"]: "Avery"}
         app = self.app(portal_reader=True, project_roster=roster)
@@ -6412,6 +6557,258 @@ class TasksServiceTest(unittest.TestCase):
             self.assertEqual(replay["offer"], offer["offer"])
             self.assertEqual(replay["goal_review_prompt"], {"project": "T", **default})
 
+    def test_signed_dated_explore_and_review_complete_independently(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        other, _ = self.login(app, "Blake")
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.call(owner, "/api/v1/profile/milestone", method="PATCH", json={
+                "goal": {"summary": "Publish the sample", "deadline": "2030-04-10", "tickets": []},
+            })
+            ticket = "T-1"
+            self.action(owner, "set-goal-review-time", {"id": ticket, "time": "09:00"})
+            offers = self.action(owner, "my-goal-occurrences")["items"]
+            self.assertEqual([(item["kind"], item["ticket"]) for item in offers],
+                             [("explore", ticket), ("review", ticket)])
+            self.assertEqual(self.action(other, "my-goal-occurrences")["items"], [])
+            explore, review = (item["key"] for item in offers)
+            data = {"id": ticket, "occurrence_key": explore, "note": "Verified the sample."}
+            self.action(other, "complete-goal-occurrence", data, status=404)
+            original = self.action(owner, "complete-goal-occurrence", data)
+            self.assertEqual(self.action(owner, "complete-goal-occurrence", data), original)
+            self.assertEqual([item["key"] for item in self.action(owner, "my-goal-occurrences")["items"]], [review])
+            review_receipt = self.action(owner, "complete-goal-occurrence", {
+                "id": ticket, "occurrence_key": review, "note": "Approved the next step.",
+            })
+            self.assertNotEqual(original["event_id"], review_receipt["event_id"])
+            self.assertEqual(self.action(owner, "my-goal-occurrences")["items"], [])
+            self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "parked")
+            settings = {"id": ticket, "keep_exploring": True, "stopping_criterion": "Stop after two checked samples."}
+            self.action(other, "set-goal-exploration", settings, status=404)
+            self.assertTrue(self.action(owner, "set-goal-exploration", settings)["keep_exploring"])
+            next_pass = self.action(owner, "my-goal-occurrences")["items"][0]
+            self.assertNotEqual(next_pass["key"], explore)
+            self.action(owner, "complete-goal-occurrence", {
+                "id": ticket, "occurrence_key": next_pass["key"], "note": "Verified the second sample.",
+            })
+            self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Review the stopping condition."})
+            self.action(owner, "advance-task", {
+                "id": ticket, "transition": "park", "note": "Both samples passed.", "standing_pass": "criterion-met",
+            })
+            self.assertEqual(self.action(owner, "my-goal-occurrences")["items"], [])
+
+    def test_signed_standing_explore_and_review_keep_separate_occurrences(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        ticket = "T-1"
+
+        def occurrences():
+            return self.action(owner, "my-goal-occurrences")["items"]
+
+        def complete(item, note):
+            return self.action(owner, "complete-goal-occurrence", {
+                "id": ticket, "occurrence_key": item["key"], "note": note,
+            })
+
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.action(owner, "save-goal", {
+                "project": "T", "kind": "standing", "summary": "Improve the sample release.",
+            })
+            self.action(owner, "set-goal-review-time", {"id": ticket, "time": "09:00"})
+            explore, review = occurrences()
+            self.assertEqual((explore["kind"], review["kind"]), ("explore", "review"))
+            first = complete(explore, "Check one release sample.")
+            self.assertEqual(complete(explore, "Check one release sample."), first)
+            self.assertEqual(occurrences(), [review])
+            self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "parked")
+
+            self.action(owner, "save-goal", {
+                "project": "T", "kind": "standing", "summary": "Improve the sample release.",
+                "keep_exploring": True, "stopping_criterion": "Stop after checking two release samples.",
+            })
+            continued, scheduled = occurrences()
+            self.assertNotEqual(continued["key"], explore["key"])
+            self.assertEqual(scheduled, review)
+            self.action(owner, "advance-task", {
+                "id": ticket, "transition": "start", "note": "Take the second sample.",
+            })
+            self.assertEqual(complete(continued, "Check the second sample.")["occurrence_key"], continued["key"])
+            self.action(owner, "advance-task", {
+                "id": ticket, "transition": "park", "note": "Two samples checked.", "standing_pass": "criterion-met",
+            })
+            self.assertEqual(occurrences(), [review])
+            schedules = self.action(owner, "my-goals")["review_schedules"]
+            self.assertEqual(schedules[ticket]["next_at"], "2030-04-01T16:00:00Z")
+            self.assertNotEqual(complete(review, "Record the scheduled synthesis.")["event_id"], first["event_id"])
+            self.assertEqual(occurrences(), [])
+            self.assertEqual(self.action(owner, "task", query_string={"id": ticket})["task"]["state"], "parked")
+
+        with patch("tasks_core.timestamp", return_value="2030-04-02T16:00:00Z"):
+            next_explore, next_review = occurrences()
+            self.assertEqual((next_explore["kind"], next_review["kind"]), ("explore", "review"))
+            self.assertNotEqual(next_explore["key"], continued["key"])
+            self.assertNotEqual(next_review["key"], review["key"])
+
+    def test_signed_goal_explore_honors_exact_deferral_without_delaying_review(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        ticket = "T-1"
+        day = "2030-04-01"
+        explore = f"explore:{ticket}:{day}"
+        review = f"review:{ticket}:{day}"
+        complete_explore = {"id": ticket, "occurrence_key": explore, "note": "The sample passed."}
+
+        def keys():
+            return [offer["key"] for offer in self.action(owner, "my-goal-occurrences")["items"]]
+
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.action(owner, "save-goal", {
+                "kind": "dated", "summary": "Publish the sample", "deadline": "2030-04-10",
+            })
+            self.action(owner, "set-goal-review-time", {"id": ticket, "time": "09:00"})
+            self.assertEqual(keys(), [explore, review])
+            self.call(owner, f"/api/v1/tasks/{ticket}/reminder", method="PUT", json={
+                "at": f"{day}T12:30", "time_zone": "America/Los_Angeles",
+            })
+
+        with patch("tasks_core.timestamp", return_value="2030-04-01T19:29:59Z"):
+            self.assertEqual(keys(), [review])
+            cues = self.action(owner, "my-goal-cues", query_string={"include_occurrences": "true"})
+            self.assertEqual([offer["key"] for offer in cues["occurrences"]], [review])
+            self.action(owner, "complete-goal-occurrence", complete_explore, status=409)
+            receipt = self.action(owner, "complete-goal-occurrence", {
+                "id": ticket, "occurrence_key": review, "note": "Reviewed the results.",
+            })
+            self.assertEqual(receipt["occurrence_key"], review)
+            self.assertEqual(keys(), [])
+
+        with patch("tasks_core.timestamp", return_value="2030-04-01T19:30:00Z"):
+            self.assertEqual(keys(), [explore])
+            receipt = self.action(owner, "complete-goal-occurrence", complete_explore)
+            self.assertEqual(receipt["occurrence_key"], explore)
+
+    def test_signed_cli_records_goal_occurrences_and_reads_back_dated_mode(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        goal = "T-1"
+        explore = f"explore:{goal}:2030-04-01"
+        review = f"review:{goal}:2030-04-01"
+
+        def cli(*args):
+            code, output, error = self.shared_cli(owner, *args)
+            self.assertEqual((code, error), (0, ""))
+            return output
+
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.call(owner, "/api/v1/profile/milestone", method="PATCH", json={
+                "goal": {"summary": "Publish the sample", "deadline": "2030-04-10", "tickets": []},
+            })
+            cli("goal-review-time", goal, "--at", "09:00")
+            inbox = cli("next", "--project", "T")
+            self.assertIn(explore, inbox)
+            self.assertIn(review, inbox)
+            self.assertIn("Goal review", cli("goal-occurrences", "--project", "T"))
+
+            args = ("goal-complete", goal, explore, "Inspect the release sample.",
+                    "--details", "The fixture returned the expected receipt.")
+            receipt = cli(*args)
+            self.assertIn("#event-", receipt)
+            self.assertEqual(cli(*args), receipt)
+            remaining = cli("goal-occurrences", "--project", "T")
+            self.assertNotIn(explore, remaining)
+            self.assertIn(review, remaining)
+
+            self.assertIn("Keep exploring", cli(
+                "goal-exploration", goal, "--keep-exploring", "two samples are verified",
+            ))
+            self.assertIn("Keep exploring · Stop when two samples are verified", cli("goals", "--project", "T"))
+            self.assertIn("Keep exploring · Stop when two samples are verified", cli("show", goal))
+            next_pass = cli("goal-occurrences", "--project", "T")
+            self.assertIn(f"{explore}:", next_pass)
+            self.assertIn(review, next_pass)
+            self.action(owner, "create-task", {"title": "Take assigned work", "step": "Read it first."})
+            self.assertNotIn(explore, cli("next", "--project", "T"))
+            self.assertIn("One pass per day", cli("goal-exploration", goal, "--one-pass"))
+            self.assertNotIn("Keep exploring", cli("goals", "--project", "T"))
+
+    def test_dated_goal_profile_saves_exploration_atomically(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        path = "/api/v1/profile/milestone"
+        draft = {"summary": "Publish the sample", "deadline": "2030-04-10", "tickets": [], "keep_exploring": True}
+        self.call(owner, path, method="PATCH", json={"goal": draft}, status=400)
+        self.assertEqual(self.action(owner, "my-goals")["milestones"], [])
+
+        draft["stopping_criterion"] = "two samples are verified"
+        saved = self.call(owner, path, method="PATCH", json={"goal": draft}).json["milestone"]
+        self.assertTrue(saved["keep_exploring"])
+        self.assertEqual(saved["stopping_criterion"], draft["stopping_criterion"])
+        ticket = self.action(owner, "my-goals")["milestones"][0]["ticket"]
+        self.action(owner, "set-goal-review-time", {"id": ticket, "time": "09:00"})
+
+        renamed = {"summary": "Publish two samples", "deadline": draft["deadline"], "tickets": []}
+        self.call(owner, path, method="PATCH", json={"previous": draft["summary"], "goal": renamed})
+        saved = self.action(owner, "my-goals")
+        self.assertEqual(saved["review_times"][ticket], "09:00")
+        self.assertEqual(saved["milestones"][0]["ticket"], ticket)
+        self.assertEqual(saved["milestones"][0]["deadline"], draft["deadline"])
+        self.assertTrue(saved["milestones"][0]["keep_exploring"])
+
+        renamed["keep_exploring"] = False
+        self.call(owner, path, method="PATCH", json={"previous": renamed["summary"], "goal": renamed})
+        detail = self.action(owner, "task", query_string={"id": ticket})
+        self.assertFalse(detail["goal"].get("keep_exploring", False))
+        self.assertEqual(self.action(owner, "my-goals")["review_times"][ticket], "09:00")
+
+    def test_browser_goal_occurrences_are_owner_scoped_and_share_signed_receipts(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        other, _ = self.login(app, "Blake")
+        ticket = "T-1"
+        detail = f"/api/v1/tasks/{ticket}"
+        complete = detail + "/goal-occurrences/complete"
+        inbox = "/api/v1/notifications/work"
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.call(owner, "/api/v1/profile/milestone", method="PATCH", json={
+                "goal": {"summary": "Publish the sample", "deadline": "2030-04-10", "tickets": []},
+            })
+            self.action(owner, "set-goal-review-time", {"id": ticket, "time": "09:00"})
+            occurrences = self.call(owner, detail).json["goal_occurrences"]
+            self.assertEqual(self.call(owner, inbox).json["goal_occurrences"], occurrences)
+            self.assertEqual(self.action(owner, "my-next")["goal_occurrences"], occurrences)
+            explore, review = occurrences
+            self.assertEqual((explore["kind"], review["kind"]), ("explore", "review"))
+            self.assertEqual(review["goal_review_prompt"]["project"], "T")
+            self.assertNotIn("goal_occurrences", self.call(other, detail).json)
+            self.assertNotIn("goal_occurrences", self.call(other, inbox).json)
+
+            result = {"occurrence_key": explore["key"], "note": "The checked sample passed.",
+                      "url": "https://example.test/evidence"}
+            self.call(other, complete, method="POST", json=result, status=404)
+            self.call(app.test_client(), complete, method="POST", json=result, status=401)
+            self.call(owner, complete, method="POST", headers={"Origin": "https://example.test"}, json=result, status=403)
+            original = self.call(owner, complete, method="POST", headers={"Origin": ORIGIN}, json=result).json
+            self.assertEqual(self.call(owner, complete, method="POST", json=result).json, original)
+            retry = self.action(owner, "complete-goal-occurrence", {"id": ticket, **result})
+            self.assertEqual({key: retry[key] for key in original}, original)
+            recorded = self.call(owner, f"/api/v1/activity/{original['event_id']}").json
+            self.assertEqual(recorded["links"][0]["url"], result["url"])
+            self.assertEqual(self.call(owner, inbox).json["goal_occurrences"], [review])
+            self.assertEqual(self.call(owner, detail).json["task"]["state"], "parked")
+
+            self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Check the review."})
+            self.assertEqual(self.call(owner, inbox).json["goal_occurrences"], [review])
+            self.assertEqual(self.action(owner, "my-next")["goal_occurrences"], [review])
+            self.action(owner, "create-task", {"title": "New ready work", "step": "Take priority."})
+            self.assertNotIn("goal_occurrences", self.call(owner, inbox).json)
+            self.assertNotIn("goal_occurrences", self.action(owner, "my-next"))
+            self.assertEqual(self.call(owner, detail).json["goal_occurrences"], [review])
+            reviewed = self.call(owner, complete, method="POST", json={
+                "occurrence_key": review["key"], "note": "Keep the published result.",
+            }).json
+            self.assertNotEqual(reviewed["event_id"], original["event_id"])
+            self.assertEqual(self.call(owner, detail).json["goal_occurrences"], [])
+
     def test_workflow_prompts_follow_signed_work_without_changing_selection(self):
         from tasks_guidance import AgentGuidance
 
@@ -8450,6 +8847,7 @@ class TasksServiceTest(unittest.TestCase):
             self.assertIn("Open the due ask", inbox["next_step"])
             self.assertNotIn("goal_review_prompt", inbox)
             self.assertNotIn("inbox_follow_up", inbox)
+            self.assertNotIn("goal_occurrences", self.call(avery, "/api/v1/notifications/work").json)
             return inbox["ask_recheck"]
 
         self.call(sam, reminder, method="PUT", json={"date": "2000-01-01"})
@@ -8484,6 +8882,8 @@ class TasksServiceTest(unittest.TestCase):
         resumed = self.action(avery, "my-next")
         self.assertNotIn("ask_recheck", resumed)
         self.assertEqual(resumed["work"]["key"], standing)
+        resumed_browser = self.call(avery, "/api/v1/notifications/work").json
+        self.assertEqual(resumed_browser["goal_occurrences"][0]["ticket"], standing)
         self.call(sam, reminder, method="PUT", json={"date": None})
         self.assertIsNone(self.call(sam, route).json["items"][0]["remind_on"])
         self.call(sam, reminder, method="PUT", json={"date": "2000-01-02"})
@@ -8521,6 +8921,38 @@ class TasksServiceTest(unittest.TestCase):
         self.call(sam, request_path + "/handled", method="POST")
         result = self.action(avery, "my-requested-asks", query_string={"cue_key": ask["cue_key"]})["items"][0]
         self.assertEqual((result["state"], result["outcome"]), ("handled", "Handled"))
+
+    def test_due_ask_precedes_in_progress_dated_exploration(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        recipient, recipient_id = self.login(app, "Sam")
+        with patch("tasks_core.timestamp", return_value="2030-04-01T17:00:00Z"):
+            self.call(owner, "/api/v1/profile/milestone", method="PATCH", json={
+                "goal": {"summary": "Verify two samples", "deadline": "2030-04-10", "tickets": [],
+                         "keep_exploring": True, "stopping_criterion": "Two samples have passed."},
+            })
+            ticket = self.action(owner, "my-goals")["milestones"][0]["ticket"]
+            self.action(owner, "advance-task", {"id": ticket, "transition": "start", "note": "Check a sample."})
+            before = self.action(owner, "my-next")
+            self.assertEqual((before["work"]["kind"], before["work"]["key"]), ("in_progress", ticket))
+            self.assertEqual(before["goal_occurrences"][0]["kind"], "explore")
+
+            ask_id = self.action(owner, "raise-attention", {
+                "id": ticket, "recipient": recipient_id, "reason": "Confirm the sample format.",
+            })["id"]
+            self.call(recipient, f"/api/v1/notifications/requests/{ask_id}/reminder", method="PUT",
+                      json={"date": "2030-04-01"})
+            due = self.action(owner, "my-next")
+            self.assertIsNone(due["work"])
+            self.assertNotIn("goal_occurrences", due)
+            cue = due["ask_recheck"]
+            self.assertEqual((cue["kind"], cue["request_id"]), ("attention", ask_id))
+
+            self.action(owner, "acknowledge-ask-recheck", {"cue_key": cue["cue_key"]})
+            resumed = self.action(owner, "my-next")
+            self.assertNotIn("ask_recheck", resumed)
+            self.assertEqual(resumed["work"], before["work"])
+            self.assertEqual(resumed["goal_occurrences"], before["goal_occurrences"])
 
     def test_requester_acknowledges_an_all_project_cue_without_a_project_parameter(self):
         admin = self.provider.people["Sam"]["sub"]

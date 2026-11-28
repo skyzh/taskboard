@@ -36,6 +36,7 @@ let TimeZoneContext
 let createTimeZoneFormatters
 let Notifications
 let GoalActivity
+let GoalOccurrences
 let DriGoal
 let DriMilestones
 let TaskRow
@@ -68,6 +69,7 @@ before(async () => {
         export { TimeZoneContext, createTimeZoneFormatters } from './timeZone.js'
         export { default as Notifications } from './Notifications.jsx'
         export { default as GoalActivity } from './GoalActivity.jsx'
+        export { default as GoalOccurrences } from './GoalOccurrences.jsx'
         export { default as DriGoal, DriMilestones } from './DriGoal.jsx'
         export { TaskRow } from './WorkRow.jsx'
         export { default as AttentionRequests } from './AttentionRequests.jsx'
@@ -146,7 +148,7 @@ before(async () => {
     TaskTransition, TaskActivityUpdate, TransitionFeedback,
     ReminderDate, PendingReports, Reports, AssigneePage, EventRow, OutcomeRow, Outcomes,
     TimeZoneContext, createTimeZoneFormatters,
-    Notifications, GoalActivity, DriGoal, DriMilestones, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity, Knowledge,
+    Notifications, GoalActivity, GoalOccurrences, DriGoal, DriMilestones, TaskRow, AttentionRequests, Stats, QueuedAsks, MyActivity, Knowledge,
     knowledgeListHref, signInHref, RecordHistory,
   } = module.exports)
 })
@@ -846,6 +848,67 @@ test('Inbox handles dated goals as its only content and accepts older work respo
   assert.match(render({ standing_goals: [] }), /Your inbox is empty/)
 })
 
+test('goal work uses an exact occurrence, retains its receipt, and is shown in signed Inbox and owner ticket', async () => {
+  const explore = { kind: 'explore', key: 'explore:T-3:2030-04-01', ticket: 'T-3' }
+  const review = { kind: 'review', key: 'review:T-3:2030-04-01', ticket: 'T-3',
+    due_at: '2030-04-01T16:00:00Z', goal_review_prompt: { prompt: 'Review the **sample**.' } }
+  const items = [explore, review]
+  const session = { data: { actor: { id: 'Avery', kind: 'agent' } } }
+  fixture.state = []
+  fixture.pages = { '/notifications/inbox': { data: { items: [] } } }
+  fixture.resources = {
+    '/notifications/open-count?scope=all': { data: { count: 0 } },
+    '/notifications/work?scope=all&refresh_guidance=true': { data: { items: [], goal_occurrences: items } },
+  }
+  const inbox = renderToStaticMarkup(React.createElement(Notifications, { session, verified: true }))
+  assert.match(inbox, /aria-label="Goal work".*<summary>Explore<\/summary>.*<summary>Scheduled Review<\/summary>/)
+  assert.match(inbox, /Review the <strong>sample<\/strong>/)
+  assert.match(inbox, /Evidence link \(optional\)/)
+  assert.doesNotMatch(inbox, /Your inbox is empty/)
+
+  fixture.pages = {}
+  fixture.resources['/tasks/3'] = { data: {
+    task: { id: 3, key: 'T-3', title: 'Check the sample', state: 'parked', summary_label: 'Next step', dri: 'Avery' },
+    goal: { kind: 'milestone', tickets: [] }, goal_occurrences: items, checklist: [], sources: [], workers: [],
+  } }
+  for (const [actor, visible] of [['Avery', true], ['Blake', false]]) {
+    fixture.state = [true]
+    const view = renderToStaticMarkup(React.createElement(TaskDetail, {
+      id: 3, session: { data: { actor: { id: actor, kind: 'agent' } } },
+    }))
+    assert.equal(view.includes('<summary>Explore</summary>'), visible)
+  }
+
+  const sent = []
+  let refreshed = 0
+  fixture.request = async (path, options) => {
+    sent.push({ path, ...options })
+    return { event_id: 32 }
+  }
+  try {
+    fixture.state = []
+    const panel = GoalOccurrences({ items, onChanged: () => refreshed++ })
+    const list = React.Children.toArray(panel.props.children).find(child => child.type === 'ul')
+    const first = React.Children.toArray(list.props.children)[0]
+    const form = React.Children.toArray(first.props.children).at(-1)
+    fixture.state = ['  Verify the sample.  ', 'https://example.test/evidence']
+    const fields = form.type(form.props)
+    React.Children.toArray(fields.props.children).find(child => child.type === 'form')
+      .props.onSubmit({ preventDefault() {} })
+    await Promise.resolve()
+    assert.equal(refreshed, 1)
+    assert.deepEqual(sent, [{ path: '/tasks/T-3/goal-occurrences/complete', method: 'POST', body: {
+      occurrence_key: explore.key, note: 'Verify the sample.', url: 'https://example.test/evidence',
+    } }])
+    fixture.state = [{ [explore.key]: { ...explore, eventId: 32 } }]
+    const completed = renderToStaticMarkup(React.createElement(GoalOccurrences, { items: [review] }))
+    assert.match(completed, /href="#event-32-log">Explore recorded<\/a>/)
+    assert.match(completed, /<summary>Scheduled Review<\/summary>/)
+  } finally {
+    delete fixture.request
+  }
+})
+
 test('Inbox shows empty only after its required reads settle successfully', () => {
   const empty = { data: { items: [] } }
   const failed = { error: Object.assign(Error('Try again later.'), { status: 503 }) }
@@ -1067,6 +1130,32 @@ test('goal editors show the project title guidance and submit longer names intac
     form.props.onSubmit({ preventDefault() {} })
     assert.deepEqual(sent, [{ path: '/profile/standing-goal?project=COURSE', method: 'PATCH',
       body: { summary: title, keep_exploring: false } }])
+  } finally {
+    delete fixture.directIds
+    delete fixture.request
+  }
+})
+
+test('dated goal Settings saves the exploration mode with its deadline', async () => {
+  const date = '2030-04-10'
+  const goal = { summary: 'Publish the sample', deadline: date, tickets: [],
+    keep_exploring: true, stopping_criterion: 'two samples are verified' }
+  const props = { project: 'T', goal, editable: true, onChanged() {} }
+  fixture.state = [true]
+  const markup = renderToStaticMarkup(React.createElement(DriGoal, props))
+  assert.match(markup, /Keep exploring · Stop when two samples are verified/)
+  assert.match(markup, /Keep exploring while Inbox is clear/)
+  assert.match(markup, /Stop when <input[^>]+required/)
+
+  const sent = []
+  fixture.request = async (path, options) => sent.push({ path, ...options })
+  try {
+    fixture.state = [true]
+    const editor = React.Children.toArray(DriGoal(props).props.children).find(child => child.props?.mode === 'goal')
+    fixture.state = [goal.summary, date, '', false, null, true, goal.stopping_criterion]
+    fixture.directIds = ['goal-links', 'goal-title-guidance']
+    editor.type(editor.props).props.onSubmit({ preventDefault() {} })
+    assert.deepEqual(sent, [{ path: '/profile/goal?project=T', method: 'PATCH', body: { goal } }])
   } finally {
     delete fixture.directIds
     delete fixture.request

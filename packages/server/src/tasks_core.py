@@ -1016,14 +1016,14 @@ def change_task(db, args, links, *, automation=None):
             raise ValueError("Refresh Inbox and choose the current pending dependency event.")
         reviewed_registration = {**registration, "after_event": reviewed_event, "reviewed_event": reviewed_event}
     goal_pass_context = {}
-    if standing_pass or goal_kind == "standing" and args.command in ("start", "park", "remind"):
+    if standing_pass or goal_kind and args.command in ("start", "park", "remind"):
         import tasks_goals as goals
 
-        criterion = goals.exploration_criterion(db, task["id"]) if goal_kind == "standing" else None
+        criterion = goals.exploration_criterion(db, task["id"]) if goal_kind else None
         if standing_pass:
             if criterion is None or task["state"] != "in_progress":
                 raise ValueError("Start your Keep exploring goal before recording a completed pass.")
-            if standing_pass == "complete" and args.command == "update":
+            if standing_pass == "complete" and args.command == "update" and goal_kind == "standing":
                 goal_pass_context["goal_pass_complete"] = True
             elif standing_pass == "criterion-met" and args.command == "park" and criterion:
                 if review_source or getattr(args, "review_after", None) or getattr(args, "defer_until", None) or feature_deferred:
@@ -1032,6 +1032,15 @@ def change_task(db, args, links, *, automation=None):
                 if review is None:
                     raise ValueError("Set a daily Pacific goal review time before parking for the criterion.")
                 goal_pass_context.update(goal_criterion_met=True, goal_review_time=review["review_time"])
+                if goal_kind == "standing":
+                    from tasks_goal_cadence import occurrence_receipt
+
+                    day = datetime.fromisoformat(timestamp()).astimezone(goals.PACIFIC).date()
+                    key = f"explore:{projects.row_reference(task)}:{day}"
+                    if occurrence_receipt(db, task["id"], key):
+                        goal_pass_context["goal_explore_only"] = True
+                else:
+                    goal_pass_context["goal_explore_only"] = True
             else:
                 raise ValueError("Record a pass with progress, or park after the saved stopping criterion is met.")
         elif criterion is not None and (
@@ -1039,7 +1048,7 @@ def change_task(db, args, links, *, automation=None):
         ):
             raise ValueError("Record the goal's stopping criterion as met to park it, or update the daily goal review time.")
         elif criterion and args.command == "start" and task["state"] == "parked":
-            row = next(iter(goals.goal_rows(db, [actor], projects.row_project(task), kind="standing")))
+            row = next(row for row in goals.goal_rows(db, [actor], projects.row_project(task)) if row["id"] == task["id"])
             now = datetime.fromisoformat(timestamp()).astimezone(goals.PACIFIC)
             if not goals.exploration_available(db, row, now):
                 raise ValueError("This goal is parked until its next configured daily review.")
@@ -1122,7 +1131,7 @@ def change_task(db, args, links, *, automation=None):
             return f"{projects.row_reference(task)} · Reminder unchanged"
         if "readiness" in current:
             context["readiness"] = current["readiness"]
-        if goal_kind == "standing" and current.get("goal_criterion_met"):
+        if goal_kind and current.get("goal_criterion_met"):
             context.update((field, current[field]) for field in ("goal_criterion_met", "goal_review_time")
                            if field in current)
             context["goal_criterion_at"] = current.get("goal_criterion_at", task["at"])
@@ -1438,6 +1447,11 @@ def event_label(action, context=None):
     if action == "source-event":
         return "Source update"
     if action == "log":
+        occurrence = (context or {}).get("goal_occurrence", "")
+        if occurrence.startswith("review:"):
+            return "Goal review completed"
+        if occurrence.startswith("explore:"):
+            return "Goal Explore completed"
         if (context or {}).get("decision") is True:
             return "Decision"
         if (context or {}).get("checkpoint") is True:

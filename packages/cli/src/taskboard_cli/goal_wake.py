@@ -16,6 +16,7 @@ from taskboard_cli.shared import task_url
 
 GOAL_PROJECT = "T"
 _DUE_KINDS = {"deadline", "daily", "standing-daily", "timed"}
+_OCCURRENCE_KINDS = {"explore", "review"}
 
 
 class WakeScheduleStopped(RuntimeError):
@@ -150,6 +151,8 @@ class GoalWakeState:
         day = snapshot["day"]
         drain_event = snapshot["drain_event"]
         with self.transaction() as db:
+            if "occurrences" in snapshot:
+                return self.select_occurrence(db, snapshot, day)
             busy, episode, previous = db.execute(
                 "SELECT busy, episode, drain_event FROM handoff WHERE id = 1"
             ).fetchone()
@@ -172,6 +175,21 @@ class GoalWakeState:
             offer = _candidate({**standing, "kind": kind, "key": key}, day, episode)
             return offer if self.available(db, offer) else None
 
+    def select_occurrence(self, db, snapshot, day):
+        occurrences = snapshot["occurrences"]
+        reviews = [row for row in occurrences if row["kind"] == "review"]
+        scheduled = {row["ticket"] for row in reviews}
+        # An exact scheduled Review takes the place of the legacy daily cue.
+        # A deadline without one and existing exact-time paths still have a carrier.
+        fallback = [row for row in snapshot["cues"] if row["kind"] == "timed"
+                    or (row["kind"] == "deadline" and row["ticket"] not in scheduled)]
+        explore = [row for row in occurrences if row["kind"] == "explore"]
+        for row in (*reviews, *fallback, *explore):
+            offer = _candidate(row, day, episode=None)
+            if self.available(db, offer):
+                return offer
+        return None
+
     @staticmethod
     def available(db, offer):
         if db.execute("SELECT 1 FROM cue WHERE key = ?", (offer["goal_key"],)).fetchone():
@@ -179,10 +197,11 @@ class GoalWakeState:
         if offer["goal_kind"] == "standing-continuation":
             episode_key = f"drain:{offer['task']}:{offer['goal_episode']}"
             return db.execute("SELECT 1 FROM cue WHERE key = ?", (episode_key,)).fetchone() is None
-        if offer["goal_kind"] == "timed":
+        if offer["goal_kind"] in _OCCURRENCE_KINDS or offer["goal_kind"] == "timed":
             return True
         previous = db.execute(
-            "SELECT MAX(completed_checks) FROM cue WHERE ticket = ? AND day = ?",
+            """SELECT MAX(completed_checks) FROM cue WHERE ticket = ? AND day = ?
+               AND key NOT LIKE 'explore:%' AND key NOT LIKE 'review:%'""",
             (offer["task"], offer["goal_day"]),
         ).fetchone()[0]
         if previous is None:
@@ -224,12 +243,15 @@ class GoalWakeState:
 
 
 class GoalWake:
-    def __init__(self, board, state, *, include_timed=False, for_wake=False):
+    def __init__(self, board, state, *, include_timed=False, for_wake=False, include_occurrences=False):
         self.board = board
         self.state = state
+        self.include_occurrences = include_occurrences
         self.filters = {"project": state.project}
         if include_timed:
             self.filters["include_timed"] = "true"
+        if include_occurrences:
+            self.filters["include_occurrences"] = "true"
         self.handoff = {"project": state.project}
         if for_wake:
             self.filters["for_wake"] = "true"
@@ -242,7 +264,35 @@ class GoalWake:
             raise SharedReadError(str(error), reason="action-unavailable") from error
         if not self.valid_snapshot(result, self.state.project):
             raise SharedReadError("The board returned an invalid goal cue.", reason="queue-scope")
+        if self.include_occurrences:
+            if not self.valid_occurrences(result):
+                raise SharedReadError("The board returned an invalid goal occurrence.", reason="queue-scope")
+            result = {**result, "occurrences": [
+                {**item, "completed_checks": 0} for item in result["occurrences"]
+            ]}
         return self.state.select(result)
+
+    def valid_occurrences(self, result):
+        items = result.get("occurrences")
+        if not isinstance(items, list) or (result["ordinary_busy"] and items):
+            return False
+        seen = set()
+        for item in items:
+            if not isinstance(item, dict) or not _ticket(item.get("ticket"), self.state.project):
+                return False
+            kind, key = item.get("kind"), item.get("key")
+            if (not isinstance(kind, str) or kind not in _OCCURRENCE_KINDS
+                    or not isinstance(key, str) or item.get("day") != result["day"]):
+                return False
+            first = f"{kind}:{item['ticket']}:{result['day']}"
+            continuation = key.removeprefix(first + ":")
+            if key != first and not (kind == "explore" and key.startswith(first + ":")
+                                     and re.fullmatch(r"[1-9][0-9]{0,18}", continuation)):
+                return False
+            if key in seen:
+                return False
+            seen.add(key)
+        return True
 
     @staticmethod
     def valid_snapshot(result, project=GOAL_PROJECT):
@@ -344,6 +394,11 @@ def reminder_title(offer, *, legacy=False):
     ref = offer["task"]
     url = task_url(offer["board"], {"key": ref, "id": int(ref.rsplit("-", 1)[1])})
     marker = hashlib.sha256(offer["goal_key"].encode()).hexdigest()[:12]
+    if offer["goal_kind"] in _OCCURRENCE_KINDS:
+        label = "Scheduled goal Review" if offer["goal_kind"] == "review" else "Goal Explore"
+        command = f"./tasks --shared goal-complete {ref} {offer['goal_key']} OUTCOME"
+        return (f"{label} for {ref}. Check signed Inbox first, then open {url}. "
+                f"Record this occurrence with {command}. Recheck Inbox. [goal {marker}]")
     reason = {
         "deadline": "Goal deadline",
         "daily": "Daily goal review",

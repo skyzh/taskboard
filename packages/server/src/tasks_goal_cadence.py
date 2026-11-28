@@ -138,6 +138,53 @@ def schedules(db, owner, project, now):
     }
 
 
+def occurrence_receipt(db, number, occurrence_key):
+    return db.execute(
+        """SELECT id, at FROM events WHERE task_id = ? AND action = 'log'
+           AND json_extract(context, '$.goal_occurrence') = ?
+           ORDER BY id LIMIT 1""",
+        (number, occurrence_key),
+    ).fetchone()
+
+
+def occurrences(db, owner, project, now):
+    """Offer daily Explore and scheduled Review independently on the same goal."""
+    daily = {row["id"]: row["review_time"] for row in schedule_rows(db, owner, project)}
+    day = now.date().isoformat()
+    for row in goals.goal_rows(db, [owner], project):
+        number = row["id"]
+        review_time = daily.get(number)
+        if row["state"] == "closed" or not ring1.visible(db, row["project_prefix"], owner):
+            continue
+        ticket = projects.row_reference(row)
+        deferred_until = ledger.event_context(row).get("defer_until")
+        if (row["state"] in ("parked", "ready", "in_progress")
+                and (not deferred_until or now >= datetime.fromisoformat(deferred_until))
+                and goals.exploration_available(db, row, now)):
+            key = f"explore:{ticket}:{day}"
+            completed = occurrence_receipt(db, number, key)
+            if completed is None:
+                yield {"kind": "explore", "ticket": ticket, "key": key, "day": day}
+            elif row["stopping_criterion"] is not None:
+                last = db.execute(
+                    """SELECT id FROM events WHERE task_id = ? AND action = 'log'
+                       AND json_extract(context, '$.goal_occurrence') LIKE ?
+                       ORDER BY id DESC LIMIT 1""",
+                    (number, key + ":%"),
+                ).fetchone()
+                yield {"kind": "explore", "ticket": ticket, "key": f"{key}:{(last or completed)['id']}",
+                       "day": day}
+        if not review_time:
+            continue
+        due_at = goals.review_slot(now.date(), review_time)
+        if now < due_at:
+            continue
+        key = f"review:{ticket}:{day}"
+        if occurrence_receipt(db, number, key) is None:
+            yield {"kind": "review", "ticket": ticket, "key": key, "day": day,
+                   "due_at": due_at.isoformat().replace("+00:00", "Z")}
+
+
 def drain_event(db, owner):
     """Return the latest ordinary-work disposition recorded by the signed owner."""
     ordinary = db.execute(
@@ -181,7 +228,8 @@ def review_history(db, active):
     placeholders = ", ".join("?" for _ in active)
     rows = db.execute(
         f"""SELECT task_id AS id, action, state, at, note, links, context FROM events
-            WHERE task_id IN ({placeholders}) AND action NOT IN ('source-event', 'log')
+            WHERE task_id IN ({placeholders}) AND
+              (action NOT IN ('source-event', 'log') OR json_extract(context, '$.goal_occurrence') IS NOT NULL)
             ORDER BY task_id, events.id""",
         [row["id"] for row in active],
     )

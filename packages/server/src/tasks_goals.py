@@ -179,6 +179,10 @@ def review_events(events):
     for event in events:
         number = event["id"]
         review = None
+        if event["action"] == "log":
+            key = ledger.event_context(event).get("goal_occurrence", "")
+            yield event, "completed" if key.startswith("review:") else None
+            continue
         if event["action"] == "start":
             open_checks.add(number)
             review = "start"
@@ -191,7 +195,10 @@ def review_events(events):
             copied_reminder = (event["note"], event["links"]) == previous.get(number) and any(
                 key in ledger.event_context(event) for key in ("review_after", "defer_until")
             )
-            if event["action"] == "done" or (event["action"] == "park" and not copied_reminder):
+            if event["action"] == "done" or (
+                event["action"] == "park" and not copied_reminder
+                and not ledger.event_context(event).get("goal_explore_only")
+            ):
                 review = "completed"
         previous[number] = (event["note"], event["links"])
         yield event, review
@@ -333,7 +340,7 @@ def ticket_details(db, task, *, signed_in=False):
     result = {"kind": row["kind"], "deadline": row["deadline"],
               "tickets": tickets(db, projects.row_project(task), task["dri"], json.loads(row["ticket_ids"]))}
     resume_at_review = False
-    if row["kind"] == "standing" and (criterion := exploration_criterion(db, task["id"])) is not None:
+    if (criterion := exploration_criterion(db, task["id"])) is not None:
         result.update(keep_exploring=True, stopping_criterion=criterion)
         resume_at_review = task["state"] == "parked" and ledger.event_context(task).get("goal_criterion_met")
     if (signed_in and task["state"] != "done") or resume_at_review:
@@ -378,6 +385,8 @@ def dated_goal(db, project, owner, row):
         "summary": row["summary"],
         "deadline": row["deadline"],
         "tickets": tickets(db, project, owner, json.loads(row["ticket_ids"])),
+        **({"keep_exploring": True, "stopping_criterion": row["stopping_criterion"]}
+           if row["stopping_criterion"] else {}),
     }
 
 

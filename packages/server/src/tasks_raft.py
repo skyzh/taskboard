@@ -77,7 +77,9 @@ _ACTIONS = {
     "my-ticket-cues": _Action("GET", "Preview your server-ranked ticket cues without sending a wake.",
                               optional=_PROJECT | _SCOPE | {"limit": "Maximum number of cues from 1 to 20."}),
     "my-inbox-wake": _Action("GET", "Read the next signed Inbox candidate eligible for an Idle wake.",
-                             optional=_PROJECT | _SCOPE),
+                             optional=_PROJECT | _SCOPE | {
+                                 "include_occurrences": "Use exact Explore and Review wakes.",
+                             }),
     "my-next": _Action("GET", "Read your next actionable item or standing role goal.", optional=_PROJECT | _SCOPE | {
         "for_wake": "Show the same signed selection as a wake, with delivery eligibility applied.",
         "refresh_guidance": "Use true when the client displays the daily Inbox guidance cue.",
@@ -106,6 +108,14 @@ _ACTIONS = {
         "handoff_id": "Stable runner handoff UUID. Use only after observing Idle and reuse the same ID on retry.",
     }, {**_PROJECT, "for_wake": "Apply Idle delivery eligibility before recording a standing offer."}),
     "my-goals": _Action("GET", "Read your standing and dated goals for one project.", optional=_PROJECT),
+    "my-goal-occurrences": _Action("GET", "Read your available goal Explore passes and scheduled Reviews.", optional=_PROJECT | _SCOPE),
+    "complete-goal-occurrence": _Action("POST", "Record the outcome of one exact goal Explore or Review.", {
+        **_TASK, "occurrence_key": "Exact key returned by my-goal-occurrences.",
+        "note": "Goal outcome and next action.",
+    }, {**_EVIDENCE, "details": _DETAILS}),
+    "set-goal-exploration": _Action("POST", "Set one-pass or Keep exploring on an owned dated goal.", {
+        **_TASK, "keep_exploring": "Send true to enable or false to return to one pass per day.",
+    }, {"stopping_criterion": "Written condition for stopping exploration."}),
     "report-runtime-observation": _Action("POST", "Report an opted-in agent’s own runtime observation.", {
         "project": "Explicit pilot project prefix.",
         "state": "Working, idle, unavailable or unknown, lowercase.",
@@ -118,7 +128,8 @@ _ACTIONS = {
     }, {**_PROJECT, "revision": "Optional exact Git revision of a clean checkout."}),
     "my-goal-cues": _Action("GET", "Read your eligible goal review cues after checking actionable work across projects.",
                             optional={**_PROJECT, "include_timed": "Set true to include exact-time goal cues.",
-                                      "for_wake": "Apply Idle delivery eligibility before offering goals."}),
+                                      "for_wake": "Apply Idle delivery eligibility before offering goals.",
+                                      "include_occurrences": "Set true to include exact Explore and Review occurrences."}),
     "set-goal-review-time": _Action("POST", "Set or clear the daily review time for an owned goal.", {
         **_TASK, "time": "Pacific 24-hour review time as HH:MM. Send an empty string to clear it.",
     }),

@@ -38,11 +38,12 @@ ADVANCES = {
 }
 READS = {"context", "list", "next", "goals", "show", "workers", "reviews", "watched", "recurring-show", "tagged",
          "search", "knowledge-areas", "knowledge-sweep", "readiness", "raft-channel-show", "wake-subscriptions", "field-guidance",
-         "worker-check", "cue-pauses", "projects", "agent-usage", "api-usage", "project-access", ledger.READ} | attachments.READS
+         "worker-check", "cue-pauses", "projects", "agent-usage", "api-usage", "project-access",
+         "goal-occurrences", ledger.READ} | attachments.READS
 WRITES = ADVANCES | {
     "confirm-blocker", "create-project", "raise-attention",
     "add", "transfer", "log", "record-merge", "priority", "watch", "unwatch", "link-source", "link-reference",
-    "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "raft-channel-set",
+    "tag", "close", "edit", "checklist", "save-goal", "goal-review-time", "goal-complete", "goal-exploration", "raft-channel-set",
     "wake-subscribe", "wake-unsubscribe", "cue-pause", "cue-ack", "knowledge-add", "knowledge-assign", "knowledge-place", "knowledge-stage",
     "knowledge-reconcile",
     "worker-check", "recurring-tick", "complete-recurring-review", "ticket-recurrence", ledger.WRITE, PEER_ASK,
@@ -166,6 +167,9 @@ def task_details(board, url, number, *, workers_only=False, guidance=None, conte
         }.get(ask["phase"], "Closed")
         text.append(f"Peer request for {ask['source_key']} · {phase}")
         guidance = detail.get("peer_request_next") or guidance
+    if not workers_only and (goal := detail.get("goal")) and goal.get("keep_exploring"):
+        criterion = goal.get("stopping_criterion")
+        text.append(f"Keep exploring · Stop when {criterion}" if criterion else "Keep exploring")
     if detail["brief"]:
         text.append(detail["brief"])
     if not workers_only and (configuration := detail.get("ticket_fields")):
@@ -551,6 +555,16 @@ def inbox_guidance_lines(result):
     return lines
 
 
+def goal_occurrence_lines(items):
+    for item in items:
+        label = "Explore" if item["kind"] == "explore" else "Scheduled Review"
+        yield f"{item['ticket']} · {label} · {item['key']}"
+        if item.get("due_at"):
+            yield f"  Due at {item['due_at']}"
+        if prompt := item.get("goal_review_prompt"):
+            yield f"  Goal review · {prompt['prompt']}"
+
+
 def shared_next(board, url, filters, actor, *, refresh_guidance=False):
     try:
         guidance = {"refresh_guidance": "true"} if refresh_guidance else {}
@@ -563,6 +577,9 @@ def shared_next(board, url, filters, actor, *, refresh_guidance=False):
         command_line = "`./tasks --shared list --status ready --unassigned" + project_flag + "`."
         return f"No ready tasks in your queue ({actor['name']}).\nNext: Check shared Ready work with {command_line}"
     goal_lines = queue_goal_lines(result, url)
+    if occurrences := result.get("goal_occurrences"):
+        goal_lines.extend(goal_occurrence_lines(occurrences))
+        goal_lines.append("  Record an outcome with goal-complete using the exact occurrence key.")
     for candidate in result.get("wait_review", ()):
         ticket = candidate["key"]
         goal_lines.append(f"{ticket} · Review waiting work · {candidate['title']}")
@@ -870,6 +887,27 @@ def shared_command(args):
                 data["until"] = args.until
         result = board.invoke("set-cue-pause", data, write=True)
         return f"Committed · {result['receipt']}"
+    if command == "goal-occurrences":
+        items = board.invoke("my-goal-occurrences", {"project": args.project} if args.project else {})["items"]
+        return "\n".join(goal_occurrence_lines(items)) or "No goal occurrences available."
+    if command == "goal-complete":
+        data = {"id": task_ref(args.id), "occurrence_key": args.occurrence_key, "note": args.note, **evidence(args)}
+        if args.details is not None:
+            data["details"] = args.details
+        result = board.invoke("complete-goal-occurrence", data, write=True)
+        return with_guidance(
+            f"Committed · {result['receipt']}\n{url}#event-{result['event_id']}-log",
+            "Recheck signed Inbox for the next eligible item.",
+        )
+    if command == "goal-exploration":
+        data = {"id": task_ref(args.id), "keep_exploring": not args.one_pass}
+        if args.keep_exploring:
+            data["stopping_criterion"] = args.keep_exploring
+        result = board.invoke("set-goal-exploration", data, write=True)
+        line = f"Committed · {result['receipt']}"
+        if criterion := result["stopping_criterion"]:
+            line += f" · Stop when {criterion}"
+        return line
     if command == "goals":
         saved = board.invoke("my-goals", {"project": args.project} if args.project else {})
         standing, dated = saved["standing_goal"], saved["goal"]
@@ -882,11 +920,15 @@ def shared_command(args):
                     lines.append(f"  Stop when {standing['stopping_criterion']}")
         if dated:
             lines.append(f"Original dated goal · {dated['deadline']} · {dated['summary']}")
+            if dated.get("keep_exploring"):
+                lines.append(f"  Keep exploring · Stop when {dated['stopping_criterion']}")
             links = ", ".join(ticket["key"] for ticket in dated["tickets"])
             if links:
                 lines.append(f"  Related tasks: {links}")
         for milestone in saved["milestones"]:
             lines.append(f"Dated goal · {milestone['deadline']} · {milestone['summary']}")
+            if milestone.get("keep_exploring"):
+                lines.append(f"  Keep exploring · Stop when {milestone['stopping_criterion']}")
             links = ", ".join(ticket["key"] for ticket in milestone["tickets"])
             if links:
                 lines.append(f"  Related tasks: {links}")

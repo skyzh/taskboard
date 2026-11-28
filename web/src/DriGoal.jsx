@@ -43,9 +43,10 @@ function GoalForm({ goal, project, mode, onCancel, onSaved }) {
     try {
       const path = `/profile/${mode}`
       const body = standing ? { summary: value?.summary ?? null } : { goal: value }
-      if (standing && value) {
-        body.keep_exploring = keepExploring
-        if (keepExploring) body.stopping_criterion = criterion
+      if (value) {
+        const settings = standing ? body : body.goal
+        settings.keep_exploring = keepExploring
+        if (keepExploring) settings.stopping_criterion = criterion
       }
       if (mode === 'milestone' && goal) body.previous = goal.summary
       await request(queryPath(path, { project }), { method: 'PATCH', body })
@@ -71,13 +72,13 @@ function GoalForm({ goal, project, mode, onCancel, onSaved }) {
         aria-describedby={titleHelpId}
         onChange={event => setSummary(event.target.value)} /></label>
       <FieldHelp field={goalField} id={titleHelpId} />
-      {standing && <>
+      <>
         <label><input type="checkbox" checked={keepExploring} disabled={saving}
           onChange={event => setKeepExploring(event.target.checked)} /> Keep exploring while Inbox is clear</label>
         {keepExploring && <label>Stop when <input value={criterion} maxLength={500} disabled={saving}
-          placeholder="Optional stopping criterion"
+          required={!standing} placeholder={standing ? 'Optional stopping criterion' : undefined}
           onChange={event => setCriterion(event.target.value)} /></label>}
-      </>}
+      </>
       {!standing && <>
         <label>Deadline<input type="date" value={deadline} required disabled={saving}
           onChange={event => setDeadline(event.target.value)} /></label>
@@ -99,6 +100,9 @@ function GoalDetails({ goal }) {
   return (
     <>
       <p className="section-message">Deadline <GoalDeadline deadline={goal.deadline} /></p>
+      <p className="section-message">{goal.keep_exploring
+        ? <>Keep exploring · Stop when {goal.stopping_criterion}</>
+        : 'One Explore pass per day'}</p>
       {goal.tickets.length > 0 && (
         <ul className="context-list" aria-label="Related tasks">
           {goal.tickets.map(ticket => <li key={ticket.id}><TaskLink id={ticket.id} reference={ticket.key} title={ticket.title} /></li>)}

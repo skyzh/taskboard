@@ -44,6 +44,7 @@ import { TaskWaitAge } from './WaitAge.jsx'
 import { useTimeZone } from './timeZone.js'
 import { ReportTime } from './ReportTime.jsx'
 import { GoalDeadline } from './DriGoal.jsx'
+import GoalOccurrences from './GoalOccurrences.jsx'
 import SegmentedControl from './SegmentedControl.jsx'
 import { projectFilters } from './projectScope.js'
 import { groupWatcherActivity } from './watcherActivity.js'
@@ -667,12 +668,19 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               {(task.waiting_on || task.blockers) && <p><Dependency task={task} /></p>}
               {task.peer_request && <PeerRequestContext task={task} />}
               <Markdown text={task.note} relatedTasks={record.related_tasks} />
+              {record.goal && record.goal.kind !== 'standing' && <p className="section-message">
+                {record.goal.keep_exploring
+                  ? <>Keep exploring · Stop when {record.goal.stopping_criterion}</>
+                  : 'One Explore pass per day'}
+              </p>}
               {record.goal?.parked_note && <>
                 <h3>Owner’s note</h3>
                 <Markdown text={record.goal.parked_note} relatedTasks={record.related_tasks} />
               </>}
               {record.goal?.resume_review_time && <p>Resume at the next {record.goal.resume_review_time} Pacific goal review.</p>}
-              {record.goal_review_prompt && <>
+              {signedIn && session.data.actor.id === task.dri && <GoalOccurrences key={`${id}:${session.data.actor.id}`}
+                items={record.goal_occurrences} onChanged={onChanged} />}
+              {record.goal_review_prompt && !record.goal_occurrences?.some(item => item.kind === 'review') && <>
                 <h3>Goal review</h3>
                 <Markdown text={record.goal_review_prompt.prompt} />
               </>}

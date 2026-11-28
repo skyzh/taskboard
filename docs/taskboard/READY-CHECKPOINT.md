@@ -168,9 +168,10 @@ The goal keeps its normal Parked state until the agent starts the check.
    schedules until you verify the equivalent behavior for this agent.
 2. Choose a daily Pacific review time for each active goal with
    `./tasks --shared goal-review-time T-123 --at 09:00`, then use
-   `./tasks --shared goals --project T` for readback. A completed standing-goal
-   pass counts as that Pacific day's review. A dated goal without a review
-   time can surface its deadline from 09:00 Pacific on the deadline date.
+   `./tasks --shared goals --project T` for readback. The legacy standing-goal
+   pass workflow counts a completed pass as that Pacific day's review. A dated
+   goal without a review time can surface its deadline from 09:00 Pacific on
+   the deadline date.
 3. The watcher creates a private state file under
    `$XDG_STATE_HOME/taskboard/goal-wakes` (default `~/.local/state/taskboard/goal-wakes`).
    Preserve an existing `--goal-state` path to keep its Project T wake history. Keep
@@ -185,6 +186,24 @@ with its previous checkout, flags and anchor. Retain the trial state. Check
 for a pending trial reminder before canceling an exact duplicate or
 restoring a previous reminder. Clear a test-only review time with
 `goal-review-time T-123 --clear`. Existing goal history and deadlines remain.
+
+### Goal occurrence watcher pilot
+
+Occurrence wakes are off by default. The reviewed repeat watcher accepts
+`--goal-occurrences` with `--watch-idle --repeat` and uses the new cues only
+when the signed board advertises support. Omit the flag to keep the existing
+wake behavior. An older server also keeps the existing watcher behavior.
+
+Rehearse on a restored ledger before requesting a live trial. Record the
+current goal, deadline, review time, exploration mode, and watcher command.
+Check that a scheduled Review is still due after completing Explore and that
+an exact completion retry returns the same Activity receipt after restart.
+Verify that Ready work, assigned reviews, and due asks come first.
+
+Keep the existing watcher path until a live trial verifies natural delivery,
+signed pickup, and the exact completion for the offered occurrence. Record
+those stages separately. Live pickup for the new pilot remains pending.
+Use the rollback steps above to restore the prior single watcher.
 
 ## Test timed follow-ups
 
