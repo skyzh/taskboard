@@ -9,6 +9,10 @@ import { BoardOutageContext } from './BoardOutage.jsx'
 import { isBackendError } from './boardAvailability.js'
 import { projectFilters } from './projectScope.js'
 
+export function attentionTicketHref(taskId, reference, requestId) {
+  return `${taskHref(taskId, reference)}?attention-request=${requestId}`
+}
+
 export function AttentionReceipt({ receipt }) {
   return (
     <p role="status" className="section-message">
@@ -37,7 +41,7 @@ export function AttentionImpact({ item }) {
   )
 }
 
-export default function AttentionRequests({ revision, onChanged, onRequestLoaded, taskId, project, requestId, showControls = true, onlyOpen = false, askState }) {
+export default function AttentionRequests({ revision, onChanged, onRequestLoaded, taskId, project, requestId, onlyOpen = false, askState }) {
   const onTicket = taskId != null
   const [selectedState, setState] = useState('open')
   const state = askState || selectedState
@@ -122,7 +126,7 @@ export default function AttentionRequests({ revision, onChanged, onRequestLoaded
           <li className="event-row attention-row" key={item.id}>
             <div>
               {!onTicket && <p className="event-ticket"><TaskLink reference={item.task_key} id={item.task_id} title={item.task_title}
-                publicHref={`${taskHref(item.task_id, item.task_key)}?attention-request=${item.id}`} /></p>}
+                publicHref={attentionTicketHref(item.task_id, item.task_key, item.id)} /></p>}
               <p className="event-meta">
                 <span>{item.rollout_check ? 'Rollout check' : profileName(item.sender, item.sender_profile)}</span>
                 {requestId ? <span>Received <Timestamp at={item.raised_at} /></span>
@@ -135,7 +139,7 @@ export default function AttentionRequests({ revision, onChanged, onRequestLoaded
             </div>
             {item.handled_at
               ? <span className="event-meta">Handled <Timestamp at={item.handled_at} /></span>
-              : showControls && !item.rollout_check && (
+              : !item.rollout_check && (
                 <div>
                   {notice?.id === item.id && <p role="alert" className="section-message">{notice.error}</p>}
                   <button type="button" aria-busy={pending === item.id || undefined}
