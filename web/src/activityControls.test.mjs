@@ -1161,11 +1161,11 @@ test('dated goal Settings saves the exploration mode with its deadline', async (
   }
 })
 
-test('an event already in the activity list has one anchor and is marked current', () => {
-  const markup = renderLog([selected], null)
+test('an event already in the activity list stays in the linked section with one current anchor', () => {
+  const markup = renderLog([selected], { data: selected })
   assert.equal((markup.match(/id="event-18-log"/g) || []).length, 1)
-  assert.match(markup, /aria-current="location"/)
-  assert.match(markup, /Linked event/)
+  assert.match(markup, /<h2 id="linked-activity-heading">Linked event<\/h2>.*id="event-18-log"[^>]+aria-current="location"/)
+  assert.doesNotMatch(renderLog([selected], { pending: true }), /id="event-18-log"/)
 })
 
 test('the empty activity message waits for the linked event request', () => {
@@ -1227,7 +1227,7 @@ test('Activity and task history show only new sentences from a legacy receipt', 
   const details = 'Routed the findings to T-3, T-7, and T-12. The fixture covers rendered pages and expanded controls; native dialogs, external login, and transient errors were outside the sample.'
   const event = { ...selected, action: 'done', label: 'Completed', headline: undefined, note: headline + ' ' + details }
   for (const markup of [
-    renderLog([event], null),
+    renderLog([event], { data: event }),
     renderToStaticMarkup(React.createElement(EventRow, { event })),
     renderToStaticMarkup(React.createElement(OutcomeRow, { events: [event] })),
   ]) {
@@ -1282,7 +1282,7 @@ test('typed provider and board work events use their distinct named marks in eve
     fixture.state = []
     const row = renderToStaticMarkup(React.createElement(EventRow, { event }))
     const ticket = renderToStaticMarkup(React.createElement(EventRow, { event, ticketActivity: true }))
-    for (const markup of [row, ticket, renderLog([event], null), renderLog([event], null, 'event-18-log?detail=all')]) {
+    for (const markup of [row, ticket, renderLog([event], { data: event }), renderLog([event], { data: event }, 'event-18-log?detail=all')]) {
       assert.match(markup, new RegExp(
         `aria-label="${label}" title="${label}"><svg[^>]*class="lucide lucide-${icon}" aria-hidden="true" focusable="false"`,
       ), label)
@@ -1297,8 +1297,8 @@ test('Checkpoint Activity visibly labels the entry and keeps its rationale and e
     links: [{ url: 'https://example.test/csv-cases', label: 'CSV fixture results' }],
   }
   const ticket = renderToStaticMarkup(React.createElement(EventRow, { event, ticketActivity: true }))
-  const ordinary = renderLog([selected], null)
-  for (const markup of [ticket, renderLog([event], null), renderLog([event], null, 'event-18-log?action=checkpoint')]) {
+  const ordinary = renderLog([selected], { data: selected })
+  for (const markup of [ticket, renderLog([event], { data: event }), renderLog([event], { data: event }, 'event-18-log?action=checkpoint')]) {
     assert.equal((markup.match(/<span>Checkpoint<\/span>/g) || []).length, 1)
     assert.match(markup, /The header was fixed\./)
     assert.match(markup, /because it preserves quoted fields\./)
@@ -1312,7 +1312,7 @@ test('a single line or exactly repeated explicit details need no disclosure', ()
     { ...selected, headline: undefined },
     { ...selected, details: selected.headline },
   ]) {
-    assert.doesNotMatch(renderLog([event], null), /<summary>Details/)
+    assert.doesNotMatch(renderLog([event], { data: event }), /<summary>Details/)
     const row = renderToStaticMarkup(React.createElement(EventRow, { event }))
     assert.doesNotMatch(row, /<summary>Details/)
     assert.match(row, /href="#event-18-log"/)
@@ -1487,14 +1487,14 @@ test('a legacy hold, decision context, and evidence remain accessible', () => {
   const note = 'Checks passed. Do not deploy ' + 'a'.repeat(64) + ' until approval.'
   const hold = { ...selected, note, headline: undefined,
     links: [{ label: 'Hold evidence', url: 'https://example.test/hold' }] }
-  const holdMarkup = renderLog([hold], null)
+  const holdMarkup = renderLog([hold], { data: hold })
   assert.match(holdMarkup, /Hold recorded/)
   assert.ok(holdMarkup.includes(note))
   assert.equal(holdMarkup.split('Hold evidence').length - 1, 1)
 
   const decision = { ...selected, action: 'decide',
     context: { choice: 'CSV', decision_reason: '- Keep the existing import.\n- Check the sample.' } }
-  const decisionMarkup = renderLog([decision], null)
+  const decisionMarkup = renderLog([decision], { data: decision })
   assert.match(decisionMarkup, /<summary>Details<\/summary>/)
   assert.match(decisionMarkup, /<strong>Reason<\/strong><\/p>.*<ul><li>Keep the existing import\.<\/li><li>Check the sample\.<\/li><\/ul>/)
 })
