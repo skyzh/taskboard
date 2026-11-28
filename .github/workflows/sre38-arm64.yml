@@ -1,0 +1,48 @@
+name: Disposable ARM64 qualification replay
+
+on:
+  push:
+    branches: [agent/lens/sre38-arm64-run]
+
+permissions:
+  contents: read
+
+jobs:
+  qualification:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - name: Check out the reviewed fixture
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Check out the exact public pair
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 6b96d5288e7ca30fd026a5523b5d0db10f208e86
+          fetch-depth: 2
+          path: candidate
+          persist-credentials: false
+
+      - name: Check out the qualification prototype
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: cb2fa7eedaacf0255164fc4b8180dada9193c7e5
+          path: prototype
+          persist-credentials: false
+
+      - name: Verify and stage public inputs
+        run: |
+          mkdir -p "$RUNNER_TEMP/qualification"
+          python3 -B tools/release/sre38/stage.py stage "$RUNNER_TEMP/qualification"
+
+      - name: Replay the public release pairings in pinned Debian ARM64
+        run: |
+          docker run --rm --platform linux/arm64 \
+            --volume "$GITHUB_WORKSPACE:/fixture:ro" \
+            --volume "$GITHUB_WORKSPACE/candidate:/candidate:ro" \
+            --volume "$GITHUB_WORKSPACE/prototype:/prototype:ro" \
+            --volume "$RUNNER_TEMP/qualification:/state" \
+            debian@sha256:65d15c0ac2dd6639a130a05ffaf36b9d60697ef8d07125d79aecaaa9871bc97b \
+            /bin/bash /fixture/tools/release/sre38/replay.sh
