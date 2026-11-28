@@ -148,6 +148,7 @@ class TasksTest(unittest.TestCase):
     def test_ticket_blocker_keeps_owner_and_tracks_current_chain(self):
         for title in ("Deliver release", "Check samples", "Get signed file"):
             self.add(title)
+        self.enterContext(patch.object(self, "run_tasks", self.run_tasks_in_process))
         for number in ("T-1", "T-2", "T-3"):
             self.change("start", "Continue the check.", number=number)
         self.assertIn("owned by Avery", self.change(
@@ -493,6 +494,7 @@ class TasksTest(unittest.TestCase):
 
     def test_human_assignment_decision_and_owner_queue(self):
         self.add("Review the local design")
+        self.enterContext(patch.object(self, "run_tasks", self.run_tasks_in_process))
         self.add("Another design", dri="Morgan")
         self.change("start", "Prepare design.")
         self.change("start", "Prepare another design.", number="T-2", by="Morgan")
