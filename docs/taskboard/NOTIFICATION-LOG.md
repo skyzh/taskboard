@@ -255,8 +255,9 @@ and waits up to five seconds. It sends one JSON object on stdin with
 canonical ticket document. The command receives no Raft OAuth bearer or
 secret. Keep credentials out of the argv configuration.
 
-The command must deduplicate side effects using `external_event_id`.
-Exit successfully and return one stdout JSON object with that exact
+The command must deduplicate side effects using `external_event_id` and finish
+delivery before exiting. Taskboard stops the process group at the end of each
+attempt. Exit successfully and return one stdout JSON object with that exact
 `external_event_id` and a `status` of `accepted`, `rejected`, or `unknown`.
 Taskboard records acceptance and explicit rejection as terminal receipts.
 A timeout, unconfirmed or malformed response, wrong event ID, or failed

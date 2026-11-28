@@ -46,7 +46,6 @@ class ReadyCommand:
                 self.argv, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env={}, close_fds=True,
                 start_new_session=True,
             ) as process:
-                returncode = None
                 try:
                     output = bytearray()
                     while len(output) <= _MAX_OUTPUT:
@@ -55,20 +54,18 @@ class ReadyCommand:
                             return None
                         chunk = read(process.stdout.fileno(), _MAX_OUTPUT + 1 - len(output))
                         if not chunk:
-                            returncode = process.wait(timeout=max(0, deadline - monotonic()))
-                            if returncode == 0:
+                            if process.wait(timeout=max(0, deadline - monotonic())) == 0:
                                 return json.loads(output)
                             return None
                         output.extend(chunk)
                     return None
                 finally:
-                    if returncode is None:
-                        # A helper can still hold the pipe after its wrapper exits.
-                        try:
-                            killpg(process.pid, SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                        process.wait()
+                    # Helpers must finish within the synchronous command attempt.
+                    try:
+                        killpg(process.pid, SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait()
 
     def __call__(self, cue):
         try:

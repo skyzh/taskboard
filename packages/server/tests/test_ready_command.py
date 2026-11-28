@@ -85,6 +85,37 @@ class ReadyCommandTest(unittest.TestCase):
             sleep(1.5)
             self.assertFalse(delivered.exists())
 
+    def test_wrapper_exit_stops_helper_with_separate_stdout(self):
+        helper = (
+            "from pathlib import Path\n"
+            "import sys, time\n"
+            "started, release, delivered = map(Path, sys.argv[1:])\n"
+            "started.touch()\n"
+            "for _ in range(200):\n"
+            "    if release.exists():\n"
+            "        delivered.touch()\n"
+            "        break\n"
+            "    time.sleep(0.01)\n"
+        )
+        wrapper = (
+            "from pathlib import Path\n"
+            "import subprocess, sys, time\n"
+            "subprocess.Popen([sys.executable, '-c', *sys.argv[2:]], stdout=subprocess.DEVNULL)\n"
+            "while not Path(sys.argv[3]).exists():\n"
+            "    time.sleep(0.01)\n"
+            "print('{\"external_event_id\":\"fixture-id\",\"status\":\"accepted\"}')\n"
+            "raise SystemExit(int(sys.argv[1]))\n"
+        )
+        for exit_code, status in ((1, "unknown"), (0, "accepted")):
+            with self.subTest(exit_code=exit_code), TemporaryDirectory() as directory:
+                started, release, delivered = (Path(directory) / name for name in ("started", "release", "delivered"))
+                command = self.command(wrapper, str(exit_code), helper, str(started), str(release), str(delivered))
+                self.assertEqual(command({"external_event_id": "fixture-id"}), status)
+                self.assertTrue(started.exists())
+                release.touch()
+                sleep(0.5)
+                self.assertFalse(delivered.exists())
+
     def test_operator_must_configure_argument_array_and_absolute_executable(self):
         for value in ("echo", '"echo hi"', '[]', '["echo"]', '["/bin/echo", null]', "[" * 2000):
             with self.subTest(value=value), self.assertRaises(ValueError):
