@@ -2685,7 +2685,6 @@ class TasksServiceTest(unittest.TestCase):
         self.action(blake, "create-task", {"title": "Review this", "step": "Check the result."})
         self.action(blake, "advance-task", {"id": "T-3", "transition": "start", "note": "Start it."})
         self.action(blake, "delegate", {"id": "T-3", "worker": owner, "role": "review", "brief": "Verify output."})
-        self.action(blake, "worker-handoff", {"run": "W-1", "transition": "start", "handle": "fixture-review"})
         self.action(avery, "create-task", {"title": "Second milestone task", "step": "Review the import."})
         self.action(avery, "advance-task", {"id": "T-4", "transition": "start", "note": "Read the import."})
         self.cli("wait", "T-4", "Wait.", "--on", "Fixture dependency", "--by", owner)
@@ -2796,6 +2795,9 @@ class TasksServiceTest(unittest.TestCase):
 
         self.action(avery, "advance-task", {"id": "T-1", "transition": "start", "note": "Start the fixture."})
         self.assertEqual(self.action(avery, "my-next")["work"]["kind"], "review")
+        self.action(blake, "worker-handoff", {"run": "W-1", "transition": "start", "handle": "fixture-review"})
+        self.assertEqual(self.action(avery, "my-next")["work"]["kind"], "in_progress")
+        self.assertEqual(self.action(avery, "my-inbox-wake")["work"]["kind"], "in_progress")
         self.action(avery, "worker-handoff", {"run": "W-1", "transition": "report", "note": "Reviewed.", "result": "completed"})
         self.assertEqual(self.action(avery, "my-next")["work"]["kind"], "in_progress")
         self.cli("wait", "T-1", "Wait for input.", "--on", "Fixture dependency", "--by", owner)

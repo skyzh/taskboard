@@ -3010,7 +3010,7 @@ class BoardQueries:
             if len(rows) > limit else None,
         }
 
-    def wait_review_candidates(self, owner, project, *, for_delivery=False, after=0):
+    def wait_review_candidates(self, owner, project, *, for_delivery=False, after=0, verified_only=False):
         visibility, scope = self.project_visibility("current.project_prefix")
         project_filter = "" if project is None else "AND current.project_prefix = ?"
         project_values = () if project is None else (project,)
@@ -3018,14 +3018,14 @@ class BoardQueries:
             f"""WITH current AS ({ledger.current_tasks_sql(self.db)})
                 SELECT current.id, current.title, current.event_id, current.project_prefix,
                        current.project_number, current.waiting_on, current.note,
-                       peer.ledger_key AS recipient
+                       CASE WHEN peer.kind = 'agent' THEN peer.ledger_key END AS recipient
                 FROM current
                 LEFT JOIN board_principals AS peer ON peer.ledger_key = COALESCE(
                     (SELECT ledger_key FROM board_principals WHERE ledger_key = current.waiting_on),
                     (SELECT MIN(ledger_key) FROM board_principals
                      WHERE username <> '' AND LOWER(username) = LOWER(current.waiting_on)
                      HAVING COUNT(*) = 1)
-                ) AND peer.kind = 'agent' AND peer.ledger_key <> current.dri
+                ) AND peer.kind IN ('agent', 'human') AND peer.ledger_key <> current.dri
                   AND COALESCE(json_extract(current.context, '$.wait_kind'), '') <> 'automation'
                 WHERE current.dri = ? AND current.state = 'waiting' AND current.event_id > ?
                   AND json_extract(current.context, '$.peer_ask_ticket') IS NULL
@@ -3035,6 +3035,7 @@ class BoardQueries:
                       WHERE link.event_id = current.event_id AND link.ready_event_id IS NULL
                   )
                   AND {visibility} {project_filter}
+                  AND (NOT ? OR peer.ledger_key IS NOT NULL)
                   AND (NOT ? OR (
                       COALESCE(json_extract(current.context, '$.wait_kind'), '') <> 'automation'
                       AND NOT EXISTS (
@@ -3046,7 +3047,7 @@ class BoardQueries:
                   ))
                 ORDER BY current.event_id
                 LIMIT 5""",
-            (owner, after, *scope, *project_values, for_delivery),
+            (owner, after, *scope, *project_values, verified_only, for_delivery),
         )
         return [{
             "key": projects.row_reference(row), "title": row["title"], "wait_event": row["event_id"],
@@ -3133,7 +3134,8 @@ class BoardQueries:
         remaining = min(5, limit - len(items))
         after = 0
         while remaining:
-            waits = self.wait_review_candidates(owner, project, for_delivery=True, after=after)
+            waits = self.wait_review_candidates(owner, project, for_delivery=True, after=after,
+                                                verified_only=waiting_only)
             if not waits:
                 break
             after = waits[-1]["wait_event"]

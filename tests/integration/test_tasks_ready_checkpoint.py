@@ -1074,7 +1074,7 @@ class ReadyCheckpointTest(unittest.TestCase):
         }, write=True)
         with closing(open_sqlite(self.avery.service.database)) as db, write(db):
             change_task(db, Namespace(command="wait", id=resolve(db, "T-1"), by=self.avery_id,
-                                      on="Legacy review", automation=False, note="Check this wait later."), [])
+                                      on="Blake", automation=False, note="Check this wait later."), [])
         self.avery.invoke("save-goal", {"kind": "standing", "summary": "Review the queue."}, write=True)
         self.avery.invoke("set-goal-review-time", {"id": "T-2", "time": "09:00"}, write=True)
         filters = {"scope": "all"}
