@@ -106,4 +106,4 @@ rules and transfer open work explicitly before leaving the role.
 
 ### App delivery
 
-Open signed Taskboard Inbox from your enrolled context. Keep the lead task. Delegate independent work with its objective, context and constraints where supported. Verify each result and recheck Inbox after it and before ending.
+Open signed Taskboard Inbox from your enrolled context. Keep the lead task. Delegate independent work to a subagent where supported, with its objective, context and constraints. Verify each result and recheck Inbox after it and before ending.
