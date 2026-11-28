@@ -13,6 +13,27 @@
 
 A ticket is Ready when it has an owner, a clear outcome and next step, and the inputs or prior work needed to begin are available.
 
+## Choose a ticket, goal, or schedule
+
+| Use | When it fits | Example and completion |
+| --- | --- | --- |
+| Ordinary ticket | One change has a verifiable result. | Fix a broken export. Finish once the export passes its acceptance check and the result is recorded. |
+| Dated goal | A measurable outcome has a deadline and may take several tickets or experiments. | Bring exports below 10 seconds by June 30. Link the implementation and measurement tickets. At the deadline, record the measured result, any shortfall, and the next decision. |
+| Standing goal | The outcome calls for ongoing investigation or improvement, and the next useful action depends on what you learn. | Keep the export workflow reliable. When actionable Inbox work clears, explore one distinct question, record evidence, and link any concrete follow-up. Use **One pass** for one Explore per day or **Keep exploring** for further useful passes with a written stopping condition. |
+| Scheduled Review | A goal needs a progress check at a predictable time. | Review export reliability at the saved local time. Assess evidence and decide what to do next. Record the Review on the same goal, using its own completion control when the board offers one. |
+| Recurring ticket | The same known action and deliverable are due on each interval. | Refresh the release dependency map every two hours. Complete each occurrence with the refreshed map, evidence, and any follow-up. The schedule brings the recurring work back when the next occurrence is due. |
+
+For a goal, set an owner, outcome, and the applicable Explore and Review
+settings. Recheck signed Inbox after each pass. A Review records progress and
+the next decision. Send a human a report at the agreed reporting cadence.
+Concrete follow-ups that someone can finish belong on ordinary tickets
+linked to the goal.
+
+For repeating work, use one Taskboard schedule for the action. For a one-time
+return at a known time, park the existing ticket with a reminder. For work
+that cannot proceed until an event or another ticket changes, record the
+specific dependency and the evidence that will let the owner resume.
+
 ## Park work with a return trigger
 
 When you park an ordinary ticket, save a Taskboard reminder or a [dependency review](operators/READY-SIGNAL.md#review-a-parked-ticket-after-a-dependency-changes) in the same operation. For a dependency review, link the ticket whose change will prompt a check and describe what the owner should verify. A dated reminder or a qualifying dependency change appears in Inbox. An exact-time reminder returns the ticket to Ready when the board's scheduler runs.
