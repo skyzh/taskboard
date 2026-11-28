@@ -21,7 +21,7 @@ from taskboard_cli.ready_checkpoint import disposition, offer_work
 from taskboard_server.managed_ready import ManagedReadySender, SampledIdleGate, SenderScope, initialize
 from taskboard_server.managed_ready_grant import ManagedReadyGrant
 from taskboard_server.managed_ready_operator import _check_run_mode, locked_state, main as managed_ready
-from taskboard_server.managed_ready_service import Enrollment, _inherited_credentials, serve
+from taskboard_server.managed_ready_service import Enrollment, _read_slot_credential, serve
 from taskboard_server.ready_wake_operator import main as send_wake
 from tasks_core import import_notification_on, timestamp
 from tasks_goal_wake_receipts import receipt as goal_receipt
@@ -376,10 +376,10 @@ class ManagedSenderTest(unittest.TestCase):
                 side_effect=lambda *args, **kwargs: Mock(eligible=Mock(return_value=True)),
             ), patch("taskboard_server.managed_ready_service._POLL_SECONDS", .02):
                 fd = os.open(secret, os.O_RDONLY)
-                inherited = [replace(scope, secret=None, secret_fd=fd) for scope in scopes]
-                credentials = _inherited_credentials(inherited)
+                inherited = [replace(scope, secret=None) for scope in scopes]
+                credential = _read_slot_credential(inherited, ("fixture-client", str(fd)))
                 serve(status, root, self.ledger, self.identity.server_id, "fixture", inherited, stop,
-                      credentials, transport=transport)
+                      credential, transport=transport)
 
         stop = Event()
         timer = Timer(3, stop.set)

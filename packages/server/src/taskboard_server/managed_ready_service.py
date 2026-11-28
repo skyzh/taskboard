@@ -50,7 +50,6 @@ class Enrollment:
     secret: Path | None
     goals: bool
     batches: bool
-    secret_fd: int | None = None
 
     @property
     def key(self):
@@ -58,14 +57,13 @@ class Enrollment:
 
     @classmethod
     def from_config(cls, row):
-        required = {"recipient", "project", "state", "client", "goals", "batches"}
-        if (not isinstance(row, dict) or not required <= row.keys()
-                or row.keys() - required not in ({"secret"}, {"secret_fd"})):
-            raise ValueError("Supply the exact enrolled-scope configuration and one credential source.")
-        secret = Path(row["secret"]) if "secret" in row else None
-        descriptor = _token_fd(str(row["secret_fd"])) if "secret_fd" in row else None
+        if not isinstance(row, dict) or row.keys() != {
+            "recipient", "project", "state", "client", "secret", "goals", "batches",
+        }:
+            raise ValueError("Supply the exact enrolled-scope configuration.")
+        secret = Path(row["secret"]) if row["secret"] is not None else None
         scope = cls(_uuid(row["recipient"]), row["project"], Path(row["state"]), row["client"],
-                    secret, row["goals"], row["batches"], descriptor)
+                    secret, row["goals"], row["batches"])
         if (scope.project not in SAMPLED_STATE_BY_PROJECT or not scope.state.is_absolute()
                 or (secret is not None and not secret.is_absolute()) or not isinstance(scope.client, str)
                 or not scope.client or type(scope.goals) is not bool or type(scope.batches) is not bool):
@@ -105,7 +103,7 @@ def _progress(state):
             "retry_at": max(saved["retry_at"], batch["retry_at"] if batch else 0)}
 
 
-def _run_scope(ledger, server, slug, enrolled, stop, report, transport, inherited_secrets):
+def _run_scope(ledger, server, slug, enrolled, stop, report, transport, slot_secret):
     identity = Identity(server, enrolled.recipient, "agent", None, None, None)
     scope = SenderScope(ledger, identity, enrolled.client, enrolled.project)
     try:
@@ -121,8 +119,7 @@ def _run_scope(ledger, server, slug, enrolled, stop, report, transport, inherite
                 return
             _operator_delivery_status(db, state, scope, resume=False)
             gate = SampledIdleGate(_pilot_status(db, identity, slug), clock=monotonic, include_boundary=True)
-            secret = (inherited_secrets[enrolled.secret_fd] if enrolled.secret_fd is not None
-                      else _read_token(_private_file(enrolled.secret)))
+            secret = slot_secret if enrolled.secret is None else _read_token(_private_file(enrolled.secret))
             grant = ManagedReadyGrant(enrolled.client, secret, server_slug=slug, identity=identity, transport=transport)
             del secret
             try:
@@ -167,14 +164,16 @@ def _write_status(path, data):
         temporary.unlink(missing_ok=True)
 
 
-def _inherited_credentials(scopes):
-    descriptors = {(scope.secret_fd, scope.client) for scope in scopes if scope.secret_fd is not None}
-    if len({fd for fd, _ in descriptors}) != len(descriptors):
-        raise ValueError("An inherited credential descriptor must belong to exactly one app client.")
-    return {fd: _read_token(fd) for fd, _ in descriptors}
+def _read_slot_credential(scopes, credential):
+    clients = {scope.client for scope in scopes if scope.secret is None}
+    if not clients and credential is None:
+        return None
+    if credential is None or clients != {credential[0]}:
+        raise ValueError("The selected-slot credential must match its configured app client.")
+    return _read_token(_token_fd(credential[1]))
 
 
-def serve(path, release, ledger, server, slug, scopes, stop, inherited_secrets, *, transport=http_json):
+def serve(path, release, ledger, server, slug, scopes, stop, slot_secret, *, transport=http_json):
     manifest = sha256((release / "SHA256SUMS").read_bytes()).hexdigest()
     progress = {scope.key: {"status": "starting"} for scope in scopes}
     lock = Lock()
@@ -198,7 +197,7 @@ def serve(path, release, ledger, server, slug, scopes, stop, inherited_secrets, 
         for scope in scopes:
             pool.submit(_run_scope, ledger, server, slug, scope, stop,
                         lambda status, scope=scope, **details: report(scope, status, **details),
-                        transport, inherited_secrets)
+                        transport, slot_secret)
         try:
             while not stop.wait(1):
                 snapshot()
@@ -211,6 +210,8 @@ def command(argv):
     parser = _Parser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--status", required=True, type=Path)
+    parser.add_argument("--slot-credential", nargs=2, metavar=("CLIENT", "FD"),
+                        help="App binding and private descriptor from the selected serving slot.")
     args = parser.parse_args(argv)
     stop = Event()
     old_signals = {name: signal.signal(name, lambda *_: stop.set()) for name in (signal.SIGINT, signal.SIGTERM)}
@@ -219,11 +220,11 @@ def command(argv):
         if directory.st_uid != os.geteuid() or directory.st_mode & 0o077:
             raise ValueError("Use a private status directory owned by the operator.")
         ledger, server, slug, scopes = _config(args.config)
-        credentials = _inherited_credentials(scopes)
+        slot_secret = _read_slot_credential(scopes, args.slot_credential)
         lock_path = args.status.with_name(args.status.name + ".lock")
         with os.fdopen(os.open(lock_path, os.O_RDONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600), "rb") as lock:
             flock(lock, LOCK_EX | LOCK_NB)
-            serve(args.status, Path(__file__).resolve().parents[4], ledger, server, slug, scopes, stop, credentials)
+            serve(args.status, Path(__file__).resolve().parents[4], ledger, server, slug, scopes, stop, slot_secret)
     except (OSError, ValueError, TypeError, AttributeError):
         parser.exit(1, "Managed notification service could not start.\n")
     finally:

@@ -14,7 +14,7 @@ import tarfile
 import time
 
 from local_queue import checked_results, drain_queue, elapsed_ms, fixture_verifier, queue_lock, write_json
-from notification_worker import checked_worker
+from notification_worker import checked_worker, exec_notification_worker
 from publish_receipt import publish_outcome, release_event, signed_in_service
 from queue_provenance import GIT_COMMIT, ticket_number
 from release_plan import (
@@ -39,15 +39,6 @@ def deployment_layout(data):
         Path(data["backups"]).resolve(strict=True),
         Path(data["lock"]).absolute(),
     )
-
-
-def run_notification_worker(config, scope_config, status, *, exec_worker=os.execv):
-    if type(config.get("operator_uid")) is not int or config["operator_uid"] != os.getuid():
-        raise ValueError("Run under the existing authorized Taskboard service account.")
-    layout = deployment_layout(config)
-    python = config.get("slots", {}).get("python", config.get("python", sys.executable))
-    exec_worker(python, [python, "-B", str(layout.current / "tasks_managed_ready.py"), "run-service",
-                         "--config", str(scope_config), "--status", str(status)])
 
 
 def service_restart(unit, run=subprocess.run):
@@ -293,7 +284,9 @@ def main():
     try:
         config = read_operator_config(args.config)
         if args.run_notification_worker:
-            run_notification_worker(config, *args.run_notification_worker)
+            if type(config.get("operator_uid")) is not int or config["operator_uid"] != os.getuid():
+                raise ValueError("Run under the existing authorized Taskboard service account.")
+            exec_notification_worker(config, deployment_layout(config), *args.run_notification_worker)
             return 0
         invoke = signed_in_service(args.record_service) if args.record_service else None
 

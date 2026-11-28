@@ -518,13 +518,17 @@ UUID, and `slug` to that server’s slug. Each of the enrolled `scopes` has a
 `recipient` UUID, `project` prefix, absolute `state` path, OAuth `client`
 identifier, and boolean `goals` and `batches` flags.
 
-For an existing anonymous-descriptor launch, reuse the operator’s credential
-loader and have it exec the installed launcher with the private descriptor
-inherited. Set `secret_fd` to that descriptor number on the matching scopes.
-One descriptor can be shared by scopes bound to the same client. The worker
-reads and closes it before checking availability or sending to Raft. Operators
-who already use an approved private credential file can instead reference its
-absolute path with `secret`. Keep the credential value in its existing source.
+To reuse the existing serving-slot app credential, set
+`notification_slot_credential` in the private deploy configuration. Its
+`client_env` and `secret_env` values name the already approved variables in the
+selected serving process. Use `"secret": null` for scopes bound to that app
+client. The launcher verifies the selected slot’s process and release, then
+copies the intended value into an anonymous file descriptor. The worker checks
+the client binding and closes the descriptor before checking availability or
+sending. The unit gets a fresh descriptor on boot, restart, and rollback.
+The existing serving process remains the credential source. A scope can instead
+use its existing operator-owned credential file by setting `secret` to its
+absolute path.
 
 For the initial cutover, mount the reviewed release and keep the normal release
 lock held while transferring ownership. Stop the old owner for each selected
