@@ -6,7 +6,7 @@ from argparse import Namespace
 
 from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing, redirect_stderr, redirect_stdout
+from contextlib import chdir, closing, redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from importlib.util import module_from_spec, spec_from_file_location
@@ -892,6 +892,15 @@ class TasksServiceTest(unittest.TestCase):
             capture_output=True, text=True, check=True, cwd=self.database.parent,
         ).stdout
 
+    def cli_in_process(self, *arguments):
+        output, errors = StringIO(), StringIO()
+        argv = ["--db", str(self.database), *arguments]
+        with chdir(self.database.parent), redirect_stdout(output), redirect_stderr(errors):
+            status = tasks_main(argv)
+        result = subprocess.CompletedProcess(argv, status, output.getvalue(), errors.getvalue())
+        result.check_returncode()
+        return result.stdout
+
     def seed_legacy_request_wait(self, task, owner, request, note, details=None):
         with closing(open_sqlite(self.database)) as db, db:
             previous = find_task(db, task)["event_id"]
@@ -1580,13 +1589,13 @@ class TasksServiceTest(unittest.TestCase):
         blake, blake_key = self.login(app, "Blake")
         manager, manager_key = self.login(app, "Sam")
         other, other_key = self.login(app, "Quinn")
-        self.cli("register-project", "T", "Tasks Board", "--dri", manager_key)
-        self.cli("register-project", "COURSE", "Course", "--dri", other_key)
+        self.cli_in_process("register-project", "T", "Tasks Board", "--dri", manager_key)
+        self.cli_in_process("register-project", "COURSE", "Course", "--dri", other_key)
         receipt_file = self.database.with_name("notification-fixture.json")
         path = "/api/v1/notifications/log"
 
         def add(title, recipient=avery_key, project="T"):
-            self.cli("add", title, "--dri", recipient, "--step", "Check the evidence.", "--project", project)
+            self.cli_in_process("add", title, "--dri", recipient, "--step", "Check the evidence.", "--project", project)
             with closing(sqlite3.connect(self.database)) as db:
                 return db.execute("SELECT id, at FROM events ORDER BY id DESC LIMIT 1").fetchone()
 
@@ -1598,9 +1607,9 @@ class TasksServiceTest(unittest.TestCase):
                 "pending": pending, "observations": times,
             }
 
-        def save(observation):
+        def save(observation, run_cli=self.cli_in_process):
             receipt_file.write_text(json.dumps(observation), encoding="utf-8")
-            return json.loads(self.cli("notification-event", str(receipt_file)))
+            return json.loads(run_cli("notification-event", str(receipt_file)))
 
         def view(client, **filters):
             return self.call(client, path, query_string=filters).get_json()
@@ -1621,11 +1630,12 @@ class TasksServiceTest(unittest.TestCase):
         historical = receipt("T-5", add("No old receipt", blake_key), recipient=blake_key)
         across_project = receipt("COURSE-1", add("Other project", project="COURSE"), pending=True)
 
-        for sample in (pending, delivered, ack, failed, historical, across_project):
+        self.assertTrue(save(pending, self.cli)["changed"])
+        for sample in (delivered, ack, failed, historical, across_project):
             self.assertTrue(save(sample)["changed"])
         self.assertFalse(save(pending)["changed"])
 
-        self.cli("add", "Reviewed change", "--dri", avery_key, "--step", "Record the merge.")
+        self.cli_in_process("add", "Reviewed change", "--dri", avery_key, "--step", "Record the merge.")
         for action, client in (("submit", avery), ("review", blake), ("merged", avery)):
             typed = {"schema": "taskboard-merge/v1", "action": action, "candidate": "a" * 40, "target": "main"}
             if action == "merged":
@@ -1709,15 +1719,16 @@ class TasksServiceTest(unittest.TestCase):
         blake, blake_key = self.login(app, "Blake")
         manager, manager_key = self.login(app, "Sam")
         other, other_key = self.login(app, "Quinn")
-        self.cli("register-project", "T", "Tasks Board", "--dri", manager_key)
-        self.cli("register-project", "COURSE", "Course", "--dri", other_key)
+        self.cli_in_process("register-project", "T", "Tasks Board", "--dri", manager_key)
+        self.cli_in_process("register-project", "COURSE", "Course", "--dri", other_key)
         path = "/api/v1/notifications/log"
         receipt_file = self.database.with_name("wake-fixture.json")
         avery_subject = self.provider.people["Avery"]["sub"]
         blake_subject = self.provider.people["Blake"]["sub"]
 
         def add(reference, recipient=avery_key, project="T"):
-            self.cli("add", "Disposable wake", "--dri", recipient, "--step", "Check the evidence.", "--project", project)
+            self.cli_in_process("add", "Disposable wake", "--dri", recipient,
+                                "--step", "Check the evidence.", "--project", project)
             with closing(sqlite3.connect(self.database)) as db:
                 event, at = db.execute("SELECT id, at FROM events ORDER BY id DESC LIMIT 1").fetchone()
             return {"task": reference, "event": event, "at": at}
@@ -1725,9 +1736,9 @@ class TasksServiceTest(unittest.TestCase):
         def receipt(source, recipient=avery_key, **observations):
             return {"schema": "taskboard-wake/v1", "source": source, "recipient": recipient, "observations": observations}
 
-        def save(value):
+        def save(value, run_cli=self.cli_in_process):
             receipt_file.write_text(json.dumps(value), encoding="utf-8")
-            return json.loads(self.cli("notification-event", str(receipt_file)))
+            return json.loads(run_cli("notification-event", str(receipt_file)))
 
         def view(client, **filters):
             return self.call(client, path, query_string=filters).get_json()
@@ -1745,8 +1756,8 @@ class TasksServiceTest(unittest.TestCase):
         def phase(source, status):
             return {"status": status, "at": source["at"]}
 
+        self.assertTrue(save(receipt(pending), self.cli)["changed"])
         for fixture in (
-            receipt(pending),
             receipt(observed, acceptance=phase(observed, "accepted"), delivery=phase(observed, "delivered"),
                     next_result=phase(observed, "offered"), receipt_ref=receipt_ref),
             receipt(accepted, acceptance=phase(accepted, "accepted")),
