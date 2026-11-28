@@ -1619,6 +1619,30 @@ class ReadyCheckpointTest(unittest.TestCase):
             stopped, = [json.loads(line) for line in log.getvalue().splitlines()]
             self.assertEqual((stopped["kind"], stopped["reason"]), ("ready-read-stopped", "interrupted"))
 
+    def test_following_watcher_restarts_after_a_confirmed_read_stop_and_delivered_alert(self):
+        argv = ["ready-checkpoint", "--watch-idle", "--repeat", "--by", "Avery",
+                "--channel", "#example", "--message-id", "12345678"]
+        errors = (
+            (ReadyReadStopped("goal cues", "carrier-no-reply"), MANAGED_RESTART),
+            (WakeScheduleStopped("goal", "carrier-timeout", "continue:T-1:123"), 1),
+            (ReadyReadStopped("goal cues", "raft-client-binding"), 1),
+        )
+        for error, expected in errors:
+            with (
+                self.subTest(error=error),
+                patch.object(sys, "argv", argv),
+                patch.object(sys, "stderr", new_callable=StringIO),
+                patch.object(sys, "stdout", new_callable=StringIO) as output,
+                patch("taskboard_cli.ready_checkpoint.watch_ready_count", side_effect=error),
+                patch("taskboard_cli.ready_checkpoint.recovery_wake", return_value=False) as alert,
+            ):
+                self.assertEqual(main(managed_child=True, auto_recover=True), expected)
+                alert.assert_called_once()
+                if isinstance(error, WakeScheduleStopped):
+                    receipt = json.loads(output.getvalue())
+                    self.assertEqual(receipt["identity"], "continue:T-1:123")
+                    self.assertEqual(receipt["reason"], "carrier-timeout")
+
     def test_count_wake_uses_only_the_owned_queue_size(self):
         title = f"You have 2 Ready tickets. {COUNT_WAKE_GUIDANCE}"
         with patch("taskboard_cli.ready_checkpoint.raft_cli", side_effect=["", "Scheduled"]) as invoke:

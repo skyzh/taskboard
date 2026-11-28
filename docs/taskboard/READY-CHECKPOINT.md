@@ -103,6 +103,36 @@ running, and check its next natural Idle read. If you need to roll back, restart
 the previously reviewed checkout with the same options. Keep the original logs
 for comparison.
 
+### Follow checked releases
+
+After verifying a checked checkout and your signed identity, an owner can
+replace their existing repeat watcher with one managed job using
+`--follow-checked`.
+
+```sh
+raft proc start --name taskboard-ready-pilot --cwd "$taskboard_checkout" -- \
+  python3 -B tasks_ready_checkpoint.py --follow-checked \
+  --by "$taskboard_agent" --watch-idle --repeat \
+  --channel "$raft_conversation" --message-id "$raft_anchor"
+```
+
+Use the saved job name, owner, anchor, and existing state or reporting options.
+Stop the old job before starting this one. Verify that the managed job can
+read the configured Git remote with its own Git transport. The supervisor reads release
+metadata from the signed board's HTTPS URL and follows newer mounted revisions
+reachable from the checkout's configured `origin/main`. It stages a detached
+checkout, verifies the owner and signed Inbox, then lets the existing child finish any cue in flight before replacing it. A failed
+launch or readback restores the last working checkout. If the previous child
+takes longer to finish its cue, the supervisor waits for its exit and resumes
+the prior checkout before attempting another refresh. Cue history stays in its
+existing state file. The supervisor allows one classified restart per revision
+after a brief backoff and reports exhaustion through configured watcher health.
+
+To pause for maintenance or a pilot handoff, stop the managed job or pass
+`--pause-file` with a path you control. The watcher stays stopped while the
+file exists and resumes using the last working checkout when the file is
+removed. A deliberate `raft proc stop` ends the supervisor and its child.
+
 For a measurement pilot, add `--measure` with `--watch-idle --repeat`. The managed job logs changes in sampled status and reads the owned Ready count at the first idle sample of each period. That count can be zero or unavailable, and work can change while the board is being read. The first idle sample gives an observed time. A turn may have ended between polls. Wake requests are logged separately with the reminder reference when the CLI provides it. Verify an actual fire with `raft reminder log --id <reference>` and read native Taskboard Start and completion events for the same agent. Keep missing samples and unverified delivery explicit. The measurement rows contain status and count metadata, without task or conversation content.
 
 Set `TASKS_WATCHER_MEASUREMENT_TICKET` in the shared board's serving environment to its designated measurement ticket. After independent review, that ticket's owner can record the cohort totals in a shared Taskboard Activity log. Use details with schema `taskboard-watcher-measurements/v1` and a `cohorts` array. Each cohort carries a `key` of `bounded` or `count-only`, a `run_count`, and `metrics`. Supply `ready_at_first_idle`, `idle_to_wake_seconds`, `wake_to_start_seconds`, `working_seconds`, `advanced_tasks`, and `completed_tasks`, each with a numeric `mean` and `measured_runs`. Set the mean to null when no runs measured that metric. Stats reads the most recent cohort receipt on the configured ticket. Leave duration and work totals out of incomplete observations and keep the underlying receipts on the ticket.
