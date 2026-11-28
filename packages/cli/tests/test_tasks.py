@@ -547,6 +547,7 @@ class TasksTest(unittest.TestCase):
         self.assertIn('href="https://example.org/formats">Format comparison</a>', snapshot)
 
     def test_dri_redirects_and_withdraws_pending_decisions(self):
+        self.enterContext(patch.object(self, "run_tasks", self.run_tasks_in_process))
         self.add("Review the local design")
         self.change("start", "Prepare the design.")
         self.assertIn(
@@ -667,6 +668,7 @@ class TasksTest(unittest.TestCase):
         help_text = " ".join(self.run_tasks("park", "--help").split())
         self.assertIn("Requires --review-on.", help_text)
         self.assertIn("Requires --review-criteria.", help_text)
+        self.enterContext(patch.object(self, "run_tasks", self.run_tasks_in_process))
         before = self.run_tasks("show", "T-1")
         for flag, value, missing in (
             ("--review-on", "T-2", "--review-criteria"),
