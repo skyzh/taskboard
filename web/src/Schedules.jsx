@@ -14,10 +14,10 @@ const runStates = {
   completed_late: 'Completed late',
 }
 
-function asDeviceDate(value) {
+function asDeviceDate(value, precision = 16) {
   if (!value) return ''
   const date = new Date(value)
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, precision)
 }
 
 function ScheduleDate({ value }) {
@@ -207,30 +207,80 @@ function ScheduleOwnerGroups({ items, renderRow }) {
   ))
 }
 
+export function GoalReviewCadence({ schedule, reviewTime }) {
+  const time = schedule?.review_time ?? reviewTime
+  const interval = schedule?.cadence === 'interval'
+  if (!interval && !time) return 'No schedule set'
+  return <>
+    {interval ? longInterval(schedule.cadence_hours) : <><time dateTime={time}>{time}</time> Pacific daily</>}
+    {schedule?.state === 'paused' && ' · Paused'}
+  </>
+}
+
+function longInterval(hours) {
+  return hours === 1 ? 'Every hour' : `Every ${hours} hours`
+}
+
 export function GoalReviewTime({ goal, onChanged }) {
-  const initial = goal.review_schedule?.review_time ?? goal.review_time ?? ''
-  const paused = goal.review_schedule?.state === 'paused'
-  const [draft, setDraft] = useState(null)
-  const time = draft ?? initial
+  const schedule = goal.review_schedule
+  const savedMode = schedule?.cadence === 'interval' ? 'interval' : 'daily'
+  const savedTime = schedule?.review_time ?? goal.review_time ?? ''
+  const savedHours = String(schedule?.cadence_hours ?? '')
+  const savedAnchor = asDeviceDate(schedule?.anchor_at, 19)
+  const paused = schedule?.state === 'paused'
+  const [draft, setDraft] = useState({})
+  const { mode = savedMode, time = savedTime, hours = savedHours, anchor = savedAnchor } = draft
+  const dirty = mode !== savedMode || (mode === 'daily' ? time !== savedTime : hours !== savedHours || anchor !== savedAnchor)
+  const ready = mode === 'daily' ? Boolean(time) : Number.isSafeInteger(Number(hours)) && Number(hours) > 0 && Boolean(anchor)
   const { pending, error, save } = useScheduleSave(
-    `/tasks/${encodeURIComponent(goal.ticket)}/recurrence`, () => { setDraft(null); onChanged() },
+    `/tasks/${encodeURIComponent(goal.ticket)}/recurrence`, () => { setDraft({}); onChanged() },
   )
   return (
     <details className="schedule-editor">
-      <summary>Edit review time</summary>
+      <summary>Edit Review schedule</summary>
       <form className="schedule-review-form" onSubmit={event => {
         event.preventDefault()
-        save({ change: 'enable', review_time: time })
-      }} data-reload-blocked={pending || time !== initial}>
-        <label>Daily review time (Pacific)
-          <input type="time" value={time} disabled={pending} onChange={event => setDraft(event.target.value)} />
+        if (!ready || !dirty) return
+        const settings = mode === 'daily' ? { review_time: time }
+          : { cadence_hours: Number(hours), next_at: new Date(anchor).toISOString() }
+        save({ change: 'enable', ...settings })
+      }} data-reload-blocked={pending || dirty}>
+        <label>Cadence
+          <select value={mode} disabled={pending} onChange={event => {
+            const value = event.currentTarget.value
+            setDraft(current => ({ ...current, mode: value }))
+          }}>
+            <option value="daily">Daily at a Pacific time</option>
+            <option value="interval">Fixed interval</option>
+          </select>
         </label>
+        {mode === 'daily' ? <label>Daily Review time (Pacific)
+          <input type="time" value={time} required disabled={pending} onChange={event => {
+            const value = event.currentTarget.value
+            setDraft(current => ({ ...current, time: value }))
+          }} />
+        </label> : <>
+          <label>Interval in hours
+            <input type="number" min="1" step="1" value={hours} required disabled={pending}
+              onChange={event => {
+            const value = event.currentTarget.value
+            setDraft(current => ({ ...current, hours: value }))
+          }} />
+          </label>
+          <label>First Review (device time)
+            <input type="datetime-local" step="1" value={anchor} required disabled={pending}
+              onChange={event => {
+            const value = event.currentTarget.value
+            setDraft(current => ({ ...current, anchor: value }))
+          }} />
+          </label>
+        </>}
         <div className="schedule-actions">
-          <button type="submit" disabled={pending || !time || time === initial}>Save review time</button>
-          {initial && <>
+          <button type="submit" disabled={pending || !ready || !dirty}>Save Review schedule</button>
+          {(schedule || savedTime) && <>
             <button type="button" disabled={pending}
               onClick={() => save({ change: paused ? 'resume' : 'pause' })}>{paused ? 'Resume' : 'Pause'}</button>
-            <button type="button" disabled={pending} onClick={() => save({ change: 'cancel' })}>Cancel reminder</button>
+            <button type="button" disabled={pending} onClick={() => save({ change: 'cancel' })}>Cancel schedule</button>
           </>}
         </div>
         {error && <p role="alert">{error}</p>}
@@ -250,10 +300,8 @@ function GoalReviews({ goals, allProjects, onChanged }) {
           <h4><BoardLink href={taskHref(goal.ticket)}>{goal.ticket} · <MarkdownInline text={goal.title} links={false} /></BoardLink></h4>
           <dl className="schedule-summary">
             <div><dt>Project</dt><dd>{goal.project}</dd></div>
-            <div><dt>Daily review</dt><dd>{(goal.review_schedule?.review_time ?? goal.review_time)
-              ? <><time dateTime={goal.review_schedule?.review_time ?? goal.review_time}>
-                {goal.review_schedule?.review_time ?? goal.review_time}</time> Pacific
-                {goal.review_schedule?.state === 'paused' && ' · Paused'}</> : 'No time set'}</dd></div>
+            <div><dt>Review schedule</dt><dd><GoalReviewCadence schedule={goal.review_schedule}
+              reviewTime={goal.review_time} /></dd></div>
             {goal.review_schedule?.next_at && <div><dt>Next Review</dt><dd><ScheduleDate value={goal.review_schedule.next_at} /></dd></div>}
             {goal.deadline && <div><dt>Deadline</dt><dd><time dateTime={goal.deadline}>{goal.deadline}</time></dd></div>}
           </dl>

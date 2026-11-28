@@ -820,6 +820,21 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(parked.is_error, parked.content)
         self.assertEqual(action("task", id=standing)["task"]["state"], "parked")
 
+        start_at = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(microsecond=0).isoformat()
+        interval = await owner.call_tool("taskboard_goal_reminder", {
+            "ticket": standing, "change": "enable", "cadence_hours": 6, "next_at": start_at,
+        })
+        self.assertFalse(interval.is_error, interval.content)
+        cadence = action("my-goals", **project)["review_schedules"][standing]
+        self.assertEqual((cadence["cadence"], cadence["cadence_hours"]), ("interval", 6))
+        offered = action("my-goal-occurrences", **project)["items"]
+        review, = [item for item in offered if item["ticket"] == standing and item["kind"] == "review"]
+        completed = {"ticket": standing, "occurrence_key": review["key"], "note": "Checked this scheduled slot."}
+        first_receipt = await owner.call_tool("taskboard_complete_goal_occurrence", completed)
+        second_receipt = await owner.call_tool("taskboard_complete_goal_occurrence", completed)
+        self.assertFalse(first_receipt.is_error, first_receipt.content)
+        self.assertEqual(first_receipt.structured_content, second_receipt.structured_content)
+
         action("set-wake-subscription", {**project, "event_type": "owned-ready", "enabled": "true"})
         subs = await compare("taskboard_wake_subscriptions", "my-wake-subscriptions", project, **project)
         self.assertTrue(subs["subscriptions"])
@@ -849,7 +864,7 @@ class TaskboardStdioTest(unittest.IsolatedAsyncioTestCase):
             "taskboard_projects", "taskboard_field_guidance", "taskboard_raft_channel", "taskboard_checkpoint",
             "taskboard_recurring_schedule", "taskboard_maintenance_schedule", "taskboard_goals", "taskboard_wake_subscriptions",
             "taskboard_set_recurring_schedule_state", "taskboard_complete_recurring_review",
-            "taskboard_goal_reminder",
+            "taskboard_goal_reminder", "taskboard_complete_goal_occurrence",
             "taskboard_knowledge_areas", "taskboard_knowledge_sweep", "taskboard_worker_checkpoint",
             "taskboard_project_access", "taskboard_set_project_access", "taskboard_agent_usage", "taskboard_api_usage",
             "taskboard_delegate", "taskboard_manual_review", "taskboard_ask_agent",

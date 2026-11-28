@@ -171,7 +171,7 @@ def arguments(argv=None):
         if action == "update":
             command.add_argument("--standing-pass", action="store_true", help="Record a completed Keep exploring pass.")
         if action == "park":
-            command.add_argument("--criterion-met", action="store_true", help="Park a Keep exploring goal until its next daily review.")
+            command.add_argument("--criterion-met", action="store_true", help="Park a Keep exploring goal until its next scheduled Review.")
         if action == "close":
             command.add_argument("--related", type=task_id, help="Related ticket, such as the duplicate or successor.")
         if action in ("assign-human", "redirect-decision"):
@@ -321,8 +321,8 @@ def arguments(argv=None):
     ticket_recurrence.add_argument("id", type=task_id)
     ticket_recurrence.add_argument("change", choices=("enable", "pause", "resume", "cancel", "complete"))
     ticket_recurrence.add_argument("--by", type=nonblank)
-    ticket_recurrence.add_argument("--cadence-hours", type=int)
-    ticket_recurrence.add_argument("--next-at", metavar="UTC")
+    ticket_recurrence.add_argument("--cadence-hours", type=int, help="Recurring interval in whole hours.")
+    ticket_recurrence.add_argument("--next-at", metavar="UTC", help="First scheduled occurrence in UTC.")
     ticket_recurrence.add_argument("--review-time", metavar="HH:MM", help="Daily Pacific review time for a goal.")
     ticket_recurrence.add_argument("--note", type=nonblank)
     add_details_flag(ticket_recurrence)

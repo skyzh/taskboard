@@ -1062,11 +1062,16 @@ def change_task(db, args, links, *, automation=None):
                 goal_pass_context["goal_pass_complete"] = True
             elif standing_pass == "criterion-met" and args.command == "park" and criterion:
                 if review_source or getattr(args, "review_after", None) or getattr(args, "defer_until", None) or feature_deferred:
-                    raise ValueError("Use the daily goal review time for the stopping criterion.")
+                    raise ValueError("Use the saved goal Review schedule for the stopping criterion.")
+                from tasks_goal_intervals import read as read_interval
+
                 review = db.execute("SELECT review_time FROM goal_review_times WHERE task_id = ?", (task["id"],)).fetchone()
-                if review is None:
-                    raise ValueError("Set a daily Pacific goal review time before parking for the criterion.")
-                goal_pass_context.update(goal_criterion_met=True, goal_review_time=review["review_time"])
+                interval = read_interval(db, task["id"])
+                if review is None and (interval is None or interval["paused"]):
+                    raise ValueError("Set an active goal Review schedule before parking for the criterion.")
+                goal_pass_context["goal_criterion_met"] = True
+                if review is not None:
+                    goal_pass_context["goal_review_time"] = review["review_time"]
                 if goal_kind == "standing":
                     from tasks_goal_cadence import occurrence_receipt
 
@@ -1086,7 +1091,7 @@ def change_task(db, args, links, *, automation=None):
             row = next(row for row in goals.goal_rows(db, [actor], projects.row_project(task)) if row["id"] == task["id"])
             now = datetime.fromisoformat(timestamp()).astimezone(goals.PACIFIC)
             if not goals.exploration_available(db, row, now):
-                raise ValueError("This goal is parked until its next configured daily review.")
+                raise ValueError("This goal is parked until its next configured Review.")
     if args.command in ("start", "update"):
         change_checklist(db, args.id, args.checklist_step, args.start_check, args.check, actor=args.by, state=state)
     elif args.command == "done" and args.check:

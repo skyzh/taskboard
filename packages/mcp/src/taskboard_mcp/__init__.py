@@ -187,10 +187,14 @@ def build_server(board: SharedBoard) -> MCPServer:
         review_time: Annotated[str, Field(description="Daily Pacific time as HH:MM, for enable only.")] | None = None,
         date: Annotated[str, Field(description="Pacific date as YYYY-MM-DD, for set-once only.")] | None = None,
         at: Annotated[str, Field(description="Timestamp including a UTC offset, for set-once only.")] | None = None,
+        cadence_hours: Annotated[int, Field(gt=0, description="Review interval in hours, for enable only.")] | None = None,
+        next_at: Annotated[str, Field(description="First interval Review in UTC, for enable only.")] | None = None,
     ) -> dict[str, Any]:
-        """Manage the recurring or one-off reminder on a goal you own."""
+        """Manage the recurring Review or one-off reminder on a goal you own."""
         if change in ("set-once", "clear-once"):
-            if review_time is not None or (change == "set-once" and (date is None) == (at is None)) or (
+            if any(value is not None for value in (review_time, cadence_hours, next_at)) or (
+                change == "set-once" and (date is None) == (at is None)
+            ) or (
                 change == "clear-once" and (date is not None or at is not None)
             ):
                 raise ValueError("Provide one date or timestamp to set a one-off reminder, or clear it without a time.")
@@ -198,7 +202,17 @@ def build_server(board: SharedBoard) -> MCPServer:
                                 review_after=date, defer_until=at)
         if date is not None or at is not None:
             raise ValueError("Use set-once for a date or exact timestamp.")
-        return ticket_write("ticket-recurrence", id=ticket, change=change, review_time=review_time)
+        return ticket_write("ticket-recurrence", id=ticket, change=change, review_time=review_time,
+                            cadence_hours=cadence_hours, next_at=next_at)
+
+    @server.tool(annotations=ToolAnnotations(idempotent_hint=True))
+    def taskboard_complete_goal_occurrence(
+        ticket: Ticket, occurrence_key: Annotated[str, Field(description="Exact Explore or Review key from the goal ticket.")],
+        note: Note, details: Details | None = None, url: EvidenceUrl | None = None, label: EvidenceLabel | None = None,
+    ) -> dict[str, Any]:
+        """Record one exact goal Explore or Review and return its saved receipt."""
+        return ticket_write("complete-goal-occurrence", id=ticket, occurrence_key=occurrence_key,
+                            note=note, details=details, url=url, label=label)
 
     @server.tool(annotations=ToolAnnotations(idempotent_hint=True))
     def taskboard_save_standing_goal(

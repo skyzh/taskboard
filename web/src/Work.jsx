@@ -17,7 +17,7 @@ import { MergeQueue } from './MergeQueue.jsx'
 import ParkingForm from './ParkingForm.jsx'
 import RecordHistory, { historyHref } from './RecordHistory.jsx'
 import ReminderDate from './ReminderDate.jsx'
-import { GoalReviewTime } from './Schedules.jsx'
+import { GoalReviewCadence, GoalReviewTime } from './Schedules.jsx'
 import RecurringRuns, { RecurringRunList } from './RecurringRuns.jsx'
 import Kanban from './Kanban.jsx'
 import NeedsYouSend from './NeedsYouSend.jsx'
@@ -407,8 +407,7 @@ function ticketProperties({ task, goal, recurrence, recurring_runs: recurringRun
       <TaskLink id={readiness.source_id} reference={readiness.source_key} />],
     nextRun && ['Next run', <Timestamp at={nextRun} />],
     nextReview && ['Next Review', <Timestamp at={nextReview} />],
-    reviewTime && ['Daily review', <><time dateTime={reviewTime}>{reviewTime}</time> Pacific
-      {reviewSchedule?.state === 'paused' && ' · Paused'}</>],
+    (reviewSchedule || reviewTime) && ['Review schedule', <GoalReviewCadence schedule={reviewSchedule} reviewTime={reviewTime} />],
     goal && ['Explore mode', goal.keep_exploring ? 'Keep exploring' : 'One Explore pass per day'],
     goal?.stopping_criterion && ['Stop condition', goal.stopping_criterion],
     task.eta && state !== 'closed' && ['Estimated completion', <Timestamp at={task.eta} />],

@@ -39,7 +39,8 @@ The [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) handles
 | `taskboard_recurring_schedule` | Read an owned recurring schedule's first step, first slot, cadence and occurrence report. |
 | `taskboard_maintenance_schedule` | Read the maintenance schedule and roster for a project you manage. |
 | `taskboard_goals` | Read your saved standing and dated goals and recurring reminders. |
-| `taskboard_goal_reminder` | Enable, pause, resume, or cancel the recurring reminder for a goal you own. |
+| `taskboard_goal_reminder` | Set a daily Pacific time or a whole-hour interval with its first UTC Review. Pause, resume, or cancel the schedule. |
+| `taskboard_complete_goal_occurrence` | Complete the exact Explore or Review occurrence shown on the goal ticket. |
 | `taskboard_save_standing_goal` | Save a standing goal and its optional Keep exploring criterion. |
 | `taskboard_standing_pass` | Record a completed pass, or park for the next review when the criterion is met. |
 | `taskboard_wake_subscriptions` | Read your saved subscriptions for a project where the signed agent action is available. |

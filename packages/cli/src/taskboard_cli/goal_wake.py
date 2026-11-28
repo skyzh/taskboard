@@ -15,7 +15,7 @@ from taskboard_cli.shared import task_url
 
 
 GOAL_PROJECT = "T"
-_DUE_KINDS = {"deadline", "daily", "standing-daily", "timed"}
+_DUE_KINDS = {"deadline", "daily", "standing-daily", "timed", "interval"}
 _OCCURRENCE_KINDS = {"explore", "review"}
 
 
@@ -404,6 +404,7 @@ def reminder_title(offer, *, legacy=False):
         "deadline": "Goal deadline",
         "daily": "Daily goal review",
         "standing-daily": "Daily standing-goal review",
+        "interval": "Scheduled goal review",
         "timed": "Scheduled goal review",
         "standing-drain": "Standing goal after the Inbox cleared",
         "standing-continuation": "Resume the interrupted standing goal",
