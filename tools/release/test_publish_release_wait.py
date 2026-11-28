@@ -1,5 +1,6 @@
 """Replay the publisher and recipient on a disposable signed board."""
 
+from argparse import Namespace
 from contextlib import closing, redirect_stdout
 from datetime import datetime
 from hashlib import sha256
@@ -18,13 +19,16 @@ from publish_release_wait import PLAN, main, private_json, record_ready
 from release_plan import write_json
 from taskboard_cli.ready_checkpoint import disposition, offer_work
 from test_tasks_idle_offer import SignedBoard
-from tasks_storage import open_sqlite
+from tasks_core import change_task
+from tasks_projects import resolve
+from tasks_storage import open_sqlite, write
 import test_tasks_service as service
 
 
 WAITED = "2026-11-25T10:01:00Z"
 MOUNTED = "2026-11-25T10:02:00Z"
 NOW = datetime.fromisoformat("2026-11-25T10:03:00Z")
+RECHECK = "2026-11-25T10:05:00Z"
 COMMIT = "d" * 40
 BODY_DIGEST = "b" * 64
 
@@ -44,10 +48,12 @@ class PublishReleaseWaitTest(unittest.TestCase):
         self.owner.invoke("create-task", {"title": "Disposable wait", "step": "Wait for approved mount."}, write=True)
         with patch("tasks_core.timestamp", return_value=WAITED):
             self.advance("start")
-            self.advance("wait", on="Pi foreground pilot", automation=True)
+            self.wait_for_release("Pi foreground pilot")
+        waiting = self.task()
+        self.assertEqual((waiting["state"], waiting["wait_kind"]), ("waiting", "external"))
         self.plan = {
             "schema": PLAN, "board": f"{service.ORIGIN}{service.BASE}", "ticket": "T-1", "release_ticket": "T-78",
-            "wait_event": self.task()["event_id"], "wait_at": WAITED, "commit": COMMIT,
+            "wait_event": waiting["event_id"], "wait_at": WAITED, "commit": COMMIT,
             "operator": operator_id, "recipient": recipient, "server_id": service.SERVER,
             "recipient_id": fixture.provider.people["Avery"]["sub"],
             "opens_at": "2026-11-25T10:00:00Z", "closes_at": "2026-11-25T10:04:00Z",
@@ -68,6 +74,11 @@ class PublishReleaseWaitTest(unittest.TestCase):
 
     def task(self):
         return self.owner.invoke("task", {"id": "T-1"})["task"]
+
+    def wait_for_release(self, target):
+        return self.advance("wait", on=target, force=True,
+                            force_reason="The checked release outcome is published by the Pi operator.",
+                            recheck_at=RECHECK)
 
     def publish(self, *, plan=None, outcome=None, digest=BODY_DIGEST, active=None, served=None, now=NOW):
         return record_ready(
@@ -138,11 +149,30 @@ class PublishReleaseWaitTest(unittest.TestCase):
     def test_new_wait_rejects_a_late_result_even_if_its_old_handoff_exists(self):
         self.publish()
         self.advance("start")
-        self.advance("wait", on="Another deployment", automation=True)
+        with patch("tasks_core.timestamp", return_value=NOW.isoformat()):
+            self.wait_for_release("Another deployment")
         before = self.activity()
         with self.assertRaisesRegex(ValueError, "wait is no longer current"):
             self.publish()
         self.assertEqual(self.activity(), before)
+
+    def test_publisher_confirms_a_retained_automation_wait(self):
+        ticket = self.owner.invoke("create-task", {
+            "title": "Retained deployment wait", "step": "Check the saved release wait.",
+        }, write=True)["receipt"].split()[0]
+        with patch("tasks_core.timestamp", return_value=WAITED):
+            self.advance("start", ticket=ticket)
+            # Seed an automation wait saved before the signed wait workflow changed.
+            with closing(open_sqlite(self.db)) as db, write(db):
+                change_task(db, Namespace(
+                    command="wait", id=resolve(db, ticket), by=self.plan["recipient"],
+                    on="Retained Pi deployment", automation=True, note="Wait for the fixture release.",
+                ), [])
+        waiting = self.owner.invoke("task", {"id": ticket})["task"]
+        self.assertEqual(waiting["wait_kind"], "automation")
+        result = self.publish(plan={**self.plan, "ticket": ticket, "wait_event": waiting["event_id"]})
+        ready = self.owner.invoke("task", {"id": ticket})["task"]
+        self.assertEqual((ready["state"], ready["event_id"]), ("ready", result["ready_event"]))
 
     def test_launcher_rechecks_mount_before_confirming_the_wait(self):
         plan = self.db.parent / "plan.json"

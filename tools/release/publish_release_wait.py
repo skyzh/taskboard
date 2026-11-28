@@ -1,4 +1,4 @@
-"""Publish one verified release receipt and confirm its exact Taskboard automation wait."""
+"""Publish one verified release receipt and confirm its exact Taskboard wait."""
 
 import argparse
 from datetime import datetime, timezone
@@ -61,7 +61,7 @@ def check_plan(plan, now):
         raise ValueError("Use the separate disposable waiting ticket.")
     full_hash(plan, "commit", GIT_COMMIT)
     if not numbered(plan["wait_event"]):
-        raise ValueError("Use the exact automation wait event.")
+        raise ValueError("Use the exact release wait event.")
     for field in ("operator", "recipient"):
         value = plan[field]
         if not isinstance(value, str) or not value or len(value) > 160 or value != value.strip():
@@ -151,7 +151,7 @@ def record_ready(invoke, plan, outcome, raw_digest, active, served, *, now):
     task = invoke("task", {"id": plan["ticket"]})["task"]
     if (task["key"], task["dri"]) != (plan["ticket"], plan["recipient"]):
         raise ValueError("The current ticket or owner differs from the approved wait.")
-    waiting = (task["state"] == "waiting" and task.get("wait_kind") == "automation"
+    waiting = (task["state"] == "waiting" and task.get("wait_kind") in ("automation", "external")
                and task["event_id"] == plan["wait_event"] and utc(task["at"]) == utc(plan["wait_at"]))
     if task["state"] == "waiting" and not waiting:
         raise ValueError("The exact wait is no longer current.")

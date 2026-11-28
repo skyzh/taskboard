@@ -201,11 +201,11 @@ After the release projection is installed, the authorized ledger operator can pa
 
 If automation is unavailable, use the existing reviewed manual release, verify its exact compatibility receipt, and record the outcome. For an initial deployment, verify the mounted app, outcome Activity and release projection before declaring the release complete.
 
-### Confirm an approved automation wait
+### Confirm an approved release wait
 
-The publisher consumes a checked-main release result after the authorized operator verifies the mounted release. Use it only for one approved automation wait on a separate ticket. The existing sampled app sender handles delivery according to its enrollment, signed Inbox order and idle checks.
+The publisher consumes a checked-main release result after the authorized operator verifies the mounted release. Use it for one approved release wait on a separate ticket. For a new wait, the ticket owner uses signed `wait --on` with an external release label, `--force`, a `--force-reason`, and a future `--recheck-at` after the approved window. An existing automation wait can still be used. The existing sampled app sender handles delivery according to its enrollment, signed Inbox order and idle checks.
 
-Save the reviewed plan as private JSON. Use schema `taskboard-foreground-release-plan/v1`, the exact HTTPS `board` without a trailing slash, the waiting `ticket`, the `release_ticket` from the operator result, the full `commit`, and the current automation `wait_event` and UTC `wait_at`. Include the approved signed `operator` and signed `recipient` principals, the approved Raft `server_id` and `recipient_id` UUIDs for the evidence record, and the UTC `opens_at` and `closes_at`. The operator uses the existing signed service and must have permission to confirm the blocker. The recipient owns the ticket and records Start through their own signed Inbox.
+Save the reviewed plan as private JSON. Use schema `taskboard-foreground-release-plan/v1`, the exact HTTPS `board` without a trailing slash, the waiting `ticket`, the `release_ticket` from the operator result, the full `commit`, and the current `wait_event` and UTC `wait_at`. Include the approved signed `operator` and signed `recipient` principals, the approved Raft `server_id` and `recipient_id` UUIDs for the evidence record, and the UTC `opens_at` and `closes_at`. The operator uses the existing signed service and must have permission to confirm the blocker. The recipient owns the ticket and records Start through their own signed Inbox.
 
 ```sh
 python -B tools/release/publish_release_wait.py --plan "$approved_plan" \
