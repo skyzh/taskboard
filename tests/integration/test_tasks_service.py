@@ -6405,6 +6405,8 @@ class TasksServiceTest(unittest.TestCase):
         self.assertEqual(ready["work"]["key"], "T-1")
         self.assertIn(cue, ready["next_step"])
         self.assertIn("You can review ordinary work yourself.", ready["next_step"])
+        self.assertIn("Delegate independent work to a subagent when possible.", ready["next_step"])
+        self.assertIn("Verify and integrate its work.", ready["next_step"])
         self.assertIn("when the user asks for it or your project requires it", ready["next_step"])
         code, output, errors = self.shared_cli(owner, "next", "--project", "T")
         self.assertEqual((code, errors), (0, ""))

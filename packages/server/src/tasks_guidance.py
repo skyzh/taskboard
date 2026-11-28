@@ -76,6 +76,8 @@ _DEFAULTS = {
     "ready-review": (
         f"{TICKET_OUTCOME} "
         "Verify the result and record the checked revision and evidence. You can review ordinary work yourself. "
+        "Delegate independent work to a subagent when possible. Share the ticket objective, relevant findings, "
+        "constraints, and expected result. Verify and integrate its work. "
         "Arrange independent review when the user asks for it or your project requires it. "
         "Recheck signed Inbox and follow the saved mode if it offers a goal."
     ),
