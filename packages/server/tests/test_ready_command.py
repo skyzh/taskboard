@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import socket
 import sys
 from tempfile import TemporaryDirectory
 from time import sleep
@@ -65,25 +66,26 @@ class ReadyCommandTest(unittest.TestCase):
             self.assertEqual(command({"external_event_id": "fixture-id"}), "unknown")
 
     def test_deadline_stops_spawned_helper_after_wrapper_exits(self):
-        with TemporaryDirectory() as directory:
-            started = Path(directory) / "started"
-            delivered = Path(directory) / "delivered"
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            listener.settimeout(1)
             helper = (
-                "from pathlib import Path\n"
-                "import sys, time\n"
-                "Path(sys.argv[1]).touch()\n"
-                "time.sleep(1.5)\n"
-                "Path(sys.argv[2]).touch()\n"
+                "import socket, sys\n"
+                "with socket.create_connection(('127.0.0.1', int(sys.argv[1])), timeout=5) as connection:\n"
+                "    connection.sendall(b'1')\n"
+                "    connection.recv(1)\n"
             )
             command = self.command(
                 "import subprocess, sys; subprocess.Popen([sys.executable, '-c', *sys.argv[1:]])",
-                helper, str(started), str(delivered),
+                helper, str(listener.getsockname()[1]),
             )
             with patch("taskboard_server.ready_command._TIMEOUT", 1):
                 self.assertEqual(command({"external_event_id": "fixture-id"}), "unknown")
-            self.assertTrue(started.exists())
-            sleep(1.5)
-            self.assertFalse(delivered.exists())
+            with listener.accept()[0] as child:
+                child.settimeout(1)
+                self.assertEqual(child.recv(1), b"1")
+                self.assertEqual(child.recv(1), b"")
 
     def test_wrapper_exit_stops_helper_with_separate_stdout(self):
         helper = (
