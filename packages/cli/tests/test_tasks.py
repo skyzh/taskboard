@@ -37,6 +37,13 @@ class TasksTest(unittest.TestCase):
         self.assertEqual(result.returncode, code, result.stderr or result.stdout)
         return result.stderr if stderr or code != 0 else result.stdout
 
+    def run_tasks_in_process(self, *args, code=0, stderr=False):
+        output, errors = StringIO(), StringIO()
+        with chdir(self.folder), redirect_stdout(output), redirect_stderr(errors):
+            result = main(["--db", str(self.db), *args])
+        self.assertEqual(result, code, errors.getvalue() or output.getvalue())
+        return errors.getvalue() if stderr or code != 0 else output.getvalue()
+
     def add(self, title="Check the sample release", *, dri="Avery"):
         return self.run_tasks(
             "add", title, "--dri", dri, "--by", "Sam", "--step", "Check the release notes.",
@@ -197,6 +204,7 @@ class TasksTest(unittest.TestCase):
         self.assertNotIn("Existing dependency cycle", self.run_tasks("show", "T-2"))
 
     def test_estimated_completion_on_offline_updates(self):
+        self.enterContext(patch.object(self, "run_tasks", self.run_tasks_in_process))
         self.add("Prepare the comparison")
         self.add("Ready sample")
         self.change("start", "Check the totals.")
@@ -233,6 +241,7 @@ class TasksTest(unittest.TestCase):
         self.assertEqual(self.run_tasks("next", "--dri", "Avery"), queue)
 
     def test_utc_estimates_and_fractional_seconds_round_trip(self):
+        self.enterContext(patch.object(self, "run_tasks", self.run_tasks_in_process))
         self.add()
         self.change("start", "Compare the sample.")
         for fraction in ("", "1", "12", "123", "1234", "12345", "123456"):
@@ -1002,15 +1011,8 @@ class TasksTest(unittest.TestCase):
         self.assertEqual(self.db.read_bytes(), before)
 
     def test_contributors_append_activity_in_every_state(self):
-        def run_in_process(*args, code=0):
-            stdout, stderr = StringIO(), StringIO()
-            with chdir(self.folder), redirect_stdout(stdout), redirect_stderr(stderr):
-                result = main(["--db", str(self.db), *args])
-            self.assertEqual(result, code, stderr.getvalue() or stdout.getvalue())
-            return stdout.getvalue()
-
         # This fixture checks state transitions. Other tests exercise the checkout launcher.
-        self.enterContext(patch.object(self, "run_tasks", run_in_process))
+        self.enterContext(patch.object(self, "run_tasks", self.run_tasks_in_process))
         with closing(sqlite3.connect(self.db)) as db, db:
             db.executescript(
                 """
