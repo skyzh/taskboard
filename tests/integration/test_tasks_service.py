@@ -9009,7 +9009,12 @@ class TasksServiceTest(unittest.TestCase):
             db.execute("INSERT INTO attention_wait_links VALUES (22, 1, NULL)")
         self.app(portal_reader=True)
         with closing(sqlite3.connect(self.database)) as db:
-            self.assertEqual(db.execute("SELECT * FROM attention_requests").fetchall(), [(*before, None, None, None)])
+            requests = db.execute("""
+                SELECT id, task_id, sender, recipient, reason, links, raised_at, handled_at,
+                       remind_on, unblocks_task_id, request_key, intent
+                FROM attention_requests
+            """).fetchall()
+            self.assertEqual(requests, [(*before, None, None, None, None)])
             self.assertEqual(db.execute("SELECT * FROM attention_wait_links").fetchall(), [(22, 1, None, None)])
 
     def test_milestone_and_history_labels_preserve_stable_profile_keys(self):
