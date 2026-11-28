@@ -1073,6 +1073,32 @@ test('goal editors show the project title guidance and submit longer names intac
   }
 })
 
+test('dated goal Settings saves the exploration mode with its deadline', async () => {
+  const date = '2030-04-10'
+  const goal = { summary: 'Publish the sample', deadline: date, tickets: [],
+    keep_exploring: true, stopping_criterion: 'two samples are verified' }
+  const props = { project: 'T', goal, editable: true, onChanged() {} }
+  fixture.state = [true]
+  const markup = renderToStaticMarkup(React.createElement(DriGoal, props))
+  assert.match(markup, /Keep exploring · Stop when two samples are verified/)
+  assert.match(markup, /Keep exploring while Inbox is clear/)
+  assert.match(markup, /Stop when <input[^>]+required/)
+
+  const sent = []
+  fixture.request = async (path, options) => sent.push({ path, ...options })
+  try {
+    fixture.state = [true]
+    const editor = React.Children.toArray(DriGoal(props).props.children).find(child => child.props?.mode === 'goal')
+    fixture.state = [goal.summary, date, '', false, null, true, goal.stopping_criterion]
+    fixture.directIds = ['goal-links', 'goal-title-guidance']
+    editor.type(editor.props).props.onSubmit({ preventDefault() {} })
+    assert.deepEqual(sent, [{ path: '/profile/goal?project=T', method: 'PATCH', body: { goal } }])
+  } finally {
+    delete fixture.directIds
+    delete fixture.request
+  }
+})
+
 test('an event already in the activity list has one anchor and is marked current', () => {
   const markup = renderLog([selected], null)
   assert.equal((markup.match(/id="event-18-log"/g) || []).length, 1)

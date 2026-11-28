@@ -4433,6 +4433,22 @@ def create_app(
         previous = text(data, "previous", optional=True, maximum=200)
         return {"milestone": save_dated_goal(project, actor["ledger_key"], data["goal"], named=True, previous=previous)}
 
+    def dated_exploration(data):
+        mode = data.get("keep_exploring")
+        if mode in ("true", "false"):
+            mode = mode == "true"
+        if "keep_exploring" in data and type(mode) is not bool:
+            raise RequestError("Send keep_exploring as true or false.")
+        criterion = text(data, "stopping_criterion", maximum=goals.CRITERION_LIMIT, optional=True)
+        if mode and (not criterion or not criterion.isprintable()):
+            raise RequestError("Provide a one-line stopping criterion.")
+        if not mode and "stopping_criterion" in data:
+            raise RequestError("Send a stopping criterion only for Keep exploring.")
+        return mode, criterion
+
+    def set_dated_exploration(connection, number, criterion):
+        return tasks_guidance.set_project_value(connection, goals.EXPLORATION_SETTING + str(number), criterion)
+
     def save_dated_goal(project, owner, value, *, named=False, previous=None):
         if named and value is None and previous is None:
             raise RequestError("Choose the milestone to clear by name.")
@@ -4440,9 +4456,13 @@ def create_app(
             with tasks_storage.write(db()) as connection:
                 require_visible_project(connection, project)
                 goal = None
+                mode, criterion = None, None
                 if value is not None:
-                    if not isinstance(value, dict) or value.keys() - {"summary", "deadline", "tickets"}:
-                        raise ValueError("Provide a summary, deadline, and optional ticket IDs.")
+                    if not isinstance(value, dict) or value.keys() - {
+                        "summary", "deadline", "tickets", "keep_exploring", "stopping_criterion",
+                    }:
+                        raise ValueError("Provide a summary, deadline, optional ticket IDs and exploration mode.")
+                    mode, criterion = dated_exploration(value)
                     summary = text(value, "summary", maximum=200)
                     if not summary.isprintable():
                         raise ValueError("Provide a one-line goal summary.")
@@ -4458,6 +4478,16 @@ def create_app(
                     saved = goals.save_milestone(connection, project, owner, previous, goal)
                 else:
                     saved = goals.save(connection, project, owner, goal)
+                if saved is not None:
+                    kind = "milestone" if named else "original"
+                    row = next(row for row in goals.goal_rows(connection, [owner], project, kind)
+                               if not named or row["summary"] == saved["summary"])
+                    if mode is not None:
+                        set_dated_exploration(connection, row["id"], criterion)
+                    else:
+                        criterion = row["stopping_criterion"]
+                    if criterion:
+                        saved.update(keep_exploring=True, stopping_criterion=criterion)
                 ledger.bump_revision(connection, project)
         except (ValueError, LookupError) as error:
             raise RequestError(str(error)) from error
@@ -5385,25 +5415,17 @@ def create_app(
             return {"receipt": receipt, "occurrence_key": occurrence_key, "event_id": event, "completed_at": at}
         if name == "set-goal-exploration":
             number = task_number(data["id"])
-            mode = data["keep_exploring"]
-            if mode in ("true", "false"):
-                mode = mode == "true"
-            if type(mode) is not bool:
+            mode, criterion = dated_exploration(data)
+            if mode is None:
                 raise RequestError("Send keep_exploring as true or false.")
-            criterion = text(data, "stopping_criterion", maximum=goals.CRITERION_LIMIT, optional=True)
-            if mode and (not criterion or not criterion.isprintable()):
-                raise RequestError("Provide a one-line stopping criterion.")
-            if not mode and criterion is not None:
-                raise RequestError("Send a stopping criterion only for Keep exploring.")
             with tasks_storage.write(db()) as connection:
                 task = ledger.find_task(connection, number)
                 if task is None or task["dri"] != key:
                     raise NotFound()
                 project = require_visible_task(connection, number)
-                if task["state"] == "done" or ledger.task_goal_kind(connection, number) not in {"original", "milestone"}:
+                if task["state"] in ("done", "closed") or ledger.task_goal_kind(connection, number) not in {"original", "milestone"}:
                     raise RequestError("Choose an active dated goal.", 409)
-                setting = goals.EXPLORATION_SETTING + str(number)
-                if tasks_guidance.set_project_value(connection, setting, criterion):
+                if set_dated_exploration(connection, number, criterion):
                     ledger.bump_revision(connection, project)
             ticket = projects.row_reference(task)
             receipt = f"{ticket} · {'Keep exploring' if mode else 'One pass per day'}"

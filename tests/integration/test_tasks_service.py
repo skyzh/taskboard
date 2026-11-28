@@ -6546,6 +6546,35 @@ class TasksServiceTest(unittest.TestCase):
             self.assertIn("One pass per day", cli("goal-exploration", goal, "--one-pass"))
             self.assertNotIn("Keep exploring", cli("goals", "--project", "T"))
 
+    def test_dated_goal_profile_saves_exploration_atomically(self):
+        app = self.app(portal_reader=True)
+        owner, _ = self.login(app, "Avery")
+        path = "/api/v1/profile/milestone"
+        draft = {"summary": "Publish the sample", "deadline": "2030-04-10", "tickets": [], "keep_exploring": True}
+        self.call(owner, path, method="PATCH", json={"goal": draft}, status=400)
+        self.assertEqual(self.action(owner, "my-goals")["milestones"], [])
+
+        draft["stopping_criterion"] = "two samples are verified"
+        saved = self.call(owner, path, method="PATCH", json={"goal": draft}).json["milestone"]
+        self.assertTrue(saved["keep_exploring"])
+        self.assertEqual(saved["stopping_criterion"], draft["stopping_criterion"])
+        ticket = self.action(owner, "my-goals")["milestones"][0]["ticket"]
+        self.action(owner, "set-goal-review-time", {"id": ticket, "time": "09:00"})
+
+        renamed = {"summary": "Publish two samples", "deadline": draft["deadline"], "tickets": []}
+        self.call(owner, path, method="PATCH", json={"previous": draft["summary"], "goal": renamed})
+        saved = self.action(owner, "my-goals")
+        self.assertEqual(saved["review_times"][ticket], "09:00")
+        self.assertEqual(saved["milestones"][0]["ticket"], ticket)
+        self.assertEqual(saved["milestones"][0]["deadline"], draft["deadline"])
+        self.assertTrue(saved["milestones"][0]["keep_exploring"])
+
+        renamed["keep_exploring"] = False
+        self.call(owner, path, method="PATCH", json={"previous": renamed["summary"], "goal": renamed})
+        detail = self.action(owner, "task", query_string={"id": ticket})
+        self.assertFalse(detail["goal"].get("keep_exploring", False))
+        self.assertEqual(self.action(owner, "my-goals")["review_times"][ticket], "09:00")
+
     def test_workflow_prompts_follow_signed_work_without_changing_selection(self):
         from tasks_guidance import AgentGuidance
 

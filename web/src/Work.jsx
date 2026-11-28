@@ -667,6 +667,11 @@ export function TaskDetail({ id, revision, session, onChanged, onMoved, moveRece
               {(task.waiting_on || task.blockers) && <p><Dependency task={task} /></p>}
               {task.peer_request && <PeerRequestContext task={task} />}
               <Markdown text={task.note} relatedTasks={record.related_tasks} />
+              {record.goal && record.goal.kind !== 'standing' && <p className="section-message">
+                {record.goal.keep_exploring
+                  ? <>Keep exploring · Stop when {record.goal.stopping_criterion}</>
+                  : 'One Explore pass per day'}
+              </p>}
               {record.goal?.parked_note && <>
                 <h3>Owner’s note</h3>
                 <Markdown text={record.goal.parked_note} relatedTasks={record.related_tasks} />
