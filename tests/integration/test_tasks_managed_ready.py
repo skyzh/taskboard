@@ -21,9 +21,10 @@ from taskboard_server.managed_ready_grant import ManagedReadyGrant
 from taskboard_server.managed_ready_operator import locked_state, main as managed_ready
 from taskboard_server.ready_wake_operator import main as send_wake
 from tasks_core import import_notification_on, timestamp
+from tasks_goal_wake_receipts import receipt as goal_receipt
 from tasks_notification_log import WAKE_SCHEMA
 from tasks_storage import open_sqlite
-from tasks_wake_subscriptions import OWNED_READY
+from tasks_wake_subscriptions import GOAL_OCCURRENCES, OWNED_READY
 from test_ready_wake_operator import ENDPOINT, ProviderResponse
 from test_tasks_idle_offer import SignedBoard
 import test_tasks_service
@@ -289,11 +290,12 @@ class ManagedSenderTest(unittest.TestCase):
                                  identity=self.identity, transport=self.provider, clock=lambda: self.now,
                                  jitter=lambda: 0)
 
-    def tick(self, grant=None, *, idle_gate=None, event_id=None, sampled=False, stop_requested=None):
+    def tick(self, grant=None, *, idle_gate=None, event_id=None, sampled=False, stop_requested=None, goal_occurrences=False):
         with closing(open_sqlite(self.ledger)) as db, locked_state(self.state, self.ledger) as state:
             return ManagedReadySender(
                 db, state, self.scope, grant or self.grant(), clock=lambda: self.now,
                 idle_gate=idle_gate, event_id=event_id, sampled=sampled, stop_requested=stop_requested,
+                goal_occurrences=goal_occurrences,
             ).tick()
 
     def receipts(self):
@@ -1142,6 +1144,169 @@ class ManagedSenderTest(unittest.TestCase):
         self.assertEqual(run(*options), (0, [{"status": "running"}, {"status": "stopped"}]))
         self.assertEqual(len(calls.read_text().splitlines()), 3)
         self.assertEqual(self.calls(), [])
+
+    def test_native_goal_review_and_explore_share_sender_without_faking_completion(self):
+        self.baseline(sampled=True)
+        origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()
+
+        def stamp(offset):
+            return datetime.fromtimestamp(origin + offset, timezone.utc).isoformat().replace("+00:00", "Z")
+
+        def invoke(action, data, *, write=False, offset=0):
+            with patch("tasks_core.timestamp", return_value=stamp(offset)):
+                return self.board.invoke(action, data, write=write)
+
+        invoke("save-goal", {
+            "kind": "standing", "summary": "Private goal content used solely to verify omission.",
+        }, write=True)
+        goal = "T-1"
+        invoke("set-goal-review-time", {"id": goal, "time": "09:00"}, write=True)
+        review = f"review:{goal}:2030-04-01"
+        explore = f"explore:{goal}:2030-04-01"
+        self.now = origin
+
+        def idle_gate():
+            return SampledIdleGate(lambda: "idle", clock=lambda: self.now-origin, include_boundary=True)
+
+        gate, grant = idle_gate(), self.grant()
+
+        def poll(offset):
+            self.now = origin + offset
+            with patch("tasks_core.timestamp", return_value=stamp(offset)):
+                return self.tick(grant, idle_gate=gate, sampled=True, goal_occurrences=True)
+
+        def saved(key):
+            with closing(open_sqlite(self.ledger)) as db:
+                return goal_receipt(db, self.owner, key)
+
+        self.assertEqual(poll(0), ("idle", None))
+        self.assertEqual(self.calls(), [])
+        preference = {"project": PROJECT, "event_type": GOAL_OCCURRENCES}
+        invoke("set-wake-subscription", {**preference, "enabled": "true"}, write=True)
+        ready_ticket = invoke("create-task", {"title": "Take the Ready item first.", "step": "Read it."}, write=True)
+        ready = ready_ticket["receipt"].split()[0]
+        ready_event = self.service.task_event(self.board.client, ready)["event"]
+        for offset in (10, 20):
+            self.assertEqual(poll(offset), ("awaiting_idle", ready_event))
+        self.assertEqual(poll(30), ("accepted", ready_event))
+        self.assertIsNone(saved(review))
+        for transition in ("start", "done"):
+            invoke("advance-task", {"id": ready, "transition": transition, "note": "Checked."}, write=True, offset=30)
+
+        for offset in (40, 50, 60):
+            self.assertEqual(poll(offset), ("awaiting_idle", review))
+
+        def lose_reply(document):
+            self.provider.accept(document)
+            raise TimeoutError("Fixture lost the accepted Scheduled Review response.")
+
+        self.provider.on_event = lose_reply
+        self.assertEqual(poll(70), ("retry", review))
+        self.assertEqual((saved(review)["acceptance"], saved(review)["attempts"]), ("pending", 1))
+
+        gate, grant = idle_gate(), self.grant()
+        self.provider.on_event = self.provider.accept
+        for offset in (80, 90, 100):
+            self.assertEqual(poll(offset), ("awaiting_idle", review))
+        self.assertEqual(poll(110), ("accepted", review))
+        self.assertEqual((saved(review)["acceptance"], saved(review)["attempts"]), ("accepted", 2))
+        due = invoke("my-goal-occurrences", {}, offset=110)["items"]
+        self.assertEqual({item["key"] for item in due}, {review, explore})
+
+        for offset in (120, 130, 140):
+            self.assertEqual(poll(offset), ("awaiting_idle", explore))
+        self.assertEqual(poll(150), ("accepted", explore))
+        self.assertEqual(saved(explore)["acceptance"], "accepted")
+        self.assertEqual(poll(160), ("idle", None))
+        documents = [document for route, document in self.provider.calls if route == "agent-events"]
+        ready_doc, review_doc, replay, explore_doc = documents
+        self.assertIn(f"/tickets/{ready}", ready_doc["summary"])
+        self.assertEqual(review_doc, replay)
+        self.assertNotEqual(review_doc["externalEventId"], explore_doc["externalEventId"])
+        for document, key, kind in ((review_doc, review, "Scheduled Review"), (explore_doc, explore, "Explore")):
+            self.assertIn(f"Taskboard {kind} for {goal}.", document["summary"])
+            self.assertIn(key, document["summary"])
+            self.assertTrue(document["summary"].endswith(f"{BOARD}/tickets/{goal}"))
+            self.assertNotIn("Private goal content", document["summary"])
+            self.assertLess(len(document["summary"].encode("utf-16-le")) // 2, 300)
+        self.assertEqual(self.outcomes(), [(ready_event, "accepted")])
+
+        done = invoke("complete-goal-occurrence", {
+            "id": goal, "occurrence_key": review, "note": "Recorded signed review outcome.",
+        }, write=True, offset=170)
+        self.assertEqual(done["occurrence_key"], review)
+        self.assertEqual([item["key"] for item in invoke("my-goal-occurrences", {}, offset=170)["items"]], [explore])
+
+    def test_native_goal_wake_preserves_unsupported_timed_choice(self):
+        self.baseline(sampled=True)
+        early = "2030-04-01T15:00:00Z"
+        due = "2030-04-01T16:00:00Z"
+        with patch("tasks_core.timestamp", return_value=early):
+            self.board.invoke("save-goal", {
+                "kind": "dated", "summary": "Check the dated sample.", "deadline": "2030-04-06",
+            }, write=True)
+            self.board.invoke("advance-task", {
+                "id": "T-1", "transition": "start", "note": "Begin the dated sample.",
+            }, write=True)
+            self.board.invoke("advance-task", {
+                "id": "T-1", "transition": "park", "note": "Review at the timed boundary.", "defer_until": due,
+            }, write=True)
+        status, stdout, stderr = self.service.shared_cli(
+            self.board.client, "wake-subscribe", GOAL_OCCURRENCES, "--project", PROJECT,
+        )
+        self.assertEqual((status, stderr), (0, ""))
+        self.assertIn(GOAL_OCCURRENCES, stdout)
+        origin = datetime.fromisoformat(due).timestamp()
+        gate = SampledIdleGate(lambda: "idle", clock=lambda: self.now-origin, include_boundary=True)
+        self.now = origin
+        with patch("tasks_core.timestamp", return_value=due):
+            candidates = self.board.invoke("my-inbox-wake", {
+                "scope": "all", "include_occurrences": "true",
+            })["goal_candidates"]
+            self.assertEqual([item["key"].split(":")[0] for item in candidates], ["timed", "explore"])
+            grant = self.grant()
+            for offset in (0, 10, 20, 30):
+                self.now = origin + offset
+                self.assertEqual(self.tick(grant, idle_gate=gate, sampled=True, goal_occurrences=True), ("idle", None))
+        self.assertEqual(self.calls(), [])
+
+    def test_native_goal_opt_out_during_final_idle_does_not_stop_ready_sender(self):
+        self.baseline(sampled=True)
+        origin = datetime(2030, 4, 1, 16, tzinfo=timezone.utc).timestamp()
+        instant = "2030-04-01T16:00:00Z"
+        with patch("tasks_core.timestamp", return_value=instant):
+            self.board.invoke("save-goal", {"kind": "standing", "summary": "Check the signed sample."}, write=True)
+        preference = {"project": PROJECT, "event_type": GOAL_OCCURRENCES}
+        self.board.invoke("set-wake-subscription", {**preference, "enabled": "true"}, write=True)
+        self.now = origin
+        reads = []
+
+        def sample():
+            reads.append(self.now-origin)
+            if reads[-2:] == [30, 30]:
+                self.board.invoke("set-wake-subscription", {**preference, "enabled": "false"}, write=True)
+            return "idle"
+
+        gate = SampledIdleGate(sample, clock=lambda: self.now-origin, include_boundary=True)
+        grant = self.grant()
+
+        def poll(offset):
+            self.now = origin + offset
+            with patch("tasks_core.timestamp", return_value=instant):
+                return self.tick(grant, idle_gate=gate, sampled=True, goal_occurrences=True)
+
+        key = "explore:T-1:2030-04-01"
+        for offset in (0, 10, 20):
+            self.assertEqual(poll(offset), ("awaiting_idle", key))
+        self.assertEqual(poll(30), ("waiting", None))
+        self.assertEqual(self.calls(), ["agent", "token"])
+        with closing(open_sqlite(self.ledger)) as db:
+            self.assertIsNone(goal_receipt(db, self.owner, key))
+        self.assertEqual(poll(40), ("idle", None))
+        with patch("tasks_core.timestamp", return_value=instant):
+            ready = self.create()["event"]
+        self.assertEqual(poll(50), ("accepted", ready))
+        self.assertEqual(self.outcomes(), [(ready, "accepted")])
 
     def test_subscription_removed_during_oauth_stops_before_exchange(self):
         self.baseline()

@@ -83,7 +83,23 @@ def send_ready_event(
     The transport returns an HTTP status and decoded JSON. Network and parsing
     failures may raise OSError or ValueError.
     """
-    document = _event_document(signal)
+    return _send_document(_event_document(signal), access_token, transport)
+
+
+def send_goal_event(board, recipient, ticket, occurrence_key, *, access_token, transport):
+    """Send a prompt for one exact goal occurrence, with no goal content."""
+    event_key = "taskboard-goal-" + sha256(f"{board}\n{recipient}\n{occurrence_key}".encode()).hexdigest()
+    action = "Scheduled Review" if occurrence_key.startswith("review:") else "Explore"
+    document_url = ticket_document(board, ticket)
+    summary = (f"Taskboard {action} for {ticket}. Check signed Inbox first. "
+               f"Record the exact occurrence {occurrence_key} in Taskboard. {document_url}")
+    if not _summary_fits(summary):
+        raise ValueError("The goal occurrence link exceeds Raft's summary limit.")
+    return _send_document({"kind": "event", "summary": summary, "externalEventId": event_key},
+                          access_token, transport)
+
+
+def _send_document(document, access_token, transport):
     if not isinstance(access_token, str) or _BEARER.fullmatch(access_token) is None:
         raise ValueError("Supply a resource-bound Raft bearer token.")
     upstream = Request(

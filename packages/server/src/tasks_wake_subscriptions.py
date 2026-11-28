@@ -1,6 +1,7 @@
 """Agent-owned wake preferences for a project."""
 
 OWNED_READY = "owned-ready"
+GOAL_OCCURRENCES = "goal-occurrences"
 MANAGED_READY_PROJECT = "T"
 
 SCHEMA = """

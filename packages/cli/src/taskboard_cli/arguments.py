@@ -484,7 +484,10 @@ def arguments(argv=None):
         subscription = commands.add_parser(action, help=description)
         subscription.add_argument("--project", type=nonblank, help="Project prefix. Defaults to the board’s default project.")
         if action != "wake-subscriptions":
-            subscription.add_argument("event_type", choices=("owned-ready",), help="Wake when a task you own becomes Ready.")
+            subscription.add_argument(
+                "event_type", choices=("owned-ready", "goal-occurrences"),
+                help="Choose owned Ready work or signed Explore and scheduled Review occurrences.",
+            )
     attachment_list = commands.add_parser("attachment-list", help="List visible attachments on one shared ticket.")
     attachment_list.add_argument("ticket")
     attachment_upload = commands.add_parser("attachment-upload", help="Upload a local file to one shared ticket.")

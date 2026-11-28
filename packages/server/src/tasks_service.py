@@ -46,6 +46,7 @@ import tasks_history as history
 import tasks_integration_stats as integration_stats
 import tasks_knowledge as knowledge_records
 import tasks_merges as merges
+import tasks_goal_wake_receipts
 import tasks_notification_log as notification_log
 import tasks_watcher_health as watcher_health
 import tasks_runtime_observations as runtime_observations
@@ -442,6 +443,7 @@ def prepare_ledger(db, url, server_id, *, marketplace=False, oidc_issuer=None, i
     db.execute(ASK_RECHECK_ACKNOWLEDGMENTS)
     db.execute(NOTIFICATION_PREFERENCES)
     db.execute(wake_subscriptions.SCHEMA)
+    db.execute(tasks_goal_wake_receipts.SCHEMA)
     for statement in notification_log.SCHEMA:
         db.execute(statement)
     db.execute(ATTENTION_WAIT_SCHEMA)
@@ -527,6 +529,7 @@ def prepare_postgres_ledger(connection, url, server_id, *, oidc_issuer, initial_
         knowledge_records.ensure_schema(db)
         knowledge_records.migrate_records(db)
         db.execute(wake_subscriptions.SCHEMA)
+        db.execute(tasks_goal_wake_receipts.SCHEMA)
         db.execute(watches.ASSIGNEE_SCHEMA)
         peer_asks.refresh_generated_titles(db)
 
@@ -1261,8 +1264,10 @@ def create_app(
         if not write:
             return {"project": project, "subscriptions": wake_subscriptions.subscriptions(db(), project, owner)}
         event_type = data["event_type"]
-        if event_type != wake_subscriptions.OWNED_READY:
-            raise RequestError("Choose owned-ready as the wake event type.")
+        if event_type not in (wake_subscriptions.OWNED_READY, wake_subscriptions.GOAL_OCCURRENCES):
+            raise RequestError("Choose owned-ready or goal-occurrences.")
+        if event_type == wake_subscriptions.GOAL_OCCURRENCES and project != wake_subscriptions.MANAGED_READY_PROJECT:
+            raise RequestError("Goal occurrence delivery is in the Project T pilot.", 403)
         enabled = data["enabled"]
         if enabled not in ("true", "false"):
             raise RequestError("enabled must be true or false.")
