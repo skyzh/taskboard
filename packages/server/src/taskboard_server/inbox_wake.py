@@ -60,7 +60,7 @@ def inbox_wake_items(board: BoardQueries, owner: str, *, project: str | None,
                  for goal in board.goal_wake_candidates(owner, project=project, wake_at=wake_at))
 
 
-def _reference(item):
+def _reference(item, project):
     project, number = identifier(item.ticket)
     if item.ticket != f"{project}-{number}" or not _CUE_KEY.fullmatch(item.key):
         raise ValueError("Use exact signed Inbox ticket and cue references.")
@@ -74,7 +74,8 @@ def _reference(item):
             raise ValueError("Use the exact completed blocker reference.")
         action = ("Confirm the blocker and resume in signed Inbox." if item.kind == "resolved-wait"
                   else "Start or continue in signed Inbox.")
-        label += f" ({item.blocker_ticket} finished. {action})"
+        blocker_label = item.blocker_ticket if project is None or blocker_project == project else "A linked blocker"
+        label += f" ({blocker_label} finished. {action})"
     return label
 
 
@@ -92,7 +93,7 @@ def inbox_event_summary(items: tuple[InboxWakeItem, ...], *, project: str | None
         if any(identifier(item.ticket)[0] != project for item in items):
             raise ValueError("All reported items must belong to the enrolled project.")
         header = f"Taskboard project {project} has {count} actionable Inbox {noun} in this wake."
-    listing = ", ".join(_reference(item) for item in items[:PREVIEW_LIMIT])
+    listing = ", ".join(_reference(item, project) for item in items[:PREVIEW_LIMIT])
     remainder = ", and others in your inbox" if count > PREVIEW_LIMIT else ""
     envelope = f"{header} {listing}{remainder}. "
     try:
