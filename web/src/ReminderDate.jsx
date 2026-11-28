@@ -16,11 +16,12 @@ export default function ReminderDate({ path, saved, savedUntil, exactTime = fals
   const { timeZone, formatLocalInput } = useTimeZone()
   const savedMode = savedUntil || recurring ? 'time' : 'date'
   const savedTime = savedUntil ? formatLocalInput(savedUntil) : ''
-  const [mode, setMode] = useState(savedMode)
+  const [draftMode, setDraftMode] = useState(null)
   const [date, setDate] = useState(saved || '')
   const [time, setTime] = useState(savedTime)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
+  const mode = recurring ? 'time' : draftMode ?? savedMode
   const timed = mode === 'time'
   const changed = mode !== savedMode || (timed ? time !== savedTime : date !== (saved || ''))
   async function save(body) {
@@ -31,7 +32,7 @@ export default function ReminderDate({ path, saved, savedUntil, exactTime = fals
       if (body.date === null) {
         setDate('')
         setTime('')
-        setMode(recurring ? 'time' : 'date')
+        setDraftMode(null)
       }
       onChanged()
     } catch (failure) {
@@ -46,7 +47,7 @@ export default function ReminderDate({ path, saved, savedUntil, exactTime = fals
       <form onSubmit={event => { event.preventDefault(); save(timed ? { at: time, time_zone: timeZone } : { date }) }}
         data-reload-blocked={pending || changed}>
         {recurring && <p>Use an exact time for a one-off review alongside the recurring schedule.</p>}
-        {exactTime && !recurring && <label>Reminder type<select value={mode} onChange={event => setMode(event.target.value)}>
+        {exactTime && !recurring && <label>Reminder type<select value={mode} onChange={event => setDraftMode(event.target.value)}>
           <option value="date">Date only</option>
           <option value="time">Exact time</option>
         </select></label>}
