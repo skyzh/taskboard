@@ -9,7 +9,9 @@ import subprocess
 from queue_provenance import SHA256
 
 
-VERSION = "1:151.0.7922.108-1~deb13u1+rpt1"
+CHROMIUM_VERSION = "151.0.7922.108"
+CHROMIUM_BINARY_SHA256 = "473d2f8c0a4c029e0f96f2c39542737d2217f38a35da87136b0f2d45cbd5e52a"
+VERSION = f"1:{CHROMIUM_VERSION}-1~deb13u1+rpt1"
 ARCHITECTURE = "arm64"
 PACKAGES = ("chromium", "chromium-common", "chromium-sandbox")
 

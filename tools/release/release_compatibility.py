@@ -173,18 +173,60 @@ def run_public_matrix(artifact, candidate, predecessor, base, browser_policy, py
             "pairings": pairings, "browser": browser}
 
 
-def run_matrix(artifact, candidate_sha, predecessor, base_sha, policy, python=sys.executable):
+def applicable_public_proof(proof, candidate, base, policy, predecessor, browser_version):
+    if (not isinstance(proof, dict) or policy.get("unavailable_action") is not None or not browser_version
+            or (proof.get("schema"), proof.get("status"), proof.get("candidate"), proof.get("base"))
+            != (PUBLIC_SCHEMA, "pass", candidate, base)):
+        return False
+    if proof.get("pairings") != [
+        {"client": candidate, "server": base, "roles": ["candidate"], "workflow": "start-wait-resume",
+         "unavailable_action": "no-new-cli-action-selected"},
+        {"client": base, "server": candidate, "roles": ["predecessor"], "workflow": "start-wait-resume",
+         "default_scope": "all"},
+    ]:
+        return False
+
+    browser = proof.get("browser")
+    old_index = predecessor / "web/dist/index.html"
+    if (not isinstance(browser, dict) or not old_index.is_file()
+            or (browser.get("client"), browser.get("server"), browser.get("chromium"), browser.get("task"))
+            != (base, candidate, browser_version, "T-2")
+            or browser.get("rendered") is not True
+            or browser.get("old_html") != sha256(old_index.read_bytes()).hexdigest()):
+        return False
+
+    assets = browser.get("assets")
+    if not isinstance(assets, dict) or not any(path.endswith(".js") for path in assets):
+        return False
+    manifest = {
+        line[66:]: line[:64] for line in (predecessor / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+    }
+    return all(path.startswith("web/dist/assets/") and digest == manifest.get(path) and digest is not None
+               for path, digest in assets.items())
+
+
+def run_matrix(artifact, candidate_sha, predecessor, base_sha, policy, python=sys.executable, *,
+               public_proof=None, browser_version=None):
+    """Run the full matrix unless a verified protected-run proof applies exactly."""
     artifact, predecessor = Path(artifact).resolve(strict=True), Path(predecessor).resolve(strict=True)
     verify_manifest(artifact, candidate_sha)
     clients = supported_clients(policy, predecessor, base_sha)
+    reuse = applicable_public_proof(public_proof, candidate_sha, base_sha, policy, predecessor, browser_version)
+    pairings = list(public_proof["pairings"]) if reuse else []
+    if reuse and clients[base_sha]["roles"] != ["predecessor"]:
+        pairings.pop()  # The private policy requires a fresh check for this digest.
     with TemporaryDirectory(prefix="taskboard-compatibility-") as temporary:
         root = Path(temporary)
         tls = certificate(root)
-        pairings = [candidate_pair(artifact, candidate_sha, predecessor, base_sha, policy, root, tls, python)]
+        if not reuse:
+            pairings.append(candidate_pair(artifact, candidate_sha, predecessor, base_sha, policy, root, tls, python))
         for index, (digest, client) in enumerate(clients.items()):
+            if reuse and client["roles"] == ["predecessor"]:
+                continue
             pairings.append(client_pair(artifact, candidate_sha, digest, client, root / f"candidate-{index}",
                                         tls, python))
-        browser = browser_pair(artifact, candidate_sha, predecessor, base_sha, policy, root, tls, python)
+        browser = (public_proof["browser"] if reuse else
+                   browser_pair(artifact, candidate_sha, predecessor, base_sha, policy, root, tls, python))
     return {"schema": SCHEMA, "status": "pass", "candidate": candidate_sha, "base": base_sha,
             "pairings": pairings, "browser": browser}
 

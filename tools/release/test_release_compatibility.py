@@ -15,7 +15,10 @@ from compatibility_fixture import (
     MANIFEST, CompatibilityFailure, actions, fixture_server, read_json, seed, verify_cli,
     verify_contract, verify_queue,
 )
-from release_compatibility import SCHEMA, certificate, supported_clients, verify_missing_action, verify_receipt
+from release_compatibility import (
+    PUBLIC_SCHEMA, SCHEMA, certificate, run_matrix, supported_clients,
+    verify_missing_action, verify_policy_receipt, verify_receipt,
+)
 from release_plan import ReleaseRejected
 
 
@@ -82,6 +85,79 @@ class ReleaseCompatibilityTest(unittest.TestCase):
         with self.assertRaisesRegex(CompatibilityFailure, "predecessor browser"):
             verify_receipt(receipt, HEAD, BASE, legacy=LEGACY)
         verify_receipt(receipt, HEAD, BASE, legacy=LEGACY, browser_required=False)
+
+    def test_public_proof_reuses_only_matching_pairings_and_keeps_retained_checks(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate, predecessor, retained = (root / name for name in ("candidate", "predecessor", "retained"))
+
+            def artifact(path, files):
+                manifest = path / "SHA256SUMS"
+                entries = []
+                for name, value in sorted(files.items()):
+                    source = path / name
+                    source.parent.mkdir(parents=True, exist_ok=True)
+                    source.write_bytes(value)
+                    entries.append(f"{sha256(value).hexdigest()}  {name}\n")
+                manifest.write_text("".join(entries))
+                return sha256(manifest.read_bytes()).hexdigest()
+
+            asset, html = "web/dist/assets/example.js", "web/dist/index.html"
+            digest = artifact(candidate, {"tasks": b"candidate"})
+            base = artifact(predecessor, {asset: b"script", html: b"page"})
+            legacy = artifact(retained, {"tasks": b"legacy"})
+            policy = {"legacy_client": {"artifact": str(retained), "manifest": legacy}, "before_first_real": True}
+            current_row = {"client": digest, "server": base, "roles": ["candidate"],
+                           "workflow": "start-wait-resume", "unavailable_action": "no-new-cli-action-selected"}
+            prior_row = {"client": base, "server": digest, "roles": ["predecessor"],
+                         "workflow": "start-wait-resume", "default_scope": "all"}
+            version = "151.0.7922.108"
+            browser = {"client": base, "server": digest, "rendered": True, "task": "T-2", "chromium": version,
+                       "old_html": sha256(b"page").hexdigest(), "assets": {asset: sha256(b"script").hexdigest()}}
+            proof = {"schema": PUBLIC_SCHEMA, "status": "pass", "candidate": digest, "base": base,
+                     "pairings": [current_row, prior_row], "browser": browser}
+
+            def checked_client(_artifact, server, client, source, *_):
+                return {"client": client, "server": server, "roles": source["roles"], "workflow": "start-wait-resume"}
+
+            with (patch("release_compatibility.certificate"),
+                  patch("release_compatibility.candidate_pair", return_value=current_row) as current,
+                  patch("release_compatibility.client_pair", side_effect=checked_client) as client,
+                  patch("release_compatibility.browser_pair", return_value=browser) as render):
+                receipt = run_matrix(candidate, digest, predecessor, base, policy,
+                                     public_proof=proof, browser_version=version)
+                verify_policy_receipt(receipt, digest, base, policy, predecessor)
+                current.assert_not_called()
+                render.assert_not_called()
+                self.assertEqual([call.args[2] for call in client.call_args_list], [legacy])
+
+                alias_policy = {**policy, "first_real_client": {"artifact": str(predecessor), "manifest": base}}
+                client.reset_mock()
+                receipt = run_matrix(candidate, digest, predecessor, base, alias_policy,
+                                     public_proof=proof, browser_version=version)
+                verify_policy_receipt(receipt, digest, base, alias_policy, predecessor)
+                self.assertEqual([call.args[2] for call in client.call_args_list], [legacy, base])
+                self.assertEqual([row["roles"] for row in receipt["pairings"]],
+                                 [["candidate"], ["legacy"], ["predecessor", "first-real"]])
+
+                for missed, runtime, selected in (
+                    (None, version, policy),
+                    ({**proof, "base": legacy}, version, policy),
+                    ({**proof, "candidate": legacy}, version, policy),
+                    ({**proof, "pairings": [current_row]}, version, policy),
+                    ({**proof, "browser": {**browser, "assets": {asset: "0" * 64}}}, version, policy),
+                    ({**proof, "browser": {**browser, "task": "T-3"}}, version, policy),
+                    (proof, "156.0.8078.4", policy),
+                    (proof, version, {**policy, "unavailable_action": {"action": "fixture-new"}}),
+                ):
+                    with self.subTest(proof=missed, runtime=runtime, policy=selected):
+                        for check in (current, client, render):
+                            check.reset_mock()
+                        run_matrix(candidate, digest, predecessor, base, selected,
+                                   public_proof=missed, browser_version=runtime)
+                        current.assert_called_once()
+                        render.assert_called_once()
+                        self.assertEqual([call.args[2] for call in client.call_args_list], [legacy, base])
 
     def test_unavailable_action_must_fail_before_changing_ledger(self):
         policy = {"unavailable_action": {"action": "fixture-new", "command": ["fixture-command"]}}
