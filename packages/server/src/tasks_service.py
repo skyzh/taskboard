@@ -2922,7 +2922,9 @@ def create_app(
                     target = ledger.find_task(connection, ticket_id)
                     if target is None or ledger.is_knowledge(target):
                         raise RequestError("Choose an existing work ticket.", 404)
-                    require_same_ring(connection, project, projects.row_project(target))
+                    target_project = projects.row_project(target)
+                    require_visible_project(connection, target_project)
+                    require_same_ring(connection, project, target_project)
                     ticket = projects.row_reference(target)
                 else:
                     from tasks_github import linked_source

@@ -55,6 +55,8 @@ def replay_resource_claims(test, board, make_app, open_board):
     public_lookup = {"project": "T", "key": "bench"}
     board.action(manager, "define-resource", {**public_lookup, **definition})
     board.action(manager, "claim-resource", {**public_lookup, **claim}, status=409)
+    board.action(outsider, "claim-resource", {**public_lookup, **claim}, status=404)
+    board.action(outsider, "claim-resource", {**public_lookup, **claim, "ticket": "LAB-99999"}, status=404)
     public_item, = board.action(outsider, "project-resources", query_string={"project": "T"})["items"]
     test.assertIsNone(public_item["claim"])
     for mismatch, status in (
