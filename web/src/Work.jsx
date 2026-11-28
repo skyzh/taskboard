@@ -227,6 +227,15 @@ function ActivityWait({ event, headline }) {
 
 function ActivityChanges({ event }) {
   const context = event.context || {}
+  if (event.action === 'assign-human' && context.attention_escalation) {
+    const { request_id, wait_event } = context.attention_escalation
+    return (
+      <p className="event-meta">
+        <span>Replaced attention request {request_id}</span>
+        <BoardLink href={eventHref(wait_event)}>Previous wait</BoardLink>
+      </p>
+    )
+  }
   if (context.transition_override?.reason) {
     return (
       <details className="event-disclosure">
