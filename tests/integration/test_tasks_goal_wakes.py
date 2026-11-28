@@ -102,6 +102,20 @@ class GoalWakeReplay(unittest.TestCase):
                 self.assertIsNone(self.watcher().lookup())
         self.assertEqual(len(self.reminders), 1)
 
+    def test_goal_inbox_names_the_exact_completion_action_for_older_clients(self):
+        self.board.invoke("save-goal", {"kind": "standing", "summary": "Review fictional handoffs."}, write=True)
+        offered = self.board.invoke("my-next")
+        self.assertIn("signed `complete-goal-occurrence` action", offered["next_step"])
+        occurrence, = offered["goal_occurrences"]
+        result = {
+            "id": occurrence["ticket"], "occurrence_key": occurrence["key"],
+            "note": "Verified the handoff and recorded the next check.",
+        }
+        first = self.board.invoke("complete-goal-occurrence", result, write=True)
+        again = self.board.invoke("complete-goal-occurrence", result, write=True)
+        self.assertEqual(first["event_id"], again["event_id"])
+        self.assertEqual(first["occurrence_key"], occurrence["key"])
+
     def test_standing_pass_before_review_time_counts_for_the_pacific_day(self):
         self.board.invoke("save-goal", {"kind": "standing", "summary": "Improve fictional handoffs"}, write=True)
         standing = self.board.invoke("my-next")["standing_goals"][0]["ticket"]
