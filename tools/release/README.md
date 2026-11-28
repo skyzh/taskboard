@@ -499,21 +499,32 @@ required-check verification in place.
 
 ### Run the checked notification service
 
-Use the reviewed `taskboard-notifications.service` under the existing Taskboard
-operator account. Its launch path must point to the same `current` release
-pointer configured for the web operator. Install a systemd drop-in if the local
-layout or authorized Raft availability command path differs. The unit runs one
-process. It opens one existing private sender state file and one signed scope
-per enrollment. Each scope uses the existing Idle gate, retry and pause logic.
+Stage the complete verified operator launcher first, following the atomic
+launcher exchange above. The Pi timer uses the installed launcher tree. The
+notification integration becomes available there after that exchange. Retain
+the previous launcher for rollback.
 
-Keep `%h/.config/taskboard/notifications.json` private and owned by the operator.
-Set `ledger` to the current SQLite ledger, `server` to the approved Raft server
-UUID, and `slug` to that server’s slug. `scopes` is the exact list of scopes that
-have transferred to this unit. Each entry contains the recipient UUID in
-`recipient`, the project prefix in `project`, the absolute `state` and `secret`
-file paths, the OAuth `client` identifier, and the existing boolean `goals` and
-`batches` flags. The secret file uses the same owner and mode required by the
-individual sender. The configuration contains paths and identifiers only.
+Install the reviewed `taskboard-notifications.service` under the existing
+operator account. Point it at the same installed launcher and deploy
+configuration as the deploy timer. The launcher inherits its `current` pointer
+and serving-slot Python interpreter from that configuration and uses `exec` so
+systemd tracks the process that sends notifications. Use a private user-unit
+drop-in to point PATH and the Raft profile at the operator’s already authorized
+availability command.
+
+Keep the notification scope configuration private and owned by the operator.
+Set `ledger` to the existing SQLite ledger, `server` to the approved Raft server
+UUID, and `slug` to that server’s slug. Each of the enrolled `scopes` has a
+`recipient` UUID, `project` prefix, absolute `state` path, OAuth `client`
+identifier, and boolean `goals` and `batches` flags.
+
+For an existing anonymous-descriptor launch, reuse the operator’s credential
+loader and have it exec the installed launcher with the private descriptor
+inherited. Set `secret_fd` to that descriptor number on the matching scopes.
+One descriptor can be shared by scopes bound to the same client. The worker
+reads and closes it before checking availability or sending to Raft. Operators
+who already use an approved private credential file can instead reference its
+absolute path with `secret`. Keep the credential value in its existing source.
 
 For the initial cutover, mount the reviewed release and keep the normal release
 lock held while transferring ownership. Stop the old owner for each selected

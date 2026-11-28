@@ -3,6 +3,7 @@
 from contextlib import closing
 from pathlib import Path
 import json
+import os
 import sqlite3
 from subprocess import CalledProcessError, CompletedProcess, TimeoutExpired
 import sys
@@ -11,7 +12,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from notification_worker import checked_worker
-from operator_deploy import checked_main_receipt, read_main_state, receive_checked_main
+from operator_deploy import checked_main_receipt, read_main_state, receive_checked_main, run_notification_worker
 from publish_receipt import publish_outcome, release_event
 from release_plan import (
     MountedCheckFailed, ReleaseLayout, ReleaseRejected, file_hash, run_release, switch_current, write_json,
@@ -133,6 +134,21 @@ class ReleaseSlotsTest(unittest.TestCase):
         return run_release(
             self.layout, self.artifact, self.entry, restart, smoke or self.smoke, self.journal, slots=self.slots,
         )
+
+    def test_notification_worker_uses_the_configured_slot_interpreter_and_pointer(self):
+        launcher = Mock()
+        scope_config = self.layout.current.parent / "configured-scopes.json"
+        status = self.layout.current.parent / "worker-status.json"
+        python = "/fixture/ssd/bin/python"
+        config = {"operator_uid": os.getuid(), "current": str(self.layout.current),
+                  "releases": str(self.layout.releases), "ledger": str(self.layout.database),
+                  "backups": str(self.layout.backups), "lock": str(self.layout.lock),
+                  "python": "/fixture/launcher/bin/python", "slots": {"python": python}}
+        run_notification_worker(config, scope_config, status, exec_worker=launcher)
+        launcher.assert_called_once_with(python, [
+            python, "-B", str(self.layout.current / "tasks_managed_ready.py"), "run-service",
+            "--config", str(scope_config), "--status", str(status),
+        ])
 
     def test_checked_worker_restart_runs_after_mount_and_restores_prior_on_failure(self):
         status = self.layout.current.parent / "notification-status.json"

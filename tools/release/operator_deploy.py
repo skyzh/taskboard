@@ -41,6 +41,15 @@ def deployment_layout(data):
     )
 
 
+def run_notification_worker(config, scope_config, status, *, exec_worker=os.execv):
+    if type(config.get("operator_uid")) is not int or config["operator_uid"] != os.getuid():
+        raise ValueError("Run under the existing authorized Taskboard service account.")
+    layout = deployment_layout(config)
+    python = config.get("slots", {}).get("python", config.get("python", sys.executable))
+    exec_worker(python, [python, "-B", str(layout.current / "tasks_managed_ready.py"), "run-service",
+                         "--config", str(scope_config), "--status", str(status)])
+
+
 def service_restart(unit, run=subprocess.run):
     if not isinstance(unit, str) or not SERVICE_NAME.fullmatch(unit) or unit.startswith("-"):
         raise ValueError("Set the existing Taskboard user service unit.")
@@ -262,7 +271,11 @@ def main():
     action.add_argument("--activity-url", help="Project the saved outcome linked to its exact Activity event.")
     action.add_argument("--read-state", action="store_true", help="Read the Pi manifest and any saved outcome.")
     action.add_argument("--restore-selected-slot", action="store_true", help="Start the configured pinned slot at boot.")
+    action.add_argument("--run-notification-worker", nargs=2, metavar=("SCOPE_CONFIG", "STATUS"), type=Path,
+                        help="Run enrolled notifications from the selected release and operator interpreter.")
     args = parser.parse_args()
+    if args.run_notification_worker and (args.checked_main or args.record_service):
+        parser.error("Run the notification worker as a standalone operator action.")
     if args.checked_main is None and any((args.candidate, args.base, args.activity_url, args.read_state)):
         parser.error("The selected operation requires --checked-main.")
     if args.attempt_id is not None and not (args.checked_main and (args.activity_url or args.read_state)):
@@ -277,6 +290,9 @@ def main():
         parser.error("Read or project a saved outcome without a new transfer.")
     try:
         config = read_operator_config(args.config)
+        if args.run_notification_worker:
+            run_notification_worker(config, *args.run_notification_worker)
+            return 0
         invoke = signed_in_service(args.record_service) if args.record_service else None
 
         def record(outcome):
