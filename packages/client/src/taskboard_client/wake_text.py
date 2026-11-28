@@ -4,7 +4,7 @@ import re
 
 APP_DELIVERY_GUIDANCE = (
     "Open signed Taskboard Inbox from your enrolled context. Keep the lead task. "
-    "Delegate independent work with its objective, context and constraints where supported. "
+    "Delegate independent work to a subagent where supported, with its objective, context and constraints. "
     "Verify each result and recheck Inbox after it and before ending."
 )
 APP_DELIVERY_PROMPT_LIMIT = 1200
