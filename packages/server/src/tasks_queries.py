@@ -509,10 +509,13 @@ class BoardQueries:
         if progression and result["items"] and tasks_storage.table_columns(self.db, "task_goals"):
             is_goal = self.db.execute("SELECT 1 FROM task_goals WHERE task_id = ?", (number,)).fetchone()
             if is_goal:
-                context = "context" if ledger.has_event_context(self.db) else "'{}' AS context"
+                context = "context" if ledger.has_event_context(self.db) else "'{}'"
                 history = self.db.execute(
-                    f"""SELECT task_id AS id, id AS event_id, action, state, note, links, {context}
-                        FROM events WHERE task_id = ? AND action NOT IN ('source-event', 'log')
+                    f"""SELECT task_id AS id, id AS event_id, action, state, note, links, {context} AS context
+                        FROM events WHERE task_id = ? AND (
+                            action NOT IN ('source-event', 'log')
+                            OR (action = 'log' AND json_extract({context}, '$.goal_occurrence') LIKE 'review:%')
+                        )
                         ORDER BY id""", (number,),
                 )
                 outcomes = {event["event_id"] for event, review in goals.review_events(history)
