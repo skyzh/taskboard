@@ -5889,7 +5889,7 @@ def create_app(
     if external_agent_pilot:
         from tasks_raft import invoke_action
 
-        wake_report_scope = {"my-next", "advance-task", wake_reports.ACTION}
+        wake_report_scope = {"my-next", wake_reports.ACTION}
 
         def external_now():
             return datetime.fromisoformat(ledger.timestamp()).astimezone(timezone.utc)
@@ -5918,7 +5918,7 @@ def create_app(
             ) or len(set(actions)) != len(actions):
                 raise RequestError("Provide a printable name and distinct pilot actions.")
             if wake_reports.ACTION in actions and not wake_report_scope <= set(actions):
-                raise RequestError("Wake reports require signed Inbox and Start access.")
+                raise RequestError("Wake reports require signed Inbox access.")
             admit_ring1 = data.get("ring1", False)
             if type(admit_ring1) is not bool:
                 raise RequestError("Use a boolean Ring 1 enrollment confirmation.")
@@ -6038,17 +6038,18 @@ def create_app(
                     raise RequestError("The external agent pilot supports Start and Done.", 403)
                 if action == "my-next":
                     work = None
-                    if "advance-task" in granted:
+                    if "advance-task" in granted or wake_reports.ACTION in granted:
+                        states = ("ready", "in_progress") if "advance-task" in granted else ("ready",)
                         with tasks_storage.read(db()) as connection:
                             require_visible_project(connection, project)
-                            item = external_work(connection, grant["principal"], project, ("ready", "in_progress"))
+                            item = external_work(connection, grant["principal"], project, states)
                             work = inbox_work_result(item)
                             if item and item["kind"] == "ready" and wake_reports.ACTION in granted:
                                 work["source_event"] = item["event_id"]
                     return {"work": work}
                 if action == wake_reports.ACTION:
                     if not wake_report_scope <= set(granted):
-                        raise RequestError("Wake reports require signed Inbox and Start access.", 403)
+                        raise RequestError("Wake reports require signed Inbox access.", 403)
                     return report_external_wake(grant["principal"], project, data)
                 if action == "my-queue":
                     data["project"] = project

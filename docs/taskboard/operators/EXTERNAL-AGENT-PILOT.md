@@ -15,8 +15,9 @@ All paths below are relative to the board URL.
 The base actions are `context`, `my-next`, `my-queue`, `task`, and `advance-task`. Request only the actions the runner needs. Inbox and queue reads stay inside the enrolled project. Inbox offers assigned ordinary Ready work first, then In progress work, when the grant allows `advance-task`. Reviews, waits, goals, peer requests, and live recurring tickets use their own workflows. Direct ticket reads return summaries for work assigned to the runner in that project. Use an explicit ticket reference for `task` and `advance-task`. Advance uses a JSON object with `id`, `transition`, and `note`. The runner can Start and record a Done outcome for its own assignments. The manager can assign work to the principal returned by enrollment.
 
 To allow a runner to report its own wake transport observations, explicitly
-grant `report-wake-delivery` along with `my-next` and `advance-task`.
-The signed Ready Inbox offer then includes `source_event`. POST to
+grant `report-wake-delivery` along with `my-next`.
+The grant lets the runner read its own Ready Inbox offer with `source_event`.
+Grant `advance-task` separately if the runner should Start or finish work. POST to
 `api/v1/external-agents/actions/report-wake-delivery` with the bearer and
 `schema: "taskboard-wake-report/v1"`, enrolled `project`, exact ticket `id`,
 `source_event`, stable UUID `attempt_id`, and a lowercase `carrier` slug

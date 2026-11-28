@@ -187,7 +187,7 @@ class LoginProviderTest(unittest.TestCase):
         with patch("tasks_core.timestamp", side_effect=lambda: clock):
             enroll("Missing cue grant", [wake_reports.ACTION], status=400)
             runner, headers = enroll("Fictional Omnigent", actions)
-            peer, peer_headers = enroll("Second signed agent", actions)
+            peer, peer_headers = enroll("Report-only agent", ["my-next", wake_reports.ACTION])
             reader, reader_headers = enroll("Without report grant", ["my-next", "advance-task"])
             with closing(open_sqlite(self.database)) as connection, write(connection):
                 for title, registration in (("Read original evidence", runner), ("Read own evidence", peer),
@@ -254,6 +254,18 @@ class LoginProviderTest(unittest.TestCase):
                 self.assertIsNone(wake_reports.latest(connection, "LAB", runner["principal"]))
                 self.assertIsNone(wake_reports.latest(connection, "T", peer["principal"]))
                 self.assertIsNone(connection.execute("SELECT 1 FROM wake_log").fetchone())
+
+            peer_cue = call_action("my-next", peer_headers)["work"]
+            self.assertEqual((peer_cue["key"], peer_cue["kind"]), ("T-2", "ready"))
+            peer_reported = report({
+                "id": peer_cue["key"], "source_event": peer_cue["source_event"], "observed_at": clock,
+            }, as_agent=peer_headers)["report"]
+            self.assertEqual((peer_reported["recipient"], peer_reported["source_event"]),
+                             (peer["principal"], peer_cue["source_event"]))
+            call_action("advance-task", peer_headers, {
+                "id": peer_cue["key"], "transition": "start", "note": "Reporting grants no ticket writes.",
+            }, status=403)
+            self.assertEqual(call_action("my-next", peer_headers)["work"], peer_cue)
 
             call_action("advance-task", headers, {"id": "T-1", "transition": "start", "note": "Take signed Inbox work."})
             self.assertEqual(report()["report"], accepted)
